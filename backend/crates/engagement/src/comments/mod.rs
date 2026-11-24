@@ -9,6 +9,7 @@
 //! | [`list`] | the queries behind the lists |
 //! | [`render`] | rows → `tokuly.engagement.v1.Comment` for a viewer |
 //! | [`announce`] | notifications about comments |
+//! | [`kept`] | what edits and deletions removed, kept for reports |
 //!
 //! # Public view
 //!
@@ -27,6 +28,7 @@ use crate::{
 };
 
 pub(crate) mod announce;
+pub(crate) mod kept;
 pub(crate) mod lifecycle;
 pub(crate) mod list;
 pub(crate) mod moderate;

@@ -24,7 +24,7 @@ impl Admin {
         // domains delete the content, so open cases have nothing left to act on.
         sqlx::query(
             "UPDATE moderation_cases
-             SET subject_owner_id = NULL, subject_title = '', subject_path = '',
+             SET subject_owner_id = NULL, subject_title = '', subject_path = '', reported_content = '',
                  status = 'resolved',
                  resolved_at = COALESCE(resolved_at, now()),
                  resolution_reason = CASE WHEN status = 'open' THEN 'account deleted' ELSE resolution_reason END

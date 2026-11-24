@@ -323,6 +323,14 @@ impl SubjectResolver for CommentSubjects {
         }))
     }
 
+    /// What the viewer received, for a report and nothing else: across
+    /// blocks, with every version, and after a deletion (see
+    /// [`comments::kept`](crate::comments::kept)).
+    async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
+        let (Ok(comment_id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
+        self.0.comment_for_report(comment_id, viewer).await
+    }
+
     // Like and dislike counts of comments are kept by the reaction's own
     // transaction (see `reactions`), so there is nothing to apply here.
 }

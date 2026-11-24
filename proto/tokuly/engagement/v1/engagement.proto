@@ -225,7 +225,9 @@ service CommentService {
   // comment that is held or hidden. Newly mentioned users are notified.
   //
   // Errors: COMMENT_NOT_FOUND, NOT_COMMENT_AUTHOR (permission denied),
-  // COMMENT_EMPTY, COMMENT_TOO_LONG, TOO_MANY_MENTIONS, RATE_LIMITED.
+  // COMMENTS_DISABLED (failed precondition: the subject does not accept
+  // comments right now), COMMENT_EMPTY, COMMENT_TOO_LONG, TOO_MANY_MENTIONS,
+  // RATE_LIMITED.
   rpc UpdateComment(UpdateCommentRequest) returns (UpdateCommentResponse);
 
   // Deletes a comment and, for a top-level comment, all of its replies.
@@ -608,7 +610,8 @@ service ReactionService {
   rpc SetReaction(SetReactionRequest) returns (SetReactionResponse);
 
   // Takes the caller's reaction back. Does nothing when there is none. Works
-  // by UUID even after the subject stopped being visible to the caller.
+  // by UUID even after the subject stopped being visible to the caller; the
+  // returned counts are then all zero.
   //
   // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, RATE_LIMITED.
   rpc RemoveReaction(RemoveReactionRequest) returns (RemoveReactionResponse);
@@ -711,7 +714,7 @@ service BookmarkService {
 
   // Removes a saved subject: from one collection, or — without a collection
   // or with the default one — from everywhere. Works by UUID even after the
-  // subject stopped being visible to the caller.
+  // subject stopped being visible to the caller; `bookmark_count` is then 0.
   //
   // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, COLLECTION_NOT_FOUND, RATE_LIMITED.
   rpc RemoveBookmark(RemoveBookmarkRequest) returns (RemoveBookmarkResponse);
@@ -867,6 +870,8 @@ service EngagementService {
   rpc BatchGetEngagement(BatchGetEngagementRequest) returns (BatchGetEngagementResponse);
 
   // Records that the caller shared a subject and returns the link to share.
+  // Sharing the same subject the same way again within an hour (per user;
+  // per address for guests) is not counted again.
   //
   // Public. Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT,
   // SHARE_TARGET_INVALID, RATE_LIMITED.
@@ -953,7 +958,11 @@ message Report {
   string id = 1;
   // What was reported (`id` is the subject's UUID).
   tokuly.common.v1.SubjectRef subject = 2;
-  // Title and path of the subject when it was reported; it may be gone by now.
+  // Title and path of the subject when it was reported, as the reporter
+  // could see it then; it may be gone by now. Content withdrawn or hidden
+  // from the reporter by then is titled with what it was (「コメント」,
+  // 「メッセージ」, 「投稿」), never with what it said: the versions go to
+  // the moderation team only.
   string subject_title = 3;
   string subject_path = 4;
   ReportCategory category = 5;
@@ -967,9 +976,13 @@ message Report {
 service ReportService {
   // Reports a subject — content, a comment (`SUBJECT_TYPE_COMMENT`) or a
   // user (`SUBJECT_TYPE_USER`, by UUID or handle) — to the moderation team.
-  // A user has one open report per subject. A report that has gone
-  // unanswered for a week no longer stands in the way: reporting the subject
-  // again then replaces it (the old one becomes SUPERSEDED).
+  // A comment can be reported by whoever had it in front of them also after
+  // it was hidden or a block came between them (not what was written after
+  // the block), and for 30 days after its author edited or deleted it; the
+  // moderation team then gets every version, the reporter none of them. A
+  // user has one open report per subject. A report that has gone unanswered
+  // for a week no longer stands in the way: reporting the subject again
+  // then replaces it (the old one becomes SUPERSEDED).
   //
   // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, REPORT_CATEGORY_INVALID,
   // REPORT_TEXT_TOO_LONG (more than 1000 characters), CANNOT_REPORT_OWN

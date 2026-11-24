@@ -183,6 +183,7 @@ export default {
     },
     case: {
       openInApp: "Open in the app",
+      reportedContent: "What was reported (including versions from before edits or withdrawal)",
       subjectId: "Subject ID",
       ownerRecord: "Owner's record",
       firstReported: "First report",

@@ -30,7 +30,9 @@ use tokuly_social::{Social, SocialConfig};
 use tokuly_stamp::{Stamp, StampConfig};
 use tokuly_testkit::{FrameListener, RpcError, ServerFrame, TestApp, TestUser};
 
-pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "0500", "1100", "1400"];
+/// Admin's migration is always there: tests of one binary share a database,
+/// and some of them hand reports to the admin domain.
+pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "0500", "1100", "1400", "1600"];
 
 /// Who may see a fake subject, besides its owner.
 #[derive(Debug, Clone)]
@@ -227,10 +229,22 @@ pub async fn start() -> Ctx {
 }
 
 pub async fn start_with(cfg: EngagementConfig) -> Ctx {
+    start_app(cfg, false).await.0
+}
+
+/// [`start`] with the admin domain too, for what a report hands the
+/// moderation team. Deliver its events with `Admin::handle_event`.
+pub async fn start_with_admin() -> (Ctx, tokuly_admin::Admin) {
+    let (ctx, admin) = start_app(test_config(), true).await;
+    (ctx, admin.expect("admin registered"))
+}
+
+async fn start_app(cfg: EngagementConfig, with_admin: bool) -> (Ctx, Option<tokuly_admin::Admin>) {
     let videos = FakeDomain::new(SubjectType::SUBJECT_TYPE_VIDEO);
     let notes = FakeDomain::new(SubjectType::SUBJECT_TYPE_NOTE);
     let channels = Arc::new(FakeChannels::default());
     let mut domain = None;
+    let mut admin = None;
     let app = TestApp::start(MIGRATIONS, |core, identity, router| {
         core.subjects.register(SubjectType::SUBJECT_TYPE_VIDEO, videos.clone());
         core.subjects.register(SubjectType::SUBJECT_TYPE_NOTE, notes.clone());
@@ -240,12 +254,19 @@ pub async fn start_with(cfg: EngagementConfig) -> Ctx {
                 .expect("stamp domain");
         let engagement = Engagement::new(core.clone(), identity.clone(), cfg).expect("engagement domain");
         engagement.set_channel_directory(channels.clone());
-        let router = engagement.register(stamp.register(social.register(router)));
+        let mut router = engagement.register(stamp.register(social.register(router)));
+        if with_admin {
+            let moderation =
+                tokuly_admin::Admin::new(core.clone(), identity.clone(), tokuly_admin::AdminConfig::default())
+                    .expect("admin domain");
+            router = moderation.register(router);
+            admin = Some(moderation);
+        }
         domain = Some(engagement);
         router
     })
     .await;
-    Ctx { app, engagement: domain.expect("register ran"), videos, notes, channels }
+    (Ctx { app, engagement: domain.expect("register ran"), videos, notes, channels }, admin)
 }
 
 pub fn page<P: buffa::ProtoBox<PageRequest>>(limit: i32, cursor: &str) -> buffa::MessageField<PageRequest, P> {

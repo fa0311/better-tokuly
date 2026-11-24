@@ -43,10 +43,12 @@ impl ReactionService for Engagement {
             let request = request.to_owned_message();
             let subject = self.requested_subject_loose(request.subject.as_option(), user_id).await?;
             Engagement::remove_reaction(self, user_id, &subject).await?;
-            ok(RemoveReactionResponse {
-                reactions: self.reaction_summary(subject.key, Some(user_id)).await?.into(),
-                ..Default::default()
-            })
+            // The numbers of a subject the caller can no longer see are not theirs to read.
+            let reactions = match subject.subject {
+                Some(_) => self.reaction_summary(subject.key, Some(user_id)).await?,
+                None => ReactionSummary::default(),
+            };
+            ok(RemoveReactionResponse { reactions: reactions.into(), ..Default::default() })
         })
         .await
     }

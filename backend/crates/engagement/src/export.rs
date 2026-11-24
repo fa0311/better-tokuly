@@ -39,6 +39,13 @@ impl DataExporter for EngagementExporter {
                         'timestamp_seconds', timestamp_seconds, 'status', status, 'created_at', created_at, 'edited_at', edited_at)
                  FROM comments WHERE author_id = $1 ORDER BY id"
             ).await?,
+            // What the user's comments said before they edited or deleted
+            // them, while it is kept for reports.
+            "removed_comment_texts": section(
+                "SELECT jsonb_build_object('comment_id', comment_id, 'subject_type', subject_type, 'subject_id', subject_id, 'text', text,
+                        'reason', CASE reason WHEN 1 THEN 'edited' ELSE 'deleted' END, 'removed_at', removed_at)
+                 FROM comment_removed_texts WHERE author_id = $1 ORDER BY removed_at, id"
+            ).await?,
             "reactions": section(
                 "SELECT jsonb_build_object('subject_type', subject_type, 'subject_id', subject_id, 'kind', kind, 'emoji', emoji,
                         'reacted_at', created_at)

@@ -5,10 +5,11 @@
 use sqlx::PgConnection;
 use tokuly_core::{events, prelude::*};
 use tokuly_media::assets;
+use tokuly_social::graph;
 
 use crate::{
     Engagement,
-    comments::{image_holder, lifecycle, lock_thread, lock_threads_of, status, write::comment_event},
+    comments::{image_holder, kept, lifecycle, lock_thread, lock_threads_of, status, write::comment_event},
     effects::{Effects, Push},
     events::{COMMENT_DELETED, ContentRemoved, ReportResolved},
     reactions::{self, Stored},
@@ -89,6 +90,7 @@ pub(crate) async fn purge_subject(conn: &mut PgConnection, effects: &mut Effects
             .execute(&mut *conn)
             .await?;
     }
+    kept::forget_subject(conn, key).await?;
     forget_subjects(conn, key.kind, &[key.id]).await
 }
 
@@ -107,6 +109,9 @@ impl Engagement {
                 lifecycle::delete(&mut tx, &mut effects, &row, parent.as_mut()).await?;
                 events::emit(&mut *tx, COMMENT_DELETED, removed.moderator_id, &comment_event(&row)).await?;
             }
+            // What its author had removed goes too, also when they deleted
+            // the comment before the moderators got to it.
+            kept::forget(&mut tx, &[key.id]).await?;
         } else {
             purge_subject(&mut tx, &mut effects, key).await?;
         }
@@ -126,18 +131,45 @@ impl Engagement {
         Ok(())
     }
 
-    /// `social.user.blocked`: what the blocked user wrote on the blocker's
+    /// `social.user.blocked`: what either of the two wrote on the other's
     /// subjects leaves public view (and the review queue) for everyone, not
-    /// just for the two of them. Lifting the block brings nothing back by
-    /// itself; the owner can approve the comments again.
+    /// just for the two of them. The blocked user's comments, because the
+    /// blocker asked not to deal with them; the blocker's own, because the
+    /// owner of the content could no longer see, hide or delete them.
+    /// Lifting the block brings nothing back by itself; the owner can
+    /// approve the comments again — so an event that arrives late or twice,
+    /// after the block was lifted, changes nothing.
     pub(crate) async fn on_user_blocked(&self, blocker_id: Uuid, blocked_id: Uuid) -> AppResult<()> {
-        let mut tx = self.core.db.begin().await?;
-        let mut effects = Effects::default();
-        lifecycle::hide_comments_of(&mut tx, &mut effects, blocker_id, blocked_id, None).await?;
-        tx.commit().await?;
-        self.apply(effects).await;
+        if !graph::is_blocked_either(&self.core, blocker_id, blocked_id).await? {
+            return Ok(());
+        }
+        for (owner_id, author_id) in [(blocker_id, blocked_id), (blocked_id, blocker_id)] {
+            self.hide_all_comments_of(owner_id, author_id, None).await?;
+        }
         self.recheck_subject_topics(blocker_id, blocked_id).await;
         Ok(())
+    }
+
+    /// Hides what `author_id` wrote on the subjects of `owner_id` (see
+    /// [`lifecycle::hide_comments_of`]), a batch per transaction, so one
+    /// prolific commenter does not hold locks for long. A redelivered event
+    /// picks up where the last one stopped.
+    pub(crate) async fn hide_all_comments_of(
+        &self,
+        owner_id: Uuid,
+        author_id: Uuid,
+        identity: Option<Option<Uuid>>,
+    ) -> AppResult<()> {
+        loop {
+            let mut tx = self.core.db.begin().await?;
+            let mut effects = Effects::default();
+            let handled = lifecycle::hide_comments_of(&mut tx, &mut effects, owner_id, author_id, identity).await?;
+            tx.commit().await?;
+            self.apply(effects).await;
+            if handled < lifecycle::HIDE_BATCH {
+                return Ok(());
+            }
+        }
     }
 
     /// `social.friend.removed`: friends-only subjects of either are no
@@ -193,8 +225,9 @@ impl Engagement {
     }
 
     /// `identity.user.deleted`: erases what the account left in this
-    /// domain — its comments (with the replies below them), reactions,
-    /// bookmarks, reports, moderation rules and blocks — and everything
+    /// domain — its comments (with the replies below them) and the texts
+    /// kept of them, reactions, bookmarks, reports, moderation rules and
+    /// blocks — and everything
     /// other people left on the subjects it owned, which the owning domains
     /// delete at the same moment.
     ///
@@ -215,6 +248,7 @@ impl Engagement {
             "DELETE FROM comment_mentions WHERE user_id = $1",
             "DELETE FROM comment_settings WHERE user_id = $1",
             "DELETE FROM comment_blocks WHERE owner_id = $1 OR blocked_user_id = $1",
+            "DELETE FROM comment_removed_texts WHERE author_id = $1",
         ] {
             sqlx::query(sql).bind(user_id).execute(&mut *tx).await?;
         }

@@ -37,6 +37,11 @@ unicode-normalization.workspace = true
 [dev-dependencies]
 # A gateway and a WebSocket client, to see subscriptions end.
 tokuly-realtime = { workspace = true, features = ["testing"] }
+# A real domain whose content can be withdrawn after it reached people
+# (unsent and edited messages), for the report path.
+tokuly-chat.workspace = true
+# The moderation team's end of a report.
+tokuly-admin.workspace = true
 # API packages only the tests name.
-tokuly-proto = { workspace = true, features = ["social", "stamp"] }
+tokuly-proto = { workspace = true, features = ["admin", "chat", "social", "stamp"] }
 tokuly-testkit.workspace = true

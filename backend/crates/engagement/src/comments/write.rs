@@ -9,12 +9,12 @@ use tokuly_stamp::SendContext;
 use super::{
     CommentRow,
     announce::{Concerned, Reason, Sender},
-    comment_columns, comment_not_found, find, image_holder, lifecycle, lock_thread,
+    comment_columns, comment_not_found, find, image_holder, kept, lifecycle, lock_thread,
 };
 use crate::{
     Engagement,
     effects::{Effects, Push},
-    events::{COMMENT_DELETED, COMMENT_PUBLISHED, CommentEvent},
+    events::{COMMENT_DELETED, COMMENT_EDITED, COMMENT_PUBLISHED, CommentEvent},
     subjects::{Subject, requested_type},
     text,
 };
@@ -317,6 +317,14 @@ impl Engagement {
     ) -> AppResult<(CommentRow, Subject)> {
         let found = self.require_comment(comment_id, Some(user_id)).await?;
         ensure!(found.row.author_id == user_id, denied, "NOT_COMMENT_AUTHOR", "only the author can edit a comment");
+        // Nobody sees the comments while they are turned off; an edit would
+        // still reach the people it newly mentions.
+        ensure!(
+            found.subject.info.interactions_enabled,
+            precondition,
+            "COMMENTS_DISABLED",
+            "comments are turned off here"
+        );
         self.core
             .cache
             .rate_limit(&format!("engagement:comment:edit:{user_id}"), EDITS_PER_MINUTE, Duration::from_secs(60))
@@ -348,6 +356,8 @@ impl Engagement {
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
         let (mut row, mut parent) = lock_thread(&mut tx, found.row.id).await?.ok_or_else(comment_not_found)?;
+        // What the people who read it read stays reportable.
+        kept::keep_edited(&mut tx, &row).await?;
         let edited_at: Time =
             sqlx::query_scalar("UPDATE comments SET text = $2, edited_at = now() WHERE id = $1 RETURNING edited_at")
                 .bind(row.id)
@@ -358,6 +368,7 @@ impl Engagement {
         row.edited_at = Some(edited_at);
         sqlx::query("DELETE FROM comment_mentions WHERE comment_id = $1").bind(row.id).execute(&mut *tx).await?;
         save_mentions(&mut tx, row.id, &mentioned).await?;
+        events::emit(&mut *tx, COMMENT_EDITED, Some(user_id), &comment_event(&row)).await?;
         if row.is_published() && !verdict.is_published() {
             // The new text trips one of the owner's rules. The other way
             // round never happens: an edit does not publish a comment.
@@ -395,6 +406,8 @@ impl Engagement {
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
         let (row, mut parent) = lock_thread(&mut tx, comment_id).await?.ok_or_else(comment_not_found)?;
+        // What the people who read it read stays reportable.
+        kept::keep_deleted(&mut tx, &row).await?;
         let removed = lifecycle::delete(&mut tx, &mut effects, &row, parent.as_mut()).await?;
         events::emit(&mut *tx, COMMENT_DELETED, Some(user_id), &comment_event(&row)).await?;
         tx.commit().await?;

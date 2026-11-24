@@ -6,6 +6,7 @@ use tokuly_proto::engagement::*;
 use crate::{
     Engagement,
     reports::{self, ReportRow},
+    subjects::is_absent,
 };
 
 const PAGE: i64 = 30;
@@ -24,7 +25,19 @@ impl ReportService for Engagement {
             // Blocks do not stand in the way of a report: whatever the
             // owning domain still shows the caller can be reported.
             let subject = self.requested_subject_for_report(request.subject.as_option(), Some(user_id)).await?;
-            let report = Engagement::create_report(self, user_id, &subject, category, &request.text).await?;
+            // What the report lookup answered (every version of an edited
+            // or withdrawn item) is for the moderators. The reporter's copy
+            // shows what they may see now.
+            let shown_title = match self
+                .subject_unguarded(subject.key.subject_type(), &subject.key.id.to_string(), Some(user_id))
+                .await
+            {
+                Ok(shown) => shown.info.title,
+                Err(error) if is_absent(&error) => reports::withheld_title(subject.key.subject_type()).to_owned(),
+                Err(error) => return Err(error),
+            };
+            let report =
+                Engagement::create_report(self, user_id, &subject, &shown_title, category, &request.text).await?;
             ok(CreateReportResponse { report: report.to_proto().into(), ..Default::default() })
         })
         .await

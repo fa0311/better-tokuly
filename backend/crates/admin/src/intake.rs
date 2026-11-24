@@ -9,6 +9,7 @@ use crate::{Admin, cases::normalize_category, events::ReportCreated, notices::tr
 const REPORT_TEXT_MAX_CHARS: usize = 2000;
 const SUBJECT_TITLE_MAX_CHARS: usize = 300;
 const SUBJECT_PATH_MAX_CHARS: usize = 500;
+const REPORTED_CONTENT_MAX_CHARS: usize = 4000;
 
 impl Admin {
     /// Files a report into the open case of its subject, opening one when
@@ -19,6 +20,7 @@ impl Admin {
         let category = normalize_category(&report.category);
         let title = truncate_chars(report.subject_title.trim(), SUBJECT_TITLE_MAX_CHARS);
         let path = truncate_chars(report.subject_path.trim(), SUBJECT_PATH_MAX_CHARS);
+        let content = truncate_chars(report.reported_content.trim(), REPORTED_CONTENT_MAX_CHARS);
 
         // Content that hides its author is reported without an owner; whoever
         // keeps it says who answers for it. Asked before the transaction, so
@@ -40,8 +42,8 @@ impl Admin {
         // Owner and reporter are looked up rather than trusted, so an event
         // about an account that has since been erased still files cleanly.
         let case_id: Uuid = sqlx::query_scalar(
-            "INSERT INTO moderation_cases (subject_type, subject_id, subject_owner_id, subject_title, subject_path, report_count, categories, last_reported_at, owner_hidden)
-             VALUES ($1, $2, (SELECT id FROM users WHERE id = $3 AND deleted_at IS NULL), $4, $5, 1, ARRAY[$6], $7, $8)
+            "INSERT INTO moderation_cases (subject_type, subject_id, subject_owner_id, subject_title, subject_path, report_count, categories, last_reported_at, owner_hidden, reported_content)
+             VALUES ($1, $2, (SELECT id FROM users WHERE id = $3 AND deleted_at IS NULL), $4, $5, 1, ARRAY[$6], $7, $8, $9)
              ON CONFLICT (subject_type, subject_id) WHERE status = 'open' DO UPDATE SET
                  report_count     = moderation_cases.report_count + 1,
                  categories       = CASE WHEN $6 = ANY(moderation_cases.categories) THEN moderation_cases.categories
@@ -50,7 +52,8 @@ impl Admin {
                  subject_owner_id = COALESCE(EXCLUDED.subject_owner_id, moderation_cases.subject_owner_id),
                  owner_hidden     = moderation_cases.owner_hidden OR EXCLUDED.owner_hidden,
                  subject_title    = CASE WHEN EXCLUDED.subject_title <> '' THEN EXCLUDED.subject_title ELSE moderation_cases.subject_title END,
-                 subject_path     = CASE WHEN EXCLUDED.subject_path <> '' THEN EXCLUDED.subject_path ELSE moderation_cases.subject_path END
+                 subject_path     = CASE WHEN EXCLUDED.subject_path <> '' THEN EXCLUDED.subject_path ELSE moderation_cases.subject_path END,
+                 reported_content = CASE WHEN EXCLUDED.reported_content <> '' THEN EXCLUDED.reported_content ELSE moderation_cases.reported_content END
              RETURNING id",
         )
         .bind(report.subject_type)
@@ -61,6 +64,7 @@ impl Admin {
         .bind(category)
         .bind(event.occurred_at)
         .bind(owner_hidden)
+        .bind(&content)
         .fetch_one(&mut *tx)
         .await?;
         let filed = sqlx::query(

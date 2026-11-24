@@ -282,17 +282,23 @@ pub(crate) async fn set_heart(
     Ok(hearted)
 }
 
+/// Comments [`hide_comments_of`] handles in one transaction.
+pub(crate) const HIDE_BATCH: i64 = 200;
+
 /// Hides what `author_id` wrote on the subjects of `owner_id` — under one
 /// identity (`Some(None)`: as the user, `Some(Some(id))`: as that channel)
 /// or under any (`None`). Held comments leave the review queue the same
 /// way. Used when an owner blocks a commenter or the whole account.
+///
+/// Handles at most [`HIDE_BATCH`] comments, so one transaction stays short;
+/// callers repeat it, a transaction each, until it returns fewer.
 pub(crate) async fn hide_comments_of(
     conn: &mut PgConnection,
     effects: &mut Effects,
     owner_id: Uuid,
     author_id: Uuid,
     identity: Option<Option<Uuid>>,
-) -> AppResult<u64> {
+) -> AppResult<i64> {
     let (any_identity, channel_id) = match identity {
         Some(channel_id) => (false, channel_id),
         None => (true, None),
@@ -303,17 +309,18 @@ pub(crate) async fn hide_comments_of(
         "SELECT id FROM comments
          WHERE subject_owner_id = $1 AND author_id = $2 AND status <> $3
            AND ($4 OR channel_id IS NOT DISTINCT FROM $5)
-         ORDER BY id",
+         ORDER BY id LIMIT $6",
     )
     .bind(owner_id)
     .bind(author_id)
     .bind(status::HIDDEN)
     .bind(any_identity)
     .bind(channel_id)
+    .bind(HIDE_BATCH)
     .fetch_all(&mut *conn)
     .await?;
     lock_threads_of(conn, &comment_ids).await?;
-    let mut hidden = 0;
+    let selected = comment_ids.len() as i64;
     for comment_id in comment_ids {
         let Some((mut row, mut parent)) = lock_thread(conn, comment_id).await? else { continue };
         if row.status == status::HIDDEN {
@@ -321,7 +328,6 @@ pub(crate) async fn hide_comments_of(
         }
         set_status(conn, effects, &mut row, parent.as_mut(), status::HIDDEN, HoldReason::HOLD_REASON_BLOCKED_COMMENTER)
             .await?;
-        hidden += 1;
     }
-    Ok(hidden)
+    Ok(selected)
 }

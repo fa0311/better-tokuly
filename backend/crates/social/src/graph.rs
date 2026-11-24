@@ -151,6 +151,20 @@ pub async fn is_blocked_either(core: &Core, a: Uuid, b: Uuid) -> AppResult<bool>
     .await?)
 }
 
+/// When the block between `a` and `b` began — the earlier one, if both
+/// blocked each other; `None` when there is none. Lets a domain tell what
+/// reached one side before the block from what was made after it.
+pub async fn blocked_since(core: &Core, a: Uuid, b: Uuid) -> AppResult<Option<chrono::DateTime<chrono::Utc>>> {
+    Ok(sqlx::query_scalar(
+        "SELECT min(created_at) FROM user_blocks
+         WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)",
+    )
+    .bind(a)
+    .bind(b)
+    .fetch_one(&core.db)
+    .await?)
+}
+
 /// Everyone hidden from `user_id`: the users they blocked and the users who
 /// blocked them. Cached like [`friend_ids`].
 pub async fn blocked_ids_either(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {

@@ -4,7 +4,8 @@ Crate `tokuly-engagement`, migration `1100_engagement.sql`, API
 `tokuly.engagement.v1` (`CommentService`, `CommentModerationService`,
 `ReactionService`, `BookmarkService`, `EngagementService`, `ReportService`).
 Depends on `identity`, `media` (comment images), `stamp` (comment stamps) and
-`social` (blocks). No ClickHouse table of its own; no background jobs.
+`social` (blocks). No ClickHouse table of its own; no background jobs, one
+timer (the purge of comment texts kept for reports).
 
 Engagement knows no content. Everything attaches to a
 `tokuly.common.v1.SubjectRef` and is authorized through `core.subjects`.
@@ -26,8 +27,13 @@ get comments, likes, saves, shares and reports on your content.
 - `resolve_for_report(id, viewer)` (optional, defaults to `resolve`) is what
   `CreateReport` asks instead. A domain whose content can be withdrawn after
   it reached someone (an unsent chat message) answers here with what the
-  viewer received, so the withdrawal does not prevent the report; nothing
-  else ever sees that answer.
+  viewer received, so the withdrawal does not prevent the report. Its
+  `title` (e.g. every version of an edited message) goes to the moderation
+  team only, as `reported_content` of `engagement.report.created`. The
+  reporter's copy of the report, and `subject_title`, is what `resolve`
+  answers them now — or a generic label (「コメント」, 「メッセージ」,
+  「アカウント」, 「投稿」) when it no longer resolves for them. Nothing else
+  ever sees the `resolve_for_report` answer.
 - `counter_changed(id, counter, delta)` is called after the change committed
   (best effort, never retried — treat it as a hint for denormalized copies;
   the exact numbers are `EngagementService.GetEngagement`):
@@ -51,13 +57,29 @@ Engagement itself registers:
 
 - a resolver for `SUBJECT_TYPE_COMMENT` (owner = the comment's author, path
   = `<subject path>?comment=<id>`, interactions enabled while the comment is
-  published), so comments can be liked and reported;
+  published), so comments can be liked and reported. For a report it asks
+  the subject's domain for `resolve_for_report`, and whoever had the comment
+  in front of them — it is or was in public view (a reply only below a
+  published top-level comment), or they own the subject — can report it
+  after it was hidden, after a block, and after its author (or the
+  subject's owner) edited or deleted it. A comment written after a block
+  began, with its author or with the subject's owner, never reached the
+  other side and is not theirs to report (`tokuly_social::graph::blocked_since`).
+  What an edit replaced (the first 10 and the latest 10 edits per comment;
+  each further edit drops the oldest of the latest ones) and what a
+  deletion removed (the comment and the replies that went with it) are
+  kept in `comment_removed_texts` for 30 days from the change; the
+  moderators' `reported_content` lists every distinct version, oldest first
+  (`[2版] before → after`, 80 characters each, a note where edits were not
+  kept). Nothing else reads them. A takedown, the purge of the subject and
+  the erasure of the author forget them at once;
 - a resolver for `SUBJECT_TYPE_USER` — **only if no other domain registered
   one before `Engagement::new` ran** — resolving any non-erased account by
   UUID or handle (path `/u/<handle>`, interactions disabled), so accounts
   can be reported. A domain that registers users later replaces it;
 - the guard of the realtime topic kind `subject`;
-- a `DataExporter` named `engagement`.
+- a `DataExporter` named `engagement` (comments, the texts of them kept for
+  reports, reactions, collections, reports, screening rules, blocks).
 
 ## Channel identities
 
@@ -86,12 +108,13 @@ as its number, `subject_id` the subject's UUID.
 
 | Topic | Payload | When |
 |---|---|---|
-| `engagement.report.created` | `{ report_id, reporter_id, subject_type, subject_id, subject_owner_id, category, text, subject_title, subject_path }` | A user reported a subject. `subject_owner_id` is `null` for content that belongs to nobody. `category` is `SPAM`, `HARASSMENT`, `HATE`, `SEXUAL`, `VIOLENCE`, `SELF_HARM`, `ILLEGAL`, `IMPERSONATION`, `COPYRIGHT` or `OTHER`. Actor: the reporter. Consumed by admin. |
+| `engagement.report.created` | `{ report_id, reporter_id, subject_type, subject_id, subject_owner_id, category, text, subject_title, subject_path, reported_content }` | A user reported a subject. `subject_title` is what the reporter may see of it now (what their own copy shows; a generic label such as 「コメント」 when it was withdrawn or is hidden from them). `reported_content` is what they received as the owning domain kept it (`resolve_for_report`): for content edited or withdrawn since, every version. It is for moderators only: admin keeps it on the case (`moderation_cases.reported_content`, cleared with the case's title) and shows it on the case screen. `subject_owner_id` is `null` for content that belongs to nobody. `category` is `SPAM`, `HARASSMENT`, `HATE`, `SEXUAL`, `VIOLENCE`, `SELF_HARM`, `ILLEGAL`, `IMPERSONATION`, `COPYRIGHT` or `OTHER`. Actor: the reporter. Consumed by admin. |
 | `engagement.comment.published` | `{ comment_id, subject_type, subject_id, subject_owner_id, author_id, channel_id, parent_id }` | A comment entered public view: written (and not held), or approved by the owner. Actor: the author, or the owner who approved. |
+| `engagement.comment.edited` | same | The author changed the text of a comment, whatever its status (an edit can also hold it again, see `comment_removed`). For copies of the old text, e.g. inbox entries. Actor: the author. |
 | `engagement.comment.deleted` | same | A comment was deleted by its author, the subject owner, moderation, or because its only content was an upload deleted by force. Not emitted for the replies that go with a thread, nor for comments purged with their subject or their author's account. |
 | `engagement.reaction.changed` | `{ user_id, subject_type, subject_id, subject_owner_id, kind, emoji, previous_kind, previous_emoji }` | A user set, changed or removed a reaction. `kind` / `previous_kind` are `ReactionKind` numbers (1 like, 2 dislike, 3 emoji), 0 = none. `subject_owner_id` is `null` when a reaction was removed from a subject that no longer resolves. |
 | `engagement.bookmark.changed` | `{ user_id, subject_type, subject_id, saved }` | A user saved a subject (`saved: true`) or removed it from everything they saved. Moves between named collections emit nothing. |
-| `engagement.share.recorded` | `{ user_id, subject_type, subject_id, subject_owner_id, target }` | A share was recorded. `user_id` is `null` for guests; `target` is the `ShareTarget` number. |
+| `engagement.share.recorded` | `{ user_id, subject_type, subject_id, subject_owner_id, target }` | A share was recorded (a repeat by the same user or guest address with the same target within an hour is not). `user_id` is `null` for guests; `target` is the `ShareTarget` number. |
 
 ## Events consumed
 
@@ -100,10 +123,10 @@ idempotent.
 
 | Topic | Reaction |
 |---|---|
-| `admin.content.removed` `{ subject_type, subject_id, … }` | `SUBJECT_TYPE_COMMENT`: the comment is deleted with its replies (counters, realtime and `engagement.comment.deleted` as for any deletion). Any other type: everything engagement kept about the subject is purged — comments with their uploads and likes, reactions, bookmarks, share counts, counters. Either way the open reports about the subject become `ACTION_TAKEN`. |
+| `admin.content.removed` `{ subject_type, subject_id, … }` | `SUBJECT_TYPE_COMMENT`: the comment is deleted with its replies (counters, realtime and `engagement.comment.deleted` as for any deletion). Any other type: everything engagement kept about the subject is purged — comments with their uploads and likes, reactions, bookmarks, share counts, counters. Either way the open reports about the subject become `ACTION_TAKEN`, and the comment texts kept for reports (of the comment and its replies, or of every comment on the subject) are forgotten. |
 | `admin.report.resolved` `{ report_ids: [uuid], action_taken: bool }` | The named reports become `ACTION_TAKEN` / `NO_ACTION`. Emitted by the admin domain when a moderator resolves the case the reports were filed into. |
-| `identity.user.deleted` `{ user_id }` | Erased: the user's comments (threads go with their replies), reactions, bookmarks and collections, reports they filed, screening rules, comment blocks (as owner and as blocked), mentions of them. Purged: everything on the subjects they owned. Reports about them or their content stay, without the owner reference. Counters of other people's subjects follow, with callbacks. Works in batches of 200 per transaction. |
-| `social.user.blocked` `{ user_id, blocked_id }` | Everything the blocked user wrote on the blocker's subjects is hidden (`HIDDEN`, reason `BLOCKED_COMMENTER`) for everyone and leaves the blocker's review queue. Unblocking restores nothing; the owner can approve the comments. |
+| `identity.user.deleted` `{ user_id }` | Erased: the user's comments (threads go with their replies), reactions, bookmarks and collections, reports they filed, screening rules, comment blocks (as owner and as blocked), mentions of them, the texts of their comments kept for reports. Purged: everything on the subjects they owned. Reports about them or their content stay, without the owner reference. Counters of other people's subjects follow, with callbacks. Works in batches of 200 per transaction. |
+| `social.user.blocked` `{ user_id, blocked_id }` | Everything either of the two wrote on the other's subjects is hidden (`HIDDEN`, reason `BLOCKED_COMMENTER`) for everyone and leaves the owner's review queue: the blocked user's comments because the blocker asked not to deal with them, the blocker's own because the owner of the content could no longer see, hide or delete them. Unblocking restores nothing; the owner can approve the comments. An event that arrives after the block was lifted changes nothing. 200 comments per transaction, like account erasure (and so for `BlockCommenter`). |
 | `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions (a comment holds its image as `engagement:comment:<id>`, so owners and the janitor cannot delete it). A comment with text loses the image; a comment that was only the image is deleted. |
 
 ## Notification kinds
@@ -118,7 +141,7 @@ block, or as the owner of content that belongs to nobody.
 | `engagement.comment` | subject owner | a top-level comment entered public view | actor = commenter (none for a channel identity; channel icon as image). Path `<subject path>?comment=<id>`. |
 | `engagement.comment` | subject owner | a comment is waiting for review | no actor; collapse key `engagement.review:<type>:<subject>`. Not sent for comments of blocked commenters. |
 | `engagement.reply` | author of the thread; author of the reply answered | a reply entered public view | |
-| `engagement.mention` | users `@mentioned` | the comment entered public view, or an edit added the mention | only users who can see the subject |
+| `engagement.mention` | users `@mentioned` | the comment entered public view, or an edit added the mention | only users who can see the subject; at most once a day per comment and user (editing a mention out and back in is not news) |
 | `engagement.heart` | comment author | the owner gave the comment a heart | no actor; collapse key `engagement.heart:<comment>`; at most once a day per comment |
 | `engagement.like` | subject owner (for a comment: its author) | someone liked or emoji-reacted | actor = the user; collapse key `engagement.like:<type>:<subject>`; at most once a day per user and subject; never for dislikes |
 
@@ -170,9 +193,10 @@ whenever the number of comments waiting for their review changes.
 | What | Name | Notes |
 |---|---|---|
 | Event consumer | durable `engagement` | topics above; `ack_wait` 120 s (account erasure and purges of busy subjects take a while) |
+| Timer, hourly | removed comment text purge | forgets `comment_removed_texts` 30 days after the edit or deletion (`Engagement::purge_removed_comment_texts`) |
 
-No jobs and no timers: counters are exact by construction (they move in the
-transaction that changes what they count).
+No jobs: counters are exact by construction (they move in the transaction
+that changes what they count).
 
 ## Valkey keys
 
@@ -182,7 +206,9 @@ transaction that changes what they count).
 | `engagement:comment:dup:<user>:<type>:<subject>:<hash>` | marker, 60 s | the same comment (text and stamp, case- and width-insensitive) cannot be posted on the same subject twice in a row |
 | `engagement:push:lead:<type>:<subject>` / `…:trail:…` | markers, 1 s / 3 s | throttle of `counters_changed` |
 | `engagement:liked:<user>:<type>:<subject>` | marker, 24 h | one like notification per user and subject per day |
+| `engagement:shared:<user or guest:key>:<type>:<subject>:<target>` | marker, 1 h | a repeated share is not counted again. A guest's key is an HMAC (key derived from `TOKULY_SECRET`) of their address, or of its /64 for IPv6; the address itself is never stored, also not in the guests' rate limit `rl:engagement:share:guest:<key>` |
 | `engagement:heart:<comment>` | marker, 24 h | one heart notification per comment per day |
+| `engagement:mentioned:<comment>:<user>` | marker, 24 h | one mention notification per comment and user per day |
 
 ## Configuration
 

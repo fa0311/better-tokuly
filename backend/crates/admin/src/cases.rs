@@ -24,7 +24,7 @@ const REVEAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(3600);
 
 macro_rules! case_columns {
     () => {
-        "id, subject_type, subject_id, subject_owner_id, owner_hidden, subject_title, subject_path, status, report_count, categories, \
+        "id, subject_type, subject_id, subject_owner_id, owner_hidden, subject_title, subject_path, reported_content, status, report_count, categories, \
          assignee_id, assigned_at, last_reported_at, resolution, content_removed, resolution_reason, resolved_by, \
          resolved_at, created_at"
     };
@@ -42,6 +42,9 @@ pub(crate) struct CaseRow {
     pub owner_hidden: bool,
     pub subject_title: String,
     pub subject_path: String,
+    /// What the reporters received, as kept for moderation (see `intake.rs`).
+    /// Shown like the reports: in an opened case only ([`Admin::opened_case`]).
+    pub reported_content: String,
     pub status: String,
     pub report_count: i32,
     pub categories: Vec<String>,
@@ -271,6 +274,10 @@ impl Admin {
         let people = tokuly_identity::summaries(&self.core, &ids).await?;
         let mut case = row.to_proto(&people, reveal);
         case.conflict_of_interest = involved;
+        // What the reporters received travels with the reports: only here,
+        // never in lists, and never in a case about the caller (`GetCase`
+        // does not open those through this).
+        case.reported_content = row.reported_content.clone();
         Ok((case, reveal && row.subject_owner_id.is_some()))
     }
 
@@ -415,6 +422,7 @@ mod tests {
             subject_owner_id: Some(owner),
             owner_hidden: false,
             subject_title: "こんにちは".into(),
+            reported_content: String::new(),
             subject_path: "/notes/x".into(),
             status: STATUS_RESOLVED.into(),
             report_count: 2,
