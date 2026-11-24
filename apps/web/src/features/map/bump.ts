@@ -7,9 +7,21 @@ import { useLocations } from "#/stores/locations";
 import { useMe } from "#/stores/session";
 import { interactionClient } from "./data";
 import { emitEffect } from "./effects";
-import { reportFreshFix } from "./own-location";
+import {
+  type ClaimProblem,
+  claimProblem,
+  PRECISE_ENOUGH_METERS,
+  reportFreshFix,
+} from "./own-location";
 
 let bumping = false;
+
+/** A refused position, with a retry. */
+function showClaimProblem(problem: ClaimProblem, retry: () => void): void {
+  toast.error(i18n.t(problem, { ns: "errors" }), {
+    action: { label: i18n.t("actions.retry"), onClick: retry },
+  });
+}
 
 /**
  * One bump attempt: tells the server "I shook here, now" and waits a few
@@ -29,6 +41,11 @@ export async function tryBump(myId: string | undefined, intensity = 1.5): Promis
     const own = (await reportFreshFix()) ?? useLocations.getState().own;
     if (!own) {
       toast.error(t("bump.needLocation"));
+      return false;
+    }
+    // Approximate location (an OS setting) is refused anyway: say so without asking.
+    if (own.accuracyMeters > PRECISE_ENOUGH_METERS) {
+      showClaimProblem("LOCATION_TOO_COARSE", () => void tryBump(myId, intensity));
       return false;
     }
     // The other person has a few seconds to shake too: ask again until the window closes.
@@ -59,10 +76,8 @@ export async function tryBump(myId: string | undefined, intensity = 1.5): Promis
     toast(t("bump.nobody"), { icon: "🤷" });
     return false;
   } catch (error) {
-    if (errorReason(error) === "LOCATION_NOT_VERIFIED")
-      toast.error(errorMessage(error, { namespace: "map" }), {
-        action: { label: i18n.t("actions.retry"), onClick: () => void tryBump(myId, intensity) },
-      });
+    const problem = claimProblem(errorReason(error));
+    if (problem) showClaimProblem(problem, () => void tryBump(myId, intensity));
     else toast.error(errorMessage(error, { namespace: "map" }));
     return false;
   } finally {

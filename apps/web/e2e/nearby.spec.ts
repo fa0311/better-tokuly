@@ -18,12 +18,13 @@ async function pageAt(
   baseURL: string | undefined,
   account: Account,
   at: { lat: number; lng: number },
+  accuracy = 10,
 ): Promise<Page> {
   const context = await browser.newContext({
     baseURL,
     locale: "ja-JP",
     permissions: ["geolocation"],
-    geolocation: { latitude: at.lat, longitude: at.lng, accuracy: 10 },
+    geolocation: { latitude: at.lat, longitude: at.lng, accuracy },
   });
   // Lets a test make the browser's one-off position reads fail (a device that has no fix).
   await context.addInitScript(() => {
@@ -176,5 +177,21 @@ test("a bump from a friend's sheet sends a fresh fix and bumps a friend shaking 
     )
     .toBe(1);
   await expect(page.getByText(`${aoi.displayName}とバンプ！`, { exact: false })).toBeVisible();
+  await page.context().close();
+});
+
+test("approximate location is called out before asking the server", async ({
+  browser,
+  baseURL,
+  request,
+}) => {
+  const spot = somewhere();
+  const mio = await createAccount(request, "Mio");
+  const page = await pageAt(browser, baseURL, mio, spot, 1500);
+  await shareHere(page);
+  await openNearby(page);
+  const notice = page.getByTestId("nearby-unverified");
+  await expect(notice).toContainText("正確な位置情報をオンにしてね!");
+  await expect(notice.getByRole("button", { name: "もう一度" })).toBeVisible();
   await page.context().close();
 });

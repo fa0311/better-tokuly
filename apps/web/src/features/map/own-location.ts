@@ -15,6 +15,20 @@ import { MOVING_SPEED_MPS } from "./model";
 const MOVED_METERS = 15;
 /** Other tabs hear about a stop through a storage event; give them this long before the server is told. */
 const OTHER_TABS_MS = 300;
+/**
+ * The server takes nearby discovery and bumps only from fixes this good
+ * (`tokuly_geo::claims`): an approximate location is not enough.
+ */
+export const PRECISE_ENOUGH_METERS = 100;
+
+/** Why the server would refuse a claim, as far as the client can tell before asking. */
+export type ClaimProblem = "LOCATION_NOT_VERIFIED" | "LOCATION_TOO_COARSE";
+
+/** The refusal reasons nearby discovery and bumps can answer with. */
+export function claimProblem(reason: string | undefined): ClaimProblem | null {
+  return reason === "LOCATION_NOT_VERIFIED" || reason === "LOCATION_TOO_COARSE" ? reason : null;
+}
+
 /** A reading this recent counts as a fresh fix for nearby discovery and bumps. */
 const FRESH_FIX_MS = 10_000;
 /** The app's "someone is signed in here" marker (`stores/session.ts`): it goes when any tab signs out. */

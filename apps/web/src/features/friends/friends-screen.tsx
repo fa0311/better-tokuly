@@ -12,7 +12,12 @@ import { Card } from "#/components/ui/card";
 import { EmptyState, ListRow, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { EmojiText } from "#/features/emoji";
-import { reportFreshFix } from "#/features/map/own-location";
+import {
+  type ClaimProblem,
+  claimProblem,
+  PRECISE_ENOUGH_METERS,
+  reportFreshFix,
+} from "#/features/map/own-location";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { useLocations } from "#/stores/locations";
@@ -427,15 +432,20 @@ function Nearby() {
   const [active, setActive] = useState(false);
   const [starting, setStarting] = useState(false);
   /** The server could not confirm we are where we said: shown with a retry. */
-  const [unverified, setUnverified] = useState(false);
+  const [unverified, setUnverified] = useState<ClaimProblem | null>(null);
   const [users, setUsers] = useState<social.NearbyUser[]>([]);
 
   // A session opens only where our own latest fix puts us: send a fresh one first.
   const start = async () => {
     setStarting(true);
-    setUnverified(false);
+    setUnverified(null);
     try {
-      await reportFreshFix();
+      const fix = await reportFreshFix();
+      // Approximate location (an OS setting) is refused anyway: say so without asking.
+      if (fix && fix.accuracyMeters > PRECISE_ENOUGH_METERS) {
+        setUnverified("LOCATION_TOO_COARSE");
+        return;
+      }
     } finally {
       setStarting(false);
     }
@@ -457,9 +467,10 @@ function Nearby() {
         for await (const update of stream) setUsers(update.users);
       } catch (error) {
         if (abort.signal.aborted) return;
-        if (errorReason(error) === "LOCATION_NOT_VERIFIED") {
+        const problem = claimProblem(errorReason(error));
+        if (problem) {
           setActive(false);
-          setUnverified(true);
+          setUnverified(problem);
         } else toast.error(errorMessage(error));
       }
     })();
@@ -504,7 +515,7 @@ function Nearby() {
           className="mt-3 flex items-center gap-2 border-t-2 border-line pt-2 text-sm"
           data-testid="nearby-unverified"
         >
-          <p className="min-w-0 flex-1">{te("LOCATION_NOT_VERIFIED")}</p>
+          <p className="min-w-0 flex-1">{te(unverified)}</p>
           <Button size="sm" variant="secondary" disabled={starting} onClick={() => void start()}>
             {tc("actions.retry")}
           </Button>
