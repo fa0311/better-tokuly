@@ -664,6 +664,34 @@ async fn group_managers_delete_anyones_messages_but_not_the_story() {
 }
 
 #[tokio::test]
+async fn deleting_others_messages_follows_the_role_order() {
+    let ctx = start().await;
+    let (group, owner, members) = ctx.group_of("部活", 3).await;
+    let (admin, other_admin, plain) = (&members[0], &members[1], &members[2]);
+    for member in [admin, other_admin] {
+        let request = SetMemberRoleRequest {
+            conversation_id: group.id.clone(),
+            user_id: member.id.to_string(),
+            role: MemberRole::MEMBER_ROLE_ADMIN.into(),
+            ..Default::default()
+        };
+        let _: SetMemberRoleResponse = ctx.call("Conversation", "SetMemberRole", &owner, &request).await.unwrap();
+    }
+    let delete = |message_id: &str| DeleteMessageRequest { message_id: message_id.to_owned(), ..Default::default() };
+    let by_owner = ctx.text(&owner, &group.id, "オーナーより").await;
+    let by_admin = ctx.text(other_admin, &group.id, "管理者より").await;
+    let by_plain = ctx.text(plain, &group.id, "メンバーより").await;
+
+    // An admin can tidy up after plain members, not after their equals or the owner.
+    assert_eq!(ctx.reason("Message", "DeleteMessage", admin, &delete(&by_owner.id)).await, "NOT_ALLOWED");
+    assert_eq!(ctx.reason("Message", "DeleteMessage", admin, &delete(&by_admin.id)).await, "NOT_ALLOWED");
+    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", admin, &delete(&by_plain.id)).await.unwrap();
+    // The owner can delete anyone's.
+    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &owner, &delete(&by_admin.id)).await.unwrap();
+    assert!(!ctx.message(&owner, &by_owner.id).await.deleted);
+}
+
+#[tokio::test]
 async fn messages_page_in_both_directions() {
     let ctx = start().await;
     let (taro, hanako) = ctx.friends("taro", "hanako").await;
@@ -1072,6 +1100,96 @@ async fn reactions_are_counted_per_emoji() {
         AddReactionRequest { message_id: crowded.id.clone(), emoji: emoji[0].to_owned(), ..Default::default() };
     let joined: AddReactionResponse = ctx.call("Message", "AddReaction", &taro, &joining).await.unwrap();
     assert_eq!(joined.reactions[0].count, 2);
+}
+
+#[tokio::test]
+async fn a_burst_from_one_account_does_not_starve_the_connection_pool() {
+    let ctx = start().await;
+    let (group, owner, members) = ctx.group_of("部活", 2).await;
+    let direct = ctx.direct(&owner, &members[0]).await;
+    let pinned = ctx.text(&owner, &group.id, "ピン留めしてね").await;
+    let mut targets = vec![pinned.id.clone()];
+    for index in 0..4 {
+        targets.push(ctx.text(&owner, &group.id, &format!("その{index}")).await.id);
+    }
+
+    // Several times as many requests as the test pool has connections (5),
+    // all of them taking the conversation lock, from one account at once.
+    let send_requests: Vec<SendMessageRequest> =
+        (0..10).map(|index| text_request(&group.id, &format!("連投{index}"))).collect();
+    let pin_requests: Vec<PinMessageRequest> = targets
+        .iter()
+        .map(|message_id| PinMessageRequest { message_id: message_id.clone(), ..Default::default() })
+        .collect();
+    let forward_requests: Vec<ForwardMessagesRequest> = (0..5)
+        .map(|index| ForwardMessagesRequest {
+            message_ids: vec![pinned.id.clone()],
+            conversation_ids: vec![direct.id.clone(), group.id.clone()],
+            client_id: format!("burst-{index}-{}", client_id()),
+            ..Default::default()
+        })
+        .collect();
+    let started = std::time::Instant::now();
+    let sends = send_requests.iter().map(|request| ctx.send(&owner, request));
+    let pins =
+        pin_requests.iter().map(|request| ctx.call::<_, PinMessageResponse>("Message", "PinMessage", &owner, request));
+    let forwards = forward_requests
+        .iter()
+        .map(|request| ctx.call::<_, ForwardMessagesResponse>("Message", "ForwardMessages", &owner, request));
+    let (sends, pins, forwards) = tokio::join!(
+        futures::future::join_all(sends),
+        futures::future::join_all(pins),
+        futures::future::join_all(forwards)
+    );
+    assert!(sends.iter().all(Result::is_ok), "{sends:?}");
+    assert!(pins.iter().all(Result::is_ok), "{pins:?}");
+    assert!(forwards.iter().all(Result::is_ok), "{forwards:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(8), "took {:?}", started.elapsed());
+    // Everyone else is still served.
+    ctx.text(&members[1], &group.id, "まだ使える？").await;
+}
+
+#[tokio::test]
+async fn toggling_a_reaction_does_not_notify_again_and_again() {
+    let ctx = start().await;
+    let (taro, hanako) = ctx.friends("taro", "hanako").await;
+    let conversation = ctx.direct(&taro, &hanako).await;
+    let message = ctx.text(&taro, &conversation.id, "見て見て").await;
+    let react = |emoji: &str| AddReactionRequest {
+        message_id: message.id.clone(),
+        emoji: emoji.to_owned(),
+        ..Default::default()
+    };
+    let unreact = RemoveReactionRequest { message_id: message.id.clone(), emoji: "😂".into(), ..Default::default() };
+
+    // Every push counts against the author's per-minute push budget: a
+    // reaction switched on and off must not drown out everybody else.
+    for _ in 0..5 {
+        let _: AddReactionResponse = ctx.call("Message", "AddReaction", &hanako, &react("😂")).await.unwrap();
+        let _: RemoveReactionResponse = ctx.call("Message", "RemoveReaction", &hanako, &unreact).await.unwrap();
+    }
+    let _: AddReactionResponse = ctx.call("Message", "AddReaction", &hanako, &react("👍")).await.unwrap();
+    let reactions = ctx.notifications(&taro).await.into_iter().filter(|n| n.kind == "chat.reaction").count();
+    assert_eq!(reactions, 1, "one person reacting to one message is told once");
+
+    // Reacting to message after message does not buzz the author each time either.
+    for text in ["二つ目", "三つ目"] {
+        let other = ctx.text(&taro, &conversation.id, text).await;
+        let request = AddReactionRequest { message_id: other.id.clone(), emoji: "😂".into(), ..Default::default() };
+        let _: AddReactionResponse = ctx.call("Message", "AddReaction", &hanako, &request).await.unwrap();
+    }
+    let reactions = ctx.notifications(&taro).await.into_iter().filter(|n| n.kind == "chat.reaction").count();
+    assert_eq!(reactions, 1, "one notice per person every few minutes");
+
+    // Someone else reacting is news again.
+    let jiro = ctx.app.user("jiro").await;
+    ctx.befriend(&taro, &jiro).await;
+    let group = ctx.group(&taro, "三人", &[&hanako, &jiro]).await;
+    let in_group = ctx.text(&taro, &group.id, "集合！").await;
+    let request = AddReactionRequest { message_id: in_group.id.clone(), emoji: "🙌".into(), ..Default::default() };
+    let _: AddReactionResponse = ctx.call("Message", "AddReaction", &jiro, &request).await.unwrap();
+    let reactions = ctx.notifications(&taro).await.into_iter().filter(|n| n.kind == "chat.reaction").count();
+    assert_eq!(reactions, 2);
 }
 
 #[tokio::test]

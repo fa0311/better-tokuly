@@ -137,7 +137,7 @@ enum MemberRole {
   MEMBER_ROLE_UNSPECIFIED = 0;
   MEMBER_ROLE_MEMBER = 1;
   // May rename the group, change its icon, remove plain members and delete
-  // any message.
+  // their messages.
   MEMBER_ROLE_ADMIN = 2;
   // Everything an admin may do, plus removing admins, changing roles and
   // handing the group over. Exactly one per group.
@@ -473,7 +473,8 @@ service MessageService {
   // Replaces the text of one of the caller's own text messages or the
   // caption of a media message (which may be emptied), within
   // `Capabilities.edit_window_seconds` of sending. The message is marked as
-  // edited; mentions and the link preview are worked out again.
+  // edited; mentions and the link preview are worked out again. The text it
+  // replaced stays reportable by the members for 30 days.
   // Errors: MESSAGE_NOT_FOUND, NOT_ALLOWED (someone else's message),
   // MESSAGE_NOT_EDITABLE (not text/media, deleted, forwarded, or the answer
   // to a POV request), EDIT_WINDOW_CLOSED, MESSAGE_EMPTY, TEXT_TOO_LONG,
@@ -481,7 +482,10 @@ service MessageService {
   rpc EditMessage(EditMessageRequest) returns (EditMessageResponse);
   // Deletes a message for everyone. It stays in the conversation as an empty
   // tombstone (`deleted = true`). The sender may delete their own messages;
-  // a group's owner and admins may delete anyone's. Deleting twice succeeds.
+  // in a group, the owner may delete anyone's and admins those of plain
+  // members (and of people who left). Deleting twice succeeds.
+  // The members it reached can still report it for 30 days: what it said is
+  // kept for that and for nothing else.
   // Errors: MESSAGE_NOT_FOUND, NOT_ALLOWED, MESSAGE_NOT_DELETABLE (system,
   // call and POV request messages).
   rpc DeleteMessage(DeleteMessageRequest) returns (DeleteMessageResponse);
@@ -1099,7 +1103,7 @@ service CallService {
   // returns fresh credentials.
   // Errors: CALLS_DISABLED, CALL_NOT_FOUND (also for people who are not, or
   // no longer, accepted members of the conversation), CALL_ENDED,
-  // CONVERSATION_READ_ONLY.
+  // CONVERSATION_READ_ONLY, RATE_LIMITED.
   rpc JoinCall(JoinCallRequest) returns (JoinCallResponse);
   // Declines a ringing call. A direct call ends; a group call goes on for
   // the others. Declining twice succeeds.
@@ -1110,11 +1114,13 @@ service CallService {
   // Succeeds when the call already ended.
   // Errors: CALLS_DISABLED, CALL_NOT_FOUND.
   rpc LeaveCall(LeaveCallRequest) returns (LeaveCallResponse);
-  // One call. Does not need LiveKit to be configured.
+  // One call: of a conversation the caller is an accepted member of, or one
+  // they took part in once it is over. Does not need LiveKit to be configured.
   // Errors: CALL_NOT_FOUND.
   rpc GetCall(GetCallRequest) returns (GetCallResponse);
-  // The caller's call history across conversations, newest first. Does not
-  // need LiveKit to be configured.
+  // The caller's call history across conversations, newest first: the calls
+  // they took part in (a live one only while they are still an accepted
+  // member of its conversation). Does not need LiveKit to be configured.
   rpc ListCalls(ListCallsRequest) returns (ListCallsResponse);
 }
 

@@ -36,6 +36,15 @@ pub trait SubjectResolver: Send + Sync + 'static {
     /// exist or the viewer may not see it. `id` is a UUID or a short ID.
     async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>>;
 
+    /// Looks up a subject for `viewer` to report it. Defaults to
+    /// [`Self::resolve`]. A domain whose content can be withdrawn after it
+    /// reached someone (unsent, edited) answers here with what the viewer
+    /// received, so the withdrawal does not take away the report; nothing
+    /// but a report may see that.
+    async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
+        self.resolve(id, viewer).await
+    }
+
     /// A denormalized counter on the subject changed, e.g. `"comment_count"`
     /// or `"like_count"`. Domains that keep such counters apply the delta.
     async fn counter_changed(&self, _id: Uuid, _counter: &str, _delta: i64) -> AppResult<()> {
@@ -75,6 +84,25 @@ impl Subjects {
     ) -> AppResult<SubjectInfo> {
         self.resolver(subject_type)?
             .resolve(id, viewer)
+            .await?
+            .ok_or_else(|| {
+                AppError::not_found(
+                    "SUBJECT_NOT_FOUND",
+                    "the item does not exist or is not visible to you",
+                )
+            })
+    }
+
+    /// Resolves a subject for filing a report (see
+    /// [`SubjectResolver::resolve_for_report`]) or fails with `not_found`.
+    pub async fn resolve_for_report(
+        &self,
+        subject_type: SubjectType,
+        id: &str,
+        viewer: Option<Uuid>,
+    ) -> AppResult<SubjectInfo> {
+        self.resolver(subject_type)?
+            .resolve_for_report(id, viewer)
             .await?
             .ok_or_else(|| {
                 AppError::not_found(

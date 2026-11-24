@@ -19,6 +19,12 @@ use crate::{
 const MAX_REACTION_KINDS: i64 = 20;
 /// Messages a conversation can have pinned.
 pub(crate) const MAX_PINNED_MESSAGES: i64 = 50;
+/// How long the author is not told again that the same person reacted to
+/// the same message.
+const REACTION_NOTICE_WINDOW: Duration = Duration::from_secs(24 * 3600);
+/// One person's reactions tell an author at most once in this window, on
+/// whichever message.
+const REACTION_PAIR_WINDOW: Duration = Duration::from_secs(300);
 
 fn check_emoji(emoji: &str) -> AppResult<()> {
     ensure!(content::is_single_emoji(emoji), invalid, "EMOJI_INVALID", "a reaction is exactly one emoji");
@@ -120,8 +126,8 @@ impl Chat {
     }
 
     /// Tells the author of a message that someone reacted to it, unless they
-    /// are looking at the conversation, muted it, or are in a block with the
-    /// reactor.
+    /// are looking at the conversation, muted it, are in a block with the
+    /// reactor, or were already told about this person's reaction to it.
     async fn notify_reaction(&self, access: &Access, row: &MessageRow, reactor: Uuid, emoji: &str) -> AppResult<()> {
         let core = &self.core;
         let Some(author) = row.sender_id.filter(|author| *author != reactor) else { return Ok(()) };
@@ -135,6 +141,19 @@ impl Chat {
         if graph::is_blocked_either(core, author, reactor).await? {
             return Ok(());
         }
+        // Once per person and message: a reaction switched off and on again
+        // (or a second emoji) is no news. And at most one per person every few
+        // minutes, whatever they react to: every push counts against the
+        // author's per-minute push budget, crowding out everyone else.
+        let told = format!("chat:reaction-notified:{}:{}", row.id.simple(), reactor.simple());
+        if core.cache.exists(&told).await? {
+            return Ok(());
+        }
+        let recently = format!("chat:reaction-pair:{}:{}", author.simple(), reactor.simple());
+        if !core.cache.set_nx(&recently, "1", REACTION_PAIR_WINDOW).await? {
+            return Ok(());
+        }
+        core.cache.set_nx(&told, "1", REACTION_NOTICE_WINDOW).await?;
         let summary = tokuly_identity::summary(core, reactor).await?;
         outbound::notify(&core.db, &notices::reaction(author, &summary, reactor, &access.conv, row, emoji)).await
     }

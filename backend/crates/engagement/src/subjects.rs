@@ -191,14 +191,22 @@ impl Engagement {
         Ok(subject)
     }
 
-    /// [`Self::subject_unguarded`] for the `SubjectRef` of a request.
-    pub(crate) async fn requested_subject_unguarded(
+    /// The subject of a report, for `viewer`: like
+    /// [`Self::subject_unguarded`], but asking the owning domain for what the
+    /// viewer received (`SubjectResolver::resolve_for_report`), so content
+    /// withdrawn since can still be reported.
+    pub(crate) async fn requested_subject_for_report(
         &self,
         subject: Option<&SubjectRef>,
         viewer: Option<Uuid>,
     ) -> AppResult<Subject> {
         let (kind, id) = requested(subject)?;
-        self.subject_unguarded(kind, id, viewer).await
+        let id = id.trim();
+        if id.is_empty() || id.len() > 64 {
+            return Err(not_found());
+        }
+        let info = self.core.subjects.resolve_for_report(kind, id, viewer).await?;
+        Ok(Subject { key: SubjectKey::new(kind, info.id), info })
     }
 
     /// [`Self::subject`] for the `SubjectRef` of a request.

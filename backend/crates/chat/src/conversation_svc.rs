@@ -93,7 +93,7 @@ impl ConversationService for Chat {
                 conversation: self.conversation_for(&access).await?.into(),
                 read_cursors: self.read_cursors(conversation_id).await?,
                 present_user_ids: self
-                    .visible_present_users(conversation_id)
+                    .present_users_for(conversation_id, access.me.user_id)
                     .await?
                     .iter()
                     .map(Uuid::to_string)

@@ -107,14 +107,60 @@ impl Chat {
         Ok(accepted)
     }
 
-    async fn push_presence(&self, conversation_id: Uuid) -> AppResult<()> {
+    /// The members shown as present to `viewer`: as
+    /// [`Self::visible_present_users`], without anyone in a block with the
+    /// viewer (like typing).
+    pub(crate) async fn present_users_for(&self, conversation_id: Uuid, viewer: Uuid) -> AppResult<Vec<Uuid>> {
+        let mut present = self.visible_present_users(conversation_id).await?;
+        if !present.is_empty() {
+            let hidden = graph::blocked_ids_either(&self.core, viewer).await?;
+            present.retain(|user_id| !hidden.contains(user_id));
+        }
+        Ok(present)
+    }
+
+    /// Tells every accepted member who is shown as present, each without the
+    /// people in a block with them, after the presence of `changed` changed.
+    /// A member in a block with everyone in `changed` is not told anything:
+    /// even an unchanged set would say that something happened.
+    async fn push_presence(&self, conversation_id: Uuid, changed: &[Uuid]) -> AppResult<()> {
         let present = self.visible_present_users(conversation_id).await?;
-        let event = pb::PresenceChanged {
-            conversation_id: conversation_id.to_string(),
-            present_user_ids: present.iter().map(Uuid::to_string).collect(),
-            ..Default::default()
-        };
-        self.push_members(conversation_id, Audience::Accepted, event).await;
+        let mut hidden_from: Vec<(Uuid, Vec<Uuid>)> = Vec::with_capacity(present.len());
+        for user_id in &present {
+            hidden_from.push((*user_id, graph::blocked_ids_either(&self.core, *user_id).await?));
+        }
+        let mut hidden_changers: Vec<(Uuid, Vec<Uuid>)> = Vec::with_capacity(changed.len());
+        for user_id in changed {
+            let blocked = match hidden_from.iter().find(|(present, _)| present == user_id) {
+                Some((_, blocked)) => blocked.clone(),
+                None => graph::blocked_ids_either(&self.core, *user_id).await?,
+            };
+            hidden_changers.push((*user_id, blocked));
+        }
+        let mut recipients = access::member_ids(&self.core, conversation_id, Audience::Accepted).await?;
+        if !hidden_changers.is_empty() {
+            recipients.retain(|recipient| !hidden_changers.iter().all(|(_, blocked)| blocked.contains(recipient)));
+        }
+        let mut variants: Vec<(Vec<Uuid>, Vec<Uuid>)> = Vec::new();
+        for recipient in recipients {
+            let shown: Vec<Uuid> = hidden_from
+                .iter()
+                .filter(|(_, blocked)| !blocked.contains(&recipient))
+                .map(|(user_id, _)| *user_id)
+                .collect();
+            match variants.iter_mut().find(|(set, _)| *set == shown) {
+                Some((_, members)) => members.push(recipient),
+                None => variants.push((shown, vec![recipient])),
+            }
+        }
+        for (shown, members) in variants {
+            let event = pb::PresenceChanged {
+                conversation_id: conversation_id.to_string(),
+                present_user_ids: shown.iter().map(Uuid::to_string).collect(),
+                ..Default::default()
+            };
+            self.push_to(members, event).await;
+        }
         Ok(())
     }
 
@@ -179,7 +225,7 @@ impl Chat {
                 .await?;
         }
         if was_present != present && self.presence_is_shown(member.is_accepted(), user_id).await? {
-            self.push_presence(conversation_id).await?;
+            self.push_presence(conversation_id, &[user_id]).await?;
         }
         Ok(())
     }
@@ -199,7 +245,7 @@ impl Chat {
                 .query_async(&mut conn)
                 .await?;
             if removed > 0 {
-                self.push_presence(conversation_id).await?;
+                self.push_presence(conversation_id, &[user_id]).await?;
             }
             Ok(())
         }
@@ -217,14 +263,13 @@ impl Chat {
         let mut conn = core.cache.conn();
         let due: Vec<String> =
             redis::Script::new(POP_DUE).key(self.due_key()).arg(now).arg(500).invoke_async(&mut conn).await?;
-        let mut conversations: Vec<Uuid> = due
-            .iter()
-            .filter_map(|member| parse_due_member(member))
-            .map(|(conversation_id, _)| conversation_id)
-            .collect();
-        conversations.sort_unstable();
+        let mut gone: Vec<(Uuid, Uuid)> = due.iter().filter_map(|member| parse_due_member(member)).collect();
+        gone.sort_unstable();
+        let mut conversations: Vec<Uuid> = gone.iter().map(|(conversation_id, _)| *conversation_id).collect();
         conversations.dedup();
         for conversation_id in &conversations {
+            let changed: Vec<Uuid> =
+                gone.iter().filter(|(of, _)| of == conversation_id).map(|(_, user_id)| *user_id).collect();
             // Only what really ran out: a signal repeated since has a later score.
             redis::cmd("ZREMRANGEBYSCORE")
                 .arg(presence_key(*conversation_id))
@@ -232,7 +277,7 @@ impl Chat {
                 .arg(now)
                 .query_async::<()>(&mut conn)
                 .await?;
-            self.push_presence(*conversation_id).await?;
+            self.push_presence(*conversation_id, &changed).await?;
         }
         Ok(conversations.len())
     }

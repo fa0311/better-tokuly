@@ -5,6 +5,16 @@
 //! machine, the tokens and the room-service calls.
 mod common;
 
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    routing::post,
+};
 use common::*;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use tokuly_chat::{ChatConfig, livekit::Claims};
@@ -142,6 +152,7 @@ async fn livekit_accepts_the_tokens_minted_here() {
     assert!(!created.sid.is_empty());
     assert_eq!(livekit.list_rooms(std::slice::from_ref(&room)).await.expect("list rooms"), vec![room.clone()]);
     assert!(livekit.list_participants(&room).await.expect("list participants").is_empty(), "nobody connected");
+    livekit.remove_participant(&room, "nobody").await.expect("removing someone who is not there is fine");
     livekit.delete_room(&room).await.expect("delete room");
     assert!(livekit.list_rooms(std::slice::from_ref(&room)).await.unwrap().is_empty());
     assert!(livekit.list_participants(&room).await.unwrap().is_empty(), "nobody is in a room that is gone");
@@ -605,6 +616,7 @@ async fn participants_who_vanished_from_livekit_are_dropped() {
     assert_eq!(get_call(&ctx, &taro, &call_id).await.state, CallState::CALL_STATE_ACTIVE);
 
     // Two minutes later both are still marked as joined but neither is in the room.
+    let _sweeping = SWEEPS.lock().await;
     sqlx::query("UPDATE chat_calls SET created_at = now() - interval '2 minutes', answered_at = now() - interval '2 minutes' WHERE id = $1::uuid")
         .bind(&call_id)
         .execute(&ctx.app.core.db)
@@ -634,4 +646,186 @@ async fn participants_who_vanished_from_livekit_are_dropped() {
             .any(|call| call.id == call_id && call.state == CallState::CALL_STATE_ENDED)
     );
     assert!(ctx.conversation(&taro, &direct.id).await.active_call.is_unset());
+}
+
+/// A stand-in for LiveKit's room service: records what the server asks of
+/// it and reports whoever a test says is connected to a room.
+#[derive(Clone, Default)]
+struct RoomService {
+    calls: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
+    connected: Arc<Mutex<HashMap<String, Vec<String>>>>,
+}
+
+impl RoomService {
+    /// The identities removed from `room` so far, in order.
+    fn removed_from(&self, room: &str) -> Vec<String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(method, body)| method == "RemoveParticipant" && body["room"] == room)
+            .map(|(_, body)| body["identity"].as_str().unwrap_or_default().to_owned())
+            .collect()
+    }
+
+    fn connect(&self, room: &str, identities: &[&str]) {
+        self.connected.lock().unwrap().insert(room.to_owned(), identities.iter().map(|id| id.to_string()).collect());
+    }
+}
+
+async fn room_service(
+    State(stub): State<RoomService>,
+    Path(method): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    stub.calls.lock().unwrap().push((method.clone(), body.clone()));
+    let room = body["room"].as_str().or(body["name"].as_str()).unwrap_or_default().to_owned();
+    Json(match method.as_str() {
+        "CreateRoom" => serde_json::json!({ "sid": "RM_stub", "name": room }),
+        "ListParticipants" => {
+            let connected = stub.connected.lock().unwrap().get(&room).cloned().unwrap_or_default();
+            let participants: Vec<_> =
+                connected.iter().map(|identity| serde_json::json!({ "identity": identity })).collect();
+            serde_json::json!({ "participants": participants })
+        }
+        _ => serde_json::json!({}),
+    })
+}
+
+/// A chat domain whose calls run on the [`RoomService`] stub.
+async fn start_with_room_service() -> (Ctx, RoomService) {
+    let stub = RoomService::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind stub");
+    let address = listener.local_addr().unwrap();
+    let router =
+        Router::new().route("/twirp/livekit.RoomService/{method}", post(room_service)).with_state(stub.clone());
+    tokio::spawn(async move { axum::serve(listener, router).await.expect("stub server") });
+    let cfg = ChatConfig {
+        livekit_url: format!("http://{address}"),
+        livekit_public_url: "ws://livekit.test".into(),
+        livekit_api_key: "stubkey".into(),
+        livekit_api_secret: "a-stub-secret-of-at-least-thirty-two-characters".into(),
+        ..test_config()
+    };
+    (start_with(cfg).await, stub)
+}
+
+#[tokio::test]
+async fn nobody_stays_connected_to_a_call_they_are_no_longer_part_of() {
+    let (ctx, livekit) = start_with_room_service().await;
+    let (group, owner, members) = ctx.group_of("部活", 2).await;
+    let (first, second) = (&members[0], &members[1]);
+    let started = start_call(&ctx, &owner, &group.id, false).await;
+    let (call_id, room) = (started.call.id.clone(), started.credentials.room.clone());
+    join(&ctx, first, &call_id).await;
+    join(&ctx, second, &call_id).await;
+
+    // A join token cannot be taken back: whoever loses their place in the
+    // call is disconnected from its room.
+    let remove =
+        RemoveMemberRequest { conversation_id: group.id.clone(), user_id: first.id.to_string(), ..Default::default() };
+    let _: RemoveMemberResponse = ctx.call("Conversation", "RemoveMember", &owner, &remove).await.unwrap();
+    assert_eq!(livekit.removed_from(&room), vec![first.id.to_string()]);
+    assert_eq!(leave(&ctx, second, &call_id).await.state, CallState::CALL_STATE_ACTIVE);
+    assert_eq!(livekit.removed_from(&room), vec![first.id.to_string(), second.id.to_string()]);
+
+    // Connecting again with the old token does not last: whoever is in the
+    // room without being in the call is put out at the next reconciliation.
+    let _sweeping = SWEEPS.lock().await;
+    sqlx::query("UPDATE chat_calls SET created_at = now() - interval '2 minutes' WHERE id = $1::uuid")
+        .bind(&call_id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    livekit.connect(&room, &[&owner.id.to_string(), &first.id.to_string(), "intruder"]);
+    ctx.chat.reconcile_calls().await.unwrap();
+    let removed = livekit.removed_from(&room);
+    assert_eq!(removed.len(), 4, "{removed:?}");
+    assert!(removed[2..].contains(&first.id.to_string()) && removed[2..].contains(&"intruder".to_owned()));
+    let call = get_call(&ctx, &owner, &call_id).await;
+    assert_eq!(call.state, CallState::CALL_STATE_ACTIVE, "the caller is still talking");
+    assert_eq!(state_of(&call, &owner), Some(CallParticipantState::CALL_PARTICIPANT_STATE_JOINED));
+}
+
+#[tokio::test]
+async fn a_removed_member_does_not_watch_the_call_go_on() {
+    let (ctx, _livekit) = start_with_room_service().await;
+    let (group, owner, members) = ctx.group_of("部活", 2).await;
+    let (first, second) = (&members[0], &members[1]);
+    let call_id = start_call(&ctx, &owner, &group.id, false).await.call.id.clone();
+    join(&ctx, first, &call_id).await;
+    let remove =
+        RemoveMemberRequest { conversation_id: group.id.clone(), user_id: first.id.to_string(), ..Default::default() };
+    let _: RemoveMemberResponse = ctx.call("Conversation", "RemoveMember", &owner, &remove).await.unwrap();
+
+    // Who joins the group's call from now on is none of their business.
+    join(&ctx, second, &call_id).await;
+    let get = GetCallRequest { call_id: call_id.clone(), ..Default::default() };
+    assert_eq!(ctx.reason("Call", "GetCall", first, &get).await, "CALL_NOT_FOUND");
+    let history: ListCallsResponse = ctx.call("Call", "ListCalls", first, &ListCallsRequest::default()).await.unwrap();
+    assert!(history.calls.is_empty(), "the live call is not in their history yet");
+
+    // Once it is over it is part of their history like any call they were in.
+    leave(&ctx, second, &call_id).await;
+    assert_eq!(leave(&ctx, &owner, &call_id).await.state, CallState::CALL_STATE_ENDED);
+    let history: ListCallsResponse = ctx.call("Call", "ListCalls", first, &ListCallsRequest::default()).await.unwrap();
+    assert_eq!(history.calls.iter().map(|call| call.id.clone()).collect::<Vec<_>>(), vec![call_id.clone()]);
+    assert_eq!(get_call(&ctx, first, &call_id).await.state, CallState::CALL_STATE_ENDED);
+}
+
+#[tokio::test]
+async fn a_member_removed_while_joining_does_not_stay_in_the_call() {
+    let (ctx, _livekit) = start_with_room_service().await;
+    let mut pairs = Vec::new();
+    for _ in 0..20 {
+        let (group, owner, members) = ctx.group_of("部活", 1).await;
+        let call_id = start_call(&ctx, &owner, &group.id, false).await.call.id.clone();
+        pairs.push((group, owner, members.into_iter().next().unwrap(), call_id));
+    }
+
+    // Each member joins while the owner removes them, at the same moment.
+    let ctx = &ctx;
+    let races = pairs.iter().map(|(group, owner, member, call_id)| async move {
+        let join_request = JoinCallRequest { call_id: call_id.clone(), ..Default::default() };
+        let remove_request = RemoveMemberRequest {
+            conversation_id: group.id.clone(),
+            user_id: member.id.to_string(),
+            ..Default::default()
+        };
+        let join = ctx.call::<_, JoinCallResponse>("Call", "JoinCall", member, &join_request);
+        let remove = ctx.call::<_, RemoveMemberResponse>("Conversation", "RemoveMember", owner, &remove_request);
+        let (_, removed) = tokio::join!(join, remove);
+        removed.expect("the removal goes through");
+    });
+    futures::future::join_all(races).await;
+
+    for (_, owner, member, call_id) in &pairs {
+        let call = get_call(ctx, owner, call_id).await;
+        assert_ne!(
+            state_of(&call, member),
+            Some(CallParticipantState::CALL_PARTICIPANT_STATE_JOINED),
+            "a non-member is in the call"
+        );
+    }
+
+    // Should one slip through anyway, the reconciliation takes them out.
+    let (_, owner, member, call_id) = &pairs[0];
+    let _sweeping = SWEEPS.lock().await;
+    sqlx::query(
+        "INSERT INTO chat_call_participants (call_id, user_id, state, joined_at, rung) VALUES ($1::uuid, $2, 2, now(), false)
+         ON CONFLICT (call_id, user_id) DO UPDATE SET state = 2, joined_at = now()",
+    )
+    .bind(call_id)
+    .bind(member.id)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chat_calls SET created_at = now() - interval '2 minutes' WHERE id = $1::uuid")
+        .bind(call_id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.chat.reconcile_calls().await.unwrap();
+    let call = get_call(ctx, owner, call_id).await;
+    assert_eq!(state_of(&call, member), Some(CallParticipantState::CALL_PARTICIPANT_STATE_LEFT));
 }

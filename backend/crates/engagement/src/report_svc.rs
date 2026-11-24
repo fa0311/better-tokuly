@@ -23,7 +23,7 @@ impl ReportService for Engagement {
             let category = reports::requested_category(request.category)?;
             // Blocks do not stand in the way of a report: whatever the
             // owning domain still shows the caller can be reported.
-            let subject = self.requested_subject_unguarded(request.subject.as_option(), Some(user_id)).await?;
+            let subject = self.requested_subject_for_report(request.subject.as_option(), Some(user_id)).await?;
             let report = Engagement::create_report(self, user_id, &subject, category, &request.text).await?;
             ok(CreateReportResponse { report: report.to_proto().into(), ..Default::default() })
         })

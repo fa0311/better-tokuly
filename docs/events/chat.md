@@ -42,7 +42,7 @@ transaction of the change they describe.
 | `chat.conversation.created` | `{ conversation_id, kind, member_ids }` | A direct conversation was opened or a group created. `kind` is `ConversationKind` as its number. Actor: who did it (none for `Chat::open_direct`). |
 | `chat.member.joined` | `{ conversation_id, user_id, added_by }` | A user was added to a group (also once per initial member of a new group). |
 | `chat.member.left` | `{ conversation_id, user_id, removed_by }` | A user left a group (`removed_by` null), was removed, or lost the membership with their account. |
-| `chat.message.deleted` | `{ message_id, conversation_id, sender_id, deleted_by, moderated }` | A message was deleted for everyone: by its sender, a group owner/admin, moderation (`moderated: true`) or because its last upload was taken down (`deleted_by` null). |
+| `chat.message.deleted` | `{ message_id, conversation_id, sender_id, deleted_by, moderated }` | A message was deleted for everyone: by its sender, a group manager above them (the owner: anyone; an admin: plain members), moderation (`moderated: true`) or because its last upload was taken down (`deleted_by` null). |
 | `chat.call.started` | `{ call_id, conversation_id, started_by, video }` | A call began ringing. |
 | `chat.call.ended` | `{ call_id, conversation_id, end_reason, duration_seconds, participant_ids }` | A call ended. `end_reason` is `CallEndReason` as its number; `participant_ids` are the users who were connected at some point. |
 
@@ -79,7 +79,7 @@ Durable consumer `chat`. Every handler is idempotent.
 Everyone with the conversation open suppresses their own message
 notifications; only accepted members who share their online status
 (`share_online_status`) are *shown* as present. Other keys: `chat:translation:<message>:<language>:<text hash>`
-(cached translations, 24 h) and the rate limits below (`rl:chat-…`).
+(cached translations, 24 h), `chat:reaction-notified:<message>:<user>` (a reaction was notified, 24 h), `chat:reaction-pair:<author>:<user>` (5 min) and the rate limits below (`rl:chat-…`).
 
 ## Realtime pushes
 
@@ -94,7 +94,7 @@ conversation receive nothing from it.
 | `reaction_changed` | members | A reaction was added or removed (with the new count of that emoji). |
 | `read_receipt` | accepted members | A read cursor moved forward (also the sender's, when sending skipped unread messages). A member reading a message *request* only tells their own devices. |
 | `typing` | other accepted members | See bus subjects. |
-| `presence` | accepted members | The set of members shown as present changed (signal, leaving the group, expiry). |
+| `presence` | accepted members, each without the members in a block with them (and nothing at all to someone in a block with whoever changed) | The set of members shown as present changed (signal, leaving the group, expiry). |
 | `conversation_updated` | all members (shared fields, no `viewer`, no `last_message`) or one member (with `viewer`) | Rename, icon, members, read-only; or the recipient's own state: added to a group, role, request accepted, preferences changed on another device. |
 | `conversation_removed` | the member | They left, were removed, hid the conversation or declined the request. |
 | `call` | accepted members | A call started ringing, was answered, gained or lost a participant, or ended. |
@@ -108,8 +108,8 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 |---|---|---|---|
 | `chat.message` | other members | push only | Collapsed per conversation (`chat:<conversation>`). Not sent to members who muted the conversation, who have it open right now (co-presence), who are in a block with the sender (groups), or to a pending/declined message request. Subject `(SUBJECT_TYPE_CHAT_MESSAGE, message)`, `data = { conversation_id, message_id, seq }`, image for media. |
 | `chat.mention` | mentioned members | push only | Same collapse key. A mention by `@handle` gets through a conversation mute; `@all` does not. |
-| `chat.request` | recipient of a message request | inbox + push | Once per request (its first message), not for the following ones. |
-| `chat.reaction` | author of the message | push only | Collapsed per message (`chat-reaction:<message>`); not when muted, present, or blocked. |
+| `chat.request` | recipient of a message request | inbox + push | Once per request (its first message), not for the following ones. Does not quote the message: the inbox entry outlives an unsend or a takedown. |
+| `chat.reaction` | author of the message | push only | Collapsed per message (`chat-reaction:<message>`); not when muted, present, or blocked. Once per reacting person and message within 24 h (`chat:reaction-notified:<message>:<user>`), so switching a reaction off and on does not push again, and at most once per reacting person and author every 5 minutes, whatever message (`chat:reaction-pair:<author>:<user>`). |
 | `chat.group` | users added to a group | inbox + push | Also for the initial members of a new group. |
 | `chat.call` | callees | push only, **urgent** while ringing | Collapsed per call (`chat-call:<call>`). Direct calls and groups of up to 8 members ring (urgent, `data.ringing = true`); larger groups get an ordinary, non-urgent push. Group members who muted the conversation get neither this nor the missed-call notice. A missed call replaces the ringing push with a non-urgent inbox + push notification (`data.missed = true`). |
 | `chat.pov` | the other side of a POV request | inbox + push | `data.event` = `requested` / `answered` / `saved`; collapsed per request (`chat-pov:<request>`). Not when muted or present. |
@@ -123,9 +123,10 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 | job `chat.link_preview` (`LinkPreviewJob { message_id }`) | — | Fetches the preview of a message's first link through `tokuly_media::link_preview` (at most 30 per sender and minute; more links simply get none), stores it and pushes `message_updated` (`LINK_PREVIEW`). Queued when a message with a link is sent or edited. 8 in parallel, 3 attempts. |
 | co-presence sweep | 10 s | Announces members whose presence ran out without a goodbye. |
 | call ringing time-out | 5 s | After `TOKULY_CHAT_RING_SECONDS`: an unanswered direct call ends as `MISSED`; in a group the members who did not answer are marked missed (and notified) while the call stays open. |
-| call reconciliation | 30 s | Lists the participants of each live call's LiveKit room (calls older than a minute); someone marked as joined but not connected 60 s after joining (`CONNECT_GRACE_SECONDS`) has left, which may end the call. Skipped while LiveKit is unreachable. LiveKit webhooks are not used. |
+| call reconciliation | 30 s | Lists the participants of each live call's LiveKit room (calls older than a minute); someone marked as joined but not connected 60 s after joining (`CONNECT_GRACE_SECONDS`) has left, which may end the call, a participant still marked as joined who is no longer an accepted member has left, and anyone connected who is not a joined participant (hung up, removed from the group, back with an old token) is put out of the room. Skipped while LiveKit is unreachable. LiveKit webhooks are not used. |
 | POV expiry | 60 s | Open requests past their 2 h become `EXPIRED`; unsaved answers past their 24 h lose their content (attachments and caption removed, uploads released). |
 | link preview sweep | 5 min | Re-queues links nobody looked up for 2 minutes (a lost job) and gives up on those older than a day. |
+| removed text purge | 1 h | Forgets what edited and unsent messages said (`chat_removed_texts`, kept for reports) 30 days after the edit or deletion. |
 
 ## Media assets
 
@@ -142,7 +143,17 @@ links of private files are renewed on every read.
 
 | Subject type | Resolves when | Owner | Notes |
 |---|---|---|---|
-| `SUBJECT_TYPE_CHAT_MESSAGE` | the viewer is a member of the conversation and can see the message (not deleted, not from before they joined or cleared their history) | the sender (nil UUID for system messages) | For reports only (`interactions_enabled` is false). Path `/chat/<conversation>?message=<id>`; title is the text (or a description of the content). Anonymous viewers and non-members never resolve it. |
+| `SUBJECT_TYPE_CHAT_MESSAGE` | the viewer is a member of the conversation and can see the message (not from before they joined or cleared their history; not declined) and it is not deleted. **For a report** (`resolve_for_report`) a message its sender (or a group manager) deleted still resolves for 30 days after the deletion | the sender (nil UUID for system messages) | For reports only (`interactions_enabled` is false). Path `/chat/<conversation>?message=<id>`; title is the current text (or a description of the content). For a report of a message that was edited or deleted: `[N版] <v1> → <v2> → … → <current or last text>`, each version cut to 80 characters. Anonymous viewers and non-members never resolve it. |
+
+Unsending or editing must not take away the recipients' way to report what
+they received. So the text a message had before each edit (the first 20
+edits; later ones keep nothing and the report title says so), and what it
+said when its sender (or a group manager) deleted it, is kept in
+`chat_removed_texts` for 30 days from that change. Only the report path of
+the subject resolver reads it: bookmarks, previews and everything else see
+the message as it is now. A takedown (moderation, a removed upload) deletes
+every kept version (the report it acted on has the text). The sender's data
+export lists their kept versions (`removed_texts`).
 
 ## Analytics events
 
@@ -157,6 +168,17 @@ group to the people a message addresses (the answered sender, `@mentions`,
 at most 10). `Call` in minutes for every pair of participants of a finished
 call who were connected (the shorter of the two stays; the 12 longest-staying
 participants of a group call).
+
+## LiveKit rooms
+
+A call's room is `tokuly-call-<call id>`; it is created when the call
+starts and deleted when it ends (everyone is disconnected). Join tokens
+(`JoinCall`, `StartCall`) grant joining that one room, publishing and
+subscribing, and must be used within 2 minutes (`JOIN_TOKEN_TTL`). A token
+cannot be revoked, so whoever leaves a call that goes on — hanging up,
+leaving or being removed from the group, a deleted account — is also
+removed from the room (`RemoveParticipant`), and the reconciliation puts
+out anyone who connects again without being a joined participant.
 
 ## Data export
 
@@ -225,6 +247,7 @@ translation cache, or when there is nothing to reply to. Transient failures
 | `chat-search:<user>` | 60 / minute |
 | `chat-pov:<user>` | 30 / hour |
 | `chat-call:<user>` | 20 / 10 minutes |
+| `chat-join:<user>` | 60 / 10 minutes (`JoinCall`) |
 | `chat-ai:<user>` | `TOKULY_AI_HOURLY_LIMIT` / hour |
 | `chat-link:<sender>` | 30 link previews / minute (silently none beyond) |
 | `chat-typing:<user>`, `chat-presence:<user>` | 120 signals / minute each (silently dropped beyond) |

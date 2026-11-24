@@ -150,6 +150,26 @@ async fn co_presence_shows_who_has_the_conversation_open() {
 }
 
 #[tokio::test]
+async fn people_in_a_block_do_not_see_each_other_present() {
+    let ctx = start().await;
+    let (group, owner, members) = ctx.group_of("部活", 2).await;
+    let (blocker, blocked) = (&members[0], &members[1]);
+    ctx.block(blocker, blocked).await;
+    let mut blocker_events = ctx.listen(blocker).await;
+    let mut owner_events = ctx.listen(&owner).await;
+
+    // Like typing: the group is shared, but neither sees the other is here.
+    ctx.chat.handle_conversation_presence(presence(blocked, &group.id, true)).await.unwrap();
+    assert!(presence_sets(&ctx.events(&mut blocker_events).await).is_empty(), "not even that something changed");
+    assert_eq!(presence_sets(&ctx.events(&mut owner_events).await), vec![vec![blocked.id.to_string()]]);
+    assert!(ctx.conversation(blocker, &group.id).await.present_user_ids.is_empty());
+    assert_eq!(ctx.conversation(&owner, &group.id).await.present_user_ids, vec![blocked.id.to_string()]);
+
+    ctx.chat.handle_conversation_presence(presence(blocker, &group.id, true)).await.unwrap();
+    assert_eq!(ctx.conversation(blocked, &group.id).await.present_user_ids, vec![blocked.id.to_string()]);
+}
+
+#[tokio::test]
 async fn hidden_online_status_hides_co_presence_too() {
     let ctx = start().await;
     let (taro, hanako) = ctx.friends("taro", "hanako").await;

@@ -17,9 +17,10 @@ use crate::{
     access::{self, Access, Content, message_not_found},
     content,
     events::{MESSAGE_DELETED, MessageDeleted},
-    model::{ConversationRow, MSG, MentionRef, MessageRow, msg, request},
+    model::{ConversationRow, MSG, MentionRef, MessageRow, msg, removed, request, role},
     render::View,
     send::{Draft, JOB_LINK_PREVIEW, LinkPreviewJob, message_holder},
+    subjects,
 };
 
 /// Uploads a chat message may carry.
@@ -312,6 +313,21 @@ impl Chat {
         let link_url = content::first_url(&text);
         let mentions =
             serde_json::to_value(&mentions).map_err(|e| AppError::internal(anyhow::anyhow!("mentions encode: {e}")))?;
+        let mut tx = self.core.db.begin().await?;
+        // What it said before stays reportable (see `subjects`), for a
+        // bounded number of edits. The row lock orders concurrent edits.
+        sqlx::query("SELECT 1 FROM chat_messages WHERE id = $1 FOR UPDATE").bind(message_id).execute(&mut *tx).await?;
+        sqlx::query(
+            "INSERT INTO chat_removed_texts (message_id, text, reason)
+             SELECT id, text, $2 FROM chat_messages
+             WHERE id = $1 AND deleted_at IS NULL AND text <> ''
+               AND (SELECT count(*) FROM chat_removed_texts WHERE message_id = $1 AND reason = $2) < $3",
+        )
+        .bind(message_id)
+        .bind(removed::EDITED)
+        .bind(subjects::MAX_EDITED_TEXTS)
+        .execute(&mut *tx)
+        .await?;
         // The preview is kept when the link is the same, and fetched again otherwise.
         let updated: MessageRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE chat_messages x SET
@@ -326,9 +342,10 @@ impl Chat {
         .bind(mentions)
         .bind(mention_all)
         .bind(&link_url)
-        .fetch_optional(&self.core.db)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(message_not_found)?;
+        tx.commit().await?;
         self.push_message_updated(&updated, pb::MessageUpdateReason::MESSAGE_UPDATE_REASON_EDITED).await;
         if updated.link_url.is_some() && updated.link_checked_at.is_none() {
             let job = LinkPreviewJob { message_id };
@@ -343,12 +360,17 @@ impl Chat {
     pub(crate) async fn delete_message(&self, user_id: Uuid, message_id: Uuid) -> AppResult<(Access, MessageRow)> {
         let (access, row) = self.message_access(user_id, message_id).await?;
         let own = row.sender_id == Some(user_id);
-        ensure!(
-            own || (access.conv.is_group() && access.me.manages()),
-            denied,
-            "NOT_ALLOWED",
-            "you can only delete your own messages"
-        );
+        // In a group, managers delete the messages of those below them, as
+        // with removing members: the owner anyone's, admins plain members'
+        // (and of people no longer in the group).
+        let outranks = access.conv.is_group() && access.me.manages() && {
+            let author_role = match row.sender_id {
+                Some(author) => access::find_member(&self.core, row.conversation_id, author).await?.map(|m| m.role),
+                None => None,
+            };
+            access.me.role > author_role.unwrap_or(role::MEMBER)
+        };
+        ensure!(own || outranks, denied, "NOT_ALLOWED", "you can only delete your own messages");
         ensure!(
             !matches!(row.kind, msg::SYSTEM | msg::CALL | msg::POV_REQUEST),
             precondition,
@@ -379,7 +401,29 @@ impl Chat {
         .bind(message_id)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some(row) = row.filter(|row| !row.is_deleted()) else { return Ok(None) };
+        // Unsending must not take the recipients' way to report what they
+        // received: what it said is kept for that (see `subjects`). A
+        // takedown (moderation, a removed upload) keeps nothing, and forgets
+        // what was kept before: the report it acted on has the text.
+        let takedown = moderated || deleted_by.is_none();
+        if takedown {
+            sqlx::query("DELETE FROM chat_removed_texts WHERE message_id = $1")
+                .bind(message_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        let Some(row) = row.filter(|row| !row.is_deleted()) else {
+            tx.commit().await?;
+            return Ok(None);
+        };
+        if !takedown && row.sender_id.is_some() {
+            sqlx::query("INSERT INTO chat_removed_texts (message_id, text, reason) VALUES ($1, $2, $3)")
+                .bind(message_id)
+                .bind(subjects::reported_text(&row))
+                .bind(removed::DELETED)
+                .execute(&mut *tx)
+                .await?;
+        }
         if row.counts_as_unread() {
             let mentioned: Vec<Uuid> = row.mentions().iter().map(|mention| mention.user_id).collect();
             sqlx::query(

@@ -415,14 +415,115 @@ async fn messages_are_subjects_for_the_members_who_can_see_them() {
             "Message",
             "DeleteMessage",
             &owner,
-            &DeleteMessageRequest { message_id: message.id.clone(), ..Default::default() },
+            &DeleteMessageRequest { message_id: with_photo.message.id.clone(), ..Default::default() },
         )
         .await
         .unwrap();
+    let info = subjects.resolve_for_report(chat_message, &with_photo.message.id, Some(member.id)).await.unwrap();
+    assert_eq!(info.title, "📷 写真を送信しました");
+    assert!(info.image_url.is_none(), "the upload itself is released");
     assert_eq!(
-        subjects.resolve(chat_message, &message.id, Some(member.id)).await.unwrap_err().reason,
+        subjects.resolve(chat_message, &with_photo.message.id, Some(member.id)).await.unwrap_err().reason,
+        "SUBJECT_NOT_FOUND",
+        "gone for everything but a report"
+    );
+}
+
+#[tokio::test]
+async fn what_was_unsent_or_edited_can_still_be_reported() {
+    let ctx = start().await;
+    let (taro, hanako) = ctx.friends("taro", "hanako").await;
+    let direct = ctx.direct(&taro, &hanako).await;
+    let subjects = &ctx.app.core.subjects;
+    let chat_message = SubjectType::SUBJECT_TYPE_CHAT_MESSAGE;
+    let delete = |message_id: &str| DeleteMessageRequest { message_id: message_id.to_owned(), ..Default::default() };
+    let edit = |message_id: &str, text: &str| EditMessageRequest {
+        message_id: message_id.to_owned(),
+        text: text.to_owned(),
+        ..Default::default()
+    };
+
+    // Unsending does not take away the recipient's way to report what they received…
+    let insult = ctx.text(&taro, &direct.id, "おまえなんか大嫌いだ").await;
+    let _: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &taro, &delete(&insult.id)).await.unwrap();
+    assert!(ctx.message(&hanako, &insult.id).await.text.is_empty(), "gone from the conversation");
+    let info = subjects.resolve_for_report(chat_message, &insult.id, Some(hanako.id)).await.unwrap();
+    assert_eq!((info.owner_id, info.title.as_str()), (taro.id, "おまえなんか大嫌いだ"));
+    let outsider = ctx.app.user("outsider").await;
+    assert_eq!(
+        subjects.resolve_for_report(chat_message, &insult.id, Some(outsider.id)).await.unwrap_err().reason,
+        "SUBJECT_NOT_FOUND",
+        "only for the people it reached"
+    );
+    // …and for anything but a report (bookmarks, previews) it is gone.
+    assert_eq!(
+        subjects.resolve(chat_message, &insult.id, Some(hanako.id)).await.unwrap_err().reason,
         "SUBJECT_NOT_FOUND"
     );
+
+    // Every version an edit replaced is in the report, the middle ones too;
+    // anything else sees only what the message says now.
+    let edited = ctx.text(&taro, &direct.id, "おはよう").await;
+    let _: EditMessageResponse =
+        ctx.call("Message", "EditMessage", &taro, &edit(&edited.id, "ばか！死ね")).await.unwrap();
+    let _: EditMessageResponse =
+        ctx.call("Message", "EditMessage", &taro, &edit(&edited.id, "なんでもない")).await.unwrap();
+    let info = subjects.resolve_for_report(chat_message, &edited.id, Some(hanako.id)).await.unwrap();
+    assert_eq!(info.title, "[3版] おはよう → ばか！死ね → なんでもない");
+    assert_eq!(subjects.resolve(chat_message, &edited.id, Some(hanako.id)).await.unwrap().title, "なんでもない");
+
+    // Only so many versions are kept per message.
+    let busy = ctx.text(&taro, &direct.id, "版0").await;
+    for index in 1..=25 {
+        let _: EditMessageResponse =
+            ctx.call("Message", "EditMessage", &taro, &edit(&busy.id, &format!("版{index}"))).await.unwrap();
+    }
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_removed_texts WHERE message_id = $1::uuid")
+        .bind(&busy.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(kept, 20);
+    let title = subjects.resolve_for_report(chat_message, &busy.id, Some(hanako.id)).await.unwrap().title;
+    assert!(title.starts_with("[21版] 版0 → 版1 →") && title.ends_with("記録なし） → 版25"), "{title}");
+
+    // A takedown forgets every kept version.
+    let moderator = ctx.app.user_with_roles("moderator", &["moderator"]).await;
+    let removal = event(
+        "admin.content.removed",
+        serde_json::json!({ "subject_type": chat_message as i32, "subject_id": edited.id, "reason": "暴言", "moderator_id": moderator.id }),
+    );
+    ctx.chat.handle_event(&removal).await.unwrap();
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_removed_texts WHERE message_id = $1::uuid")
+        .bind(&edited.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(kept, 0);
+
+    // What was kept for reports is not kept forever, counted from the removal.
+    sqlx::query("UPDATE chat_messages SET created_at = now() - interval '90 days' WHERE id = $1::uuid")
+        .bind(&insult.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert!(subjects.resolve_for_report(chat_message, &insult.id, Some(hanako.id)).await.is_ok(), "removed just now");
+    sqlx::query("UPDATE chat_removed_texts SET removed_at = now() - interval '31 days' WHERE message_id = $1::uuid")
+        .bind(&insult.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        subjects.resolve_for_report(chat_message, &insult.id, Some(hanako.id)).await.unwrap_err().reason,
+        "SUBJECT_NOT_FOUND"
+    );
+    ctx.chat.purge_removed_texts().await.unwrap();
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_removed_texts WHERE message_id = $1::uuid")
+        .bind(&insult.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(kept, 0);
 }
 
 #[tokio::test]
@@ -456,6 +557,15 @@ async fn the_data_export_has_a_chat_section() {
     assert_eq!(export["reactions"][0]["emoji"], "❤️");
     assert_eq!(export["pov_requests"][0]["requested_by_me"], true);
     assert_eq!(export["calls"], serde_json::json!([]));
+
+    // What the user's own messages said before an edit or an unsend, while it is kept.
+    let mine = ctx.text(&taro, &direct.id, "書き直す前").await;
+    let edit = EditMessageRequest { message_id: mine.id.clone(), text: "書き直した".into(), ..Default::default() };
+    let _: EditMessageResponse = ctx.call("Message", "EditMessage", &taro, &edit).await.unwrap();
+    let export = exporter.export(taro.id).await.unwrap();
+    assert_eq!(export["removed_texts"][0]["text"], "書き直す前");
+    assert_eq!(export["removed_texts"][0]["reason"], "edited");
+    assert_eq!(exporter.export(hanako.id).await.unwrap()["removed_texts"], serde_json::json!([]));
 }
 
 #[tokio::test]

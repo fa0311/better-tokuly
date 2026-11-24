@@ -66,6 +66,16 @@ pub(crate) struct CallChange {
     pub call: CallRow,
     /// The call's timeline entry changed (answered, ended).
     pub summary_changed: bool,
+    /// LiveKit identities to disconnect from the room of a call that goes
+    /// on: people who left it or lost their place in it. (A join token
+    /// cannot be revoked; whoever still holds a connection is put out.)
+    pub kicked: Vec<String>,
+}
+
+impl CallChange {
+    fn new(call: CallRow, summary_changed: bool) -> Self {
+        Self { call, summary_changed, kicked: Vec::new() }
+    }
 }
 
 /// What [`settle`] decides about a live call.
@@ -183,8 +193,9 @@ impl Chat {
         .await?)
     }
 
-    /// A call the caller may know about: they took part in it, or they are
-    /// a member of its conversation.
+    /// A call the caller may know about: they are an accepted member of its
+    /// conversation, or they took part in it and it is over. (Someone who
+    /// left or was removed from a group does not watch its live call go on.)
     pub(crate) async fn call_for(&self, user_id: Uuid, call_id: Uuid) -> AppResult<CallRow> {
         let call: CallRow =
             sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {CALL} FROM chat_calls k WHERE k.id = $1")))
@@ -193,13 +204,14 @@ impl Chat {
                 .await?
                 .ok_or_else(call_not_found)?;
         let visible: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM chat_call_participants WHERE call_id = $1 AND user_id = $2)
+            "SELECT ($5 AND EXISTS (SELECT 1 FROM chat_call_participants WHERE call_id = $1 AND user_id = $2))
                  OR EXISTS (SELECT 1 FROM chat_members WHERE conversation_id = $3 AND user_id = $2 AND request_state = $4)",
         )
         .bind(call_id)
         .bind(user_id)
         .bind(call.conversation_id)
         .bind(request::ACCEPTED)
+        .bind(!call.is_live())
         .fetch_one(&self.core.db)
         .await?;
         if visible { Ok(call) } else { Err(call_not_found()) }
@@ -261,7 +273,8 @@ impl Chat {
             .collect())
     }
 
-    /// The caller's call history, newest first.
+    /// The caller's call history, newest first: the calls they took part
+    /// in, a live one only while they are still in its conversation.
     pub(crate) async fn list_calls(
         &self,
         user_id: Uuid,
@@ -272,6 +285,8 @@ impl Chat {
         let mut rows: Vec<CallRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {CALL} FROM chat_call_participants p JOIN chat_calls k ON k.id = p.call_id
              WHERE p.user_id = $1 AND (NOT $2 OR p.state = $3) AND ($4::uuid IS NULL OR p.call_id < $4)
+               AND (k.state = $6 OR EXISTS (
+                   SELECT 1 FROM chat_members m WHERE m.conversation_id = k.conversation_id AND m.user_id = $1 AND m.request_state = $7))
              ORDER BY p.call_id DESC LIMIT $5"
         )))
         .bind(user_id)
@@ -279,6 +294,8 @@ impl Chat {
         .bind(party::MISSED)
         .bind(before)
         .bind(page.fetch())
+        .bind(call::ENDED)
+        .bind(request::ACCEPTED)
         .fetch_all(&self.core.db)
         .await?;
         let info = page.finish(&mut rows, |call| call.id);
@@ -434,9 +451,21 @@ impl Chat {
             return Err(call_not_found());
         }
         self.ensure_writable(&access).await?;
+        // Every join hands out a token and tells the others.
+        self.core.cache.rate_limit(&format!("chat-join:{user_id}"), 60, Duration::from_secs(600)).await?;
         let me = tokuly_identity::summary(&self.core, user_id).await?;
 
         let mut tx = self.core.db.begin().await?;
+        // The lock removals take: someone removed while joining is either
+        // removed after joining (and put out) or finds themselves gone here.
+        let conv = access::lock_conversation(&mut tx, call.conversation_id).await?;
+        let still_member = access::member_in_tx(&mut tx, conv.id, user_id).await?.is_some_and(|me| me.is_accepted());
+        if !still_member {
+            return Err(call_not_found());
+        }
+        if conv.read_only {
+            return Err(access::read_only());
+        }
         let call = lock_call(&mut tx, call_id).await?;
         if !call.is_live() {
             return Err(call_ended());
@@ -465,7 +494,7 @@ impl Chat {
             call
         };
         tx.commit().await?;
-        self.after_call_change(&CallChange { call: call.clone(), summary_changed: answers }).await;
+        self.after_call_change(&CallChange::new(call.clone(), answers)).await;
         let credentials = self.credentials(livekit, &call, user_id, &notices::name_of(&me))?;
         Ok((call, credentials))
     }
@@ -524,8 +553,10 @@ impl Chat {
             .execute(&mut *tx)
             .await?;
         }
-        let change = self.settle_call(&mut tx, call).await?;
+        let mut change = self.settle_call(&mut tx, call).await?;
         tx.commit().await?;
+        // Hanging up is leaving the room, whatever the app still holds.
+        change.kicked.push(user_id.to_string());
         self.after_call_change(&change).await;
         Ok(change.call)
     }
@@ -552,7 +583,7 @@ impl Chat {
             ringing: participants.iter().filter(|(_, state, _)| *state == party::RINGING).count(),
         };
         match settle(facts) {
-            Verdict::Continue => Ok(CallChange { call, summary_changed: false }),
+            Verdict::Continue => Ok(CallChange::new(call, false)),
             Verdict::End(reason) => self.finish_call(tx, &call, reason).await,
         }
     }
@@ -598,7 +629,7 @@ impl Chat {
             participant_ids,
         };
         events::emit(&mut **tx, CALL_ENDED, call.started_by, &payload).await?;
-        Ok(CallChange { call: ended, summary_changed: true })
+        Ok(CallChange::new(ended, true))
     }
 
     /// Turns everyone still being rung into "missed" and requests their
@@ -654,19 +685,27 @@ impl Chat {
         user_id: Uuid,
     ) -> AppResult<Option<CallChange>> {
         let Some(call) = self.lock_live_call(tx, conv.id).await? else { return Ok(None) };
-        if !mark_left(tx, call.id, user_id).await? {
-            let withdrawn = sqlx::query("UPDATE chat_call_participants SET state = $3, rung = false WHERE call_id = $1 AND user_id = $2 AND state = $4")
+        let was_joined = mark_left(tx, call.id, user_id).await?;
+        // Someone still being rung is no longer waited for.
+        let was_rung = if was_joined {
+            false
+        } else {
+            sqlx::query("UPDATE chat_call_participants SET state = $3, rung = false WHERE call_id = $1 AND user_id = $2 AND state = $4")
                 .bind(call.id)
                 .bind(user_id)
                 .bind(party::LEFT)
                 .bind(party::RINGING)
                 .execute(&mut **tx)
-                .await?;
-            if withdrawn.rows_affected() == 0 {
-                return Ok(None);
-            }
-        }
-        Ok(Some(self.settle_call(tx, call).await?))
+                .await?
+                .rows_affected()
+                > 0
+        };
+        let mut change =
+            if was_joined || was_rung { self.settle_call(tx, call).await? } else { CallChange::new(call, false) };
+        // Whatever the database says (they may have hung up and stayed
+        // connected), they must not stay in the room.
+        change.kicked.push(user_id.to_string());
+        Ok(Some(change))
     }
 
     /// Ends the live call of a conversation nobody can talk in any more.
@@ -720,6 +759,13 @@ impl Chat {
             self.push_message_updated_by_id(message_id, pb::MessageUpdateReason::MESSAGE_UPDATE_REASON_CALL).await;
         }
         if call.is_live() {
+            if let Some(livekit) = &self.livekit {
+                for identity in &change.kicked {
+                    if let Err(e) = livekit.remove_participant(&call.room, identity).await {
+                        tracing::warn!(call_id = %call.id, error = %e, "participant could not be put out of the LiveKit room");
+                    }
+                }
+            }
             return;
         }
         if let Some(livekit) = &self.livekit {
@@ -797,8 +843,11 @@ impl Chat {
 
     /// Compares live calls with LiveKit: a participant marked as joined who
     /// has not been connected for [`CONNECT_GRACE_SECONDS`] has left (their
-    /// app crashed or lost its connection), which may end the call. Returns
-    /// how many calls changed. Does nothing when LiveKit cannot be reached.
+    /// app crashed or lost its connection), which may end the call; anyone
+    /// connected who is not a joined participant (they left, lost their
+    /// place, or came back with an old token) is put out of the room.
+    /// Returns how many calls changed. Does nothing when LiveKit cannot be
+    /// reached.
     pub async fn reconcile_calls(&self) -> AppResult<usize> {
         let Some(livekit) = &self.livekit else { return Ok(0) };
         let live: Vec<CallRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -810,18 +859,46 @@ impl Chat {
         .await?;
         let mut changed = 0;
         for call in live {
-            let connected: Vec<Uuid> = match livekit.list_participants(&call.room).await {
-                Ok(identities) => identities.iter().filter_map(|identity| Uuid::parse_str(identity).ok()).collect(),
+            let identities = match livekit.list_participants(&call.room).await {
+                Ok(identities) => identities,
                 Err(e) => {
                     tracing::warn!(call_id = %call.id, error = %e, "call could not be reconciled with LiveKit");
                     continue;
                 }
             };
+            let connected: Vec<Uuid> =
+                identities.iter().filter_map(|identity| Uuid::parse_str(identity).ok()).collect();
             let mut tx = self.core.db.begin().await?;
             let call = lock_call(&mut tx, call.id).await?;
             if !call.is_live() {
                 continue;
             }
+            // Joined, but no longer an accepted member (a removal that raced
+            // with the join): out of the call.
+            let lost = sqlx::query(
+                "UPDATE chat_call_participants p SET
+                     state = $2, left_at = now(), seconds = seconds + GREATEST(extract(epoch FROM now() - joined_at)::int, 0)
+                 WHERE p.call_id = $1 AND p.state = $3 AND NOT EXISTS (
+                     SELECT 1 FROM chat_members m WHERE m.conversation_id = $4 AND m.user_id = p.user_id AND m.request_state = $5)",
+            )
+            .bind(call.id)
+            .bind(party::LEFT)
+            .bind(party::JOINED)
+            .bind(call.conversation_id)
+            .bind(request::ACCEPTED)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+            let joined: Vec<Uuid> =
+                sqlx::query_scalar("SELECT user_id FROM chat_call_participants WHERE call_id = $1 AND state = $2")
+                    .bind(call.id)
+                    .bind(party::JOINED)
+                    .fetch_all(&mut *tx)
+                    .await?;
+            let strangers: Vec<String> = identities
+                .into_iter()
+                .filter(|identity| Uuid::parse_str(identity).map_or(true, |user_id| !joined.contains(&user_id)))
+                .collect();
             let gone = sqlx::query(
                 "UPDATE chat_call_participants SET
                      state = $2, left_at = now(), seconds = seconds + GREATEST(extract(epoch FROM now() - joined_at)::int, 0)
@@ -834,11 +911,18 @@ impl Chat {
             .bind(&connected)
             .execute(&mut *tx)
             .await?;
-            if gone.rows_affected() == 0 {
+            if gone.rows_affected() + lost == 0 {
+                drop(tx);
+                for identity in &strangers {
+                    if let Err(e) = livekit.remove_participant(&call.room, identity).await {
+                        tracing::warn!(call_id = %call.id, error = %e, "participant could not be put out of the LiveKit room");
+                    }
+                }
                 continue;
             }
-            let change = self.settle_call(&mut tx, call).await?;
+            let mut change = self.settle_call(&mut tx, call).await?;
             tx.commit().await?;
+            change.kicked = strangers;
             self.after_call_change(&change).await;
             changed += 1;
         }
