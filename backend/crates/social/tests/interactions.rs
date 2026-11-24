@@ -532,6 +532,13 @@ async fn knocks_reactions_and_views_have_limits_per_sender_and_recipient() {
     }
     assert_eq!(react(&friends[0]).await.unwrap_err().reason, "RATE_LIMITED");
     react(&friends[1]).await.unwrap();
+    // A throw at a gathering that includes a friend at the limit is refused
+    // as a whole and counts against nobody.
+    let gathering = reaction_to(&[&friends[0], &friends[1]], MapReactionKind::MAP_REACTION_KIND_HEARTS);
+    let refused = ctx.interact::<_, SendMapReactionResponse>("SendMapReaction", &alice, &gathering).await.unwrap_err();
+    assert_eq!(refused.reason, "RATE_LIMITED");
+    let counted: Option<i64> = redis::cmd("GET").arg(format!("rl:map-reaction:{}:{}", alice.id, friends[1].id)).query_async(&mut ctx.app.core.cache.conn()).await.unwrap();
+    assert_eq!(counted, Some(1), "only the one reaction that went through");
 
     // Map views: 120 different pins a minute.
     let viewer = ctx.app.user("viewer").await;
@@ -551,4 +558,7 @@ async fn knocks_reactions_and_views_have_limits_per_sender_and_recipient() {
     }
     view(crowd[0]).await.unwrap(); // the same pin again is the same look
     assert_eq!(view(crowd[120]).await.unwrap_err().reason, "RATE_LIMITED");
+    // The refused look is not marked as seen, so a retry later still counts.
+    let marked = ctx.app.core.cache.exists(&format!("social:map-view:{}:{}", viewer.id.simple(), crowd[120].simple())).await.unwrap();
+    assert!(!marked);
 }

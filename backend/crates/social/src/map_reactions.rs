@@ -79,6 +79,36 @@ impl Reaction {
     }
 }
 
+/// Counts one reaction to each recipient against the per-recipient limit,
+/// all or nothing: when any of them is at the limit nothing is counted, so a
+/// refused throw at a gathering does not use up the others' allowance.
+const COUNT_EACH_OR_NONE: &str = r"
+for _, key in ipairs(KEYS) do
+    if tonumber(redis.call('GET', key) or '0') >= tonumber(ARGV[1]) then
+        return 0
+    end
+end
+for _, key in ipairs(KEYS) do
+    if redis.call('INCR', key) == 1 then
+        redis.call('EXPIRE', key, ARGV[2])
+    end
+end
+return 1";
+
+async fn ensure_room_for_each(core: &Core, user_id: Uuid, recipients: &[Uuid]) -> AppResult<()> {
+    if !core.cfg.rate_limits {
+        return Ok(());
+    }
+    let script = redis::Script::new(COUNT_EACH_OR_NONE);
+    let mut script = script.prepare_invoke();
+    for recipient in recipients {
+        script.key(format!("rl:map-reaction:{user_id}:{recipient}"));
+    }
+    let counted: i64 = script.arg(MAX_PER_RECIPIENT_PER_MINUTE).arg(60).invoke_async(&mut core.cache.conn()).await?;
+    ensure!(counted == 1, rate_limited, "RATE_LIMITED", "too many reactions to this friend, slow down");
+    Ok(())
+}
+
 #[derive(Debug, sqlx::FromRow)]
 struct ReactionRow {
     id: Uuid,
@@ -134,11 +164,7 @@ impl Social {
             .await?;
         ensure!(friends as usize == recipients.len(), precondition, "NOT_FRIENDS", "map reactions can only be sent to friends");
         core.cache.rate_limit(&format!("map-reaction:{user_id}"), 120, Duration::from_secs(60)).await?;
-        futures::future::try_join_all(recipients.iter().map(|recipient| {
-            let key = format!("map-reaction:{user_id}:{recipient}");
-            async move { core.cache.rate_limit(&key, MAX_PER_RECIPIENT_PER_MINUTE, Duration::from_secs(60)).await }
-        }))
-        .await?;
+        ensure_room_for_each(core, user_id, &recipients).await?;
 
         let me = tokuly_identity::summary(core, user_id).await?;
         let text = copy::map_reaction(&people::name_of(&me), reaction.kind, &reaction.emoji);

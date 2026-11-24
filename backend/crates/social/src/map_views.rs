@@ -26,12 +26,17 @@ impl Social {
         let core = &self.core;
         self.require_friend(viewer, viewed).await?;
         // Opening and closing a pin repeatedly is one look, not twenty.
-        let first_in_a_while = core.cache.set_nx(&format!("social:map-view:{}:{}", viewer.simple(), viewed.simple()), "1", VIEW_DEDUPE).await?;
-        if !first_in_a_while {
+        let dedupe = format!("social:map-view:{}:{}", viewer.simple(), viewed.simple());
+        if core.cache.exists(&dedupe).await? {
             return Ok(());
         }
-        // Every new look is a row and a push to the friend looked at.
+        // Every new look is a row and a push to the friend looked at. The
+        // limit comes before the look is marked, so a refused look is not
+        // swallowed by the de-duplication when it is retried.
         core.cache.rate_limit(&format!("map-view:{viewer}"), MAX_VIEWS_PER_MINUTE, Duration::from_secs(60)).await?;
+        if !core.cache.set_nx(&dedupe, "1", VIEW_DEDUPE).await? {
+            return Ok(()); // an identical request got there first
+        }
         sqlx::query("INSERT INTO map_views (viewed_id, viewer_id) VALUES ($1, $2)").bind(viewed).bind(viewer).execute(&core.db).await?;
         if let Err(e) = graph::record_interaction(core, viewer, viewed, InteractionKind::MapView, 1).await {
             tracing::warn!(error = %e, "map view not counted towards the best-friend ranking");
