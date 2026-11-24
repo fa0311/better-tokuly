@@ -55,7 +55,7 @@ is idempotent.
 
 | Topic | Reaction |
 |---|---|
-| `identity.user.deleted` `{ user_id }` | Deletes the user's notes and stories with everything on them (uploads released, search documents removed, hashtag counts put right, `notes.note.deleted` / `notes.story.deleted` with reason `account_deleted`), their likes, renotes, story views and reactions (the counters they added go down again), their highlights and rules agreement, and takes them out of other people's mentions and close-friends audiences. Replies other people wrote to the erased notes stay and show what they answered as unavailable. |
+| `identity.user.deleted` `{ user_id }` | Deletes the user's notes and stories with everything on them (uploads released, search documents removed, hashtag counts put right, `notes.note.deleted` / `notes.story.deleted` with reason `account_deleted`), their likes, renotes, story views and reactions (the counters they added go down again), their highlights and rules agreement, and takes them out of other people's mentions, delivery records (`note_recipients`) and close-friends audiences. Replies other people wrote to the erased notes stay and show what they answered as unavailable. |
 | `admin.content.removed` `{ subject_type, subject_id, reason, moderator_id }` | `SUBJECT_TYPE_NOTE` / `SUBJECT_TYPE_STORY`: the content is deleted like its author would delete it (reason `moderation`, actor = the moderator). Nobody is notified here: the admin domain tells the owner. Unknown or already removed subjects and other subject types are ignored. |
 | `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions (notes and stories hold their uploads, so owners cannot delete those and the janitor leaves them alone). The picture or video is taken out of the notes and stories that show it; a note left with nothing (no text, no stamp, no other media) and a story left without items are deleted (reason `media_deleted`). Public notes get a fresh search document. |
 | `social.user.blocked` `{ user_id, blocked_id }` | Nothing has to be hidden (every read asks the social domain who is blocked). The handler removes the one standing grant between the two: being among the chosen friends of the other's close-friends stories. |
@@ -119,6 +119,12 @@ each person at most once per note (reply, then quote, then mention).
 ## Subjects, profiles, export
 
 - `SUBJECT_TYPE_NOTE` and `SUBJECT_TYPE_STORY` resolvers, visibility-aware.
+  For reports (`resolve_for_report`) they also resolve what reached the
+  reporter before it was hidden from them (made private, a block, an
+  expired story), so withdrawing does not take away the report: a public
+  note, a note they were told about (reply, quote or mention notification,
+  kept in `note_recipients`), a note they liked or renoted, a story they
+  watched.
   Notes: `interactions_enabled = true` (likes and replies are native; the
   generic domains add emoji reactions, bookmarks, shares and reports).
   Stories: `false` (own reactions; replies are DMs), still reportable.

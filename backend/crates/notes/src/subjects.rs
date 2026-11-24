@@ -15,8 +15,8 @@ use tokuly_proto::{common::SubjectType, identity::Profile};
 
 use crate::{
     Notes,
-    model::{note_path, story_path},
-    visibility::{Viewer, sees_note},
+    model::{NOTE_COLUMNS, NoteRow, STORY_COLUMNS, StoryRow, note_path, story_path},
+    visibility::{PUBLIC, Viewer, sees_note},
 };
 
 /// Registers the resolvers, the exporter and the profile extension. Called
@@ -40,19 +40,46 @@ impl SubjectResolver for NoteSubjects {
         let Ok(note_id) = Uuid::parse_str(id) else { return Ok(None) };
         let viewer = Viewer::load(&self.0.core, viewer).await?;
         let Some(note) = self.0.find_note(&viewer, note_id).await? else { return Ok(None) };
-        Ok(Some(SubjectInfo {
-            id: note.id,
-            owner_id: note.author_id,
-            title: note.title(),
-            path: note_path(note.id),
-            image_url: note.image_url().filter(|_| !note.content_warning),
-            // Likes and replies are the notes domain's own; what the generic
-            // domains add on top (emoji reactions, bookmarks, shares) is welcome.
-            interactions_enabled: true,
-        }))
+        Ok(Some(note_info(&note)))
+    }
+
+    /// A note stays reportable by someone it reached after it was hidden
+    /// from them — made private, or behind a block — so withdrawing what
+    /// was already delivered does not take away the report. It reached
+    /// them when it is public (anyone can read it signed out), when they
+    /// were told about it (a reply, quote or mention notification), or when
+    /// they liked or renoted it.
+    async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
+        if let Some(info) = self.resolve(id, viewer).await? {
+            return Ok(Some(info));
+        }
+        let (Ok(note_id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
+        let sql = format!(
+            "SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id = $1 AND n.author_id <> $2 AND (
+                 n.visibility = {PUBLIC}
+                 OR EXISTS (SELECT 1 FROM note_recipients r WHERE r.note_id = n.id AND r.user_id = $2)
+                 OR EXISTS (SELECT 1 FROM note_likes l WHERE l.note_id = n.id AND l.user_id = $2)
+                 OR EXISTS (SELECT 1 FROM note_renotes r WHERE r.note_id = n.id AND r.user_id = $2))"
+        );
+        let note: Option<NoteRow> =
+            sqlx::query_as(sqlx::AssertSqlSafe(sql)).bind(note_id).bind(viewer).fetch_optional(&self.0.core.db).await?;
+        Ok(note.as_ref().map(note_info))
     }
     // No `counter_changed`: a note's own counters (replies, likes, renotes,
     // quotes, views) are all kept by this domain.
+}
+
+fn note_info(note: &NoteRow) -> SubjectInfo {
+    SubjectInfo {
+        id: note.id,
+        owner_id: note.author_id,
+        title: note.title(),
+        path: note_path(note.id),
+        image_url: note.image_url().filter(|_| !note.content_warning),
+        // Likes and replies are the notes domain's own; what the generic
+        // domains add on top (emoji reactions, bookmarks, shares) is welcome.
+        interactions_enabled: true,
+    }
 }
 
 /// Stories as subjects, for reports and for linking notifications. A story
@@ -69,14 +96,37 @@ impl SubjectResolver for StorySubjects {
             Err(error) if error.is_not_found() => return Ok(None),
             Err(error) => return Err(error),
         };
-        Ok(Some(SubjectInfo {
-            id: story.id,
-            owner_id: story.owner_id,
-            title: story.title_or_default(),
-            path: story_path(story.id),
-            image_url: story.cover().map(|cover| cover.url).filter(|url| !url.is_empty()),
-            interactions_enabled: false,
-        }))
+        Ok(Some(story_info(&story)))
+    }
+
+    /// A story someone watched stays reportable by them after its day is
+    /// over, after a block, or after they were taken off its audience.
+    async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
+        if let Some(info) = self.resolve(id, viewer).await? {
+            return Ok(Some(info));
+        }
+        let (Ok(story_id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
+        let sql = format!(
+            "SELECT {STORY_COLUMNS} FROM stories s WHERE s.id = $1 AND s.owner_id <> $2
+               AND EXISTS (SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = $2)"
+        );
+        let story: Option<StoryRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(story_id)
+            .bind(viewer)
+            .fetch_optional(&self.0.core.db)
+            .await?;
+        Ok(story.as_ref().map(story_info))
+    }
+}
+
+fn story_info(story: &StoryRow) -> SubjectInfo {
+    SubjectInfo {
+        id: story.id,
+        owner_id: story.owner_id,
+        title: story.title_or_default(),
+        path: story_path(story.id),
+        image_url: story.cover().map(|cover| cover.url).filter(|url| !url.is_empty()),
+        interactions_enabled: false,
     }
 }
 

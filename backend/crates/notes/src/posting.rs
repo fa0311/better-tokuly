@@ -463,6 +463,15 @@ impl Notes {
                 readers.push(*user_id);
             }
         }
+        // Each of them is told (below), so each received the note: they can
+        // report it even after it is hidden from them (see `subjects`).
+        if !readers.is_empty() {
+            sqlx::query("INSERT INTO note_recipients (note_id, user_id) SELECT $1, * FROM unnest($2::uuid[]) ON CONFLICT DO NOTHING")
+                .bind(note.id)
+                .bind(&readers)
+                .execute(&mut *tx)
+                .await?;
+        }
         let mut tell = |user_id: Uuid| {
             let position = readers.iter().position(|reader| *reader == user_id)?;
             Some(readers.swap_remove(position))

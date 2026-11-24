@@ -87,6 +87,66 @@ async fn notes_and_stories_resolve_as_subjects_for_those_who_may_see_them() {
 }
 
 #[tokio::test]
+async fn what_reached_someone_stays_reportable_after_it_was_hidden_from_them() {
+    let ctx = start().await;
+    let (mallory, victim, bystander, friend) = (
+        ctx.member("mallory").await,
+        ctx.member("victim").await,
+        ctx.member("bystander").await,
+        ctx.member("friend").await,
+    );
+    let subjects = &ctx.app.core.subjects;
+    let note_type = SubjectType::SUBJECT_TYPE_NOTE;
+    let reportable = |kind: SubjectType, id: String, viewer: Uuid| async move {
+        subjects.resolve_for_report(kind, &id, Some(viewer)).await.map(|info| info.owner_id)
+    };
+
+    // A mention, then the note is made private: the person named in it
+    // received it and can still report it; nobody else can.
+    let abuse = ctx.post(&mallory, &format!("@{} ひどいこと", victim.handle)).await;
+    let _: SetNoteVisibilityResponse = ctx
+        .note(
+            "SetNoteVisibility",
+            Some(&mallory),
+            &SetNoteVisibilityRequest {
+                note_id: abuse.id.clone(),
+                visibility: Visibility::VISIBILITY_PRIVATE.into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(subjects.resolve(note_type, &abuse.id, Some(victim.id)).await.is_err(), "hidden from the victim");
+    assert_eq!(reportable(note_type, abuse.id.clone(), victim.id).await.unwrap(), mallory.id);
+    assert_eq!(
+        reportable(note_type, abuse.id.clone(), bystander.id).await.unwrap_err().reason,
+        "SUBJECT_NOT_FOUND",
+        "a private note never reached the bystander"
+    );
+
+    // A public note stays reportable after the reader blocked its author.
+    let public = ctx.post(&mallory, "public words").await;
+    ctx.block(&victim, &mallory).await;
+    assert!(subjects.resolve(note_type, &public.id, Some(victim.id)).await.is_err());
+    assert_eq!(reportable(note_type, public.id.clone(), victim.id).await.unwrap(), mallory.id);
+
+    // A story that was watched stays reportable after its day is over.
+    ctx.befriend(&mallory, &friend).await;
+    ctx.befriend(&mallory, &bystander).await;
+    let story = ctx.post_story(&mallory, "ひどい記憶").await;
+    ctx.watch(&friend, &story).await;
+    ctx.age_story(&story, 48).await;
+    let story_type = SubjectType::SUBJECT_TYPE_STORY;
+    assert!(subjects.resolve(story_type, &story.id, Some(friend.id)).await.is_err(), "expired");
+    assert_eq!(reportable(story_type, story.id.clone(), friend.id).await.unwrap(), mallory.id);
+    assert_eq!(
+        reportable(story_type, story.id.clone(), bystander.id).await.unwrap_err().reason,
+        "SUBJECT_NOT_FOUND",
+        "a friend who never watched it did not receive it"
+    );
+}
+
+#[tokio::test]
 async fn an_erased_account_leaves_nothing_behind() {
     let ctx = start().await;
     let (alice, bob) = (ctx.member("alice").await, ctx.member("bob").await);
@@ -136,6 +196,7 @@ async fn an_erased_account_leaves_nothing_behind() {
         ("likes", "SELECT count(*) FROM note_likes WHERE user_id = $1"),
         ("renotes", "SELECT count(*) FROM note_renotes WHERE user_id = $1"),
         ("mentions", "SELECT count(*) FROM note_mentions WHERE user_id = $1"),
+        ("deliveries", "SELECT count(*) FROM note_recipients WHERE user_id = $1"),
         ("stories", "SELECT count(*) FROM stories WHERE owner_id = $1"),
         ("story views", "SELECT count(*) FROM story_views WHERE viewer_id = $1"),
         ("audiences", "SELECT count(*) FROM story_audience WHERE user_id = $1"),
