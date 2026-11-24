@@ -336,7 +336,7 @@ impl<'g> Session<'g> {
     // ── Hello ──
 
     async fn on_hello(&mut self, id: u64, hello: Hello) -> Option<CloseReason> {
-        let claimed = match self.authenticate(&hello.access_token) {
+        let claimed = match self.authenticate(&hello.access_token).await {
             Ok(claimed) => claimed,
             // The reason (TOKEN_EXPIRED, TOKEN_INVALID, SESSION_REVOKED)
             // tells the client whether refreshing its token will help.
@@ -409,11 +409,18 @@ impl<'g> Session<'g> {
         None
     }
 
-    fn authenticate(&self, access_token: &str) -> Result<Option<Auth>, &'static str> {
+    /// Verifies a Hello's token, asking Valkey whether its session was
+    /// revoked elsewhere (one lookup per Hello; the periodic re-check stays
+    /// in memory).
+    async fn authenticate(&self, access_token: &str) -> Result<Option<Auth>, &'static str> {
         if access_token.is_empty() {
             return Ok(None);
         }
-        let verified = self.gateway.core.tokens.verify(access_token)?;
+        let verified = match self.gateway.core.tokens.authenticate_shared(access_token).await {
+            tokuly_core::auth::AuthState::Authenticated(verified) => verified,
+            tokuly_core::auth::AuthState::Invalid(reason) => return Err(reason),
+            tokuly_core::auth::AuthState::Anonymous => return Err("TOKEN_INVALID"),
+        };
         let lifetime = (verified.expires_at - Utc::now()).to_std().unwrap_or_default();
         let now = Instant::now();
         Ok(Some(Auth {

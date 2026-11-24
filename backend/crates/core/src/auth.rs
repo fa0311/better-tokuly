@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    api_tokens::{self, ApiGate, ApiToken, ApiTokens, Refusal, Scopes},
+    api_tokens::{self, ApiGate, ApiToken, ApiTokens, Guarded, Refusal, Scopes},
     cache::Cache,
     error::{AppError, AppResult},
     keys::Keys,
@@ -130,6 +130,9 @@ pub struct Tokens {
 /// the session has expired (plus the verification leeway, with margin).
 const REVOCATION_TTL: Duration = Duration::from_secs(ACCESS_TOKEN_TTL.as_secs() + 30);
 const REVOKED_PREFIX: &str = "auth:revoked:";
+/// How long a request waits for Valkey's answer about its session before it
+/// goes on with what this process knows.
+const REVOCATION_LOOKUP_TIMEOUT: Duration = Duration::from_millis(50);
 
 struct TokensInner {
     encoding: EncodingKey,
@@ -138,6 +141,8 @@ struct TokensInner {
     /// Revoked session IDs → instant after which the entry can be dropped.
     revoked: DashMap<Uuid, Time>,
     public_key: [u8; 32],
+    /// When "revocations unreadable" was last logged (Unix seconds).
+    unreadable_warned_at: std::sync::atomic::AtomicI64,
 }
 
 impl Tokens {
@@ -158,6 +163,7 @@ impl Tokens {
                 validation,
                 revoked: DashMap::new(),
                 public_key,
+                unreadable_warned_at: std::sync::atomic::AtomicI64::new(0),
             }),
             revocations: None,
         })
@@ -239,17 +245,34 @@ impl Tokens {
     /// down would be worse.
     async fn revoked_elsewhere(&self, session_id: Uuid) -> bool {
         let Some(cache) = &self.revocations else { return false };
-        match cache.exists(&format!("{REVOKED_PREFIX}{session_id}")).await {
-            Ok(revoked) => {
+        let key = format!("{REVOKED_PREFIX}{session_id}");
+        match tokio::time::timeout(REVOCATION_LOOKUP_TIMEOUT, cache.exists(&key)).await {
+            Ok(Ok(revoked)) => {
                 if revoked {
                     self.revoke_session(session_id);
                 }
                 revoked
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "session revocations unreadable; checked in memory only");
+            Ok(Err(e)) => {
+                self.warn_unreadable(&e.to_string());
                 false
             }
+            Err(_) => {
+                self.warn_unreadable("no answer in time");
+                false
+            }
+        }
+    }
+
+    /// Logs that Valkey could not be asked, at most once a minute per process.
+    fn warn_unreadable(&self, error: &str) {
+        use std::sync::atomic::Ordering;
+        let now = Utc::now().timestamp();
+        let last = self.inner.unreadable_warned_at.load(Ordering::Relaxed);
+        if now - last >= 60
+            && self.inner.unreadable_warned_at.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed).is_ok()
+        {
+            tracing::warn!(error, "session revocations unreadable; checked in memory only (logged once a minute)");
         }
     }
 
@@ -435,13 +458,32 @@ pub async fn auth_middleware(
         },
         Bearer::Token(token) => (layer.tokens.authenticate_shared(token).await, None),
     };
+    // A stream opened with a session must not outlive it either.
+    let session = match &state {
+        AuthState::Authenticated(ctx) if ctx.is_session() => Some((ctx.session_id, ctx.expires_at)),
+        _ => None,
+    };
     req.extensions_mut().insert(state);
     req.extensions_mut().insert(meta);
     let mut response = next.run(req).await;
     if let Some(admitted) = admitted {
         admitted.respond(&mut response);
+    } else if let Some((session_id, expires_at)) = session {
+        Guarded::wrap(&mut response, session_outlived(layer.tokens.clone(), session_id, expires_at, layer.api.recheck));
     }
     response
+}
+
+/// Resolves when a session's access token stops being valid: it expired, or
+/// the session was revoked (here or, through Valkey, elsewhere).
+async fn session_outlived(tokens: Tokens, session_id: Uuid, expires_at: Time, recheck: Duration) {
+    loop {
+        let left = (expires_at - Utc::now()).to_std().unwrap_or_default();
+        tokio::time::sleep(left.min(recheck)).await;
+        if expires_at <= Utc::now() || tokens.is_revoked(session_id) || tokens.revoked_elsewhere(session_id).await {
+            return;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -838,7 +880,8 @@ mod tests {
         });
         let registry = ApiTokens::default();
         registry.register(verifier.clone());
-        let layer = AuthLayer::new(tokens(), crate::proxies::TrustedProxies::parse(&[]).unwrap())
+        let layer_tokens = tokens();
+        let layer = AuthLayer::new(layer_tokens.clone(), crate::proxies::TrustedProxies::parse(&[]).unwrap())
             .with_api_tokens(registry, None)
             .with_stream_recheck(Duration::from_millis(50));
         let app = TokenApp::with_layer(layer, verifier.clone());
@@ -861,8 +904,13 @@ mod tests {
         // A token that runs out mid-stream ends it too, without the verifier having to say so.
         let stream = open("tkl_pat_expiring".to_owned()).await;
         assert!(stream_ends_within(stream, Duration::from_secs(5)).await.is_some());
-        // A session's stream is not watched.
-        let (jwt, _) = tokens().issue(Uuid::now_v7(), Uuid::now_v7(), &[]).unwrap();
-        assert!(stream_ends_within(open(jwt).await, Duration::from_millis(300)).await.is_none());
+        // A session's stream is watched the same way: open while the session
+        // lasts, cut off at the next check once it is revoked.
+        let session = Uuid::now_v7();
+        let (jwt, _) = layer_tokens.issue(Uuid::now_v7(), session, &[]).unwrap();
+        assert!(stream_ends_within(open(jwt.clone()).await, Duration::from_millis(300)).await.is_none());
+        let stream = open(jwt).await;
+        layer_tokens.revoke(session).await;
+        assert_eq!(stream_ends_within(stream, Duration::from_secs(5)).await.expect("the stream was cut off"), ["first"]);
     }
 }
