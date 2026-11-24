@@ -31,7 +31,6 @@ bytes.workspace = true
 url.workspace = true
 reqwest.workspace = true
 axum.workspace = true
-redis.workspace = true
 aws-sdk-s3.workspace = true
 async-nats.workspace = true
 sha2.workspace = true
@@ -54,6 +53,8 @@ encoding_rs = "0.8.44"
 
 [dev-dependencies]
 tokuly-testkit.workspace = true
+# Requests straight into the HTTP routes, with a chosen client address.
+tower.workspace = true
 tracing-subscriber.workspace = true
 # APNG fixtures (the `image` crate reads APNG but cannot write it).
 png = "0.18"

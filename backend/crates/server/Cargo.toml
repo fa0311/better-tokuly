@@ -58,3 +58,6 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 sqlx.workspace = true
+
+[dev-dependencies]
+tokuly-testkit.workspace = true

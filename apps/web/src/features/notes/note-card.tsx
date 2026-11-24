@@ -398,6 +398,9 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
   const { t } = useTranslation("notes");
   const open = useOpenPath();
   const [playing, setPlaying] = useState(false);
+  // Pictures that do not load leave no empty frame behind.
+  const [imageFailed, setImageFailed] = useState(false);
+  const [faviconFailed, setFaviconFailed] = useState(false);
   const embed =
     preview.embedProvider === "youtube" && preview.embedId
       ? {
@@ -426,8 +429,8 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
   } catch {
     // An unparsable URL keeps whatever name the preview came with.
   }
-  const image = linkPreviewImage(preview.imageUrl);
-  const favicon = linkPreviewImage(preview.faviconUrl);
+  const image = imageFailed ? undefined : linkPreviewImage(preview.imageUrl);
+  const favicon = faviconFailed ? undefined : linkPreviewImage(preview.faviconUrl);
   const body = (
     <>
       {image && (
@@ -437,6 +440,7 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
             alt=""
             loading="lazy"
             className="absolute inset-0 size-full object-cover"
+            onError={() => setImageFailed(true)}
           />
           {embed && (
             <span className="absolute inset-0 grid place-items-center bg-black/25 text-white">
@@ -447,7 +451,14 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
       )}
       <span className="min-w-0 flex-1 px-3 py-2.5">
         <span className="flex items-center gap-1.5 text-xs font-bold text-ink-faint">
-          {favicon && <img src={favicon} alt="" className="size-3.5 rounded-sm" />}
+          {favicon && (
+            <img
+              src={favicon}
+              alt=""
+              className="size-3.5 rounded-sm"
+              onError={() => setFaviconFailed(true)}
+            />
+          )}
           <span className="truncate">{host}</span>
         </span>
         <span className="mt-0.5 line-clamp-2 text-sm font-black leading-snug">

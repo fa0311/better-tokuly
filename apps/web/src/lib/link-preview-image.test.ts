@@ -17,6 +17,13 @@ describe("linkPreviewImage", () => {
     ).toBe("https://tokuly.example/api/media/link-image/icon/sig/aHR0cHM6Ly9h");
   });
 
+  it("loads this instance's own public files as they are", () => {
+    expect(linkPreviewImage("https://tokuly.example/media/img/a/1024-b.webp", ORIGIN)).toBe(
+      "https://tokuly.example/media/img/a/1024-b.webp",
+    );
+    expect(linkPreviewImage("https://news.example.com/media/img/a.webp", ORIGIN)).toBeUndefined();
+  });
+
   it("never loads a picture from the linked site", () => {
     expect(linkPreviewImage("https://news.example.com/cover.jpg", ORIGIN)).toBeUndefined();
     expect(linkPreviewImage("https://i.ytimg.com/vi/x/hqdefault.jpg", ORIGIN)).toBeUndefined();

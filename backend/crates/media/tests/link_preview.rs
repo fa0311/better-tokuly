@@ -61,6 +61,10 @@ impl Site {
                     counter.fetch_add(1, Ordering::SeqCst);
                     let head = String::from_utf8_lossy(&request);
                     let path = head.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                    if path.starts_with("/slow") {
+                        // Holds a download slot of the proxy for a while.
+                        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    }
                     let response = respond(&path);
                     let _ = socket.write_all(&response).await;
                     let _ = socket.shutdown().await;
@@ -130,6 +134,14 @@ fn respond(path: &str) -> Vec<u8> {
             body.extend(std::iter::repeat_n(0u8, 9 * 1024 * 1024));
             http("200 OK", &[("Content-Type", "image/png")], &body)
         }
+        path if path.starts_with("/slow") => http("200 OK", &[("Content-Type", "image/png")], &png(16, 16)),
+        "/own-media" => http(
+            "200 OK",
+            &[HTML],
+            br#"<title>Reposted</title>
+<meta property="og:image" content="http://localhost:8080/media/img/0195f0aa-0000-7000-8000-000000000001/1024-0123456789abcdef.webp">
+<link rel="icon" href="http://localhost:8080/api/tokuly.identity.v1.AccountService/GetMe">"#,
+        ),
         "/to-private.png" => http("302 Found", &[("Location", "http://10.0.0.1/cat.png")], b""),
         "/data.json" => http("200 OK", &[("Content-Type", "application/json")], b"{\"title\":\"not html\"}"),
         _ => http("404 Not Found", &[HTML], b""),
@@ -316,6 +328,23 @@ async fn preview_pictures_are_served_by_this_instance() {
     assert_eq!(again.status(), 200);
     assert_eq!(site.hits(), hits + 1);
 
+    // Kept in the object store, not in Valkey, and expired by the janitor.
+    let cache_key = format!("image/{}", sha256_hex(site.url("/images/cover.jpg").as_bytes()));
+    let object = format!("link-images/{cache_key}.webp");
+    assert!(core.storage.head(tokuly_core::storage::Bucket::Private, &object).await.unwrap().is_some());
+    sqlx::query("UPDATE link_preview_images SET fetched_at = now() - interval '2 days' WHERE cache_key = $1")
+        .bind(&cache_key)
+        .execute(&core.db)
+        .await
+        .unwrap();
+    assert!(h.media.sweep().await.unwrap().expired_link_images >= 1);
+    assert!(core.storage.head(tokuly_core::storage::Bucket::Private, &object).await.unwrap().is_none());
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM link_preview_images WHERE cache_key = $1").bind(&cache_key).fetch_one(&core.db).await.unwrap();
+    assert_eq!(rows, 0);
+    // Asked for again, it is fetched again.
+    assert_eq!(h.http.get(local(&origin, &found.image_url)).send().await.unwrap().status(), 200);
+    assert_eq!(site.hits(), hits + 2);
+
     let icon = h.http.get(local(&origin, &found.favicon_url)).send().await.unwrap();
     assert_eq!(icon.status(), 200);
     let icon = image::load_from_memory(&icon.bytes().await.unwrap()).unwrap();
@@ -347,4 +376,110 @@ async fn preview_pictures_are_served_by_this_instance() {
     // Pictures on addresses the egress guard refuses are never requested.
     let refused = local(&origin, &proxy_url(core, Kind::Image, "http://169.254.169.254/latest/meta-data/x.png"));
     assert_eq!(h.http.get(&refused).send().await.unwrap().status(), 404);
+}
+
+#[tokio::test]
+async fn this_instances_own_media_is_never_copied() {
+    let h = loopback_harness().await;
+    let site = Site::start().await;
+    let alice = h.app.user("alice").await;
+    let core = &h.app.core;
+
+    // A page whose og:image is one of our own public files: the preview
+    // points at the file itself, so a takedown or deletion ends it at once
+    // (a proxied copy would live on for a day). Other URLs of this instance
+    // are dropped.
+    let found = preview(&h, &alice, &site.url("/own-media")).await.expect("preview");
+    let own = "http://localhost:8080/media/img/0195f0aa-0000-7000-8000-000000000001/1024-0123456789abcdef.webp";
+    assert_eq!(found.image_url, own);
+    assert_eq!(found.favicon_url, "");
+    assert_eq!(proxy_url(core, Kind::Icon, "http://localhost:8080/api/x.png"), "");
+    assert_eq!(proxy_url(core, Kind::Image, "http://localhost:8080/media/../api/x.png"), "", "normalised before it is judged");
+
+    // A URL signed for an own file anyway (another media URL configured
+    // back then) is refused without a request.
+    let signature = tokuly_core::keys::b64url(&core.keys.mac("media/link-image", format!("image\n{own}").as_bytes())[..18]);
+    let origin = serve_routes(&h).await;
+    let forged = format!("{origin}/media/link-image/image/{signature}/{}", tokuly_core::keys::b64url(own.as_bytes()));
+    assert_eq!(h.http.get(&forged).send().await.unwrap().status(), 404);
+}
+
+#[tokio::test]
+async fn misses_beyond_the_download_slots_are_turned_away_uncached() {
+    let h = loopback_harness().await;
+    let site = Site::start().await;
+    let origin = serve_routes(&h).await;
+    let core = &h.app.core;
+    let url = |n: usize| local(&origin, &proxy_url(core, Kind::Image, &site.url(&format!("/slow-{n}.png"))));
+
+    // Four slow downloads take every slot; the fifth is not queued.
+    let running: Vec<_> = (0..4)
+        .map(|n| {
+            let (http, url) = (h.http.clone(), url(n));
+            tokio::spawn(async move { http.get(url).send().await.unwrap().status() })
+        })
+        .collect();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let busy = h.http.get(url(4)).send().await.unwrap();
+    assert_eq!(busy.status(), 503);
+    assert_eq!(busy.headers()["cache-control"], "no-store");
+    assert_eq!(busy.headers()["retry-after"], "60");
+    for task in running {
+        assert_eq!(task.await.unwrap(), 200);
+    }
+    // Nothing was remembered of the refusal.
+    assert_eq!(h.http.get(url(4)).send().await.unwrap().status(), 200);
+}
+
+#[tokio::test]
+async fn misses_are_limited_per_client_through_the_auth_layer() {
+    use tower::ServiceExt as _;
+
+    let h = loopback_harness().await;
+    let site = Site::start().await;
+    let core = &h.app.core;
+    let router = h
+        .media
+        .http_routes()
+        .layer(axum::middleware::from_fn_with_state(core.auth_layer.clone(), tokuly_core::auth::auth_middleware));
+    // A fresh /64 of the documentation range for this run.
+    let net: u16 = rand_u16();
+    let address = |host: u16| std::net::IpAddr::from([0x2001, 0xdb8, net, 7, 0, 0, 0, host]);
+    let get = |url: String, ip: std::net::IpAddr| {
+        let router = router.clone();
+        async move {
+            let request = axum::http::Request::get(url)
+                .extension(axum::extract::ConnectInfo(std::net::SocketAddr::new(ip, 4000)))
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let response = router.oneshot(request).await.unwrap();
+            (response.status().as_u16(), response.headers().get("cache-control").map(|v| v.to_str().unwrap().to_owned()))
+        }
+    };
+    let path = |name: &str| {
+        let proxied = proxy_url(core, Kind::Image, &site.url(name));
+        proxied[proxied.find("/media/link-image/").unwrap()..].to_owned()
+    };
+
+    // One picture fetched while the client is within its limit.
+    assert_eq!(get(path("/photo.png"), address(1)).await.0, 200);
+    // Use up the rest of the minute's 120 misses of this /64.
+    for _ in 0..119 {
+        let _ = core.cache.rate_limit(&format!("media:link-image-client:2001:db8:{net:x}:7::/64"), 120, std::time::Duration::from_secs(60)).await;
+    }
+    let hits = site.hits();
+    // Another address of the same /64 is the same client.
+    assert_eq!(get(path("/favicon-32.png"), address(2)).await, (503, Some("no-store".to_owned())));
+    assert_eq!(site.hits(), hits, "nothing was fetched");
+    // What is cached is still served; other networks are not affected.
+    assert_eq!(get(path("/photo.png"), address(3)).await.0, 200);
+    let elsewhere = std::net::IpAddr::from([0x2001, 0xdb8, net, 8, 0, 0, 0, 1]);
+    assert_eq!(get(path("/favicon-32.png"), elsewhere).await.0, 200);
+}
+
+fn rand_u16() -> u16 {
+    use std::hash::{BuildHasher as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    hasher.finish() as u16
 }

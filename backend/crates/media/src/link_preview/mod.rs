@@ -52,6 +52,8 @@ const JSON_ACCEPT: &str = "application/json";
 pub struct Previews {
     client: reqwest::Client,
     policy: Policy,
+    /// Bounds the pictures [`image_proxy`] fetches and decodes at once.
+    work_slots: tokio::sync::Semaphore,
     /// Bounds the pictures [`image_proxy`] decodes at once.
     decode_slots: tokio::sync::Semaphore,
 }
@@ -174,7 +176,12 @@ impl Previews {
     pub fn new(policy: Policy, public_url: &str) -> anyhow::Result<Self> {
         // Sites vary their markup by client; identify as a link-preview bot.
         let user_agent = format!("Mozilla/5.0 (compatible; TokulyBot/1.0; +{public_url})");
-        Ok(Self { client: fetch::guarded_client(policy, &user_agent)?, policy, decode_slots: tokio::sync::Semaphore::new(image_proxy::DECODE_SLOTS) })
+        Ok(Self {
+            client: fetch::guarded_client(policy, &user_agent)?,
+            policy,
+            work_slots: tokio::sync::Semaphore::new(image_proxy::WORK_SLOTS),
+            decode_slots: tokio::sync::Semaphore::new(image_proxy::DECODE_SLOTS),
+        })
     }
 
     /// See [`link_preview`].
@@ -214,8 +221,8 @@ impl Previews {
         Ok(preview)
     }
 
-    /// Whether the server of `url` may get one more request from us this
-    /// minute (pages and pictures together).
+    /// Whether the server of `url` may get one more page request from us
+    /// this minute (pictures have their own budget, see [`image_proxy`]).
     async fn may_fetch_from(&self, core: &Core, url: &Url) -> bool {
         let server = format!("{}:{}", url.host_str().unwrap_or_default(), url.port_or_known_default().unwrap_or(0));
         core.cache.rate_limit(&format!("media:preview-host:{server}"), HOST_FETCHES_PER_MINUTE, Duration::from_secs(60)).await.is_ok()

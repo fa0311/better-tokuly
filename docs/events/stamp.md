@@ -181,7 +181,9 @@ installed packs, 500 favourites, 64 recently used stamps.
 
 Official stamp art is rendered in code and stored in the media bucket under
 `stamps/official/<pack_key>/<stamp_key>-v<N>.webp` (512 px) and
-`…-v<N>-160.webp`, served as immutable.
+`…-v<N>-160.webp`. Each version has its own key; the edge serves them, like
+all public media, with a short, revalidated cache lifetime
+(`docs/events/media.md`, "Caches and CDNs").
 
 ## Rate limits
 

@@ -18,9 +18,16 @@
 //! size limit, and only a decodable raster image comes back, re-encoded as
 //! WebP at a bounded size (nothing of the original file reaches the viewer:
 //! no metadata, no SVG scripts, no polyglot files). Results, failures
-//! included, are kept in Valkey for a while, so a popular link costs the
-//! other site one request, not one per viewer.
-use std::{io::Cursor, time::Duration};
+//! included, are kept for a day (the WebP in the private bucket under
+//! `link-images/`, a row in `link_preview_images`; the janitor expires
+//! both), so a popular link costs the other site one request, not one per
+//! viewer.
+//!
+//! Pictures on this instance's own media origin (`TOKULY_MEDIA_URL`) are
+//! passed through unchanged: proxying them would keep a copy alive after
+//! the original was deleted or taken down. Anything else on this instance's
+//! own origin is dropped.
+use std::{io::Cursor, net::IpAddr, time::Duration};
 
 use axum::{
     Extension, Router,
@@ -31,7 +38,7 @@ use axum::{
 };
 use image::{DynamicImage, ImageReader, Limits};
 use sha2::{Digest as _, Sha256};
-use tokuly_core::{auth::ClientMeta, keys, prelude::*};
+use tokuly_core::{auth::ClientMeta, keys, prelude::*, storage::Bucket};
 use tokuly_proto::media::LinkPreview;
 use url::Url;
 
@@ -55,8 +62,15 @@ pub const CACHE_SECONDS: u64 = 24 * 3600;
 const FAILURE_CACHE_SECONDS: u64 = 30 * 60;
 /// Pictures one address may have fetched (not served from the cache) per minute.
 const FETCHES_PER_MINUTE_PER_CLIENT: u32 = 120;
-/// Decodes running at once in one API process.
+/// Pictures fetched (and then decoded) at once in one API process. A miss
+/// that finds every slot taken is answered `503` at once instead of
+/// queueing, so parallel requests cannot pile up downloads in memory.
+pub(crate) const WORK_SLOTS: usize = 4;
+/// Of those, decodes running at once.
 pub(crate) const DECODE_SLOTS: usize = 2;
+/// Picture fetches towards one site per minute, across all viewers; a
+/// budget of its own so viewers' misses do not starve page previews.
+const HOST_FETCHES_PER_MINUTE: u32 = 60;
 
 const IMAGE_ACCEPT: &str = "image/webp,image/png,image/jpeg,image/gif,image/x-icon;q=0.9,image/*;q=0.5";
 
@@ -98,11 +112,36 @@ fn signature(core: &Core, kind: Kind, target: &str) -> String {
     keys::b64url(&mac[..18])
 }
 
-/// The URL of this instance that serves the picture at `target`. Empty for
-/// an empty `target`, and for anything that is not an absolute http(s) URL.
+/// Where a picture lives, seen from this instance.
+enum Origin {
+    /// This instance's public media: served as it is (and gone when it is).
+    OwnMedia,
+    /// Anything else of this instance: never shown, never fetched.
+    Own,
+    Elsewhere,
+}
+
+fn origin_of(core: &Core, url: &Url) -> Origin {
+    let media = format!("{}/", core.cfg.media_url());
+    if url.as_str().starts_with(&media) {
+        return Origin::OwnMedia;
+    }
+    let same_origin = |base: &str| Url::parse(base).is_ok_and(|base| base.origin() == url.origin());
+    if same_origin(core.cfg.public_url()) || same_origin(&media) { Origin::Own } else { Origin::Elsewhere }
+}
+
+/// The URL clients get for the picture at `target`: a URL of this
+/// instance that serves it, the URL itself when it is this instance's own
+/// public media, empty for anything else (empty, not http(s), another URL
+/// of this instance).
 pub fn proxy_url(core: &Core, kind: Kind, target: &str) -> String {
-    if !Url::parse(target).is_ok_and(|url| matches!(url.scheme(), "http" | "https")) {
+    let Some(url) = Url::parse(target).ok().filter(|url| matches!(url.scheme(), "http" | "https")) else {
         return String::new();
+    };
+    match origin_of(core, &url) {
+        Origin::OwnMedia => return target.to_owned(),
+        Origin::Own => return String::new(),
+        Origin::Elsewhere => {}
     }
     format!(
         "{}{}{ROUTE}/{}/{}/{}",
@@ -195,23 +234,31 @@ impl Previews {
             return Err(Missing::Unknown);
         }
         let url = Url::parse(&target).map_err(|_| Missing::Unknown)?;
+        // Signed before the rule existed, or by a configuration with another
+        // media URL: this instance's own files are never copied.
+        if !matches!(origin_of(core, &url), Origin::Elsewhere) {
+            return Err(Missing::Unknown);
+        }
 
-        let key = format!("media:link-image:{}:{}", kind.segment(), hex::encode(Sha256::digest(target.as_bytes())));
-        let mut redis = core.cache.conn();
-        match redis::cmd("GET").arg(&key).query_async::<Option<Vec<u8>>>(&mut redis).await {
-            Ok(Some(cached)) if cached.is_empty() => return Err(Missing::Nothing),
-            Ok(Some(cached)) => return Ok(cached),
+        let cache_key = format!("{}/{}", kind.segment(), hex::encode(Sha256::digest(target.as_bytes())));
+        match cached(core, &cache_key).await {
+            Ok(Some(Some(webp))) => return Ok(webp),
+            Ok(Some(None)) => return Err(Missing::Nothing),
             Ok(None) => {}
             Err(e) => tracing::warn!(error = %e, "link image cache unavailable"),
         }
 
-        // A miss costs a fetch and a decode: bounded per client, and per
-        // site across everyone (shared with the preview fetches).
-        if !client_ip.is_empty()
+        // A miss costs a download and a decode: a bounded number at once
+        // (taken before anything is downloaded), per client, and per site
+        // across everyone.
+        let Ok(_slot) = self.work_slots.try_acquire() else {
+            return Err(Missing::Busy);
+        };
+        if let Some(client) = client_key(client_ip)
             && core
                 .cache
                 .rate_limit(
-                    &format!("media:link-image-client:{client_ip}"),
+                    &format!("media:link-image-client:{client}"),
                     FETCHES_PER_MINUTE_PER_CLIENT,
                     Duration::from_secs(60),
                 )
@@ -220,16 +267,18 @@ impl Previews {
         {
             return Err(Missing::Busy);
         }
-        if !self.may_fetch_from(core, &url).await {
+        let server = format!("{}:{}", url.host_str().unwrap_or_default(), url.port_or_known_default().unwrap_or(0));
+        if core
+            .cache
+            .rate_limit(&format!("media:link-image-host:{server}"), HOST_FETCHES_PER_MINUTE, Duration::from_secs(60))
+            .await
+            .is_err()
+        {
             return Err(Missing::Busy);
         }
 
         let rendered = self.fetch_picture(&url, kind).await;
-        let (value, ttl) = match &rendered {
-            Some(webp) => (webp.as_slice(), CACHE_SECONDS),
-            None => (&[][..], FAILURE_CACHE_SECONDS),
-        };
-        if let Err(e) = redis::cmd("SET").arg(&key).arg(value).arg("EX").arg(ttl).query_async::<()>(&mut redis).await {
+        if let Err(e) = remember(core, &cache_key, rendered.as_deref()).await {
             tracing::warn!(error = %e, "link image not cached");
         }
         rendered.ok_or(Missing::Nothing)
@@ -257,6 +306,96 @@ impl Previews {
                 None
             }
         }
+    }
+}
+
+/// The object holding a cached picture.
+fn object_key(cache_key: &str) -> String {
+    format!("{OBJECT_PREFIX}{cache_key}.webp")
+}
+
+/// Prefix of the cached pictures in the private bucket.
+pub(crate) const OBJECT_PREFIX: &str = "link-images/";
+
+/// `Some(Some(webp))`: a fresh picture; `Some(None)`: fresh "nothing to
+/// show"; `None`: not cached (or its object is missing).
+async fn cached(core: &Core, cache_key: &str) -> AppResult<Option<Option<Vec<u8>>>> {
+    let found: Option<bool> = sqlx::query_scalar(
+        "SELECT found FROM link_preview_images
+         WHERE cache_key = $1 AND fetched_at > now() - make_interval(secs => CASE WHEN found THEN $2 ELSE $3 END)",
+    )
+    .bind(cache_key)
+    .bind(CACHE_SECONDS as f64)
+    .bind(FAILURE_CACHE_SECONDS as f64)
+    .fetch_optional(&core.db)
+    .await?;
+    match found {
+        None => Ok(None),
+        Some(false) => Ok(Some(None)),
+        Some(true) => match core.storage.get(Bucket::Private, &object_key(cache_key)).await {
+            Ok(bytes) => Ok(Some(Some(bytes.to_vec()))),
+            Err(_) => Ok(None),
+        },
+    }
+}
+
+async fn remember(core: &Core, cache_key: &str, webp: Option<&[u8]>) -> AppResult<()> {
+    if let Some(webp) = webp {
+        core.storage.put(Bucket::Private, &object_key(cache_key), webp.to_vec(), "image/webp").await?;
+    }
+    sqlx::query(
+        "INSERT INTO link_preview_images (cache_key, found, size_bytes, fetched_at) VALUES ($1, $2, $3, now())
+         ON CONFLICT (cache_key) DO UPDATE SET found = EXCLUDED.found, size_bytes = EXCLUDED.size_bytes, fetched_at = now()",
+    )
+    .bind(cache_key)
+    .bind(webp.is_some())
+    .bind(webp.map_or(0, |webp| webp.len() as i32))
+    .execute(&core.db)
+    .await?;
+    Ok(())
+}
+
+/// Removes cached pictures older than their lifetime, rows and objects.
+/// Returns how many entries went.
+pub(crate) async fn expire(core: &Core, limit: i64) -> AppResult<u64> {
+    let rows: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT cache_key, found FROM link_preview_images
+         WHERE fetched_at < now() - make_interval(secs => $1) ORDER BY fetched_at LIMIT $2",
+    )
+    .bind(CACHE_SECONDS as f64)
+    .bind(limit)
+    .fetch_all(&core.db)
+    .await?;
+    let mut expired = 0;
+    for (cache_key, found) in rows {
+        if found {
+            core.storage.delete(Bucket::Private, &object_key(&cache_key)).await?;
+        }
+        // Only if nobody fetched it again meanwhile (its object is then new).
+        let done = sqlx::query(
+            "DELETE FROM link_preview_images WHERE cache_key = $1 AND fetched_at < now() - make_interval(secs => $2)",
+        )
+        .bind(&cache_key)
+        .bind(CACHE_SECONDS as f64)
+        .execute(&core.db)
+        .await?;
+        expired += done.rows_affected();
+    }
+    Ok(expired)
+}
+
+/// What the per-client limit counts: the address, or its /64 for IPv6
+/// (one subscriber usually has a whole /64). `None` when unknown.
+fn client_key(ip: &str) -> Option<String> {
+    match ip.parse::<IpAddr>().ok()? {
+        IpAddr::V4(v4) => Some(v4.to_string()),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => Some(v4.to_string()),
+            None => {
+                let s = v6.segments();
+                Some(format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3]))
+            }
+        },
     }
 }
 
@@ -296,6 +435,16 @@ fn decode(bytes: &[u8]) -> Option<DynamicImage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clients_are_counted_by_address_or_ipv6_64() {
+        assert_eq!(client_key("203.0.113.7").as_deref(), Some("203.0.113.7"));
+        assert_eq!(client_key("2001:db8:1:2:aaaa::1"), client_key("2001:db8:1:2:ffff:ffff:ffff:ffff"));
+        assert_eq!(client_key("2001:db8:1:2::1").as_deref(), Some("2001:db8:1:2::/64"));
+        assert_ne!(client_key("2001:db8:1:2::1"), client_key("2001:db8:1:3::1"));
+        assert_eq!(client_key("::ffff:203.0.113.7").as_deref(), Some("203.0.113.7"));
+        assert_eq!(client_key(""), None);
+    }
 
     #[test]
     fn only_raster_types_are_accepted() {

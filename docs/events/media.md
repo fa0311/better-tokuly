@@ -91,7 +91,7 @@ uploads unfinished after `TOKULY_MEDIA_UPLOAD_TTL_HOURS`, removes unheld
 FAILED assets after 7 days, deletes READY assets that nothing has held for
 `TOKULY_MEDIA_UNATTACHED_TTL_HOURS`, purges objects of deleted assets,
 re-queues PROCESSING assets whose worker died, drops link preview cache rows
-older than 30 days.
+older than 30 days and cached preview pictures older than a day.
 
 ## Link previews of this instance
 
@@ -123,21 +123,33 @@ site nothing about who looked. The route:
 - answers only URLs the server signed (an HMAC of kind and URL under
   `TOKULY_SECRET`): it is not an open proxy; anything else is a 404;
 - fetches through the egress guard of `tokuly_core::egress` (no private or
-  internal addresses, every redirect hop checked), 5 s at most, 8 MB at most,
-  and counts against the same per-site limit as the preview fetches (30 a
-  minute per site); per client address, 120 fetches a minute (cache hits are
-  free);
+  internal addresses, every redirect hop checked), 5 s at most, 8 MB at most;
+- bounds what a miss costs: 4 downloads at once per API process (taken
+  before anything is downloaded; a miss that finds them all busy is answered
+  `503`, `Cache-Control: no-store`, `Retry-After: 60`, and nothing is
+  remembered), 2 decodes of those at once, 60 picture fetches a minute per
+  site (a budget of its own, so viewers' misses do not starve page
+  previews), and 120 misses a minute per client address (per /64 for IPv6;
+  cache hits are free);
 - serves only raster images (JPEG, PNG, WebP, GIF's first frame, ICO; never
   SVG), decoded within 16 megapixels and re-encoded as WebP at most 1200 px
   (pictures) or 128 px (icons) on the longest edge, so nothing of the file
   itself reaches the viewer;
-- keeps the result in Valkey for 24 hours (`media:link-image:*`; "nothing to
-  show" for 30 minutes) and sends it with `Cache-Control: public,
-  max-age=86400`.
+- keeps the result for 24 hours ("nothing to show" for 30 minutes): the WebP
+  in the private bucket as `link-images/<image|icon>/<sha256 of the URL>.webp`,
+  a row in `link_preview_images`; the janitor removes expired rows with their
+  objects. Responses carry `Cache-Control: public, max-age=86400`.
 
-Clients show a preview picture only when it is such a URL (the web app's
-`linkPreviewImage`); previews stored before the proxy existed show without
-one.
+A picture on this instance's own media origin (`TOKULY_MEDIA_URL`) is never
+proxied: the preview keeps its URL, so the picture ends the moment the file
+is deleted or taken down (a proxied copy would outlive it by a day). Any
+other URL of this instance is dropped, and the route refuses both even when
+signed.
+
+Clients show a preview picture only when it is a proxy URL or one of this
+instance's own `/media/` files (the web app's `linkPreviewImage`; a separate
+media origin is not recognised there, so such pictures are not shown);
+previews stored before the proxy existed show without one.
 
 ## Configuration (`MediaConfig`)
 
