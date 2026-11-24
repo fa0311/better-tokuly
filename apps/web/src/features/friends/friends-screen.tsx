@@ -1,17 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type common, errorReason, identity, social } from "@tokuly/api";
-import { Check, Copy, Radar, Search, UserPlus, X } from "lucide-react";
+import { Check, ChevronRight, Copy, Radar, Star, UserPlus, X } from "lucide-react";
 import QRCode from "qrcode";
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
-import { EmptyState, ListRow, Page, Skeleton } from "#/components/ui/page";
+import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
-import { EmojiText } from "#/features/emoji";
 import {
   type ClaimProblem,
   claimProblem,
@@ -21,6 +19,10 @@ import {
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { useLocations } from "#/stores/locations";
+import { useFollowRequestCount } from "./follow-data";
+import { FollowRequests } from "./follow-requests";
+import { FollowSuggestions } from "./follow-suggestions";
+import { RowsSkeleton, SearchInput, SectionTitle, UserRow } from "./parts";
 
 const friendClient = () => api().service(social.FriendService);
 
@@ -35,6 +37,7 @@ export function FriendsScreen() {
     queryFn: () =>
       friendClient().listFriendRequests({ direction: social.FriendRequestDirection.INCOMING }),
   });
+  const followRequests = useFollowRequestCount();
 
   return (
     <Page title={t("title")}>
@@ -44,7 +47,11 @@ export function FriendsScreen() {
         onChange={setTab}
         items={[
           { value: "friends", label: t("tabs.friends") },
-          { value: "requests", label: t("tabs.requests"), badge: requests.data?.incomingCount },
+          {
+            value: "requests",
+            label: t("tabs.requests"),
+            badge: (requests.data?.incomingCount ?? 0) + followRequests,
+          },
           { value: "find", label: t("tabs.find") },
           { value: "invite", label: t("tabs.invite") },
         ]}
@@ -57,40 +64,23 @@ export function FriendsScreen() {
   );
 }
 
-function UserRow({
-  user,
-  subtitle,
-  trailing,
-}: {
-  user: common.UserSummary;
-  subtitle?: ReactNode;
-  trailing?: ReactNode;
-}) {
+/** The way to the viewer's circles (親しい友達 and custom lists) from the friends list. */
+function CirclesLink() {
+  const { t } = useTranslation("circles");
   return (
-    <ListRow
-      leading={
-        <Link to="/u/$handle" params={{ handle: user.handle }}>
-          <Avatar user={user} outlined />
-        </Link>
-      }
-      title={
-        <Link to="/u/$handle" params={{ handle: user.handle }}>
-          <EmojiText text={user.displayName} />
-        </Link>
-      }
-      subtitle={subtitle ?? `@${user.handle}`}
-      trailing={trailing}
-    />
-  );
-}
-
-function RowsSkeleton() {
-  return (
-    <div className="flex flex-col gap-2">
-      {[0, 1, 2].map((i) => (
-        <Skeleton key={i} className="h-16" />
-      ))}
-    </div>
+    <Link
+      to="/circles"
+      className="pressable sticker-sm flex items-center gap-3 rounded-2xl bg-surface px-3 py-2.5"
+    >
+      <span className="sticker-sm grid size-9 place-items-center rounded-full bg-mint text-[#17122b]">
+        <Star className="size-5 fill-current" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-black">{t("tile")}</span>
+        <span className="block truncate text-xs text-ink-soft">{t("tileHint")}</span>
+      </span>
+      <ChevronRight className="size-5 text-ink-faint" aria-hidden />
+    </Link>
   );
 }
 
@@ -106,6 +96,7 @@ function FriendList() {
   return (
     <div className="flex flex-col gap-2">
       <SearchInput value={query} onChange={setQuery} placeholder={t("search.placeholder")} />
+      <CirclesLink />
       {isPending ? (
         <RowsSkeleton />
       ) : data && data.friends.length > 0 ? (
@@ -148,30 +139,6 @@ function FriendList() {
   );
 }
 
-function SearchInput({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange(value: string): void;
-  placeholder: string;
-}) {
-  return (
-    <label className="flex h-12 items-center gap-2 rounded-control border-2 border-line bg-surface px-4 focus-within:border-brand">
-      <Search className="size-5 text-ink-faint" />
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-ink-faint"
-        autoCapitalize="none"
-        spellCheck={false}
-      />
-    </label>
-  );
-}
-
 function Requests() {
   const { t } = useTranslation("friends");
   const queryClient = useQueryClient();
@@ -208,7 +175,7 @@ function Requests() {
   return (
     <div className="flex flex-col gap-6">
       <section>
-        <h2 className="px-3 pb-1 text-sm font-black text-ink-soft">{t("requests.incoming")}</h2>
+        <SectionTitle>{t("requests.incoming")}</SectionTitle>
         {incoming.isPending ? (
           <RowsSkeleton />
         ) : incoming.data?.requests.length ? (
@@ -252,7 +219,7 @@ function Requests() {
         )}
       </section>
       <section>
-        <h2 className="px-3 pb-1 text-sm font-black text-ink-soft">{t("requests.outgoing")}</h2>
+        <SectionTitle>{t("requests.outgoing")}</SectionTitle>
         {outgoing.isPending ? (
           <RowsSkeleton />
         ) : outgoing.data?.requests.length ? (
@@ -274,6 +241,10 @@ function Requests() {
           <p className="px-3 py-4 text-sm text-ink-faint">{t("requests.emptyOutgoing")}</p>
         )}
       </section>
+      <div className="border-t-2 border-line pt-5">
+        <h2 className="px-3 pb-3 text-base font-black">{t("requests.followTitle")}</h2>
+        <FollowRequests />
+      </div>
     </div>
   );
 }
@@ -388,9 +359,7 @@ function Find() {
           <Nearby />
           {suggestions.data && suggestions.data.suggestions.length > 0 && (
             <section>
-              <h2 className="px-3 pb-1 text-sm font-black text-ink-soft">
-                {t("suggestions.title")}
-              </h2>
+              <SectionTitle>{t("suggestions.title")}</SectionTitle>
               {suggestions.data.suggestions.map(
                 (suggestion) =>
                   suggestion.user && (
@@ -414,6 +383,7 @@ function Find() {
               )}
             </section>
           )}
+          <FollowSuggestions />
         </>
       )}
     </div>
