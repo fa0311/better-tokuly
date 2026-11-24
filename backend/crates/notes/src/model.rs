@@ -40,11 +40,38 @@ pub fn story_holder(story_id: Uuid) -> String {
     format!("notes:story:{story_id}")
 }
 
+pub fn draft_holder(draft_id: Uuid) -> String {
+    format!("notes:draft:{draft_id}")
+}
+
+pub fn channel_holder(channel_id: Uuid) -> String {
+    format!("notes:channel:{channel_id}")
+}
+
+pub fn channel_path(channel_id: Uuid) -> String {
+    format!("/notes/channels/{channel_id}")
+}
+
+pub fn list_path(list_id: Uuid) -> String {
+    format!("/notes/lists/{list_id}")
+}
+
+pub fn antenna_path(antenna_id: Uuid) -> String {
+    format!("/notes/antennas/{antenna_id}")
+}
+
+pub fn clip_path(clip_id: Uuid) -> String {
+    format!("/notes/clips/{clip_id}")
+}
+
 /// Every column of `notes`, for queries that alias the table as `n`.
 pub const NOTE_COLUMNS: &str = "n.id, n.author_id, n.text, n.attachments, n.asset_ids, n.stamp_id, \
-     n.place_name, n.place_lat, n.place_lng, n.place_id, n.visibility, n.circle_id, n.direct_user_ids, n.listed, n.content_warning, \
-     n.reply_to_id, n.reply_to_author_id, n.quote_of_id, n.hashtags, n.mentions, n.link_url, n.link_preview, \
-     n.reply_count, n.renote_count, n.quote_count, n.like_count, n.view_count, n.pinned_at, n.created_at";
+     n.place_name, n.place_lat, n.place_lng, n.place_id, n.visibility, n.circle_id, n.direct_user_ids, n.listed, \
+     n.content_warning, n.content_warning_text, n.attachment_details, n.body, n.language, \
+     n.channel_id, n.channel_removed_at, n.reply_to_id, n.reply_to_author_id, n.thread_root_id, n.quote_of_id, \
+     n.hashtags, n.mentions, n.link_url, n.link_preview, \
+     n.reply_count, n.renote_count, n.quote_count, n.like_count, n.view_count, n.clip_count, \
+     n.pinned_at, n.edited_at, n.edit_count, n.created_at";
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct NoteRow {
@@ -64,8 +91,19 @@ pub struct NoteRow {
     /// Everyone may see it: public, author not locked (see [`Self::is_listed`]).
     pub listed: bool,
     pub content_warning: bool,
+    pub content_warning_text: String,
+    /// `AttachmentDetails[]` as proto JSON.
+    pub attachment_details: serde_json::Value,
+    /// `RichText` as proto JSON.
+    pub body: serde_json::Value,
+    pub language: String,
+    pub channel_id: Option<Uuid>,
+    /// A channel moderator took the note out of its channel.
+    pub channel_removed_at: Option<DateTime<Utc>>,
     pub reply_to_id: Option<Uuid>,
     pub reply_to_author_id: Option<Uuid>,
+    /// The note that started the conversation (the note itself if it answers nothing).
+    pub thread_root_id: Option<Uuid>,
     pub quote_of_id: Option<Uuid>,
     pub hashtags: Vec<String>,
     pub mentions: serde_json::Value,
@@ -76,7 +114,10 @@ pub struct NoteRow {
     pub quote_count: i64,
     pub like_count: i64,
     pub view_count: i64,
+    pub clip_count: i64,
     pub pinned_at: Option<DateTime<Utc>>,
+    pub edited_at: Option<DateTime<Utc>>,
+    pub edit_count: i32,
     pub created_at: DateTime<Utc>,
 }
 
@@ -137,8 +178,28 @@ impl NoteRow {
             quote_count: self.quote_count,
             like_count: self.like_count,
             view_count: self.view_count,
+            clip_count: self.clip_count,
             ..Default::default()
         }
+    }
+
+    /// The channel the note is shown in (not one a moderator took it out of).
+    pub fn shown_channel(&self) -> Option<Uuid> {
+        self.channel_id.filter(|_| self.channel_removed_at.is_none())
+    }
+
+    pub fn attachment_details(&self) -> Vec<tokuly_proto::notes::AttachmentDetails> {
+        serde_json::from_value(self.attachment_details.clone()).unwrap_or_default()
+    }
+
+    pub fn body(&self) -> tokuly_proto::notes::RichText {
+        serde_json::from_value(self.body.clone()).unwrap_or_default()
+    }
+
+    /// The conversation the note is in: its root (the note itself when it
+    /// answers nothing).
+    pub fn thread_root(&self) -> Uuid {
+        self.thread_root_id.unwrap_or(self.id)
     }
 
     /// A picture standing for the note: its first image, or the poster of

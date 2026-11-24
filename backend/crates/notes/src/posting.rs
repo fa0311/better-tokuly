@@ -30,7 +30,7 @@ use tokuly_social::{InteractionKind, graph};
 use tokuly_stamp::SendContext;
 
 use crate::{
-    Notes, authors, copy,
+    Notes, authors, channels, copy,
     events::{
         NOTE_CREATED, NOTE_DELETED, NOTE_VISIBILITY_CHANGED, NoteCreated, NoteDeleted, NoteVisibilityChanged,
         RemovalReason,
@@ -50,6 +50,8 @@ pub const MAX_PLACE_NAME_CHARS: usize = 100;
 const MAX_POSTS_PER_DAY: u32 = 1000;
 /// Visibility changes one user may make per minute.
 const VISIBILITY_CHANGES_PER_MINUTE: u32 = 30;
+/// Notes one profile shows pinned.
+pub const MAX_PINNED: i64 = 5;
 /// Longest idempotency key accepted.
 pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 64;
 /// How long a retried request finds the note it created the first time.
@@ -57,6 +59,14 @@ const IDEMPOTENCY_WINDOW: Duration = Duration::from_secs(600);
 
 /// Name of the background job that fetches a note's link preview.
 pub const JOB_LINK_PREVIEW: &str = "notes.link_preview";
+/// Name of the background job that puts a new note into the antennas it matches.
+pub const JOB_ANTENNA_MATCH: &str = "notes.antenna_match";
+
+/// Payload of [`JOB_ANTENNA_MATCH`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AntennaMatchJob {
+    pub note_id: Uuid,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkPreviewJob {
@@ -75,6 +85,8 @@ pub(crate) struct NewNote {
     pub reply_to_id: Option<Uuid>,
     pub quote_of_id: Option<Uuid>,
     pub content_warning: bool,
+    /// Posts into this channel (a reply goes into the channel of the note it answers).
+    pub channel_id: Option<Uuid>,
 }
 
 /// A place tag as stored.
@@ -515,8 +527,23 @@ impl Notes {
         );
         let place = input.place.as_ref().map(validate_place).transpose()?;
 
+        // A reply stays in the channel of the note it answers; channel notes are public.
+        let channel_id = match parent.as_ref() {
+            Some(parent) => parent.shown_channel(),
+            None => input.channel_id,
+        };
+        if let Some(channel_id) = channel_id {
+            channels::require_open(core, channel_id).await?;
+            ensure!(
+                input.audience.as_ref().is_none_or(|audience| audience.visibility == visibility::PUBLIC),
+                invalid,
+                "INVALID_VISIBILITY",
+                "notes in a channel are public"
+            );
+        }
+        let wanted = if channel_id.is_some() { Some(Audience::of(visibility::PUBLIC)) } else { input.audience };
         // A reply is never shown more widely than the note it answers.
-        let shared = self.settle_audience(&viewer, author, input.audience, parent.as_ref()).await?;
+        let shared = self.settle_audience(&viewer, author, wanted, parent.as_ref()).await?;
         // Whether the author's account is locked, as the social domain says now.
         let locked_now = self.is_locked_now(author).await?;
 
@@ -563,8 +590,8 @@ impl Notes {
         let sql = format!(
             "INSERT INTO notes AS n (id, author_id, text, attachments, asset_ids, stamp_id, place_name, place_lat, place_lng, place_id,
                                      visibility, content_warning, reply_to_id, reply_to_author_id, quote_of_id, hashtags, mentions, link_url,
-                                     circle_id, direct_user_ids, listed)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                                     circle_id, direct_user_ids, listed, channel_id, thread_root_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
              RETURNING {NOTE_COLUMNS}"
         );
         let note: NoteRow = sqlx::query_as(sqlx::AssertSqlSafe(sql))
@@ -589,8 +616,13 @@ impl Notes {
             .bind(shared.circle_id)
             .bind(&shared.direct)
             .bind(listed)
+            .bind(channel_id)
+            .bind(parent.as_ref().map(NoteRow::thread_root))
             .fetch_one(&mut *tx)
             .await?;
+        if let Some(channel_id) = channel_id {
+            channels::count_new_note(&mut tx, channel_id).await?;
+        }
         for asset_id in &asset_ids {
             assets::attach(&mut *tx, *asset_id, &note_holder(note.id)).await?;
         }
@@ -699,6 +731,14 @@ impl Notes {
         {
             tracing::warn!(error = %e, note_id = %note.id, "queueing the link preview failed");
         }
+        // Antennas are matched in the background: a post never waits for them.
+        if let Err(e) = core
+            .jobs
+            .enqueue_unique(JOB_ANTENNA_MATCH, &note.id.to_string(), &AntennaMatchJob { note_id: note.id })
+            .await
+        {
+            tracing::warn!(error = %e, note_id = %note.id, "queueing the antenna match failed");
+        }
         core.analytics
             .track(AnalyticsEvent::new("note.post").user(Some(author)).subject("note", note.id).props(
                 serde_json::json!({
@@ -755,6 +795,7 @@ impl Notes {
             id: Uuid,
             author_id: Uuid,
             listed: bool,
+            channel_id: Option<Uuid>,
             reply_to_id: Option<Uuid>,
             quote_of_id: Option<Uuid>,
             hashtags: Vec<String>,
@@ -769,7 +810,8 @@ impl Notes {
                  SELECT id FROM notes WHERE id = ANY($1) ORDER BY id FOR UPDATE
              )
              DELETE FROM notes WHERE id IN (SELECT id FROM doomed)
-             RETURNING id, author_id, listed, reply_to_id, quote_of_id, hashtags, (asset_ids <> '{}') AS has_assets",
+             RETURNING id, author_id, listed, CASE WHEN channel_removed_at IS NULL THEN channel_id END AS channel_id,
+                       reply_to_id, quote_of_id, hashtags, (asset_ids <> '{}') AS has_assets",
         )
         .bind(note_ids)
         .fetch_all(&mut **tx)
@@ -777,7 +819,11 @@ impl Notes {
 
         let mut deltas: HashMap<Uuid, (i32, i32)> = HashMap::new();
         let mut public_tags = Vec::new();
+        let mut channel_counts: HashMap<Uuid, i64> = HashMap::new();
         for note in &gone {
+            if let Some(channel_id) = note.channel_id {
+                *channel_counts.entry(channel_id).or_default() += 1;
+            }
             if let Some(parent) = note.reply_to_id {
                 deltas.entry(parent).or_default().0 -= 1;
             }
@@ -801,6 +847,7 @@ impl Notes {
         }
         hashtags::adjust(tx, &public_tags, -1).await?;
         let touched = apply_counter_deltas(tx, &deltas).await?;
+        channels::uncount_notes(tx, &channel_counts).await?;
         Ok(Removed { note_ids: gone.into_iter().map(|note| note.id).collect(), touched })
     }
 
@@ -934,33 +981,42 @@ impl Notes {
         Ok(people)
     }
 
-    /// Pins one of `user_id`'s notes to their profile, replacing the note
-    /// pinned before.
+    /// Pins one of `user_id`'s notes to their profile (up to
+    /// [`MAX_PINNED`], the latest first). Pinning a pinned note changes nothing.
     pub(crate) async fn pin_note(&self, user_id: Uuid, note_id: Uuid) -> AppResult<()> {
         let note = self.own_note(user_id, note_id).await?;
         let mut tx = self.core.db.begin().await?;
-        // One pin per profile: concurrent pins of the same user take turns.
+        // Concurrent pins of the same user take turns, so the limit holds.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
             .bind(format!("notes:pin:{user_id}"))
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE notes SET pinned_at = NULL WHERE author_id = $1 AND pinned_at IS NOT NULL AND id <> $2")
-            .bind(user_id)
-            .bind(note.id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("UPDATE notes SET pinned_at = now() WHERE id = $1 AND author_id = $2 AND pinned_at IS NULL")
-            .bind(note.id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        let (pinned, this_one): (i64, bool) = sqlx::query_as(
+            "SELECT count(*), coalesce(bool_or(id = $2), false) FROM notes WHERE author_id = $1 AND pinned_at IS NOT NULL",
+        )
+        .bind(user_id)
+        .bind(note.id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if this_one {
+            return Ok(());
+        }
+        ensure!(pinned < MAX_PINNED, precondition, "TOO_MANY_PINNED", "at most {MAX_PINNED} notes can be pinned");
+        sqlx::query(
+            "UPDATE notes SET pinned_at = clock_timestamp() WHERE id = $1 AND author_id = $2 AND pinned_at IS NULL",
+        )
+        .bind(note.id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(())
     }
 
-    /// Removes `user_id`'s pinned note from their profile, if there is one.
-    pub(crate) async fn unpin_note(&self, user_id: Uuid) -> AppResult<()> {
-        sqlx::query("UPDATE notes SET pinned_at = NULL WHERE author_id = $1 AND pinned_at IS NOT NULL")
+    /// Takes one of `user_id`'s notes off their profile, if it was pinned.
+    pub(crate) async fn unpin_note(&self, user_id: Uuid, note_id: Uuid) -> AppResult<()> {
+        sqlx::query("UPDATE notes SET pinned_at = NULL WHERE id = $1 AND author_id = $2 AND pinned_at IS NOT NULL")
+            .bind(note_id)
             .bind(user_id)
             .execute(&self.core.db)
             .await?;
@@ -1077,8 +1133,15 @@ mod tests {
             direct_user_ids: direct,
             listed: visibility == visibility::PUBLIC,
             content_warning: false,
+            content_warning_text: String::new(),
+            attachment_details: serde_json::json!([]),
+            body: serde_json::json!({}),
+            language: String::new(),
+            channel_id: None,
+            channel_removed_at: None,
             reply_to_id: None,
             reply_to_author_id: None,
+            thread_root_id: None,
             quote_of_id: None,
             hashtags: vec![],
             mentions: serde_json::json!([]),
@@ -1089,7 +1152,10 @@ mod tests {
             quote_count: 0,
             like_count: 0,
             view_count: 0,
+            clip_count: 0,
             pinned_at: None,
+            edited_at: None,
+            edit_count: 0,
             created_at: Utc::now(),
         }
     }

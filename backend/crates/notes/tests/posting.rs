@@ -639,16 +639,31 @@ async fn one_note_is_pinned_to_a_profile() {
         "NOTE_NOT_FOUND"
     );
 
+    let pinned_ids =
+        |page: &GetUserTimelineResponse| page.pinned_notes.iter().map(|note| note.id.clone()).collect::<Vec<_>>();
     let _: PinNoteResponse = ctx.note("PinNote", Some(&alice), &pin(&first)).await.unwrap();
     assert!(ctx.get_note(None, &first.id).await.unwrap().pinned);
-    assert_eq!(timeline(None).await.pinned_note.id, first.id);
-    // Pinning another note replaces the pin; pinning the same note twice is fine.
+    assert_eq!(pinned_ids(&timeline(None).await), vec![first.id.clone()]);
+    // Another pin goes on top; pinning the same note twice is fine.
     let _: PinNoteResponse = ctx.note("PinNote", Some(&alice), &pin(&second)).await.unwrap();
     let _: PinNoteResponse = ctx.note("PinNote", Some(&alice), &pin(&second)).await.unwrap();
-    assert!(!ctx.get_note(None, &first.id).await.unwrap().pinned);
     let page = timeline(Some(bob.clone())).await;
-    assert_eq!(page.pinned_note.id, second.id);
-    assert_eq!(texts(&page.entries), vec!["second", "first"], "the pinned note also stays in its place in the list");
+    assert_eq!(pinned_ids(&page), vec![second.id.clone(), first.id.clone()]);
+    assert_eq!(texts(&page.entries), vec!["second", "first"], "pinned notes also stay in their place in the list");
+
+    // Up to five, also when they are pinned at once.
+    let mut more = Vec::new();
+    for index in 0..4 {
+        more.push(ctx.post(&alice, &format!("more {index}")).await);
+    }
+    let requests: Vec<PinNoteRequest> = more.iter().map(pin).collect();
+    let results = futures::future::join_all(
+        requests.iter().map(|request| ctx.note::<_, PinNoteResponse>("PinNote", Some(&alice), request)),
+    )
+    .await;
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 3);
+    assert!(results.iter().filter_map(|result| result.as_ref().err()).all(|e| e.reason == "TOO_MANY_PINNED"));
+    assert_eq!(timeline(Some(alice.clone())).await.pinned_notes.len(), 5);
 
     // A pinned note only shows to people who may see it.
     let hide = SetNoteVisibilityRequest {
@@ -657,13 +672,15 @@ async fn one_note_is_pinned_to_a_profile() {
         ..Default::default()
     };
     let _: SetNoteVisibilityResponse = ctx.note("SetNoteVisibility", Some(&alice), &hide).await.unwrap();
-    assert!(timeline(Some(bob.clone())).await.pinned_note.as_option().is_none());
-    assert_eq!(timeline(Some(alice.clone())).await.pinned_note.id, second.id);
+    assert!(!pinned_ids(&timeline(Some(bob.clone())).await).contains(&second.id));
+    assert!(pinned_ids(&timeline(Some(alice.clone())).await).contains(&second.id));
 
-    assert_eq!(ctx.note_reason("UnpinNote", None, &UnpinNoteRequest::default()).await, "SIGN_IN_REQUIRED");
-    let _: UnpinNoteResponse = ctx.note("UnpinNote", Some(&alice), &UnpinNoteRequest::default()).await.unwrap();
-    let _: UnpinNoteResponse = ctx.note("UnpinNote", Some(&alice), &UnpinNoteRequest::default()).await.unwrap();
-    assert!(timeline(Some(alice.clone())).await.pinned_note.as_option().is_none());
+    let unpin = UnpinNoteRequest { note_id: second.id.clone(), ..Default::default() };
+    assert_eq!(ctx.note_reason("UnpinNote", None, &unpin).await, "SIGN_IN_REQUIRED");
+    let _: UnpinNoteResponse = ctx.note("UnpinNote", Some(&alice), &unpin).await.unwrap();
+    let _: UnpinNoteResponse = ctx.note("UnpinNote", Some(&alice), &unpin).await.unwrap();
+    assert!(!pinned_ids(&timeline(Some(alice.clone())).await).contains(&second.id));
+    assert!(!ctx.get_note(Some(&alice), &second.id).await.unwrap().pinned);
 }
 
 #[tokio::test]

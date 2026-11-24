@@ -30,7 +30,7 @@ async fn what_one_learns(ctx: &Ctx, viewer: Option<&TestUser>, author: &TestUser
         };
         let response: GetUserTimelineResponse = ctx.note("GetUserTimeline", viewer, &request).await.unwrap();
         tabs.push(texts(&response.entries).join("|"));
-        tabs.push(response.pinned_note.as_option().map(|note| note.text.clone()).unwrap_or_default());
+        tabs.push(note_texts(&response.pinned_notes).join("|"));
     }
     let profile: GetProfileResponse = ctx
         .app

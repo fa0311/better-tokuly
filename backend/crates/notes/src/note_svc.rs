@@ -108,6 +108,7 @@ impl NoteService for Notes {
                 reply_to_id: parse_opt_id(&request.reply_to_id)?,
                 quote_of_id: parse_opt_id(&request.quote_of_id)?,
                 content_warning: request.content_warning,
+                channel_id: parse_opt_id(&request.channel_id)?,
             };
             let note = self.create_note_once(user_id, &request.idempotency_key, input).await?;
             ok(CreateNoteResponse { note: self.hydrate_one(&viewer, &note).await?.into(), ..Default::default() })
@@ -158,10 +159,10 @@ impl NoteService for Notes {
     async fn unpin_note(
         &self,
         ctx: RequestContext,
-        _request: ServiceRequest<'_, UnpinNoteRequest>,
+        request: ServiceRequest<'_, UnpinNoteRequest>,
     ) -> ServiceResult<UnpinNoteResponse> {
         handle(async {
-            self.unpin_note(ctx.user_id()?).await?;
+            self.unpin_note(ctx.user_id()?, parse_id(request.note_id)?).await?;
             ok(UnpinNoteResponse::default())
         })
         .await
@@ -371,7 +372,7 @@ impl NoteService for Notes {
             let filter = request.filter.as_known().unwrap_or_default();
             let (entries, info, pinned) =
                 self.user_timeline(&viewer, parse_id(request.user_id)?, filter, &page).await?;
-            ok(GetUserTimelineResponse { entries, page: info.into(), pinned_note: pinned.into(), ..Default::default() })
+            ok(GetUserTimelineResponse { entries, page: info.into(), pinned_notes: pinned, ..Default::default() })
         })
         .await
     }
@@ -448,6 +449,74 @@ impl NoteService for Notes {
                 Vec::new()
             };
             ok(SearchHashtagsResponse { hashtags, ..Default::default() })
+        })
+        .await
+    }
+
+    // ── Being built: replaced by the poll, edit, redraft, analytics and trend handlers ──
+
+    async fn edit_note(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, EditNoteRequest>,
+    ) -> ServiceResult<EditNoteResponse> {
+        handle(async {
+            Err::<connectrpc::Response<EditNoteResponse>, _>(AppError::unavailable("NOT_READY", "not ready"))
+        })
+        .await
+    }
+
+    async fn list_note_edits(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, ListNoteEditsRequest>,
+    ) -> ServiceResult<ListNoteEditsResponse> {
+        handle(async {
+            Err::<connectrpc::Response<ListNoteEditsResponse>, _>(AppError::unavailable("NOT_READY", "not ready"))
+        })
+        .await
+    }
+
+    async fn redraft_note(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, RedraftNoteRequest>,
+    ) -> ServiceResult<RedraftNoteResponse> {
+        handle(async {
+            Err::<connectrpc::Response<RedraftNoteResponse>, _>(AppError::unavailable("NOT_READY", "not ready"))
+        })
+        .await
+    }
+
+    async fn vote_poll(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, VotePollRequest>,
+    ) -> ServiceResult<VotePollResponse> {
+        handle(async {
+            Err::<connectrpc::Response<VotePollResponse>, _>(AppError::unavailable("NOT_READY", "not ready"))
+        })
+        .await
+    }
+
+    async fn get_note_analytics(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, GetNoteAnalyticsRequest>,
+    ) -> ServiceResult<GetNoteAnalyticsResponse> {
+        handle(async {
+            Err::<connectrpc::Response<GetNoteAnalyticsResponse>, _>(AppError::unavailable("NOT_READY", "not ready"))
+        })
+        .await
+    }
+
+    async fn list_trending_notes(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, ListTrendingNotesRequest>,
+    ) -> ServiceResult<ListTrendingNotesResponse> {
+        handle(async {
+            Err::<connectrpc::Response<ListTrendingNotesResponse>, _>(AppError::unavailable("NOT_READY", "not ready"))
         })
         .await
     }

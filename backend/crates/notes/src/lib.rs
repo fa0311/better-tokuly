@@ -36,6 +36,7 @@ use tokuly_identity::Identity;
 use tokuly_proto::notes::{NotesEvent, notes_event::Event as Push};
 
 mod authors;
+pub mod channels;
 mod cleanup;
 pub mod config;
 mod copy;

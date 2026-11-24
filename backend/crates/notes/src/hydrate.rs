@@ -11,11 +11,11 @@ use tokuly_core::prelude::*;
 use tokuly_identity::users::pick;
 use tokuly_proto::{
     common::{StampRef, UserSummary},
-    notes::{Note, NoteViewerState, QuotedNote, RenoteInfo, ReplyTarget, TimelineEntry},
+    notes::{ChannelRef, Note, NoteViewerState, QuotedNote, RenoteInfo, ReplyTarget, TimelineEntry},
 };
 
 use crate::{
-    Notes,
+    Notes, channels,
     model::{NOTE_COLUMNS, NoteRow},
     visibility::{CIRCLE, FOLLOWERS, PRIVATE, Viewer, sees_note},
 };
@@ -49,6 +49,7 @@ struct Context<'a> {
     viewer: &'a Viewer,
     users: HashMap<Uuid, UserSummary>,
     stamps: HashMap<Uuid, StampRef>,
+    channels: HashMap<Uuid, ChannelRef>,
     /// Referenced notes (quoted, or replied to) the viewer may see.
     referenced: HashMap<Uuid, NoteRow>,
     liked: HashSet<Uuid>,
@@ -125,6 +126,13 @@ impl Context<'_> {
                 .into(),
             pinned: row.pinned_at.is_some(),
             created_at: ts(row.created_at),
+            content_warning_text: row.content_warning_text.clone(),
+            attachment_details: row.attachment_details(),
+            body: row.body().into(),
+            channel: row.shown_channel().and_then(|id| self.channels.get(&id).cloned()).into(),
+            edited_at: opt_ts(row.edited_at),
+            edit_count: row.edit_count,
+            language: row.language.clone(),
             ..Default::default()
         }
     }
@@ -193,8 +201,14 @@ impl Notes {
         note_ids.sort();
         note_ids.dedup();
 
-        let (users, stamps) =
-            tokio::try_join!(tokuly_identity::summaries(core, &user_ids), tokuly_stamp::stamp_refs(core, &stamp_ids))?;
+        let mut channel_ids: Vec<Uuid> = shown.iter().filter_map(|row| row.shown_channel()).collect();
+        channel_ids.sort();
+        channel_ids.dedup();
+        let (users, stamps, channels) = tokio::try_join!(
+            tokuly_identity::summaries(core, &user_ids),
+            tokuly_stamp::stamp_refs(core, &stamp_ids),
+            channels::refs(core, &channel_ids),
+        )?;
         let (liked, renoted) = match viewer.id {
             Some(user_id) => {
                 let reactions: Vec<(Uuid, bool)> = sqlx::query_as(
@@ -212,7 +226,7 @@ impl Notes {
             }
             None => (HashSet::new(), HashSet::new()),
         };
-        Ok(Context { viewer, users, stamps, referenced, liked, renoted })
+        Ok(Context { viewer, users, stamps, channels, referenced, liked, renoted })
     }
 
     /// Notes as `viewer` gets them, in the order of `rows`. The rows must

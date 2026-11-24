@@ -22,7 +22,7 @@ use tokuly_proto::{
 };
 
 use crate::{
-    Notes, hashtags,
+    Notes, channels, hashtags,
     hydrate::EntryRow,
     model::{NOTE_COLUMNS, NoteRow},
     text,
@@ -107,10 +107,12 @@ impl Notes {
         viewer: &Viewer,
         page: &Page,
     ) -> AppResult<(Vec<TimelineEntry>, PageInfo)> {
-        let sql = with_renotes(
-            "n.author_id = ANY($7) AND (n.reply_to_id IS NULL OR n.reply_to_author_id = ANY($7))",
-            "= ANY($7)",
+        let filter = format!(
+            "((n.author_id = ANY($7) AND (n.reply_to_id IS NULL OR n.reply_to_author_id = ANY($7))) OR {followed}) AND {outside}",
+            followed = channels::in_followed_channel("n"),
+            outside = channels::outside_unfollowed_channels("n"),
         );
+        let sql = with_renotes(&filter, "= ANY($7)");
         self.entries(viewer, page, sql, viewer.me_and_friends()).await
     }
 
@@ -129,10 +131,11 @@ impl Notes {
         )?;
         let people: Vec<Uuid> =
             std::iter::once(user_id).chain(following.into_iter().filter(|id| !muted.contains(id))).collect();
-        let sql = with_renotes(
-            "n.author_id = ANY($7) AND (n.reply_to_id IS NULL OR n.reply_to_author_id = ANY($7))",
-            "= ANY($7)",
+        let filter = format!(
+            "n.author_id = ANY($7) AND (n.reply_to_id IS NULL OR n.reply_to_author_id = ANY($7)) AND {}",
+            channels::outside_unfollowed_channels("n"),
         );
+        let sql = with_renotes(&filter, "= ANY($7)");
         self.entries(viewer, page, sql, people).await
     }
 
@@ -149,25 +152,26 @@ impl Notes {
         let sql = format!(
             "SELECT {columns} FROM notes n
              WHERE {listed} AND n.reply_to_id IS NULL
-               AND ($7::uuid IS NULL OR n.id < $7) AND {visible}
+               AND ($7::uuid IS NULL OR n.id < $7) AND {visible} AND {outside}
              ORDER BY n.id DESC LIMIT $8",
             columns = plain(),
             listed = listed("n"),
             visible = sees_note("n"),
+            outside = channels::outside_unfollowed_channels("n"),
         );
         let rows: Vec<EntryRow> = viewer.query_as(sql).bind(cursor).bind(page.fetch()).fetch_all(&self.core.db).await?;
         self.page_of(viewer, page, rows).await
     }
 
     /// One user's notes as the viewer may see them, and — on the first page
-    /// of the notes tab — the user's pinned note.
+    /// of the notes tab — the user's pinned notes, latest pinned first.
     pub(crate) async fn user_timeline(
         &self,
         viewer: &Viewer,
         user_id: Uuid,
         filter: UserTimelineFilter,
         page: &Page,
-    ) -> AppResult<(Vec<TimelineEntry>, PageInfo, Option<Note>)> {
+    ) -> AppResult<(Vec<TimelineEntry>, PageInfo, Vec<Note>)> {
         self.require_user(viewer, user_id).await?;
         let visible = sees_note("n");
         let sql = match filter {
@@ -196,17 +200,14 @@ impl Notes {
         );
         let pinned = if first_page && notes_tab {
             let sql = format!(
-                "SELECT {NOTE_COLUMNS} FROM notes n WHERE n.author_id = $7 AND n.pinned_at IS NOT NULL AND {visible}"
+                "SELECT {NOTE_COLUMNS} FROM notes n WHERE n.author_id = $7 AND n.pinned_at IS NOT NULL AND {visible}
+                 ORDER BY n.pinned_at DESC"
             );
-            let mut row: Vec<NoteRow> = viewer.query_as(sql).bind(user_id).fetch_all(&self.core.db).await?;
-            viewer.drop_newly_locked(&self.core, &mut row, |row| row).await?;
-            let row = row.into_iter().next();
-            match row {
-                Some(row) => Some(self.hydrate_one(viewer, &row).await?),
-                None => None,
-            }
+            let mut rows: Vec<NoteRow> = viewer.query_as(sql).bind(user_id).fetch_all(&self.core.db).await?;
+            viewer.drop_newly_locked(&self.core, &mut rows, |row| row).await?;
+            self.hydrate(viewer, &rows).await?
         } else {
-            None
+            Vec::new()
         };
         Ok((entries, info, pinned))
     }

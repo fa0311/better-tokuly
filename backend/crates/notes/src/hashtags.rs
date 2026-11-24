@@ -183,7 +183,7 @@ pub(crate) async fn trending(core: &Core, limit: i64) -> AppResult<(Vec<Trending
     let rows: Vec<Trend> = sqlx::query_as(
         "SELECT h.tag, h.note_count, t.rank, t.recent_note_count, t.computed_at
          FROM hashtag_trends t JOIN hashtags h ON h.id = t.hashtag_id
-         WHERE h.note_count > 0
+         WHERE h.note_count > 0 AND t.language = ''
          ORDER BY t.rank LIMIT $1",
     )
     .bind(limit)
@@ -234,8 +234,8 @@ impl Notes {
                         sum(power(0.5, extract(epoch FROM (now() - latest)) / 3600.0 / $3)) AS score
                  FROM uses GROUP BY hashtag_id HAVING count(*) >= $4
              )
-             INSERT INTO hashtag_trends (hashtag_id, rank, score, recent_note_count, computed_at)
-             SELECT hashtag_id, (row_number() OVER (ORDER BY score DESC, notes DESC, hashtag_id))::int, score, notes, now()
+             INSERT INTO hashtag_trends (language, hashtag_id, rank, score, recent_note_count, computed_at)
+             SELECT '', hashtag_id, (row_number() OVER (ORDER BY score DESC, notes DESC, hashtag_id))::int, score, notes, now()
              FROM scored ORDER BY score DESC, notes DESC, hashtag_id LIMIT $5";
         let trending = sqlx::query(sql)
             // Note IDs are time-ordered: the index on them narrows the scan
