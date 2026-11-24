@@ -245,6 +245,20 @@ impl Found {
     }
 }
 
+/// Characters of a comment's text in the title of a report about it.
+const REPORT_TITLE_CHARS: usize = 80;
+
+/// What a report about a comment is titled with: its text, or what it
+/// carries instead.
+pub(crate) fn reported_title(row: &CommentRow) -> String {
+    match crate::text::excerpt(&row.text, REPORT_TITLE_CHARS) {
+        excerpt if !excerpt.is_empty() => excerpt,
+        _ if row.stamp_id.is_some() => "（スタンプ）".to_owned(),
+        _ if row.image_asset_id.is_some() => "（画像）".to_owned(),
+        _ => "コメント".to_owned(),
+    }
+}
+
 pub(crate) fn comment_not_found() -> AppError {
     AppError::not_found("COMMENT_NOT_FOUND", "comment not found")
 }

@@ -49,6 +49,29 @@ impl Ctx {
 
 // ───────────────────────────── reports ─────────────────────────────
 
+#[tokio::test]
+async fn a_comment_stays_reportable_across_a_block() {
+    let ctx = start().await;
+    let (owner, alice, bob, carol) =
+        (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await);
+    let video = ctx.video(&owner, "v");
+
+    // The victim blocks the harasser, then reports.
+    let to_bob = ctx.comment(&alice, &video, "ボブのばか").await;
+    ctx.block(&bob, &alice).await;
+    let filed = ctx.report_comment(&bob, &to_bob.id).await.expect("reportable after the victim's block");
+    assert_eq!(filed.subject_title, "ボブのばか");
+
+    // The harasser blocks the victim first.
+    let to_carol = ctx.comment(&alice, &video, "キャロルのばか").await;
+    ctx.block(&alice, &carol).await;
+    ctx.report_comment(&carol, &to_carol.id).await.expect("reportable after the harasser's block");
+
+    // The owner of the content, blocked by the commenter.
+    ctx.block(&alice, &owner).await;
+    ctx.report_comment(&owner, &to_carol.id).await.expect("reportable by the owner after a block");
+}
+
 // ───────────────────────────── comments ─────────────────────────────
 
 #[tokio::test]

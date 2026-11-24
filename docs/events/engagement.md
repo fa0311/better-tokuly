@@ -51,7 +51,11 @@ Engagement itself registers:
 
 - a resolver for `SUBJECT_TYPE_COMMENT` (owner = the comment's author, path
   = `<subject path>?comment=<id>`, interactions enabled while the comment is
-  published), so comments can be liked and reported;
+  published), so comments can be liked and reported. For a report it
+  ignores blocks (with the author and with the subject's owner) and asks
+  the subject's domain for `resolve_for_report`: whoever had the comment in
+  front of them — it is or was in public view, or they own the subject —
+  can report it after a block;
 - a resolver for `SUBJECT_TYPE_USER` — **only if no other domain registered
   one before `Engagement::new` ran** — resolving any non-erased account by
   UUID or handle (path `/u/<handle>`, interactions disabled), so accounts
