@@ -57,11 +57,9 @@ impl NotificationRow {
     /// The entry as its recipient sees it, in their language.
     pub fn to_proto(&self, locale: &str, actor: Option<UserSummary>) -> Notification {
         let subject = match (self.subject_type, self.subject_id) {
-            (Some(subject_type), Some(id)) => Some(SubjectRef {
-                r#type: subject_type.into(),
-                id: id.to_string(),
-                ..Default::default()
-            }),
+            (Some(subject_type), Some(id)) => {
+                Some(SubjectRef { r#type: subject_type.into(), id: id.to_string(), ..Default::default() })
+            }
             _ => None,
         };
         Notification {
@@ -80,11 +78,7 @@ impl NotificationRow {
             read: self.read_at.is_some(),
             read_at: opt_ts(self.read_at),
             occurred_at: ts(self.occurred_at),
-            data_json: if self.data.is_null() {
-                String::new()
-            } else {
-                self.data.to_string()
-            },
+            data_json: if self.data.is_null() { String::new() } else { self.data.to_string() },
             ..Default::default()
         }
     }
@@ -167,14 +161,13 @@ pub async fn upsert(
 }
 
 /// Unread entries of a user, in total and per category.
-pub async fn unread_count<'e, E: PgExecutor<'e>>(
-    executor: E,
-    user_id: Uuid,
-) -> AppResult<UnreadCount> {
-    let rows: Vec<(String, i64)> = sqlx::query_as("SELECT category, count(*) FROM notifications WHERE user_id = $1 AND read_at IS NULL GROUP BY category")
-        .bind(user_id)
-        .fetch_all(executor)
-        .await?;
+pub async fn unread_count<'e, E: PgExecutor<'e>>(executor: E, user_id: Uuid) -> AppResult<UnreadCount> {
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT category, count(*) FROM notifications WHERE user_id = $1 AND read_at IS NULL GROUP BY category",
+    )
+    .bind(user_id)
+    .fetch_all(executor)
+    .await?;
     let mut unread = UnreadCount::default();
     for (category, count) in rows {
         let count = count.clamp(0, i32::MAX as i64) as i32;
@@ -185,27 +178,18 @@ pub async fn unread_count<'e, E: PgExecutor<'e>>(
 }
 
 /// Rows as API messages for a reader with `locale`, with their actors' summaries.
-pub async fn to_protos(
-    core: &Core,
-    rows: &[NotificationRow],
-    locale: &str,
-) -> AppResult<Vec<Notification>> {
+pub async fn to_protos(core: &Core, rows: &[NotificationRow], locale: &str) -> AppResult<Vec<Notification>> {
     let mut actor_ids: Vec<Uuid> = rows.iter().filter_map(|r| r.actor_id).collect();
     actor_ids.sort_unstable();
     actor_ids.dedup();
     let actors = tokuly_identity::summaries(core, &actor_ids).await?;
-    Ok(rows
-        .iter()
-        .map(|row| row.to_proto(locale, row.actor_id.and_then(|id| actors.get(&id).cloned())))
-        .collect())
+    Ok(rows.iter().map(|row| row.to_proto(locale, row.actor_id.and_then(|id| actors.get(&id).cloned()))).collect())
 }
 
 /// The language a user reads their notifications in.
 pub async fn locale_of(core: &Core, user_id: Uuid) -> AppResult<String> {
-    let locale: Option<String> = sqlx::query_scalar("SELECT locale FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(&core.db)
-        .await?;
+    let locale: Option<String> =
+        sqlx::query_scalar("SELECT locale FROM users WHERE id = $1").bind(user_id).fetch_optional(&core.db).await?;
     Ok(locale.unwrap_or_else(|| "ja".to_owned()))
 }
 
@@ -241,15 +225,9 @@ mod tests {
     fn text_follows_the_reader_locale() {
         let row = row();
         let ja = row.to_proto("ja-JP", None);
-        assert_eq!(
-            (ja.title.as_str(), ja.body.as_str()),
-            ("新着メッセージ", "やっほー")
-        );
+        assert_eq!((ja.title.as_str(), ja.body.as_str()), ("新着メッセージ", "やっほー"));
         let en = row.to_proto("en", None);
-        assert_eq!(
-            (en.title.as_str(), en.body.as_str()),
-            ("New message", "Hi there")
-        );
+        assert_eq!((en.title.as_str(), en.body.as_str()), ("New message", "Hi there"));
     }
 
     #[test]
@@ -259,10 +237,7 @@ mod tests {
         assert!(!full.read && full.read_at.as_option().is_none());
         assert_eq!(full.group_count, 3);
         assert_eq!(full.collapse_key, "chat:1");
-        assert_eq!(
-            full.subject.as_option().unwrap().id,
-            Uuid::nil().to_string()
-        );
+        assert_eq!(full.subject.as_option().unwrap().id, Uuid::nil().to_string());
         assert_eq!(full.data_json, r#"{"conversation_id":"1"}"#);
 
         row.data = serde_json::Value::Null;

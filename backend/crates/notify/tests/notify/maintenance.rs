@@ -15,7 +15,12 @@ async fn retention_removes_old_entries_and_stale_event_markers() {
     let age = |id: &String, days: i32| {
         let id = id.clone();
         async move {
-            sqlx::query("UPDATE notifications SET occurred_at = now() - make_interval(days => $2) WHERE id = $1::uuid").bind(id).bind(days).execute(db).await.unwrap();
+            sqlx::query("UPDATE notifications SET occurred_at = now() - make_interval(days => $2) WHERE id = $1::uuid")
+                .bind(id)
+                .bind(days)
+                .execute(db)
+                .await
+                .unwrap();
         }
     };
     age(&aging, 89).await;
@@ -30,18 +35,9 @@ async fn retention_removes_old_entries_and_stale_event_markers() {
         .unwrap();
 
     let report = ctx.notify.run_retention().await.unwrap();
-    assert!(
-        report.notifications >= 1 && report.processed_events >= 1,
-        "{report:?}"
-    );
+    assert!(report.notifications >= 1 && report.processed_events >= 1, "{report:?}");
 
-    let left: Vec<String> = ctx
-        .inbox(&alice)
-        .await
-        .notifications
-        .into_iter()
-        .map(|n| n.id)
-        .collect();
+    let left: Vec<String> = ctx.inbox(&alice).await.notifications.into_iter().map(|n| n.id).collect();
     assert_eq!(left, [fresh, aging], "entries are kept for 90 days");
     let markers: Vec<uuid::Uuid> =
         sqlx::query_scalar("SELECT event_id FROM notify_processed_events WHERE event_id = ANY($1)")
@@ -64,18 +60,9 @@ async fn the_data_export_contains_the_users_notification_data_without_tokens() {
             "tokuly.notify.v1.PreferencesService/UpdatePreferences",
             Some(&alice),
             &UpdatePreferencesRequest {
-                categories: vec![CategoryChange {
-                    category: "live".into(),
-                    push: Some(false),
-                    ..Default::default()
-                }],
-                quiet_hours: QuietHours {
-                    enabled: true,
-                    start_minute: 1320,
-                    end_minute: 420,
-                    ..Default::default()
-                }
-                .into(),
+                categories: vec![CategoryChange { category: "live".into(), push: Some(false), ..Default::default() }],
+                quiet_hours: QuietHours { enabled: true, start_minute: 1320, end_minute: 420, ..Default::default() }
+                    .into(),
                 ..Default::default()
             },
         )
@@ -86,15 +73,11 @@ async fn the_data_export_contains_the_users_notification_data_without_tokens() {
         .call(
             "tokuly.notify.v1.PreferencesService/MuteUser",
             Some(&alice),
-            &MuteUserRequest {
-                user_id: bob.id.to_string(),
-                ..Default::default()
-            },
+            &MuteUserRequest { user_id: bob.id.to_string(), ..Default::default() },
         )
         .await
         .unwrap();
-    let subscription =
-        Subscription::new("https://fcm.googleapis.com/fcm/send/export-test-secret-endpoint");
+    let subscription = Subscription::new("https://fcm.googleapis.com/fcm/send/export-test-secret-endpoint");
     ctx.register(&alice, &subscription.request()).await;
 
     let exporter = ctx
@@ -116,10 +99,7 @@ async fn the_data_export_contains_the_users_notification_data_without_tokens() {
         export["category_preferences"],
         serde_json::json!([{ "category": "live", "inbox": true, "push": false }])
     );
-    assert_eq!(
-        export["muted_users"][0]["muted_user_id"],
-        bob.id.to_string()
-    );
+    assert_eq!(export["muted_users"][0]["muted_user_id"], bob.id.to_string());
     let devices = export["push_devices"].as_array().unwrap();
     assert_eq!(devices.len(), 1);
     assert_eq!(devices[0]["channel"], 1);
@@ -138,22 +118,14 @@ async fn the_data_export_contains_the_users_notification_data_without_tokens() {
 #[tokio::test]
 async fn deleting_an_account_removes_its_notification_data() {
     let ctx = start().await;
-    let (alice, bob, carol) = (
-        ctx.app.user("alice").await,
-        ctx.app.user("bob").await,
-        ctx.app.user("carol").await,
-    );
+    let (alice, bob, carol) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("carol").await);
     let db = &ctx.app.core.db;
     // Alice has an inbox, preferences, a mute, a device...
     ctx.deliver_to_inbox(&chat_message(&alice, &bob)).await;
     update_preferences(&ctx, &alice, toggle("live", Some(false), Some(false))).await;
     let _: PausePushResponse = ctx
         .app
-        .call(
-            "tokuly.notify.v1.PreferencesService/PausePush",
-            Some(&alice),
-            &PausePushRequest::default(),
-        )
+        .call("tokuly.notify.v1.PreferencesService/PausePush", Some(&alice), &PausePushRequest::default())
         .await
         .unwrap();
     let _: MuteUserResponse = ctx
@@ -161,10 +133,7 @@ async fn deleting_an_account_removes_its_notification_data() {
         .call(
             "tokuly.notify.v1.PreferencesService/MuteUser",
             Some(&alice),
-            &MuteUserRequest {
-                user_id: carol.id.to_string(),
-                ..Default::default()
-            },
+            &MuteUserRequest { user_id: carol.id.to_string(), ..Default::default() },
         )
         .await
         .unwrap();
@@ -177,10 +146,7 @@ async fn deleting_an_account_removes_its_notification_data() {
         .call(
             "tokuly.notify.v1.PreferencesService/MuteUser",
             Some(&bob),
-            &MuteUserRequest {
-                user_id: alice.id.to_string(),
-                ..Default::default()
-            },
+            &MuteUserRequest { user_id: alice.id.to_string(), ..Default::default() },
         )
         .await
         .unwrap();
@@ -189,21 +155,15 @@ async fn deleting_an_account_removes_its_notification_data() {
     ctx.notify.handle_event(deleted.clone()).await.unwrap();
     ctx.notify.handle_event(deleted).await.unwrap(); // idempotent
 
-    for table in [
-        "notifications",
-        "notify_settings",
-        "notify_category_prefs",
-        "notify_mutes",
-        "notify_blocks",
-        "push_devices",
-    ] {
-        let rows: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {table} WHERE user_id = $1"
-        )))
-        .bind(alice.id)
-        .fetch_one(db)
-        .await
-        .unwrap();
+    for table in
+        ["notifications", "notify_settings", "notify_category_prefs", "notify_mutes", "notify_blocks", "push_devices"]
+    {
+        let rows: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table} WHERE user_id = $1")))
+                .bind(alice.id)
+                .fetch_one(db)
+                .await
+                .unwrap();
         assert_eq!(rows, 0, "{table}");
     }
     let bobs = ctx.inbox(&bob).await.notifications;
@@ -212,11 +172,10 @@ async fn deleting_an_account_removes_its_notification_data() {
         [kept.as_str()],
         "what Alice caused is gone, the rest stays"
     );
-    let muted: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM notify_mutes WHERE muted_user_id = $1")
-            .bind(alice.id)
-            .fetch_one(db)
-            .await
-            .unwrap();
+    let muted: i64 = sqlx::query_scalar("SELECT count(*) FROM notify_mutes WHERE muted_user_id = $1")
+        .bind(alice.id)
+        .fetch_one(db)
+        .await
+        .unwrap();
     assert_eq!(muted, 0);
 }

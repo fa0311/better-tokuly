@@ -22,10 +22,7 @@ const MAX_DATA_BYTES: usize = 8 * 1024;
 pub fn sanitize(mut request: NotificationRequest) -> Option<NotificationRequest> {
     let kind_ok = !request.kind.is_empty()
         && request.kind.len() <= MAX_KIND_LEN
-        && request
-            .kind
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'.')
+        && request.kind.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'.')
         && !request.kind.starts_with('.')
         && !request.kind.ends_with('.');
     if !kind_ok {
@@ -38,9 +35,8 @@ pub fn sanitize(mut request: NotificationRequest) -> Option<NotificationRequest>
     request.body = clean_text(&request.body, MAX_BODY_CHARS);
 
     // A path we cannot trust to be a route in the app opens the app's start page.
-    let path_ok = is_app_path(&request.path)
-        && request.path.len() <= MAX_PATH_LEN
-        && !request.path.chars().any(char::is_control);
+    let path_ok =
+        is_app_path(&request.path) && request.path.len() <= MAX_PATH_LEN && !request.path.chars().any(char::is_control);
     if !path_ok {
         request.path = "/".to_owned();
     }
@@ -49,11 +45,8 @@ pub fn sanitize(mut request: NotificationRequest) -> Option<NotificationRequest>
         // Browsers drop tabs and newlines from URLs: `/\t/evil` is `//evil`.
         web && url.len() <= MAX_IMAGE_URL_LEN && !url.chars().any(char::is_control)
     });
-    request.collapse_key = request
-        .collapse_key
-        .map(|key| key.trim().to_owned())
-        .filter(|key| !key.is_empty())
-        .map(|key| {
+    request.collapse_key =
+        request.collapse_key.map(|key| key.trim().to_owned()).filter(|key| !key.is_empty()).map(|key| {
             // Over-long keys are replaced by their digest: still one key per group.
             if key.len() <= MAX_COLLAPSE_KEY_LEN {
                 key
@@ -103,14 +96,7 @@ mod tests {
 
     #[test]
     fn malformed_requests_are_rejected() {
-        for kind in [
-            "",
-            "Chat.Message",
-            "chat message",
-            ".chat",
-            "chat.",
-            &"a".repeat(65),
-        ] {
+        for kind in ["", "Chat.Message", "chat message", ".chat", "chat.", &"a".repeat(65)] {
             let mut bad = request();
             bad.kind = kind.to_owned();
             assert!(sanitize(bad).is_none(), "{kind:?}");
@@ -126,10 +112,7 @@ mod tests {
         raw.title = Localized::new("", " Only English ");
         raw.body = Localized::new("あ".repeat(3000), "");
         let clean = sanitize(raw).unwrap();
-        assert_eq!(
-            (clean.title.ja.as_str(), clean.title.en.as_str()),
-            ("Only English", "Only English")
-        );
+        assert_eq!((clean.title.ja.as_str(), clean.title.en.as_str()), ("Only English", "Only English"));
         assert_eq!(clean.body.ja.chars().count(), MAX_BODY_CHARS);
         assert!(clean.body.ja.ends_with('…'));
         assert_eq!(clean.body.en, clean.body.ja);
@@ -153,10 +136,7 @@ mod tests {
         raw.collapse_key = Some("k".repeat(500));
         let clean = sanitize(raw).unwrap();
         assert_eq!(clean.path, "/chat/1");
-        assert_eq!(
-            clean.image_url.as_deref(),
-            Some("https://cdn.example/a.webp")
-        );
+        assert_eq!(clean.image_url.as_deref(), Some("https://cdn.example/a.webp"));
         let key = clean.collapse_key.unwrap();
         assert!(key.starts_with("sha256:") && key.len() == 7 + 64);
     }
@@ -175,9 +155,6 @@ mod tests {
         }
         let mut raw = request();
         raw.image_url = Some("/media/a.webp".into());
-        assert_eq!(
-            sanitize(raw).unwrap().image_url.as_deref(),
-            Some("/media/a.webp")
-        );
+        assert_eq!(sanitize(raw).unwrap().image_url.as_deref(), Some("/media/a.webp"));
     }
 }

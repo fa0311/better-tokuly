@@ -28,8 +28,8 @@ pub mod delivery;
 pub mod devices;
 pub mod events;
 pub mod inbox;
-mod locks;
 mod inbox_svc;
+mod locks;
 pub mod maintenance;
 pub mod preferences;
 mod preferences_svc;
@@ -86,11 +86,7 @@ impl Notify {
         } else {
             vapid::parse_secret(&cfg.vapid_private_key)?
         };
-        let vapid_subject = vapid::subject_from(
-            &cfg.vapid_subject,
-            core.cfg.public_url(),
-            &core.cfg.mail_from,
-        );
+        let vapid_subject = vapid::subject_from(&cfg.vapid_subject, core.cfg.public_url(), &core.cfg.mail_from);
         let vapid = Arc::new(Vapid::new(&vapid_secret, vapid_subject)?);
         let endpoint_policy = EndpointPolicy::from_config(&cfg);
 
@@ -100,10 +96,7 @@ impl Notify {
             endpoint_policy.clone(),
         ))];
         if cfg.fcm_enabled() {
-            channels.push(Arc::new(Fcm::from_service_account(
-                &cfg.fcm_service_account_json,
-                http.clone(),
-            )?));
+            channels.push(Arc::new(Fcm::from_service_account(&cfg.fcm_service_account_json, http.clone())?));
         }
         if cfg.apns_enabled() {
             channels.push(Arc::new(Apns::new(
@@ -114,20 +107,10 @@ impl Notify {
                 http,
             )?));
         }
-        let channels = channels
-            .into_iter()
-            .map(|channel| (channel.kind() as i32, channel))
-            .collect();
+        let channels = channels.into_iter().map(|channel| (channel.kind() as i32, channel)).collect();
 
-        core.exporters
-            .register(Arc::new(maintenance::NotifyExporter { core: core.clone() }));
-        Ok(Self(Arc::new(NotifyInner {
-            core,
-            cfg,
-            vapid,
-            endpoint_policy,
-            channels,
-        })))
+        core.exporters.register(Arc::new(maintenance::NotifyExporter { core: core.clone() }));
+        Ok(Self(Arc::new(NotifyInner { core, cfg, vapid, endpoint_policy, channels })))
     }
 
     /// Registers this domain's RPC services on the Connect router.

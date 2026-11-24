@@ -58,9 +58,7 @@ impl Vapid {
             subject.starts_with("mailto:") || subject.starts_with("https://"),
             "the VAPID subject must be a mailto: or https: URI (TOKULY_VAPID_SUBJECT), got {subject:?}"
         );
-        let pkcs8 = secret
-            .to_pkcs8_der()
-            .map_err(|e| anyhow::anyhow!("cannot encode the VAPID key: {e}"))?;
+        let pkcs8 = secret.to_pkcs8_der().map_err(|e| anyhow::anyhow!("cannot encode the VAPID key: {e}"))?;
         Ok(Self {
             public_key: b64url(&public_key_bytes(secret)),
             signing_key: EncodingKey::from_ec_der(pkcs8.as_bytes()),
@@ -84,16 +82,9 @@ impl Vapid {
             return Ok(self.header_value(&cached.token));
         }
         let expires_at = now + TOKEN_LIFETIME_SECONDS;
-        let claims = VapidClaims {
-            aud: audience.clone(),
-            exp: expires_at,
-            sub: self.subject.clone(),
-        };
-        let token =
-            jsonwebtoken::encode(&Header::new(Algorithm::ES256), &claims, &self.signing_key)
-                .map_err(|e| {
-                    AppError::internal(anyhow::anyhow!("VAPID token signing failed: {e}"))
-                })?;
+        let claims = VapidClaims { aud: audience.clone(), exp: expires_at, sub: self.subject.clone() };
+        let token = jsonwebtoken::encode(&Header::new(Algorithm::ES256), &claims, &self.signing_key)
+            .map_err(|e| AppError::internal(anyhow::anyhow!("VAPID token signing failed: {e}")))?;
         if tokens.len() >= MAX_CACHED_TOKENS {
             tokens.clear();
         }
@@ -113,11 +104,7 @@ pub fn derive_secret(keys: &Keys) -> SecretKey {
     // 2^-32; the attempt counter makes the derivation total and deterministic.
     (0u32..)
         .find_map(|attempt| {
-            let label = if attempt == 0 {
-                "webpush/vapid".to_owned()
-            } else {
-                format!("webpush/vapid/{attempt}")
-            };
+            let label = if attempt == 0 { "webpush/vapid".to_owned() } else { format!("webpush/vapid/{attempt}") };
             SecretKey::from_slice(&keys.derive(&label)).ok()
         })
         .expect("some derived value is a valid scalar")
@@ -129,9 +116,7 @@ pub fn parse_secret(encoded: &str) -> anyhow::Result<SecretKey> {
     let bytes = b64url_decode(encoded.trim().trim_end_matches('='))
         .ok_or_else(|| anyhow::anyhow!("TOKULY_VAPID_PRIVATE_KEY is not base64url"))?;
     SecretKey::from_slice(&bytes).map_err(|_| {
-        anyhow::anyhow!(
-            "TOKULY_VAPID_PRIVATE_KEY is not a P-256 private key (expected 32 bytes, base64url)"
-        )
+        anyhow::anyhow!("TOKULY_VAPID_PRIVATE_KEY is not a P-256 private key (expected 32 bytes, base64url)")
     })
 }
 
@@ -170,13 +155,8 @@ mod tests {
     /// Verifies a token against the advertised public key, as a push service would.
     fn verify(vapid: &Vapid, token: &str, audience: &str) -> VapidClaims {
         let public = b64url_decode(vapid.public_key()).unwrap();
-        assert_eq!(
-            (public.len(), public[0]),
-            (65, 0x04),
-            "uncompressed P-256 point"
-        );
-        let key = DecodingKey::from_ec_components(&b64url(&public[1..33]), &b64url(&public[33..]))
-            .unwrap();
+        assert_eq!((public.len(), public[0]), (65, 0x04), "uncompressed P-256 point");
+        let key = DecodingKey::from_ec_components(&b64url(&public[1..33]), &b64url(&public[33..])).unwrap();
         let mut validation = Validation::new(Algorithm::ES256);
         validation.set_audience(&[audience]);
         validation.set_required_spec_claims(&["exp", "aud", "sub"]);
@@ -186,12 +166,7 @@ mod tests {
     }
 
     fn token_of(header: &str) -> &str {
-        header
-            .strip_prefix("vapid t=")
-            .unwrap()
-            .split(", k=")
-            .next()
-            .unwrap()
+        header.strip_prefix("vapid t=").unwrap().split(", k=").next().unwrap()
     }
 
     #[test]
@@ -211,10 +186,7 @@ mod tests {
         let claims = verify(&vapid, token_of(&header), "https://fcm.googleapis.com");
         assert_eq!(claims.sub, "mailto:ops@tokuly.example");
         let lifetime = claims.exp - chrono::Utc::now().timestamp();
-        assert!(
-            lifetime > 0 && lifetime <= 24 * 3600,
-            "RFC 8292 caps the lifetime at 24 hours"
-        );
+        assert!(lifetime > 0 && lifetime <= 24 * 3600, "RFC 8292 caps the lifetime at 24 hours");
     }
 
     #[test]
@@ -222,21 +194,12 @@ mod tests {
         let vapid = vapid();
         let chrome = url::Url::parse("https://fcm.googleapis.com/fcm/send/one").unwrap();
         let chrome_other = url::Url::parse("https://fcm.googleapis.com/fcm/send/two").unwrap();
-        let firefox =
-            url::Url::parse("https://updates.push.services.mozilla.com/wpush/v2/x").unwrap();
+        let firefox = url::Url::parse("https://updates.push.services.mozilla.com/wpush/v2/x").unwrap();
         let first = vapid.authorization(&chrome).unwrap();
-        assert_eq!(
-            first,
-            vapid.authorization(&chrome_other).unwrap(),
-            "same audience, same token"
-        );
+        assert_eq!(first, vapid.authorization(&chrome_other).unwrap(), "same audience, same token");
         let other = vapid.authorization(&firefox).unwrap();
         assert_ne!(first, other);
-        verify(
-            &vapid,
-            token_of(&other),
-            "https://updates.push.services.mozilla.com",
-        );
+        verify(&vapid, token_of(&other), "https://updates.push.services.mozilla.com");
     }
 
     #[test]
@@ -251,10 +214,7 @@ mod tests {
     fn configured_keys_are_parsed_and_bad_ones_rejected() {
         let secret = derive_secret(&keys());
         let encoded = b64url(&secret.to_bytes());
-        assert_eq!(
-            parse_secret(&encoded).unwrap().to_bytes(),
-            secret.to_bytes()
-        );
+        assert_eq!(parse_secret(&encoded).unwrap().to_bytes(), secret.to_bytes());
         assert_eq!(
             parse_secret(&format!(" {encoded}= ")).unwrap().to_bytes(),
             secret.to_bytes(),
@@ -266,20 +226,10 @@ mod tests {
 
     #[test]
     fn subject_falls_back_to_public_url_then_mail_sender() {
+        assert_eq!(subject_from("mailto:a@b.c", "https://x.example", "T <t@x.example>"), "mailto:a@b.c");
+        assert_eq!(subject_from("", "https://x.example", "T <t@x.example>"), "https://x.example");
         assert_eq!(
-            subject_from("mailto:a@b.c", "https://x.example", "T <t@x.example>"),
-            "mailto:a@b.c"
-        );
-        assert_eq!(
-            subject_from("", "https://x.example", "T <t@x.example>"),
-            "https://x.example"
-        );
-        assert_eq!(
-            subject_from(
-                "",
-                "http://localhost:8080",
-                "Tokuly <no-reply@tokuly.localhost>"
-            ),
+            subject_from("", "http://localhost:8080", "Tokuly <no-reply@tokuly.localhost>"),
             "mailto:no-reply@tokuly.localhost"
         );
         assert_eq!(

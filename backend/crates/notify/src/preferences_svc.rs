@@ -51,10 +51,7 @@ pub(crate) async fn set_mute_state<'e, E: PgExecutor<'e>>(
 impl Notify {
     /// Muting and unmuting share one limit: both write a row.
     async fn mute_rate_limit(&self, user_id: Uuid) -> AppResult<()> {
-        self.core
-            .cache
-            .rate_limit(&format!("notify-mute:{user_id}"), 120, Duration::from_secs(60))
-            .await
+        self.core.cache.rate_limit(&format!("notify-mute:{user_id}"), 120, Duration::from_secs(60)).await
     }
 
     /// Applies a mute or unmute requested through the API and announces it,
@@ -63,17 +60,8 @@ impl Notify {
         let mut tx = self.core.db.begin().await?;
         let changed = set_mute_state(&mut *tx, user_id, muted_user_id, muted, now()).await?;
         if changed {
-            events::emit(
-                &mut *tx,
-                MUTE_CHANGED_TOPIC,
-                Some(user_id),
-                &MuteChanged {
-                    user_id,
-                    muted_user_id,
-                    muted,
-                },
-            )
-            .await?;
+            events::emit(&mut *tx, MUTE_CHANGED_TOPIC, Some(user_id), &MuteChanged { user_id, muted_user_id, muted })
+                .await?;
         }
         tx.commit().await?;
         Ok(())
@@ -107,7 +95,13 @@ impl PreferencesService for Notify {
             // Validate everything before changing anything.
             for change in &request.categories {
                 let category = preferences::require_category(&change.category)?;
-                ensure!(!(category.inbox_locked && change.inbox == Some(false)), invalid, "CATEGORY_LOCKED", "{} notifications always stay in the inbox", category.id);
+                ensure!(
+                    !(category.inbox_locked && change.inbox == Some(false)),
+                    invalid,
+                    "CATEGORY_LOCKED",
+                    "{} notifications always stay in the inbox",
+                    category.id
+                );
             }
             let quiet_hours = request.quiet_hours.as_option();
             if let Some(quiet) = quiet_hours {
@@ -149,7 +143,10 @@ impl PreferencesService for Notify {
                 .await?;
             }
             tx.commit().await?;
-            ok(UpdatePreferencesResponse { preferences: preferences::load(&self.core, user_id).await?.into(), ..Default::default() })
+            ok(UpdatePreferencesResponse {
+                preferences: preferences::load(&self.core, user_id).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -184,8 +181,14 @@ impl PreferencesService for Notify {
     ) -> ServiceResult<ResumePushResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            sqlx::query("UPDATE notify_settings SET push_paused = false, push_paused_until = NULL WHERE user_id = $1").bind(user_id).execute(&self.core.db).await?;
-            ok(ResumePushResponse { preferences: preferences::load(&self.core, user_id).await?.into(), ..Default::default() })
+            sqlx::query("UPDATE notify_settings SET push_paused = false, push_paused_until = NULL WHERE user_id = $1")
+                .bind(user_id)
+                .execute(&self.core.db)
+                .await?;
+            ok(ResumePushResponse {
+                preferences: preferences::load(&self.core, user_id).await?.into(),
+                ..Default::default()
+            })
         })
         .await
     }
@@ -198,19 +201,13 @@ impl PreferencesService for Notify {
         handle(async {
             let user_id = ctx.user_id()?;
             let target_id = parse_id(request.user_id)?;
-            ensure!(
-                target_id != user_id,
-                invalid,
-                "CANNOT_MUTE_SELF",
-                "you cannot mute yourself"
-            );
+            ensure!(target_id != user_id, invalid, "CANNOT_MUTE_SELF", "you cannot mute yourself");
             self.mute_rate_limit(user_id).await?;
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL)",
-            )
-            .bind(target_id)
-            .fetch_one(&self.core.db)
-            .await?;
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL)")
+                    .bind(target_id)
+                    .fetch_one(&self.core.db)
+                    .await?;
             ensure!(exists, not_found, "USER_NOT_FOUND", "user not found");
             self.set_mute(user_id, target_id, true).await?;
             ok(MuteUserResponse::default())
@@ -259,7 +256,11 @@ impl PreferencesService for Notify {
             let summaries = tokuly_identity::summaries(&self.core, &ids).await?;
             let users = rows
                 .into_iter()
-                .map(|(id, muted_at)| MutedUser { user: tokuly_identity::users::pick(&summaries, id).into(), muted_at: ts(muted_at), ..Default::default() })
+                .map(|(id, muted_at)| MutedUser {
+                    user: tokuly_identity::users::pick(&summaries, id).into(),
+                    muted_at: ts(muted_at),
+                    ..Default::default()
+                })
                 .collect();
             ok(ListMutedUsersResponse { users, page: info.into(), ..Default::default() })
         })

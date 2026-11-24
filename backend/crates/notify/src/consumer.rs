@@ -19,21 +19,18 @@ use tokuly_core::{
     outbound::{NOTIFY_TOPIC, NotificationRequest},
     prelude::*,
 };
-use tokuly_proto::notify::{
-    NotificationReceived, UnreadCount, notify_event::Event as NotifyEventKind,
-};
+use tokuly_proto::notify::{NotificationReceived, UnreadCount, notify_event::Event as NotifyEventKind};
 
 use crate::{
-    Notify,
+    Notify, blocks,
     categories::{self, Category},
     delivery::PushJob,
-    blocks,
     events::{
-        FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC, USER_DELETED_TOPIC,
-        USER_UNBLOCKED_TOPIC, UserDeleted,
+        FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC, USER_DELETED_TOPIC, USER_UNBLOCKED_TOPIC,
+        UserDeleted,
     },
-    locks,
     inbox::{self, NewNotification, NotificationRow},
+    locks,
     preferences::{self, DeliveryContext},
     preferences_svc::set_mute_state,
     sanitize::sanitize,
@@ -133,12 +130,7 @@ pub struct Plan {
 /// marked urgent (an incoming call, an SOS) is exactly what cannot wait: it
 /// is pushed regardless. A category switched off and a mute mean "never from
 /// this", so they hold for urgent requests too.
-pub fn plan(
-    request: &NotificationRequest,
-    category: &Category,
-    recipient: &DeliveryContext,
-    now: Time,
-) -> Plan {
+pub fn plan(request: &NotificationRequest, category: &Category, recipient: &DeliveryContext, now: Time) -> Plan {
     let inbox = request.inbox && (recipient.inbox || category.inbox_locked);
     let push = if !request.push {
         Err(PushSkip::NotRequested)
@@ -158,12 +150,10 @@ pub fn plan(
 
 /// Records that an event is being handled. `false` when it already was.
 async fn claim_event(tx: &mut Transaction<'_, Postgres>, event_id: Uuid) -> AppResult<bool> {
-    let done = sqlx::query(
-        "INSERT INTO notify_processed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING",
-    )
-    .bind(event_id)
-    .execute(&mut **tx)
-    .await?;
+    let done = sqlx::query("INSERT INTO notify_processed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING")
+        .bind(event_id)
+        .execute(&mut **tx)
+        .await?;
     Ok(done.rows_affected() > 0)
 }
 
@@ -254,13 +244,8 @@ impl Notify {
             return Ok(RequestOutcome::Dropped(DropReason::OwnAction));
         }
         let category = categories::of_kind(&request.kind);
-        let Some(recipient) = preferences::delivery_context(
-            &self.core,
-            request.user_id,
-            category.id,
-            request.actor_id,
-        )
-        .await?
+        let Some(recipient) =
+            preferences::delivery_context(&self.core, request.user_id, category.id, request.actor_id).await?
         else {
             return Ok(RequestOutcome::Dropped(DropReason::RecipientGone));
         };
@@ -315,19 +300,10 @@ impl Notify {
 
         let push = match plan.push {
             Err(skip) => PushDecision::Skipped(skip),
-            Ok(()) if !self.push_budget_left(&request).await? => {
-                PushDecision::Skipped(PushSkip::RateLimited)
-            }
+            Ok(()) if !self.push_budget_left(&request).await? => PushDecision::Skipped(PushSkip::RateLimited),
             Ok(()) => {
-                let job = push_job(
-                    event,
-                    &request,
-                    category,
-                    stored.as_ref(),
-                    &unread,
-                    withdrawable_refs,
-                    blockable_actor,
-                );
+                let job =
+                    push_job(event, &request, category, stored.as_ref(), &unread, withdrawable_refs, blockable_actor);
                 // Queued before the commit: if queuing fails nothing is
                 // recorded and the event is retried as a whole. The job is
                 // unique per event, so a retry after a failed commit does not
@@ -341,32 +317,23 @@ impl Notify {
         if let Some(row) = &stored {
             self.announce(row, &recipient.locale, unread).await;
         }
-        Ok(RequestOutcome::Handled {
-            notification_id: stored.map(|row| row.id),
-            push,
-        })
+        Ok(RequestOutcome::Handled { notification_id: stored.map(|row| row.id), push })
     }
 
     /// Tells the recipient's connected clients about a new or replaced inbox
     /// entry. Best effort: the entry is committed, and a client that misses
     /// the event finds it the next time it lists the inbox.
     async fn announce(&self, row: &NotificationRow, locale: &str, unread: UnreadCount) {
-        let notification = match inbox::to_protos(&self.core, std::slice::from_ref(row), locale)
-            .await
-        {
+        let notification = match inbox::to_protos(&self.core, std::slice::from_ref(row), locale).await {
             Ok(mut notifications) => notifications.pop(),
             Err(e) => {
                 tracing::warn!(notification = %row.id, error = %e, "could not announce a notification");
                 return;
             }
         };
-        let received = NotificationReceived {
-            notification: notification.into(),
-            unread: unread.into(),
-            ..Default::default()
-        };
-        self.publish(row.user_id, NotifyEventKind::from(received))
-            .await;
+        let received =
+            NotificationReceived { notification: notification.into(), unread: unread.into(), ..Default::default() };
+        self.publish(row.user_id, NotifyEventKind::from(received)).await;
     }
 
     /// The push caps: a burst of events (a busy group chat, a viral post)
@@ -385,18 +352,14 @@ impl Notify {
         if let Some(actor_id) = request.actor_id {
             let kind = if request.urgent { "urgent" } else { "push" };
             let key = format!("notify-{kind}:{user_id}:{actor_id}");
-            if !self
-                .within_rate(&key, self.cfg.push_rate_per_sender_per_minute)
-                .await?
-            {
+            if !self.within_rate(&key, self.cfg.push_rate_per_sender_per_minute).await? {
                 return Ok(false);
             }
         }
         if request.urgent {
             return Ok(true);
         }
-        self.within_rate(&format!("notify-push:{user_id}"), self.cfg.push_rate_per_minute)
-            .await
+        self.within_rate(&format!("notify-push:{user_id}"), self.cfg.push_rate_per_minute).await
     }
 
     /// Counts one push against a per-minute budget of `max` (0 = no cap).
@@ -404,12 +367,7 @@ impl Notify {
         if max == 0 {
             return Ok(true);
         }
-        match self
-            .core
-            .cache
-            .rate_limit(key, max, std::time::Duration::from_secs(60))
-            .await
-        {
+        match self.core.cache.rate_limit(key, max, std::time::Duration::from_secs(60)).await {
             Ok(()) => Ok(true),
             Err(e) if e.code == ErrorCode::ResourceExhausted => Ok(false),
             Err(e) => Err(e),
@@ -419,14 +377,7 @@ impl Notify {
     /// Mirrors the "mute this friend" preference of the social domain.
     pub async fn handle_friend_prefs_changed(&self, event: &Event) -> AppResult<()> {
         let change: FriendPrefsChanged = event.data()?;
-        set_mute_state(
-            &self.core.db,
-            change.user_id,
-            change.friend_id,
-            change.muted,
-            event.occurred_at,
-        )
-        .await?;
+        set_mute_state(&self.core.db, change.user_id, change.friend_id, change.muted, event.occurred_at).await?;
         Ok(())
     }
 }
@@ -473,9 +424,7 @@ mod tests {
 
     /// 03:00 in Tokyo: inside the default 22:00-07:00 window.
     fn night() -> Time {
-        chrono::Utc
-            .with_ymd_and_hms(2026, 11, 20, 18, 0, 0)
-            .unwrap()
+        chrono::Utc.with_ymd_and_hms(2026, 11, 20, 18, 0, 0).unwrap()
     }
 
     fn chat() -> &'static Category {
@@ -484,58 +433,22 @@ mod tests {
 
     #[test]
     fn defaults_deliver_everywhere() {
-        assert_eq!(
-            plan(&request(), chat(), &recipient(), night()),
-            Plan {
-                inbox: true,
-                push: Ok(())
-            }
-        );
+        assert_eq!(plan(&request(), chat(), &recipient(), night()), Plan { inbox: true, push: Ok(()) });
     }
 
     #[test]
     fn the_producer_chooses_the_channels() {
         let plan_of = |request: NotificationRequest| plan(&request, chat(), &recipient(), night());
-        assert_eq!(
-            plan_of(request().push_only()),
-            Plan {
-                inbox: false,
-                push: Ok(())
-            }
-        );
-        assert_eq!(
-            plan_of(request().inbox_only()),
-            Plan {
-                inbox: true,
-                push: Err(PushSkip::NotRequested)
-            }
-        );
+        assert_eq!(plan_of(request().push_only()), Plan { inbox: false, push: Ok(()) });
+        assert_eq!(plan_of(request().inbox_only()), Plan { inbox: true, push: Err(PushSkip::NotRequested) });
     }
 
     #[test]
     fn category_toggles_gate_inbox_and_push_separately() {
-        let no_inbox = DeliveryContext {
-            inbox: false,
-            ..recipient()
-        };
-        assert_eq!(
-            plan(&request(), chat(), &no_inbox, night()),
-            Plan {
-                inbox: false,
-                push: Ok(())
-            }
-        );
-        let no_push = DeliveryContext {
-            push: false,
-            ..recipient()
-        };
-        assert_eq!(
-            plan(&request(), chat(), &no_push, night()),
-            Plan {
-                inbox: true,
-                push: Err(PushSkip::CategoryOff)
-            }
-        );
+        let no_inbox = DeliveryContext { inbox: false, ..recipient() };
+        assert_eq!(plan(&request(), chat(), &no_inbox, night()), Plan { inbox: false, push: Ok(()) });
+        let no_push = DeliveryContext { push: false, ..recipient() };
+        assert_eq!(plan(&request(), chat(), &no_push, night()), Plan { inbox: true, push: Err(PushSkip::CategoryOff) });
         // A locked category stays in the inbox even if a stale row says otherwise.
         let system = categories::find("system").unwrap();
         assert!(plan(&request(), system, &no_inbox, night()).inbox);
@@ -543,17 +456,8 @@ mod tests {
 
     #[test]
     fn pause_and_quiet_hours_silence_the_push_but_not_the_inbox() {
-        let paused = DeliveryContext {
-            push_paused: true,
-            ..recipient()
-        };
-        assert_eq!(
-            plan(&request(), chat(), &paused, night()),
-            Plan {
-                inbox: true,
-                push: Err(PushSkip::Paused)
-            }
-        );
+        let paused = DeliveryContext { push_paused: true, ..recipient() };
+        assert_eq!(plan(&request(), chat(), &paused, night()), Plan { inbox: true, push: Err(PushSkip::Paused) });
         let expired = DeliveryContext {
             push_paused: true,
             push_paused_until: Some(night() - chrono::Duration::minutes(1)),
@@ -561,17 +465,8 @@ mod tests {
         };
         assert_eq!(plan(&request(), chat(), &expired, night()).push, Ok(()));
 
-        let quiet = DeliveryContext {
-            quiet_enabled: true,
-            ..recipient()
-        };
-        assert_eq!(
-            plan(&request(), chat(), &quiet, night()),
-            Plan {
-                inbox: true,
-                push: Err(PushSkip::QuietHours)
-            }
-        );
+        let quiet = DeliveryContext { quiet_enabled: true, ..recipient() };
+        assert_eq!(plan(&request(), chat(), &quiet, night()), Plan { inbox: true, push: Err(PushSkip::QuietHours) });
         let noon = night() + chrono::Duration::hours(9);
         assert_eq!(plan(&request(), chat(), &quiet, noon).push, Ok(()));
     }
@@ -580,56 +475,22 @@ mod tests {
     fn urgent_requests_break_through_not_now_but_not_through_never() {
         let urgent = || request().urgent();
         // "Not now": the pause and quiet hours, even both at once.
-        let silenced = DeliveryContext {
-            push_paused: true,
-            quiet_enabled: true,
-            ..recipient()
-        };
-        assert_eq!(
-            plan(&request(), chat(), &silenced, night()).push,
-            Err(PushSkip::Paused)
-        );
-        assert_eq!(
-            plan(&urgent(), chat(), &silenced, night()),
-            Plan {
-                inbox: true,
-                push: Ok(())
-            }
-        );
+        let silenced = DeliveryContext { push_paused: true, quiet_enabled: true, ..recipient() };
+        assert_eq!(plan(&request(), chat(), &silenced, night()).push, Err(PushSkip::Paused));
+        assert_eq!(plan(&urgent(), chat(), &silenced, night()), Plan { inbox: true, push: Ok(()) });
         // "Never from this category" still holds.
-        let category_off = DeliveryContext {
-            push: false,
-            ..silenced.clone()
-        };
-        assert_eq!(
-            plan(&urgent(), chat(), &category_off, night()).push,
-            Err(PushSkip::CategoryOff)
-        );
+        let category_off = DeliveryContext { push: false, ..silenced.clone() };
+        assert_eq!(plan(&urgent(), chat(), &category_off, night()).push, Err(PushSkip::CategoryOff));
         // And urgency cannot conjure a push the producer or the user's
         // devices do not allow for.
-        assert_eq!(
-            plan(&urgent().inbox_only(), chat(), &silenced, night()).push,
-            Err(PushSkip::NotRequested)
-        );
-        let no_devices = DeliveryContext {
-            has_devices: false,
-            ..silenced
-        };
-        assert_eq!(
-            plan(&urgent(), chat(), &no_devices, night()).push,
-            Err(PushSkip::NoDevices)
-        );
+        assert_eq!(plan(&urgent().inbox_only(), chat(), &silenced, night()).push, Err(PushSkip::NotRequested));
+        let no_devices = DeliveryContext { has_devices: false, ..silenced };
+        assert_eq!(plan(&urgent(), chat(), &no_devices, night()).push, Err(PushSkip::NoDevices));
     }
 
     #[test]
     fn no_devices_means_no_push_job() {
-        let no_devices = DeliveryContext {
-            has_devices: false,
-            ..recipient()
-        };
-        assert_eq!(
-            plan(&request(), chat(), &no_devices, night()).push,
-            Err(PushSkip::NoDevices)
-        );
+        let no_devices = DeliveryContext { has_devices: false, ..recipient() };
+        assert_eq!(plan(&request(), chat(), &no_devices, night()).push, Err(PushSkip::NoDevices));
     }
 }

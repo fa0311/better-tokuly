@@ -121,9 +121,7 @@ pub trait PushChannel: Send + Sync + 'static {
 /// service has no reason to redirect, and following one would let a crafted
 /// Web Push endpoint steer requests somewhere else.
 pub fn http_client() -> anyhow::Result<reqwest::Client> {
-    builder()
-        .build()
-        .map_err(|e| anyhow::anyhow!("push http client: {e}"))
+    builder().build().map_err(|e| anyhow::anyhow!("push http client: {e}"))
 }
 
 /// The HTTP client for Web Push: endpoints are chosen by clients, so it only
@@ -134,14 +132,8 @@ pub fn web_push_client(allow_insecure: bool) -> anyhow::Result<reqwest::Client> 
     // Never through a proxy from the environment: the proxy would resolve
     // the name, out of the resolver's reach.
     let builder = builder.no_proxy();
-    let builder = if allow_insecure {
-        builder
-    } else {
-        builder.dns_resolver(resolver::PublicOnly::shared())
-    };
-    builder
-        .build()
-        .map_err(|e| anyhow::anyhow!("web push http client: {e}"))
+    let builder = if allow_insecure { builder } else { builder.dns_resolver(resolver::PublicOnly::shared()) };
+    builder.build().map_err(|e| anyhow::anyhow!("web push http client: {e}"))
 }
 
 fn builder() -> reqwest::ClientBuilder {
@@ -286,10 +278,7 @@ mod tests {
         assert_eq!(id, collapse_id("chat:0191f3a0-7c1e-7cc3-9d2b-6f1f0e2a9b11"));
         assert_ne!(id, collapse_id("chat:other"));
         assert_eq!(id.len(), 32);
-        assert!(
-            id.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        );
+        assert!(id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
     }
 
     #[test]

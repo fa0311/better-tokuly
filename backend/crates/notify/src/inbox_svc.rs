@@ -19,31 +19,18 @@ fn category_filter(category: &str) -> AppResult<Option<&'static str>> {
     }
     match categories::find(category) {
         Some(category) => Ok(Some(category.id)),
-        None => bail!(
-            invalid,
-            "CATEGORY_UNKNOWN",
-            "unknown notification category {category:?}"
-        ),
+        None => bail!(invalid, "CATEGORY_UNKNOWN", "unknown notification category {category:?}"),
     }
 }
 
 fn check_id_count(count: usize) -> AppResult<()> {
-    ensure!(
-        count <= MAX_IDS,
-        invalid,
-        "TOO_MANY_IDS",
-        "at most {MAX_IDS} notifications per request"
-    );
+    ensure!(count <= MAX_IDS, invalid, "TOO_MANY_IDS", "at most {MAX_IDS} notifications per request");
     Ok(())
 }
 
 /// The IDs to list in a realtime event, or "too many, refetch".
 fn ids_or_bulk(ids: &[Uuid]) -> (Vec<String>, bool) {
-    if ids.len() > MAX_IDS {
-        (Vec::new(), true)
-    } else {
-        (ids.iter().map(Uuid::to_string).collect(), false)
-    }
+    if ids.len() > MAX_IDS { (Vec::new(), true) } else { (ids.iter().map(Uuid::to_string).collect(), false) }
 }
 
 fn count_of(ids: &[Uuid]) -> i32 {
@@ -57,12 +44,7 @@ impl Notify {
             return;
         }
         let (notification_ids, bulk) = ids_or_bulk(ids);
-        let event = NotificationsRead {
-            notification_ids,
-            bulk,
-            unread: unread.clone().into(),
-            ..Default::default()
-        };
+        let event = NotificationsRead { notification_ids, bulk, unread: unread.clone().into(), ..Default::default() };
         self.publish(user_id, NotifyEventKind::from(event)).await;
     }
 
@@ -72,20 +54,13 @@ impl Notify {
             return;
         }
         let (notification_ids, bulk) = ids_or_bulk(ids);
-        let event = NotificationsRemoved {
-            notification_ids,
-            bulk,
-            unread: unread.clone().into(),
-            ..Default::default()
-        };
+        let event =
+            NotificationsRemoved { notification_ids, bulk, unread: unread.clone().into(), ..Default::default() };
         self.publish(user_id, NotifyEventKind::from(event)).await;
     }
 
     pub(crate) async fn publish(&self, user_id: Uuid, event: NotifyEventKind) {
-        let event = NotifyEvent {
-            event: Some(event),
-            ..Default::default()
-        };
+        let event = NotifyEvent { event: Some(event), ..Default::default() };
         self.core.rt.notify_user(user_id, &event).await;
     }
 }
@@ -209,21 +184,15 @@ impl InboxService for Notify {
         handle(async {
             let user_id = ctx.user_id()?;
             let request = request.to_owned_message();
-            ensure!(
-                !request.notification_ids.is_empty(),
-                invalid,
-                "IDS_REQUIRED",
-                "say which notifications to delete"
-            );
+            ensure!(!request.notification_ids.is_empty(), invalid, "IDS_REQUIRED", "say which notifications to delete");
             check_id_count(request.notification_ids.len())?;
             // Scoped to the caller: someone else's IDs simply match nothing.
-            let deleted: Vec<Uuid> = sqlx::query_scalar(
-                "DELETE FROM notifications WHERE user_id = $1 AND id = ANY($2) RETURNING id",
-            )
-            .bind(user_id)
-            .bind(parse_ids(&request.notification_ids)?)
-            .fetch_all(&self.core.db)
-            .await?;
+            let deleted: Vec<Uuid> =
+                sqlx::query_scalar("DELETE FROM notifications WHERE user_id = $1 AND id = ANY($2) RETURNING id")
+                    .bind(user_id)
+                    .bind(parse_ids(&request.notification_ids)?)
+                    .fetch_all(&self.core.db)
+                    .await?;
             let unread = inbox::unread_count(&self.core.db, user_id).await?;
             self.publish_removed(user_id, &deleted, &unread).await;
             ok(DeleteNotificationsResponse {
@@ -255,7 +224,11 @@ impl InboxService for Notify {
             .await?;
             let unread = inbox::unread_count(&self.core.db, user_id).await?;
             self.publish_removed(user_id, &deleted, &unread).await;
-            ok(ClearNotificationsResponse { deleted_count: count_of(&deleted), unread: unread.into(), ..Default::default() })
+            ok(ClearNotificationsResponse {
+                deleted_count: count_of(&deleted),
+                unread: unread.into(),
+                ..Default::default()
+            })
         })
         .await
     }

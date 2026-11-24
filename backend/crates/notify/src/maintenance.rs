@@ -61,15 +61,10 @@ impl Notify {
             notify
                 .core
                 .jobs
-                .run(
-                    PUSH_JOB,
-                    job_options(),
-                    notify.core.shutdown.clone(),
-                    move |job: PushJob| {
-                        let notify = handler.clone();
-                        async move { notify.run_push_job(job).await }
-                    },
-                )
+                .run(PUSH_JOB, job_options(), notify.core.shutdown.clone(), move |job: PushJob| {
+                    let notify = handler.clone();
+                    async move { notify.run_push_job(job).await }
+                })
                 .await;
         });
 
@@ -163,18 +158,9 @@ impl Notify {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM notify_category_prefs WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM notify_settings WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM push_devices WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query("DELETE FROM notify_category_prefs WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM notify_settings WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM push_devices WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -187,10 +173,7 @@ pub(crate) struct NotifyExporter {
 
 /// Runs a query that returns one JSON document.
 async fn json(core: &Core, sql: &'static str, user_id: Uuid) -> AppResult<serde_json::Value> {
-    Ok(sqlx::query_scalar(sql)
-        .bind(user_id)
-        .fetch_one(&core.db)
-        .await?)
+    Ok(sqlx::query_scalar(sql).bind(user_id).fetch_one(&core.db).await?)
 }
 
 #[async_trait]
