@@ -19,7 +19,6 @@ use tokuly_proto::notes::{Hashtag, TrendingHashtag};
 use crate::{
     Notes,
     model::{hashtag_path, id_floor},
-    visibility,
 };
 
 /// Age at which a use of a hashtag counts half towards the trend score.
@@ -222,13 +221,12 @@ impl Notes {
             return Ok(0);
         }
         sqlx::query("DELETE FROM hashtag_trends").execute(&mut *tx).await?;
-        let sql = format!(
-            "WITH uses AS (
+        let sql = "WITH uses AS (
                  SELECT nh.hashtag_id, n.author_id, count(*) AS notes, max(n.created_at) AS latest
                  FROM note_hashtags nh
                  JOIN notes n ON n.id = nh.note_id
                  JOIN users u ON u.id = n.author_id
-                 WHERE nh.note_id >= $1 AND n.created_at > $2 AND n.visibility = {public}
+                 WHERE nh.note_id >= $1 AND n.created_at > $2 AND n.listed
                    AND u.banned_at IS NULL AND u.deleted_at IS NULL
                  GROUP BY nh.hashtag_id, n.author_id
              ), scored AS (
@@ -238,10 +236,8 @@ impl Notes {
              )
              INSERT INTO hashtag_trends (hashtag_id, rank, score, recent_note_count, computed_at)
              SELECT hashtag_id, (row_number() OVER (ORDER BY score DESC, notes DESC, hashtag_id))::int, score, notes, now()
-             FROM scored ORDER BY score DESC, notes DESC, hashtag_id LIMIT $5",
-            public = visibility::PUBLIC,
-        );
-        let trending = sqlx::query(sqlx::AssertSqlSafe(sql))
+             FROM scored ORDER BY score DESC, notes DESC, hashtag_id LIMIT $5";
+        let trending = sqlx::query(sql)
             // Note IDs are time-ordered: the index on them narrows the scan
             // to recent links (with an hour of slack for clock differences).
             .bind(id_floor(since - chrono::Duration::hours(1)))

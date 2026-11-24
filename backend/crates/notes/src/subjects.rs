@@ -16,7 +16,7 @@ use tokuly_proto::{common::SubjectType, identity::Profile};
 use crate::{
     Notes,
     model::{NOTE_COLUMNS, NoteRow, STORY_COLUMNS, StoryRow, note_path, story_path},
-    visibility::{PUBLIC, Viewer, sees_note},
+    visibility::{Viewer, sees_note},
 };
 
 /// Registers the resolvers, the exporter and the profile extension. Called
@@ -46,8 +46,8 @@ impl SubjectResolver for NoteSubjects {
     /// A note stays reportable by someone it reached after it was hidden
     /// from them — made private, or behind a block — so withdrawing what
     /// was already delivered does not take away the report. It reached
-    /// them when it is public and its author's account is in good standing
-    /// (anyone can read it signed out), when they
+    /// them when everyone may see it and its author's account is in good
+    /// standing (anyone can read it signed out), when they
     /// were told about it (a reply, quote or mention notification), or when
     /// they liked or renoted it.
     async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
@@ -57,7 +57,7 @@ impl SubjectResolver for NoteSubjects {
         let (Ok(note_id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
         let sql = format!(
             "SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id = $1 AND n.author_id <> $2 AND (
-                 (n.visibility = {PUBLIC}
+                 (n.listed
                   AND EXISTS (SELECT 1 FROM users u WHERE u.id = n.author_id AND u.banned_at IS NULL AND u.deleted_at IS NULL))
                  OR EXISTS (SELECT 1 FROM note_recipients r WHERE r.note_id = n.id AND r.user_id = $2)
                  OR EXISTS (SELECT 1 FROM note_likes l WHERE l.note_id = n.id AND l.user_id = $2)
@@ -141,7 +141,7 @@ impl ProfileExtension for NoteCount {
     async fn enrich_profile(&self, viewer: Option<Uuid>, owner: Uuid, profile: &mut Profile) -> AppResult<()> {
         let viewer = Viewer::load(&self.0.core, viewer).await?;
         let sql = format!(
-            "SELECT count(*) FROM notes n WHERE n.author_id = $4 AND n.reply_to_id IS NULL AND {}",
+            "SELECT count(*) FROM notes n WHERE n.author_id = $7 AND n.reply_to_id IS NULL AND {}",
             sees_note("n")
         );
         let count: i64 = viewer.query_scalar(sql).bind(owner).fetch_one(&self.0.core.db).await?;
@@ -179,7 +179,8 @@ impl DataExporter for NotesExporter {
                 "SELECT jsonb_build_object('id', id, 'text', text, 'attachments', attachments, 'stamp_id', stamp_id,
                         'place', CASE WHEN place_name IS NULL THEN NULL
                                       ELSE jsonb_build_object('name', place_name, 'lat', place_lat, 'lng', place_lng, 'place_id', place_id) END,
-                        'visibility', visibility, 'content_warning', content_warning, 'reply_to_id', reply_to_id,
+                        'visibility', visibility, 'circle_id', circle_id, 'direct_user_ids', direct_user_ids,
+                        'content_warning', content_warning, 'reply_to_id', reply_to_id,
                         'quote_of_id', quote_of_id, 'hashtags', hashtags, 'mentions', mentions, 'link_url', link_url,
                         'reply_count', reply_count, 'renote_count', renote_count, 'quote_count', quote_count,
                         'like_count', like_count, 'view_count', view_count, 'pinned', pinned_at IS NOT NULL, 'created_at', created_at)

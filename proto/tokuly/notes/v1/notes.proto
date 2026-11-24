@@ -3,14 +3,24 @@ syntax = "proto3";
 // Notes (ノート: short posts, "今何してる?") and stories (記憶: a titled set of
 // photos and videos that friends can see for a day).
 //
-// Who may see a note is decided in one place for every RPC here:
+// Who may see a note is decided in one place for every RPC here, with the
+// audiences of the social graph (tokuly.social.v1: friends, follows,
+// circles, locked accounts):
 // - the author always sees their own notes;
 // - nobody sees the notes of someone they blocked or who blocked them, nor
 //   those of a suspended account;
-// - PUBLIC notes are visible to everyone, signed in or not;
-// - FRIENDS notes are visible to the author's friends, and a FRIENDS reply
-//   also to the author of the note it answers;
-// - PRIVATE notes are visible to nobody else.
+// - PUBLIC notes are visible to everyone, signed in or not — except that the
+//   public notes of a LOCKED account reach only its followers and friends;
+// - FOLLOWERS notes: the author's followers and friends;
+// - FRIENDS notes: the author's friends;
+// - CLOSE_FRIENDS notes: the members of the author's close-friends circle;
+// - CIRCLE notes: the members of one of the author's custom circles;
+//   (circle members count while they are still a friend or follower)
+// - a reply shared with anything narrower than PUBLIC is also visible to the
+//   author of the note it answers (unless it is PRIVATE);
+// - DIRECT notes (PRIVATE plus named people, `direct_recipients`): the
+//   people named;
+// - PRIVATE notes: nobody else.
 // A note the caller may not see is indistinguishable from one that does not
 // exist (NOTE_NOT_FOUND, or it is simply absent from lists).
 //
@@ -46,18 +56,21 @@ service NoteService {
   // TOO_MANY_ATTACHMENTS (more than 4), ATTACHMENTS_MIXED (a video comes
   // alone), ATTACHMENT_UNSUPPORTED (not an image or a video), ASSET_NOT_FOUND,
   // ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_FAILED, STAMP_NOT_USABLE,
-  // INVALID_PLACE, INVALID_VISIBILITY, INVALID_IDEMPOTENCY_KEY,
-  // REQUEST_IN_PROGRESS, NOTE_NOT_FOUND (the note replied to or quoted),
-  // NOTE_NOT_PUBLIC (only public notes can be quoted), RATE_LIMITED.
+  // INVALID_PLACE, INVALID_VISIBILITY, CIRCLE_NOT_FOUND (not a circle of the
+  // caller), TOO_MANY_RECIPIENTS (a direct note names at most 20 people),
+  // RECIPIENT_NOT_FOUND, INVALID_IDEMPOTENCY_KEY, REQUEST_IN_PROGRESS,
+  // NOTE_NOT_FOUND (the note replied to or quoted), NOTE_NOT_PUBLIC (only
+  // notes everyone may see can be quoted), RATE_LIMITED.
   rpc CreateNote(CreateNoteRequest) returns (CreateNoteResponse);
   // Deletes one of the caller's notes. Replies to it stay (they show the
   // note they answered as unavailable); renotes of it disappear.
   // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR.
   rpc DeleteNote(DeleteNoteRequest) returns (DeleteNoteResponse);
-  // Changes who may see one of the caller's notes. A reply is never shown
-  // more widely than the note it answers; the visibility actually applied is
-  // in the returned note.
-  // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR, INVALID_VISIBILITY, RATE_LIMITED
+  // Changes who may see one of the caller's notes (the same audiences as
+  // CreateNote). A reply is never shown more widely than the note it
+  // answers; the audience actually applied is in the returned note.
+  // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR, INVALID_VISIBILITY,
+  // CIRCLE_NOT_FOUND, TOO_MANY_RECIPIENTS, RECIPIENT_NOT_FOUND, RATE_LIMITED
   // (more than 30 changes per minute).
   rpc SetNoteVisibility(SetNoteVisibilityRequest) returns (SetNoteVisibilityResponse);
   // Pins one of the caller's notes to the top of their profile, replacing
@@ -89,9 +102,15 @@ service NoteService {
   // Takes a like back. Succeeds when the note was not liked.
   // Errors: NOTE_NOT_FOUND.
   rpc UnlikeNote(UnlikeNoteRequest) returns (UnlikeNoteResponse);
-  // Renotes (Reノート) a public note to the caller's friends: once per note,
-  // undoable. Renoting twice changes nothing.
-  // Errors: NOTE_NOT_FOUND, NOTE_NOT_PUBLIC, RATE_LIMITED.
+  // Renotes (Reノート) a note into the timelines of the caller's friends and
+  // followers: once per note, undoable. Renoting twice changes nothing.
+  // Who may renote (`NoteViewerState.can_renote`): anyone who sees a note
+  // that everyone may see (PUBLIC, author not locked); only its author for
+  // FOLLOWERS, FRIENDS, CLOSE_FRIENDS and CIRCLE notes and for the public
+  // notes of a locked account; nobody for DIRECT and PRIVATE notes. A
+  // renote never widens the note's audience: timelines show it only to
+  // people who may see the note itself.
+  // Errors: NOTE_NOT_FOUND, NOTE_NOT_RENOTABLE, RATE_LIMITED.
   rpc RenoteNote(RenoteNoteRequest) returns (RenoteNoteResponse);
   // Takes a renote back. Succeeds when the note was not renoted.
   // Errors: NOTE_NOT_FOUND.
@@ -101,10 +120,15 @@ service NoteService {
   // Who renoted a note, most recent first. Errors: NOTE_NOT_FOUND.
   rpc ListNoteRenoters(ListNoteRenotersRequest) returns (ListNoteRenotersResponse);
 
-  // The caller's home timeline: notes, quotes and renotes by the caller and
-  // their friends, plus replies exchanged between those people.
+  // The caller's home (friends) timeline: notes, quotes and renotes by the
+  // caller and their friends, plus replies exchanged between those people.
   rpc GetHomeTimeline(GetHomeTimelineRequest) returns (GetHomeTimelineResponse);
-  // Every public note that is not a reply. Works anonymously.
+  // The caller's following timeline: the same for the caller and the
+  // accounts they follow, leaving out the ones they muted
+  // (tokuly.social.v1 follow mutes).
+  rpc GetFollowingTimeline(GetFollowingTimelineRequest) returns (GetFollowingTimelineResponse);
+  // Every note that is not a reply and that everyone may see (PUBLIC, author
+  // not locked). Works anonymously.
   rpc GetGlobalTimeline(GetGlobalTimelineRequest) returns (GetGlobalTimelineResponse);
   // One user's notes as the caller may see them. Works anonymously.
   // Errors: USER_NOT_FOUND (also when either side blocked the other).
@@ -112,7 +136,8 @@ service NoteService {
   // Notes carrying a hashtag. Works anonymously. An unused hashtag gives an
   // empty timeline. Errors: INVALID_HASHTAG.
   rpc GetHashtagTimeline(GetHashtagTimelineRequest) returns (GetHashtagTimelineResponse);
-  // Notes that mention the caller or answer one of the caller's notes.
+  // Notes that mention the caller, answer one of the caller's notes or are
+  // addressed to the caller (direct notes).
   rpc GetMentionsTimeline(GetMentionsTimelineRequest) returns (GetMentionsTimelineResponse);
   // Hashtags that many different people are using in public notes right
   // now, best first. Recomputed every few minutes. Works anonymously.
@@ -133,7 +158,10 @@ message Note {
   // Unset when the note has no stamp or the stamp is no longer available.
   tokuly.common.v1.StampRef stamp = 5;
   PlaceTag place = 6;
-  // PUBLIC, FRIENDS or PRIVATE.
+  // PUBLIC, FOLLOWERS, FRIENDS, CLOSE_FRIENDS, CIRCLE or PRIVATE (with
+  // `direct_recipients`: a direct note). To anyone but the author a CIRCLE
+  // note reads as FOLLOWERS: members of custom circles are never told
+  // about them (the close-friends mark is shown).
   tokuly.common.v1.Visibility visibility = 7;
   // The author marked the note as sensitive: clients hide text and media
   // behind a tap.
@@ -156,6 +184,12 @@ message Note {
   // The author pinned this note to their profile.
   bool pinned = 16;
   google.protobuf.Timestamp created_at = 17;
+  // The author only: the circle (tokuly.social.v1.Circle.id) a CIRCLE note
+  // is shared with.
+  string circle_id = 18;
+  // A direct note: the people it is addressed to (people hidden from the
+  // caller by a block left out).
+  repeated tokuly.common.v1.UserSummary direct_recipients = 19;
 }
 
 // A place a note is tagged with. The client supplies it (from the map or a
@@ -182,6 +216,10 @@ message NoteCounters {
 message NoteViewerState {
   bool liked = 1;
   bool renoted = 2;
+  // The caller may renote the note (see RenoteNote).
+  bool can_renote = 3;
+  // The caller may quote the note: everyone may see it.
+  bool can_quote = 4;
 }
 
 // An `@handle` in a note's text that names a user.
@@ -259,9 +297,14 @@ message CreateNoteRequest {
   // A stamp the caller may send. Optional.
   string stamp_id = 3;
   PlaceTag place = 4;
-  // PUBLIC, FRIENDS or PRIVATE. UNSPECIFIED uses the caller's default
-  // (privacy setting `default_note_visibility`). A reply is narrowed to the
-  // visibility of the note it answers.
+  // PUBLIC, FOLLOWERS, FRIENDS, CLOSE_FRIENDS, CIRCLE (with `circle_id`) or
+  // PRIVATE (with `direct_user_ids`: a direct note). UNSPECIFIED uses the
+  // caller's default (privacy setting `default_note_visibility`). A reply is
+  // never shown more widely than the note it answers: a reply to a PUBLIC,
+  // FOLLOWERS or FRIENDS note takes the narrower of the two; a reply to a
+  // CLOSE_FRIENDS, CIRCLE or direct note becomes a direct note to that
+  // note's author (and the people it was addressed to); a reply to a
+  // PRIVATE note is private.
   tokuly.common.v1.Visibility visibility = 5;
   // Makes the note a reply to this note.
   string reply_to_id = 6;
@@ -274,6 +317,11 @@ message CreateNoteRequest {
   // while the first request is still running fails with REQUEST_IN_PROGRESS
   // (unavailable): try again shortly.
   string idempotency_key = 9;
+  // For CIRCLE: one of the caller's circles.
+  string circle_id = 10;
+  // For PRIVATE: the people a direct note is addressed to (1–20 user IDs;
+  // empty = a note to oneself). They are told about it.
+  repeated string direct_user_ids = 11;
 }
 
 message CreateNoteResponse {
@@ -289,6 +337,10 @@ message DeleteNoteResponse {}
 message SetNoteVisibilityRequest {
   string note_id = 1;
   tokuly.common.v1.Visibility visibility = 2;
+  // As in CreateNoteRequest.
+  string circle_id = 3;
+  // As in CreateNoteRequest. People added are not told again.
+  repeated string direct_user_ids = 4;
 }
 
 message SetNoteVisibilityResponse {
@@ -411,6 +463,15 @@ message GetHomeTimelineRequest {
 }
 
 message GetHomeTimelineResponse {
+  repeated TimelineEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetFollowingTimelineRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message GetFollowingTimelineResponse {
   repeated TimelineEntry entries = 1;
   tokuly.common.v1.PageInfo page = 2;
 }

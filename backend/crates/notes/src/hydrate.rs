@@ -17,8 +17,19 @@ use tokuly_proto::{
 use crate::{
     Notes,
     model::{NOTE_COLUMNS, NoteRow},
-    visibility::{Viewer, sees_note},
+    visibility::{CIRCLE, FOLLOWERS, PRIVATE, Viewer, sees_note},
 };
+
+/// Whether `viewer` may renote `note` (which they can see): anyone a note
+/// everyone may see; its author a note shared with a narrower group (a
+/// renote never shows a note to anyone outside its audience); nobody a
+/// private or direct note.
+pub(crate) fn may_renote(viewer: &Viewer, note: &NoteRow) -> bool {
+    if note.visibility == PRIVATE {
+        return false;
+    }
+    note.is_listed() || viewer.is(note.author_id)
+}
 
 /// One row of a timeline before hydration: a note, possibly there because
 /// someone renoted it.
@@ -77,7 +88,23 @@ impl Context<'_> {
             attachments: row.attachments(),
             stamp: row.stamp_id.and_then(|id| self.stamps.get(&id).cloned()).into(),
             place: row.place().into(),
-            visibility: row.visibility.into(),
+            // Members of a custom circle are never told about it.
+            visibility: if row.visibility == CIRCLE && !self.viewer.is(row.author_id) {
+                FOLLOWERS.into()
+            } else {
+                row.visibility.into()
+            },
+            circle_id: row
+                .circle_id
+                .filter(|_| self.viewer.is(row.author_id))
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
+            direct_recipients: row
+                .direct_user_ids
+                .iter()
+                .filter(|user_id| !self.viewer.hides(**user_id))
+                .map(|user_id| pick(&self.users, *user_id))
+                .collect(),
             content_warning: row.content_warning,
             reply_to: reply_to.into(),
             quote: quote.into(),
@@ -91,6 +118,8 @@ impl Context<'_> {
                 .map(|_| NoteViewerState {
                     liked: self.liked.contains(&row.id),
                     renoted: self.renoted.contains(&row.id),
+                    can_renote: may_renote(self.viewer, row),
+                    can_quote: row.is_listed(),
                     ..Default::default()
                 })
                 .into(),
@@ -107,8 +136,9 @@ impl Notes {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let sql = format!("SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id = ANY($4) AND {}", sees_note("n"));
-        let rows: Vec<NoteRow> = viewer.query_as(sql).bind(ids).fetch_all(&self.core.db).await?;
+        let sql = format!("SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id = ANY($7) AND {}", sees_note("n"));
+        let mut rows: Vec<NoteRow> = viewer.query_as(sql).bind(ids).fetch_all(&self.core.db).await?;
+        viewer.drop_newly_locked(&self.core, &mut rows, |row| row).await?;
         Ok(rows.into_iter().map(|row| (row.id, row)).collect())
     }
 
@@ -151,6 +181,7 @@ impl Notes {
             .iter()
             .flat_map(|row| [Some(row.author_id), row.reply_to_author_id])
             .flatten()
+            .chain(shown.iter().flat_map(|row| row.direct_user_ids.iter().copied()))
             .chain(extra_users.iter().copied())
             .collect();
         user_ids.sort();

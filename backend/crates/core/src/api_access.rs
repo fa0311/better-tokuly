@@ -564,6 +564,7 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("ListNoteLikers", Read),
         ("ListNoteRenoters", Read),
         ("GetHomeTimeline", Read),
+        ("GetFollowingTimeline", Read),
         ("GetGlobalTimeline", Read),
         ("GetUserTimeline", Read),
         ("GetHashtagTimeline", Read),

@@ -196,7 +196,7 @@ impl Notes {
 
     /// The story, or `STORY_NOT_FOUND` — also when the viewer may not see it.
     pub(crate) async fn require_story(&self, viewer: &Viewer, story_id: Uuid) -> AppResult<StoryRow> {
-        let sql = format!("SELECT {STORY_COLUMNS} FROM stories s WHERE s.id = $4 AND {}", sees_story("s"));
+        let sql = format!("SELECT {STORY_COLUMNS} FROM stories s WHERE s.id = $7 AND {}", sees_story("s"));
         let row: Option<StoryRow> = viewer.query_as(sql).bind(story_id).fetch_optional(&self.core.db).await?;
         row.or_not_found("STORY_NOT_FOUND", "story not found")
     }
@@ -470,12 +470,12 @@ impl Notes {
     pub(crate) async fn story_tray(&self, viewer: &Viewer, user_id: Uuid) -> AppResult<Vec<StoryReel>> {
         let sql = format!(
             "SELECT {STORY_COLUMNS} FROM stories s
-             WHERE s.owner_id = ANY($4) AND s.expires_at > now() AND {}
-             ORDER BY s.id LIMIT $5",
+             WHERE s.owner_id = ANY($7) AND s.expires_at > now() AND {}
+             ORDER BY s.id LIMIT $8",
             sees_story("s")
         );
         let rows: Vec<StoryRow> =
-            viewer.query_as(sql).bind(viewer.circle()).bind(TRAY_LIMIT).fetch_all(&self.core.db).await?;
+            viewer.query_as(sql).bind(viewer.me_and_friends()).bind(TRAY_LIMIT).fetch_all(&self.core.db).await?;
         let stories = self.stories_to_proto(viewer, &rows).await?;
 
         // Rows are oldest first, so each reel fills in playing order.
@@ -506,7 +506,7 @@ impl Notes {
     pub(crate) async fn user_stories(&self, viewer: &Viewer, user_id: Uuid) -> AppResult<Vec<Story>> {
         let sql = format!(
             "SELECT {STORY_COLUMNS} FROM stories s
-             WHERE s.owner_id = $4 AND s.expires_at > now() AND {}
+             WHERE s.owner_id = $7 AND s.expires_at > now() AND {}
              ORDER BY s.id",
             sees_story("s")
         );
@@ -571,9 +571,9 @@ impl Notes {
         let sql = format!(
             "SELECT v.viewer_id, v.viewed_at, v.reaction FROM story_views v
              JOIN stories s ON s.id = v.story_id
-             WHERE v.story_id = $4 AND s.owner_id = $1 AND {not_hidden}
-               AND ($5::timestamptz IS NULL OR (v.viewed_at, v.viewer_id) < ($5, $6))
-             ORDER BY v.viewed_at DESC, v.viewer_id DESC LIMIT $7",
+             WHERE v.story_id = $7 AND s.owner_id = $1 AND {not_hidden}
+               AND ($8::timestamptz IS NULL OR (v.viewed_at, v.viewer_id) < ($8, $9))
+             ORDER BY v.viewed_at DESC, v.viewer_id DESC LIMIT $10",
             not_hidden = not_hidden("v.viewer_id"),
         );
         let mut rows: Vec<(Uuid, DateTime<Utc>, String)> = viewer

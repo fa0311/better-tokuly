@@ -11,21 +11,41 @@ owner's archive afterwards.
 ## Who may see what
 
 Every read goes through two SQL conditions in `tokuly_notes::visibility`
-(`sees_note`, `sees_story`); there is no second implementation.
+(`sees_note`, `sees_story`); there is no second implementation. The
+audiences are the social graph's (`tokuly_social::graph::ContentAudience`,
+loaded once per request as `AudienceViewer`).
 
 | | visible to |
 |---|---|
 | any note | its author, always |
-| PUBLIC note | everyone, signed in or not |
-| FRIENDS note | the author's friends; a FRIENDS reply also the author of the note it answers |
-| PRIVATE note | nobody else |
+| PUBLIC note | everyone, signed in or not — but a **locked** author's public notes only their followers and friends |
+| FOLLOWERS (6) | the author's followers and friends |
+| FRIENDS (4) | the author's friends |
+| CLOSE_FRIENDS (7) | members of the author's close-friends circle (while still a friend or follower) |
+| CIRCLE (8) | members of that custom circle of the author (same); others are shown the note as FOLLOWERS, so members never learn about the circle |
+| direct (PRIVATE naming people) | the people it names (1–20) |
+| PRIVATE | nobody else |
+| a reply narrower than PUBLIC (not PRIVATE) | also the author of the note it answers |
 | story | its owner (the archive); the owner's friends while it is live or for as long as it is in a highlight — a close-friends story only the friends chosen for it |
 
 Nobody sees anything across a block (either direction), and nobody else sees
 content of a suspended or deleted account. A reply is never shown more widely
-than the note it answers (narrowed when posted and when its visibility is
-changed). Friends and blocks are read from `tokuly_social::graph` on every
-request, so an unfriend or a block takes effect at once.
+than the note it answers (narrowed when posted and when its audience is
+changed): an answer to a PUBLIC, FOLLOWERS or FRIENDS note takes the narrower
+of the two; an answer to a close-friends, circle or direct note becomes a
+direct note to its author (and the people it named); an answer to a private
+note is private. Ties and blocks are read from `tokuly_social::graph` on
+every request, so an unfollow, an unfriend or a block takes effect at once.
+
+**Listed notes.** A note is `listed` when everyone may see it: public, and
+its author not locked. Only listed notes are in search, in hashtag counts
+and trends, in the global timeline, quotable, and renotable by people other
+than the author (the author may renote their own followers, friends, close
+friends and circle notes; a renote never shows the note to anyone outside
+its audience). Whether an author is locked is copied from the social domain
+into `note_authors` (on `social.follow.settings_changed`, and when they
+post); reads ask the social domain again about listed rows shown to someone
+not tied to the author, so a lock applies at once.
 
 Web paths used in notifications, activity entries, search documents and
 reports: `/notes/<note_id>`, `/notes/tags/<tag>`, `/stories/<story_id>`.
@@ -39,7 +59,7 @@ transaction that makes the change.
 |---|---|---|
 | `notes.note.created` | `{ note_id, author_id, visibility, reply_to_id, quote_of_id }` | A note, reply or quote note was posted. `visibility` is `tokuly.common.v1.Visibility` as its number (1 public, 4 friends, 5 private). |
 | `notes.note.deleted` | `{ note_id, author_id, reason }` | A note is gone for good. `reason`: `author`, `moderation`, `account_deleted`, `media_deleted`. Actor: the author, the moderator, the erased user, or nobody. |
-| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to }` | The author changed who may see a note (not emitted when nothing changed). `visible_to`: who besides the author may still see it — `null` for a public note (everyone); for a friends note the author's friends and, for a reply, the author of the note answered (people in a block with the author left out); `[]` for a private note. Anyone shown the note before (an inbox entry about it) who is not listed lost access with this change. `changed_at`: when the change was made, taken while the note was locked; consumers (feed, notify) order two changes of one note by it, not by the event's time (the start of its transaction). **Never forward this event to webhooks or other outside parties: `visible_to` is the author's friend list.** |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to, changed_at }` | The author changed who may see a note (not emitted when nothing changed), or locked or unlocked their account (once per public note whose reach changed). `visibility`: the audience now in effect — the note's own, except that a public note of a locked author reads 6 (followers). `visible_to`: who besides the author may still see it — `null` when everyone may; otherwise everyone in the audience as the social graph gives it (followers and friends, friends, close friends or circle members, the people a direct note names) and, for a reply narrower than public, the author of the note answered, people in a block with the author left out; `[]` for a private note. For a change caused by a lock, only the people this domain told about the note or who reacted to it are considered (a full follower list per note would be unbounded). Anyone shown the note before (an inbox entry about it) who is not listed lost access with this change. `changed_at`: when the change was made, taken while the note was locked; consumers (feed, notify) order two changes of one note by it, not by the event's time (the start of its transaction). **Never forward this event to webhooks or other outside parties: `visible_to` is the author's friend list.** |
 | `notes.story.created` | `{ story_id, owner_id, audience, expires_at }` | A story was posted. `audience` is `tokuly.notes.v1.StoryAudience` as its number (1 friends, 2 close friends). |
 | `notes.story.deleted` | `{ story_id, owner_id, reason }` | A story was deleted (same reasons as notes). Not emitted for an expiry. |
 | `notes.story.expired` | `{ story_id, owner_id }` | A story's day is over: it left the tray and is archive-only. Emitted exactly once per story by the expiry worker, shortly after `expires_at`. |
@@ -58,6 +78,7 @@ is idempotent.
 | `identity.user.deleted` `{ user_id }` | Deletes the user's notes and stories with everything on them (uploads released, search documents removed, hashtag counts put right, `notes.note.deleted` / `notes.story.deleted` with reason `account_deleted`), their likes, renotes, story views and reactions (the counters they added go down again), their highlights and rules agreement, and takes them out of other people's mentions, delivery records (`note_recipients`) and close-friends audiences. Replies other people wrote to the erased notes stay and show what they answered as unavailable. |
 | `admin.content.removed` `{ subject_type, subject_id, reason, moderator_id }` | `SUBJECT_TYPE_NOTE` / `SUBJECT_TYPE_STORY`: the content is deleted like its author would delete it (reason `moderation`, actor = the moderator). Nobody is notified here: the admin domain tells the owner. Unknown or already removed subjects and other subject types are ignored. |
 | `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions (notes and stories hold their uploads, so owners cannot delete those and the janitor leaves them alone). The picture or video is taken out of the notes and stories that show it; a note left with nothing (no text, no stamp, no other media) and a story left without items are deleted (reason `media_deleted`). Public notes get a fresh search document. |
+| `social.follow.settings_changed` `{ user_id, locked }` | Re-reads whether the account is locked (late or repeated events give the same result), stores it in `note_authors` and re-lists the account's public notes in batches of 200: out of (or back into) search, hashtag counts and the global timeline, with one `notes.note.visibility_changed` per note that changed. |
 | `social.user.blocked` `{ user_id, blocked_id }` | Nothing has to be hidden (every read asks the social domain who is blocked). The handler removes the one standing grant between the two: being among the chosen friends of the other's close-friends stories. |
 
 ## Realtime pushes
@@ -72,7 +93,7 @@ it can see at that moment):
 |---|---|
 | `counters_changed` (`NoteCounters`) | Likes, renotes, replies or quotes of the note changed. Views alone do not push; the view count rides along with the next change. |
 | `note_deleted_id` | The note was deleted. |
-| `link_preview_resolved` | The preview of the note's first link was fetched. To the topic only when the note is public; always to the author (user-scoped). |
+| `link_preview_resolved` | The preview of the note's first link was fetched. To the topic only when the note is listed; always to the author (user-scoped). |
 
 User-scoped:
 
@@ -96,6 +117,7 @@ each person at most once per note (reply, then quote, then mention).
 | `notes.reply` | author of the note answered | Body is the reply's text. |
 | `notes.quote` | author of the quoted note | |
 | `notes.mention` | each mentioned user | At most 10 mentions per note are resolved. People in a block with the author are not mentioned at all. |
+| `notes.direct` | each person a direct note names | Not repeated when the audience is changed later. |
 | `notes.story_reaction` | story owner | Collapsed per story and person: a changed emoji replaces the earlier notification. `data = { story_id, emoji }`. |
 
 `subject` is `(SUBJECT_TYPE_NOTE, note_id)` or `(SUBJECT_TYPE_STORY, story_id)`;
@@ -105,7 +127,7 @@ each person at most once per note (reply, then quote, then mention).
 
 | Kind | Audience | Notes |
 |---|---|---|
-| `note.posted` | matches the note: public / friends / private | Notes and quote notes. `data = { note_id, text, reply_to_id, quote_of_id, content_warning }`; image = first picture unless the note carries a content warning; location = the place tag. |
+| `note.posted` | public for a listed note; friends for a friends or followers note and for a locked author's public note (friends are in those audiences); private otherwise | Notes and quote notes. `data = { note_id, text, reply_to_id, quote_of_id, content_warning }`; image = first picture unless the note carries a content warning; location = the place tag. |
 | `note.replied` | matches the reply | Same data; `with_user_ids = [author of the note answered]`. |
 | `story.posted` | friends — private for a close-friends story (the feed cannot know who was chosen) | `data = { story_id, title, item_count, expires_at }`; image = the story's cover. |
 
@@ -113,8 +135,8 @@ each person at most once per note (reply, then quote, then mention).
 
 | Kind | ID | Indexed while | Notes |
 |---|---|---|---|
-| `note` | note ID | the note is public (replies included) | `title` = one-line excerpt, `text`, `tags` = hashtags, `owner_id` = author, `score` = likes + 2·renotes + replies + quotes at indexing time, `extra = { author_handle, author_name, reply_to_id, content_warning, attachment_count }`. Removed when the note is deleted or stops being public. |
-| `hashtag` | hashtag ID | at least one public note carries it | `title` = `#tag`, `score` = public note count, `path` = `/notes/tags/<tag>`. The trending worker re-sends documents whose count moved since they were last indexed. |
+| `note` | note ID | the note is listed (public, author not locked; replies included) | `title` = one-line excerpt, `text`, `tags` = hashtags, `owner_id` = author, `score` = likes + 2·renotes + replies + quotes at indexing time, `extra = { author_handle, author_name, reply_to_id, content_warning, attachment_count }`. Removed when the note is deleted or stops being listed. |
+| `hashtag` | hashtag ID | at least one listed note carries it | `title` = `#tag`, `score` = public note count, `path` = `/notes/tags/<tag>`. The trending worker re-sends documents whose count moved since they were last indexed. |
 
 ## Subjects, profiles, export
 
@@ -143,7 +165,8 @@ each person at most once per note (reply, then quote, then mention).
   `NOTE_IMAGE` / `NOTE_VIDEO` (notes) and `STORY` (stories).
 - `tokuly_media::link_preview` for the first link of a note (background job).
 - `tokuly_stamp::{ensure_usable, record_send(.., SendContext::Note), stamp_refs}`.
-- `tokuly_social::graph::{friend_ids, blocked_ids_either, record_interaction}`.
+- `tokuly_social::graph::{AudienceViewer, ContentAudience, audience_member_ids, ensure_circle_of,
+  locked_among, following_ids, muted_followee_ids, friend_ids, blocked_ids_either, record_interaction}`.
   Interactions between friends are reported with weight 1: a reply as
   `InteractionKind::Message`, a like or renote as `InteractionKind::MapReaction`
   (the social domain has no kind of its own for note reactions).
@@ -233,7 +256,7 @@ impl Notes {
   "who liked this" and "what did this user like"; a renote's ID also places it
   among notes in timelines. A note appears once per timeline: where its latest
   renote by someone in the list's scope puts it, or at its own position.
-- `hashtags.note_count` counts public notes only; `note_hashtags` links every
+- `hashtags.note_count` counts listed notes only; `note_hashtags` links every
   note, so friends-only notes still appear in a hashtag timeline for the
   people who may see them.
 - `story_views` holds one row per viewer: when they watched and their

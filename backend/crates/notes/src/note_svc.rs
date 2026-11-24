@@ -9,7 +9,7 @@ use unicode_normalization::UnicodeNormalization as _;
 
 use crate::{
     Notes, hashtags,
-    posting::{NewNote, requested_visibility},
+    posting::{NewNote, requested_audience},
     reactions::{MAX_NOTES_PER_CALL, Reaction},
     rules::{self, RULES_VERSION},
     timelines::MAX_PAGE,
@@ -104,7 +104,7 @@ impl NoteService for Notes {
                 asset_ids: parse_ids(&request.asset_ids)?,
                 stamp_id: parse_opt_id(&request.stamp_id)?,
                 place: request.place.as_option().cloned(),
-                visibility: requested_visibility(request.visibility)?,
+                audience: requested_audience(request.visibility, &request.circle_id, &request.direct_user_ids)?,
                 reply_to_id: parse_opt_id(&request.reply_to_id)?,
                 quote_of_id: parse_opt_id(&request.quote_of_id)?,
                 content_warning: request.content_warning,
@@ -134,9 +134,10 @@ impl NoteService for Notes {
     ) -> ServiceResult<SetNoteVisibilityResponse> {
         handle(async {
             let (viewer, user_id) = self.signed_in(&ctx).await?;
-            let wanted = requested_visibility(request.visibility)?
+            let request = request.to_owned_message();
+            let wanted = requested_audience(request.visibility, &request.circle_id, &request.direct_user_ids)?
                 .ok_or_else(|| AppError::invalid("INVALID_VISIBILITY", "say who may see the note"))?;
-            let note = self.set_visibility(user_id, parse_id(request.note_id)?, wanted).await?;
+            let note = self.set_visibility(user_id, parse_id(&request.note_id)?, wanted).await?;
             ok(SetNoteVisibilityResponse { note: self.hydrate_one(&viewer, &note).await?.into(), ..Default::default() })
         })
         .await
@@ -327,6 +328,20 @@ impl NoteService for Notes {
             let page = Page::from_view(request.page.as_option(), MAX_PAGE);
             let (entries, info) = self.home_timeline(&viewer, &page).await?;
             ok(GetHomeTimelineResponse { entries, page: info.into(), ..Default::default() })
+        })
+        .await
+    }
+
+    async fn get_following_timeline(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetFollowingTimelineRequest>,
+    ) -> ServiceResult<GetFollowingTimelineResponse> {
+        handle(async {
+            let (viewer, user_id) = self.signed_in(&ctx).await?;
+            let page = Page::from_view(request.page.as_option(), MAX_PAGE);
+            let (entries, info) = self.following_timeline(&viewer, user_id, &page).await?;
+            ok(GetFollowingTimelineResponse { entries, page: info.into(), ..Default::default() })
         })
         .await
     }

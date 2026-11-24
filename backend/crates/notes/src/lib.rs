@@ -15,6 +15,7 @@
 //! | module | what lives there |
 //! |---|---|
 //! | [`visibility`] | who may see a note or a story — the one place that decides it |
+//! | `authors` | locked accounts: this domain's copy, and listing their public notes |
 //! | [`text`] | what is read out of note text: length, hashtags, mentions, links |
 //! | [`rules`] | the posting rules and who agreed to them |
 //! | [`model`] | database rows, paths, topics, holder names |
@@ -34,6 +35,7 @@ use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
 use tokuly_proto::notes::{NotesEvent, notes_event::Event as Push};
 
+mod authors;
 mod cleanup;
 pub mod config;
 mod copy;

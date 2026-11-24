@@ -12,7 +12,10 @@ use tokuly_social::events::BlockChanged;
 
 use crate::{
     Notes,
-    events::{ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, STORY_EXPIRED, StoryExpired, USER_BLOCKED, USER_DELETED},
+    events::{
+        ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, FOLLOW_SETTINGS_CHANGED, STORY_EXPIRED, StoryExpired,
+        USER_BLOCKED, USER_DELETED,
+    },
     posting::{JOB_LINK_PREVIEW, LinkPreviewJob},
 };
 
@@ -33,7 +36,7 @@ impl Notes {
             events::consume(
                 notes.core.bus.clone(),
                 "notes",
-                &[USER_DELETED, USER_BLOCKED, ASSET_DELETED, CONTENT_REMOVED],
+                &[USER_DELETED, USER_BLOCKED, FOLLOW_SETTINGS_CHANGED, ASSET_DELETED, CONTENT_REMOVED],
                 // Erasing a prolific account takes a while.
                 ConsumeOptions { ack_wait: Duration::from_secs(300), ..Default::default() },
                 notes.core.shutdown.clone(),
@@ -114,6 +117,9 @@ impl Notes {
                 let block: BlockChanged = event.data()?;
                 self.on_user_blocked(block.user_id, block.blocked_id).await
             }
+            // Which way the setting went is read again from the social
+            // domain: events may arrive late or twice.
+            FOLLOW_SETTINGS_CHANGED => self.sync_author(event.data::<UserRef>()?.user_id).await.map(|_| ()),
             ASSET_DELETED => self.on_asset_deleted(event.data::<AssetDeleted>()?.asset_id).await,
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
             _ => Ok(()),

@@ -92,7 +92,13 @@ impl Notes {
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
+        // A direct note to the user is addressed to the others it names.
+        sqlx::query("UPDATE notes SET direct_user_ids = array_remove(direct_user_ids, $1) WHERE direct_user_ids @> ARRAY[$1]::uuid[]")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
         for sql in [
+            "DELETE FROM note_authors WHERE user_id = $1",
             "DELETE FROM note_mentions WHERE user_id = $1",
             "DELETE FROM note_recipients WHERE user_id = $1",
             "DELETE FROM story_audience WHERE user_id = $1",
@@ -165,7 +171,7 @@ impl Notes {
                 .bind(asset_id)
                 .fetch_optional(&mut *tx)
                 .await?;
-            if let Some(updated) = updated.filter(NoteRow::is_public) {
+            if let Some(updated) = updated.filter(NoteRow::is_listed) {
                 // The search result should not keep showing the removed picture.
                 outbound::index(&mut *tx, search_doc(&updated, &author)).await?;
             }

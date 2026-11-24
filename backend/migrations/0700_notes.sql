@@ -31,8 +31,17 @@ CREATE TABLE notes (
     place_lat          double precision,
     place_lng          double precision,
     place_id           uuid,
-    -- tokuly.common.v1.Visibility: 1 public, 4 friends, 5 private.
-    visibility         integer     NOT NULL CHECK (visibility IN (1, 4, 5)),
+    -- tokuly.common.v1.Visibility: 1 public, 4 friends, 5 private (direct
+    -- when `direct_user_ids` names people), 6 followers, 7 close friends,
+    -- 8 circle (`circle_id`, a tokuly.social.v1 circle of the author).
+    visibility         integer     NOT NULL CHECK (visibility IN (1, 4, 5, 6, 7, 8)),
+    circle_id          uuid,
+    -- Everyone may see the note: public, and the author's account is not
+    -- locked (`note_authors`). Listed notes are the ones in search, in the
+    -- hashtag counts and trends, and in the global timeline.
+    listed             boolean     NOT NULL DEFAULT false,
+    -- The people a direct note is addressed to (visibility 5); empty otherwise.
+    direct_user_ids    uuid[]      NOT NULL DEFAULT '{}',
     content_warning    boolean     NOT NULL DEFAULT false,
 
     -- The note this one answers and that note's author. Deliberately not
@@ -61,7 +70,10 @@ CREATE TABLE notes (
     -- Non-NULL = pinned to the author's profile.
     pinned_at          timestamptz,
     attrs              jsonb       NOT NULL DEFAULT '{}',
-    created_at         timestamptz NOT NULL DEFAULT now()
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    CHECK ((visibility = 8) = (circle_id IS NOT NULL)),
+    CHECK (visibility = 5 OR direct_user_ids = '{}'),
+    CHECK (visibility = 1 OR NOT listed)
 );
 
 -- Profile and home timelines.
@@ -69,7 +81,9 @@ CREATE INDEX notes_author ON notes (author_id, id DESC);
 -- Profile "media" tab.
 CREATE INDEX notes_author_media ON notes (author_id, id DESC) WHERE asset_ids <> '{}';
 -- Global timeline.
-CREATE INDEX notes_public ON notes (id DESC) WHERE visibility = 1 AND reply_to_id IS NULL;
+CREATE INDEX notes_listed ON notes (id DESC) WHERE listed AND reply_to_id IS NULL;
+-- An author's public notes, when their account is locked or unlocked.
+CREATE INDEX notes_author_public ON notes (author_id, id) WHERE visibility = 1;
 -- Replies of a thread, oldest first.
 CREATE INDEX notes_reply_to ON notes (reply_to_id, id) WHERE reply_to_id IS NOT NULL;
 -- "Replies to me" in the mentions timeline.
@@ -79,6 +93,19 @@ CREATE INDEX notes_quote_of ON notes (quote_of_id, id DESC) WHERE quote_of_id IS
 CREATE INDEX notes_asset_ids ON notes USING gin (asset_ids);
 -- One pinned note per profile.
 CREATE UNIQUE INDEX notes_pinned ON notes (author_id) WHERE pinned_at IS NOT NULL;
+-- Direct notes addressed to someone (the mentions timeline).
+CREATE INDEX notes_direct ON notes USING gin (direct_user_ids) WHERE direct_user_ids <> '{}';
+
+-- Whether an author's account is locked, as this domain last learnt it from
+-- the social domain (`social.follow.settings_changed`; a first note records
+-- it too). The public notes of a locked account reach only its followers
+-- and friends: `notes.listed` follows this copy (reads double-check the
+-- social domain for the moment before a change arrives here).
+CREATE TABLE note_authors (
+    user_id    uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    locked     boolean     NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
 
 -- `id` is time-ordered and is the keyset of both "who liked this note" and
 -- "what did this user like".

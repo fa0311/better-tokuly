@@ -11,6 +11,7 @@ use tokuly_social::InteractionKind;
 
 use crate::{
     Notes, copy,
+    hydrate::may_renote,
     model::{NOTE_COLUMNS, NoteRow},
     visibility::{Viewer, not_hidden, sees_note},
 };
@@ -65,8 +66,16 @@ impl Notes {
         let viewer = Viewer::load(core, Some(user_id)).await?;
         let note = self.require_note(&viewer, note_id).await?;
         if reaction == Reaction::Renote {
-            // A renote shows the note to the renoter's friends, which only a public note allows.
-            ensure!(note.is_public(), precondition, "NOTE_NOT_PUBLIC", "only public notes can be renoted");
+            // A renote puts the note in front of the renoter's friends and
+            // followers; timelines still show it only to people in the
+            // note's own audience, but only notes everyone may see are
+            // passed on by other people.
+            ensure!(
+                may_renote(&viewer, &note),
+                precondition,
+                "NOTE_NOT_RENOTABLE",
+                "only notes everyone may see can be renoted by others, and private notes not at all"
+            );
         }
         let (table, counter) = (reaction.table(), reaction.counter());
         // Who to name in the notification, looked up before the transaction
@@ -163,9 +172,9 @@ impl Notes {
             "SELECT r.id, r.user_id FROM {table} r
              JOIN notes n ON n.id = r.note_id
              JOIN users u ON u.id = r.user_id
-             WHERE r.note_id = $4 AND ($5::uuid IS NULL OR r.id < $5)
+             WHERE r.note_id = $7 AND ($8::uuid IS NULL OR r.id < $8)
                AND {visible} AND {not_hidden} AND u.banned_at IS NULL AND u.deleted_at IS NULL
-             ORDER BY r.id DESC LIMIT $6",
+             ORDER BY r.id DESC LIMIT $9",
             table = reaction.table(),
             visible = sees_note("n"),
             not_hidden = not_hidden("r.user_id"),
@@ -222,7 +231,7 @@ impl Notes {
         }
         let sql = format!(
             "UPDATE notes n SET view_count = n.view_count + 1
-             WHERE n.id = ANY($4) AND n.author_id IS DISTINCT FROM $1 AND {}",
+             WHERE n.id = ANY($7) AND n.author_id IS DISTINCT FROM $1 AND {}",
             sees_note("n")
         );
         let sql = format!("WITH counted AS ({sql} RETURNING 1) SELECT count(*) FROM counted");

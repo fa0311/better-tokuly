@@ -42,7 +42,7 @@ pub fn story_holder(story_id: Uuid) -> String {
 
 /// Every column of `notes`, for queries that alias the table as `n`.
 pub const NOTE_COLUMNS: &str = "n.id, n.author_id, n.text, n.attachments, n.asset_ids, n.stamp_id, \
-     n.place_name, n.place_lat, n.place_lng, n.place_id, n.visibility, n.content_warning, \
+     n.place_name, n.place_lat, n.place_lng, n.place_id, n.visibility, n.circle_id, n.direct_user_ids, n.listed, n.content_warning, \
      n.reply_to_id, n.reply_to_author_id, n.quote_of_id, n.hashtags, n.mentions, n.link_url, n.link_preview, \
      n.reply_count, n.renote_count, n.quote_count, n.like_count, n.view_count, n.pinned_at, n.created_at";
 
@@ -59,6 +59,10 @@ pub struct NoteRow {
     pub place_lng: Option<f64>,
     pub place_id: Option<Uuid>,
     pub visibility: i32,
+    pub circle_id: Option<Uuid>,
+    pub direct_user_ids: Vec<Uuid>,
+    /// Everyone may see it: public, author not locked (see [`Self::is_listed`]).
+    pub listed: bool,
     pub content_warning: bool,
     pub reply_to_id: Option<Uuid>,
     pub reply_to_author_id: Option<Uuid>,
@@ -77,8 +81,26 @@ pub struct NoteRow {
 }
 
 impl NoteRow {
+    /// Shared with PUBLIC (which, for a locked author, still means their
+    /// followers and friends only: see [`Self::is_listed`]).
     pub fn is_public(&self) -> bool {
         self.visibility == visibility::PUBLIC
+    }
+
+    /// Everyone may see the note: public, and its author is not locked. What
+    /// search, hashtag counts, trends, quotes and other people's renotes go by.
+    pub fn is_listed(&self) -> bool {
+        self.listed
+    }
+
+    /// A private note addressed to people.
+    pub fn is_direct(&self) -> bool {
+        self.visibility == visibility::PRIVATE && !self.direct_user_ids.is_empty()
+    }
+
+    /// The audience the note is shared with, as the social graph names it.
+    pub fn audience(&self) -> tokuly_social::graph::ContentAudience {
+        visibility::audience_of(self.visibility, self.circle_id)
     }
 
     pub fn is_reply(&self) -> bool {
