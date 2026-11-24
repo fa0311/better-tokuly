@@ -31,6 +31,23 @@ pub fn default_privacy() -> PrivacySettings {
     }
 }
 
+/// Below this age at sign-up an account starts with nearby discovery off.
+pub const NEARBY_DISCOVERY_ADULT_AGE: u32 = 18;
+
+/// The privacy settings an account signs up with: the defaults, except that
+/// someone under [`NEARBY_DISCOVERY_ADULT_AGE`] is not discoverable by
+/// strangers nearby until they turn it on. Stored as-is, so the choice stays
+/// when they come of age; accounts that existed before keep what they had.
+/// An empty object (adults) means "the defaults".
+pub fn sign_up_privacy(birthdate: chrono::NaiveDate, today: chrono::NaiveDate) -> serde_json::Value {
+    let minor = today.years_since(birthdate).is_none_or(|age| age < NEARBY_DISCOVERY_ADULT_AGE);
+    if !minor {
+        return serde_json::json!({});
+    }
+    let privacy = PrivacySettings { nearby_discoverable: false, ..default_privacy() };
+    serde_json::to_value(&privacy).unwrap_or_else(|_| serde_json::json!({}))
+}
+
 pub fn default_appearance() -> AppearanceSettings {
     AppearanceSettings {
         theme: "system".into(),

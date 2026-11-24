@@ -320,8 +320,8 @@ impl AuthService for Identity {
         let invite_code = req.invite_code.trim().to_owned();
         let mut tx = core.db.begin().await?;
         let user: UserRow = sqlx::query_as(concat!(
-            "INSERT INTO users (handle, display_name, email, password_hash, birthdate, locale, time_zone, attrs)
-             VALUES ($1::citext, $2, $3::citext, $4, $5, $6, $7, $8) RETURNING ",
+            "INSERT INTO users (handle, display_name, email, password_hash, birthdate, locale, time_zone, attrs, privacy)
+             VALUES ($1::citext, $2, $3::citext, $4, $5, $6, $7, $8, $9) RETURNING ",
             users::user_columns!()
         ))
         .bind(&handle)
@@ -332,6 +332,7 @@ impl AuthService for Identity {
         .bind(&locale)
         .bind(&time_zone)
         .bind(serde_json::json!({ "invite_code": invite_code }))
+        .bind(crate::settings::sign_up_privacy(birthdate, Utc::now().date_naive()))
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| {

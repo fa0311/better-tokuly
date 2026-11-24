@@ -40,7 +40,9 @@ See their proto files. Summary of behaviour that is not obvious from the API:
   weekly streak counter, plus manual favourites. Blocking is silent and hides
   both users from each other everywhere. Invite links/QR count "intros".
   Nearby discovery pairs users with the add-friend screen open within ~50 m
-  (minors only with minors, adults only with adults). Mutual friends (on
+  (minors only with minors, adults only with adults); an account signed up
+  under 18 starts with nearby discovery off (existing accounts keep their
+  setting). Mutual friends (on
   profiles, in search, requests and suggestions) follow the other user's
   friend list audience, like their best friends.
   A bump is two shake attempts within ~4 s and ~30 m; friends of both get

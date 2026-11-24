@@ -1181,3 +1181,28 @@ async fn profile_images_hold_their_uploads() {
     assert!(cleared.me.as_option().unwrap().user.as_option().unwrap().avatar.is_unset());
     assert!(!assets::is_attached(&app.core, second.id).await.unwrap());
 }
+
+#[tokio::test]
+async fn nearby_discovery_starts_off_for_an_account_signed_up_under_18() {
+    let app = app().await;
+    let today = chrono::Utc::now().date_naive();
+    let born = |years: u32| today.checked_sub_months(chrono::Months::new(12 * years)).unwrap().format("%Y-%m-%d").to_string();
+    let nearby = |birthdate: String| {
+        let app = &app;
+        async move {
+            let request = SignUpRequest { birthdate, ..sign_up_request(&unique("age")) };
+            let auth: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &request).await.unwrap();
+            let id = auth.me.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
+            let user = app.sign_in(id).await;
+            let response: GetSettingsResponse =
+                app.call("tokuly.identity.v1.AccountService/GetSettings", Some(&user), &GetSettingsRequest::default()).await.unwrap();
+            let privacy = response.settings.into_option().unwrap().privacy.into_option().unwrap();
+            assert!(privacy.discoverable && privacy.share_battery, "the other defaults stay");
+            privacy.nearby_discoverable
+        }
+    };
+    assert!(!nearby(born(15)).await, "15: off until they turn it on");
+    assert!(!nearby(born(17)).await, "17: off");
+    assert!(nearby(born(18)).await, "18: on, the default");
+    assert!(nearby(born(30)).await);
+}
