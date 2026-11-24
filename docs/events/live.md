@@ -316,10 +316,8 @@ Clips and what they may expose:
 - A clip the channel's owner cut from their own channel is the channel's:
   `Clip.creator` is empty for everyone but them (the `channel` is set),
   `ListClips` by `creator_id` leaves such clips out unless the caller is
-  that creator, and the search document carries `extra.channel_clip = true`.
-  The search domain still names a clip hit's `owner` (the creator) until it
-  treats `channel_clip` documents as channel content (`hides_owner`), which
-  is that domain's change to make.
+  that creator, and the search document carries `extra.channel_clip = true`,
+  which makes search leave the hit's `owner` out.
 - Not enforced here, because it needs a change in the media domain: a
   dedicated asset purpose for clips (it is `ASSET_PURPOSE_SHORT` today, so
   the *channel owner* could attach a clip's upload wherever a short's upload
