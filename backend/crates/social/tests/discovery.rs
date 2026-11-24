@@ -448,3 +448,34 @@ async fn counts_leave_out_whom_the_lists_leave_out() {
     assert_eq!(stats_for(&viewer).await, (1, 0));
     assert_eq!(stats_for(&owner).await, (2, 1), "the owner's own numbers are complete");
 }
+
+#[tokio::test]
+async fn switching_nearby_discovery_off_ends_the_open_session() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let spot = somewhere();
+    let app = &ctx.app;
+    let started = std::time::Instant::now();
+    let alice_request = nearby_at(spot);
+    let session = async {
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&alice), &alice_request, 100, Duration::from_secs(15)).await.unwrap();
+        started.elapsed()
+    };
+    let switch_off = async {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        ctx.set_privacy(&alice, |p| p.nearby_discoverable = false).await;
+        let changed = Event {
+            id: Uuid::now_v7(),
+            topic: "identity.user.privacy_changed".into(),
+            actor_id: Some(alice.id),
+            occurred_at: chrono::Utc::now(),
+            data: serde_json::json!({ "user_id": alice.id }),
+        };
+        ctx.social.handle_event(&changed).await.unwrap();
+        // Someone arriving right after does not find her.
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&bob), &nearby_at(north_of(spot, 5.0)), 1, Duration::from_secs(3)).await.unwrap()
+    };
+    let (lasted, bob_saw) = tokio::join!(session, switch_off);
+    assert!(lasted < Duration::from_secs(7), "the session ran on for {lasted:?}");
+    assert!(bob_saw[0].users.is_empty(), "{:?}", seen(&bob_saw[0]));
+}

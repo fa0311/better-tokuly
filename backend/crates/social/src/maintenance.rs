@@ -67,7 +67,13 @@ impl Social {
                 self.record_intro(created.user_id, &created.invite_code).await
             }
             USER_DELETED => self.forget_user(event.data::<UserRef>()?.user_id).await,
-            PRIVACY_CHANGED => self.refresh_presence(event.data::<UserRef>()?.user_id).await,
+            PRIVACY_CHANGED => {
+                let user_id = event.data::<UserRef>()?.user_id;
+                if !tokuly_identity::settings::privacy_of(&self.core, user_id).await?.nearby_discoverable {
+                    self.end_nearby_discovery(user_id).await?;
+                }
+                self.refresh_presence(user_id).await
+            }
             MUTE_CHANGED => self.mirror_mute(event.data()?).await,
             // Our own changes to the graph. The request that made them drops
             // the cached lists right after its commit, but a request can be

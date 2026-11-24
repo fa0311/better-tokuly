@@ -176,6 +176,15 @@ impl Social {
         self.announce_nearby_change(spot.lat, spot.lng).await;
     }
 
+    /// Ends `user_id`'s nearby session, if one is open, and takes them off
+    /// the map at once. For a user who switched `nearby_discoverable` off:
+    /// the session sees its ID gone within a heartbeat and stops.
+    pub(crate) async fn end_nearby_discovery(&self, user_id: Uuid) -> AppResult<()> {
+        let cache = &self.core.cache;
+        cache.del(&session_key(user_id)).await?;
+        NEARBY.leave(cache, user_id).await
+    }
+
     /// Wakes every session that could see a user at this position.
     async fn announce_nearby_change(&self, lat: f64, lng: f64) {
         for cell in cell_and_neighbours(cell_of(lat, lng)) {
