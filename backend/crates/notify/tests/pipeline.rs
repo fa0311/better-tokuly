@@ -27,11 +27,7 @@ async fn eventually(what: &str, mut check: impl AsyncFnMut() -> bool) {
 async fn a_notification_requested_by_another_domain_reaches_the_inbox_and_the_browser() {
     let ctx = start_insecure().await;
     let core = &ctx.app.core;
-    let (alice, bob, carol) = (
-        ctx.app.user("alice").await,
-        ctx.app.user("bob").await,
-        ctx.app.user("carol").await,
-    );
+    let (alice, bob, carol) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("carol").await);
     let push_service = Stub::accepting().await;
     let subscription = Subscription::new(&format!("{}/push/alice", push_service.url));
     ctx.register(&alice, &subscription.request()).await;
@@ -39,66 +35,40 @@ async fn a_notification_requested_by_another_domain_reaches_the_inbox_and_the_br
 
     // What a worker process runs.
     ctx.notify.spawn_workers();
-    tokio::spawn(tokuly_core::events::run_outbox_relay(
-        core.db.clone(),
-        core.bus.clone(),
-        core.shutdown.clone(),
-    ));
+    tokio::spawn(tokuly_core::events::run_outbox_relay(core.db.clone(), core.bus.clone(), core.shutdown.clone()));
 
     // Another domain, inside its own transaction.
     let mut tx = core.db.begin().await.unwrap();
-    outbound::notify(&mut *tx, &chat_message(&alice, &bob).collapse("chat:42"))
-        .await
-        .unwrap();
+    outbound::notify(&mut *tx, &chat_message(&alice, &bob).collapse("chat:42")).await.unwrap();
     tx.commit().await.unwrap();
 
-    eventually("the push to reach the push service", async || {
-        !push_service.requests_to("/push/alice").is_empty()
-    })
-    .await;
+    eventually("the push to reach the push service", async || !push_service.requests_to("/push/alice").is_empty())
+        .await;
     let message = subscription.decrypt(&push_service.requests_to("/push/alice")[0].body);
     assert_eq!(message["notification"]["title"], "新着メッセージ");
     assert_eq!(message["app_badge"], 1);
 
     let inbox = ctx.inbox(&alice).await;
     assert_eq!((inbox.notifications.len(), unread_of(&inbox)), (1, 1));
-    assert_eq!(
-        message["notification"]["data"]["id"],
-        inbox.notifications[0].id
-    );
-    let Some(event) = frames
-        .next(Duration::from_secs(5))
-        .await
-        .expect("a realtime frame")
-        .event::<NotifyEvent>()
+    assert_eq!(message["notification"]["data"]["id"], inbox.notifications[0].id);
+    let Some(event) = frames.next(Duration::from_secs(5)).await.expect("a realtime frame").event::<NotifyEvent>()
     else {
         panic!("expected a notify frame")
     };
-    assert!(matches!(
-        event.event,
-        Some(notify_event::Event::Received(_))
-    ));
+    assert!(matches!(event.event, Some(notify_event::Event::Received(_))));
 
     // The consumer also follows the social domain's friend preferences.
     core.emit(
         FRIEND_PREFS_CHANGED_TOPIC,
         Some(alice.id),
-        &FriendPrefsChanged {
-            user_id: alice.id,
-            friend_id: carol.id,
-            muted: true,
-        },
+        &FriendPrefsChanged { user_id: alice.id, friend_id: carol.id, muted: true },
     )
     .await
     .unwrap();
     eventually("the friend mute to be mirrored", async || {
         let muted: ListMutedUsersResponse = ctx
             .app
-            .call(
-                "tokuly.notify.v1.PreferencesService/ListMutedUsers",
-                Some(&alice),
-                &ListMutedUsersRequest::default(),
-            )
+            .call("tokuly.notify.v1.PreferencesService/ListMutedUsers", Some(&alice), &ListMutedUsersRequest::default())
             .await
             .unwrap();
         muted.users.len() == 1

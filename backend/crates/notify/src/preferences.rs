@@ -40,13 +40,7 @@ impl DeliveryContext {
     }
 
     pub fn quiet_at(&self, now: Time) -> bool {
-        self.quiet_enabled
-            && in_quiet_hours(
-                &self.time_zone,
-                self.quiet_start_minute,
-                self.quiet_end_minute,
-                now,
-            )
+        self.quiet_enabled && in_quiet_hours(&self.time_zone, self.quiet_start_minute, self.quiet_end_minute, now)
     }
 }
 
@@ -92,21 +86,13 @@ pub fn is_paused(paused: bool, until: Option<Time>, now: Time) -> bool {
 pub fn in_quiet_hours(time_zone: &str, start_minute: i16, end_minute: i16, now: Time) -> bool {
     let zone: chrono_tz::Tz = time_zone.parse().unwrap_or(FALLBACK_TIME_ZONE);
     let local = now.with_timezone(&zone);
-    window_contains(
-        start_minute as i32,
-        end_minute as i32,
-        (local.hour() * 60 + local.minute()) as i32,
-    )
+    window_contains(start_minute as i32, end_minute as i32, (local.hour() * 60 + local.minute()) as i32)
 }
 
 /// `[start, end)` on a 24-hour clock; when `end` is not after `start` the
 /// window wraps past midnight (22:00-07:00).
 pub fn window_contains(start: i32, end: i32, minute: i32) -> bool {
-    if start < end {
-        (start..end).contains(&minute)
-    } else {
-        minute >= start || minute < end
-    }
+    if start < end { (start..end).contains(&minute) } else { minute >= start || minute < end }
 }
 
 /// Validates quiet hours sent by a client.
@@ -157,12 +143,11 @@ pub async fn load(core: &Core, user_id: Uuid) -> AppResult<Preferences> {
     .bind(user_id)
     .fetch_one(&core.db)
     .await?;
-    let toggles: Vec<(String, bool, bool)> = sqlx::query_as(
-        "SELECT category, inbox, push FROM notify_category_prefs WHERE user_id = $1",
-    )
-    .bind(user_id)
-    .fetch_all(&core.db)
-    .await?;
+    let toggles: Vec<(String, bool, bool)> =
+        sqlx::query_as("SELECT category, inbox, push FROM notify_category_prefs WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(&core.db)
+            .await?;
 
     let now = now();
     let categories = CATEGORIES
@@ -201,12 +186,7 @@ pub async fn load(core: &Core, user_id: Uuid) -> AppResult<Preferences> {
         }
         .into(),
         quiet_now: settings.quiet_enabled
-            && in_quiet_hours(
-                &settings.time_zone,
-                settings.quiet_start_minute,
-                settings.quiet_end_minute,
-                now,
-            ),
+            && in_quiet_hours(&settings.time_zone, settings.quiet_start_minute, settings.quiet_end_minute, now),
         time_zone: settings.time_zone,
         ..Default::default()
     })
@@ -216,11 +196,7 @@ pub async fn load(core: &Core, user_id: Uuid) -> AppResult<Preferences> {
 pub fn require_category(id: &str) -> AppResult<&'static categories::Category> {
     match categories::find(id) {
         Some(category) => Ok(category),
-        None => bail!(
-            invalid,
-            "CATEGORY_UNKNOWN",
-            "unknown notification category {id:?}"
-        ),
+        None => bail!(invalid, "CATEGORY_UNKNOWN", "unknown notification category {id:?}"),
     }
 }
 
@@ -231,9 +207,7 @@ mod tests {
     use super::*;
 
     fn utc(hour: u32, minute: u32) -> Time {
-        chrono::Utc
-            .with_ymd_and_hms(2026, 11, 20, hour, minute, 0)
-            .unwrap()
+        chrono::Utc.with_ymd_and_hms(2026, 11, 20, hour, minute, 0).unwrap()
     }
 
     #[test]
@@ -290,19 +264,12 @@ mod tests {
 
     #[test]
     fn quiet_hours_validation() {
-        let quiet = |start_minute, end_minute| QuietHours {
-            enabled: true,
-            start_minute,
-            end_minute,
-            ..Default::default()
-        };
+        let quiet =
+            |start_minute, end_minute| QuietHours { enabled: true, start_minute, end_minute, ..Default::default() };
         assert!(validate_quiet_hours(&quiet(1320, 420)).is_ok());
         assert!(validate_quiet_hours(&quiet(0, 1439)).is_ok());
         for bad in [quiet(-1, 10), quiet(10, 1440), quiet(600, 600)] {
-            assert_eq!(
-                validate_quiet_hours(&bad).unwrap_err().reason,
-                "QUIET_HOURS_INVALID"
-            );
+            assert_eq!(validate_quiet_hours(&bad).unwrap_err().reason, "QUIET_HOURS_INVALID");
         }
     }
 }

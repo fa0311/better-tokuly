@@ -59,20 +59,10 @@ impl std::error::Error for EceError {}
 
 /// Encrypts `plaintext` for a subscription (`ua_public`: its `p256dh` key,
 /// `auth_secret`: its `auth` value) with a fresh sender key and salt.
-pub fn encrypt(
-    plaintext: &[u8],
-    ua_public: &[u8],
-    auth_secret: &[u8],
-) -> Result<Vec<u8>, EceError> {
+pub fn encrypt(plaintext: &[u8], ua_public: &[u8], auth_secret: &[u8]) -> Result<Vec<u8>, EceError> {
     let mut salt = [0u8; SALT_LEN];
     rand::rng().fill(&mut salt[..]);
-    encrypt_with(
-        plaintext,
-        ua_public,
-        auth_secret,
-        &random_secret_key(),
-        salt,
-    )
+    encrypt_with(plaintext, ua_public, auth_secret, &random_secret_key(), salt)
 }
 
 /// A random P-256 private key. Built from raw random bytes so this does not
@@ -108,13 +98,7 @@ fn encrypt_with(
     let ua_key = parse_public_key(ua_public)?;
     let as_public = public_key_bytes(as_secret);
     let shared = as_secret.diffie_hellman(&ua_key);
-    let (key, nonce) = derive_key_and_nonce(
-        shared.raw_secret_bytes(),
-        auth_secret,
-        ua_public,
-        &as_public,
-        &salt,
-    )?;
+    let (key, nonce) = derive_key_and_nonce(shared.raw_secret_bytes(), auth_secret, ua_public, &as_public, &salt)?;
 
     let mut record = Vec::with_capacity(plaintext.len() + 1);
     record.extend_from_slice(plaintext);
@@ -135,11 +119,7 @@ fn encrypt_with(
 /// The receiving half: what a browser does with a push message. The server
 /// never needs it in production; it exists so the sending half can be checked
 /// against an independent decryption (tests, diagnostics).
-pub fn decrypt(
-    body: &[u8],
-    ua_secret: &SecretKey,
-    auth_secret: &[u8],
-) -> Result<Vec<u8>, EceError> {
+pub fn decrypt(body: &[u8], ua_secret: &SecretKey, auth_secret: &[u8]) -> Result<Vec<u8>, EceError> {
     if body.len() < HEADER_LEN + TAG_LEN + 1 || body[SALT_LEN + 4] as usize != PUBLIC_KEY_LEN {
         return Err(EceError::Malformed);
     }
@@ -153,13 +133,7 @@ pub fn decrypt(
     let as_key = parse_public_key(as_public).map_err(|_| EceError::Malformed)?;
     let ua_public = public_key_bytes(ua_secret);
     let shared = ua_secret.diffie_hellman(&as_key);
-    let (key, nonce) = derive_key_and_nonce(
-        shared.raw_secret_bytes(),
-        auth_secret,
-        &ua_public,
-        as_public,
-        salt,
-    )?;
+    let (key, nonce) = derive_key_and_nonce(shared.raw_secret_bytes(), auth_secret, &ua_public, as_public, salt)?;
     let mut record = Aes128Gcm::new((&key).into())
         .decrypt(&Nonce::from(nonce), ciphertext)
         .map_err(|_| EceError::DecryptionFailed)?;
@@ -210,11 +184,9 @@ fn derive_key_and_nonce(
     // RFC 8188 section 2.2 and 2.3.
     let prk = Hkdf::<Sha256>::new(Some(salt), &ikm);
     let mut key = [0u8; 16];
-    prk.expand(b"Content-Encoding: aes128gcm\0", &mut key)
-        .expect("16 bytes is a valid HKDF output length");
+    prk.expand(b"Content-Encoding: aes128gcm\0", &mut key).expect("16 bytes is a valid HKDF output length");
     let mut nonce = [0u8; 12];
-    prk.expand(b"Content-Encoding: nonce\0", &mut nonce)
-        .expect("12 bytes is a valid HKDF output length");
+    prk.expand(b"Content-Encoding: nonce\0", &mut nonce).expect("12 bytes is a valid HKDF output length");
     Ok((key, nonce))
 }
 
@@ -227,11 +199,9 @@ mod tests {
     // RFC 8291 section 5 and appendix A.
     const PLAINTEXT: &[u8] = b"When I grow up, I want to be a watermelon";
     const UA_PRIVATE: &str = "q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94";
-    const UA_PUBLIC: &str =
-        "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4";
+    const UA_PUBLIC: &str = "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4";
     const AS_PRIVATE: &str = "yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw";
-    const AS_PUBLIC: &str =
-        "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
+    const AS_PUBLIC: &str = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
     const AUTH_SECRET: &str = "BTBZMqHH6r4Tts7J_aSIgg";
     const SALT: &str = "DGv6ra1nlYgDCS1FRnbzlw";
     const BODY: &str = "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN";
@@ -249,14 +219,7 @@ mod tests {
         let as_secret = secret(AS_PRIVATE);
         assert_eq!(b64url(&public_key_bytes(&as_secret)), AS_PUBLIC);
         let salt: [u8; SALT_LEN] = bytes(SALT).try_into().unwrap();
-        let body = encrypt_with(
-            PLAINTEXT,
-            &bytes(UA_PUBLIC),
-            &bytes(AUTH_SECRET),
-            &as_secret,
-            salt,
-        )
-        .unwrap();
+        let body = encrypt_with(PLAINTEXT, &bytes(UA_PUBLIC), &bytes(AUTH_SECRET), &as_secret, salt).unwrap();
         assert_eq!(b64url(&body), BODY);
     }
 
@@ -284,24 +247,12 @@ mod tests {
         let ua_secret = random_secret_key();
         let auth = [1u8; AUTH_SECRET_LEN];
         let body = encrypt(b"secret", &public_key_bytes(&ua_secret), &auth).unwrap();
-        assert_eq!(
-            decrypt(&body, &random_secret_key(), &auth),
-            Err(EceError::DecryptionFailed)
-        );
-        assert_eq!(
-            decrypt(&body, &ua_secret, &[2u8; AUTH_SECRET_LEN]),
-            Err(EceError::DecryptionFailed)
-        );
+        assert_eq!(decrypt(&body, &random_secret_key(), &auth), Err(EceError::DecryptionFailed));
+        assert_eq!(decrypt(&body, &ua_secret, &[2u8; AUTH_SECRET_LEN]), Err(EceError::DecryptionFailed));
         let mut tampered = body.clone();
         *tampered.last_mut().unwrap() ^= 1;
-        assert_eq!(
-            decrypt(&tampered, &ua_secret, &auth),
-            Err(EceError::DecryptionFailed)
-        );
-        assert_eq!(
-            decrypt(&body[..40], &ua_secret, &auth),
-            Err(EceError::Malformed)
-        );
+        assert_eq!(decrypt(&tampered, &ua_secret, &auth), Err(EceError::DecryptionFailed));
+        assert_eq!(decrypt(&body[..40], &ua_secret, &auth), Err(EceError::Malformed));
     }
 
     #[test]
@@ -313,29 +264,16 @@ mod tests {
         let body = encrypt(&largest, &ua_public, &auth).unwrap();
         assert_eq!(body.len(), RECORD_SIZE as usize);
         assert_eq!(decrypt(&body, &ua_secret, &auth).unwrap(), largest);
-        assert_eq!(
-            encrypt(&vec![b'x'; MAX_PLAINTEXT_LEN + 1], &ua_public, &auth),
-            Err(EceError::PlaintextTooLong)
-        );
+        assert_eq!(encrypt(&vec![b'x'; MAX_PLAINTEXT_LEN + 1], &ua_public, &auth), Err(EceError::PlaintextTooLong));
     }
 
     #[test]
     fn rejects_unusable_subscription_keys() {
         let auth = [0u8; AUTH_SECRET_LEN];
-        assert_eq!(
-            encrypt(b"x", &[4u8; PUBLIC_KEY_LEN], &auth),
-            Err(EceError::InvalidPublicKey),
-            "not on the curve"
-        );
-        assert_eq!(
-            encrypt(b"x", &[0u8; 10], &auth),
-            Err(EceError::InvalidPublicKey)
-        );
+        assert_eq!(encrypt(b"x", &[4u8; PUBLIC_KEY_LEN], &auth), Err(EceError::InvalidPublicKey), "not on the curve");
+        assert_eq!(encrypt(b"x", &[0u8; 10], &auth), Err(EceError::InvalidPublicKey));
         let ua_public = public_key_bytes(&random_secret_key());
-        assert_eq!(
-            encrypt(b"x", &ua_public, &[0u8; 8]),
-            Err(EceError::InvalidAuthSecret)
-        );
+        assert_eq!(encrypt(b"x", &ua_public, &[0u8; 8]), Err(EceError::InvalidAuthSecret));
         assert!(validate_public_key(&ua_public).is_ok());
     }
 }

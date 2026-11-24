@@ -190,7 +190,16 @@ impl Stamp {
                     let pay = order.price == expected_price;
                     (order, pay)
                 }
-                None => (self.place_order(user_id, pack, expected_price).await?, true),
+                None => {
+                    // No order: either there never was one, or another settler (the worker, a
+                    // second tap) just finished it. In the second case the pack is ours now and
+                    // must not be offered as a new purchase (which may no longer be on sale).
+                    holding = packs::holding(core, Some(user_id), pack.id).await?;
+                    if holding.owned {
+                        continue;
+                    }
+                    (self.place_order(user_id, pack, expected_price).await?, true)
+                }
             };
             if claim(&core.db, &order).await? {
                 match self.settle_claimed(&order, pack, pay, true).await? {

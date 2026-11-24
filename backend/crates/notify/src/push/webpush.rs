@@ -15,8 +15,8 @@ use tokuly_core::egress;
 use tokuly_proto::notify::PushChannelKind;
 
 use super::{
-    PushChannel, PushMessage, PushOutcome, PushTarget, Trim, collapse_id, ece, fit_json,
-    network_failure, read_response, truncate_chars, vapid::Vapid,
+    PushChannel, PushMessage, PushOutcome, PushTarget, Trim, collapse_id, ece, fit_json, network_failure,
+    read_response, truncate_chars, vapid::Vapid,
 };
 use crate::config::NotifyConfig;
 
@@ -46,12 +46,7 @@ impl EndpointPolicy {
         let hosts: Vec<String> = cfg
             .webpush_allowed_hosts
             .split(',')
-            .map(|h| {
-                h.trim()
-                    .trim_start_matches("*.")
-                    .trim_matches('.')
-                    .to_ascii_lowercase()
-            })
+            .map(|h| h.trim().trim_start_matches("*.").trim_matches('.').to_ascii_lowercase())
             .filter(|h| !h.is_empty())
             .collect();
         Self {
@@ -92,33 +87,17 @@ impl EndpointPolicy {
         let allowed = if self.allow_any_host {
             looks_public(&host)
         } else {
-            self.allowed_hosts
-                .iter()
-                .any(|allowed| host == *allowed || host.ends_with(&format!(".{allowed}")))
+            self.allowed_hosts.iter().any(|allowed| host == *allowed || host.ends_with(&format!(".{allowed}")))
         };
-        if allowed {
-            Ok(url)
-        } else {
-            Err(EndpointError::NotAllowed)
-        }
+        if allowed { Ok(url) } else { Err(EndpointError::NotAllowed) }
     }
 }
 
 /// A multi-label name outside the special-use zones that only resolve inside
 /// a network.
 fn looks_public(host: &str) -> bool {
-    const INTERNAL_SUFFIXES: &[&str] = &[
-        "localhost",
-        "local",
-        "internal",
-        "lan",
-        "home",
-        "corp",
-        "intranet",
-        "test",
-        "invalid",
-        "example",
-    ];
+    const INTERNAL_SUFFIXES: &[&str] =
+        &["localhost", "local", "internal", "lan", "home", "corp", "intranet", "test", "invalid", "example"];
     match host.rsplit_once('.') {
         Some((_, tld)) => !INTERNAL_SUFFIXES.contains(&tld),
         None => false,
@@ -133,11 +112,7 @@ pub struct WebPush {
 
 impl WebPush {
     pub fn new(http: reqwest::Client, vapid: Arc<Vapid>, policy: EndpointPolicy) -> Self {
-        Self {
-            http,
-            vapid,
-            policy,
-        }
+        Self { http, vapid, policy }
     }
 }
 
@@ -168,14 +143,7 @@ impl PushChannel for WebPush {
             .post(endpoint)
             .header("ttl", message.ttl_seconds)
             // RFC 8030 section 5.3: "high" may wake a sleeping device.
-            .header(
-                "urgency",
-                if message.priority.is_high() {
-                    "high"
-                } else {
-                    "normal"
-                },
-            )
+            .header("urgency", if message.priority.is_high() { "high" } else { "normal" })
             .header("content-encoding", "aes128gcm")
             .header("content-type", "application/octet-stream")
             .header("authorization", authorization);
@@ -200,12 +168,7 @@ impl PushChannel for WebPush {
 
 /// What a push service's answer means (RFC 8030 section 5 and vendor docs).
 pub fn classify(status: u16, detail: &str) -> PushOutcome {
-    let describe = || {
-        format!(
-            "push service answered {status}: {}",
-            truncate_chars(detail.trim(), 200)
-        )
-    };
+    let describe = || format!("push service answered {status}: {}", truncate_chars(detail.trim(), 200));
     match status {
         200..=299 => PushOutcome::Delivered,
         // The subscription expired or the user unsubscribed.
@@ -247,10 +210,7 @@ fn payload_json(message: &PushMessage, trim: Trim) -> serde_json::Value {
         "data": data,
     });
     // Same tag = the newer notification replaces the older one on screen.
-    let tag = message
-        .collapse_key
-        .clone()
-        .or_else(|| message.notification_id.map(|id| id.to_string()));
+    let tag = message.collapse_key.clone().or_else(|| message.notification_id.map(|id| id.to_string()));
     if let Some(tag) = tag {
         notification["tag"] = json!(tag);
     }
@@ -301,33 +261,15 @@ mod tests {
     fn default_policy_refuses_everything_else() {
         let policy = EndpointPolicy::from_config(&NotifyConfig::default());
         let cases = [
-            (
-                "http://fcm.googleapis.com/fcm/send/abc",
-                EndpointError::NotAllowed,
-            ), // not https
-            (
-                "https://evil.example/fcm.googleapis.com",
-                EndpointError::NotAllowed,
-            ),
-            (
-                "https://fcm.googleapis.com.evil.example/x",
-                EndpointError::NotAllowed,
-            ),
+            ("http://fcm.googleapis.com/fcm/send/abc", EndpointError::NotAllowed), // not https
+            ("https://evil.example/fcm.googleapis.com", EndpointError::NotAllowed),
+            ("https://fcm.googleapis.com.evil.example/x", EndpointError::NotAllowed),
             ("https://notfcm.googleapis.com/x", EndpointError::NotAllowed), // suffix must be a whole label
-            (
-                "https://169.254.169.254/latest/meta-data",
-                EndpointError::NotAllowed,
-            ),
+            ("https://169.254.169.254/latest/meta-data", EndpointError::NotAllowed),
             ("https://[::1]/x", EndpointError::NotAllowed),
             ("https://localhost/x", EndpointError::NotAllowed),
-            (
-                "https://fcm.googleapis.com:8443/x",
-                EndpointError::NotAllowed,
-            ),
-            (
-                "https://user:pw@fcm.googleapis.com/x",
-                EndpointError::Invalid,
-            ),
+            ("https://fcm.googleapis.com:8443/x", EndpointError::NotAllowed),
+            ("https://user:pw@fcm.googleapis.com/x", EndpointError::Invalid),
             ("ftp://fcm.googleapis.com/x", EndpointError::Invalid),
             ("not a url", EndpointError::Invalid),
             ("", EndpointError::Invalid),
@@ -335,10 +277,7 @@ mod tests {
         for (endpoint, expected) in cases {
             assert_eq!(policy.check(endpoint).unwrap_err(), expected, "{endpoint}");
         }
-        let long = format!(
-            "https://fcm.googleapis.com/{}",
-            "a".repeat(MAX_ENDPOINT_LEN)
-        );
+        let long = format!("https://fcm.googleapis.com/{}", "a".repeat(MAX_ENDPOINT_LEN));
         assert_eq!(policy.check(&long).unwrap_err(), EndpointError::Invalid);
     }
 
@@ -353,11 +292,7 @@ mod tests {
             "https://10.0.0.5/x",
             "http://push.vendor.example.org/x",
         ] {
-            assert_eq!(
-                policy.check(endpoint).unwrap_err(),
-                EndpointError::NotAllowed,
-                "{endpoint}"
-            );
+            assert_eq!(policy.check(endpoint).unwrap_err(), EndpointError::NotAllowed, "{endpoint}");
         }
     }
 
@@ -365,10 +300,7 @@ mod tests {
     fn insecure_mode_accepts_a_local_stand_in() {
         let policy = policy("fcm.googleapis.com", true);
         assert!(policy.check("http://127.0.0.1:4010/push/abc").is_ok());
-        assert_eq!(
-            policy.check("file:///etc/passwd").unwrap_err(),
-            EndpointError::Invalid
-        );
+        assert_eq!(policy.check("file:///etc/passwd").unwrap_err(), EndpointError::Invalid);
     }
 
     #[test]
@@ -378,15 +310,9 @@ mod tests {
         assert!(matches!(classify(404, ""), PushOutcome::Gone(_)));
         assert!(matches!(classify(429, ""), PushOutcome::Retry(_)));
         assert!(matches!(classify(503, ""), PushOutcome::Retry(_)));
-        assert!(matches!(
-            classify(403, "bad vapid"),
-            PushOutcome::Rejected(_)
-        ));
+        assert!(matches!(classify(403, "bad vapid"), PushOutcome::Rejected(_)));
         assert!(matches!(classify(413, ""), PushOutcome::Rejected(_)));
-        assert!(
-            matches!(classify(301, ""), PushOutcome::Rejected(_)),
-            "redirects are not followed"
-        );
+        assert!(matches!(classify(301, ""), PushOutcome::Rejected(_)), "redirects are not followed");
     }
 
     #[test]
@@ -428,19 +354,8 @@ mod tests {
         let bytes = payload(&message);
         assert!(bytes.len() <= ece::MAX_PLAINTEXT_LEN);
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert!(
-            value["notification"]["data"].get("extra").is_none(),
-            "extra data went first"
-        );
-        assert_eq!(
-            value["notification"]["body"]
-                .as_str()
-                .unwrap()
-                .chars()
-                .count(),
-            400,
-            "the text survived"
-        );
+        assert!(value["notification"]["data"].get("extra").is_none(), "extra data went first");
+        assert_eq!(value["notification"]["body"].as_str().unwrap().chars().count(), 400, "the text survived");
 
         // Japanese text is three bytes per character: a long body alone can overflow.
         message.data = serde_json::Value::Null;
@@ -449,11 +364,6 @@ mod tests {
         let bytes = payload(&message);
         assert!(bytes.len() <= ece::MAX_PLAINTEXT_LEN);
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert!(
-            value["notification"]["body"]
-                .as_str()
-                .unwrap()
-                .ends_with('…')
-        );
+        assert!(value["notification"]["body"].as_str().unwrap().ends_with('…'));
     }
 }

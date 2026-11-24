@@ -15,8 +15,8 @@ use tokuly_core::prelude::*;
 use tokuly_proto::notify::PushChannelKind;
 
 use super::{
-    PushChannel, PushMessage, PushOutcome, PushTarget, Trim, collapse_id, fit_json,
-    network_failure, read_response, truncate_chars,
+    PushChannel, PushMessage, PushOutcome, PushTarget, Trim, collapse_id, fit_json, network_failure, read_response,
+    truncate_chars,
 };
 
 const DEFAULT_ENDPOINT: &str = "https://fcm.googleapis.com";
@@ -86,21 +86,14 @@ pub struct Fcm {
 impl Fcm {
     /// Builds the channel from the content of a service-account JSON file.
     pub fn from_service_account(json: &str, http: reqwest::Client) -> anyhow::Result<Self> {
-        let account: ServiceAccount = serde_json::from_str(json).map_err(|e| {
-            anyhow::anyhow!(
-                "TOKULY_FCM_SERVICE_ACCOUNT_JSON is not a service-account key file: {e}"
-            )
-        })?;
+        let account: ServiceAccount = serde_json::from_str(json)
+            .map_err(|e| anyhow::anyhow!("TOKULY_FCM_SERVICE_ACCOUNT_JSON is not a service-account key file: {e}"))?;
         anyhow::ensure!(
             !account.project_id.is_empty() && !account.client_email.is_empty(),
             "the FCM service account lacks project_id or client_email"
         );
-        let signing_key =
-            EncodingKey::from_rsa_pem(account.private_key.as_bytes()).map_err(|e| {
-                anyhow::anyhow!(
-                    "the FCM service account's private_key is not an RSA key in PEM form: {e}"
-                )
-            })?;
+        let signing_key = EncodingKey::from_rsa_pem(account.private_key.as_bytes())
+            .map_err(|e| anyhow::anyhow!("the FCM service account's private_key is not an RSA key in PEM form: {e}"))?;
         Ok(Self {
             http,
             project_id: account.project_id,
@@ -120,10 +113,7 @@ impl Fcm {
     }
 
     pub fn send_url(&self) -> String {
-        format!(
-            "{}/v1/projects/{}/messages:send",
-            self.endpoint, self.project_id
-        )
+        format!("{}/v1/projects/{}/messages:send", self.endpoint, self.project_id)
     }
 
     /// The signed assertion (RFC 7523) that proves we hold the account's key.
@@ -153,25 +143,17 @@ impl Fcm {
         {
             return Ok(token.value.clone());
         }
-        let assertion = self
-            .assertion(now)
-            .map_err(|e| PushOutcome::Rejected(e.to_string()))?;
+        let assertion = self.assertion(now).map_err(|e| PushOutcome::Rejected(e.to_string()))?;
         let response = self
             .http
             .post(&self.token_uri)
-            .form(&[
-                ("grant_type", JWT_BEARER_GRANT),
-                ("assertion", assertion.as_str()),
-            ])
+            .form(&[("grant_type", JWT_BEARER_GRANT), ("assertion", assertion.as_str())])
             .send()
             .await
             .map_err(|e| network_failure(&e))?;
         let (status, body) = read_response(response).await;
         if status != 200 {
-            let detail = format!(
-                "FCM token endpoint answered {status}: {}",
-                truncate_chars(body.trim(), 200)
-            );
+            let detail = format!("FCM token endpoint answered {status}: {}", truncate_chars(body.trim(), 200));
             // 4xx means Google refused our credentials; no retry fixes that.
             return Err(if status == 429 || status >= 500 {
                 PushOutcome::Retry(detail)
@@ -179,19 +161,11 @@ impl Fcm {
                 PushOutcome::Rejected(detail)
             });
         }
-        let token: TokenResponse = serde_json::from_str(&body).map_err(|e| {
-            PushOutcome::Retry(format!("FCM token endpoint sent an unreadable answer: {e}"))
-        })?;
-        let lifetime = if token.expires_in > 0 {
-            token.expires_in
-        } else {
-            ASSERTION_LIFETIME_SECONDS
-        };
+        let token: TokenResponse = serde_json::from_str(&body)
+            .map_err(|e| PushOutcome::Retry(format!("FCM token endpoint sent an unreadable answer: {e}")))?;
+        let lifetime = if token.expires_in > 0 { token.expires_in } else { ASSERTION_LIFETIME_SECONDS };
         let value = token.access_token.clone();
-        *cached = Some(AccessToken {
-            value: token.access_token,
-            expires_at: now + lifetime,
-        });
+        *cached = Some(AccessToken { value: token.access_token, expires_at: now + lifetime });
         Ok(value)
     }
 
@@ -211,9 +185,7 @@ impl PushChannel for Fcm {
             Ok(token) => token,
             Err(outcome) => return outcome,
         };
-        let body = fit_json(MAX_MESSAGE_BYTES, |trim| {
-            request_body(&target.token, message, trim)
-        });
+        let body = fit_json(MAX_MESSAGE_BYTES, |trim| request_body(&target.token, message, trim));
         let response = self
             .http
             .post(self.send_url())
@@ -259,8 +231,7 @@ pub fn request_body(token: &str, message: &PushMessage, trim: Trim) -> serde_jso
     if message.priority.is_urgent() {
         data["urgent"] = json!("true");
     }
-    let mut notification =
-        json!({ "title": trim.title(&message.title), "body": trim.body(&message.body) });
+    let mut notification = json!({ "title": trim.title(&message.title), "body": trim.body(&message.body) });
     if trim.keeps_image()
         && let Some(image) = &message.image_url
     {
@@ -311,11 +282,7 @@ pub fn classify(status: u16, body: &str) -> PushOutcome {
     let error_code = error
         .pointer("/error/details")
         .and_then(|d| d.as_array())
-        .and_then(|details| {
-            details
-                .iter()
-                .find_map(|d| d.get("errorCode").and_then(|c| c.as_str()))
-        })
+        .and_then(|details| details.iter().find_map(|d| d.get("errorCode").and_then(|c| c.as_str())))
         .or_else(|| error.pointer("/error/status").and_then(|s| s.as_str()))
         .unwrap_or_default();
     let detail = format!("FCM answered {status} {error_code}");
@@ -342,8 +309,7 @@ mod tests {
     #[test]
     fn bad_credentials_are_reported_at_startup() {
         assert!(Fcm::from_service_account("not json", reqwest::Client::new()).is_err());
-        let no_key =
-            json!({ "project_id": "p", "client_email": "e", "private_key": "nope" }).to_string();
+        let no_key = json!({ "project_id": "p", "client_email": "e", "private_key": "nope" }).to_string();
         assert!(Fcm::from_service_account(&no_key, reqwest::Client::new()).is_err());
     }
 
@@ -369,10 +335,7 @@ mod tests {
         assert_eq!(m["apns"]["headers"]["apns-expiration"], "1800003600");
         assert_eq!(m["apns"]["payload"]["aps"]["badge"], 3);
         let data = m["data"].as_object().unwrap();
-        assert!(
-            data.values().all(|v| v.is_string()),
-            "FCM data values must be strings"
-        );
+        assert!(data.values().all(|v| v.is_string()), "FCM data values must be strings");
         assert_eq!(data["path"], "/chat/42");
         assert_eq!(data["url"], "https://tokuly.example/chat/42");
         assert_eq!(data["badge"], "3");
@@ -405,31 +368,17 @@ mod tests {
         let high = request_body("t", &message, Trim::NONE);
         let m = &high["message"];
         assert_eq!(m["android"]["priority"], "HIGH");
-        assert!(
-            m["android"]["notification"]
-                .get("notification_priority")
-                .is_none()
-        );
-        assert!(
-            m["apns"]["payload"]["aps"]
-                .get("interruption-level")
-                .is_none()
-        );
+        assert!(m["android"]["notification"].get("notification_priority").is_none());
+        assert!(m["apns"]["payload"]["aps"].get("interruption-level").is_none());
         assert!(m["data"].get("urgent").is_none());
 
         message.priority = PushPriority::Urgent;
         let urgent = request_body("t", &message, Trim::NONE);
         let m = &urgent["message"];
         assert_eq!(m["android"]["priority"], "HIGH");
-        assert_eq!(
-            m["android"]["notification"]["notification_priority"],
-            "PRIORITY_MAX"
-        );
+        assert_eq!(m["android"]["notification"]["notification_priority"], "PRIORITY_MAX");
         assert_eq!(m["apns"]["headers"]["apns-priority"], "10");
-        assert_eq!(
-            m["apns"]["payload"]["aps"]["interruption-level"],
-            "time-sensitive"
-        );
+        assert_eq!(m["apns"]["payload"]["aps"]["interruption-level"], "time-sensitive");
         assert_eq!(m["data"]["urgent"], "true");
     }
 
@@ -449,48 +398,18 @@ mod tests {
         let error = |status: &str, code: &str| {
             json!({ "error": { "code": 0, "status": status, "details": [{ "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", "errorCode": code }] } }).to_string()
         };
-        assert_eq!(
-            classify(200, r#"{"name":"projects/p/messages/1"}"#),
-            PushOutcome::Delivered
-        );
-        assert!(matches!(
-            classify(404, &error("NOT_FOUND", "UNREGISTERED")),
-            PushOutcome::Gone(_)
-        ));
-        assert!(matches!(
-            classify(403, &error("PERMISSION_DENIED", "SENDER_ID_MISMATCH")),
-            PushOutcome::Gone(_)
-        ));
-        assert!(matches!(
-            classify(429, &error("RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED")),
-            PushOutcome::Retry(_)
-        ));
-        assert!(matches!(
-            classify(503, &error("UNAVAILABLE", "UNAVAILABLE")),
-            PushOutcome::Retry(_)
-        ));
-        assert!(matches!(
-            classify(500, "<html>oops</html>"),
-            PushOutcome::Retry(_)
-        ));
+        assert_eq!(classify(200, r#"{"name":"projects/p/messages/1"}"#), PushOutcome::Delivered);
+        assert!(matches!(classify(404, &error("NOT_FOUND", "UNREGISTERED")), PushOutcome::Gone(_)));
+        assert!(matches!(classify(403, &error("PERMISSION_DENIED", "SENDER_ID_MISMATCH")), PushOutcome::Gone(_)));
+        assert!(matches!(classify(429, &error("RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED")), PushOutcome::Retry(_)));
+        assert!(matches!(classify(503, &error("UNAVAILABLE", "UNAVAILABLE")), PushOutcome::Retry(_)));
+        assert!(matches!(classify(500, "<html>oops</html>"), PushOutcome::Retry(_)));
         assert!(
-            matches!(
-                classify(401, r#"{"error":{"status":"UNAUTHENTICATED"}}"#),
-                PushOutcome::Retry(_)
-            ),
+            matches!(classify(401, r#"{"error":{"status":"UNAUTHENTICATED"}}"#), PushOutcome::Retry(_)),
             "a fresh access token is fetched"
         );
-        assert!(matches!(
-            classify(400, &error("INVALID_ARGUMENT", "INVALID_ARGUMENT")),
-            PushOutcome::Rejected(_)
-        ));
-        assert!(matches!(
-            classify(401, &error("UNAUTHENTICATED", "THIRD_PARTY_AUTH_ERROR")),
-            PushOutcome::Rejected(_)
-        ));
-        assert!(matches!(
-            classify(403, r#"{"error":{"status":"PERMISSION_DENIED"}}"#),
-            PushOutcome::Rejected(_)
-        ));
+        assert!(matches!(classify(400, &error("INVALID_ARGUMENT", "INVALID_ARGUMENT")), PushOutcome::Rejected(_)));
+        assert!(matches!(classify(401, &error("UNAUTHENTICATED", "THIRD_PARTY_AUTH_ERROR")), PushOutcome::Rejected(_)));
+        assert!(matches!(classify(403, r#"{"error":{"status":"PERMISSION_DENIED"}}"#), PushOutcome::Rejected(_)));
     }
 }

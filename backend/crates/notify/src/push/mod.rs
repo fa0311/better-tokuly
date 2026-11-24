@@ -120,9 +120,7 @@ pub trait PushChannel: Send + Sync + 'static {
 /// service has no reason to redirect, and following one would let a crafted
 /// Web Push endpoint steer requests somewhere else.
 pub fn http_client() -> anyhow::Result<reqwest::Client> {
-    builder()
-        .build()
-        .map_err(|e| anyhow::anyhow!("push http client: {e}"))
+    builder().build().map_err(|e| anyhow::anyhow!("push http client: {e}"))
 }
 
 /// The HTTP client for Web Push: endpoints are chosen by clients, so it only
@@ -272,10 +270,7 @@ mod tests {
         assert_eq!(id, collapse_id("chat:0191f3a0-7c1e-7cc3-9d2b-6f1f0e2a9b11"));
         assert_ne!(id, collapse_id("chat:other"));
         assert_eq!(id.len(), 32);
-        assert!(
-            id.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        );
+        assert!(id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
     }
 
     #[test]

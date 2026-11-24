@@ -266,7 +266,8 @@ impl Engagement {
         if delta == 0 {
             return;
         }
-        if let Err(error) = self.core.subjects.counter_changed(key.subject_type(), key.id, counter.name(), delta).await {
+        if let Err(error) = self.core.subjects.counter_changed(key.subject_type(), key.id, counter.name(), delta).await
+        {
             tracing::warn!(subject_type = key.kind, subject_id = %key.id, counter = counter.name(), %error, "counter callback failed");
         }
     }

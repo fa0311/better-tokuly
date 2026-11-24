@@ -13,14 +13,15 @@
 //! reply, then the subject's statistics row — so concurrent changes to one
 //! thread wait for each other instead of deadlocking.
 use sqlx::PgConnection;
-use tokuly_core::prelude::*;
+use tokuly_core::{events, prelude::*};
 use tokuly_media::assets;
 use tokuly_proto::{common::SubjectType, engagement::HoldReason};
 
-use super::{CommentRow, image_holder, lock_thread, lock_threads_of, status};
+use super::{CommentRow, image_holder, lock_thread, lock_threads_of, status, write::comment_event};
 use crate::{
     cleanup,
     effects::{Effects, Push},
+    events::{COMMENT_HIDDEN, CommentHidden},
     stats::{self, Counter},
     subjects::SubjectKey,
 };
@@ -117,7 +118,9 @@ async fn left(
 }
 
 /// Moves a comment to another status. Leaving `PUBLISHED` also takes the
-/// pin off. `row` and `parent` are updated to match the database.
+/// pin off. `row` and `parent` are updated to match the database. Moving it
+/// to `HELD` or `HIDDEN` emits `engagement.comment.hidden` (by `actor`), so
+/// that copies of it leave those who can no longer see it.
 pub(crate) async fn set_status(
     conn: &mut PgConnection,
     effects: &mut Effects,
@@ -125,6 +128,7 @@ pub(crate) async fn set_status(
     parent: Option<&mut CommentRow>,
     new_status: i32,
     hold_reason: HoldReason,
+    actor: Option<Uuid>,
 ) -> AppResult<()> {
     let hold_reason = hold_reason as i32;
     if row.status == new_status && row.hold_reason == hold_reason {
@@ -141,6 +145,9 @@ pub(crate) async fn set_status(
     let (was_published, was_held) = (row.is_published(), row.is_held());
     row.status = new_status;
     row.hold_reason = hold_reason;
+    if !row.is_published() {
+        hidden(conn, row, actor).await?;
+    }
     if was_held != row.is_held() {
         effects.review_queue(row.subject_owner_id);
     }
@@ -154,6 +161,30 @@ pub(crate) async fn set_status(
         // `left` reads the reply count of the row as it was in public view.
         left(conn, effects, row, parent).await
     }
+}
+
+/// Who besides its author may still see a comment that is out of public
+/// view: the subject owner (held, or hidden by them), or nobody (hidden
+/// behind a block).
+fn still_visible_to(row: &CommentRow) -> Vec<Uuid> {
+    let owner = row.subject_owner_id;
+    if row.is_shadowed() || owner.is_nil() || owner == row.author_id { Vec::new() } else { vec![owner] }
+}
+
+/// Emits `engagement.comment.hidden` for a comment that just left public
+/// view (or the owner's review queue), on the transaction that hid it.
+async fn hidden(conn: &mut PgConnection, row: &CommentRow, actor: Option<Uuid>) -> AppResult<()> {
+    // The clock, not the transaction's start: taken under the comment's
+    // lock, it orders this against the comment's other changes.
+    let changed_at: Time = sqlx::query_scalar("SELECT clock_timestamp()").fetch_one(&mut *conn).await?;
+    let payload = CommentHidden {
+        comment: comment_event(row),
+        status: row.status,
+        hold_reason: row.hold_reason,
+        visible_to: still_visible_to(row),
+        changed_at,
+    };
+    events::emit(&mut *conn, COMMENT_HIDDEN, actor, &payload).await
 }
 
 /// Deletes a comment and, for a top-level comment, its replies: releases
@@ -326,8 +357,16 @@ pub(crate) async fn hide_comments_of(
         if row.status == status::HIDDEN {
             continue;
         }
-        set_status(conn, effects, &mut row, parent.as_mut(), status::HIDDEN, HoldReason::HOLD_REASON_BLOCKED_COMMENTER)
-            .await?;
+        set_status(
+            conn,
+            effects,
+            &mut row,
+            parent.as_mut(),
+            status::HIDDEN,
+            HoldReason::HOLD_REASON_BLOCKED_COMMENTER,
+            None,
+        )
+        .await?;
     }
     Ok(selected)
 }

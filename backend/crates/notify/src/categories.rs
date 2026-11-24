@@ -50,10 +50,7 @@ pub const CATEGORIES: &[Category] = &[
     Category {
         id: "chat",
         label: ("チャット・通話", "Chat & calls"),
-        description: (
-            "メッセージ、通話、POVリクエスト",
-            "Messages, calls and POV requests",
-        ),
+        description: ("メッセージ、通話、POVリクエスト", "Messages, calls and POV requests"),
         prefixes: &["chat", "call"],
         inbox_locked: false,
         high_priority: true,
@@ -61,10 +58,7 @@ pub const CATEGORIES: &[Category] = &[
     Category {
         id: "geo",
         label: ("マップ", "Map"),
-        description: (
-            "友達の到着・出発、集合、SOS",
-            "Friends arriving and leaving, gatherings and SOS",
-        ),
+        description: ("友達の到着・出発、集合、SOS", "Friends arriving and leaving, gatherings and SOS"),
         prefixes: &["geo", "map", "place"],
         inbox_locked: false,
         high_priority: true,
@@ -72,10 +66,7 @@ pub const CATEGORIES: &[Category] = &[
     Category {
         id: "notes",
         label: ("ノート・記憶", "Notes & stories"),
-        description: (
-            "返信、リノート、記憶へのリアクション",
-            "Replies, renotes and reactions to your stories",
-        ),
+        description: ("返信、リノート、記憶へのリアクション", "Replies, renotes and reactions to your stories"),
         prefixes: &["notes", "note", "story", "stories"],
         inbox_locked: false,
         high_priority: false,
@@ -94,10 +85,7 @@ pub const CATEGORIES: &[Category] = &[
     Category {
         id: "live",
         label: ("ライブ配信", "Live"),
-        description: (
-            "配信開始、リマインダー、ギフト",
-            "Streams going live, reminders and gifts",
-        ),
+        description: ("配信開始、リマインダー、ギフト", "Streams going live, reminders and gifts"),
         prefixes: &["live"],
         inbox_locked: false,
         high_priority: true,
@@ -116,10 +104,7 @@ pub const CATEGORIES: &[Category] = &[
     Category {
         id: "shorts",
         label: ("ショート", "Shorts"),
-        description: (
-            "ショートへの反応と新着",
-            "Reactions to your shorts and new ones to watch",
-        ),
+        description: ("ショートへの反応と新着", "Reactions to your shorts and new ones to watch"),
         prefixes: &["shorts", "short"],
         inbox_locked: false,
         high_priority: false,
@@ -127,10 +112,7 @@ pub const CATEGORIES: &[Category] = &[
     Category {
         id: "engagement",
         label: ("コメント・リアクション", "Comments & reactions"),
-        description: (
-            "コメント、いいね、メンション",
-            "Comments, likes and mentions",
-        ),
+        description: ("コメント、いいね、メンション", "Comments, likes and mentions"),
         prefixes: &["engagement", "comment", "reaction"],
         inbox_locked: false,
         high_priority: false,
@@ -149,10 +131,7 @@ pub const CATEGORIES: &[Category] = &[
     Category {
         id: "wallet",
         label: ("コイン", "Coins"),
-        description: (
-            "コインの受け取り、購入、出金",
-            "Coins received, purchases and payouts",
-        ),
+        description: ("コインの受け取り、購入、出金", "Coins received, purchases and payouts"),
         prefixes: &["wallet"],
         inbox_locked: false,
         high_priority: false,
@@ -215,10 +194,7 @@ pub const CATEGORIES: &[Category] = &[
     Category {
         id: "feed",
         label: ("ニュース・お知らせ", "News & updates"),
-        description: (
-            "ニュースとアップデートのお知らせ",
-            "News picks and product updates",
-        ),
+        description: ("ニュースとアップデートのお知らせ", "News picks and product updates"),
         prefixes: &["feed", "news", "announcement"],
         inbox_locked: false,
         high_priority: false,
@@ -230,9 +206,7 @@ pub const CATEGORIES: &[Category] = &[
             "ログイン通知、アプリ連携やAPIトークン、大事なお知らせ",
             "Sign-in alerts, connected apps and API tokens, important notices",
         ),
-        prefixes: &[
-            "system", "identity", "account", "security", "admin", "media", "search", "dev",
-        ],
+        prefixes: &["system", "identity", "account", "security", "admin", "media", "search", "dev"],
         inbox_locked: true,
         high_priority: true,
     },
@@ -287,11 +261,7 @@ mod tests {
     fn unknown_prefixes_fall_back_to_system() {
         assert_eq!(of_kind("mystery.thing").id, "system");
         assert_eq!(of_kind("").id, "system");
-        assert_eq!(
-            of_kind("chatty.message").id,
-            "system",
-            "prefixes match whole segments"
-        );
+        assert_eq!(of_kind("chatty.message").id, "system", "prefixes match whole segments");
     }
 
     #[test]
@@ -300,47 +270,25 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), CATEGORIES.len());
-        let mut prefixes: Vec<_> = CATEGORIES
-            .iter()
-            .flat_map(|c| c.prefixes.iter().copied())
-            .collect();
+        let mut prefixes: Vec<_> = CATEGORIES.iter().flat_map(|c| c.prefixes.iter().copied()).collect();
         let total = prefixes.len();
         prefixes.sort_unstable();
         prefixes.dedup();
-        assert_eq!(
-            prefixes.len(),
-            total,
-            "a prefix belongs to exactly one category"
-        );
+        assert_eq!(prefixes.len(), total, "a prefix belongs to exactly one category");
         for category in CATEGORIES {
-            assert!(
-                category.prefixes.contains(&category.id),
-                "{} lists its own ID as a prefix",
-                category.id
-            );
+            assert!(category.prefixes.contains(&category.id), "{} lists its own ID as a prefix", category.id);
         }
     }
 
     #[test]
     fn high_priority_categories_are_the_time_critical_ones() {
-        let high: Vec<_> = CATEGORIES
-            .iter()
-            .filter(|c| c.high_priority)
-            .map(|c| c.id)
-            .collect();
-        assert_eq!(
-            high,
-            ["social", "chat", "geo", "live", "spaces", "plans", "system"]
-        );
+        let high: Vec<_> = CATEGORIES.iter().filter(|c| c.high_priority).map(|c| c.id).collect();
+        assert_eq!(high, ["social", "chat", "geo", "live", "spaces", "plans", "system"]);
     }
 
     #[test]
     fn only_system_is_locked() {
-        let locked: Vec<_> = CATEGORIES
-            .iter()
-            .filter(|c| c.inbox_locked)
-            .map(|c| c.id)
-            .collect();
+        let locked: Vec<_> = CATEGORIES.iter().filter(|c| c.inbox_locked).map(|c| c.id).collect();
         assert_eq!(locked, ["system"]);
     }
 }

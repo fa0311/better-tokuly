@@ -391,3 +391,245 @@ async fn content_with_thousands_of_recipients_is_withdrawn_in_batches() {
     }
     assert_eq!(batches, 3);
 }
+
+fn comment_hidden(
+    comment: Uuid,
+    author: &TestUser,
+    visible_to: &[Uuid],
+    changed_at: chrono::DateTime<Utc>,
+) -> tokuly_core::events::Event {
+    event(
+        "engagement.comment.hidden",
+        serde_json::json!({
+            "comment_id": comment,
+            "subject_type": SubjectType::SUBJECT_TYPE_NOTE as i32,
+            "subject_id": Uuid::now_v7(),
+            "subject_owner_id": visible_to.first(),
+            "author_id": author.id,
+            "channel_id": null,
+            "parent_id": null,
+            "status": 3,
+            "hold_reason": 4,
+            "visible_to": visible_to,
+            "changed_at": changed_at,
+        }),
+    )
+}
+
+#[tokio::test]
+async fn a_hidden_comment_leaves_everyone_who_can_no_longer_see_it() {
+    let ctx = start().await;
+    let (owner, alice, carol, dave) = (
+        ctx.app.user("owner").await,
+        ctx.app.user("alice").await,
+        ctx.app.user("carol").await,
+        ctx.app.user("dave").await,
+    );
+    let note_id = Uuid::now_v7();
+    let (comment, kept) = (Uuid::now_v7(), Uuid::now_v7());
+    let before = Utc::now() - chrono::Duration::seconds(30);
+    let at = |seconds: i64| before + chrono::Duration::seconds(seconds);
+    // Alice wrote the comment; the owner of the note, Carol (answered by a
+    // reply in the thread) and Alice herself (a heart) heard about it.
+    for (to, from) in [(&owner, &alice), (&carol, &dave), (&alice, &owner)] {
+        let request = comment_on(to, from, note_id, comment);
+        ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, request, at(0))).await.unwrap();
+    }
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, comment_on(&carol, &dave, note_id, kept), at(0))).await.unwrap();
+    // A reply below it names it as its thread.
+    let reply = comment_on(&dave, &carol, note_id, Uuid::now_v7())
+        .data(serde_json::json!({ "comment_id": Uuid::now_v7(), "parent_id": comment }));
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, reply, at(0))).await.unwrap();
+
+    // The owner hides it: only the owner and its author still see it.
+    let hidden = comment_hidden(comment, &alice, &[owner.id], at(10));
+    ctx.notify.handle_event(hidden.clone()).await.unwrap();
+    ctx.notify.handle_event(hidden).await.unwrap(); // at-least-once
+    assert_eq!(ctx.inbox(&owner).await.notifications.len(), 1, "the owner still sees it");
+    assert_eq!(ctx.inbox(&alice).await.notifications.len(), 1, "so does its author");
+    assert_eq!(ctx.inbox(&carol).await.notifications.len(), 1, "only the entry about the other comment is left");
+    assert!(ctx.inbox(&carol).await.notifications[0].data_json.contains(&kept.to_string()));
+    assert!(ctx.inbox(&dave).await.notifications.is_empty(), "the reply went with its thread");
+
+    // A request from before the hiding, handled after it, reaches nobody
+    // who lost the comment; one made after it (approved again) does.
+    let late = event_at(NOTIFY_TOPIC, comment_on(&carol, &dave, note_id, comment), at(5));
+    assert!(matches!(ctx.notify.handle_request(&late).await.unwrap(), RequestOutcome::Dropped(_)));
+    let late_to_owner = event_at(NOTIFY_TOPIC, comment_on(&owner, &dave, note_id, comment), at(5));
+    assert!(matches!(ctx.notify.handle_request(&late_to_owner).await.unwrap(), RequestOutcome::Handled { .. }));
+    let after = event_at(NOTIFY_TOPIC, comment_on(&dave, &carol, note_id, comment), at(20));
+    assert!(matches!(ctx.notify.handle_request(&after).await.unwrap(), RequestOutcome::Handled { .. }));
+
+    // An older change handled late takes nothing that came after.
+    ctx.notify.handle_event(comment_hidden(comment, &alice, &[], at(8))).await.unwrap();
+    assert_eq!(ctx.inbox(&dave).await.notifications.len(), 1);
+    assert_eq!(ctx.inbox(&owner).await.notifications.len(), 2);
+    // A newer one (a block) takes what came before it, but not the author's.
+    ctx.notify.handle_event(comment_hidden(comment, &alice, &[], at(25))).await.unwrap();
+    assert!(ctx.inbox(&dave).await.notifications.is_empty());
+    assert!(ctx.inbox(&owner).await.notifications.is_empty());
+    assert_eq!(ctx.inbox(&alice).await.notifications.len(), 1);
+}
+
+#[tokio::test]
+async fn a_push_still_queued_for_a_hidden_comment_reaches_only_who_still_sees_it() {
+    let ctx = start_insecure().await;
+    let (owner, alice, carol) = (ctx.app.user("owner").await, ctx.app.user("alice").await, ctx.app.user("carol").await);
+    let stub = Stub::accepting().await;
+    ctx.register(&owner, &Subscription::new(&format!("{}/push/owner", stub.url)).request()).await;
+    ctx.register(&carol, &Subscription::new(&format!("{}/push/carol", stub.url)).request()).await;
+    let (note_id, comment) = (Uuid::now_v7(), Uuid::now_v7());
+    let to_owner = ctx.deliver_for_push(&comment_on(&owner, &alice, note_id, comment)).await;
+    let to_carol = ctx.deliver_for_push(&comment_on(&carol, &alice, note_id, comment)).await;
+    ctx.notify.handle_event(comment_hidden(comment, &alice, &[owner.id], Utc::now())).await.unwrap();
+    assert_eq!(ctx.notify.deliver_push(&to_carol).await.unwrap().delivered, 0);
+    assert_eq!(ctx.notify.deliver_push(&to_owner).await.unwrap().delivered, 1);
+    assert!(stub.requests_to("/push/carol").is_empty());
+}
+
+fn visibility_changed(
+    note: Uuid,
+    author: &TestUser,
+    visibility: i32,
+    visible_to: Option<&[Uuid]>,
+    changed_at: chrono::DateTime<Utc>,
+) -> tokuly_core::events::Event {
+    event(
+        "notes.note.visibility_changed",
+        serde_json::json!({
+            "note_id": note,
+            "author_id": author.id,
+            "visibility": visibility,
+            "visible_to": visible_to,
+            "changed_at": changed_at,
+        }),
+    )
+}
+
+#[tokio::test]
+async fn a_note_narrowed_to_friends_leaves_everyone_else_in_the_order_it_changed() {
+    let ctx = start().await;
+    let (bob, alice, carol, dave) = (
+        ctx.app.user("bob").await,
+        ctx.app.user("alice").await,
+        ctx.app.user("carol").await,
+        ctx.app.user("dave").await,
+    );
+    let note = Uuid::now_v7();
+    let before = Utc::now() - chrono::Duration::seconds(60);
+    let at = |seconds: i64| before + chrono::Duration::seconds(seconds);
+    let like = |to: &TestUser| about(to, "notes.like", (SubjectType::SUBJECT_TYPE_NOTE, note), serde_json::json!({}));
+    // Bob's public note: Alice, Carol and Dave heard about it (a mention, a
+    // comment on it...), and so did Bob.
+    for user in [&alice, &carol, &dave, &bob] {
+        ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, like(user), at(0))).await.unwrap();
+    }
+    ctx.notify
+        .handle_request(&event_at(NOTIFY_TOPIC, comment_on(&dave, &alice, note, Uuid::now_v7()), at(0)))
+        .await
+        .unwrap();
+
+    // Narrowed to friends: Carol is one.
+    ctx.notify.handle_event(visibility_changed(note, &bob, 4, Some(&[carol.id]), at(10))).await.unwrap();
+    assert!(kinds(&ctx, &alice).await.is_empty());
+    assert!(kinds(&ctx, &dave).await.is_empty(), "comments on the note go with it");
+    assert_eq!(kinds(&ctx, &carol).await, ["notes.like"]);
+    assert_eq!(kinds(&ctx, &bob).await, ["notes.like"], "the author keeps theirs");
+
+    // A request from before the change, handled after it, reaches only who
+    // still sees the note.
+    let late = event_at(NOTIFY_TOPIC, like(&alice), at(5));
+    assert!(matches!(ctx.notify.handle_request(&late).await.unwrap(), RequestOutcome::Dropped(_)));
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, like(&carol), at(5))).await.unwrap();
+    assert_eq!(ctx.inbox(&carol).await.notifications.len(), 2);
+
+    // Public again, and Alice hears about it again; then the narrowing is
+    // delivered once more, late: it takes nothing that came after it, and
+    // nothing at all, since a newer change is known.
+    ctx.notify.handle_event(visibility_changed(note, &bob, 1, None, at(20))).await.unwrap();
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, like(&alice), at(25))).await.unwrap();
+    ctx.notify.handle_event(visibility_changed(note, &bob, 4, Some(&[carol.id]), at(10))).await.unwrap();
+    ctx.notify.handle_event(visibility_changed(note, &bob, 5, Some(&[]), at(15))).await.unwrap();
+    assert_eq!(kinds(&ctx, &alice).await, ["notes.like"]);
+    // And a request from the friends-only time is no longer held back.
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, like(&dave), at(12))).await.unwrap();
+    assert_eq!(kinds(&ctx, &dave).await, ["notes.like"]);
+
+    // Made private later on: only the author is left, also for what came after the earlier changes.
+    ctx.notify.handle_event(visibility_changed(note, &bob, 5, Some(&[]), at(30))).await.unwrap();
+    for user in [&alice, &carol, &dave] {
+        assert!(kinds(&ctx, user).await.is_empty());
+    }
+    assert_eq!(kinds(&ctx, &bob).await, ["notes.like"]);
+}
+
+#[tokio::test]
+async fn a_hiding_handled_at_the_same_time_as_a_request_leaves_nothing() {
+    let ctx = start().await;
+    let (owner, alice, carol) = (ctx.app.user("owner").await, ctx.app.user("alice").await, ctx.app.user("carol").await);
+    let note_id = Uuid::now_v7();
+    for _ in 0..30 {
+        let comment = Uuid::now_v7();
+        let request = event_at(
+            NOTIFY_TOPIC,
+            comment_on(&carol, &alice, note_id, comment),
+            Utc::now() - chrono::Duration::milliseconds(10),
+        );
+        let hidden = comment_hidden(comment, &alice, &[owner.id], Utc::now());
+        let (stored, withdrawn) = tokio::join!(ctx.notify.handle_request(&request), ctx.notify.handle_event(hidden));
+        stored.unwrap();
+        withdrawn.unwrap();
+    }
+    assert!(ctx.inbox(&carol).await.notifications.is_empty());
+}
+
+#[tokio::test]
+async fn a_heart_stays_with_the_reply_author_when_the_thread_is_hidden() {
+    let ctx = start().await;
+    let (owner, alice, bob) = (ctx.app.user("owner").await, ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let (note_id, thread, reply) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    // As engagement writes a heart: the thread is named, but not as a `*_id`.
+    let heart =
+        NotificationRequest::new(bob.id, "engagement.heart", Localized::same("❤️"), Localized::same("返信"), "/")
+            .subject(SubjectType::SUBJECT_TYPE_NOTE, note_id)
+            .data(serde_json::json!({ "comment_id": reply, "thread": thread, "edited_at": null }));
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, heart, Utc::now() - chrono::Duration::seconds(5))).await.unwrap();
+    ctx.notify.handle_event(comment_hidden(thread, &alice, &[owner.id], Utc::now())).await.unwrap();
+    assert_eq!(kinds(&ctx, &bob).await, ["engagement.heart"]);
+}
+
+#[tokio::test]
+async fn a_newer_change_stops_an_audience_change_between_batches() {
+    let ctx = start().await;
+    let (bob, alice) = (ctx.app.user("bob").await, ctx.app.user("alice").await);
+    let note = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO notifications (user_id, kind, category, title_ja, title_en, body_ja, body_en, path,
+                                    subject_type, subject_id, refs, occurred_at)
+         SELECT $1, 'notes.like', 'notes', 't', 't', 'b', 'b', '/', 3, $2, ARRAY[$2]::uuid[], now() - interval '1 minute'
+         FROM generate_series(1, 1500)",
+    )
+    .bind(alice.id)
+    .bind(note)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+    let count = || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM notifications WHERE user_id = $1")
+            .bind(alice.id)
+            .fetch_one(&ctx.app.core.db)
+            .await
+            .unwrap()
+    };
+    let private = visibility_changed(note, &bob, 5, Some(&[]), Utc::now() - chrono::Duration::seconds(10));
+    let withdrawal = tokuly_notify::withdraw::withdrawal_of(&private).unwrap().unwrap();
+    assert_eq!(ctx.notify.withdraw_batch(&withdrawal, true).await.unwrap(), tokuly_notify::withdraw::Batch::More);
+    assert_eq!(count().await, 500);
+    // Public again before the next batch: that change decides now.
+    ctx.notify.handle_event(visibility_changed(note, &bob, 1, None, Utc::now())).await.unwrap();
+    assert_eq!(ctx.notify.withdraw_batch(&withdrawal, false).await.unwrap(), tokuly_notify::withdraw::Batch::Done);
+    assert_eq!(count().await, 500);
+    // A redelivery of the old change does nothing either.
+    ctx.notify.handle_event(private).await.unwrap();
+    assert_eq!(count().await, 500);
+}

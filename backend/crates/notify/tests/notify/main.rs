@@ -9,6 +9,7 @@ mod consumer_preferences;
 mod consumer_urgent;
 mod delivery;
 mod devices;
+mod edits;
 mod inbox;
 mod inbox_changes;
 mod maintenance;

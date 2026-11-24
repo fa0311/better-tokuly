@@ -33,11 +33,7 @@ pub async fn start() -> Ctx {
 /// Like [`start`], but Web Push endpoints may be plain `http://` on any host,
 /// so a local server can stand in for a push service.
 pub async fn start_insecure() -> Ctx {
-    start_with(NotifyConfig {
-        webpush_allow_insecure: true,
-        ..Default::default()
-    })
-    .await
+    start_with(NotifyConfig { webpush_allow_insecure: true, ..Default::default() }).await
 }
 
 pub async fn start_with(cfg: NotifyConfig) -> Ctx {
@@ -49,10 +45,7 @@ pub async fn start_with(cfg: NotifyConfig) -> Ctx {
         router
     })
     .await;
-    Ctx {
-        app,
-        notify: holder.expect("register ran"),
-    }
+    Ctx { app, notify: holder.expect("register ran") }
 }
 
 // ───────────────────────────── events ─────────────────────────────
@@ -91,19 +84,13 @@ pub fn chat_message(to: &TestUser, from: &TestUser) -> NotificationRequest {
 impl Ctx {
     /// Runs the consumer on a request and returns what it did.
     pub async fn deliver(&self, request: &NotificationRequest) -> RequestOutcome {
-        self.notify
-            .handle_request(&request_event(request))
-            .await
-            .expect("request handled")
+        self.notify.handle_request(&request_event(request)).await.expect("request handled")
     }
 
     /// Runs the consumer and expects an inbox entry; returns its ID.
     pub async fn deliver_to_inbox(&self, request: &NotificationRequest) -> String {
         match self.deliver(request).await {
-            RequestOutcome::Handled {
-                notification_id: Some(id),
-                ..
-            } => id.to_string(),
+            RequestOutcome::Handled { notification_id: Some(id), .. } => id.to_string(),
             other => panic!("expected an inbox entry, got {other:?}"),
         }
     }
@@ -111,21 +98,14 @@ impl Ctx {
     /// Runs the consumer and expects a queued push job.
     pub async fn deliver_for_push(&self, request: &NotificationRequest) -> PushJob {
         match self.deliver(request).await {
-            RequestOutcome::Handled {
-                push: PushDecision::Queued(job),
-                ..
-            } => job,
+            RequestOutcome::Handled { push: PushDecision::Queued(job), .. } => job,
             other => panic!("expected a queued push, got {other:?}"),
         }
     }
 
     pub async fn inbox(&self, user: &TestUser) -> ListNotificationsResponse {
         self.app
-            .call(
-                "tokuly.notify.v1.InboxService/ListNotifications",
-                Some(user),
-                &ListNotificationsRequest::default(),
-            )
+            .call("tokuly.notify.v1.InboxService/ListNotifications", Some(user), &ListNotificationsRequest::default())
             .await
             .unwrap()
     }
@@ -133,46 +113,29 @@ impl Ctx {
     pub async fn devices(&self, user: &TestUser) -> Vec<PushDevice> {
         let response: ListDevicesResponse = self
             .app
-            .call(
-                "tokuly.notify.v1.PushService/ListDevices",
-                Some(user),
-                &ListDevicesRequest::default(),
-            )
+            .call("tokuly.notify.v1.PushService/ListDevices", Some(user), &ListDevicesRequest::default())
             .await
             .unwrap();
         response.devices
     }
 
     pub async fn register(&self, user: &TestUser, request: &RegisterDeviceRequest) -> PushDevice {
-        let response: RegisterDeviceResponse = self
-            .app
-            .call(
-                "tokuly.notify.v1.PushService/RegisterDevice",
-                Some(user),
-                request,
-            )
-            .await
-            .unwrap();
+        let response: RegisterDeviceResponse =
+            self.app.call("tokuly.notify.v1.PushService/RegisterDevice", Some(user), request).await.unwrap();
         response.device.into_option().expect("device returned")
     }
 
     /// Gives `user` a Web Push registration at a real-looking endpoint
     /// (nothing is ever sent to it) and returns it.
     pub async fn register_browser(&self, user: &TestUser) -> PushDevice {
-        let subscription = Subscription::new(&format!(
-            "https://fcm.googleapis.com/fcm/send/{}",
-            Uuid::now_v7().simple()
-        ));
+        let subscription =
+            Subscription::new(&format!("https://fcm.googleapis.com/fcm/send/{}", Uuid::now_v7().simple()));
         self.register(user, &subscription.request()).await
     }
 }
 
 pub fn unread_of(response: &ListNotificationsResponse) -> i32 {
-    response
-        .unread
-        .as_option()
-        .map(|u| u.total)
-        .unwrap_or_default()
+    response.unread.as_option().map(|u| u.total).unwrap_or_default()
 }
 
 // ───────────────────────────── browser subscription ─────────────────────────────
@@ -189,11 +152,7 @@ impl Subscription {
     pub fn new(endpoint: &str) -> Self {
         let mut auth = [0u8; 16];
         auth.copy_from_slice(&Uuid::new_v4().into_bytes());
-        Self {
-            endpoint: endpoint.to_owned(),
-            secret: ece::random_secret_key(),
-            auth,
-        }
+        Self { endpoint: endpoint.to_owned(), secret: ece::random_secret_key(), auth }
     }
 
     /// The `RegisterDevice` request a browser would send.
@@ -204,10 +163,7 @@ impl Subscription {
             auth: tokuly_core::keys::b64url(&self.auth),
             ..Default::default()
         };
-        RegisterDeviceRequest {
-            token: Some(register_device_request::Token::from(subscription)),
-            ..Default::default()
-        }
+        RegisterDeviceRequest { token: Some(register_device_request::Token::from(subscription)), ..Default::default() }
     }
 
     /// Decrypts a push message body the way the browser would.
@@ -229,10 +185,7 @@ pub struct Captured {
 
 impl Captured {
     pub fn header(&self, name: &str) -> &str {
-        self.headers
-            .get(name)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or_default()
+        self.headers.get(name).and_then(|v| v.to_str().ok()).unwrap_or_default()
     }
 }
 
@@ -245,12 +198,8 @@ pub struct Stub {
 
 impl Stub {
     /// `respond` maps a request to `(status, body)`.
-    pub async fn start(
-        respond: impl Fn(&Captured) -> (u16, String) + Send + Sync + 'static,
-    ) -> Self {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind a local port");
+    pub async fn start(respond: impl Fn(&Captured) -> (u16, String) + Send + Sync + 'static) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind a local port");
         let url = format!("http://{}", listener.local_addr().expect("local address"));
         let requests = Arc::new(Mutex::new(Vec::new()));
         let respond = Arc::new(respond);
@@ -259,27 +208,15 @@ impl Stub {
             let (recorded, respond) = (recorded.clone(), respond.clone());
             async move {
                 let (parts, body) = request.into_parts();
-                let body = axum::body::to_bytes(body, 1 << 20)
-                    .await
-                    .expect("request body")
-                    .to_vec();
-                let captured = Captured {
-                    path: parts.uri.path().to_owned(),
-                    headers: parts.headers,
-                    body,
-                };
+                let body = axum::body::to_bytes(body, 1 << 20).await.expect("request body").to_vec();
+                let captured = Captured { path: parts.uri.path().to_owned(), headers: parts.headers, body };
                 let (status, text) = respond(&captured);
                 recorded.lock().unwrap().push(captured);
-                (
-                    http::StatusCode::from_u16(status).expect("valid status"),
-                    text,
-                )
+                (http::StatusCode::from_u16(status).expect("valid status"), text)
             }
         });
         tokio::spawn(async move {
-            axum::serve(listener, router)
-                .await
-                .expect("stub server runs");
+            axum::serve(listener, router).await.expect("stub server runs");
         });
         Self { url, requests }
     }
@@ -294,10 +231,7 @@ impl Stub {
     }
 
     pub fn requests_to(&self, path: &str) -> Vec<Captured> {
-        self.requests()
-            .into_iter()
-            .filter(|r| r.path == path)
-            .collect()
+        self.requests().into_iter().filter(|r| r.path == path).collect()
     }
 }
 
@@ -305,15 +239,9 @@ impl Stub {
 
 fn pem(label: &str, der: &[u8]) -> String {
     let encoded = base64::engine::general_purpose::STANDARD.encode(der);
-    let lines: Vec<&str> = encoded
-        .as_bytes()
-        .chunks(64)
-        .map(|chunk| std::str::from_utf8(chunk).expect("base64 is ASCII"))
-        .collect();
-    format!(
-        "-----BEGIN {label}-----\n{}\n-----END {label}-----\n",
-        lines.join("\n")
-    )
+    let lines: Vec<&str> =
+        encoded.as_bytes().chunks(64).map(|chunk| std::str::from_utf8(chunk).expect("base64 is ASCII")).collect();
+    format!("-----BEGIN {label}-----\n{}\n-----END {label}-----\n", lines.join("\n"))
 }
 
 pub struct RsaKey {
@@ -332,10 +260,7 @@ pub static RSA_KEY: LazyLock<RsaKey> = LazyLock::new(|| {
     let key = KeyPair::generate(KeySize::Rsa2048).expect("RSA key generation");
     let private: Pkcs8V1Der = key.as_der().expect("PKCS#8 encoding");
     let public: PublicKeyX509Der = key.public_key().as_der().expect("SPKI encoding");
-    RsaKey {
-        private_pem: pem("PRIVATE KEY", private.as_ref()),
-        public_pem: pem("PUBLIC KEY", public.as_ref()),
-    }
+    RsaKey { private_pem: pem("PRIVATE KEY", private.as_ref()), public_pem: pem("PUBLIC KEY", public.as_ref()) }
 });
 
 /// The content of a Firebase service-account file for the test key.
@@ -360,20 +285,13 @@ pub struct EcKey {
 pub static APNS_KEY: LazyLock<EcKey> = LazyLock::new(|| {
     use p256::pkcs8::EncodePrivateKey as _;
     let secret = ece::random_secret_key();
-    let p8 = pem(
-        "PRIVATE KEY",
-        secret.to_pkcs8_der().expect("PKCS#8 encoding").as_bytes(),
-    );
+    let p8 = pem("PRIVATE KEY", secret.to_pkcs8_der().expect("PKCS#8 encoding").as_bytes());
     EcKey { secret, p8 }
 });
 
 /// A decoding key for ES256 tokens signed by `secret`.
 pub fn es256_decoding_key(public_key: &[u8]) -> jsonwebtoken::DecodingKey {
-    assert_eq!(
-        (public_key.len(), public_key[0]),
-        (65, 0x04),
-        "uncompressed P-256 point"
-    );
+    assert_eq!((public_key.len(), public_key[0]), (65, 0x04), "uncompressed P-256 point");
     let b64 = tokuly_core::keys::b64url;
     jsonwebtoken::DecodingKey::from_ec_components(&b64(&public_key[1..33]), &b64(&public_key[33..]))
         .expect("valid EC coordinates")
@@ -382,35 +300,20 @@ pub fn es256_decoding_key(public_key: &[u8]) -> jsonwebtoken::DecodingKey {
 // ───────────────────────────── consumer outcomes and preferences ─────────────────────────────
 
 pub async fn update_preferences(ctx: &Ctx, user: &TestUser, request: UpdatePreferencesRequest) {
-    let _: UpdatePreferencesResponse = ctx
-        .app
-        .call(
-            "tokuly.notify.v1.PreferencesService/UpdatePreferences",
-            Some(user),
-            &request,
-        )
-        .await
-        .unwrap();
+    let _: UpdatePreferencesResponse =
+        ctx.app.call("tokuly.notify.v1.PreferencesService/UpdatePreferences", Some(user), &request).await.unwrap();
 }
 
 pub fn toggle(category: &str, inbox: Option<bool>, push: Option<bool>) -> UpdatePreferencesRequest {
     UpdatePreferencesRequest {
-        categories: vec![CategoryChange {
-            category: category.into(),
-            inbox,
-            push,
-            ..Default::default()
-        }],
+        categories: vec![CategoryChange { category: category.into(), inbox, push, ..Default::default() }],
         ..Default::default()
     }
 }
 
 pub fn skipped(outcome: &RequestOutcome) -> Option<PushSkip> {
     match outcome {
-        RequestOutcome::Handled {
-            push: PushDecision::Skipped(skip),
-            ..
-        } => Some(*skip),
+        RequestOutcome::Handled { push: PushDecision::Skipped(skip), .. } => Some(*skip),
         _ => None,
     }
 }
@@ -432,13 +335,7 @@ pub const INBOX_CLEAR: &str = "tokuly.notify.v1.InboxService/ClearNotifications"
 
 /// A notification of `kind` for `to`, without an actor.
 pub fn notice(to: &TestUser, kind: &str, title: &str) -> NotificationRequest {
-    NotificationRequest::new(
-        to.id,
-        kind,
-        Localized::same(title),
-        Localized::same("…"),
-        "/somewhere",
-    )
+    NotificationRequest::new(to.id, kind, Localized::same(title), Localized::same("…"), "/somewhere")
 }
 
 /// Fills an inbox with `titles`, oldest first, one second apart, and returns the entry IDs.
@@ -446,16 +343,9 @@ pub async fn fill(ctx: &Ctx, user: &TestUser, entries: &[(&str, &str)]) -> Vec<S
     let start = Utc::now() - chrono::Duration::seconds(entries.len() as i64);
     let mut ids = Vec::new();
     for (index, (kind, title)) in entries.iter().enumerate() {
-        let event = event_at(
-            NOTIFY_TOPIC,
-            notice(user, kind, title),
-            start + chrono::Duration::seconds(index as i64),
-        );
+        let event = event_at(NOTIFY_TOPIC, notice(user, kind, title), start + chrono::Duration::seconds(index as i64));
         match ctx.notify.handle_request(&event).await.unwrap() {
-            RequestOutcome::Handled {
-                notification_id: Some(id),
-                ..
-            } => ids.push(id.to_string()),
+            RequestOutcome::Handled { notification_id: Some(id), .. } => ids.push(id.to_string()),
             other => panic!("{other:?}"),
         }
     }
@@ -463,45 +353,26 @@ pub async fn fill(ctx: &Ctx, user: &TestUser, entries: &[(&str, &str)]) -> Vec<S
 }
 
 pub fn titles(response: &ListNotificationsResponse) -> Vec<&str> {
-    response
-        .notifications
-        .iter()
-        .map(|n| n.title.as_str())
-        .collect()
+    response.notifications.iter().map(|n| n.title.as_str()).collect()
 }
 
 pub async fn unread(ctx: &Ctx, user: &TestUser) -> UnreadCount {
-    let response: GetUnreadCountResponse = ctx
-        .app
-        .call(INBOX_UNREAD, Some(user), &GetUnreadCountRequest::default())
-        .await
-        .unwrap();
+    let response: GetUnreadCountResponse =
+        ctx.app.call(INBOX_UNREAD, Some(user), &GetUnreadCountRequest::default()).await.unwrap();
     response.unread.into_option().unwrap()
 }
 
-pub async fn mark_read(
-    ctx: &Ctx,
-    user: &TestUser,
-    target: Target,
-    category: &str,
-) -> MarkReadResponse {
+pub async fn mark_read(ctx: &Ctx, user: &TestUser, target: Target, category: &str) -> MarkReadResponse {
     ctx.app
         .call(
             INBOX_MARK_READ,
             Some(user),
-            &MarkReadRequest {
-                target: Some(target),
-                category: category.into(),
-                ..Default::default()
-            },
+            &MarkReadRequest { target: Some(target), category: category.into(), ..Default::default() },
         )
         .await
         .unwrap()
 }
 
 pub fn ids(ids: &[&String]) -> Target {
-    Target::from(NotificationIds {
-        ids: ids.iter().map(|id| id.to_string()).collect(),
-        ..Default::default()
-    })
+    Target::from(NotificationIds { ids: ids.iter().map(|id| id.to_string()).collect(), ..Default::default() })
 }
