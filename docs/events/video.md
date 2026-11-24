@@ -225,6 +225,7 @@ marks and the history setting.
 | `TOKULY_VIDEO_PARTY_MAX_HOSTED` (`--video-party-max-hosted`) | `3` | Open parties one account may host. |
 | `TOKULY_VIDEO_PARTY_MAX_HOURS` (`--video-party-max-hours`) | `12` | Lifetime of a party. |
 | `TOKULY_VIDEO_PARTY_MEMBER_TIMEOUT_SECONDS` (`--video-party-member-timeout-seconds`) | `60` | Heartbeat silence after which a member is dropped. |
+| `TOKULY_VIDEO_ANALYTICS_MIN_AUDIENCE` (`--video-analytics-min-audience`) | `5` | Distinct viewers in a report's range before analytics show its retention curve and traffic sources (a breakdown of one or two viewers describes those people). |
 
 Fixed limits (`tokuly_video::validate`, `subtitles`): channel name 50,
 description 1000, 5 links; title 100, description 5000, 20 tags of 30

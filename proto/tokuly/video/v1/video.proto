@@ -1571,6 +1571,8 @@ message GetChannelAnalyticsResponse {
   AnalyticsTotals totals = 1;
   // One entry per day of the range, including days without activity.
   repeated DailyAnalytics daily = 2;
+  // Empty while fewer distinct viewers than the deployment's minimum
+  // audience (default 5) watched in the range.
   repeated TrafficSourceStats traffic_sources = 3;
   // The ten most viewed videos of the range.
   repeated VideoStats top_videos = 4;
@@ -1588,7 +1590,10 @@ message GetVideoAnalyticsResponse {
   repeated DailyAnalytics daily = 2;
   repeated TrafficSourceStats traffic_sources = 3;
   // 100 values: the share (0-1) of playback sessions that watched each
-  // hundredth of the video. Empty without sessions.
+  // hundredth of the video. Empty without sessions, and (like
+  // `traffic_sources`) while fewer distinct viewers than the deployment's
+  // minimum audience (default 5) watched in the range: a breakdown of one or
+  // two viewers tells what those people did.
   repeated double retention = 4;
 }
 

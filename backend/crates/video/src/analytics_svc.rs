@@ -44,6 +44,14 @@ impl Video {
     }
 }
 
+impl Video {
+    /// Whether a report's audience is large enough to be broken down
+    /// (`TOKULY_VIDEO_ANALYTICS_MIN_AUDIENCE`).
+    fn broken_down(&self, totals: &AnalyticsTotals) -> bool {
+        totals.unique_viewers >= self.cfg.analytics_min_audience
+    }
+}
+
 impl StudioAnalyticsService for Video {
     async fn get_channel_analytics(
         &self,
@@ -64,6 +72,7 @@ impl StudioAnalyticsService for Video {
                 analytics::traffic_sources(core, scope, &range),
                 self.top_videos(&owner, &channel, range.from_ms, range.until_ms),
             )?;
+            let traffic_sources = if self.broken_down(&totals) { traffic_sources } else { Vec::new() };
             ok(GetChannelAnalyticsResponse {
                 totals: totals.into(),
                 daily,
@@ -94,6 +103,8 @@ impl StudioAnalyticsService for Video {
                 analytics::traffic_sources(core, scope, &range),
                 analytics::retention(core, &video, &range),
             )?;
+            let (traffic_sources, retention) =
+                if self.broken_down(&totals) { (traffic_sources, retention) } else { (Vec::new(), Vec::new()) };
             ok(GetVideoAnalyticsResponse {
                 totals: totals.into(),
                 daily,

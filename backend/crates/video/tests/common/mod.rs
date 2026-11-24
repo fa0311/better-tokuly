@@ -52,9 +52,10 @@ pub struct Ctx {
     pub media: Media,
 }
 
-/// Settings that keep tests quick: a view counts after a fifth of a second.
+/// Settings that keep tests quick: a view counts after a fifth of a second,
+/// and two viewers are an audience analytics break down.
 pub fn test_config() -> VideoConfig {
-    VideoConfig { min_view_seconds: 0.2, ..Default::default() }
+    VideoConfig { min_view_seconds: 0.2, analytics_min_audience: 2, ..Default::default() }
 }
 
 pub async fn start() -> Ctx {
