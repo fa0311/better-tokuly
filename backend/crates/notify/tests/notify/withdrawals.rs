@@ -562,3 +562,23 @@ async fn a_note_narrowed_to_friends_leaves_everyone_else_in_the_order_it_changed
     }
     assert_eq!(kinds(&ctx, &bob).await, ["notes.like"]);
 }
+
+#[tokio::test]
+async fn a_hiding_handled_at_the_same_time_as_a_request_leaves_nothing() {
+    let ctx = start().await;
+    let (owner, alice, carol) = (ctx.app.user("owner").await, ctx.app.user("alice").await, ctx.app.user("carol").await);
+    let note_id = Uuid::now_v7();
+    for _ in 0..30 {
+        let comment = Uuid::now_v7();
+        let request = event_at(
+            NOTIFY_TOPIC,
+            comment_on(&carol, &alice, note_id, comment),
+            Utc::now() - chrono::Duration::milliseconds(10),
+        );
+        let hidden = comment_hidden(comment, &alice, &[owner.id], Utc::now());
+        let (stored, withdrawn) = tokio::join!(ctx.notify.handle_request(&request), ctx.notify.handle_event(hidden));
+        stored.unwrap();
+        withdrawn.unwrap();
+    }
+    assert!(ctx.inbox(&carol).await.notifications.is_empty());
+}
