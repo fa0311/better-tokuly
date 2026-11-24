@@ -2,7 +2,8 @@ syntax = "proto3";
 
 // The friend graph and everything playful that happens between friends:
 // requests, best friends, invites, nearby discovery, bumps, buzzes, knocks
-// and map reactions ("supersends").
+// and map reactions ("supersends"); follows (with locked accounts) and
+// circles (close friends and custom lists) for what people share.
 package tokuly.social.v1;
 
 import "google/protobuf/timestamp.proto";
@@ -582,6 +583,517 @@ message GetMapViewsResponse {
   repeated tokuly.common.v1.UserSummary viewers = 3;
 }
 
+// ───────────────────────────── Follows ─────────────────────────────
+
+// Follows: the one-way relationship behind public content (notes, shorts,
+// videos, lives, communities), next to the mutual friendship behind the map.
+//
+// A friendship does not imply a follow, nor the reverse: friends see what is
+// shared with friends (and with followers), followers see what is shared
+// with followers. Following someone never gives access to their location.
+//
+// Locked accounts approve every new follower. Accounts of minors (by their
+// birthdate) are locked until their owner unlocks them.
+//
+// Every RPC needs a signed-in caller. Blocking is silent here too: a user who
+// blocked the caller looks like one that does not exist (USER_NOT_FOUND), and
+// a block ends follows and follow requests in both directions.
+service FollowService {
+  // Follows a user, or asks to when their account is locked. Following
+  // someone already followed (or asking again) returns the current state.
+  // Errors: MISSING_TARGET, USER_NOT_FOUND, CANNOT_FOLLOW_SELF, USER_BLOCKED
+  // (the caller blocked the target), FOLLOW_LIMIT_REACHED (following plus
+  // pending requests), RATE_LIMITED.
+  rpc Follow(FollowRequest) returns (FollowResponse);
+  // Stops following a user, or withdraws a pending request to them.
+  // Succeeds when there was nothing to undo.
+  rpc Unfollow(UnfollowRequest) returns (UnfollowResponse);
+  // Removes a follower of the caller. Silent: they are not told, and can
+  // follow again (or ask to, when the caller is locked). Succeeds when the
+  // user does not follow the caller. Errors: RATE_LIMITED.
+  rpc RemoveFollower(RemoveFollowerRequest) returns (RemoveFollowerResponse);
+
+  // Follow requests in one direction, newest first. Incoming requests are
+  // the ones the caller has not answered; outgoing ones include requests
+  // that were declined (declining is silent).
+  rpc ListFollowRequests(ListFollowRequestsRequest) returns (ListFollowRequestsResponse);
+  // Approves or (silently) declines a request to follow the caller.
+  // Errors: REQUEST_NOT_FOUND.
+  rpc RespondFollowRequest(RespondFollowRequestRequest) returns (RespondFollowRequestResponse);
+  // Withdraws a follow request the caller sent. Errors: REQUEST_NOT_FOUND.
+  rpc CancelFollowRequest(CancelFollowRequestRequest) returns (CancelFollowRequestResponse);
+
+  // Someone's followers, the accounts they follow, their mutual follows, or
+  // their followers the caller follows too ("followed by ..."), newest
+  // first, each with the caller's relationship to them. The lists of a
+  // locked account are shown to the owner, their followers and their
+  // friends only. People in a block with the caller are left out of lists
+  // and totals alike.
+  // Errors: USER_NOT_FOUND, FOLLOW_LIST_PRIVATE, QUERY_TOO_LONG.
+  rpc ListFollows(ListFollowsRequest) returns (ListFollowsResponse);
+  // Counts and the caller's relationship to one user (what a profile header
+  // shows). Errors: USER_NOT_FOUND.
+  rpc GetFollowSummary(GetFollowSummaryRequest) returns (GetFollowSummaryResponse);
+  // The caller's own settings for one account they follow: mute (with an
+  // optional duration) and notifications for their posts. Both are private.
+  // Errors: NOT_FOLLOWING, INVALID_MUTE_DURATION.
+  rpc UpdateFollowPrefs(UpdateFollowPrefsRequest) returns (UpdateFollowPrefsResponse);
+
+  // The caller's follow settings.
+  rpc GetFollowSettings(GetFollowSettingsRequest) returns (GetFollowSettingsResponse);
+  // Locks or unlocks the caller's account. Unlocking approves every request
+  // that is still waiting (not the declined ones).
+  rpc UpdateFollowSettings(UpdateFollowSettingsRequest) returns (UpdateFollowSettingsResponse);
+
+  // Accounts the caller may want to follow: people who follow the caller,
+  // friends of friends, accounts followed by people the caller follows,
+  // accounts popular among the caller's schoolmates (and other signals as
+  // domains provide them). Only discoverable accounts in the caller's own
+  // age group. Errors: RATE_LIMITED.
+  rpc ListFollowSuggestions(ListFollowSuggestionsRequest) returns (ListFollowSuggestionsResponse);
+  // Stops suggesting a user to follow, for good. Errors: USER_NOT_FOUND.
+  rpc DismissFollowSuggestion(DismissFollowSuggestionRequest) returns (DismissFollowSuggestionResponse);
+}
+
+// Whether the viewer follows someone.
+enum FollowState {
+  FOLLOW_STATE_UNSPECIFIED = 0;
+  FOLLOW_STATE_NONE = 1;
+  FOLLOW_STATE_FOLLOWING = 2;
+  // The viewer asked to follow a locked account and has no answer yet.
+  // (A declined request also reads as REQUESTED: declining is silent.)
+  FOLLOW_STATE_REQUESTED = 3;
+}
+
+// Notifications about an account's new posts.
+enum FollowNotifyLevel {
+  FOLLOW_NOTIFY_LEVEL_UNSPECIFIED = 0;
+  // Nothing (the default).
+  FOLLOW_NOTIFY_LEVEL_NONE = 1;
+  // Every new post (the bell).
+  FOLLOW_NOTIFY_LEVEL_ALL = 2;
+}
+
+// What the viewer is to one user, as far as follows go.
+message FollowRelation {
+  // Whether the viewer follows them.
+  FollowState following = 1;
+  // They follow the viewer ("フォローされています").
+  bool follows_you = 2;
+  // The two are friends (mutual, with the map).
+  bool friends = 3;
+  // The user is the viewer.
+  bool self = 4;
+  // The viewer blocked them.
+  bool blocked = 5;
+}
+
+message FollowRequest {
+  oneof target {
+    string user_id = 1;
+    string handle = 2;
+  }
+}
+
+message FollowResponse {
+  // FOLLOWING, or REQUESTED for a locked account.
+  FollowState state = 1;
+  // The pending request, when REQUESTED.
+  FollowRequestEntry request = 2;
+}
+
+message UnfollowRequest {
+  string user_id = 1;
+}
+
+message UnfollowResponse {}
+
+message RemoveFollowerRequest {
+  string user_id = 1;
+}
+
+message RemoveFollowerResponse {}
+
+// A request to follow a locked account.
+message FollowRequestEntry {
+  string id = 1;
+  tokuly.common.v1.UserSummary from = 2;
+  tokuly.common.v1.UserSummary to = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // People the viewer follows who follow the other side; 0 unless the
+  // other side's follow lists are visible to the viewer.
+  int32 known_follower_count = 5;
+}
+
+enum FollowRequestDirection {
+  FOLLOW_REQUEST_DIRECTION_UNSPECIFIED = 0;
+  // Requests waiting for the caller's answer.
+  FOLLOW_REQUEST_DIRECTION_INCOMING = 1;
+  // Requests the caller sent.
+  FOLLOW_REQUEST_DIRECTION_OUTGOING = 2;
+}
+
+message ListFollowRequestsRequest {
+  FollowRequestDirection direction = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListFollowRequestsResponse {
+  repeated FollowRequestEntry requests = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Requests waiting for the caller's answer.
+  int32 incoming_count = 3;
+}
+
+message RespondFollowRequestRequest {
+  string request_id = 1;
+  bool approve = 2;
+}
+
+message RespondFollowRequestResponse {
+  // The new follower, when approved.
+  FollowEntry follower = 1;
+}
+
+message CancelFollowRequestRequest {
+  string request_id = 1;
+}
+
+message CancelFollowRequestResponse {}
+
+// Which list of a user's follows.
+enum FollowList {
+  FOLLOW_LIST_UNSPECIFIED = 0;
+  // Who follows the user (the default).
+  FOLLOW_LIST_FOLLOWERS = 1;
+  // Whom the user follows.
+  FOLLOW_LIST_FOLLOWING = 2;
+  // People the user follows who follow them back.
+  FOLLOW_LIST_MUTUALS = 3;
+  // The user's followers the viewer follows too ("followed by ...").
+  FOLLOW_LIST_KNOWN_FOLLOWERS = 4;
+}
+
+// One row of a follow list.
+message FollowEntry {
+  tokuly.common.v1.UserSummary user = 1;
+  // When the follow in this list began.
+  google.protobuf.Timestamp followed_at = 2;
+  // What the viewer is to this user.
+  FollowRelation relation = 3;
+  // The viewer's own preferences, set only in the viewer's FOLLOWING list.
+  FollowPrefs prefs = 4;
+}
+
+// What the follower keeps about one account they follow.
+message FollowPrefs {
+  // Muted: still followed, but left out of the follower's timelines.
+  bool muted = 1;
+  // When a timed mute ends; unset for a mute without end (or no mute).
+  google.protobuf.Timestamp muted_until = 2;
+  FollowNotifyLevel notify_level = 3;
+}
+
+message ListFollowsRequest {
+  // Empty = the caller.
+  string user_id = 1;
+  FollowList list = 2;
+  // Optional name/handle filter.
+  string query = 3;
+  tokuly.common.v1.PageRequest page = 4;
+}
+
+message ListFollowsResponse {
+  repeated FollowEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  // Rows matching the query, as the caller may see them.
+  int32 total = 3;
+}
+
+message GetFollowSummaryRequest {
+  string user_id = 1;
+}
+
+message GetFollowSummaryResponse {
+  FollowSummary summary = 1;
+}
+
+// A user's follow numbers as the viewer sees them.
+message FollowSummary {
+  string user_id = 1;
+  // Counted like the lists: active accounts, without people in a block
+  // with the viewer.
+  int32 follower_count = 2;
+  int32 following_count = 3;
+  FollowRelation relation = 4;
+  // The account approves its followers.
+  bool locked = 5;
+  // Followers of the user whom the viewer follows ("followed by A, B and
+  // N others"); empty unless the user's lists are visible to the viewer.
+  int32 known_follower_count = 6;
+  repeated tokuly.common.v1.UserSummary known_followers = 7;
+  // The viewer's preferences, when they follow the user.
+  FollowPrefs prefs = 8;
+}
+
+message UpdateFollowPrefsRequest {
+  string user_id = 1;
+  // Mute or unmute.
+  optional bool muted = 2;
+  // With `muted: true`: how long, in seconds (1 hour to 365 days);
+  // 0 = until unmuted.
+  int64 mute_seconds = 3;
+  optional FollowNotifyLevel notify_level = 4;
+}
+
+message UpdateFollowPrefsResponse {
+  FollowPrefs prefs = 1;
+}
+
+message FollowSettings {
+  // New followers need the owner's approval, and what the owner shares
+  // publicly is shown to their followers (and friends) only.
+  bool locked = 1;
+}
+
+message GetFollowSettingsRequest {}
+
+message GetFollowSettingsResponse {
+  FollowSettings settings = 1;
+  // Requests waiting for the caller's answer.
+  int32 pending_request_count = 2;
+}
+
+message UpdateFollowSettingsRequest {
+  FollowSettings settings = 1;
+}
+
+message UpdateFollowSettingsResponse {
+  FollowSettings settings = 1;
+  // Requests approved because the account was unlocked.
+  int32 approved_request_count = 2;
+}
+
+message FollowSuggestion {
+  tokuly.common.v1.UserSummary user = 1;
+  // Why, strongest first: FOLLOWS_YOU | FRIEND_OF_FRIEND |
+  // FOLLOWED_BY_FOLLOWING | POPULAR_AT_SCHOOL, or a reason another domain
+  // contributes (POPULAR_IN_COMMUNITY).
+  repeated string reasons = 2;
+  // People the caller follows who follow this user (up to 3), when the
+  // user's lists are visible to the caller.
+  repeated tokuly.common.v1.UserSummary followed_by = 3;
+  int32 followed_by_count = 4;
+  FollowRelation relation = 5;
+}
+
+message ListFollowSuggestionsRequest {
+  // 0 = 20; at most 50.
+  int32 limit = 1;
+}
+
+message ListFollowSuggestionsResponse {
+  repeated FollowSuggestion suggestions = 1;
+}
+
+message DismissFollowSuggestionRequest {
+  string user_id = 1;
+}
+
+message DismissFollowSuggestionResponse {}
+
+// ───────────────────────────── Circles ─────────────────────────────
+
+// Circles: lists of people to share with. Everyone has one built-in
+// "close friends" circle (親しい友達) and can make custom ones.
+//
+// Members are drawn from the owner's friends and followers: a circle is an
+// audience for what the owner shares, and only people who already have a
+// tie to the owner can be in it (no lists of strangers). Someone who stops
+// being either is taken out of the owner's circles.
+//
+// Members are never told which circles they are in, and cannot find out:
+// adding or removing is silent and no RPC answers "am I in it". The one
+// exception is content shared with close friends, which may carry a mark
+// for its viewers (as on Instagram).
+//
+// Every RPC needs a signed-in caller and works on the caller's own circles;
+// someone else's circle answers CIRCLE_NOT_FOUND.
+service CircleService {
+  // The caller's circles: close friends first, then custom circles in the
+  // caller's order.
+  rpc ListCircles(ListCirclesRequest) returns (ListCirclesResponse);
+  // Errors: CIRCLE_NOT_FOUND.
+  rpc GetCircle(GetCircleRequest) returns (GetCircleResponse);
+  // Errors: NAME_REQUIRED, NAME_TOO_LONG, INVALID_EMOJI, TOO_MANY_CIRCLES,
+  // RATE_LIMITED.
+  rpc CreateCircle(CreateCircleRequest) returns (CreateCircleResponse);
+  // Renames, re-emojis or recolours a custom circle (close friends only
+  // takes a colour). Errors: CIRCLE_NOT_FOUND, NAME_REQUIRED, NAME_TOO_LONG,
+  // INVALID_EMOJI, CLOSE_FRIENDS_FIXED.
+  rpc UpdateCircle(UpdateCircleRequest) returns (UpdateCircleResponse);
+  // Deletes a custom circle. Content shared with it stays visible to its
+  // owner only. Errors: CIRCLE_NOT_FOUND, CLOSE_FRIENDS_FIXED.
+  rpc DeleteCircle(DeleteCircleRequest) returns (DeleteCircleResponse);
+  // Puts the custom circles in a new order: every custom circle's ID,
+  // exactly once. Errors: INVALID_ORDER.
+  rpc ReorderCircles(ReorderCirclesRequest) returns (ReorderCirclesResponse);
+
+  // Adds people (up to 100 per call). Adding a member again is harmless.
+  // Errors: CIRCLE_NOT_FOUND, INVALID_ID, TOO_MANY_IDS, NOT_CONNECTED (one of
+  // them is neither a friend nor a follower of the caller), TOO_MANY_MEMBERS,
+  // RATE_LIMITED.
+  rpc AddCircleMembers(AddCircleMembersRequest) returns (AddCircleMembersResponse);
+  // Removes people (up to 100 per call); unknown ones are ignored.
+  // Errors: CIRCLE_NOT_FOUND, INVALID_ID, TOO_MANY_IDS.
+  rpc RemoveCircleMembers(RemoveCircleMembersRequest) returns (RemoveCircleMembersResponse);
+  // Members, most recently added first. Errors: CIRCLE_NOT_FOUND.
+  rpc ListCircleMembers(ListCircleMembersRequest) returns (ListCircleMembersResponse);
+  // People who can be added: the caller's friends and followers, by name,
+  // each marked if already a member. Errors: CIRCLE_NOT_FOUND, QUERY_TOO_LONG.
+  rpc ListCircleCandidates(ListCircleCandidatesRequest) returns (ListCircleCandidatesResponse);
+}
+
+enum CircleKind {
+  CIRCLE_KIND_UNSPECIFIED = 0;
+  // The one built-in list (親しい友達). Cannot be renamed or deleted.
+  CIRCLE_KIND_CLOSE_FRIENDS = 1;
+  CIRCLE_KIND_CUSTOM = 2;
+}
+
+// Colours of the app's palette.
+enum CircleColor {
+  CIRCLE_COLOR_UNSPECIFIED = 0;
+  CIRCLE_COLOR_BRAND = 1;
+  CIRCLE_COLOR_LIME = 2;
+  CIRCLE_COLOR_SUN = 3;
+  CIRCLE_COLOR_SKY = 4;
+  CIRCLE_COLOR_PINK = 5;
+  CIRCLE_COLOR_MINT = 6;
+  CIRCLE_COLOR_CORAL = 7;
+}
+
+message Circle {
+  string id = 1;
+  CircleKind kind = 2;
+  // Empty for close friends (clients show their own words for it).
+  string name = 3;
+  // One emoji, or empty.
+  string emoji = 4;
+  CircleColor color = 5;
+  int32 member_count = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message ListCirclesRequest {}
+
+message ListCirclesResponse {
+  repeated Circle circles = 1;
+}
+
+message GetCircleRequest {
+  string circle_id = 1;
+}
+
+message GetCircleResponse {
+  Circle circle = 1;
+}
+
+message CreateCircleRequest {
+  // 1-30 characters.
+  string name = 1;
+  string emoji = 2;
+  CircleColor color = 3;
+}
+
+message CreateCircleResponse {
+  Circle circle = 1;
+}
+
+message UpdateCircleRequest {
+  string circle_id = 1;
+  optional string name = 2;
+  // Empty clears it.
+  optional string emoji = 3;
+  optional CircleColor color = 4;
+}
+
+message UpdateCircleResponse {
+  Circle circle = 1;
+}
+
+message DeleteCircleRequest {
+  string circle_id = 1;
+}
+
+message DeleteCircleResponse {}
+
+message ReorderCirclesRequest {
+  repeated string circle_ids = 1;
+}
+
+message ReorderCirclesResponse {
+  repeated Circle circles = 1;
+}
+
+message AddCircleMembersRequest {
+  string circle_id = 1;
+  repeated string user_ids = 2;
+}
+
+message AddCircleMembersResponse {
+  Circle circle = 1;
+}
+
+message RemoveCircleMembersRequest {
+  string circle_id = 1;
+  repeated string user_ids = 2;
+}
+
+message RemoveCircleMembersResponse {
+  Circle circle = 1;
+}
+
+message CircleMember {
+  tokuly.common.v1.UserSummary user = 1;
+  google.protobuf.Timestamp added_at = 2;
+  // Why they can be in the circle.
+  bool friend = 3;
+  bool follower = 4;
+}
+
+message ListCircleMembersRequest {
+  string circle_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListCircleMembersResponse {
+  repeated CircleMember members = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  int32 total = 3;
+}
+
+message CircleCandidate {
+  tokuly.common.v1.UserSummary user = 1;
+  bool friend = 2;
+  bool follower = 3;
+  // Already in the circle.
+  bool member = 4;
+}
+
+message ListCircleCandidatesRequest {
+  string circle_id = 1;
+  // Optional name/handle filter.
+  string query = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListCircleCandidatesResponse {
+  repeated CircleCandidate candidates = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
 // ───────────────────────────── Realtime events ─────────────────────────────
 
 // Pushed over the realtime gateway (as a tokuly.realtime.v1.Event).
@@ -603,6 +1115,14 @@ message SocialEvent {
     MapViewEvent map_view = 9;
     // ID of a request to the recipient that its sender withdrew.
     string friend_request_cancelled_id = 10;
+    // Someone asked to follow the recipient (a locked account).
+    FollowRequestEntry follow_request_received = 11;
+    // ID of a follow request to the recipient that its sender withdrew.
+    string follow_request_cancelled_id = 12;
+    // The recipient's request was approved: they follow the user now.
+    FollowEntry follow_request_approved = 13;
+    // Someone started following the recipient.
+    FollowEntry new_follower = 14;
   }
 }
 
