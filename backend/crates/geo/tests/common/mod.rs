@@ -46,7 +46,7 @@ pub async fn start_with(cfg: GeoConfig) -> Ctx {
     let mut domains = None;
     let app = TestApp::start(MIGRATIONS, |core, identity, router| {
         let social = Social::new(core.clone(), identity.clone(), SocialConfig::default()).expect("social config");
-        let geo = Geo::new(core.clone(), identity.clone(), cfg).expect("geo config");
+        let geo = Geo::new(core.clone(), identity.clone(), cfg, &social).expect("geo config");
         let router = geo.register(social.register(identity.register(router)));
         domains = Some((geo, social));
         router

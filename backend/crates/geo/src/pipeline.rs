@@ -22,7 +22,7 @@ use tokuly_proto::geo::{Activity, FootprintProgress, LocationSample, geo_event::
 use tokuly_social::graph;
 
 use crate::{
-    Geo,
+    Geo, claims,
     ctx::OwnerCtx,
     detect::{ProximityRules, StayEvent, StayRules, resolve_activity, speed_between},
     fanout::{Recipients, VisitNews},
@@ -319,6 +319,15 @@ impl Geo {
             state.pin.heading = sample.heading;
             state.pin.activity = activity as i32;
             state.altitude = sample.altitude;
+            let taken = claims::Taken {
+                lat: sample.lat,
+                lng: sample.lng,
+                accuracy: sample.accuracy,
+                recorded_ms: at_ms,
+                mocked: sample.mocked,
+                staying: state.stay.current().is_some(),
+            };
+            state.trusted = claims::next_trusted(state.trusted, &taken, Utc::now().timestamp_millis());
             if state.area_at.is_none_or(|looked_up| math::distance(looked_up, position) >= AREA_REFRESH_M) {
                 state.pin.area = Gazetteer::shared().area(sample.lat, sample.lng);
                 state.area_at = Some(position);
@@ -345,6 +354,10 @@ impl Geo {
         state.pin.recorded_ms = at_ms;
         state.pin.sharing = true;
         state.mocked = sample.mocked;
+        if sample.mocked {
+            // Also a mock fix that did not move the pin: the device mocks now.
+            state.trusted = None;
+        }
         if let Some(battery) = sample.battery {
             state.pin.battery = Some(battery);
         }
@@ -592,6 +605,10 @@ impl Geo {
                 state.odometer.disconnect();
                 state.pin.sharing = false;
                 state.pin.speed = 0.0;
+                // The stay ended: the real fix is no longer "staying" either.
+                if let Some(fix) = state.trusted.as_mut() {
+                    fix.staying = false;
+                }
                 state.near = Default::default();
                 state.gathering_with.clear();
                 state.pushed = None;

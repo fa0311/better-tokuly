@@ -100,6 +100,22 @@ What follows from the rule, path by path:
   each sees the other precisely; `geoindex::nearby` returns true positions
   and its callers must check `geoindex::mutually_precise` before telling one
   user anything about another.
+- **Claimed positions** (`tokuly_geo::claims`). The social domain matches
+  nearby discovery and bumps on a position the client sends, and asks this
+  domain first whether it is plausible (`tokuly_social::claims::PositionCheck`,
+  plugged in by `Geo::new`). The answer is a yes or a no, never a position or
+  distance. The live state keeps the latest *real* fix (`trusted`): a sample
+  taken as the position, accurate to 100 m, not mocked, received within 5
+  minutes of being taken, and reachable from the previous real fix at
+  `MAX_SPEED_MPS`. A mock sample forgets it. A claim is plausible when the
+  real fix is at most 10 minutes old (45 while staying in one spot) and the
+  claim is within 50 m plus both accuracies (the claim's counted up to
+  50 m) plus walking speed since the fix, never more than 300 m. Ghost
+  rules play no part: the check is about the account's own claim, and what
+  others see is computed from the claim (`tests/claims.rs` runs two worlds
+  that differ only in where the claimer really is and checks that the other
+  person's view is the same). Known limit: samples are the device's word; a
+  device that fakes a continuous, unflagged track moves its real fix with it.
 - **Pushes to viewers who do not see precisely.** A blurred viewer is sent
   the stand-in when what they see changes (another cell, the battery, the
   paused flag, a new ten-minute step of `recorded_at`, which is rounded down
@@ -260,7 +276,7 @@ No job-queue jobs. `Geo::spawn_workers` starts:
 
 | Key | Type, TTL | Purpose |
 |---|---|---|
-| `geo:state:<user>` | JSON, 60 days | Live state: latest pin, stay tracker, pending distance, proximity tracker, recent cells. |
+| `geo:state:<user>` | JSON, 60 days | Live state: latest pin, latest real fix (for claimed positions), stay tracker, pending distance, proximity tracker, recent cells. |
 | `geo:ctx:<user>` | JSON, 5 min | Cached projection of the user's privacy flags, status, ghost rules, own places, active SOS/trip/shares and the alerts watching them. Dropped on every change. |
 | `geo:ctx:dirty:<user>` | marker, 5 s | Keeps a reader that raced a writer from re-caching stale context. |
 | `geo:lock:<user>` | token, 30 s | Serializes the pipeline and state-editing RPCs per user. Renewed every 50 samples of a batch; the live state is written only while the lock is still held (a holder that lost it fails with `LOCATION_BUSY` and its batch is processed again). |

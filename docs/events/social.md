@@ -117,6 +117,34 @@ Also public: `tokuly_social::suggestions::suggest(core, user_id, suggested_id, S
 to feed "people you may know" from another domain, and
 `tokuly_social::bumps::set_bump_place(core, bump_id, place_name)`.
 
+### Claimed positions (`tokuly_social::claims`)
+
+`DiscoverNearby` and `Bump` are matched on a position the client sends. It
+is checked first by a `claims::PositionCheck`, which the geo domain plugs in
+(`Geo::new` calls `Social::set_position_check`): does the account's own
+latest real fix (recent, accurate to 100 m, not mocked, reached at a
+plausible speed) put it there? The check answers yes or no, never a
+position or distance, so social holds nothing derived from a true position.
+What others are shown stays computed from the claim (distance bands, one's
+own shake position, the point between two friends' shakes); the true
+position only decides whether the claimer takes part.
+
+A refused claim is refused, not moved to the real position, for both
+features: social does not have the real position, and a session or bump
+placed there would show strangers (and friends of both, for a bump) something
+derived from it, which ghost mode forbids for whoever does not see the person
+precisely.
+
+| Feature | A claim that fails the check |
+|---|---|
+| `DiscoverNearby` | The stream is refused with `LOCATION_NOT_VERIFIED`; the user never appears on the nearby map. |
+| `Bump` | The shake is refused with `LOCATION_NOT_VERIFIED` before it is published, so nobody can match it; the other phone sees no bump. |
+
+Without a check plugged in, every claim is refused (fail closed). The geo
+side and the two-world test showing that what Ren sees does not depend on
+where the claimer really is: `docs/events/geo.md` ("Claimed positions") and
+`crates/geo/tests/claims.rs`.
+
 `Social::new` registers a `tokuly_identity::ProfileExtension` (relationship,
 mutual friends, friendship details, friend/intro/bump counters, relationships
 in user search, profiles hidden by blocks) and a `DataExporter` named

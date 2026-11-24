@@ -7,6 +7,8 @@
 //!   handlers; the behaviour lives in one module per feature (`requests`,
 //!   `friends`, `blocks`, `best_friends`, `suggestions`, `invites`, `nearby`,
 //!   `bumps`, `signals`, `map_reactions`, `map_views`).
+//! - [`claims`] checks positions the client claims (nearby, bumps) through
+//!   a [`claims::PositionCheck`] the geo domain plugs in.
 //! - `profile` plugs relationship data into identity's profiles.
 //! - `presence`, `best_friends` and `maintenance` run the background work.
 use std::{ops::Deref, sync::Arc, time::Duration};
@@ -18,6 +20,7 @@ use tokuly_proto::social::{SocialEvent, social_event::Event as Push};
 mod best_friends;
 mod blocks;
 pub mod bumps;
+pub mod claims;
 pub mod config;
 mod copy;
 pub mod events;
@@ -46,6 +49,8 @@ pub use graph::InteractionKind;
 pub struct SocialInner {
     pub core: Core,
     pub cfg: SocialConfig,
+    /// Checks positions claimed for nearby discovery and bumps (see [`claims`]).
+    position_check: claims::Slot,
 }
 
 /// The social domain. Cheap to clone.
@@ -76,7 +81,7 @@ impl Social {
         ] {
             anyhow::ensure!(meters.is_finite() && meters > 0.0, "{name} must be a positive number of meters");
         }
-        let social = Self(Arc::new(SocialInner { core: core.clone(), cfg }));
+        let social = Self(Arc::new(SocialInner { core: core.clone(), cfg, position_check: claims::Slot::new() }));
         identity.add_profile_extension(Arc::new(social.clone()));
         core.exporters.register(Arc::new(maintenance::SocialExporter::new(core.clone())));
         Ok(social)

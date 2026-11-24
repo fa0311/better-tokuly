@@ -127,7 +127,7 @@ impl Domains {
         let media = Media::new(core.clone(), cfg.media)?;
         let identity = Identity::new(core.clone(), cfg.identity)?;
         let social = Social::new(core.clone(), identity.clone(), cfg.social)?;
-        let geo = Geo::new(core.clone(), identity.clone(), cfg.geo)?;
+        let geo = Geo::new(core.clone(), identity.clone(), cfg.geo, &social)?;
         let wallet = Wallet::new(core.clone(), identity.clone(), cfg.wallet)?;
         let stamp = Stamp::new(core.clone(), identity.clone(), cfg.stamp)?;
         let notify = Notify::new(core.clone(), identity.clone(), cfg.notify)?;

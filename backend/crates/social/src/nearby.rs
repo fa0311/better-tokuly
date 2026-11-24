@@ -10,8 +10,10 @@
 //! and its neighbours, and every session listens on its own cell. A slow
 //! heartbeat covers lost wake-ups and members that vanished without leaving.
 //!
+//! The position is the client's word, so a session only opens where the
+//! account's own recent location fixes say it is (see [`crate::claims`]).
 //! A user has one session at a time: opening a new one ends the previous
-//! one (on whichever server it runs), so nobody looks from several made-up
+//! one (on whichever server it runs), so nobody looks from several
 //! positions at once.
 use std::time::Duration;
 
@@ -23,7 +25,7 @@ use tokuly_core::{geoindex, prelude::*};
 use tokuly_identity::settings;
 use tokuly_proto::social::{DiscoverNearbyResponse, NearbyUser};
 
-use crate::{Social, graph, livegeo::LiveGeoSet, people};
+use crate::{Social, claims::Claim, graph, livegeo::LiveGeoSet, people};
 
 /// How often a session re-announces itself and re-reads its surroundings.
 const HEARTBEAT: Duration = Duration::from_secs(4);
@@ -35,10 +37,9 @@ const MAX_SESSION: Duration = Duration::from_secs(600);
 const MAX_ACCURACY_ALLOWANCE: f64 = 25.0;
 /// Most users reported at once (a crowded venue).
 const MAX_NEARBY: usize = 50;
-/// Sessions one user may open per [`SESSION_WINDOW`]. The position is the
-/// client's word, so every session is a look at some point of the map: few
-/// of them keep it from becoming a way to scan places or close in on
-/// someone.
+/// Sessions one user may open per [`SESSION_WINDOW`]. Every session is a
+/// look at a point near the user (within what [`crate::claims`] lets pass):
+/// few of them keep it from becoming a way to close in on someone.
 const MAX_SESSIONS: u32 = 20;
 const SESSION_WINDOW: Duration = Duration::from_secs(600);
 /// What a distance is reported as: the smallest of these it does not exceed
@@ -97,6 +98,9 @@ impl Social {
         let privacy = settings::privacy_of(core, user_id).await?;
         ensure!(privacy.nearby_discoverable, precondition, "NEARBY_DISCOVERY_DISABLED", "turn on nearby discovery in your privacy settings first");
         core.cache.rate_limit(&format!("nearby:{user_id}"), MAX_SESSIONS, SESSION_WINDOW).await?;
+        // Others are shown a distance to this point: it must be where the
+        // user really is (see [`crate::claims`]).
+        self.require_plausible(user_id, Claim { lat, lng, accuracy_meters }).await?;
 
         // This session takes over from any earlier one of the user's.
         let session = new_id().to_string();

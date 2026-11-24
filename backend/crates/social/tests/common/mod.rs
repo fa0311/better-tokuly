@@ -1,7 +1,11 @@
 //! Shared setup and helpers for the social integration tests.
 #![allow(dead_code)] // each test binary uses its own subset
 
-use std::time::Duration;
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use rand::RngExt as _;
 use tokuly_core::events::Event;
@@ -12,7 +16,10 @@ use tokuly_proto::{
     realtime::{PresenceEvent, server_frame::Body},
     social::{social_event::Event as Push, *},
 };
-use tokuly_social::{Social, SocialConfig};
+use tokuly_social::{
+    Social, SocialConfig,
+    claims::{Claim, PositionCheck},
+};
 use tokuly_testkit::{FrameListener, TestApp, TestUser};
 use uuid::Uuid;
 
@@ -31,6 +38,32 @@ pub const QUIET: Duration = Duration::from_millis(300);
 pub struct Ctx {
     pub app: TestApp,
     pub social: Social,
+    /// Stands in for the geo domain's check of claimed positions.
+    pub claims: Arc<FakePositionCheck>,
+}
+
+/// Takes every claimed position at the client's word, except for the users
+/// told to [`FakePositionCheck::refuse`]. The geo domain's real check is
+/// tested in `tokuly-geo` (`tests/claims.rs`).
+#[derive(Default)]
+pub struct FakePositionCheck {
+    refused: Mutex<HashSet<Uuid>>,
+    /// Every claim asked about, in order.
+    pub asked: Mutex<Vec<(Uuid, Claim)>>,
+}
+
+impl FakePositionCheck {
+    pub fn refuse(&self, user_id: Uuid) {
+        self.refused.lock().unwrap().insert(user_id);
+    }
+}
+
+#[async_trait::async_trait]
+impl PositionCheck for FakePositionCheck {
+    async fn plausible(&self, user_id: Uuid, claim: Claim) -> tokuly_core::AppResult<bool> {
+        self.asked.lock().unwrap().push((user_id, claim));
+        Ok(!self.refused.lock().unwrap().contains(&user_id))
+    }
 }
 
 pub async fn start() -> Ctx {
@@ -38,15 +71,28 @@ pub async fn start() -> Ctx {
 }
 
 pub async fn start_with(cfg: SocialConfig) -> Ctx {
+    start_checked(cfg, true).await
+}
+
+/// A server whose social domain has no position check plugged in.
+pub async fn start_unchecked() -> Ctx {
+    start_checked(SocialConfig::default(), false).await
+}
+
+async fn start_checked(cfg: SocialConfig, checked: bool) -> Ctx {
     let mut social = None;
+    let claims = Arc::new(FakePositionCheck::default());
     let app = TestApp::start(MIGRATIONS, |core, identity, router| {
         let domain = Social::new(core.clone(), identity.clone(), cfg).expect("social config");
+        if checked {
+            domain.set_position_check(claims.clone());
+        }
         let router = domain.register(identity.register(router));
         social = Some(domain);
         router
     })
     .await;
-    Ctx { app, social: social.expect("register ran") }
+    Ctx { app, social: social.expect("register ran"), claims }
 }
 
 impl Ctx {

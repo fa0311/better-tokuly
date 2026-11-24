@@ -35,14 +35,18 @@
 //! `tokuly_core::geoindex`, which this crate keeps up to date. This crate's
 //! own public API is small: [`Geo::ingest`] (feed a sample directly),
 //! [`Geo::seed_regions`] (load the bundled boundaries; call at startup),
-//! [`Geo::handle_event`], and the maintenance entry points
+//! [`Geo::handle_event`], the check of positions claimed in the social
+//! domain (`claims`, plugged into social by [`Geo::new`]), and the
+//! maintenance entry points
 //! ([`Geo::sweep`], [`Geo::enforce_retention`], [`Geo::flush_history`]).
 use std::{ops::Deref, sync::Arc, time::Duration};
 
 use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
 use tokuly_proto::common::SubjectType;
+use tokuly_social::Social;
 
+mod claims;
 pub mod config;
 mod consumers;
 mod ctx;
@@ -105,9 +109,10 @@ impl Deref for Geo {
 impl Geo {
     /// Builds the domain and plugs it into the others: profiles gain the
     /// distance to a friend and footprint numbers, places become subjects
-    /// (comments, reactions, reports), and the personal data export gains a
-    /// `geo` section.
-    pub fn new(core: Core, identity: Identity, cfg: GeoConfig) -> anyhow::Result<Self> {
+    /// (comments, reactions, reports), the personal data export gains a
+    /// `geo` section, and the social domain checks the positions clients
+    /// claim for nearby discovery and bumps against this domain's fixes.
+    pub fn new(core: Core, identity: Identity, cfg: GeoConfig, social: &Social) -> anyhow::Result<Self> {
         cfg.validate()?;
         let geo = Self(Arc::new(GeoInner {
             blur_mac: Geo::make_blur_mac(&core),
@@ -121,6 +126,7 @@ impl Geo {
         identity.add_profile_extension(Arc::new(geo.clone()));
         core.subjects.register(SubjectType::SUBJECT_TYPE_PLACE, Arc::new(hooks::PlaceSubjects(geo.clone())));
         core.exporters.register(Arc::new(hooks::GeoExporter(geo.clone())));
+        social.set_position_check(Arc::new(geo.clone()));
         // The gazetteer takes a moment to load: do it before the first request needs it.
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn_blocking(|| {
