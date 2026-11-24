@@ -190,6 +190,13 @@ impl Notify {
         // The texts of their edited comments, and their name in the mentions of others'.
         sqlx::query("DELETE FROM notify_edits WHERE author_id = $1").bind(user_id).execute(&mut *tx).await?;
         sqlx::query(
+            "UPDATE notify_edits SET owner_id = NULL, owner_kind = NULL, owner_title_ja = NULL, owner_title_en = NULL
+             WHERE owner_id = $1",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
             "UPDATE notify_edits SET mentioned = array_remove(mentioned, $1) WHERE mentioned @> ARRAY[$1]::uuid[]",
         )
         .bind(user_id)

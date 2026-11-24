@@ -14,7 +14,7 @@ use super::{
 use crate::{
     Engagement,
     effects::{Effects, Push},
-    events::{COMMENT_DELETED, COMMENT_EDITED, COMMENT_PUBLISHED, CommentEdited, CommentEvent},
+    events::{COMMENT_DELETED, COMMENT_EDITED, COMMENT_PUBLISHED, CommentEdited, CommentEvent, OwnerNotice},
     subjects::{Subject, requested_type},
     text,
 };
@@ -371,13 +371,6 @@ impl Engagement {
         row.edited_at = Some(edited_at);
         sqlx::query("DELETE FROM comment_mentions WHERE comment_id = $1").bind(row.id).execute(&mut *tx).await?;
         save_mentions(&mut tx, row.id, &mentioned).await?;
-        let edited = CommentEdited {
-            comment: comment_event(&row),
-            body: announce::body_of(&row),
-            mentioned: mentioned.clone(),
-            edited_at,
-        };
-        events::emit(&mut *tx, COMMENT_EDITED, Some(user_id), &edited).await?;
         if row.is_published() && !verdict.is_published() {
             // The new text trips one of the owner's rules. The other way
             // round never happens: an edit does not publish a comment.
@@ -398,6 +391,22 @@ impl Engagement {
             effects.push(Push::Updated { key: row.key(), comment_id: row.id });
             self.announce(&mut tx, &row, &found.subject, &audience, &sender).await?;
         }
+        // After `engagement.comment.hidden`, when the edit held the comment:
+        // the new text is for those who may still see it.
+        let owner_notice =
+            found.subject.owner().filter(|owner| !row.is_reply() && *owner != user_id).map(|owner| OwnerNotice {
+                user_id: owner,
+                kind: announce::KIND_COMMENT.to_owned(),
+                title: announce::title_of(Reason::Comment, &sender.name, &found.subject.info.title),
+            });
+        let edited = CommentEdited {
+            comment: comment_event(&row),
+            body: announce::body_of(&row),
+            mentioned: mentioned.clone(),
+            owner_notice,
+            edited_at,
+        };
+        events::emit(&mut *tx, COMMENT_EDITED, Some(user_id), &edited).await?;
         tx.commit().await?;
         self.apply(effects).await;
         Ok((row, found.subject))

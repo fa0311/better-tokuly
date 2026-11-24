@@ -291,7 +291,7 @@ impl Notify {
         // A comment edited after this was asked for: the new text, or
         // nothing for a mention the edit took out.
         let current = edits::current(&mut *tx, &request.kind, request.user_id, &request.data).await?;
-        if !current.apply(&mut request.body, &mut request.data) {
+        if !current.apply(&mut request.kind, &mut request.title, &mut request.body, &mut request.data) {
             tx.commit().await?;
             return Ok(RequestOutcome::Dropped(DropReason::Withdrawn));
         }

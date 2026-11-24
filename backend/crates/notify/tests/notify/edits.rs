@@ -153,3 +153,70 @@ async fn a_queued_push_sends_the_edited_text() {
     assert_eq!(owner_device.decrypt(&sent[0].body)["notification"]["body"], "ごめんね");
     assert!(stub.requests_to("/push/carol").is_empty());
 }
+
+fn edited_with_owner(
+    comment: Uuid,
+    author: &TestUser,
+    text: &str,
+    mentioned: &[Uuid],
+    owner: &TestUser,
+    edited_at: DateTime<Utc>,
+) -> tokuly_core::events::Event {
+    let mut event = edited(comment, author, text, mentioned, edited_at);
+    event.data["owner_notice"] = serde_json::json!({
+        "user_id": owner.id,
+        "kind": "engagement.comment",
+        "title": { "ja": "bobがコメントしたよ!", "en": "bob commented" },
+    });
+    event
+}
+
+#[tokio::test]
+async fn an_owner_who_was_mentioned_keeps_a_notification_when_the_mention_goes() {
+    let ctx = start().await;
+    let (owner, carol, bob) = (ctx.app.user("owner").await, ctx.app.user("carol").await, ctx.app.user("bob").await);
+    let comment = Uuid::now_v7();
+    // The owner was mentioned in a top-level comment on their note: told once, as a mention.
+    ctx.deliver_to_inbox(&about_comment("engagement.mention", &owner, &bob, comment, "@owner @carol みて", None)).await;
+    ctx.deliver_to_inbox(&about_comment("engagement.mention", &carol, &bob, comment, "@owner @carol みて", None)).await;
+
+    let at = Utc::now() - chrono::Duration::seconds(5);
+    ctx.notify.handle_event(edited_with_owner(comment, &bob, "みて", &[], &owner, at)).await.unwrap();
+    let inbox = ctx.inbox(&owner).await.notifications;
+    assert_eq!(inbox.len(), 1, "the owner still hears about the comment");
+    assert_eq!(
+        (inbox[0].kind.as_str(), inbox[0].title.as_str(), inbox[0].body.as_str()),
+        ("engagement.comment", "bobがコメントしたよ!", "みて")
+    );
+    assert!(bodies(&ctx, &carol).await.is_empty(), "anyone else's mention goes");
+
+    // A late mention request to the owner becomes the same entry.
+    let late = event_at(
+        NOTIFY_TOPIC,
+        about_comment("engagement.mention", &owner, &bob, comment, "@owner みて", None),
+        at - chrono::Duration::seconds(1),
+    );
+    assert!(matches!(ctx.notify.handle_request(&late).await.unwrap(), RequestOutcome::Handled { .. }));
+    assert!(ctx.inbox(&owner).await.notifications.iter().all(|n| n.kind == "engagement.comment" && n.body == "みて"));
+}
+
+#[tokio::test]
+async fn an_edit_is_not_shown_to_whom_the_comment_was_hidden_from() {
+    let ctx = start().await;
+    let (owner, carol, bob) = (ctx.app.user("owner").await, ctx.app.user("carol").await, ctx.app.user("bob").await);
+    let comment = Uuid::now_v7();
+    ctx.deliver_to_inbox(&about_comment("engagement.comment", &owner, &bob, comment, "はじめ", None)).await;
+    ctx.deliver_to_inbox(&about_comment("engagement.reply", &carol, &bob, comment, "はじめ", None)).await;
+    // Hidden from everyone but the owner; the withdrawal has not reached
+    // Carol's entry yet.
+    sqlx::query("INSERT INTO notify_audiences (ref_id, owner_id, visible_to, changed_at) VALUES ($1, $2, $3, now())")
+        .bind(comment)
+        .bind(bob.id)
+        .bind(vec![owner.id])
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.notify.handle_event(edited(comment, &bob, "ないしょ", &[], Utc::now())).await.unwrap();
+    assert_eq!(bodies(&ctx, &owner).await, [("engagement.comment".to_owned(), "ないしょ".to_owned())]);
+    assert_eq!(bodies(&ctx, &carol).await, [("engagement.reply".to_owned(), "はじめ".to_owned())]);
+}

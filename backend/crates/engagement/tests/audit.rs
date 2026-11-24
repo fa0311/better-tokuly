@@ -719,3 +719,124 @@ async fn moderators_resolve_a_reported_subject_like_its_reporters() {
         ctx.call::<_, SetReactionResponse>("ReactionService", "SetReaction", Some(&moderator), &request).await.is_err()
     );
 }
+
+/// Review of #88: one notification per person, so an owner who was
+/// mentioned in a top-level comment was told only by the mention; the edit
+/// that drops it says what the owner's notification becomes.
+#[tokio::test]
+async fn an_edit_tells_what_the_owners_mention_becomes() {
+    let ctx = start().await;
+    let (owner, alice) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await);
+    let video = ctx.video(&owner, "今日のランチ");
+    let comment = ctx.comment(&alice, &video, &format!("@{} みて", owner.handle)).await;
+    assert_eq!(ctx.notification_kinds(owner.id).await, ["engagement.mention"]);
+    ctx.edit(&alice, &comment.id, "みて").await.unwrap();
+    let edited = ctx.app.events_by("engagement.comment.edited", alice.id).await;
+    let notice = &edited[0].data["owner_notice"];
+    assert_eq!(notice["user_id"], serde_json::json!(owner.id));
+    assert_eq!(notice["kind"], "engagement.comment");
+    assert_eq!(notice["title"]["ja"], "Aliceが「今日のランチ」にコメントしたよ!");
+
+    // A reply is not the owner's to hear about.
+    let reply = ctx.reply(&alice, &comment.id, "つづき").await;
+    ctx.edit(&alice, &reply.id, "つづきだよ").await.unwrap();
+    let edited = ctx.app.events_by("engagement.comment.edited", alice.id).await;
+    assert!(edited[1].data["owner_notice"].is_null());
+}
+
+/// Review of #88: an edit that holds the comment again hides it before its
+/// new text goes out, so consumers learn who may see it first.
+#[tokio::test]
+async fn an_edit_that_holds_the_comment_hides_it_first() {
+    let ctx = start().await;
+    let (owner, alice) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await);
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, "こんにちは").await;
+    ctx.set_rules(&owner, false, false, &["ばか"]).await;
+    ctx.edit(&alice, &comment.id, "ばか").await.unwrap();
+    let topics: Vec<String> = ctx
+        .app
+        .events_by("engagement.comment.", alice.id)
+        .await
+        .into_iter()
+        .filter(|event| event.data["comment_id"] == serde_json::json!(comment.id))
+        .map(|event| event.topic)
+        .collect();
+    assert_eq!(topics, ["engagement.comment.published", "engagement.comment.hidden", "engagement.comment.edited"]);
+}
+
+/// Review of #88: a heart is for the reply's own author, who still sees the
+/// reply when its thread is hidden: it names the thread, but not as a
+/// `*_id` the notify domain withdraws by.
+#[tokio::test]
+async fn a_heart_on_a_reply_does_not_go_with_its_thread() {
+    let ctx = start().await;
+    let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);
+    let video = ctx.video(&owner, "v");
+    let thread = ctx.comment(&alice, &video, "スレッド").await;
+    let reply = ctx.reply(&bob, &thread.id, "返信").await;
+    let heart = SetCommentHeartRequest { comment_id: reply.id.clone(), hearted: true, ..Default::default() };
+    let _: SetCommentHeartResponse = ctx.call("CommentService", "SetCommentHeart", Some(&owner), &heart).await.unwrap();
+    let hearts = ctx.notifications(bob.id, "engagement.heart").await;
+    assert_eq!(hearts.len(), 1);
+    let data = hearts[0]["data"].as_object().unwrap();
+    assert_eq!(data["comment_id"], serde_json::json!(reply.id));
+    assert_eq!(data["thread"], serde_json::json!(thread.id));
+    assert!(data.keys().filter(|key| key.ends_with("_id")).all(|key| key == "comment_id"), "{data:?}");
+}
+
+/// The server's bridge, as `bridges.rs` writes it.
+struct ReportedForModerators(tokuly_engagement::Engagement);
+
+#[async_trait::async_trait]
+impl tokuly_admin::ReportedSubjects for ReportedForModerators {
+    async fn reported_subject(
+        &self,
+        staff_id: Uuid,
+        subject_type: SubjectType,
+        subject_id: Uuid,
+    ) -> tokuly_core::AppResult<Option<tokuly_core::subject::SubjectInfo>> {
+        self.0.resolve_reported_subject(staff_id, subject_type, subject_id).await
+    }
+}
+
+/// Through the real lookup: a case about a comment its subject's owner hid
+/// after the report shows the comment to an uninvolved moderator.
+#[tokio::test]
+async fn the_case_view_shows_a_reported_comment_hidden_since() {
+    let (ctx, admin) = start_with_admin().await;
+    admin.set_reported_subjects(std::sync::Arc::new(ReportedForModerators(ctx.engagement.clone())));
+    let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);
+    let moderator = ctx.app.user_with_roles("Mod", &["moderator"]).await;
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, "ひどいことば").await;
+    let filed = ctx.report_comment(&bob, &comment.id).await.unwrap();
+    let event = ctx
+        .app
+        .events("engagement.report.created")
+        .await
+        .into_iter()
+        .find(|event| event.data["report_id"] == filed.id.as_str())
+        .unwrap();
+    admin.handle_event(event).await.unwrap();
+    let hide = HideCommentRequest { comment_id: comment.id.clone(), ..Default::default() };
+    let _: HideCommentResponse =
+        ctx.call("CommentModerationService", "HideComment", Some(&owner), &hide).await.unwrap();
+
+    let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1::uuid")
+        .bind(&comment.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let open = |user: &TestUser| {
+        let request = tokuly_proto::admin::GetCaseRequest { case_id: case_id.to_string(), ..Default::default() };
+        let (app, user) = (&ctx.app, user.clone());
+        async move {
+            let opened: tokuly_proto::admin::GetCaseResponse =
+                app.call("tokuly.admin.v1.ModerationService/GetCase", Some(&user), &request).await.unwrap();
+            opened.moderation_case.current_subject.as_option().cloned()
+        }
+    };
+    let current = open(&moderator).await.expect("the comment as its reporter saw it");
+    assert!(current.title.contains("ひどいことば"), "{}", current.title);
+}

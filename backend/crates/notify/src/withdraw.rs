@@ -107,6 +107,13 @@ pub(crate) const UNWITHDRAWABLE_CATEGORY: &str = "system";
 /// recipients never holds one long transaction.
 const BATCH: i64 = 1000;
 
+/// Whether [`Notify::withdraw_batch`] left work for another batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Batch {
+    More,
+    Done,
+}
+
 /// What an event withdraws.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Withdrawal {
@@ -272,8 +279,20 @@ impl Notify {
     /// batches, and content that is gone is remembered. Idempotent.
     pub async fn withdraw(&self, withdrawal: &Withdrawal) -> AppResult<()> {
         let mut first = true;
+        while self.withdraw_batch(withdrawal, first).await? == Batch::More {
+            first = false;
+        }
+        Ok(())
+    }
+
+    /// One batch of [`Self::withdraw`], in a transaction of its own; the
+    /// first one also records what is remembered. A later batch of an
+    /// audience change stops when a newer change of the same content was
+    /// recorded in the meantime: from then on, that one decides.
+    #[doc(hidden)]
+    pub async fn withdraw_batch(&self, withdrawal: &Withdrawal, first: bool) -> AppResult<Batch> {
         let until = withdrawal.audience.as_ref().map(|audience| audience.changed_at);
-        loop {
+        {
             let mut tx = self.core.db.begin().await?;
             locks::lock(&mut tx, locks::key(withdrawal.ref_id)).await?;
             if first && withdrawal.remember {
@@ -304,10 +323,20 @@ impl Notify {
                 if !latest || audience.visible_to.is_none() {
                     // Older than what is known, or open to everyone: nothing to take away.
                     tx.commit().await?;
-                    return Ok(());
+                    return Ok(Batch::Done);
                 }
             }
-            first = false;
+            if !first && let Some(audience) = &withdrawal.audience {
+                let recorded: Option<Time> =
+                    sqlx::query_scalar("SELECT changed_at FROM notify_audiences WHERE ref_id = $1")
+                        .bind(withdrawal.ref_id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                if recorded != Some(audience.changed_at) {
+                    tx.commit().await?;
+                    return Ok(Batch::Done);
+                }
+            }
             // A grouped entry folded in other events too: it loses this one
             // (and its text, when this was the one it showed), and stays.
             // Content that is the entry's subject takes the whole entry.
@@ -365,9 +394,7 @@ impl Notify {
             tx.commit().await?;
             let done = shrunk < BATCH as u64 && (removed.len() as i64) < BATCH;
             self.announce_removed(removed).await?;
-            if done {
-                return Ok(());
-            }
+            Ok(if done { Batch::Done } else { Batch::More })
         }
     }
 

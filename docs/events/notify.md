@@ -64,7 +64,8 @@ see the events below) is withdrawn from everyone but its owner and those
 the event names as still seeing it (`visible_to`), but only entries about
 what happened up to the change (`changed_at`). The latest change per ID is
 remembered for 8 days (`notify_audiences`): a change older than it does
-nothing, and a request or a push job from before it is dropped for
+nothing, a batch of a change stops once a newer change of the same ID was
+recorded, and a request or a push job from before it is dropped for
 everyone it left out. Entries of
 the `system` category are never withdrawn: the notice telling an owner that
 their content was taken down refers to that content. A withdrawal and a
@@ -77,12 +78,17 @@ quote a comment (`data.comment_id`) at a version (`data.edited_at`, `null`
 before the first edit). On `engagement.comment.edited` every entry quoting
 an older version shows the body the event gives for the new text (and its
 version), and an `engagement.mention` entry whose recipient the new text no
-longer mentions leaves the inbox (`NotifyEvent.removed`; a changed body is
+longer mentions leaves the inbox — except the subject owner's of a top-level
+comment, which becomes the ordinary entry the event names (`owner_notice`:
+engagement tells each person once, so a mentioned owner had only the
+mention). Nobody the comment was hidden from (an audience change, below) is
+shown the new text (`NotifyEvent.removed`; a changed body is
 seen on the next read, no event is sent for it). The latest edit of each
 comment is remembered for 8 days (`notify_edits`): an older edit handled
 after a newer one changes nothing, and a request or a queued push about an
 older version that is handled after the edit carries the new body — or is
-dropped when it announces a mention that is gone.
+dropped when it announces a mention that is gone (the owner's becomes their
+ordinary entry).
 
 The consumer is idempotent on the event ID (`notify_processed_events`, written
 in the same transaction as the inbox entry). Events with the same collapse key
@@ -103,7 +109,7 @@ account's) for push.
 | `chat.message.deleted` | `{ message_id, … }` | withdraws `message_id` |
 | `engagement.comment.deleted` | `{ comment_id, … }` | withdraws `comment_id` |
 | `engagement.comment.hidden` | `{ comment_id, author_id, visible_to, changed_at, … }` | withdraws `comment_id` (and so the replies below it, whose entries name it as `parent_id`) from everyone but `author_id` and `visible_to`, as far as the entries are not newer than `changed_at` |
-| `engagement.comment.edited` | `{ comment_id, author_id, body, mentioned, edited_at, … }` | entries quoting an older version of the comment show `body`; mentions of people not in `mentioned` are withdrawn (see "Edited comments") |
+| `engagement.comment.edited` | `{ comment_id, author_id, body, mentioned, owner_notice, edited_at, … }` | entries quoting an older version of the comment show `body`; mentions of people not in `mentioned` are withdrawn, the subject owner's turned into `owner_notice` (see "Edited comments") |
 | `notes.note.deleted` / `notes.story.deleted` | `{ note_id, … }` / `{ story_id, … }` | withdraws the note / story |
 | `community.thread.deleted` | `{ community_id, thread_id }` | withdraws `thread_id` |
 | `video.playlist.deleted` | `{ playlist_id, owner_id }` | withdraws `playlist_id` |
@@ -112,7 +118,7 @@ account's) for push.
 | `live.stream.deleted` | `StreamEvent` `{ stream_id, … }` | withdraws `stream_id` |
 | `ask.answer.deleted` | `{ question_id, owner_id }` | withdraws the asker's `ask.answered` entries for `question_id` (the question itself stays; not remembered, it can be answered again) |
 | `video.video.unpublished` | `VideoEvent` | hides `video_id` from everyone but `owner_id` |
-| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to, changed_at }` | withdraws `note_id` (and what refers to it: comments, mentions, likes) from everyone but `author_id` and `visible_to`, as far as the entries are not newer than `changed_at`; `visible_to = null` (public) withdraws nothing but is remembered, so an older narrowing handled after it does nothing. An event without `visible_to` withdraws only for `visibility` = 5 (private) |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to, changed_at }` | withdraws `note_id` (and what refers to it as its subject: likes, renotes, comments and mentions in comments on the note; likes on those comments name only the comment and stay) from everyone but `author_id` and `visible_to`, as far as the entries are not newer than `changed_at`; `visible_to = null` (public) withdraws nothing but is remembered, so an older narrowing handled after it does nothing. An event without `visible_to` withdraws only for `visibility` = 5 (private) |
 | `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, mutes on them, the remembered edits of their comments and audience changes of their content, and their name in the remembered mentions and audiences of others' |
 
 ## Events emitted

@@ -91,6 +91,13 @@ pub struct CommentEdited {
     pub body: Localized,
     /// The users the new text mentions.
     pub mentioned: Vec<Uuid>,
+    /// For a top-level comment: what the subject owner's notification about
+    /// it becomes when the new text no longer mentions them. Engagement
+    /// tells each person once, with the first reason that applies, so an
+    /// owner who was mentioned got the mention instead of the ordinary "new
+    /// comment" notification; that one must not go with the mention.
+    #[serde(default)]
+    pub owner_notice: Option<OwnerNotice>,
     /// The version this edit made: the comment's new `edited_at`, taken
     /// while the comment was locked, so two edits are ordered by it. Every
     /// notification about the comment names the version it quotes
@@ -116,6 +123,16 @@ pub struct CommentHidden {
     /// When it was hidden, taken while the comment was locked: consumers
     /// order this against other changes of the comment by it.
     pub changed_at: DateTime<Utc>,
+}
+
+/// The notification a subject owner keeps about a comment that no longer
+/// mentions them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwnerNotice {
+    pub user_id: Uuid,
+    /// `engagement.comment`.
+    pub kind: String,
+    pub title: Localized,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

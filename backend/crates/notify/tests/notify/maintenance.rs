@@ -179,3 +179,103 @@ async fn deleting_an_account_removes_its_notification_data() {
         .unwrap();
     assert_eq!(muted, 0);
 }
+
+/// Rows of `notify_edits` and `notify_audiences` about `ids`.
+async fn remembered(ctx: &Ctx, ids: &[uuid::Uuid]) -> (Vec<uuid::Uuid>, Vec<uuid::Uuid>) {
+    let db = &ctx.app.core.db;
+    let edits = sqlx::query_scalar("SELECT ref_id FROM notify_edits WHERE ref_id = ANY($1) ORDER BY ref_id")
+        .bind(ids)
+        .fetch_all(db)
+        .await
+        .unwrap();
+    let audiences = sqlx::query_scalar("SELECT ref_id FROM notify_audiences WHERE ref_id = ANY($1) ORDER BY ref_id")
+        .bind(ids)
+        .fetch_all(db)
+        .await
+        .unwrap();
+    (edits, audiences)
+}
+
+async fn remember_edit_and_audience(
+    ctx: &Ctx,
+    id: uuid::Uuid,
+    author: uuid::Uuid,
+    other: uuid::Uuid,
+    owner: uuid::Uuid,
+) {
+    ctx.notify
+        .handle_event(event(
+            "engagement.comment.edited",
+            serde_json::json!({
+                "comment_id": id, "author_id": author, "body": { "ja": "x", "en": "x" }, "mentioned": [other],
+                "owner_notice": { "user_id": owner, "kind": "engagement.comment", "title": { "ja": "t", "en": "t" } },
+                "edited_at": chrono::Utc::now(),
+            }),
+        ))
+        .await
+        .unwrap();
+    ctx.notify
+        .handle_event(event(
+            "engagement.comment.hidden",
+            serde_json::json!({ "comment_id": id, "author_id": author, "visible_to": [other], "changed_at": chrono::Utc::now() }),
+        ))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn remembered_edits_and_audiences_are_swept_after_eight_days() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let (recent, old) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+    let (mut ids, owner) = (vec![recent, old], ctx.app.user("owner").await);
+    ids.sort_unstable();
+    for id in &ids {
+        remember_edit_and_audience(&ctx, *id, alice.id, bob.id, owner.id).await;
+    }
+    assert_eq!(remembered(&ctx, &ids).await, (ids.clone(), ids.clone()));
+    for table in ["notify_edits", "notify_audiences"] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE {table} SET recorded_at = now() - interval '9 days' WHERE ref_id = $1"
+        )))
+        .bind(old)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    }
+    let report = ctx.notify.run_retention().await.unwrap();
+    assert!(report.edits >= 1 && report.audiences >= 1, "{report:?}");
+    assert_eq!(remembered(&ctx, &ids).await, (vec![recent], vec![recent]));
+}
+
+#[tokio::test]
+async fn an_erased_account_leaves_no_remembered_edits_or_audiences() {
+    let ctx = start().await;
+    let (alice, bob, owner, carol) = (
+        ctx.app.user("alice").await,
+        ctx.app.user("bob").await,
+        ctx.app.user("owner").await,
+        ctx.app.user("carol").await,
+    );
+    let (by_alice, by_carol) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+    remember_edit_and_audience(&ctx, by_alice, alice.id, bob.id, owner.id).await;
+    remember_edit_and_audience(&ctx, by_carol, carol.id, alice.id, alice.id).await;
+    let erase = |user_id| event(USER_DELETED_TOPIC, UserDeleted { user_id });
+    ctx.notify.handle_event(erase(alice.id)).await.unwrap();
+
+    // Alice's comment is forgotten; Carol's no longer names Alice anywhere.
+    assert_eq!(remembered(&ctx, &[by_alice, by_carol]).await, (vec![by_carol], vec![by_carol]));
+    let (mentioned, owner_id): (Vec<uuid::Uuid>, Option<uuid::Uuid>) =
+        sqlx::query_as("SELECT mentioned, owner_id FROM notify_edits WHERE ref_id = $1")
+            .bind(by_carol)
+            .fetch_one(&ctx.app.core.db)
+            .await
+            .unwrap();
+    assert!(mentioned.is_empty() && owner_id.is_none());
+    let visible_to: Vec<uuid::Uuid> = sqlx::query_scalar("SELECT visible_to FROM notify_audiences WHERE ref_id = $1")
+        .bind(by_carol)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert!(visible_to.is_empty());
+}

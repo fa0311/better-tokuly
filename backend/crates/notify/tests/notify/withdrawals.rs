@@ -582,3 +582,54 @@ async fn a_hiding_handled_at_the_same_time_as_a_request_leaves_nothing() {
     }
     assert!(ctx.inbox(&carol).await.notifications.is_empty());
 }
+
+#[tokio::test]
+async fn a_heart_stays_with_the_reply_author_when_the_thread_is_hidden() {
+    let ctx = start().await;
+    let (owner, alice, bob) = (ctx.app.user("owner").await, ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let (note_id, thread, reply) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    // As engagement writes a heart: the thread is named, but not as a `*_id`.
+    let heart =
+        NotificationRequest::new(bob.id, "engagement.heart", Localized::same("❤️"), Localized::same("返信"), "/")
+            .subject(SubjectType::SUBJECT_TYPE_NOTE, note_id)
+            .data(serde_json::json!({ "comment_id": reply, "thread": thread, "edited_at": null }));
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, heart, Utc::now() - chrono::Duration::seconds(5))).await.unwrap();
+    ctx.notify.handle_event(comment_hidden(thread, &alice, &[owner.id], Utc::now())).await.unwrap();
+    assert_eq!(kinds(&ctx, &bob).await, ["engagement.heart"]);
+}
+
+#[tokio::test]
+async fn a_newer_change_stops_an_audience_change_between_batches() {
+    let ctx = start().await;
+    let (bob, alice) = (ctx.app.user("bob").await, ctx.app.user("alice").await);
+    let note = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO notifications (user_id, kind, category, title_ja, title_en, body_ja, body_en, path,
+                                    subject_type, subject_id, refs, occurred_at)
+         SELECT $1, 'notes.like', 'notes', 't', 't', 'b', 'b', '/', 3, $2, ARRAY[$2]::uuid[], now() - interval '1 minute'
+         FROM generate_series(1, 1500)",
+    )
+    .bind(alice.id)
+    .bind(note)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+    let count = || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM notifications WHERE user_id = $1")
+            .bind(alice.id)
+            .fetch_one(&ctx.app.core.db)
+            .await
+            .unwrap()
+    };
+    let private = visibility_changed(note, &bob, 5, Some(&[]), Utc::now() - chrono::Duration::seconds(10));
+    let withdrawal = tokuly_notify::withdraw::withdrawal_of(&private).unwrap().unwrap();
+    assert_eq!(ctx.notify.withdraw_batch(&withdrawal, true).await.unwrap(), tokuly_notify::withdraw::Batch::More);
+    assert_eq!(count().await, 500);
+    // Public again before the next batch: that change decides now.
+    ctx.notify.handle_event(visibility_changed(note, &bob, 1, None, Utc::now())).await.unwrap();
+    assert_eq!(ctx.notify.withdraw_batch(&withdrawal, false).await.unwrap(), tokuly_notify::withdraw::Batch::Done);
+    assert_eq!(count().await, 500);
+    // A redelivery of the old change does nothing either.
+    ctx.notify.handle_event(private).await.unwrap();
+    assert_eq!(count().await, 500);
+}

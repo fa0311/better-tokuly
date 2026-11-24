@@ -96,7 +96,7 @@ pub(crate) fn body_of(row: &CommentRow) -> Localized {
     }
 }
 
-fn title_of(reason: Reason, sender: &str, subject_title: &str) -> Localized {
+pub(crate) fn title_of(reason: Reason, sender: &str, subject_title: &str) -> Localized {
     let subject_title = text::excerpt(subject_title, 30);
     match reason {
         Reason::Reply => Localized::new(format!("{sender}が返信したよ!"), format!("{sender} replied to your comment")),
@@ -298,17 +298,18 @@ impl Engagement {
         if subject.is_owned_by(row.author_id) {
             return Ok(());
         }
-        let mut request = about(
-            NotificationRequest::new(
-                row.author_id,
-                KIND_HEART,
-                Localized::new("コメントに❤️がついたよ!", "Your comment got a heart"),
-                body_of(row),
-                comment_path(&subject.info.path, row.id),
-            ),
-            row,
-            subject,
+        // Addressed to the comment's own author, who sees it whatever becomes
+        // of the thread above it: the thread is named, but not as a `*_id`
+        // the notify domain would withdraw the heart with.
+        let mut request = NotificationRequest::new(
+            row.author_id,
+            KIND_HEART,
+            Localized::new("コメントに❤️がついたよ!", "Your comment got a heart"),
+            body_of(row),
+            comment_path(&subject.info.path, row.id),
         )
+        .subject(subject.key.subject_type(), subject.key.id)
+        .data(serde_json::json!({ "comment_id": row.id, "thread": row.parent_id, "edited_at": row.edited_at }))
         .collapse(format!("engagement.heart:{}", row.id));
         if let Some(image_url) = &subject.info.image_url {
             request = request.image(image_url);

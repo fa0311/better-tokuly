@@ -72,6 +72,12 @@ CREATE TABLE notify_edits (
     body_en     text        NOT NULL,
     mentioned   uuid[]      NOT NULL DEFAULT '{}',
     edited_at   timestamptz NOT NULL,
+    -- For a top-level comment: its subject's owner, and the kind and title
+    -- their mention becomes when the edit took the mention out.
+    owner_id       uuid,
+    owner_kind     text,
+    owner_title_ja text,
+    owner_title_en text,
     recorded_at timestamptz NOT NULL DEFAULT now()
 );
 

@@ -1121,3 +1121,46 @@ async fn a_reported_video_made_private_still_shows_in_its_case() {
     assert_eq!(done.action.subject_title, "非公開にした動画");
     assert_eq!(done.action.target_user.id, owner.id.to_string());
 }
+
+/// A lookup that always answers, so only the admin domain's own rules decide.
+struct AlwaysShows;
+
+#[async_trait]
+impl ReportedSubjects for AlwaysShows {
+    async fn reported_subject(&self, _staff_id: Uuid, _subject_type: SubjectType, subject_id: Uuid) -> AppResult<Option<SubjectInfo>> {
+        Ok(Some(SubjectInfo {
+            id: subject_id,
+            owner_id: Uuid::nil(),
+            title: "匿名の投稿".into(),
+            path: "/c/thread".into(),
+            image_url: None,
+            interactions_enabled: false,
+        }))
+    }
+}
+
+#[tokio::test]
+async fn an_involved_moderator_gets_no_current_subject() {
+    let (app, admin) = start().await;
+    let (author, reporter) = (app.user("author").await, app.user("reporter").await);
+    let involved = app.user_with_roles("involved", &["moderator"]).await;
+    let neutral = app.user_with_roles("neutral", &["moderator"]).await;
+    let thread = Uuid::now_v7();
+    admin.set_hidden_owners(Arc::new(FakeAnonymousPosts { thread_id: thread, author_id: author.id, involved: vec![involved.id] }));
+    admin.set_reported_subjects(Arc::new(AlwaysShows));
+    admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "SPAM", "")).await.unwrap();
+    sqlx::query("UPDATE moderation_cases SET subject_owner_id = $2, owner_hidden = true WHERE subject_id = $1")
+        .bind(thread)
+        .bind(author.id)
+        .execute(&app.core.db)
+        .await
+        .unwrap();
+    let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+
+    let opened = get_case(&app, &involved, &case_id.to_string()).await;
+    assert!(opened.moderation_case.conflict_of_interest);
+    assert!(opened.moderation_case.current_subject.is_unset());
+    let opened = get_case(&app, &neutral, &case_id.to_string()).await;
+    assert!(!opened.moderation_case.conflict_of_interest);
+    assert_eq!(opened.moderation_case.current_subject.title, "匿名の投稿");
+}

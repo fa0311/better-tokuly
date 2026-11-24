@@ -148,7 +148,7 @@ impl Notify {
             Current::Unchanged => job,
             current => {
                 let mut copy = job.clone();
-                if !current.apply(&mut copy.body, &mut copy.data) {
+                if !current.apply(&mut copy.kind, &mut copy.title, &mut copy.body, &mut copy.data) {
                     return Ok(report);
                 }
                 edited = copy;
