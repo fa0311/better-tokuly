@@ -176,16 +176,12 @@ impl Engagement {
                 (key, deleted.author_id, deleted.was_public, deleted.text)
             }
         };
-        let subject = match self
-            .core
-            .subjects
-            .resolve_for_report(key.subject_type(), &key.id.to_string(), Some(viewer))
-            .await
-        {
-            Ok(subject) => subject,
-            Err(error) if is_absent(&error) => return Ok(None),
-            Err(error) => return Err(error),
-        };
+        let subject =
+            match self.core.subjects.resolve_for_report(key.subject_type(), &key.id.to_string(), Some(viewer)).await {
+                Ok(subject) => subject,
+                Err(error) if is_absent(&error) => return Ok(None),
+                Err(error) => return Err(error),
+            };
         let owns_subject = subject.owner_id == viewer && !viewer.is_nil();
         if !(shown || owns_subject || author_id == viewer) {
             return Ok(None);

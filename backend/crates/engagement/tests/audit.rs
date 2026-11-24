@@ -21,14 +21,20 @@ fn report(subject: SubjectRef) -> CreateReportRequest {
 
 impl Ctx {
     async fn report_comment(&self, reporter: &TestUser, comment_id: &str) -> Result<Report, String> {
-        self.call::<_, CreateReportResponse>("ReportService", "CreateReport", Some(reporter), &report(comment_ref(comment_id)))
-            .await
-            .map(|response| response.report.as_option().expect("a report").clone())
-            .map_err(|error| error.reason)
+        self.call::<_, CreateReportResponse>(
+            "ReportService",
+            "CreateReport",
+            Some(reporter),
+            &report(comment_ref(comment_id)),
+        )
+        .await
+        .map(|response| response.report.as_option().expect("a report").clone())
+        .map_err(|error| error.reason)
     }
 
     async fn edit(&self, author: &TestUser, comment_id: &str, text: &str) -> Result<Comment, String> {
-        let request = UpdateCommentRequest { comment_id: comment_id.to_owned(), text: text.to_owned(), ..Default::default() };
+        let request =
+            UpdateCommentRequest { comment_id: comment_id.to_owned(), text: text.to_owned(), ..Default::default() };
         self.call::<_, UpdateCommentResponse>("CommentService", "UpdateComment", Some(author), &request)
             .await
             .map(|response| response.comment.as_option().expect("a comment").clone())
@@ -37,11 +43,13 @@ impl Ctx {
 
     async fn delete(&self, user: &TestUser, comment_id: &str) {
         let request = DeleteCommentRequest { comment_id: comment_id.to_owned(), ..Default::default() };
-        let _: DeleteCommentResponse = self.call("CommentService", "DeleteComment", Some(user), &request).await.unwrap();
+        let _: DeleteCommentResponse =
+            self.call("CommentService", "DeleteComment", Some(user), &request).await.unwrap();
     }
 
     async fn unblock(&self, blocker: &TestUser, blocked: &TestUser) {
-        let request = tokuly_proto::social::UnblockUserRequest { user_id: blocked.id.to_string(), ..Default::default() };
+        let request =
+            tokuly_proto::social::UnblockUserRequest { user_id: blocked.id.to_string(), ..Default::default() };
         let _: tokuly_proto::social::UnblockUserResponse =
             self.app.call("tokuly.social.v1.FriendService/UnblockUser", Some(blocker), &request).await.unwrap();
     }
@@ -49,11 +57,17 @@ impl Ctx {
 
 // ───────────────────────────── reports ─────────────────────────────
 
+/// A block hides comments in both directions; it must not also take away
+/// the way to report what was already received.
 #[tokio::test]
 async fn a_comment_stays_reportable_across_a_block() {
     let ctx = start().await;
-    let (owner, alice, bob, carol) =
-        (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await);
+    let (owner, alice, bob, carol) = (
+        ctx.app.user("Owner").await,
+        ctx.app.user("Alice").await,
+        ctx.app.user("Bob").await,
+        ctx.app.user("Carol").await,
+    );
     let video = ctx.video(&owner, "v");
 
     // The victim blocks the harasser, then reports.
@@ -72,11 +86,17 @@ async fn a_comment_stays_reportable_across_a_block() {
     ctx.report_comment(&owner, &to_carol.id).await.expect("reportable by the owner after a block");
 }
 
+/// Deleting a comment must not take away the report of those who saw it,
+/// and must not open it to those who never could.
 #[tokio::test]
 async fn a_deleted_comment_stays_reportable_by_those_who_received_it() {
     let ctx = start().await;
-    let (owner, alice, bob, carol) =
-        (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await);
+    let (owner, alice, bob, carol) = (
+        ctx.app.user("Owner").await,
+        ctx.app.user("Alice").await,
+        ctx.app.user("Bob").await,
+        ctx.app.user("Carol").await,
+    );
     let note = ctx.note(&owner, "友達だけ");
     ctx.notes.update(note.id, |note| note.audience = Audience::Only(vec![alice.id, bob.id]));
 
@@ -110,6 +130,7 @@ async fn a_deleted_comment_stays_reportable_by_those_who_received_it() {
     assert_eq!(ctx.report_comment(&owner, &comment.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
 }
 
+/// Editing a comment must not launder it: the report carries every version.
 #[tokio::test]
 async fn an_edited_comment_is_reported_with_every_version() {
     let ctx = start().await;
@@ -126,6 +147,9 @@ async fn an_edited_comment_is_reported_with_every_version() {
     assert_eq!(filed.subject_title, "[2版] ひどいことば → ごめんね");
 }
 
+/// What was kept for reports goes 30 days after its removal — counted from
+/// the removal, not from when the comment was written — and at once when
+/// its author's account is erased.
 #[tokio::test]
 async fn kept_texts_expire_from_their_removal_and_with_the_account() {
     let ctx = start().await;
@@ -163,6 +187,8 @@ async fn kept_texts_expire_from_their_removal_and_with_the_account() {
 
 // ───────────────────────────── comments ─────────────────────────────
 
+/// Notify asked for it: an inbox entry about a comment keeps its old text
+/// unless it hears of the edit.
 #[tokio::test]
 async fn an_edit_is_an_event() {
     let ctx = start().await;
@@ -176,6 +202,8 @@ async fn an_edit_is_an_event() {
     assert_eq!(edited[0].data["subject_id"], serde_json::json!(video.id));
 }
 
+/// A commenter who blocks the owner of the content must not leave their
+/// comments up there, where the owner can no longer see or remove them.
 #[tokio::test]
 async fn a_commenter_who_blocks_the_owner_takes_their_comments_down() {
     let ctx = start().await;
@@ -192,6 +220,8 @@ async fn a_commenter_who_blocks_the_owner_takes_their_comments_down() {
     assert_eq!(mine.comments[0].comment.status, CommentStatus::COMMENT_STATUS_PUBLISHED);
 }
 
+/// An event delivered again after the block was lifted must not undo the
+/// owner's decision to bring the comments back.
 #[tokio::test]
 async fn a_late_block_event_does_not_hide_comments_again() {
     let ctx = start().await;
@@ -214,6 +244,8 @@ async fn a_late_block_event_does_not_hide_comments_again() {
     assert_eq!(ctx.comments(Some(&carol), &video).await.total_count, 1);
 }
 
+/// Mentioning, unmentioning and mentioning again by editing is one
+/// notification, not one per edit.
 #[tokio::test]
 async fn editing_a_mention_in_and_out_notifies_once() {
     let ctx = start().await;
@@ -227,6 +259,7 @@ async fn editing_a_mention_in_and_out_notifies_once() {
     assert_eq!(ctx.notifications(bob.id, "engagement.mention").await.len(), 1);
 }
 
+/// While a subject does not accept comments, nothing written there changes.
 #[tokio::test]
 async fn comments_cannot_be_edited_while_they_are_turned_off() {
     let ctx = start().await;
@@ -234,15 +267,14 @@ async fn comments_cannot_be_edited_while_they_are_turned_off() {
     let video = ctx.video(&owner, "v");
     let comment = ctx.comment(&alice, &video, "やあ").await;
     ctx.videos.update(video.id, |video| video.interactions_enabled = false);
-    assert_eq!(
-        ctx.edit(&alice, &comment.id, &format!("やあ @{}", bob.handle)).await.unwrap_err(),
-        "COMMENTS_DISABLED"
-    );
+    assert_eq!(ctx.edit(&alice, &comment.id, &format!("やあ @{}", bob.handle)).await.unwrap_err(), "COMMENTS_DISABLED");
     assert!(ctx.notifications(bob.id, "engagement.mention").await.is_empty());
 }
 
 // ───────────────────────────── counts ─────────────────────────────
 
+/// Taking back a reaction or a bookmark works by UUID on anything; the
+/// answer must not tell the numbers of a subject the caller cannot see.
 #[tokio::test]
 async fn taking_something_back_tells_nothing_about_unseen_subjects() {
     let ctx = start().await;
@@ -270,6 +302,7 @@ async fn taking_something_back_tells_nothing_about_unseen_subjects() {
     assert_eq!(save_again.bookmark_count, 1);
 }
 
+/// One account sharing the same thing over and over is one share.
 #[tokio::test]
 async fn sharing_the_same_thing_again_does_not_count_again() {
     let ctx = start().await;
@@ -298,3 +331,64 @@ async fn sharing_the_same_thing_again_does_not_count_again() {
 
 // ───────────────────────────── load ─────────────────────────────
 
+/// Many concurrent calls of one account at the RPCs that open
+/// transactions or take locks finish well within the pool's acquire
+/// timeout: nothing waits for a second connection while holding one.
+#[tokio::test]
+async fn one_account_cannot_starve_the_pool() {
+    let ctx = start().await;
+    let (owner, bob) = (ctx.app.user("Owner").await, ctx.app.user("Bob").await);
+    let videos: Vec<_> = (0..4).map(|i| ctx.video(&owner, &format!("v{i}"))).collect();
+    let thread = ctx.comment(&owner, &videos[0], "スレッド").await;
+    let calls = videos.iter().flat_map(|video| {
+        let subject = video.subject_ref();
+        let ctx = &ctx;
+        let bob = &bob;
+        let thread_id = thread.id.clone();
+        [
+            Box::pin(async move {
+                let request = SetReactionRequest {
+                    subject: subject.clone().into(),
+                    reaction: like().into(),
+                    ..Default::default()
+                };
+                ctx.call::<_, serde_json::Value>("ReactionService", "SetReaction", Some(bob), &request).await
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = _>>>,
+            Box::pin(async move {
+                let request = AddBookmarkRequest { subject: video.subject_ref().into(), ..Default::default() };
+                ctx.call::<_, serde_json::Value>("BookmarkService", "AddBookmark", Some(bob), &request).await
+            }),
+            Box::pin(async move {
+                let request = CreateCommentRequest {
+                    subject: video.subject_ref().into(),
+                    text: format!("こんにちは {}", video.id),
+                    ..Default::default()
+                };
+                ctx.call::<_, serde_json::Value>("CommentService", "CreateComment", Some(bob), &request).await
+            }),
+            Box::pin(async move {
+                let request = CreateCommentRequest {
+                    parent_id: thread_id,
+                    text: format!("返信 {}", video.id),
+                    ..Default::default()
+                };
+                ctx.call::<_, serde_json::Value>("CommentService", "CreateComment", Some(bob), &request).await
+            }),
+            Box::pin(async move {
+                ctx.call::<_, serde_json::Value>(
+                    "ReportService",
+                    "CreateReport",
+                    Some(bob),
+                    &report(video.subject_ref()),
+                )
+                .await
+            }),
+        ]
+    });
+    let started = std::time::Instant::now();
+    let results = futures::future::join_all(calls).await;
+    for result in &results {
+        assert!(result.is_ok(), "{result:?}");
+    }
+    assert!(started.elapsed() < Duration::from_secs(8), "took {:?}", started.elapsed());
+}
