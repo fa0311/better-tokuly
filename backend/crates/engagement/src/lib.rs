@@ -14,7 +14,7 @@
 //! - **Keep your own counters** by implementing
 //!   `SubjectResolver::counter_changed`: it is called after every change
 //!   with one of `"comment_count"`, `"like_count"`, `"dislike_count"`,
-//!   `"reaction_count"` (emoji), `"bookmark_count"`, `"share_count"` and the
+//!   `"reaction_count"` (emoji, Unicode and custom), `"bookmark_count"`, `"share_count"` and the
 //!   delta. `comment_count` counts the comments in public view.
 //! - **Follow what users do** through the events in [`events`]
 //!   (`engagement.reaction.changed`, `engagement.bookmark.changed`,
@@ -30,7 +30,9 @@
 //! |---|---|
 //! | [`subjects`] | resolving subjects for a viewer; the resolvers and the topic guard this domain registers |
 //! | [`comments`] | comment rows, visibility, lifecycle, screening, lists, rendering, notifications |
-//! | [`reactions`], [`bookmarks`], [`shares`], [`reports`] | the other four features |
+//! | [`reactions`] | likes, dislikes and emoji (Unicode and custom): rules per subject, owners' settings, pictures, the grouped notification and the live pop |
+//! | [`bookmarks`], [`shares`], [`reports`] | the other three features |
+//! | [`mutes`] | the copy of who muted whom, for "who reacted" |
 //! | [`stats`] | a subject's counters and the throttled realtime push of them |
 //! | [`effects`] | what a committed change still owes the outside world |
 //! | [`text`] | every decision made by looking at text (pure functions) |
@@ -46,7 +48,9 @@
 //!   pushes and counter callbacks happen after the commit ([`effects`]).
 //! - Locks are taken in one order: comments (the top-level comment before
 //!   its replies), bookmark collections by ID, the rows being counted
-//!   (reactions, bookmarks, per-emoji and per-target counts), and last the
+//!   (reactions — after the per-user-and-subject lock and, for an emoji, the
+//!   subject's emoji lock — bookmarks, per-emoji and per-target counts),
+//!   and last the
 //!   subject's statistics row. Transactions that change many comments lock
 //!   every thread involved first, in ID order
 //!   ([`comments::lock_threads_of`]).
@@ -65,6 +69,7 @@ pub mod config;
 pub mod effects;
 pub mod events;
 pub mod export;
+pub mod mutes;
 pub mod reactions;
 pub mod reports;
 pub mod shares;
@@ -106,6 +111,9 @@ pub struct EngagementInner {
     pub core: Core,
     pub identity: Identity,
     pub cfg: EngagementConfig,
+    /// The subject types that take several emoji per person
+    /// (`TOKULY_ENGAGEMENT_MULTI_REACTION_TYPES`, as numbers).
+    multi_reaction_types: Vec<i32>,
     channels: RwLock<Option<Arc<dyn ChannelDirectory>>>,
 }
 
@@ -136,7 +144,13 @@ impl Engagement {
             "TOKULY_ENGAGEMENT_MAX_COLLECTIONS and TOKULY_ENGAGEMENT_MAX_BOOKMARKS must be positive"
         );
         anyhow::ensure!(cfg.report_repeat_days >= 0, "TOKULY_ENGAGEMENT_REPORT_REPEAT_DAYS must not be negative");
-        let engagement = Self(Arc::new(EngagementInner { core, identity, cfg, channels: RwLock::new(None) }));
+        anyhow::ensure!(
+            cfg.reaction_emoji_per_subject > 0 && cfg.reactions_per_person > 0,
+            "TOKULY_ENGAGEMENT_REACTION_EMOJI_PER_SUBJECT and TOKULY_ENGAGEMENT_REACTIONS_PER_PERSON must be positive"
+        );
+        let multi_reaction_types = cfg.multi_reaction_type_numbers()?;
+        let engagement =
+            Self(Arc::new(EngagementInner { core, identity, cfg, multi_reaction_types, channels: RwLock::new(None) }));
         subjects::register(&engagement);
         export::register(&engagement.core);
         Ok(engagement)

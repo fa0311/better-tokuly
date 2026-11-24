@@ -3,8 +3,8 @@
 Crate `tokuly-engagement`, migration `1100_engagement.sql`, API
 `tokuly.engagement.v1` (`CommentService`, `CommentModerationService`,
 `ReactionService`, `BookmarkService`, `EngagementService`, `ReportService`).
-Depends on `identity`, `media` (comment images), `stamp` (comment stamps) and
-`social` (blocks). No ClickHouse table of its own; no background jobs, one
+Depends on `identity`, `media` (comment images), `stamp` (comment stamps),
+`social` (blocks) and `emoji` (custom emoji reactions). No ClickHouse table of its own; no background jobs, one
 timer (the purge of comment texts kept for reports).
 
 Engagement knows no content. Everything attaches to a
@@ -42,7 +42,7 @@ get comments, likes, saves, shares and reports on your content.
   |---|---|
   | `comment_count` | comments in public view: published top-level comments and the published replies below them (hiding a thread subtracts its replies too) |
   | `like_count`, `dislike_count` | likes / dislikes |
-  | `reaction_count` | emoji reactions, all emoji together |
+  | `reaction_count` | emoji reactions, all emoji together (Unicode and custom) |
   | `bookmark_count` | users who saved the subject |
   | `share_count` | recorded shares |
 
@@ -79,7 +79,60 @@ Engagement itself registers:
   can be reported. A domain that registers users later replaces it;
 - the guard of the realtime topic kind `subject`;
 - a `DataExporter` named `engagement` (comments, the texts of them kept for
-  reports, reactions, collections, reports, screening rules, blocks).
+  reports, reactions, reaction settings, collections, reports, screening
+  rules, blocks).
+
+## Reactions
+
+A reaction is a like, a dislike or an emoji: a Unicode emoji (`🎉`) or a
+custom emoji of the emoji domain, stored and sent as its shortcode
+(`:neko:`, lowercase). Rows: `reactions`, one per reaction, keyed by user,
+subject and emoji (`''` for a like or dislike, so a person holds at most
+one of the two).
+
+**How many per person** (`ReactionRules` in every summary):
+
+| Subjects | Per person | Why |
+|---|---|---|
+| everything not listed below: videos, shorts, notes, live streams, stamp packs, questions… | **one** reaction; a new one replaces the old | Misskey's rule for notes. Content made for an audience: a reaction says how the person felt, and every count is people. |
+| `TOKULY_ENGAGEMENT_MULTI_REACTION_TYPES` (default community threads, replies and events, plans) | **several distinct emoji**, up to `TOKULY_ENGAGEMENT_REACTIONS_PER_PERSON` (20); a like and a dislike replace each other | Discord's rule for messages. Group conversation: reactions are quick answers (✅ 👀 🙏), several at once are normal. |
+| comments | a like or a dislike | unchanged |
+
+A subject carries at most `TOKULY_ENGAGEMENT_REACTION_EMOJI_PER_SUBJECT`
+(50) distinct emoji; once full, only emoji already on it can be added
+(Discord's rule), so summaries stay readable and nobody can flood a post
+with a hundred different emoji. Both limits are checked under locks: a
+per-user-and-subject advisory lock for the person's own reactions, and a
+per-subject one taken by every emoji addition (before any counter row) for
+the distinct count.
+
+**Custom emoji** are checked when added, before the transaction, against
+`tokuly_emoji::catalog::lookup` (cached catalogue): unknown, pending,
+rejected or disabled → `EMOJI_UNAVAILABLE`; flagged `sensitive` →
+`SENSITIVE_EMOJI_NOT_ALLOWED` unless the subject's owner allows them;
+`CUSTOM_EMOJI_NOT_ALLOWED` when the owner turned custom emoji off. Owners
+set this with `ReactionService.UpdateReactionSettings` (`reaction_settings`:
+custom emoji default on, sensitive default off; content that belongs to
+nobody never takes sensitive ones). An emoji that leaves the catalogue later
+keeps its reactions: they count, can be taken back, cannot be added again,
+and come back with `ReactionEmoji.available = false` (clients show the
+shortcode as text). Reactions follow the name, as on Misskey: a renamed
+emoji's old reactions show the old shortcode, as unavailable.
+
+Every response that carries reactions (summaries, `CountersChanged`,
+`ListReactions`, `ListMyReactions`, `reaction_added`) dresses custom emoji
+with `ReactionEmoji { name, image, static_url, animated, sensitive,
+available }`, looked up for the whole response in one catalogue read; the
+picture is never stored here. `static_url` is the smallest still of at
+least 64 px (else the largest), for reduced motion. After a reaction is
+stored its emoji (Unicode or custom) is reported with
+`tokuly_emoji::catalog::record_use`, so "recently used" and "popular" follow.
+
+**Who reacted** (`ListReactions`): emoji reactions are public to everyone
+who sees the subject, likes to the owner, dislikes to nobody; people in a
+block with the caller and people the caller muted are left out. Mutes are
+mirrored into `engagement_mutes` from `social.friend.prefs_changed` and
+`notify.mute.changed` (below); they change only what the muter sees.
 
 ## Channel identities
 
@@ -113,7 +166,7 @@ as its number, `subject_id` the subject's UUID.
 | `engagement.comment.edited` | the fields above, plus `body` (`{ ja, en }`: what notifications about the comment show for the new text), `mentioned` (the users the new text mentions), `owner_notice` (for a top-level comment: `{ user_id, kind, title }`, what the subject owner's notification becomes when the new text no longer mentions them, since a mentioned owner was told only by the mention; `null` for replies) and `edited_at` (the new version: the comment's `edited_at`, taken while it was locked, so it orders two edits) | The author changed the text of a comment, whatever its status (an edit can also hold it again, see `comment_removed`; `engagement.comment.hidden` is emitted first then). For copies of the old text: notify updates inbox entries and queued pushes, and withdraws mentions the edit took out. Carries comment text: internal consumers only, never webhooks. Actor: the author. |
 | `engagement.comment.hidden` | the fields above, plus `status` (`CommentStatus` number: 2 held, 3 hidden), `hold_reason` (`HoldReason` number), `visible_to` (who besides the author may still see it: `[subject owner]` when the owner hid it or it waits for their review, `[]` when a block hid it) and `changed_at` (taken while the comment was locked; orders it against the comment's other changes) | A comment left public view (or the review queue) without being deleted: hidden by the subject owner (`HideComment`), hidden because of a block (`social.user.blocked`, `BlockCommenter`), or held again by an edit that trips the owner's rules. Its replies left public view with it. For copies of it: notify withdraws inbox entries about it (and about the replies below it) from everyone else. Actor: the owner, the author (an edit), or nobody (a block). |
 | `engagement.comment.deleted` | same | A comment was deleted by its author, the subject owner, moderation, or because its only content was an upload deleted by force. Not emitted for the replies that go with a thread, nor for comments purged with their subject or their author's account. |
-| `engagement.reaction.changed` | `{ user_id, subject_type, subject_id, subject_owner_id, kind, emoji, previous_kind, previous_emoji }` | A user set, changed or removed a reaction. `kind` / `previous_kind` are `ReactionKind` numbers (1 like, 2 dislike, 3 emoji), 0 = none. `subject_owner_id` is `null` when a reaction was removed from a subject that no longer resolves. |
+| `engagement.reaction.changed` | `{ user_id, subject_type, subject_id, subject_owner_id, kind, emoji, previous_kind, previous_emoji }` | A reaction came or went: one event per reaction. `kind` / `previous_kind` are `ReactionKind` numbers (1 like, 2 dislike, 3 emoji), 0 = none; `emoji` is a Unicode emoji or `:name:` for a custom one. A replacement carries both sides; on a subject that takes several emoji per person, adding one has `previous_kind` 0 and taking one back has `kind` 0 (taking all back: one event each). `subject_owner_id` is `null` when a reaction was removed from a subject that no longer resolves. |
 | `engagement.bookmark.changed` | `{ user_id, subject_type, subject_id, saved }` | A user saved a subject (`saved: true`) or removed it from everything they saved. Moves between named collections emit nothing. |
 | `engagement.share.recorded` | `{ user_id, subject_type, subject_id, subject_owner_id, target }` | A share was recorded (a repeat by the same user or guest address with the same target within an hour is not). `user_id` is `null` for guests; `target` is the `ShareTarget` number. |
 
@@ -128,6 +181,8 @@ idempotent.
 | `admin.report.resolved` `{ report_ids: [uuid], action_taken: bool }` | The named reports become `ACTION_TAKEN` / `NO_ACTION`. Emitted by the admin domain when a moderator resolves the case the reports were filed into. |
 | `identity.user.deleted` `{ user_id }` | Erased: the user's comments (threads go with their replies), reactions, bookmarks and collections, reports they filed, screening rules, comment blocks (as owner and as blocked), mentions of them, the texts of their comments kept for reports. Purged: everything on the subjects they owned. Reports about them or their content stay, without the owner reference. Counters of other people's subjects follow, with callbacks. Works in batches of 200 per transaction. |
 | `social.user.blocked` `{ user_id, blocked_id }` | Everything either of the two wrote on the other's subjects is hidden (`HIDDEN`, reason `BLOCKED_COMMENTER`) for everyone and leaves the owner's review queue: the blocked user's comments because the blocker asked not to deal with them, the blocker's own because the owner of the content could no longer see, hide or delete them. Unblocking restores nothing; the owner can approve the comments. An event that arrives after the block was lifted changes nothing. 200 comments per transaction, like account erasure (and so for `BlockCommenter`). |
+| `social.friend.prefs_changed` `{ user_id, friend_id, muted }` | Mirrored into `engagement_mutes` (the pair's state with the event's time; an older change than the one held is ignored, so out-of-order and repeated delivery end in the latest state). |
+| `notify.mute.changed` `{ user_id, muted_user_id, muted }` | The same, for mutes made in the notification settings. |
 | `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions (a comment holds its image as `engagement:comment:<id>`, so owners and the janitor cannot delete it). A comment with text loses the image; a comment that was only the image is deleted. |
 
 ## Notification kinds
@@ -148,7 +203,7 @@ block, or as the owner of content that belongs to nobody.
 | `engagement.reply` | author of the thread; author of the reply answered | a reply entered public view | |
 | `engagement.mention` | users `@mentioned` | the comment entered public view, or an edit added the mention | only users who can see the subject; at most once a day per comment and user (editing a mention out and back in is not news) |
 | `engagement.heart` | comment author | the owner gave the comment a heart | no actor; collapse key `engagement.heart:<comment>`; at most once a day per comment |
-| `engagement.like` | subject owner (for a comment: its author) | someone liked or emoji-reacted | actor = the user; collapse key `engagement.like:<type>:<subject>`; at most once a day per user and subject; never for dislikes |
+| `engagement.like` | subject owner (for a comment: its author) | someone liked or reacted with an emoji | grouped: one entry per subject (collapse key `engagement.like:<type>:<subject>`), each new one naming the newest person and how many others hold a like or emoji there (「Aと他2人がリアクションしたよ! 🎉」, 「Aがいいねしたよ!」 when alone); the emoji is in the title (`:name:` for a custom one) and in `data = { kind, emoji, emoji_image_url, others }`. actor = the user; at most once a day per user and subject; never for dislikes |
 
 One person gets at most one notification per comment (reply before mention
 before comment). A held comment notifies its audience when it is approved,
@@ -174,7 +229,8 @@ periodic re-check.
 | `comment_updated` | a public comment was edited, hearted or lost its image; a thread's reply count changed |
 | `comment_removed` | a comment left public view (deleted, hidden, held again); `removed_count` includes its replies |
 | `comment_pinned` | the subject's pin moved |
-| `counters_changed` | any counter of the subject changed: full totals, pushed at once when nothing was pushed during the last second, otherwise once when that second is over |
+| `counters_changed` | any counter of the subject changed: full totals (custom emoji drawn, no viewer state, no rules), pushed at once when nothing was pushed during the last second, otherwise once when that second is over |
+| `reaction_added` | someone added a like or an emoji (with its picture), for an animation; who is not said. At most 10 per second per subject (Valkey counter `engagement:pop:<type>:<subject>:<second>`); more are only counted |
 
 `comment_added` / `comment_updated` carry the comment without viewer state.
 When its author has any block in place the comment is left out and clients
@@ -189,7 +245,7 @@ whenever the number of comments waiting for their review changes.
 | Event | Subject | Props |
 |---|---|---|
 | `engagement.comment` | `comment`, the comment ID | `subject_type`, `subject_id`, `reply`, `status` |
-| `engagement.reaction` | `subject`, the subject ID | `subject_type`, `kind`, `emoji` |
+| `engagement.reaction` | `subject`, the subject ID | `subject_type`, `kind`, `emoji`, `custom` |
 | `engagement.share` | `subject`, the subject ID | `subject_type`, `target` — the only per-share record (PostgreSQL keeps counts) |
 | `engagement.report` | `subject`, the subject ID | `subject_type`, `category` |
 
@@ -210,7 +266,8 @@ that changes what they count).
 | `rl:engagement:…` | counters | rate limits (below) |
 | `engagement:comment:dup:<user>:<type>:<subject>:<hash>` | marker, 60 s | the same comment (text and stamp, case- and width-insensitive) cannot be posted on the same subject twice in a row |
 | `engagement:push:lead:<type>:<subject>` / `…:trail:…` | markers, 1 s / 3 s | throttle of `counters_changed` |
-| `engagement:liked:<user>:<type>:<subject>` | marker, 24 h | one like notification per user and subject per day |
+| `engagement:liked:<user>:<type>:<subject>` | marker, 24 h | one like / reaction notification per user and subject per day |
+| `engagement:pop:<type>:<subject>:<unix second>` | counter, 2 s | at most 10 `reaction_added` per subject and second |
 | `engagement:shared:<user or guest:key>:<type>:<subject>:<target>` | marker, 1 h | a repeated share is not counted again. A guest's key is an HMAC (key derived from `TOKULY_SECRET`) of their address, or of its /64 for IPv6; the address itself is never stored, also not in the guests' rate limit `rl:engagement:share:guest:<key>` |
 | `engagement:heart:<comment>` | marker, 24 h | one heart notification per comment per day |
 | `engagement:mentioned:<comment>:<user>` | marker, 24 h | one mention notification per comment and user per day |
@@ -225,8 +282,12 @@ that changes what they count).
 | `TOKULY_ENGAGEMENT_REPORT_REPEAT_DAYS` | `7` | Days after which an unanswered report is superseded by a new report of the same user on the same subject instead of blocking it (`ALREADY_REPORTED`). `0` = at once. |
 | `TOKULY_ENGAGEMENT_MAX_COLLECTIONS` | `100` | Bookmark collections per user, the default one included. |
 | `TOKULY_ENGAGEMENT_MAX_BOOKMARKS` | `5000` | Subjects per bookmark collection. |
+| `TOKULY_ENGAGEMENT_REACTION_EMOJI_PER_SUBJECT` | `50` | Distinct emoji one subject may carry. |
+| `TOKULY_ENGAGEMENT_REACTIONS_PER_PERSON` | `20` | Emoji one person may hold at once on a subject that takes several. |
+| `TOKULY_ENGAGEMENT_MULTI_REACTION_TYPES` | `COMMUNITY_THREAD,COMMUNITY_REPLY,COMMUNITY_EVENT,PLAN` | Subject types (`SubjectType` names, prefix optional) that take several emoji per person; every other type takes one. Comments cannot be listed. |
 
-Fixed rate limits: comment edits 30/min; reactions 120/min; bookmark changes
+Fixed rate limits: comment edits 30/min; reactions 120/min; reaction
+settings changes 30/min; bookmark changes
 (and collection creation) 120/min; shares 60/min per user, 30/min per client
 address for guests; screening-rule changes 30/min; comment blocks 60/h.
 

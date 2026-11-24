@@ -201,6 +201,15 @@ Generic over `SubjectRef` (uses `core.subjects`).
   owner, creator heart, like/dislike on comments, sort top/new, comment as a
   channel identity, hold-for-review and blocked words per subject owner.
 - Reactions: like/dislike and emoji reactions on any subject, with counts.
+  Emoji are Unicode or custom (Misskey-style `:shortcode:`, approved in the
+  emoji catalogue; drawn with their picture and a still for reduced motion,
+  shown as text once taken down; usage feeds "recently used"/"popular").
+  One reaction per person on content (Misskey), several distinct emoji per
+  person on group conversation such as community threads and plans
+  (Discord); a cap of distinct emoji per subject. Owners choose whether
+  their content takes custom and sensitive emoji. "Who reacted" per emoji
+  without blocked or muted people; reactions pop live on the subject's
+  screens; the owner's notification is grouped ("Aと他2人がリアクション").
 - Bookmarks/saves with collections, share tracking, view counters.
 - Reports: reason categories + text against any subject; feeds the admin queue.
 - Realtime `EngagementEvent` on `subject:{type}:{id}` topics.
@@ -392,7 +401,6 @@ Collected here so the next pass over each domain has its list:
   trends, a following timeline, circle audiences, a profile media grid.
 - **identity**: profile extras (MBTI, 推し, links, pronouns, プロフ帳 cards),
   bot flag, linked accounts for quick switching.
-- **engagement**: custom emoji as reactions.
 - **federation** (new, after notes): ActivityPub, so accounts and notes
   interoperate with Misskey and Mastodon.
 - **web**: deck layout, command palette, theme editor, API explorer.

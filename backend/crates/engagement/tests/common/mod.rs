@@ -3,8 +3,10 @@
 //! Engagement knows no content of its own, so the tests bring two fake
 //! content domains ([`FakeDomain`]: "videos" and "notes") that register
 //! subject resolvers exactly like a real domain would, and record the
-//! counter callbacks they receive. The social and stamp domains run for
-//! real: blocks and stamps are part of what is tested.
+//! counter callbacks they receive, plus "threads" (community threads), a
+//! type that takes several emoji per person. The social, stamp and emoji
+//! domains run for real: blocks, stamps and custom emoji are part of what
+//! is tested.
 //!
 //! Every test starts its own app ([`start`]) against the test binary's
 //! database and creates its own users and subjects.
@@ -32,7 +34,7 @@ use tokuly_testkit::{FrameListener, RpcError, ServerFrame, TestApp, TestUser};
 
 /// Admin's migration is always there: tests of one binary share a database,
 /// and some of them hand reports to the admin domain.
-pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "0500", "1100", "1400", "1600"];
+pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "0500", "1100", "1400", "1600", "1700"];
 
 /// Who may see a fake subject, besides its owner.
 #[derive(Debug, Clone)]
@@ -211,6 +213,8 @@ pub struct Ctx {
     pub engagement: Engagement,
     pub videos: Arc<FakeDomain>,
     pub notes: Arc<FakeDomain>,
+    /// Community threads: several emoji per person.
+    pub threads: Arc<FakeDomain>,
     pub channels: Arc<FakeChannels>,
 }
 
@@ -242,19 +246,23 @@ pub async fn start_with_admin() -> (Ctx, tokuly_admin::Admin) {
 async fn start_app(cfg: EngagementConfig, with_admin: bool) -> (Ctx, Option<tokuly_admin::Admin>) {
     let videos = FakeDomain::new(SubjectType::SUBJECT_TYPE_VIDEO);
     let notes = FakeDomain::new(SubjectType::SUBJECT_TYPE_NOTE);
+    let threads = FakeDomain::new(SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD);
     let channels = Arc::new(FakeChannels::default());
     let mut domain = None;
     let mut admin = None;
     let app = TestApp::start(MIGRATIONS, |core, identity, router| {
         core.subjects.register(SubjectType::SUBJECT_TYPE_VIDEO, videos.clone());
         core.subjects.register(SubjectType::SUBJECT_TYPE_NOTE, notes.clone());
+        core.subjects.register(SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD, threads.clone());
+        let emoji = tokuly_emoji::Emoji::new(core.clone(), identity.clone(), tokuly_emoji::EmojiConfig::default())
+            .expect("emoji domain");
         let social = Social::new(core.clone(), identity.clone(), SocialConfig::default()).expect("social domain");
         let stamp =
             Stamp::new(core.clone(), identity.clone(), StampConfig { seed_official: false, ..Default::default() })
                 .expect("stamp domain");
         let engagement = Engagement::new(core.clone(), identity.clone(), cfg).expect("engagement domain");
         engagement.set_channel_directory(channels.clone());
-        let mut router = engagement.register(stamp.register(social.register(router)));
+        let mut router = engagement.register(emoji.register(stamp.register(social.register(router))));
         if with_admin {
             let moderation =
                 tokuly_admin::Admin::new(core.clone(), identity.clone(), tokuly_admin::AdminConfig::default())
@@ -266,7 +274,7 @@ async fn start_app(cfg: EngagementConfig, with_admin: bool) -> (Ctx, Option<toku
         router
     })
     .await;
-    (Ctx { app, engagement: domain.expect("register ran"), videos, notes, channels }, admin)
+    (Ctx { app, engagement: domain.expect("register ran"), videos, notes, threads, channels }, admin)
 }
 
 pub fn page<P: buffa::ProtoBox<PageRequest>>(limit: i32, cursor: &str) -> buffa::MessageField<PageRequest, P> {
@@ -322,6 +330,69 @@ impl Ctx {
 
     pub fn note(&self, owner: &TestUser, title: &str) -> FakeSubject {
         self.notes.add(owner.id, title)
+    }
+
+    /// A community thread: takes several emoji per person.
+    pub fn thread(&self, owner: &TestUser, title: &str) -> FakeSubject {
+        self.threads.add(owner.id, title)
+    }
+
+    /// Adds a custom emoji to the catalogue (as a moderator) and returns
+    /// its ID and its shortcode (`:name:`). Names are unique per call: the
+    /// catalogue is one for the whole database.
+    pub async fn custom_emoji(&self, prefix: &str, sensitive: bool) -> (String, String) {
+        let moderator = self.app.user_with_roles("emojimod", &["moderator"]).await;
+        let asset = tokuly_media::testing::ready_image(&self.app.core, moderator.id, AssetPurpose::ASSET_PURPOSE_STAMP)
+            .await
+            .unwrap();
+        let name = format!("{prefix}_{}", &Uuid::now_v7().simple().to_string()[20..]);
+        let request = tokuly_proto::emoji::AddEmojiRequest {
+            name: name.clone(),
+            asset_id: asset.id.to_string(),
+            sensitive,
+            ..Default::default()
+        };
+        let response: tokuly_proto::emoji::AddEmojiResponse =
+            self.app.call("tokuly.emoji.v1.EmojiAdminService/AddEmoji", Some(&moderator), &request).await.unwrap();
+        let emoji = response.emoji.into_option().unwrap().emoji.into_option().unwrap();
+        (emoji.id, format!(":{name}:"))
+    }
+
+    /// Takes a custom emoji out of the catalogue, as a moderator.
+    pub async fn disable_emoji(&self, emoji_id: &str) {
+        let moderator = self.app.user_with_roles("emojimod", &["moderator"]).await;
+        let request = tokuly_proto::emoji::DisableEmojiRequest {
+            emoji_id: emoji_id.to_owned(),
+            reason: "テスト".into(),
+            ..Default::default()
+        };
+        let _: tokuly_proto::emoji::DisableEmojiResponse =
+            self.app.call("tokuly.emoji.v1.EmojiAdminService/DisableEmoji", Some(&moderator), &request).await.unwrap();
+    }
+
+    /// Changes `owner`'s settings for reactions to their content.
+    pub async fn set_reaction_settings(&self, owner: &TestUser, custom_emoji: bool, sensitive_emoji: bool) {
+        let request = UpdateReactionSettingsRequest {
+            settings: ReactionSettings { custom_emoji, sensitive_emoji, ..Default::default() }.into(),
+            ..Default::default()
+        };
+        let _: UpdateReactionSettingsResponse =
+            self.call("ReactionService", "UpdateReactionSettings", Some(owner), &request).await.unwrap();
+    }
+
+    /// Who reacted to a subject, as `viewer` sees it (first page).
+    pub async fn reactors(&self, viewer: Option<&TestUser>, subject: &FakeSubject, emoji: &str) -> Vec<Reactor> {
+        let kind =
+            if emoji.is_empty() { ReactionKind::REACTION_KIND_UNSPECIFIED } else { ReactionKind::REACTION_KIND_EMOJI };
+        let request = ListReactionsRequest {
+            subject: subject.subject_ref().into(),
+            kind: kind.into(),
+            emoji: emoji.to_owned(),
+            ..Default::default()
+        };
+        let response: ListReactionsResponse =
+            self.call("ReactionService", "ListReactions", viewer, &request).await.unwrap();
+        response.reactors
     }
 
     /// Writes a top-level text comment.
@@ -411,6 +482,12 @@ impl Ctx {
     pub async fn deliver(&self, topic: &str, actor_id: Option<Uuid>, data: serde_json::Value) {
         let event =
             Event { id: Uuid::now_v7(), topic: topic.to_owned(), actor_id, occurred_at: chrono::Utc::now(), data };
+        self.engagement.handle_event(event).await.unwrap_or_else(|error| panic!("{topic} handler failed: {error}"));
+    }
+
+    /// Hands engagement an event that happened at `at`.
+    pub async fn deliver_at(&self, topic: &str, data: serde_json::Value, at: chrono::DateTime<chrono::Utc>) {
+        let event = Event { id: Uuid::now_v7(), topic: topic.to_owned(), actor_id: None, occurred_at: at, data };
         self.engagement.handle_event(event).await.unwrap_or_else(|error| panic!("{topic} handler failed: {error}"));
     }
 

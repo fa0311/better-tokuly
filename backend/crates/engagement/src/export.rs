@@ -49,7 +49,11 @@ impl DataExporter for EngagementExporter {
             "reactions": section(
                 "SELECT jsonb_build_object('subject_type', subject_type, 'subject_id', subject_id, 'kind', kind, 'emoji', emoji,
                         'reacted_at', created_at)
-                 FROM reactions WHERE user_id = $1 ORDER BY created_at, subject_id"
+                 FROM reactions WHERE user_id = $1 ORDER BY created_at, subject_id, emoji"
+            ).await?,
+            "reaction_settings": section(
+                "SELECT jsonb_build_object('custom_emoji', custom_emoji, 'sensitive_emoji', sensitive_emoji, 'updated_at', updated_at)
+                 FROM reaction_settings WHERE user_id = $1"
             ).await?,
             "collections": section(
                 "SELECT jsonb_build_object('id', c.id, 'name', c.name, 'is_default', c.is_default, 'created_at', c.created_at,

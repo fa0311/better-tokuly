@@ -10,9 +10,13 @@ use std::{collections::HashMap, time::Duration};
 
 use sqlx::PgConnection;
 use tokuly_core::prelude::*;
-use tokuly_proto::engagement::{CountersChanged, EmojiCount, EngagementEvent, Reaction, ReactionSummary};
+use tokuly_proto::engagement::{CountersChanged, EmojiCount, EngagementEvent, ReactionSummary};
 
-use crate::{Engagement, subjects::SubjectKey};
+use crate::{
+    Engagement,
+    reactions::{self, Pictures, Stored},
+    subjects::SubjectKey,
+};
 
 /// Emoji listed in a `ReactionSummary`.
 pub(crate) const SUMMARY_EMOJI: i64 = 20;
@@ -188,16 +192,17 @@ impl Stats {
         self.rows.get(&key).cloned().unwrap_or_default()
     }
 
-    /// The reaction summary of a subject for a viewer whose own reaction is
-    /// `viewer_reaction`.
-    pub(crate) fn reactions(&self, key: SubjectKey, viewer_reaction: Option<Reaction>) -> ReactionSummary {
+    /// The reaction summary of a subject for a viewer whose own reactions
+    /// are `own` (oldest first), without rules and pictures.
+    pub(crate) fn reactions(&self, key: SubjectKey, own: &[Stored]) -> ReactionSummary {
         let row = self.of(key);
         ReactionSummary {
             like_count: row.like_count,
             dislike_count: row.dislike_count,
             emoji_counts: self.emoji.get(&key).cloned().unwrap_or_default(),
             emoji_total: row.emoji_count,
-            viewer_reaction: viewer_reaction.into(),
+            viewer_reaction: reactions::representative(own).map(Stored::to_proto).into(),
+            viewer_reactions: own.iter().map(Stored::to_proto).collect(),
             ..Default::default()
         }
     }
@@ -305,11 +310,19 @@ impl Engagement {
             }
         };
         let row = stats.of(key);
+        let mut reactions = stats.reactions(key, &[]);
+        match Pictures::for_summaries(&self.core, &[&reactions]).await {
+            Ok(pictures) => pictures.dress_summary(&mut reactions),
+            Err(error) => {
+                tracing::warn!(%error, "counter push skipped");
+                return;
+            }
+        }
         let event = EngagementEvent {
             subject: key.to_ref().into(),
             event: Some(
                 CountersChanged {
-                    reactions: stats.reactions(key, None).into(),
+                    reactions: reactions.into(),
                     comment_count: row.comment_count,
                     bookmark_count: row.bookmark_count,
                     share_count: row.share_count,
@@ -352,8 +365,8 @@ mod tests {
         let key = SubjectKey::new(SubjectType::SUBJECT_TYPE_NOTE, Uuid::now_v7());
         let stats = Stats::default();
         assert_eq!(stats.of(key).comment_count, 0);
-        let summary = stats.reactions(key, None);
+        let summary = stats.reactions(key, &[]);
         assert_eq!((summary.like_count, summary.emoji_total, summary.emoji_counts.len()), (0, 0, 0));
-        assert!(summary.viewer_reaction.as_option().is_none());
+        assert!(summary.viewer_reaction.as_option().is_none() && summary.viewer_reactions.is_empty());
     }
 }

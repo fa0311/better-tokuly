@@ -102,7 +102,8 @@ async fn one_reaction_per_user_moves_the_counters() {
     assert_eq!(from_bob[0]["collapse_key"], format!("engagement.like:5:{}", video.id));
     let from_carol: Vec<_> =
         notices.iter().filter(|notice| notice["actor_id"] == serde_json::json!(carol.id)).collect();
-    assert_eq!(from_carol[0]["title"]["en"], "Carol reacted 🎉");
+    // Grouped: Bob was already reacting when Carol did.
+    assert_eq!(from_carol[0]["title"]["en"], "Carol and 1 other reacted 🎉");
     assert_eq!(notices.len(), 2, "the owner's own reaction tells nobody");
 
     // Every change is an event other domains can follow.

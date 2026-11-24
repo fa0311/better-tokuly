@@ -30,7 +30,10 @@ pub const COMMENT_EDITED: &str = "engagement.comment.edited";
 /// Payload: [`CommentHidden`]. Lets copies of it (inbox entries) be
 /// withdrawn from those who can no longer see it.
 pub const COMMENT_HIDDEN: &str = "engagement.comment.hidden";
-/// A user set, changed or removed their reaction. Payload: [`ReactionChanged`].
+/// A user added, replaced or took back a reaction. Payload:
+/// [`ReactionChanged`]. One event per reaction that came or went: on a
+/// subject that takes several emoji per person, adding one says nothing
+/// about the others (`previous_kind` 0).
 pub const REACTION_CHANGED: &str = "engagement.reaction.changed";
 /// A user saved a subject or removed it from everything they saved.
 /// Payload: [`BookmarkChanged`].
@@ -144,8 +147,9 @@ pub struct ReactionChanged {
     pub subject_owner_id: Option<Uuid>,
     /// `tokuly.engagement.v1.ReactionKind` as its number; 0 = no reaction.
     pub kind: i32,
+    /// A Unicode emoji, or a custom emoji as `:name:`.
     pub emoji: String,
-    /// What the user's reaction was before; 0 = none.
+    /// The reaction this one replaced, or that was taken back; 0 = none.
     pub previous_kind: i32,
     pub previous_emoji: String,
 }
@@ -175,6 +179,10 @@ pub struct ShareRecorded {
 pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BLOCKED: &str = "social.user.blocked";
 pub const FRIEND_REMOVED: &str = "social.friend.removed";
+/// `user_id` muted or unmuted their friend `friend_id`.
+pub const FRIEND_PREFS_CHANGED: &str = "social.friend.prefs_changed";
+/// A mute made in the notification settings. Payload: [`MuteChanged`].
+pub const MUTE_CHANGED: &str = "notify.mute.changed";
 pub const ASSET_DELETED: &str = "media.asset.deleted";
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
 /// A moderator resolved the case the reports were filed into. Payload:
@@ -190,6 +198,14 @@ pub struct ContentRemoved {
     pub reason: String,
     #[serde(default)]
     pub moderator_id: Option<Uuid>,
+}
+
+/// `notify.mute.changed`: `user_id` muted or unmuted `muted_user_id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MuteChanged {
+    pub user_id: Uuid,
+    pub muted_user_id: Uuid,
+    pub muted: bool,
 }
 
 /// `media.asset.deleted`: an upload and its files are gone. Only the field

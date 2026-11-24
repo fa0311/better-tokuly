@@ -362,6 +362,8 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("RemoveReaction", Write),
         ("ListReactions", Read),
         ("ListMyReactions", Read),
+        ("GetReactionSettings", Read),
+        ("UpdateReactionSettings", Write),
     ]),
     ("tokuly.engagement.v1.BookmarkService", &[
         ("AddBookmark", Write),
