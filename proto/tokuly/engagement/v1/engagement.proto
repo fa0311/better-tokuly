@@ -721,7 +721,8 @@ service ReactionService {
   // out.
   //
   // Public. Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT,
-  // REACTION_LIST_PRIVATE (permission denied), INVALID_CURSOR.
+  // REACTION_LIST_PRIVATE (permission denied), EMOJI_INVALID (the emoji
+  // filter), INVALID_CURSOR.
   rpc ListReactions(ListReactionsRequest) returns (ListReactionsResponse);
 
   // Subjects the caller reacted to, most recent first — e.g. "liked videos"
