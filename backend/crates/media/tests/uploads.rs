@@ -987,3 +987,23 @@ async fn open_uploads_are_capped_per_user() {
     let error = h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &request).await.unwrap_err();
     assert_eq!((error.code.as_str(), error.reason.as_str()), ("resource_exhausted", "TOO_MANY_UPLOADS"));
 }
+
+#[tokio::test]
+async fn private_downloads_are_never_cached_by_shared_caches() {
+    let h = start().await;
+    let alice = h.app.user("alice").await;
+    let bytes = b"bank statement".to_vec();
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_CHAT_FILE, "statement.txt", "text/plain", &bytes).await;
+    // The uploader may send headers the signature does not cover.
+    let mut request = h.http.put(&upload.put_url).body(bytes.clone()).header("Cache-Control", "public, max-age=31536000");
+    for (name, value) in &upload.put_headers {
+        request = request.header(name, value);
+    }
+    assert!(request.send().await.unwrap().status().is_success());
+    let asset = h.complete(&alice, &upload.upload_id).await.unwrap();
+
+    let download = h.http.get(&asset.url).send().await.unwrap();
+    assert_eq!(download.status(), 200);
+    let cache_control = download.headers().get("cache-control").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+    assert!(cache_control.contains("private") && cache_control.contains("no-store") && !cache_control.contains("public"), "{cache_control:?}");
+}

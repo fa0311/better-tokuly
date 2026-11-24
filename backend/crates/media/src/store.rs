@@ -6,9 +6,10 @@
 //!
 //! - upload URLs are signed together with the exact `Content-Length`, so a
 //!   URL issued for a 2 MB avatar cannot be used to store 50 GB;
-//! - download URLs of private files force `Content-Disposition: attachment`
-//!   and the detected content type, so an uploaded HTML file can never render
-//!   in the storage origin;
+//! - download URLs of private files force `Content-Disposition: attachment`,
+//!   the detected content type and `Cache-Control: private, no-store`, so an
+//!   uploaded HTML file can never render in the storage origin and no shared
+//!   cache keeps a copy;
 //! - type detection reads only the first bytes of an object, and checksums
 //!   are computed on a stream, so neither loads a large upload into memory.
 use std::{sync::OnceLock, time::Duration};
@@ -26,6 +27,9 @@ use tokuly_core::{config::Config, prelude::*, storage::Bucket};
 /// `Cache-Control` of everything written to the media bucket: keys are
 /// content-addressed or scoped to an asset that never changes once READY.
 pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+
+/// `Cache-Control` of every download of a private file.
+pub const PRIVATE_NO_STORE: &str = "private, no-store";
 
 /// Part size for originals the server itself stores in parts.
 const SERVER_PART_BYTES: u64 = 64 * 1024 * 1024;
@@ -176,6 +180,9 @@ impl Presigner {
             .key(key)
             .response_content_disposition(attachment_disposition(file_name))
             .response_content_type(content_type)
+            // Whatever the uploader sent along with the PUT, a private file
+            // is never kept by a shared cache (or by the browser).
+            .response_cache_control(PRIVATE_NO_STORE)
             .presigned(presigning(ttl)?)
             .await
             .map_err(|e| s3_err("presign get", e))?;
