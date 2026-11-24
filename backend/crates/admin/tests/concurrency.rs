@@ -25,7 +25,12 @@ async fn a_burst_of_suspensions_from_one_moderator_does_not_starve_the_pool() {
     // Direct suspensions, each locking the account while identity locks it too.
     let (app, moderator) = (&app, &moderator);
     let suspended = join_all(targets.iter().map(|target| async move {
-        let request = SuspendUserRequest { user_id: target.id.to_string(), reason: "スパム".into(), suspension_seconds: 86_400, ..Default::default() };
+        let request = SuspendUserRequest {
+            user_id: target.id.to_string(),
+            reason: "スパム".into(),
+            suspension_seconds: 86_400,
+            ..Default::default()
+        };
         app.call::<_, SuspendUserResponse>(&format!("{USERS}/SuspendUser"), Some(moderator), &request).await
     }))
     .await;
@@ -43,11 +48,16 @@ async fn a_burst_of_suspensions_from_one_moderator_does_not_starve_the_pool() {
         let request = UnsuspendUserRequest { user_id: target.id.to_string(), ..Default::default() };
         app.call::<_, UnsuspendUserResponse>(&format!("{USERS}/UnsuspendUser"), Some(moderator), &request).await
     });
-    let (lifted, expired) = tokio::join!(join_all(lifts), async { join_all((0..3).map(|_| admin.expire_due_suspensions())).await });
+    let (lifted, expired) =
+        tokio::join!(join_all(lifts), async { join_all((0..3).map(|_| admin.expire_due_suspensions())).await });
     for result in &lifted {
         assert!(result.is_ok(), "{result:?}");
     }
-    assert_eq!(expired.into_iter().map(|r| r.unwrap()).sum::<u64>(), (BURST / 2) as u64, "every due suspension is lifted exactly once");
+    assert_eq!(
+        expired.into_iter().map(|r| r.unwrap()).sum::<u64>(),
+        (BURST / 2) as u64,
+        "every due suspension is lifted exactly once"
+    );
 
     // Cases resolved with a ban: the case row is locked while the owner is.
     let reporter = app.user("rep").await;
@@ -55,7 +65,10 @@ async fn a_burst_of_suspensions_from_one_moderator_does_not_starve_the_pool() {
     for owner in &targets {
         cases.push(open_case(app, &admin, moderator, &reporter, owner).await);
     }
-    let bans = join_all(cases.iter().map(|case| resolve(app, moderator, resolution(case, ModerationActionKind::MODERATION_ACTION_KIND_BAN, "スパム")))).await;
+    let bans = join_all(cases.iter().map(|case| {
+        resolve(app, moderator, resolution(case, ModerationActionKind::MODERATION_ACTION_KIND_BAN, "スパム"))
+    }))
+    .await;
     for result in &bans {
         assert!(result.is_ok(), "{result:?}");
     }
@@ -73,7 +86,8 @@ async fn two_admins_demoting_each_other_at_once_leave_one_of_them_admin() {
         let a = app.user_with_roles("a", &["admin"]).await;
         let b = app.user_with_roles("b", &["admin"]).await;
         let demote = |by: &tokuly_testkit::TestUser, whom: &tokuly_testkit::TestUser| {
-            let (app, by, request) = (&app, by.clone(), SetUserRolesRequest { user_id: whom.id.to_string(), ..Default::default() });
+            let (app, by, request) =
+                (&app, by.clone(), SetUserRolesRequest { user_id: whom.id.to_string(), ..Default::default() });
             async move { app.call::<_, SetUserRolesResponse>(&format!("{USERS}/SetUserRoles"), Some(&by), &request).await }
         };
         let (a_demotes_b, b_demotes_a) = tokio::join!(demote(&a, &b), demote(&b, &a));

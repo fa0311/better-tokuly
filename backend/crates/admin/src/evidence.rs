@@ -32,7 +32,13 @@ pub trait ReportEvidence: Send + Sync + 'static {
     /// outlives the subject being edited, unsent or deleted by its owner.
     /// Runs on the transaction that files the report; idempotent. Subject
     /// types the implementation does not know hold nothing.
-    async fn hold(&self, conn: &mut PgConnection, subject_type: SubjectType, subject_id: Uuid, holder: &str) -> AppResult<()>;
+    async fn hold(
+        &self,
+        conn: &mut PgConnection,
+        subject_type: SubjectType,
+        subject_id: Uuid,
+        holder: &str,
+    ) -> AppResult<()>;
 
     /// Lets go of everything `holder` holds.
     async fn release(&self, conn: &mut PgConnection, holder: &str) -> AppResult<()>;
@@ -52,12 +58,23 @@ impl Admin {
 
     /// Holds the subject's uploads for `case_id`, on the transaction filing
     /// a report into it.
-    pub(crate) async fn hold_evidence(&self, conn: &mut PgConnection, case_id: Uuid, subject_type: i32, subject_id: Uuid) -> AppResult<()> {
-        let (Some(evidence), Some(subject_type)) = (self.evidence.get(), buffa::EnumValue::<SubjectType>::from(subject_type).as_known()) else {
+    pub(crate) async fn hold_evidence(
+        &self,
+        conn: &mut PgConnection,
+        case_id: Uuid,
+        subject_type: i32,
+        subject_id: Uuid,
+    ) -> AppResult<()> {
+        let (Some(evidence), Some(subject_type)) =
+            (self.evidence.get(), buffa::EnumValue::<SubjectType>::from(subject_type).as_known())
+        else {
             return Ok(());
         };
         evidence.hold(&mut *conn, subject_type, subject_id, &case_holder(case_id)).await?;
-        sqlx::query("UPDATE moderation_cases SET evidence_held = true WHERE id = $1 AND NOT evidence_held").bind(case_id).execute(&mut *conn).await?;
+        sqlx::query("UPDATE moderation_cases SET evidence_held = true WHERE id = $1 AND NOT evidence_held")
+            .bind(case_id)
+            .execute(&mut *conn)
+            .await?;
         Ok(())
     }
 
