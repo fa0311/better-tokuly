@@ -47,11 +47,12 @@ impl BookmarkService for Engagement {
             let collection_id = parse_opt_id(&request.collection_id)?;
             let subject = self.requested_subject_loose(request.subject.as_option(), user_id).await?;
             let bookmarked = Engagement::remove_bookmark(self, user_id, &subject, collection_id).await?;
-            ok(RemoveBookmarkResponse {
-                bookmarked,
-                bookmark_count: self.bookmark_count(subject.key).await?,
-                ..Default::default()
-            })
+            // The numbers of a subject the caller can no longer see are not theirs to read.
+            let bookmark_count = match subject.subject {
+                Some(_) => self.bookmark_count(subject.key).await?,
+                None => 0,
+            };
+            ok(RemoveBookmarkResponse { bookmarked, bookmark_count, ..Default::default() })
         })
         .await
     }

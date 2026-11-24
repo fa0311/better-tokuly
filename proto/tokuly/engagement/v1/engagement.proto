@@ -608,7 +608,8 @@ service ReactionService {
   rpc SetReaction(SetReactionRequest) returns (SetReactionResponse);
 
   // Takes the caller's reaction back. Does nothing when there is none. Works
-  // by UUID even after the subject stopped being visible to the caller.
+  // by UUID even after the subject stopped being visible to the caller; the
+  // returned counts are then all zero.
   //
   // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, RATE_LIMITED.
   rpc RemoveReaction(RemoveReactionRequest) returns (RemoveReactionResponse);
@@ -711,7 +712,7 @@ service BookmarkService {
 
   // Removes a saved subject: from one collection, or — without a collection
   // or with the default one — from everywhere. Works by UUID even after the
-  // subject stopped being visible to the caller.
+  // subject stopped being visible to the caller; `bookmark_count` is then 0.
   //
   // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, COLLECTION_NOT_FOUND, RATE_LIMITED.
   rpc RemoveBookmark(RemoveBookmarkRequest) returns (RemoveBookmarkResponse);
