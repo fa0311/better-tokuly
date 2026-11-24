@@ -396,6 +396,69 @@ test("chat lines arrive live, the streamer deletes one, and slow mode holds a se
   await viewer.context().close();
 });
 
+/**
+ * Stands between the page and the realtime gateway and holds back the first
+ * frame that asks for `topic` (the Hello naming it, or its Subscribe), with
+ * everything the page sends after it, until `release()`. Until then the
+ * gateway does not have the subscription: what is published on the topic in
+ * the meantime never reaches the page, and only a read made after the
+ * gateway's answer has it. The page is kept on WebSocket, which Playwright
+ * can stand in.
+ */
+async function holdSubscription(page: Page, topic: string) {
+  const needle = Buffer.from(topic);
+  let holding = true;
+  const held: (() => void)[] = [];
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(globalThis, "WebTransport");
+  });
+  await page.routeWebSocket(/\/rt\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      const bytes = typeof message === "string" ? Buffer.from(message) : message;
+      if (holding && (held.length > 0 || bytes.includes(needle)))
+        held.push(() => server.send(message));
+      else server.send(message);
+    });
+  });
+  return {
+    asked: () => held.length > 0,
+    release() {
+      holding = false;
+      for (const send of held.splice(0)) send();
+    },
+  };
+}
+
+test("a chat line sent while the room is still subscribing shows once the subscription is in place", async ({
+  page,
+  request,
+  me,
+}) => {
+  await createChannel(request, me);
+  const stream = await createStream(request, me);
+  await rpc(request, `${CHAT}/SendChatMessage`, { streamId: stream.id, text: "さきに来てた" }, me);
+  const gate = await holdSubscription(page, `live:${stream.id}`);
+
+  await page.goto(`/live/${stream.shortId}`);
+  // The chat was read; the page asked for the topic, which the gateway has not heard yet.
+  await expect(chatLines(page).filter({ hasText: "さきに来てた" })).toBeVisible();
+  await expect.poll(gate.asked).toBe(true);
+  await rpc(
+    request,
+    `${CHAT}/SendChatMessage`,
+    { streamId: stream.id, text: "すきまに来た！" },
+    me,
+  );
+
+  // The gateway answers once the subscription is in place; the room reads again then.
+  gate.release();
+  await expect(chatLines(page).filter({ hasText: "すきまに来た！" })).toBeVisible();
+  // And from now on lines arrive live.
+  await rpc(request, `${CHAT}/SendChatMessage`, { streamId: stream.id, text: "そのあと！" }, me);
+  await expect(chatLines(page).filter({ hasText: "そのあと！" })).toBeVisible();
+});
+
 // ───────────────────────────── Polls ─────────────────────────────
 
 test("a poll round trip: the streamer opens it, a viewer votes, the results move for both", async ({
