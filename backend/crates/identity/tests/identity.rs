@@ -407,7 +407,14 @@ fn totp_now(secret_base32: &str) -> String {
 /// step of clock skew either way, and every step only once).
 fn totp_at(secret_base32: &str, steps: i64) -> String {
     use totp_rs::{Builder, Secret};
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let now_secs = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    // A code for the previous step is only accepted while the server is still in the same
+    // step as this test. Close to a step boundary the request could arrive in the next one
+    // (and the code would be two steps old), so wait for the new step first.
+    if now_secs() % 30 >= 27 {
+        std::thread::sleep(std::time::Duration::from_secs(4));
+    }
+    let now = now_secs();
     Builder::new()
         .with_secret(Secret::try_from_base32(secret_base32).unwrap())
         .with_account_name("test".to_owned())
