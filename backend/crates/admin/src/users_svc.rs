@@ -39,7 +39,7 @@ impl UserAdminService for Admin {
 
     async fn get_user(&self, ctx: RequestContext, request: ServiceRequest<'_, GetUserRequest>) -> ServiceResult<GetUserResponse> {
         handle(async {
-            Staff::moderator(&ctx)?;
+            let staff = Staff::moderator(&ctx)?;
             let user_id = parse_id(request.user_id)?;
             let user = self.admin_user(user_id).await?;
             let history = ActionFilter { target_user_id: Some(user_id), ..Default::default() };
@@ -48,7 +48,7 @@ impl UserAdminService for Admin {
                 user: user.into(),
                 moderation: self.moderation_summary(user_id, None).await?.into(),
                 // Not what was done about an anonymous post: here it would say whose post that was.
-                recent_actions: self.actions_listed(&actions, Some(user_id)).await?,
+                recent_actions: self.actions_listed(&staff, &actions, Some(user_id)).await?,
                 ..Default::default()
             })
         })

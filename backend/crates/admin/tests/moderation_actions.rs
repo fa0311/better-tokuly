@@ -783,6 +783,37 @@ async fn takedown_resolves_the_open_case_about_the_subject() {
     assert_eq!(again.action.target_user.id, owner.id.to_string());
 }
 
+#[tokio::test]
+async fn a_moderator_does_not_read_staff_notes_about_themselves() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let colleague = app.user_with_roles("colleague", &["moderator"]).await;
+    let boss = app.user_with_roles("boss", &["admin"]).await;
+    let reporter = app.user("rep").await;
+    let case = open_case(&app, &admin, &colleague, &reporter, &moderator).await;
+    resolve(&app, &boss, ResolveCaseRequest { note: "前にも同じ苦情あり".into(), ..resolution(&case, WARN, "言葉づかい") }).await.unwrap();
+
+    let notes = |actions: &[ModerationAction]| actions.iter().map(|a| a.note.clone()).collect::<Vec<_>>();
+    let by_case = ListModerationActionsRequest { case_id: case.id.clone(), ..Default::default() };
+    let history = GetUserRequest { user_id: moderator.id.to_string(), ..Default::default() };
+    let seen = |staff: &tokuly_testkit::TestUser| {
+        let (app, staff, by_case, history, case_id) = (&app, staff.clone(), by_case.clone(), history.clone(), case.id.clone());
+        async move {
+            let opened = get_case(app, &staff, &case_id).await;
+            let listed: ListModerationActionsResponse = app.call(&format!("{MODERATION}/ListModerationActions"), Some(&staff), &by_case).await.unwrap();
+            let view: GetUserResponse = app.call(&format!("{USERS}/GetUser"), Some(&staff), &history).await.unwrap();
+            [opened.actions, listed.actions, view.recent_actions]
+        }
+    };
+    for actions in seen(&colleague).await {
+        assert_eq!(notes(&actions), vec!["前にも同じ苦情あり".to_owned()]);
+    }
+    for actions in seen(&moderator).await {
+        assert_eq!(actions.len(), 1);
+        assert_eq!((actions[0].reason.as_str(), actions[0].note.as_str()), ("言葉づかい", ""), "the reason is theirs, the note is not");
+    }
+}
+
 /// An anonymous thread by `author` in which `involved` took part, reported by
 /// someone else; returns the case's ID.
 async fn anonymous_case(app: &tokuly_testkit::TestApp, admin: &tokuly_admin::Admin, author: Uuid, involved: Vec<Uuid>) -> String {

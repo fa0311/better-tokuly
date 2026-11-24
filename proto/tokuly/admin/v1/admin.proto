@@ -221,7 +221,8 @@ message ModerationAction {
   string case_id = 7;
   // Reason shown to the affected user.
   string reason = 8;
-  // Internal note, only visible to staff.
+  // Internal note, only visible to staff, and empty to the staff member the
+  // action was taken against.
   string note = 9;
   // SUSPEND only: when the suspension ends on its own.
   google.protobuf.Timestamp expires_at = 10;

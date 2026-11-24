@@ -73,7 +73,7 @@ impl ModerationService for Admin {
                 // who reported them, what they wrote, or what staff noted.
                 let mut moderation_case = self.case_to_proto(&case).await?;
                 moderation_case.conflict_of_interest = true;
-                let actions = self.case_actions(&actions, false).await?;
+                let actions = self.case_actions(&staff, &actions, false).await?;
                 return ok(GetCaseResponse { moderation_case: moderation_case.into(), actions, ..Default::default() });
             }
             let (reports, _) = self.case_reports(case.id, &first_page(CASE_PREVIEW_REPORTS)).await?;
@@ -85,7 +85,7 @@ impl ModerationService for Admin {
                 Some(owner_id) => Some(self.moderation_summary(owner_id, revealed).await?),
                 None => None,
             };
-            let actions = self.case_actions(&actions, !case.owner_hidden || owner_named).await?;
+            let actions = self.case_actions(&staff, &actions, !case.owner_hidden || owner_named).await?;
             ok(GetCaseResponse {
                 moderation_case: moderation_case.into(),
                 reports,
@@ -269,7 +269,7 @@ impl ModerationService for Admin {
         request: ServiceRequest<'_, ListModerationActionsRequest>,
     ) -> ServiceResult<ListModerationActionsResponse> {
         handle(async {
-            Staff::moderator(&ctx)?;
+            let staff = Staff::moderator(&ctx)?;
             let filter = ActionFilter {
                 target_user_id: parse_opt_id(request.user_id)?,
                 moderator_id: parse_opt_id(request.moderator_id)?,
@@ -278,7 +278,7 @@ impl ModerationService for Admin {
             };
             let page = Page::from_view(request.page.as_option(), 100);
             let (rows, info) = self.list_actions(&filter, &page).await?;
-            ok(ListModerationActionsResponse { actions: self.actions_listed(&rows, filter.target_user_id).await?, page: info.into(), ..Default::default() })
+            ok(ListModerationActionsResponse { actions: self.actions_listed(&staff, &rows, filter.target_user_id).await?, page: info.into(), ..Default::default() })
         })
         .await
     }

@@ -10,7 +10,7 @@ use tokuly_proto::{
     common::{SubjectRef, UserSummary},
 };
 
-use crate::Admin;
+use crate::{Admin, staff::Staff};
 
 macro_rules! action_columns {
     () => {
@@ -222,16 +222,31 @@ impl Admin {
     /// record, `owners.rs`). In the history of one account (`about` is that
     /// account) such an entry does not come at all: there the entry itself
     /// would say whose post it was.
-    pub(crate) async fn actions_listed(&self, rows: &[ActionRow], about: Option<Uuid>) -> AppResult<Vec<ModerationAction>> {
+    pub(crate) async fn actions_listed(&self, staff: &Staff, rows: &[ActionRow], about: Option<Uuid>) -> AppResult<Vec<ModerationAction>> {
         let kept: Vec<ActionRow> = rows.iter().filter(|row| !(row.target_hidden && about.is_some())).cloned().collect();
-        self.actions_to_proto(&kept).await
+        let mut actions = self.actions_to_proto(&kept).await?;
+        Self::without_notes_about(staff, &kept, &mut actions);
+        Ok(actions)
     }
 
     /// The log entries of one case in `GetCase`: an anonymous post's author
     /// is named only when the case view named them (`revealed`).
-    pub(crate) async fn case_actions(&self, rows: &[ActionRow], revealed: bool) -> AppResult<Vec<ModerationAction>> {
+    pub(crate) async fn case_actions(&self, staff: &Staff, rows: &[ActionRow], revealed: bool) -> AppResult<Vec<ModerationAction>> {
         let shown: Vec<Shown> = rows.iter().map(|row| if row.target_hidden && !revealed { Shown::WithoutTarget } else { Shown::All }).collect();
-        self.actions_shown(rows, &shown).await
+        let mut actions = self.actions_shown(rows, &shown).await?;
+        Self::without_notes_about(staff, rows, &mut actions);
+        Ok(actions)
+    }
+
+    /// Internal notes are about the account an action hit, written for
+    /// other staff: a staff member reads the reason of what was done to
+    /// them, not what colleagues noted about it.
+    fn without_notes_about(staff: &Staff, rows: &[ActionRow], actions: &mut [ModerationAction]) {
+        for (row, action) in rows.iter().zip(actions.iter_mut()) {
+            if row.target_user_id == Some(staff.id) {
+                action.note.clear();
+            }
+        }
     }
 
     async fn actions_shown(&self, rows: &[ActionRow], shown: &[Shown]) -> AppResult<Vec<ModerationAction>> {
