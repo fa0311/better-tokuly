@@ -231,11 +231,18 @@ impl Notes {
         }
         let sql = format!(
             "UPDATE notes n SET view_count = n.view_count + 1
-             WHERE n.id = ANY($7) AND n.author_id IS DISTINCT FROM $1 AND {}",
+             WHERE n.id = ANY($7) AND n.author_id IS DISTINCT FROM $1 AND {}
+             RETURNING n.id, n.author_id",
             sees_note("n")
         );
-        let sql = format!("WITH counted AS ({sql} RETURNING 1) SELECT count(*) FROM counted");
-        viewer.query_scalar::<i64>(sql).bind(&counted).fetch_one(&self.core.db).await?;
+        let viewed: Vec<(Uuid, Uuid)> = viewer.query_as(sql).bind(&counted).fetch_all(&self.core.db).await?;
+        // Impressions by hour, for the author's analytics.
+        for (note_id, author_id) in viewed {
+            self.core
+                .analytics
+                .track(AnalyticsEvent::new("note.view").user(viewer.id).subject("note", note_id).owner(author_id))
+                .await;
+        }
         Ok(())
     }
 }

@@ -129,17 +129,17 @@ async fn posting_is_validated() {
         "SIGN_IN_REQUIRED"
     );
     assert_eq!(ctx.post_reason(&alice, "  \n ", |_| {}).await, "NOTE_EMPTY");
-    assert_eq!(ctx.post_reason(&alice, &"あ".repeat(301), |_| {}).await, "NOTE_TOO_LONG");
-    // 300 "characters" that are each a pile of combining marks are too long as well.
+    assert_eq!(ctx.post_reason(&alice, &"あ".repeat(3001), |_| {}).await, "NOTE_TOO_LONG");
+    // 3000 "characters" that are each a pile of combining marks are too long as well.
     assert_eq!(
-        ctx.post_reason(&alice, &format!("a{}", "\u{301}".repeat(60)).repeat(300), |_| {}).await,
+        ctx.post_reason(&alice, &format!("a{}", "\u{301}".repeat(60)).repeat(3000), |_| {}).await,
         "NOTE_TOO_LONG"
     );
-    // 300 user-perceived characters fit, however many bytes they take.
-    assert_eq!(ctx.post(&alice, &"👨‍👩‍👧‍👦".repeat(300)).await.text.chars().count(), 300 * 7);
+    // 3000 user-perceived characters fit, however many bytes they take.
+    assert_eq!(ctx.post(&alice, &"👨‍👩‍👧‍👦".repeat(3000)).await.text.chars().count(), 3000 * 7);
 
     let mut images = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..11 {
         images.push(ctx.note_image(&alice).await);
     }
     assert_eq!(ctx.post_reason(&alice, "", |r| r.asset_ids = images.clone()).await, "TOO_MANY_ATTACHMENTS");

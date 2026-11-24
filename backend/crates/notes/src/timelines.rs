@@ -25,6 +25,7 @@ use crate::{
     Notes, channels, hashtags,
     hydrate::EntryRow,
     model::{NOTE_COLUMNS, NoteRow},
+    mutes::TimelineFilter,
     text,
     visibility::{Viewer, listed, sees_note},
 };
@@ -70,8 +71,9 @@ fn with_renotes(filter: &str, renoters: &str) -> String {
 }
 
 impl Notes {
-    /// Runs a timeline query and hydrates its page.
-    async fn entries<P>(
+    /// Runs a timeline query and hydrates its page, without what the
+    /// viewer muted (see [`crate::mutes`]).
+    pub(crate) async fn entries<P>(
         &self,
         viewer: &Viewer,
         page: &Page,
@@ -81,14 +83,39 @@ impl Notes {
     where
         P: 'static + Send + for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
     {
-        let cursor: Option<Uuid> = page.decode()?;
-        let rows: Vec<EntryRow> =
-            viewer.query_as(sql).bind(about).bind(cursor).bind(page.fetch()).fetch_all(&self.core.db).await?;
+        let rows = self.fetch_entries(viewer, page, sql, about).await?;
         self.page_of(viewer, page, rows).await
     }
 
-    /// Trims fetched timeline rows to the page asked for and hydrates them.
-    async fn page_of(
+    /// [`Self::entries`] for a list the viewer chose to look at (a profile,
+    /// their mentions): mutes do not apply.
+    async fn entries_unfiltered<P>(
+        &self,
+        viewer: &Viewer,
+        page: &Page,
+        sql: String,
+        about: P,
+    ) -> AppResult<(Vec<TimelineEntry>, PageInfo)>
+    where
+        P: 'static + Send + for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
+    {
+        let mut rows = self.fetch_entries(viewer, page, sql, about).await?;
+        let info = page.finish(&mut rows, |row| row.entry_id);
+        viewer.drop_newly_locked(&self.core, &mut rows, |row| &row.note).await?;
+        Ok((self.hydrate_entries(viewer, rows).await?, info))
+    }
+
+    async fn fetch_entries<P>(&self, viewer: &Viewer, page: &Page, sql: String, about: P) -> AppResult<Vec<EntryRow>>
+    where
+        P: 'static + Send + for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
+    {
+        let cursor: Option<Uuid> = page.decode()?;
+        Ok(viewer.query_as(sql).bind(about).bind(cursor).bind(page.fetch()).fetch_all(&self.core.db).await?)
+    }
+
+    /// Trims fetched timeline rows to the page asked for, leaves out what
+    /// the viewer muted, and hydrates them.
+    pub(crate) async fn page_of(
         &self,
         viewer: &Viewer,
         page: &Page,
@@ -97,6 +124,7 @@ impl Notes {
         let info = page.finish(&mut rows, |row| row.entry_id);
         // After the page is cut, so the cursor stays where SQL left it.
         viewer.drop_newly_locked(&self.core, &mut rows, |row| &row.note).await?;
+        TimelineFilter::load(&self.core, viewer).await?.apply(&mut rows);
         Ok((self.hydrate_entries(viewer, rows).await?, info))
     }
 
@@ -193,7 +221,7 @@ impl Notes {
             ),
         };
         let first_page = page.cursor.is_none();
-        let (entries, info) = self.entries(viewer, page, sql, user_id).await?;
+        let (entries, info) = self.entries_unfiltered(viewer, page, sql, user_id).await?;
         let notes_tab = matches!(
             filter,
             UserTimelineFilter::USER_TIMELINE_FILTER_UNSPECIFIED | UserTimelineFilter::USER_TIMELINE_FILTER_NOTES
@@ -284,7 +312,7 @@ impl Notes {
              ORDER BY n.id DESC LIMIT $9",
             columns = plain(),
         );
-        self.entries(viewer, page, sql, user_id).await
+        self.entries_unfiltered(viewer, page, sql, user_id).await
     }
 
     /// Quote notes of a note, newest first.

@@ -114,25 +114,25 @@ pub fn parse(text: &str) -> Parsed {
     parsed
 }
 
-fn is_word(c: char) -> bool {
+pub(crate) fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-fn is_hashtag_char(c: char) -> bool {
+pub(crate) fn is_hashtag_char(c: char) -> bool {
     is_word(c)
 }
 
-fn is_handle_char(c: char) -> bool {
+pub(crate) fn is_handle_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '-'
 }
 
 /// The shape of a Tokuly handle (identity owns the full rules; this only
 /// has to rule out what cannot be one).
-fn is_handle(handle: &str) -> bool {
+pub(crate) fn is_handle(handle: &str) -> bool {
     (3..=24).contains(&handle.len()) && handle.as_bytes()[0].is_ascii_alphanumeric()
 }
 
-fn run_end(chars: &[char], from: usize, accept: fn(char) -> bool) -> usize {
+pub(crate) fn run_end(chars: &[char], from: usize, accept: fn(char) -> bool) -> usize {
     let mut end = from;
     while end < chars.len() && accept(chars[end]) {
         end += 1;
@@ -145,7 +145,7 @@ fn run_end(chars: &[char], from: usize, accept: fn(char) -> bool) -> usize {
 /// A link runs to the first character that cannot be part of one. Japanese
 /// text usually follows a link without a space, so any non-ASCII character
 /// ends it. Sentence punctuation right after the link is not part of it.
-fn url_end(chars: &[char], start: usize, previous: Option<char>) -> Option<usize> {
+pub(crate) fn url_end(chars: &[char], start: usize, previous: Option<char>) -> Option<usize> {
     if previous.is_some_and(|p| p.is_ascii_alphanumeric()) {
         return None;
     }
@@ -209,9 +209,42 @@ fn is_pictographic(c: char) -> bool {
     )
 }
 
+/// The language of a note when it can be told from its letters: `ja` when
+/// it has kana, `en` when its letters are (almost) all Latin, else empty.
+/// Kanji alone could be Chinese and are not enough. Used to split trends
+/// by language, so a guess that is sometimes empty is better than a wrong one.
+pub fn language(text: &str) -> &'static str {
+    let (mut kana, mut latin, mut letters) = (0usize, 0usize, 0usize);
+    for c in text.chars().filter(|c| c.is_alphabetic()) {
+        letters += 1;
+        match c as u32 {
+            0x3040..=0x30FF | 0x31F0..=0x31FF | 0xFF66..=0xFF9D => kana += 1,
+            _ if c.is_ascii_alphabetic() => latin += 1,
+            _ => {}
+        }
+    }
+    if kana > 0 {
+        "ja"
+    } else if latin >= 3 && latin * 10 >= letters * 9 {
+        "en"
+    } else {
+        ""
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn languages_are_told_from_the_letters() {
+        assert_eq!(language("今日はいい天気"), "ja");
+        assert_eq!(language("ﾃｽﾄ"), "ja");
+        assert_eq!(language("what a nice day #sunny"), "en");
+        assert_eq!(language("今天天气很好"), "", "kanji alone could be Chinese");
+        assert_eq!(language("ok"), "");
+        assert_eq!(language("123 !!!"), "");
+    }
 
     #[test]
     fn length_counts_what_people_see() {

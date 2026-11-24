@@ -180,11 +180,34 @@ impl DataExporter for NotesExporter {
                         'place', CASE WHEN place_name IS NULL THEN NULL
                                       ELSE jsonb_build_object('name', place_name, 'lat', place_lat, 'lng', place_lng, 'place_id', place_id) END,
                         'visibility', visibility, 'circle_id', circle_id, 'direct_user_ids', direct_user_ids,
+                        'content_warning_text', content_warning_text, 'attachment_details', attachment_details,
+                        'channel_id', channel_id, 'edited_at', edited_at,
                         'content_warning', content_warning, 'reply_to_id', reply_to_id,
                         'quote_of_id', quote_of_id, 'hashtags', hashtags, 'mentions', mentions, 'link_url', link_url,
                         'reply_count', reply_count, 'renote_count', renote_count, 'quote_count', quote_count,
                         'like_count', like_count, 'view_count', view_count, 'pinned', pinned_at IS NOT NULL, 'created_at', created_at)
                  FROM notes WHERE author_id = $1 ORDER BY id"
+            ).await?,
+            "drafts": section(
+                "SELECT jsonb_build_object('id', id, 'content', content, 'scheduled_at', scheduled_at,
+                        'failure_reason', failure_reason, 'created_at', created_at, 'updated_at', updated_at)
+                 FROM note_drafts WHERE author_id = $1 ORDER BY id"
+            ).await?,
+            "note_edits": section(
+                "SELECT jsonb_build_object('note_id', e.note_id, 'version', e.version, 'text', e.text,
+                        'content_warning_text', e.content_warning_text, 'replaced_at', e.replaced_at)
+                 FROM note_edits e JOIN notes n ON n.id = e.note_id WHERE n.author_id = $1 ORDER BY e.note_id, e.version"
+            ).await?,
+            "poll_votes": section(
+                "SELECT jsonb_build_object('note_id', note_id, 'choices', choices, 'voted_at', voted_at)
+                 FROM note_poll_votes WHERE user_id = $1 ORDER BY voted_at"
+            ).await?,
+            "muted_words": section("SELECT words FROM note_muted_words WHERE user_id = $1").await?,
+            "muted_threads": section(
+                "SELECT jsonb_build_object('root_note_id', root_note_id, 'muted_at', muted_at) FROM note_thread_mutes WHERE user_id = $1 ORDER BY muted_at"
+            ).await?,
+            "renotes_hidden_from": section(
+                "SELECT jsonb_build_object('user_id', target_id, 'muted_at', muted_at) FROM note_renote_mutes WHERE user_id = $1 ORDER BY muted_at"
             ).await?,
             "likes": section("SELECT jsonb_build_object('note_id', note_id, 'liked_at', created_at) FROM note_likes WHERE user_id = $1 ORDER BY id").await?,
             "renotes": section("SELECT jsonb_build_object('note_id', note_id, 'renoted_at', created_at) FROM note_renotes WHERE user_id = $1 ORDER BY id").await?,

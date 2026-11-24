@@ -16,7 +16,7 @@ use crate::{
         ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, FOLLOW_SETTINGS_CHANGED, STORY_EXPIRED, StoryExpired,
         USER_BLOCKED, USER_DELETED,
     },
-    posting::{JOB_LINK_PREVIEW, LinkPreviewJob},
+    posting::{JOB_LINK_PREVIEW, JOB_POST_NOTIFY, LinkPreviewJob, PostNotifyJob},
 };
 
 /// Stories archived per pass of the expiry worker.
@@ -67,6 +67,36 @@ impl Notes {
                 .await;
         });
 
+        let notes = self.clone();
+        tokio::spawn(async move {
+            let handler = notes.clone();
+            notes
+                .core
+                .jobs
+                .run(
+                    JOB_POST_NOTIFY,
+                    JobOptions { concurrency: 4, lease: Duration::from_secs(120), max_deliver: 5 },
+                    notes.core.shutdown.clone(),
+                    move |job: PostNotifyJob| {
+                        let notes = handler.clone();
+                        async move { notes.notify_post(job.note_id).await.map(|_| ()) }
+                    },
+                )
+                .await;
+        });
+
+        self.spawn_periodic(
+            "polls and scheduled notes",
+            Duration::from_secs(self.cfg.schedule_interval_seconds),
+            |notes| async move {
+                let closed = notes.close_polls().await?;
+                let posted = notes.publish_due_drafts().await?;
+                if closed + posted > 0 {
+                    tracing::info!(closed, posted, "polls closed and scheduled notes posted");
+                }
+                Ok(())
+            },
+        );
         self.spawn_periodic(
             "story expiry",
             Duration::from_secs(self.cfg.story_expiry_interval_seconds),

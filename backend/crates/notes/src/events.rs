@@ -12,6 +12,7 @@ use uuid::Uuid;
 pub const NOTE_CREATED: &str = "notes.note.created";
 pub const NOTE_DELETED: &str = "notes.note.deleted";
 pub const NOTE_VISIBILITY_CHANGED: &str = "notes.note.visibility_changed";
+pub const NOTE_EDITED: &str = "notes.note.edited";
 pub const STORY_CREATED: &str = "notes.story.created";
 pub const STORY_DELETED: &str = "notes.story.deleted";
 pub const STORY_EXPIRED: &str = "notes.story.expired";
@@ -74,6 +75,15 @@ pub struct NoteVisibilityChanged {
     /// changes of one note are ordered by this (the event's own time is when
     /// its transaction began, which can put racing changes the wrong way round).
     pub changed_at: DateTime<Utc>,
+}
+
+/// `notes.note.edited`: the author changed a note's words (`version` = its
+/// edit count now). Audience and media do not change with an edit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteEditedEvent {
+    pub note_id: Uuid,
+    pub author_id: Uuid,
+    pub version: i32,
 }
 
 /// `notes.story.created`: a story was posted.

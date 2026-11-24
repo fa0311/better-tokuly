@@ -515,6 +515,10 @@ async fn quotes_are_listed_and_notes_are_read_in_batches() {
 async fn hashtags_trend_when_several_people_use_them_and_complete_while_typing() {
     let ctx = start().await;
     let (alice, bob, carol) = (ctx.member("alice").await, ctx.member("bob").await, ctx.member("carol").await);
+    // Established accounts: new ones count for little (see the trends tests).
+    for person in [&alice, &bob, &carol] {
+        ctx.age_account(person, 60).await;
+    }
     let stem = unique("trend");
     let (hot, warm, solo, quiet) =
         (format!("{stem}hot"), format!("{stem}warm"), format!("{stem}solo"), format!("{stem}quiet"));

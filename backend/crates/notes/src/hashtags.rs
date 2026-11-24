@@ -100,6 +100,30 @@ pub(crate) async fn link(
     Ok(())
 }
 
+/// Takes `tags` off a note (an edit removed them), and out of the listed
+/// counts if the note is listed.
+pub(crate) async fn unlink(
+    tx: &mut Transaction<'_, Postgres>,
+    note_id: Uuid,
+    tags: &[String],
+    listed: bool,
+) -> AppResult<()> {
+    if tags.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "DELETE FROM note_hashtags nh USING hashtags h WHERE nh.hashtag_id = h.id AND nh.note_id = $1 AND h.tag = ANY($2)",
+    )
+    .bind(note_id)
+    .bind(tags)
+    .execute(&mut **tx)
+    .await?;
+    if listed {
+        adjust(tx, tags, -1).await?;
+    }
+    Ok(())
+}
+
 /// Adds `delta` (per occurrence in `tags`) to the public note count of each
 /// tag: public notes were deleted, or a note became or stopped being
 /// public. Tags that gain their first public note enter the search index;
@@ -170,8 +194,31 @@ pub(crate) async fn complete(core: &Core, prefix: &str, limit: i64) -> AppResult
     Ok(rows.iter().map(HashtagRow::to_proto).collect())
 }
 
+/// SQL: who a use is counted as, for the account in alias `u`: itself, or —
+/// for an account younger than `$6` days — the day it joined, so a crowd
+/// of accounts made at once counts as one person.
+fn who_counts(u: &str) -> String {
+    format!(
+        "CASE WHEN {u}.created_at > now() - make_interval(days => $6::int) THEN 'joined:' || to_char({u}.created_at, 'YYYY-MM-DD')
+              ELSE {u}.id::text END"
+    )
+}
+
+/// SQL: the account in alias `u` counts towards trends at all: in good
+/// standing and at least `min_age_hours` old.
+fn counts(u: &str, min_age_hours: i64) -> String {
+    format!(
+        "{u}.banned_at IS NULL AND {u}.deleted_at IS NULL AND {u}.created_at <= now() - make_interval(hours => {})",
+        min_age_hours.max(0)
+    )
+}
+
 /// The current trending ranking, best first, and when it was computed.
-pub(crate) async fn trending(core: &Core, limit: i64) -> AppResult<(Vec<TrendingHashtag>, Option<DateTime<Utc>>)> {
+pub(crate) async fn trending(
+    core: &Core,
+    language: &str,
+    limit: i64,
+) -> AppResult<(Vec<TrendingHashtag>, Option<DateTime<Utc>>)> {
     #[derive(sqlx::FromRow)]
     struct Trend {
         tag: String,
@@ -183,10 +230,11 @@ pub(crate) async fn trending(core: &Core, limit: i64) -> AppResult<(Vec<Trending
     let rows: Vec<Trend> = sqlx::query_as(
         "SELECT h.tag, h.note_count, t.rank, t.recent_note_count, t.computed_at
          FROM hashtag_trends t JOIN hashtags h ON h.id = t.hashtag_id
-         WHERE h.note_count > 0 AND t.language = ''
+         WHERE h.note_count > 0 AND t.language = $2
          ORDER BY t.rank LIMIT $1",
     )
     .bind(limit)
+    .bind(language)
     .fetch_all(&core.db)
     .await?;
     let computed_at = rows.first().map(|row| row.computed_at);
@@ -206,10 +254,15 @@ impl Notes {
     /// Recomputes the trending hashtags (the trending worker; public so
     /// tools and tests can run a pass). Returns how many hashtags trend.
     ///
-    /// A hashtag trends when enough different people used it in public
-    /// notes within the window. Each person counts once per hashtag, by
+    /// A hashtag trends when enough different people used it in listed
+    /// notes within the window; a note trends when enough different people
+    /// liked, renoted, answered or quoted it. Each person counts once, by
     /// their latest use, and a use counts half after six hours — so one
     /// account cannot push a tag up alone, and yesterday's topic fades.
+    /// Against a crowd of fresh accounts: accounts younger than
+    /// `trend_min_account_age_hours` do not count, and all accounts younger
+    /// than `trend_new_account_days` that joined on the same day count as
+    /// one person. Rankings exist for all notes and per language.
     pub async fn refresh_trends(&self) -> AppResult<usize> {
         let since = Utc::now() - chrono::Duration::hours(self.cfg.trend_window_hours);
         let mut tx = self.core.db.begin().await?;
@@ -221,33 +274,83 @@ impl Notes {
             return Ok(0);
         }
         sqlx::query("DELETE FROM hashtag_trends").execute(&mut *tx).await?;
-        let sql = "WITH uses AS (
-                 SELECT nh.hashtag_id, n.author_id, count(*) AS notes, max(n.created_at) AS latest
+        sqlx::query("DELETE FROM note_trends").execute(&mut *tx).await?;
+        let floor = id_floor(since - chrono::Duration::hours(1));
+        // Who counts (see `who_counts`): each use is counted for all notes
+        // ('') and for its language, by person; a person's heat is their
+        // latest use, halved every TREND_HALF_LIFE_HOURS.
+        let sql = format!(
+            "WITH uses AS (
+                 SELECT nh.hashtag_id, l.language, {who} AS who, count(*) AS notes, max(n.created_at) AS latest
                  FROM note_hashtags nh
                  JOIN notes n ON n.id = nh.note_id
                  JOIN users u ON u.id = n.author_id
-                 WHERE nh.note_id >= $1 AND n.created_at > $2 AND n.listed
-                   AND u.banned_at IS NULL AND u.deleted_at IS NULL
-                 GROUP BY nh.hashtag_id, n.author_id
+                 CROSS JOIN LATERAL (SELECT DISTINCT unnest(ARRAY['', n.language]) AS language) l
+                 WHERE nh.note_id >= $1 AND n.created_at > $2 AND n.listed AND {counts}
+                 GROUP BY 1, 2, 3
              ), scored AS (
-                 SELECT hashtag_id, sum(notes)::bigint AS notes,
+                 SELECT hashtag_id, language, sum(notes)::bigint AS notes,
                         sum(power(0.5, extract(epoch FROM (now() - latest)) / 3600.0 / $3)) AS score
-                 FROM uses GROUP BY hashtag_id HAVING count(*) >= $4
+                 FROM uses GROUP BY hashtag_id, language HAVING count(*) >= $4
+             ), ranked AS (
+                 SELECT *, row_number() OVER (PARTITION BY language ORDER BY score DESC, notes DESC, hashtag_id) AS rank FROM scored
              )
              INSERT INTO hashtag_trends (language, hashtag_id, rank, score, recent_note_count, computed_at)
-             SELECT '', hashtag_id, (row_number() OVER (ORDER BY score DESC, notes DESC, hashtag_id))::int, score, notes, now()
-             FROM scored ORDER BY score DESC, notes DESC, hashtag_id LIMIT $5";
-        let trending = sqlx::query(sql)
+             SELECT language, hashtag_id, rank::int, score, notes, now() FROM ranked WHERE rank <= $5",
+            who = who_counts("u"),
+            counts = counts("u", self.cfg.trend_min_account_age_hours),
+        );
+        let trending = sqlx::query(sqlx::AssertSqlSafe(sql))
             // Note IDs are time-ordered: the index on them narrows the scan
             // to recent links (with an hour of slack for clock differences).
-            .bind(id_floor(since - chrono::Duration::hours(1)))
+            .bind(floor)
             .bind(since)
             .bind(TREND_HALF_LIFE_HOURS)
             .bind(self.cfg.trend_min_authors)
             .bind(TREND_SIZE)
+            .bind(self.cfg.trend_new_account_days)
             .execute(&mut *tx)
             .await?
             .rows_affected();
+
+        // Notes: likes, renotes, replies and quotes of listed top-level
+        // notes within the window, by people other than the author, counted
+        // the same way.
+        let sql = format!(
+            "WITH acts AS (
+                 SELECT note_id, user_id, created_at FROM note_likes WHERE id >= $1 AND created_at > $2
+                 UNION ALL SELECT note_id, user_id, created_at FROM note_renotes WHERE id >= $1 AND created_at > $2
+                 UNION ALL SELECT reply_to_id, author_id, created_at FROM notes WHERE id >= $1 AND created_at > $2 AND reply_to_id IS NOT NULL
+                 UNION ALL SELECT quote_of_id, author_id, created_at FROM notes WHERE id >= $1 AND created_at > $2 AND quote_of_id IS NOT NULL
+             ), people AS (
+                 SELECT a.note_id, l.language, {who} AS who, max(a.created_at) AS latest
+                 FROM acts a
+                 JOIN notes t ON t.id = a.note_id AND t.listed AND t.reply_to_id IS NULL AND t.author_id <> a.user_id
+                 JOIN users u ON u.id = a.user_id
+                 CROSS JOIN LATERAL (SELECT DISTINCT unnest(ARRAY['', t.language]) AS language) l
+                 WHERE {counts}
+                   AND EXISTS (SELECT 1 FROM users au WHERE au.id = t.author_id AND au.banned_at IS NULL AND au.deleted_at IS NULL)
+                 GROUP BY 1, 2, 3
+             ), scored AS (
+                 SELECT note_id, language, sum(power(0.5, extract(epoch FROM (now() - latest)) / 3600.0 / $3)) AS score
+                 FROM people GROUP BY note_id, language HAVING count(*) >= $4
+             ), ranked AS (
+                 SELECT *, row_number() OVER (PARTITION BY language ORDER BY score DESC, note_id DESC) AS rank FROM scored
+             )
+             INSERT INTO note_trends (language, note_id, rank, score, computed_at)
+             SELECT language, note_id, rank::int, score, now() FROM ranked WHERE rank <= $5",
+            who = who_counts("u"),
+            counts = counts("u", self.cfg.trend_min_account_age_hours),
+        );
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(floor)
+            .bind(since)
+            .bind(TREND_HALF_LIFE_HOURS)
+            .bind(self.cfg.trend_min_authors)
+            .bind(TREND_SIZE)
+            .bind(self.cfg.trend_new_account_days)
+            .execute(&mut *tx)
+            .await?;
 
         // Search ranks hashtags by how much they are used; refresh the
         // documents of tags whose count moved since they were last sent.

@@ -24,27 +24,26 @@ use tokuly_media::assets;
 use tokuly_proto::{
     common::{UserSummary, Visibility},
     media::{AssetKind, AssetPurpose, Attachment},
-    notes::{Mention, NoteCounters, PlaceTag, notes_event::Event as Push},
+    notes::{AttachmentDetailsInput, Mention, NoteCounters, PlaceTag, PollInput, notes_event::Event as Push},
 };
 use tokuly_social::{InteractionKind, graph};
 use tokuly_stamp::SendContext;
 
 use crate::{
-    Notes, authors, channels, copy,
+    Notes, authors, channels, content, copy,
     events::{
         NOTE_CREATED, NOTE_DELETED, NOTE_VISIBILITY_CHANGED, NoteCreated, NoteDeleted, NoteVisibilityChanged,
         RemovalReason,
     },
     hashtags,
     model::{NOTE_COLUMNS, NoteRow, note_holder, note_path, note_topic, to_json},
-    rules, text,
+    polls, rules, text,
     visibility::{self, Viewer},
 };
 
-/// Longest note, in characters.
-pub const MAX_NOTE_CHARS: usize = 300;
-/// A note carries up to four images, or one video.
-pub const MAX_ATTACHMENTS: usize = 4;
+pub use crate::content::MAX_NOTE_CHARS;
+/// A note carries up to ten images, or one video.
+pub const MAX_ATTACHMENTS: usize = 10;
 pub const MAX_PLACE_NAME_CHARS: usize = 100;
 /// Notes one user may post per day, whatever the pace.
 const MAX_POSTS_PER_DAY: u32 = 1000;
@@ -61,6 +60,16 @@ const IDEMPOTENCY_WINDOW: Duration = Duration::from_secs(600);
 pub const JOB_LINK_PREVIEW: &str = "notes.link_preview";
 /// Name of the background job that puts a new note into the antennas it matches.
 pub const JOB_ANTENNA_MATCH: &str = "notes.antenna_match";
+
+/// Name of the background job that tells followers who turned on post
+/// notifications (tokuly.social.v1 notify level ALL) about a new note.
+pub const JOB_POST_NOTIFY: &str = "notes.post_notify";
+
+/// Payload of [`JOB_POST_NOTIFY`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostNotifyJob {
+    pub note_id: Uuid,
+}
 
 /// Payload of [`JOB_ANTENNA_MATCH`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +94,9 @@ pub(crate) struct NewNote {
     pub reply_to_id: Option<Uuid>,
     pub quote_of_id: Option<Uuid>,
     pub content_warning: bool,
+    pub content_warning_text: String,
+    pub attachment_details: Vec<AttachmentDetailsInput>,
+    pub poll: Option<PollInput>,
     /// Posts into this channel (a reply goes into the channel of the note it answers).
     pub channel_id: Option<Uuid>,
 }
@@ -339,7 +351,7 @@ impl Notes {
     /// The users behind the `@handles` of a note, in order of appearance.
     /// Handles that name nobody, a suspended account, or someone in a block
     /// with the author stay plain text.
-    async fn resolve_mentions(&self, viewer: &Viewer, handles: &[String]) -> AppResult<Vec<(Uuid, String)>> {
+    pub(crate) async fn resolve_mentions(&self, viewer: &Viewer, handles: &[String]) -> AppResult<Vec<(Uuid, String)>> {
         if handles.is_empty() {
             return Ok(Vec::new());
         }
@@ -431,8 +443,14 @@ impl Notes {
 
     /// Posts a note for `author` as asked through the API.
     pub(crate) async fn create_note(&self, author: Uuid, input: NewNote) -> AppResult<NoteRow> {
+        self.create_note_with_id(author, new_id(), input).await
+    }
+
+    /// [`Self::create_note`] with the note's ID chosen by the caller (a
+    /// posted draft's note takes the draft's ID).
+    pub(crate) async fn create_note_with_id(&self, author: Uuid, note_id: Uuid, input: NewNote) -> AppResult<NoteRow> {
         self.admit_post(author).await?;
-        self.store_note(author, new_id(), input).await
+        self.store_note(author, note_id, input).await
     }
 
     /// [`Self::create_note`] made safe to retry: a request repeating
@@ -485,13 +503,8 @@ impl Notes {
     /// Validates and stores a note with everything that follows from it.
     pub(crate) async fn store_note(&self, author: Uuid, note_id: Uuid, input: NewNote) -> AppResult<NoteRow> {
         let core = &self.core;
-        let body = text::clean(&input.text);
-        ensure!(
-            text::fits(&body, MAX_NOTE_CHARS),
-            invalid,
-            "NOTE_TOO_LONG",
-            "a note has at most {MAX_NOTE_CHARS} characters"
-        );
+        let said = content::prepare(&input.text, input.content_warning, &input.content_warning_text)?;
+        let poll = content::poll(input.poll.as_ref())?;
         let viewer = Viewer::load(core, Some(author)).await?;
 
         // What the note answers and what it quotes must be notes the author can see.
@@ -516,14 +529,15 @@ impl Notes {
         let attachments = self.resolve_attachments(author, &input.asset_ids).await?;
         let asset_ids: Vec<Uuid> =
             attachments.iter().filter_map(|attachment| Uuid::parse_str(&attachment.asset_id).ok()).collect();
+        let details = content::attachment_details(&attachments, &input.attachment_details)?;
         if let Some(stamp_id) = input.stamp_id {
             tokuly_stamp::ensure_usable(core, author, stamp_id).await?;
         }
         ensure!(
-            !body.is_empty() || !attachments.is_empty() || input.stamp_id.is_some(),
+            !said.text.is_empty() || !attachments.is_empty() || input.stamp_id.is_some() || poll.is_some(),
             invalid,
             "NOTE_EMPTY",
-            "a note needs text, media or a stamp"
+            "a note needs text, media, a stamp or a poll"
         );
         let place = input.place.as_ref().map(validate_place).transpose()?;
 
@@ -547,7 +561,7 @@ impl Notes {
         // Whether the author's account is locked, as the social domain says now.
         let locked_now = self.is_locked_now(author).await?;
 
-        let parsed = text::parse(&body);
+        let parsed = &said.facts;
         let mentioned = self.resolve_mentions(&viewer, &parsed.handles).await?;
         let mentions: Vec<Mention> = mentioned
             .iter()
@@ -578,6 +592,13 @@ impl Notes {
                 slot.insert(Viewer::load(core, Some(user_id)).await?);
             }
         }
+        // Whoever muted the conversation a reply joins hears nothing of it.
+        if let Some(parent) = parent.as_ref() {
+            let people: Vec<Uuid> = audience.keys().copied().collect();
+            for muted in self.thread_muters(parent, &people).await? {
+                audience.remove(&muted);
+            }
+        }
 
         let mut tx = core.db.begin().await?;
         // Listed or not is decided under the author's lock, from the copy no
@@ -590,14 +611,16 @@ impl Notes {
         let sql = format!(
             "INSERT INTO notes AS n (id, author_id, text, attachments, asset_ids, stamp_id, place_name, place_lat, place_lng, place_id,
                                      visibility, content_warning, reply_to_id, reply_to_author_id, quote_of_id, hashtags, mentions, link_url,
-                                     circle_id, direct_user_ids, listed, channel_id, thread_root_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+                                     circle_id, direct_user_ids, listed, channel_id, thread_root_id,
+                                     content_warning_text, attachment_details, body, language)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                     $24, $25, $26, $27)
              RETURNING {NOTE_COLUMNS}"
         );
         let note: NoteRow = sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(note_id)
             .bind(author)
-            .bind(&body)
+            .bind(&said.text)
             .bind(to_json(&attachments)?)
             .bind(&asset_ids)
             .bind(input.stamp_id)
@@ -606,7 +629,7 @@ impl Notes {
             .bind(place.as_ref().map(|place| place.lng))
             .bind(place.as_ref().and_then(|place| place.place_id))
             .bind(shared.visibility)
-            .bind(input.content_warning)
+            .bind(said.content_warning)
             .bind(parent.as_ref().map(|parent| parent.id))
             .bind(parent.as_ref().map(|parent| parent.author_id))
             .bind(quoted.as_ref().map(|quoted| quoted.id))
@@ -618,8 +641,15 @@ impl Notes {
             .bind(listed)
             .bind(channel_id)
             .bind(parent.as_ref().map(NoteRow::thread_root))
+            .bind(&said.content_warning_text)
+            .bind(to_json(&details)?)
+            .bind(to_json(&said.body)?)
+            .bind(said.language)
             .fetch_one(&mut *tx)
             .await?;
+        if let Some(poll) = &poll {
+            polls::insert(&mut tx, note.id, poll).await?;
+        }
         if let Some(channel_id) = channel_id {
             channels::count_new_note(&mut tx, channel_id).await?;
         }
@@ -715,6 +745,11 @@ impl Notes {
 
         // From here on nothing can fail the post.
         self.push_counters(touched).await;
+        if !said.facts.emoji.is_empty()
+            && let Err(e) = tokuly_emoji::catalog::record_use(core, author, &said.facts.emoji).await
+        {
+            tracing::warn!(error = %e, "recording custom emoji used in a note failed");
+        }
         if let Some(stamp_id) = note.stamp_id
             && let Err(e) = tokuly_stamp::record_send(core, author, stamp_id, SendContext::Note).await
         {
@@ -730,6 +765,16 @@ impl Notes {
                 .await
         {
             tracing::warn!(error = %e, note_id = %note.id, "queueing the link preview failed");
+        }
+        // Followers who asked to hear of every post are told in the background.
+        if note.reply_to_id.is_none()
+            && note.visibility != visibility::PRIVATE
+            && let Err(e) = core
+                .jobs
+                .enqueue_unique(JOB_POST_NOTIFY, &note.id.to_string(), &PostNotifyJob { note_id: note.id })
+                .await
+        {
+            tracing::warn!(error = %e, note_id = %note.id, "queueing post notifications failed");
         }
         // Antennas are matched in the background: a post never waits for them.
         if let Err(e) = core

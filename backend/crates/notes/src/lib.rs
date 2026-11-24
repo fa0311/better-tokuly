@@ -39,13 +39,22 @@ mod authors;
 pub mod channels;
 mod cleanup;
 pub mod config;
+mod content;
 mod copy;
+mod draft_svc;
+pub mod drafts;
+pub mod editing;
 pub mod events;
+mod fanout;
 pub mod hashtags;
 pub mod highlights;
 mod hydrate;
+mod insights;
+pub mod markup;
 pub mod model;
+pub mod mutes;
 mod note_svc;
+mod polls;
 pub mod posting;
 pub mod reactions;
 pub mod rules;
@@ -92,9 +101,11 @@ impl Notes {
 
     /// Registers `NoteService` and `StoryService` on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::notes::{NoteServiceExt, StoryServiceExt};
+        use tokuly_proto::notes::{NoteDraftServiceExt, NoteMuteServiceExt, NoteServiceExt, StoryServiceExt};
         let me = Arc::new(self.clone());
         let router = NoteServiceExt::register(me.clone(), router);
+        let router = NoteDraftServiceExt::register(me.clone(), router);
+        let router = NoteMuteServiceExt::register(me.clone(), router);
         StoryServiceExt::register(me, router)
     }
 

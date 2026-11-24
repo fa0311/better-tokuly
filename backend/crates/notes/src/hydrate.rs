@@ -10,12 +10,15 @@ use chrono::{DateTime, Utc};
 use tokuly_core::prelude::*;
 use tokuly_identity::users::pick;
 use tokuly_proto::{
-    common::{StampRef, UserSummary},
-    notes::{ChannelRef, Note, NoteViewerState, QuotedNote, RenoteInfo, ReplyTarget, TimelineEntry},
+    common::{Image, StampRef, UserSummary},
+    notes::{
+        ChannelRef, Note, NoteViewerState, Poll, QuotedNote, RenoteInfo, ReplyTarget, RichText, TimelineEntry,
+        text_inline::Inline,
+    },
 };
 
 use crate::{
-    Notes, channels,
+    Notes, channels, editing, markup,
     model::{NOTE_COLUMNS, NoteRow},
     visibility::{CIRCLE, FOLLOWERS, PRIVATE, Viewer, sees_note},
 };
@@ -50,6 +53,9 @@ struct Context<'a> {
     users: HashMap<Uuid, UserSummary>,
     stamps: HashMap<Uuid, StampRef>,
     channels: HashMap<Uuid, ChannelRef>,
+    polls: HashMap<Uuid, Poll>,
+    emoji: HashMap<String, Image>,
+    muted_threads: HashSet<Uuid>,
     /// Referenced notes (quoted, or replied to) the viewer may see.
     referenced: HashMap<Uuid, NoteRow>,
     liked: HashSet<Uuid>,
@@ -57,6 +63,29 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
+    /// The note's tree with what is looked up when shown: the users behind
+    /// mentions (those that named someone when the note was written, and
+    /// still do) and the pictures of custom emoji.
+    fn body(&self, row: &NoteRow) -> RichText {
+        let mut body = row.body();
+        let mentions = row.mentions();
+        markup::for_each_inline(&mut body, &mut |node| match &mut node.inline {
+            Some(Inline::Mention(mention)) => {
+                mention.user_id = mentions
+                    .iter()
+                    .find(|known| known.handle == mention.handle)
+                    .map(|known| known.user_id.clone())
+                    .filter(|id| Uuid::parse_str(id).is_ok_and(|id| !self.viewer.hides(id)))
+                    .unwrap_or_default();
+            }
+            Some(Inline::Emoji(emoji)) => {
+                emoji.image = self.emoji.get(&emoji.name).cloned().into();
+            }
+            _ => {}
+        });
+        body
+    }
+
     /// `row` as a `Note`. `with_quote` is false for a note shown inside
     /// another one: a quote is rendered one level deep.
     fn note(&self, row: &NoteRow, with_quote: bool) -> Note {
@@ -121,6 +150,8 @@ impl Context<'_> {
                     renoted: self.renoted.contains(&row.id),
                     can_renote: may_renote(self.viewer, row),
                     can_quote: row.is_listed(),
+                    can_edit: self.viewer.is(row.author_id) && editing::may_still_edit(row),
+                    thread_muted: self.muted_threads.contains(&row.thread_root()),
                     ..Default::default()
                 })
                 .into(),
@@ -128,7 +159,8 @@ impl Context<'_> {
             created_at: ts(row.created_at),
             content_warning_text: row.content_warning_text.clone(),
             attachment_details: row.attachment_details(),
-            body: row.body().into(),
+            body: self.body(row).into(),
+            poll: self.polls.get(&row.id).cloned().into(),
             channel: row.shown_channel().and_then(|id| self.channels.get(&id).cloned()).into(),
             edited_at: opt_ts(row.edited_at),
             edit_count: row.edit_count,
@@ -204,10 +236,21 @@ impl Notes {
         let mut channel_ids: Vec<Uuid> = shown.iter().filter_map(|row| row.shown_channel()).collect();
         channel_ids.sort();
         channel_ids.dedup();
-        let (users, stamps, channels) = tokio::try_join!(
+        let mut emoji_names: Vec<String> = shown.iter().flat_map(|row| markup::facts(&row.body()).emoji).collect();
+        emoji_names.sort();
+        emoji_names.dedup();
+        let (users, stamps, channels, polls, emoji, muted_threads) = tokio::try_join!(
             tokuly_identity::summaries(core, &user_ids),
             tokuly_stamp::stamp_refs(core, &stamp_ids),
             channels::refs(core, &channel_ids),
+            self.poll_views(viewer, &shown),
+            async {
+                if emoji_names.is_empty() {
+                    return Ok(HashMap::new());
+                }
+                tokuly_emoji::catalog::resolve(core, &emoji_names).await
+            },
+            self.muted_thread_roots(viewer, &shown),
         )?;
         let (liked, renoted) = match viewer.id {
             Some(user_id) => {
@@ -226,7 +269,7 @@ impl Notes {
             }
             None => (HashSet::new(), HashSet::new()),
         };
-        Ok(Context { viewer, users, stamps, channels, referenced, liked, renoted })
+        Ok(Context { viewer, users, stamps, channels, polls, emoji, muted_threads, referenced, liked, renoted })
     }
 
     /// Notes as `viewer` gets them, in the order of `rows`. The rows must

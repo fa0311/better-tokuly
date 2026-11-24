@@ -27,7 +27,7 @@ use tokuly_social::{Social, SocialConfig};
 use tokuly_testkit::{FrameListener, RpcError, TestApp, TestUser};
 use uuid::Uuid;
 
-pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "0500", "0700", "1400"];
+pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400", "0500", "0700", "1400", "1700"];
 
 /// How long to wait for a realtime frame that should arrive (generous: the
 /// machine may be busy compiling something else).
@@ -385,6 +385,16 @@ impl Ctx {
             .execute(&self.app.core.db)
             .await
             .expect("age story");
+    }
+
+    /// Makes an account look `days` old.
+    pub async fn age_account(&self, user: &TestUser, days: i32) {
+        sqlx::query("UPDATE users SET created_at = created_at - make_interval(days => $2) WHERE id = $1")
+            .bind(user.id)
+            .bind(days)
+            .execute(&self.app.core.db)
+            .await
+            .expect("age account");
     }
 
     /// Notification requests (`notify.requested`) addressed to `user`, by kind.

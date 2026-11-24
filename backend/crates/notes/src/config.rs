@@ -70,6 +70,33 @@ pub struct NotesConfig {
     )]
     pub trend_min_authors: i64,
 
+    /// Hours an account must exist before its posts and reactions count towards trends.
+    #[arg(
+        id = "notes_trend_min_account_age_hours",
+        long = "notes-trend-min-account-age-hours",
+        env = "TOKULY_NOTES_TREND_MIN_ACCOUNT_AGE_HOURS",
+        default_value_t = 72
+    )]
+    pub trend_min_account_age_hours: i64,
+
+    /// Accounts younger than this many days that joined on the same day count as one person in trends.
+    #[arg(
+        id = "notes_trend_new_account_days",
+        long = "notes-trend-new-account-days",
+        env = "TOKULY_NOTES_TREND_NEW_ACCOUNT_DAYS",
+        default_value_t = 30
+    )]
+    pub trend_new_account_days: i32,
+
+    /// Seconds between passes of the poll closing worker and the scheduler of notes.
+    #[arg(
+        id = "notes_schedule_interval_seconds",
+        long = "notes-schedule-interval-seconds",
+        env = "TOKULY_NOTES_SCHEDULE_INTERVAL_SECONDS",
+        default_value_t = 30
+    )]
+    pub schedule_interval_seconds: u64,
+
     /// Seconds between passes of the story expiry worker.
     #[arg(
         id = "notes_story_expiry_interval_seconds",
@@ -90,6 +117,9 @@ impl Default for NotesConfig {
             trend_interval_seconds: 300,
             trend_window_hours: 24,
             trend_min_authors: 2,
+            trend_min_account_age_hours: 72,
+            trend_new_account_days: 30,
+            schedule_interval_seconds: 30,
             story_expiry_interval_seconds: 60,
         }
     }
@@ -105,6 +135,12 @@ impl NotesConfig {
         anyhow::ensure!(self.trend_interval_seconds > 0, "TOKULY_NOTES_TREND_INTERVAL_SECONDS must be positive");
         anyhow::ensure!(self.trend_window_hours > 0, "TOKULY_NOTES_TREND_WINDOW_HOURS must be positive");
         anyhow::ensure!(self.trend_min_authors > 0, "TOKULY_NOTES_TREND_MIN_AUTHORS must be positive");
+        anyhow::ensure!(
+            self.trend_min_account_age_hours >= 0,
+            "TOKULY_NOTES_TREND_MIN_ACCOUNT_AGE_HOURS must not be negative"
+        );
+        anyhow::ensure!(self.trend_new_account_days >= 0, "TOKULY_NOTES_TREND_NEW_ACCOUNT_DAYS must not be negative");
+        anyhow::ensure!(self.schedule_interval_seconds > 0, "TOKULY_NOTES_SCHEDULE_INTERVAL_SECONDS must be positive");
         anyhow::ensure!(
             self.story_expiry_interval_seconds > 0,
             "TOKULY_NOTES_STORY_EXPIRY_INTERVAL_SECONDS must be positive"

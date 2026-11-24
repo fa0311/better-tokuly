@@ -26,6 +26,23 @@ impl Notes {
     /// they answered as unavailable.
     pub(crate) async fn on_user_deleted(&self, user_id: Uuid) -> AppResult<()> {
         let db = &self.core.db;
+        // Drafts first: their uploads are let go of with them.
+        loop {
+            let mut tx = db.begin().await?;
+            let ids: Vec<Uuid> =
+                sqlx::query_scalar("DELETE FROM note_drafts WHERE id IN (SELECT id FROM note_drafts WHERE author_id = $1 LIMIT $2) RETURNING id")
+                    .bind(user_id)
+                    .bind(ERASE_BATCH)
+                    .fetch_all(&mut *tx)
+                    .await?;
+            for id in &ids {
+                tokuly_media::assets::detach_holder(&mut *tx, &crate::model::draft_holder(*id)).await?;
+            }
+            tx.commit().await?;
+            if (ids.len() as i64) < ERASE_BATCH {
+                break;
+            }
+        }
         loop {
             let mut tx = db.begin().await?;
             let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM notes WHERE author_id = $1 ORDER BY id LIMIT $2")
@@ -97,7 +114,13 @@ impl Notes {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
+        // Their votes stay counted: a count that moves when an account goes
+        // away would say who voted. Who voted for what goes.
         for sql in [
+            "DELETE FROM note_poll_votes WHERE user_id = $1",
+            "DELETE FROM note_muted_words WHERE user_id = $1",
+            "DELETE FROM note_thread_mutes WHERE user_id = $1",
+            "DELETE FROM note_renote_mutes WHERE user_id = $1 OR target_id = $1",
             "DELETE FROM note_authors WHERE user_id = $1",
             "DELETE FROM note_mentions WHERE user_id = $1",
             "DELETE FROM note_recipients WHERE user_id = $1",

@@ -1,8 +1,10 @@
 # notes — events, jobs and configuration
 
 Crate `tokuly-notes`, migration `0700_notes.sql`, API `tokuly.notes.v1`
-(`NoteService`, `StoryService`, realtime `NotesEvent`). Depends on `identity`,
-`social`, `stamp` and `media`.
+(`NoteService`, `NoteDraftService`, `NoteMuteService`, `NoteListService`,
+`AntennaService`, `NoteChannelService`, `ClipService`, `StoryService`,
+realtime `NotesEvent`). Depends on `identity`, `social`, `stamp`, `media` and
+`emoji`.
 
 Notes are short posts (「今何してる?」); stories are 「記憶」: a title plus 1–10
 photos or videos that the owner's friends see for a day and that stay in the
@@ -60,6 +62,7 @@ transaction that makes the change.
 | `notes.note.created` | `{ note_id, author_id, visibility, reply_to_id, quote_of_id }` | A note, reply or quote note was posted. `visibility` is `tokuly.common.v1.Visibility` as its number (1 public, 4 friends, 5 private). |
 | `notes.note.deleted` | `{ note_id, author_id, reason }` | A note is gone for good. `reason`: `author`, `moderation`, `account_deleted`, `media_deleted`. Actor: the author, the moderator, the erased user, or nobody. |
 | `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to, changed_at }` | The author changed who may see a note (not emitted when nothing changed), or locked or unlocked their account (once per public note whose reach changed). `visibility`: the audience now in effect — the note's own, except that a public note of a locked author reads 6 (followers). `visible_to`: who besides the author may still see it — `null` when everyone may; otherwise everyone in the audience as the social graph gives it (followers and friends, friends, close friends or circle members, the people a direct note names) and, for a reply narrower than public, the author of the note answered, people in a block with the author left out; `[]` for a private note. For a change caused by a lock, only the people this domain told about the note or who reacted to it are considered (a full follower list per note would be unbounded). Anyone shown the note before (an inbox entry about it) who is not listed lost access with this change. `changed_at`: when the change was made, taken while the note was locked; consumers (feed, notify) order two changes of one note by it, not by the event's time (the start of its transaction). **Never forward this event to webhooks or other outside parties: `visible_to` is the author's friend list.** |
+| `notes.note.edited` | `{ note_id, author_id, version }` | The author changed a note's words within the edit window (`version` = its edit count now). Audience and media do not change with an edit. |
 | `notes.story.created` | `{ story_id, owner_id, audience, expires_at }` | A story was posted. `audience` is `tokuly.notes.v1.StoryAudience` as its number (1 friends, 2 close friends). |
 | `notes.story.deleted` | `{ story_id, owner_id, reason }` | A story was deleted (same reasons as notes). Not emitted for an expiry. |
 | `notes.story.expired` | `{ story_id, owner_id }` | A story's day is over: it left the tray and is archive-only. Emitted exactly once per story by the expiry worker, shortly after `expires_at`. |
@@ -93,6 +96,8 @@ it can see at that moment):
 |---|---|
 | `counters_changed` (`NoteCounters`) | Likes, renotes, replies or quotes of the note changed. Views alone do not push; the view count rides along with the next change. |
 | `note_deleted_id` | The note was deleted. |
+| `poll_updated` (`PollTally`) | Someone voted, or the poll closed. Carries only the number of voters and whether it closed: what a reader may see of the counts differs, so clients read the note again. |
+| `note_edited` (`NoteEdited`) | The note was edited: read it again. |
 | `link_preview_resolved` | The preview of the note's first link was fetched. To the topic only when the note is listed; always to the author (user-scoped). |
 
 User-scoped:
@@ -118,6 +123,13 @@ each person at most once per note (reply, then quote, then mention).
 | `notes.quote` | author of the quoted note | |
 | `notes.mention` | each mentioned user | At most 10 mentions per note are resolved. People in a block with the author are not mentioned at all. |
 | `notes.direct` | each person a direct note names | Not repeated when the audience is changed later. |
+| `notes.post` | followers who set post notifications for the author (social notify level ALL) and may see the note | Top-level notes only, sent by the `notes.post_notify` job, collapsed per note; not to people already told about the note. |
+| `notes.poll_ended` | every voter who may still see the note, and the author | Once per poll, when the closing worker closes it; collapsed per note. |
+| `notes.schedule_failed` | the author of a scheduled draft that could not be posted | `data = { draft_id, reason }`; path `/notes/drafts`. |
+
+Replies and mentions are not announced to someone who muted the
+conversation they are in (`NoteMuteService.MuteThread`); an edit announces
+only people mentioned for the first time.
 | `notes.story_reaction` | story owner | Collapsed per story and person: a changed emoji replaces the earlier notification. `data = { story_id, emoji }`. |
 
 `subject` is `(SUBJECT_TYPE_NOTE, note_id)` or `(SUBJECT_TYPE_STORY, story_id)`;
@@ -183,13 +195,18 @@ each person at most once per note (reply, then quote, then mention).
 | event consumer | on events | See "Events consumed". |
 | job `notes.link_preview` | payload `LinkPreviewJob { note_id }`, concurrency 4, 3 attempts | Fetches the preview of a note's first link, stores it and pushes `link_preview_resolved` (`Notes::resolve_link_preview`). A link with nothing to show leaves the note without a preview. |
 | story expiry (`Notes::expire_stories`) | every `TOKULY_NOTES_STORY_EXPIRY_INTERVAL_SECONDS` | Marks stories past `expires_at` as archived and emits `notes.story.expired` once each. Visibility never depends on this pass. |
-| trending hashtags (`Notes::refresh_trends`) | every `TOKULY_NOTES_TREND_INTERVAL_SECONDS` | Recomputes `hashtag_trends` (top 50): hashtags used in public notes by at least `TOKULY_NOTES_TREND_MIN_AUTHORS` different people within the window; each person counts once per hashtag, by their latest use, halved every 6 hours. Also refreshes stale hashtag search documents. Safe to run in several processes (advisory lock). |
+| trends (`Notes::refresh_trends`) | every `TOKULY_NOTES_TREND_INTERVAL_SECONDS` | Recomputes `hashtag_trends` and `note_trends` (top 50, for all notes and per language): hashtags used in listed notes, and listed top-level notes liked, renoted, answered or quoted, by at least `TOKULY_NOTES_TREND_MIN_AUTHORS` different people within the window; each person counts once, by their latest use, halved every 6 hours. Protection against manipulation: accounts younger than `TREND_MIN_ACCOUNT_AGE_HOURS` do not count, accounts younger than `TREND_NEW_ACCOUNT_DAYS` that joined on the same day count as one person, suspended accounts and the author's own reactions do not count. Also refreshes stale hashtag search documents. Safe to run in several processes (advisory lock). |
+| job `notes.post_notify` | payload `PostNotifyJob { note_id }`, concurrency 4, 5 attempts | Post notifications (`Notes::notify_post`), in batches of 500. |
+| job `notes.antenna_match` | payload `AntennaMatchJob { note_id }` | Queued for every new note; see "Antennas". |
+| polls and schedule | every `TOKULY_NOTES_SCHEDULE_INTERVAL_SECONDS` | `Notes::close_polls` (marks ended polls closed with a conditional update and tells voters once) and `Notes::publish_due_drafts` (claims due drafts with `FOR UPDATE SKIP LOCKED`, posts each as its author with the draft's ID as the note's — so a pass cut short never posts twice — and keeps the reason on the draft when posting fails). |
 
 ## Analytics
 
 `core.analytics.track`: `note.post` (props: visibility, reply, quote,
-attachments), `note.like`, `note.renote` (owner = note author), `story.post`
-(props: items, close_friends), `story.view` (owner = story owner).
+attachments), `note.like`, `note.renote`, `note.view` (each counted view;
+owner = note author — `GetNoteAnalytics` groups them by hour for the last
+48 hours), `story.post` (props: items, close_friends), `story.view`
+(owner = story owner).
 
 ## Valkey keys
 
@@ -218,6 +235,9 @@ hashtag completion 120/min per user or IP.
 | `TOKULY_NOTES_TREND_WINDOW_HOURS` | `24` | Hours of public notes the ranking looks at. |
 | `TOKULY_NOTES_TREND_MIN_AUTHORS` | `2` | Different people needed for a hashtag to trend. |
 | `TOKULY_NOTES_STORY_EXPIRY_INTERVAL_SECONDS` | `60` | Pause between story expiry passes. |
+| `TOKULY_NOTES_TREND_MIN_ACCOUNT_AGE_HOURS` | `72` | Accounts younger than this count for nothing in trends. |
+| `TOKULY_NOTES_TREND_NEW_ACCOUNT_DAYS` | `30` | Accounts younger than this many days that joined on the same day count as one person in trends. |
+| `TOKULY_NOTES_SCHEDULE_INTERVAL_SECONDS` | `30` | Pause between passes of the poll closer and the scheduler of notes. |
 
 The posting rules (`GetNoteRules`) are text in `tokuly_notes::rules`, Japanese
 and English; raising `RULES_VERSION` there asks everyone to agree again before
@@ -225,9 +245,17 @@ their next note.
 
 ## Limits
 
-Note: 300 characters (user-perceived; at most 40 bytes each on average), 4
-images or 1 video, 10 hashtags and 10 mentions resolved per note, place name
-100 characters. Story: title 140, 1–10 items, caption 200, at most 150 chosen
+Note: 3000 characters (user-perceived; at most 40 bytes each on average) —
+long enough for an announcement or a short story in one go, while the
+composer still opens as a one-line field and only shows a count near the
+end; content warning line 100; 10 images or 1 video, alt text 1500 each;
+10 hashtags, 10 mentions and 50 custom emoji resolved per note; place name
+100 characters; a direct note names at most 20 people. Poll: 2–10 different
+choices of 1–50 characters, 5 minutes to 30 days. Edits: within 60 minutes
+of posting, at most 10. Pinned notes: 5. Drafts: 100, of which 30 scheduled
+5 minutes to 90 days ahead. Muted words: 100 of 1–100 characters (patterns
+compiled within 64 KiB, DFA 256 KiB); muted conversations and hidden
+renotes: 1000 each. Story: title 140, 1–10 items, caption 200, at most 150 chosen
 friends. Highlight: title 1–30, 1–100 stories, 50 highlights per profile.
 
 ## Public Rust API
@@ -262,3 +290,59 @@ impl Notes {
 - `story_views` holds one row per viewer: when they watched and their
   reaction (`''` = none). `stories.archived_at` only records that the expiry
   was announced.
+
+## Rich text (`markup`)
+
+The text of a note is parsed on the server (`tokuly_notes::markup`, pure)
+into `tokuly.notes.v1.RichText`, stored in `notes.body` and returned as
+`Note.body`; clients render the tree and never parse text. Mention user IDs
+(only those that named someone when the note was written and are not
+hidden from the reader by a block) and custom emoji pictures (from the
+emoji catalogue) are filled in when the note is shown. Hashtags, mentions,
+the first link and the custom emoji used are read off the tree, so markup
+and server always agree (a `#tag` in code is no hashtag).
+
+| syntax | node |
+|---|---|
+| a line ```` ```lang ```` … a line ```` ``` ```` | code block (no closing line: text) |
+| lines starting with `>` | quote |
+| a `<center>` line … a `</center>` line | centred paragraphs |
+| blank line | new paragraph (line breaks inside are kept as `\n`) |
+| `**b**`, `<b>b</b>` / `*i*`, `<i>i</i>` / `~~s~~`, `<s>s</s>` / `<small>s</small>` | span (bold / italic / strike / small); `*` needs text right after the opening and before the closing star, on one line |
+| `` `code` `` | inline code (one line) |
+| `[label](https://…)` / a bare http(s) URL | link (labels hold no links) |
+| `@handle`, `#tag`, `:shortcode:` | mention, hashtag, custom emoji (same rules as before for where they start) |
+| `$[name content]` | effect: `tada jelly jump bounce shake spin rainbow sparkle x2` |
+| `\` before a markup character | that character as text |
+
+Unclosed markup is text. Spans and effects nest up to depth 8. Effects are
+Misskey's animated functions reduced to a safe set that cannot move content
+over the interface, hide it, or imitate the app (no position, rotate, scale
+beyond twice, blur, colour or font functions); clients play them only when
+the reader has not asked for reduced motion.
+
+## Polls, edits, drafts
+
+- **Polls** (`note_polls`, `note_poll_votes`): votes are final and private;
+  `note_poll_votes` exists only so a vote counts once and voters can be told
+  the result, and is never shown to anyone (not even the author: `Poll.my_choices`
+  is the reader's own). Counts show per `results_visibility` (always, after
+  the reader voted — the author always —, after the end). Counts never move
+  when a voter's account is deleted (who voted would show). Votes 60/min.
+- **Edits**: within 60 minutes, 10 times; earlier versions in `note_edits`
+  readable by everyone who may see the note (`ListNoteEdits`). The search
+  document, hashtag links and counts, mentions and link preview follow the
+  new text. Edits 20/min.
+- **Delete and redraft** (`RedraftNote`): the note's content becomes a draft
+  that holds its uploads before the note lets go of them.
+- **Drafts** (`note_drafts`, holder `notes:draft:<id>`): saves 60/min, limits
+  counted under a per-user advisory lock.
+
+## Muting
+
+`NoteMuteService` (`note_muted_words`, `note_thread_mutes`,
+`note_renote_mutes`) plus the social domain's follow mutes
+(`graph::muted_followee_ids`) apply to the home, following, global, hashtag,
+list, antenna and channel timelines and to trending notes — not to profiles,
+threads, mentions or a note opened directly. Patterns run on the `regex`
+crate (linear time). Mute changes 60/min.
