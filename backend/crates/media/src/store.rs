@@ -43,6 +43,20 @@ pub fn original_key(asset_id: Uuid, extension: &str) -> String {
     }
 }
 
+/// Where a single-PUT upload is kept once it is complete. The upload URL
+/// stays valid for a while after completion and writes `original_key`
+/// only, so the bytes that were checked cannot be replaced through it.
+/// `attempt` is unique per completion attempt: two completions at once each
+/// check their own copy, and only the winner's is kept.
+pub fn stored_key(asset_id: Uuid, attempt: Uuid, extension: &str) -> String {
+    let attempt = attempt.simple();
+    if extension.is_empty() {
+        format!("originals/{asset_id}/stored-{attempt}")
+    } else {
+        format!("originals/{asset_id}/stored-{attempt}.{extension}")
+    }
+}
+
 pub fn original_prefix(asset_id: Uuid) -> String {
     format!("originals/{asset_id}/")
 }
@@ -315,6 +329,9 @@ mod tests {
         assert_eq!(original_key(id, "mp4"), format!("originals/{id}/source.mp4"));
         assert_eq!(original_key(id, ""), format!("originals/{id}/source"));
         assert!(original_key(id, "mp4").starts_with(&original_prefix(id)));
+        assert!(stored_key(id, Uuid::max(), "mp4").starts_with(&original_prefix(id)));
+        assert_ne!(stored_key(id, Uuid::nil(), "mp4"), original_key(id, "mp4"));
+        assert_ne!(stored_key(id, Uuid::nil(), "mp4"), stored_key(id, Uuid::max(), "mp4"));
         assert_eq!(image_key(id, 512, "abcd"), format!("img/{id}/512-abcd.webp"));
         for prefix in public_prefixes(id) {
             assert!(prefix.ends_with(&format!("{id}/")), "{prefix}");

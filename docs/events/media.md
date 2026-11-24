@@ -131,8 +131,12 @@ read it.
 
 ## Object layout
 
-Private bucket: `originals/{asset_id}/source[.ext]` (the uploaded bytes;
-presigned access only).
+Private bucket (presigned access only): `originals/{asset_id}/source[.ext]`
+is what the upload URLs write; a completed single-PUT upload is copied to
+`originals/{asset_id}/stored-{n}[.ext]` before its bytes are checked, so the
+upload URL (valid for an hour) cannot replace a finished file. What a late
+PUT leaves under the upload key is removed by the janitor once the URL has
+expired.
 
 Media bucket (public, `Cache-Control: public, max-age=31536000, immutable`):
 

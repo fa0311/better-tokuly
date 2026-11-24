@@ -193,7 +193,23 @@ impl Media {
         if let Some(multipart_id) = &row.multipart_id {
             self.assemble_parts(&row, multipart_id, client_parts).await?;
         }
-        let Some(stored_bytes) = core.storage.head(Bucket::Private, &row.original_key).await? else {
+        if core.storage.head(Bucket::Private, &row.original_key).await?.is_none() {
+            bail!(precondition, "UPLOAD_INCOMPLETE", "the file has not been uploaded yet");
+        }
+        // The single-PUT URL stays valid after completion; a second PUT
+        // through it would replace the bytes checked here (and served to
+        // whoever receives the file). Check and keep a copy it cannot reach.
+        // A completed multipart upload accepts no more parts.
+        let stored_key = match row.multipart_id {
+            Some(_) => None,
+            None => {
+                let key = store::stored_key(row.id, new_id(), &recipe::extension_of(&row.file_name));
+                core.storage.copy((Bucket::Private, &row.original_key), (Bucket::Private, &key)).await?;
+                Some(key)
+            }
+        };
+        let key = stored_key.as_deref().unwrap_or(&row.original_key);
+        let Some(stored_bytes) = core.storage.head(Bucket::Private, key).await? else {
             bail!(precondition, "UPLOAD_INCOMPLETE", "the file has not been uploaded yet");
         };
         if stored_bytes != row.size_bytes {
@@ -201,20 +217,33 @@ impl Media {
         }
 
         let originals = &self.originals;
-        let sniffed = recipe::sniff(&originals.read_prefix(&row.original_key, recipe::SNIFF_BYTES).await?);
+        let sniffed = recipe::sniff(&originals.read_prefix(key, recipe::SNIFF_BYTES).await?);
         let Some(kind) = recipe::resolve(row.asset_purpose(), sniffed.class) else {
             return self.reject_upload(&row, "UNSUPPORTED_CONTENT", "the uploaded file is not of a type this purpose accepts").await;
         };
         let verify_now = !row.sha256.is_empty() && !checksum_deferred(&row);
-        if verify_now && originals.sha256(&row.original_key).await? != row.sha256 {
+        if verify_now && originals.sha256(key).await? != row.sha256 {
             return self.reject_upload(&row, "CHECKSUM_MISMATCH", "the uploaded file does not match its SHA-256").await;
         }
 
-        let Some(row) = lifecycle::mark_uploaded(core, row.id, kind, &sniffed.content_type).await? else {
-            // A concurrent call completed (or deleted) the upload first.
+        let upload_key = row.original_key.clone();
+        let Some(row) = lifecycle::mark_uploaded(core, row.id, kind, &sniffed.content_type, stored_key.as_deref()).await? else {
+            // A concurrent call completed (or deleted) the upload first; it
+            // keeps its own copy, and a purge may have run before ours was made.
+            if let Some(key) = &stored_key
+                && let Err(e) = core.storage.delete(Bucket::Private, key).await
+            {
+                tracing::warn!(asset_id = %upload_id, error = %e, "could not remove the copy of a lost completion");
+            }
             let row = self.owned_upload(owner_id, upload_id).await?;
             return self.completed_asset(row).await;
         };
+        if stored_key.is_some()
+            && let Err(e) = core.storage.delete(Bucket::Private, &upload_key).await
+        {
+            // The janitor removes it with whatever a late PUT stores there.
+            tracing::debug!(asset_id = %row.id, error = %e, "upload object left for the janitor");
+        }
         // Files need no rendering, so they become READY right here. The
         // exception is a large file whose checksum is still to be verified.
         let quick = kind == AssetKind::ASSET_KIND_FILE && !checksum_deferred(&row);

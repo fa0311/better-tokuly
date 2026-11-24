@@ -90,9 +90,22 @@ pub(crate) async fn enqueue(core: &Core, row: &AssetRow) -> AppResult<()> {
 }
 
 /// UPLOADING → PROCESSING once the bytes are stored and identified.
-pub(crate) async fn mark_uploaded(core: &Core, asset_id: Uuid, kind: AssetKind, content_type: &str) -> AppResult<Option<AssetRow>> {
+///
+/// `stored_key` is set when the bytes were moved out of reach of the upload
+/// URL ([`store::stored_key`]); the asset then reads from there, and what a
+/// late PUT may still write under the upload key is removed once the URL
+/// has expired ([`due_for_upload_cleanup`]).
+pub(crate) async fn mark_uploaded(
+    core: &Core,
+    asset_id: Uuid,
+    kind: AssetKind,
+    content_type: &str,
+    stored_key: Option<&str>,
+) -> AppResult<Option<AssetRow>> {
     let row: Option<AssetRow> = sqlx::query_as(returning(
-        "UPDATE media_assets SET status = $2, kind = $3, content_type = $4, multipart_id = NULL, progress = 0, heartbeat_at = NULL
+        "UPDATE media_assets SET status = $2, kind = $3, content_type = $4, multipart_id = NULL, progress = 0, heartbeat_at = NULL,
+                original_key = COALESCE($6, original_key),
+                repurge_after = CASE WHEN $6 IS NOT NULL THEN GREATEST(now(), created_at + make_interval(secs => $7)) END
          WHERE id = $1 AND status = $5 AND deleted_at IS NULL",
     ))
     .bind(asset_id)
@@ -100,6 +113,8 @@ pub(crate) async fn mark_uploaded(core: &Core, asset_id: Uuid, kind: AssetKind, 
     .bind(kind as i32)
     .bind(content_type)
     .bind(AssetStatus::ASSET_STATUS_UPLOADING as i32)
+    .bind(stored_key)
+    .bind(UPLOAD_URL_SECONDS as f64 + 60.0)
     .fetch_optional(&core.db)
     .await?;
     Ok(row)
@@ -374,12 +389,38 @@ pub(crate) async fn purge(core: &Core, row: &AssetRow) -> AppResult<()> {
 /// Purged assets whose second purge is due.
 pub(crate) async fn due_for_repurge(core: &Core, limit: i64) -> AppResult<Vec<AssetRow>> {
     let rows = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT {ASSET_COLUMNS} FROM media_assets WHERE repurge_after < now() ORDER BY repurge_after LIMIT $1"
+        "SELECT {ASSET_COLUMNS} FROM media_assets WHERE repurge_after < now() AND deleted_at IS NOT NULL ORDER BY repurge_after LIMIT $1"
     )))
     .bind(limit)
     .fetch_all(&core.db)
     .await?;
     Ok(rows)
+}
+
+/// Live assets completed while their upload URL was still valid, now that
+/// it has expired: whatever a late PUT stored under the upload key can go.
+pub(crate) async fn due_for_upload_cleanup(core: &Core, limit: i64) -> AppResult<Vec<AssetRow>> {
+    let rows = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {ASSET_COLUMNS} FROM media_assets WHERE repurge_after < now() AND deleted_at IS NULL ORDER BY repurge_after LIMIT $1"
+    )))
+    .bind(limit)
+    .fetch_all(&core.db)
+    .await?;
+    Ok(rows)
+}
+
+/// Removes the object under a live asset's upload key (never its stored
+/// original) and records that nothing is left to clean up.
+pub(crate) async fn remove_upload_object(core: &Core, row: &AssetRow) -> AppResult<()> {
+    let upload_key = store::original_key(row.id, &crate::recipe::extension_of(&row.file_name));
+    if upload_key != row.original_key {
+        core.storage.delete(Bucket::Private, &upload_key).await?;
+    }
+    sqlx::query("UPDATE media_assets SET repurge_after = NULL WHERE id = $1 AND deleted_at IS NULL")
+        .bind(row.id)
+        .execute(&core.db)
+        .await?;
+    Ok(())
 }
 
 /// FAILED assets that nothing holds and nobody deleted for

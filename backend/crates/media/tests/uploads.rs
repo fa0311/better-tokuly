@@ -989,6 +989,66 @@ async fn open_uploads_are_capped_per_user() {
 }
 
 #[tokio::test]
+async fn a_completed_upload_cannot_be_replaced_through_its_upload_url() {
+    let _sweeping = SWEEPING.lock().await;
+    let h = start().await;
+    let alice = h.app.user("alice").await;
+
+    // A chat file is READY as soon as it completes, and its recipients
+    // download whatever the original holds.
+    let signed = b"%PDF-1.7 I owe you nothing. -- signed, alice".to_vec();
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_CHAT_FILE, "contract.pdf", "application/pdf", &signed).await;
+    assert!(h.put(&upload, signed.clone()).await.status().is_success());
+    let asset = h.complete(&alice, &upload.upload_id).await.unwrap();
+    assert_eq!(asset.status, AssetStatus::ASSET_STATUS_READY);
+
+    // The upload URL is still within its lifetime. A second PUT of the same
+    // size (the signature only fixes the length) must not change the file.
+    let forged: Vec<u8> = signed.iter().map(u8::to_ascii_uppercase).collect();
+    let _ = h.put(&upload, forged.clone()).await;
+    let url = h.get_asset(&alice, &asset.id).await.unwrap().url;
+    assert_eq!(h.http.get(&url).send().await.unwrap().bytes().await.unwrap(), signed, "the file is what was completed");
+
+    // Two completions at once each check a copy of their own; the winner's is kept.
+    let note = b"see you at the station at 7".to_vec();
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_CHAT_FILE, "note.txt", "text/plain", &note).await;
+    assert!(h.put(&upload, note.clone()).await.status().is_success());
+    let (first, second) = tokio::join!(h.complete(&alice, &upload.upload_id), h.complete(&alice, &upload.upload_id));
+    assert!(first.is_ok() && second.is_ok(), "{first:?} {second:?}");
+    h.media.process_now(upload.asset_id.parse().unwrap()).await.unwrap();
+    let url = h.get_asset(&alice, &upload.asset_id).await.unwrap().url;
+    assert_eq!(h.http.get(&url).send().await.unwrap().bytes().await.unwrap(), note);
+
+    // The same between completion and processing: the worker processes what
+    // was checked, not what was put there afterwards.
+    let picture = png(64, 64);
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_AVATAR, "me.png", "image/png", &picture).await;
+    assert!(h.put(&upload, picture.clone()).await.status().is_success());
+    let pending = h.complete(&alice, &upload.upload_id).await.unwrap();
+    assert_eq!(pending.status, AssetStatus::ASSET_STATUS_PROCESSING);
+    let _ = h.put(&upload, noise(picture.len())).await;
+    h.media.process_now(asset_id(&pending)).await.unwrap();
+    assert_eq!(h.get_asset(&alice, &pending.id).await.unwrap().status, AssetStatus::ASSET_STATUS_READY);
+
+    // Whatever a late PUT leaves behind is removed once the URL has expired,
+    // and the asset itself keeps its file.
+    let id = asset_id(&asset);
+    let late_key = format!("originals/{id}/source.pdf");
+    let core = &h.app.core;
+    h.media.sweep().await.unwrap();
+    sqlx::query("UPDATE media_assets SET created_at = created_at - interval '2 hours', repurge_after = repurge_after - interval '2 hours' WHERE id = $1")
+        .bind(id)
+        .execute(&core.db)
+        .await
+        .unwrap();
+    h.media.sweep().await.unwrap();
+    assert!(core.storage.head(tokuly_core::storage::Bucket::Private, &late_key).await.unwrap().is_none(), "the late PUT is gone");
+    assert!(h.original_exists(id).await, "the completed file stays");
+    let url = h.get_asset(&alice, &asset.id).await.unwrap().url;
+    assert_eq!(h.http.get(&url).send().await.unwrap().bytes().await.unwrap(), signed);
+}
+
+#[tokio::test]
 async fn private_downloads_are_never_cached_by_shared_caches() {
     let h = start().await;
     let alice = h.app.user("alice").await;
