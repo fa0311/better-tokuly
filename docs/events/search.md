@@ -70,7 +70,10 @@ admin      ── admin.content.removed             ─────────�
 - **Channel content does not name its owner**: hits of `channel`, `video`,
   `short`, `live` and of a `playlist` whose `extra.channel_id` is set have no
   `owner` (except for the owner), and an `owner_id` search by anyone else
-  leaves those kinds (and playlists) out. `owner_id` stays in the index for
+  leaves those kinds (and playlists) out. The same goes for a `clip` with
+  `extra.channel_clip = true` (a channel's owner cutting their own channel):
+  no `owner` on its hits, and an engine filter keeps it out of someone
+  else's `owner_id` search, hits and counts alike. `owner_id` stays in the index for
   blocks, suspensions and deletion.
 - **Highlights** are returned as `TextSegment`s of plain text, never markup.
   The engine marks matches with two private-use characters that are removed

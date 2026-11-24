@@ -144,10 +144,16 @@ pub(crate) struct EngineAnswer {
 /// The engine filter for a caller: nothing owned by `hidden` users, and only
 /// documents of `owner` when given. IDs are UUIDs, so quoting them is all
 /// the escaping there is to do.
-pub(crate) fn owner_filter(hidden: &[Uuid], owner: Option<Uuid>) -> Option<String> {
+pub(crate) fn owner_filter(hidden: &[Uuid], owner: Option<Uuid>, owner_kinds_only: bool) -> Option<String> {
     let mut parts = Vec::new();
     if let Some(owner) = owner {
         parts.push(format!("owner_id = \"{owner}\""));
+    }
+    // A clip a channel's owner cut from their own channel is channel content
+    // ([`kinds::hides_owner`]): someone else searching the account leaves it
+    // out, like the channel kinds the query does not search at all.
+    if owner_kinds_only {
+        parts.push(format!("NOT {CHANNEL_CLIP} = true"));
     }
     if !hidden.is_empty() {
         let ids: Vec<String> = hidden.iter().map(|id| format!("\"{id}\"")).collect();
@@ -155,6 +161,9 @@ pub(crate) fn owner_filter(hidden: &[Uuid], owner: Option<Uuid>) -> Option<Strin
     }
     (!parts.is_empty()).then(|| parts.join(" AND "))
 }
+
+/// The flag live sets on a clip that is channel content (filterable).
+pub(crate) const CHANNEL_CLIP: &str = "extra.channel_clip";
 
 fn count(kind: &Kind, matches: usize) -> Option<KindCount> {
     (matches > 0).then(|| KindCount { kind: kind.proto.into(), count: matches as i64, ..Default::default() })
@@ -400,13 +409,13 @@ mod tests {
     fn the_filter_hides_blocked_owners_and_can_pin_one_owner() {
         let a = Uuid::from_u128(1);
         let b = Uuid::from_u128(2);
-        assert_eq!(owner_filter(&[], None), None);
+        assert_eq!(owner_filter(&[], None, false), None);
         assert_eq!(
-            owner_filter(&[a, b], None).unwrap(),
+            owner_filter(&[a, b], None, false).unwrap(),
             "owner_id NOT IN [\"00000000-0000-0000-0000-000000000001\", \"00000000-0000-0000-0000-000000000002\"]"
         );
-        assert_eq!(owner_filter(&[], Some(a)).unwrap(), "owner_id = \"00000000-0000-0000-0000-000000000001\"");
-        let both = owner_filter(&[b], Some(a)).unwrap();
+        assert_eq!(owner_filter(&[], Some(a), false).unwrap(), "owner_id = \"00000000-0000-0000-0000-000000000001\"");
+        let both = owner_filter(&[b], Some(a), false).unwrap();
         assert!(both.starts_with("owner_id = ") && both.contains(" AND owner_id NOT IN ["));
     }
 

@@ -96,7 +96,9 @@ pub(crate) async fn wait_for_task(search: &Search, task: &TaskInfo, timeout: Dur
 pub fn index_settings(synonyms: HashMap<String, Vec<String>>) -> Settings {
     Settings {
         searchable_attributes: Some(SEARCHABLE.iter().map(|a| a.to_string()).collect()),
-        filterable_attributes: Some(["kind", "owner_id", "tags", "created_at"].into_iter().map(Into::into).collect()),
+        filterable_attributes: Some(
+            ["kind", "owner_id", "tags", "created_at", crate::query::CHANNEL_CLIP].into_iter().map(Into::into).collect(),
+        ),
         sortable_attributes: Some(["created_at", "score", "rank"].into_iter().map(str::to_owned).collect()),
         // Queries only match documents containing all their words, so
         // `words` separates nothing; it leads because the engine wants it
