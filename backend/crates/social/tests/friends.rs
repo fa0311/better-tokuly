@@ -283,6 +283,11 @@ async fn best_friends_list_starred_friends_and_is_shown_to_friends_only() {
     assert_eq!(seen_by_bob.friends.len(), 1);
     assert!(seen_by_bob.friends[0].favorite && seen_by_bob.friends[0].nickname.is_empty());
     assert_eq!(best(&stranger, Some(&alice)).await.unwrap_err().reason, "NOT_FRIENDS");
+
+    // Best friends are part of the friend list: hiding that hides them too.
+    ctx.set_privacy(&alice, |p| p.friend_list_visible_to = Audience::AUDIENCE_NOBODY.into()).await;
+    assert_eq!(best(&bob, Some(&alice)).await.unwrap_err().reason, "FRIEND_LIST_PRIVATE");
+    assert_eq!(best(&alice, None).await.unwrap().friends.len(), 1, "the owner still sees their own");
 }
 
 #[tokio::test]

@@ -9,6 +9,10 @@
 //! whoever joins or leaves publishes a wake-up on the bus for their map cell
 //! and its neighbours, and every session listens on its own cell. A slow
 //! heartbeat covers lost wake-ups and members that vanished without leaving.
+//!
+//! A user has one session at a time: opening a new one ends the previous
+//! one (on whichever server it runs), so nobody looks from several made-up
+//! positions at once.
 use std::time::Duration;
 
 use connectrpc::{ConnectError, ServiceStream};
@@ -19,7 +23,7 @@ use tokuly_core::{geoindex, prelude::*};
 use tokuly_identity::settings;
 use tokuly_proto::social::{DiscoverNearbyResponse, NearbyUser};
 
-use crate::{Social, graph, livegeo::LiveGeoSet};
+use crate::{Social, graph, livegeo::LiveGeoSet, people};
 
 /// How often a session re-announces itself and re-reads its surroundings.
 const HEARTBEAT: Duration = Duration::from_secs(4);
@@ -31,13 +35,39 @@ const MAX_SESSION: Duration = Duration::from_secs(600);
 const MAX_ACCURACY_ALLOWANCE: f64 = 25.0;
 /// Most users reported at once (a crowded venue).
 const MAX_NEARBY: usize = 50;
+/// Sessions one user may open per [`SESSION_WINDOW`]. The position is the
+/// client's word, so every session is a look at some point of the map: few
+/// of them keep it from becoming a way to scan places or close in on
+/// someone.
+const MAX_SESSIONS: u32 = 20;
+const SESSION_WINDOW: Duration = Duration::from_secs(600);
+/// What a distance is reported as: the smallest of these it does not exceed
+/// (anything beyond the last is reported as the last).
+const DISTANCE_BANDS: [f64; 4] = [10.0, 25.0, 50.0, 75.0];
+
+/// A distance as shown to the other user: "within 10 / 25 / 50 / 75 m",
+/// never the exact figure. Exact distances from a few self-chosen points
+/// would pin anyone down to the meter.
+fn coarse_distance(meters: f64) -> f64 {
+    DISTANCE_BANDS.into_iter().find(|band| meters <= *band).unwrap_or(DISTANCE_BANDS[DISTANCE_BANDS.len() - 1])
+}
 
 pub(crate) const NEARBY: LiveGeoSet = LiveGeoSet::new("social:nearby:geo", "social:nearby:seen", PRESENCE_TTL);
+
+/// Holds the ID of a user's current session; older sessions end when they
+/// see it changed. Outlives the longest session a little.
+fn session_key(user_id: Uuid) -> String {
+    format!("social:nearby:session:{}", user_id.simple())
+}
+const SESSION_KEY_TTL: Duration = Duration::from_secs(MAX_SESSION.as_secs() + 60);
 
 /// Where one session stands and how far it looks.
 #[derive(Debug, Clone, Copy)]
 struct Spot {
     user_id: Uuid,
+    /// The user is a minor: they only meet other minors (see
+    /// [`people::minors_among`]).
+    minor: bool,
     lat: f64,
     lng: f64,
     radius_meters: f64,
@@ -66,10 +96,15 @@ impl Social {
         ensure!(geoindex::valid_coordinates(lat, lng), invalid, "INVALID_LOCATION", "a valid location is required");
         let privacy = settings::privacy_of(core, user_id).await?;
         ensure!(privacy.nearby_discoverable, precondition, "NEARBY_DISCOVERY_DISABLED", "turn on nearby discovery in your privacy settings first");
-        core.cache.rate_limit(&format!("nearby:{user_id}"), 30, Duration::from_secs(60)).await?;
+        core.cache.rate_limit(&format!("nearby:{user_id}"), MAX_SESSIONS, SESSION_WINDOW).await?;
+
+        // This session takes over from any earlier one of the user's.
+        let session = new_id().to_string();
+        core.cache.set_string(&session_key(user_id), &session, Some(SESSION_KEY_TTL)).await?;
 
         let allowance = if accuracy_meters.is_finite() { accuracy_meters.clamp(0.0, MAX_ACCURACY_ALLOWANCE) } else { 0.0 };
-        let spot = Spot { user_id, lat, lng, radius_meters: self.cfg.nearby_radius_meters + allowance };
+        let minor = people::minors_among(core, &[user_id]).await?.contains(&user_id);
+        let spot = Spot { user_id, minor, lat, lng, radius_meters: self.cfg.nearby_radius_meters + allowance };
 
         // Listen before showing up, so nobody arriving after our first look
         // goes unnoticed.
@@ -79,13 +114,14 @@ impl Social {
 
         let (sender, receiver) = mpsc::channel(4);
         let social = self.clone();
-        tokio::spawn(async move { social.run_nearby_session(spot, wakeups, sender).await });
+        tokio::spawn(async move { social.run_nearby_session(spot, session, wakeups, sender).await });
         Ok(Box::pin(ReceiverStream::new(receiver).map(Ok::<_, ConnectError>)))
     }
 
-    /// Feeds one session until the client goes away, the session times out or
-    /// the server shuts down, then takes the user off the map.
-    async fn run_nearby_session<W, M>(&self, spot: Spot, mut wakeups: W, sender: mpsc::Sender<DiscoverNearbyResponse>)
+    /// Feeds one session until the client goes away, the session times out,
+    /// a newer session of the user takes over or the server shuts down, then
+    /// takes the user off the map (unless a newer session keeps them there).
+    async fn run_nearby_session<W, M>(&self, spot: Spot, session: String, mut wakeups: W, sender: mpsc::Sender<DiscoverNearbyResponse>)
     where
         W: Stream<Item = M> + Unpin,
     {
@@ -112,6 +148,11 @@ impl Social {
                     }
                 }
             }
+            match cache.get_string(&session_key(spot.user_id)).await {
+                Ok(current) if current.as_deref() != Some(session.as_str()) => break, // taken over
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "nearby session check failed"),
+            }
             let users = match self.nearby_users(&spot).await {
                 Ok(users) => users,
                 Err(e) => {
@@ -129,10 +170,19 @@ impl Social {
             }
             last_sent = Some(seen_now);
         }
-        if let Err(e) = NEARBY.leave(cache, spot.user_id).await {
+        if let Err(e) = NEARBY.leave_unless_taken_over(cache, spot.user_id, &session_key(spot.user_id), &session).await {
             tracing::warn!(error = %e, "could not leave nearby discovery; the entry expires by itself");
         }
         self.announce_nearby_change(spot.lat, spot.lng).await;
+    }
+
+    /// Ends `user_id`'s nearby session, if one is open, and takes them off
+    /// the map at once. For a user who switched `nearby_discoverable` off:
+    /// the session sees its ID gone within a heartbeat and stops.
+    pub(crate) async fn end_nearby_discovery(&self, user_id: Uuid) -> AppResult<()> {
+        let cache = &self.core.cache;
+        cache.del(&session_key(user_id)).await?;
+        NEARBY.leave(cache, user_id).await
     }
 
     /// Wakes every session that could see a user at this position.
@@ -146,17 +196,20 @@ impl Social {
     }
 
     /// Everyone else in discovery around `spot`, nearest first. People in a
-    /// block with the user are left out, in both directions.
+    /// block with the user are left out, in both directions, and so is
+    /// everyone of the other age group (minors and adults).
     async fn nearby_users(&self, spot: &Spot) -> AppResult<Vec<(Uuid, NearbyUser)>> {
         let core = &self.core;
         let hidden = graph::blocked_ids_either(core, spot.user_id).await?;
-        let found: Vec<(Uuid, f64)> = NEARBY
+        let mut found: Vec<(Uuid, f64)> = NEARBY
             .within(&core.cache, spot.lat, spot.lng, spot.radius_meters, MAX_NEARBY + 1)
             .await?
             .into_iter()
             .filter(|(id, _)| *id != spot.user_id && !hidden.contains(id))
-            .take(MAX_NEARBY)
             .collect();
+        let minors = people::minors_among(core, &found.iter().map(|(id, _)| *id).collect::<Vec<_>>()).await?;
+        found.retain(|(id, _)| minors.contains(id) == spot.minor);
+        found.truncate(MAX_NEARBY);
         let ids: Vec<Uuid> = found.iter().map(|(id, _)| *id).collect();
         let summaries = tokuly_identity::summaries(core, &ids).await?;
         let relationships = graph::relationships(core, spot.user_id, &ids).await?;
@@ -166,7 +219,7 @@ impl Social {
                 // Unknown or deleted accounts can linger in Valkey for a moment.
                 let user = summaries.get(&id).filter(|user| !user.deleted)?.clone();
                 let relationship = relationships.get(&id).copied().unwrap_or(tokuly_proto::identity::Relationship::RELATIONSHIP_NONE);
-                Some((id, NearbyUser { user: user.into(), distance_meters: distance.round(), relationship: relationship.into(), ..Default::default() }))
+                Some((id, NearbyUser { user: user.into(), distance_meters: coarse_distance(distance), relationship: relationship.into(), ..Default::default() }))
             })
             .collect())
     }
@@ -175,6 +228,16 @@ impl Social {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distances_are_reported_in_bands() {
+        assert_eq!(coarse_distance(0.0), 10.0);
+        assert_eq!(coarse_distance(10.0), 10.0);
+        assert_eq!(coarse_distance(10.4), 25.0);
+        assert_eq!(coarse_distance(49.0), 50.0);
+        assert_eq!(coarse_distance(51.0), 75.0);
+        assert_eq!(coarse_distance(400.0), 75.0);
+    }
 
     #[test]
     fn cells_are_a_hundredth_of_a_degree() {

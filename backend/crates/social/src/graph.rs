@@ -85,6 +85,22 @@ pub(crate) async fn lock_pair(tx: &mut Transaction<'_, Postgres>, a: Uuid, b: Uu
     Ok(())
 }
 
+/// Serializes, for the rest of the transaction, everything that adds
+/// friends to `a` or `b`, so that two friendships of the same user made at
+/// once (each under its own [`lock_pair`]) cannot both pass the friend
+/// limit. Take it after the pair lock; the two are locked in a fixed order
+/// so that transactions never wait on each other in a circle.
+pub(crate) async fn lock_friend_lists(tx: &mut Transaction<'_, Postgres>, a: Uuid, b: Uuid) -> AppResult<()> {
+    let pair = Pair::of(a, b);
+    for user_id in [pair.lo, pair.hi] {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("social:friends-of:{}", user_id.simple()))
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
 /// IDs of a user's friends. Hot path: served from Valkey, loaded from the
 /// database on a miss.
 pub async fn friend_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {
@@ -98,6 +114,21 @@ pub async fn friend_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {
 /// How many friends a user has.
 pub(crate) async fn friend_count(core: &Core, user_id: Uuid) -> AppResult<i64> {
     Ok(sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1").bind(user_id).fetch_one(&core.db).await?)
+}
+
+/// How many friends of `owner` a viewer gets to see: active accounts other
+/// than `hidden` (the viewer's [`blocked_ids_either`]). The count a viewer
+/// is shown must match the list they are shown, or the difference tells
+/// them who blocked them.
+pub(crate) async fn visible_friend_count(core: &Core, owner: Uuid, hidden: &[Uuid]) -> AppResult<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*) FROM friendships f JOIN users u ON u.id = f.friend_id
+         WHERE f.user_id = $1 AND u.deleted_at IS NULL AND NOT (f.friend_id = ANY($2))",
+    )
+    .bind(owner)
+    .bind(hidden)
+    .fetch_one(&core.db)
+    .await?)
 }
 
 pub async fn are_friends(core: &Core, a: Uuid, b: Uuid) -> AppResult<bool> {

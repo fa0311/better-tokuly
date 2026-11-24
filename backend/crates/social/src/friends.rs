@@ -1,11 +1,14 @@
 //! Friendships: listing them, per-friend preferences, shared history and
 //! ending them.
+use std::collections::HashSet;
+
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{Postgres, Transaction};
 use tokuly_core::{events, prelude::*};
 use tokuly_identity::{settings, users};
 use tokuly_proto::{
     common::PageInfo,
+    identity::Audience,
     social::{Friend, Friendship, social_event::Event as Push},
 };
 use unicode_segmentation::UnicodeSegmentation as _;
@@ -182,6 +185,46 @@ impl Social {
         Ok(())
     }
 
+    /// Which of `owners` let `viewer` see their friend list, and with it the
+    /// friends the two have in common: mutual friends follow the same rule
+    /// as the list they are taken from. (The batch form of
+    /// [`Self::ensure_can_see_friends_of`]'s audience check.)
+    pub(crate) async fn friend_lists_visible_to(&self, viewer: Uuid, owners: &[Uuid]) -> AppResult<HashSet<Uuid>> {
+        let core = &self.core;
+        if owners.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let privacy = settings::privacy_of_many(core, owners).await?;
+        let hidden: HashSet<Uuid> = graph::blocked_ids_either(core, viewer).await?.into_iter().collect();
+        let friends: HashSet<Uuid> = sqlx::query_scalar::<_, Uuid>("SELECT friend_id FROM friendships WHERE user_id = $1 AND friend_id = ANY($2)")
+            .bind(viewer)
+            .bind(owners)
+            .fetch_all(&core.db)
+            .await?
+            .into_iter()
+            .collect();
+        let mutual = graph::mutual_friend_counts(core, viewer, owners).await?;
+        Ok(owners
+            .iter()
+            .copied()
+            .filter(|owner| {
+                if *owner == viewer {
+                    return true;
+                }
+                if hidden.contains(owner) {
+                    return false;
+                }
+                let audience = privacy.get(owner).map(|p| people::audience(&p.friend_list_visible_to)).unwrap_or(Audience::AUDIENCE_UNSPECIFIED);
+                match audience {
+                    Audience::AUDIENCE_EVERYONE => true,
+                    Audience::AUDIENCE_NOBODY => false,
+                    Audience::AUDIENCE_FRIENDS | Audience::AUDIENCE_UNSPECIFIED => friends.contains(owner),
+                    Audience::AUDIENCE_FRIENDS_OF_FRIENDS => friends.contains(owner) || mutual.contains_key(owner),
+                }
+            })
+            .collect())
+    }
+
     /// One page of `owner`'s friends (newest friendships first) as `viewer`
     /// sees them, plus the total matching `query`.
     pub(crate) async fn list_friends(&self, viewer: Uuid, owner: Uuid, query: &str, page: &Page) -> AppResult<(Vec<Friend>, PageInfo, i32)> {
@@ -299,7 +342,11 @@ impl Social {
             nights_together: history.nights_together,
             streak_weeks,
             titles: ranking::all_titles(&history.titles, mutual_closest, streak_weeks, friends_since, now),
-            mutual_friend_count: graph::mutual_friend_count(&self.core, user_id, friend_id).await?,
+            mutual_friend_count: if self.friend_lists_visible_to(user_id, &[friend_id]).await?.is_empty() {
+                0
+            } else {
+                graph::mutual_friend_count(&self.core, user_id, friend_id).await?
+            },
             interaction_score: history.interaction_score,
             friend: friend.into(),
             ..Default::default()

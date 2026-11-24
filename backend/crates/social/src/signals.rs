@@ -57,6 +57,9 @@ impl Social {
         ensure!((1..=MAX_KNOCKS).contains(&count), invalid, "INVALID_KNOCK_COUNT", "knock between 1 and {MAX_KNOCKS} times");
         self.require_friend(user_id, friend_id).await?;
         core.cache.rate_limit(&format!("knock:{user_id}:{friend_id}"), 20, Duration::from_secs(60)).await?;
+        // Each knock is a push; without a cap per sender, someone with many
+        // friends could knock on all of them all the time.
+        core.cache.rate_limit(&format!("knock:{user_id}"), 60, Duration::from_secs(600)).await?;
 
         let me = tokuly_identity::summary(core, user_id).await?;
         let text = copy::knock(&people::name_of(&me));

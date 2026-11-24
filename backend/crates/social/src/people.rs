@@ -37,6 +37,27 @@ pub(crate) async fn visible_by_handle(core: &Core, viewer: Uuid, handle: &str) -
     Ok(user.id)
 }
 
+/// Age from which a user counts as an adult.
+const ADULT_AGE_YEARS: i32 = 18;
+
+/// The members of `user_ids` who are minors by the birthdate on their
+/// account. Accounts without a birthdate count as adults.
+///
+/// Strangers only meet within their own age group where the server puts
+/// them in touch by position (nearby discovery, bumps): an adult is never
+/// shown a minor they do not know, nor the other way round.
+pub(crate) async fn minors_among(core: &Core, user_ids: &[Uuid]) -> AppResult<HashSet<Uuid>> {
+    if user_ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let minors: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE id = ANY($1) AND birthdate > current_date - make_interval(years => $2)")
+        .bind(user_ids)
+        .bind(ADULT_AGE_YEARS)
+        .fetch_all(&core.db)
+        .await?;
+    Ok(minors.into_iter().collect())
+}
+
 /// An audience stored in privacy settings as the plain enum (unknown numbers
 /// read as unspecified, which [`crate::graph::allows`] treats cautiously).
 pub(crate) fn audience(value: &buffa::EnumValue<Audience>) -> Audience {

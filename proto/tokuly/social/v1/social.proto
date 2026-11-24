@@ -49,7 +49,9 @@ service FriendService {
   rpc UpdateFriendPrefs(UpdateFriendPrefsRequest) returns (UpdateFriendPrefsResponse);
 
   // Automatically ranked closest friends plus manually starred ones.
-  // Errors: NOT_FRIENDS (someone else's list is shown to their friends only).
+  // Someone else's list is shown to their friends only, and only to those
+  // their friend list privacy lets see it.
+  // Errors: NOT_FRIENDS, FRIEND_LIST_PRIVATE.
   rpc ListBestFriends(ListBestFriendsRequest) returns (ListBestFriendsResponse);
   // "もしかして、友達!?" — friends of friends, contacts, and people met via invites.
   rpc ListSuggestions(ListSuggestionsRequest) returns (ListSuggestionsResponse);
@@ -57,7 +59,9 @@ service FriendService {
   // Errors: USER_NOT_FOUND.
   rpc DismissSuggestion(DismissSuggestionRequest) returns (DismissSuggestionResponse);
   // Matches hashed emails from the address book against discoverable accounts
-  // with a verified email. The uploaded hashes are not stored.
+  // with a verified email. The uploaded hashes are not stored. A user can
+  // look up 5000 different hashes a day (sending the same ones again is
+  // free), in at most 6 calls an hour.
   // Errors: TOO_MANY_CONTACTS (more than 2000), INVALID_CONTACT_HASH, RATE_LIMITED.
   rpc MatchContacts(MatchContactsRequest) returns (MatchContactsResponse);
 
@@ -86,8 +90,11 @@ service FriendService {
 
   // Nearby discovery: while a client keeps this stream open it is visible to,
   // and receives, other users with the add-friend screen open within ~50 m.
+  // Minors and adults never see each other here.
   // The first message arrives immediately (possibly empty). The server ends
-  // the stream after 10 minutes; reopen it to keep going or after moving.
+  // the stream after 10 minutes; reopen it to keep going or after moving
+  // (at most 20 streams per 10 minutes). A user has one stream at a time:
+  // opening a new one ends the previous one.
   // Errors: INVALID_LOCATION, NEARBY_DISCOVERY_DISABLED (the caller switched
   // off `nearby_discoverable`), RATE_LIMITED.
   rpc DiscoverNearby(DiscoverNearbyRequest) returns (stream DiscoverNearbyResponse);
@@ -146,6 +153,9 @@ message FriendRequest {
   FriendSource source = 4;
   string message = 5;
   google.protobuf.Timestamp created_at = 6;
+  // Friends the caller shares with the other side; 0 unless the other
+  // side's friend list is visible to the caller (mutual friends are part
+  // of it). The same rule holds for every mutual-friend field.
   int32 mutual_friend_count = 7;
 }
 
@@ -234,6 +244,7 @@ message Friendship {
   // BUMP_BUDDIES (5+ bumps in 30 days), CHATTERBOX (200+ messages and stamps
   // in 30 days), ON_FIRE (streak of 4+ weeks), NEW_FRIENDS (first week).
   repeated string titles = 8;
+  // 0 unless the friend's friend list is visible to the caller.
   int32 mutual_friend_count = 9;
   // Messages + stamps exchanged in the last 30 days.
   int32 interaction_score = 10;
@@ -251,7 +262,8 @@ message UpdateFriendPrefsResponse {
 }
 
 message ListBestFriendsRequest {
-  // Empty = the caller. Other users' best friends are visible to their friends.
+  // Empty = the caller. Other users' best friends are visible to their
+  // friends, within the owner's friend list privacy.
   string user_id = 1;
 }
 
@@ -265,6 +277,8 @@ message Suggestion {
   // INVITED (they joined through the caller's invite) | SAME_SCHOOL |
   // NEARBY_OFTEN
   string reason = 2;
+  // Both empty unless the suggested user's friend list is visible to the
+  // caller.
   int32 mutual_friend_count = 3;
   repeated tokuly.common.v1.UserSummary mutual_friends = 4;
 }
@@ -378,6 +392,8 @@ message DiscoverNearbyResponse {
 
 message NearbyUser {
   tokuly.common.v1.UserSummary user = 1;
+  // How far away they are, in bands: 10, 25, 50 or 75 ("within N m").
+  // Never the exact distance.
   double distance_meters = 2;
   tokuly.identity.v1.Relationship relationship = 3;
 }
@@ -390,7 +406,10 @@ message NearbyUser {
 service InteractionService {
   // Call when the phone detects a shake. Two attempts within a few seconds and
   // ~30 m of each other become a bump; mutual friends are told
-  // "A and B bumped!". Bumping a non-friend creates a friend request. The
+  // "A and B bumped!". Bumping a non-friend creates a friend request; two
+  // strangers only bump when both have `nearby_discoverable` on, both are
+  // minors or both adults (by their birthdates), and each is the other's
+  // best match; one shake bumps at most one stranger. The
   // other participant learns about the bump through SocialEvent.bump.
   // Calling again within a few seconds returns the same bump, not a new one.
   // Errors: INVALID_LOCATION, RATE_LIMITED.
@@ -421,7 +440,7 @@ service InteractionService {
   rpc AckMapReactions(AckMapReactionsRequest) returns (AckMapReactionsResponse);
 
   // Records that the caller opened a friend's pin ("eyes" / map views).
-  // Repeats within a minute count once. Errors: NOT_FRIENDS.
+  // Repeats within a minute count once. Errors: NOT_FRIENDS, RATE_LIMITED.
   rpc RecordMapView(RecordMapViewRequest) returns (RecordMapViewResponse);
   // Who looked at my location in the last 24 h (count only unless shared).
   rpc GetMapViews(GetMapViewsRequest) returns (GetMapViewsResponse);
@@ -444,6 +463,9 @@ message BumpResponse {
 message Bump {
   string id = 1;
   repeated tokuly.common.v1.UserSummary participants = 2;
+  // Between the two phones for friends. For two people who were not friends
+  // when they shook, each gets the position of their own shake: never
+  // anything that tells them where the other was.
   tokuly.common.v1.LatLng location = 3;
   string place_name = 4;
   google.protobuf.Timestamp created_at = 5;
@@ -559,6 +581,8 @@ message SocialEvent {
     string friend_removed_user_id = 3;
     Bump bump = 4;
     // A bump between two of the recipient's friends ("A and B bumped!").
+    // Carries no location: either of the two may hide their position from
+    // the recipient.
     Bump friends_bumped = 5;
     BuzzEvent buzz = 6;
     KnockEvent knock = 7;

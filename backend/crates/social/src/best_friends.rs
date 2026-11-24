@@ -178,11 +178,13 @@ impl Social {
 
     /// `owner`'s best friends as `viewer` sees them: the automatically ranked
     /// ones in rank order, then the starred ones. Someone else's list is only
-    /// shown to their friends.
+    /// shown to their friends, and only to those who may see their friend
+    /// list (best friends are part of it).
     pub(crate) async fn list_best_friends(&self, viewer: Uuid, owner: Uuid) -> AppResult<Vec<Friend>> {
         let own = viewer == owner;
         if !own {
             self.require_friend(viewer, owner).await?;
+            self.ensure_can_see_friends_of(viewer, owner).await?;
         }
         let hidden = if own { Vec::new() } else { graph::blocked_ids_either(&self.core, viewer).await? };
         let rows: Vec<FriendRow> = sqlx::query_as(concat!(

@@ -26,6 +26,9 @@ use crate::{
 
 /// Friends one reaction can be thrown at (a whole gathering).
 const MAX_RECIPIENTS: usize = 50;
+/// Reactions one friend can receive from the same sender per minute. The
+/// sender's own limit counts calls, and one call can reach 50 friends.
+const MAX_PER_RECIPIENT_PER_MINUTE: u32 = 60;
 /// Unplayed reactions returned at once; older ones follow after an ack.
 const MAX_PENDING: i64 = 200;
 const MAX_ACKS: usize = 500;
@@ -74,6 +77,36 @@ impl Reaction {
         ensure!((1..=5).contains(&intensity), invalid, "INVALID_INTENSITY", "intensity is between 1 and 5");
         Ok(Self { kind, emoji, stamp_id, intensity })
     }
+}
+
+/// Counts one reaction to each recipient against the per-recipient limit,
+/// all or nothing: when any of them is at the limit nothing is counted, so a
+/// refused throw at a gathering does not use up the others' allowance.
+const COUNT_EACH_OR_NONE: &str = r"
+for _, key in ipairs(KEYS) do
+    if tonumber(redis.call('GET', key) or '0') >= tonumber(ARGV[1]) then
+        return 0
+    end
+end
+for _, key in ipairs(KEYS) do
+    if redis.call('INCR', key) == 1 then
+        redis.call('EXPIRE', key, ARGV[2])
+    end
+end
+return 1";
+
+async fn ensure_room_for_each(core: &Core, user_id: Uuid, recipients: &[Uuid]) -> AppResult<()> {
+    if !core.cfg.rate_limits {
+        return Ok(());
+    }
+    let script = redis::Script::new(COUNT_EACH_OR_NONE);
+    let mut script = script.prepare_invoke();
+    for recipient in recipients {
+        script.key(format!("rl:map-reaction:{user_id}:{recipient}"));
+    }
+    let counted: i64 = script.arg(MAX_PER_RECIPIENT_PER_MINUTE).arg(60).invoke_async(&mut core.cache.conn()).await?;
+    ensure!(counted == 1, rate_limited, "RATE_LIMITED", "too many reactions to this friend, slow down");
+    Ok(())
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -131,6 +164,7 @@ impl Social {
             .await?;
         ensure!(friends as usize == recipients.len(), precondition, "NOT_FRIENDS", "map reactions can only be sent to friends");
         core.cache.rate_limit(&format!("map-reaction:{user_id}"), 120, Duration::from_secs(60)).await?;
+        ensure_room_for_each(core, user_id, &recipients).await?;
 
         let me = tokuly_identity::summary(core, user_id).await?;
         let text = copy::map_reaction(&people::name_of(&me), reaction.kind, &reaction.emoji);

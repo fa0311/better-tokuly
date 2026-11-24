@@ -36,7 +36,8 @@ export default {
     start: "近くの人をさがす",
     stop: "やめる",
     needLocation: "位置情報が必要です",
-    distance: "{{meters}}m",
+    // The server reports a band (10 / 25 / 50 / 75 m), never the exact distance.
+    distance: "{{meters}}m以内",
   },
   invite: {
     title: "QRコードで追加",

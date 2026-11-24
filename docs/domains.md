@@ -39,9 +39,13 @@ See their proto files. Summary of behaviour that is not obvious from the API:
   interactions (messages, stamps, bumps, time together, map views) with a
   weekly streak counter, plus manual favourites. Blocking is silent and hides
   both users from each other everywhere. Invite links/QR count "intros".
-  Nearby discovery pairs users with the add-friend screen open within ~50 m.
+  Nearby discovery pairs users with the add-friend screen open within ~50 m
+  (minors only with minors, adults only with adults). Mutual friends (on
+  profiles, in search, requests and suggestions) follow the other user's
+  friend list audience, like their best friends.
   A bump is two shake attempts within ~4 s and ~30 m; friends of both get
-  "A and B bumped!". Buzz needs the two to be within 200 m. Map reactions
+  "A and B bumped!". Strangers bump only when both allow nearby discovery and are
+  in the same age group. Buzz needs the two to be within 200 m. Map reactions
   ("supersends": hearts, eyes, drinks, emoji, stamps) play live or are queued
   until the recipient opens the app.
 - **geo**: location samples arrive over the realtime gateway or

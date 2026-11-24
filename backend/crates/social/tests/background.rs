@@ -358,3 +358,49 @@ async fn pruning_removes_only_what_has_aged_out() {
     .unwrap();
     assert_eq!(remaining, (1, 1, 1, 1));
 }
+
+/// An event as the outbox relay delivers it.
+fn delivered<T: serde::Serialize>(topic: &str, actor: Uuid, payload: &T) -> tokuly_core::events::Event {
+    tokuly_core::events::Event {
+        id: Uuid::now_v7(),
+        topic: topic.into(),
+        actor_id: Some(actor),
+        occurred_at: Utc::now(),
+        data: serde_json::to_value(payload).unwrap(),
+    }
+}
+
+#[tokio::test]
+async fn graph_events_drop_cached_lists_that_a_cut_off_request_left_behind() {
+    use tokuly_social::events::*;
+    let ctx = start().await;
+    let core = &ctx.app.core;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    ctx.befriend(&alice, &bob).await;
+    assert_eq!(graph::friend_ids(core, alice.id).await.unwrap(), vec![bob.id]); // cached now
+    assert!(graph::blocked_ids_either(core, bob.id).await.unwrap().is_empty()); // this too
+
+    // A block commits, but its request is dropped (the phone lost its
+    // connection) before it got to the cache: the lists are stale...
+    let mut tx = core.db.begin().await.unwrap();
+    sqlx::query("DELETE FROM friendships WHERE user_id IN ($1, $2)").bind(alice.id).bind(bob.id).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)").bind(alice.id).bind(bob.id).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(graph::friend_ids(core, alice.id).await.unwrap(), vec![bob.id], "stale until the events arrive");
+    assert!(graph::blocked_ids_either(core, bob.id).await.unwrap().is_empty(), "stale until the events arrive");
+
+    // ...until the events written by the same transaction arrive.
+    ctx.social.handle_event(&delivered(FRIEND_REMOVED, alice.id, &FriendRemoved { user_id: alice.id, friend_id: bob.id, blocked: true })).await.unwrap();
+    ctx.social.handle_event(&delivered(USER_BLOCKED, alice.id, &BlockChanged { user_id: alice.id, blocked_id: bob.id })).await.unwrap();
+    assert!(graph::friend_ids(core, alice.id).await.unwrap().is_empty());
+    assert!(graph::friend_ids(core, bob.id).await.unwrap().is_empty());
+    assert_eq!(graph::blocked_ids_either(core, bob.id).await.unwrap(), vec![alice.id]);
+
+    // The same for an unblock and a new friendship.
+    sqlx::query("DELETE FROM user_blocks WHERE blocker_id = $1").bind(alice.id).execute(&core.db).await.unwrap();
+    sqlx::query("INSERT INTO friendships (user_id, friend_id) VALUES ($1, $2), ($2, $1)").bind(alice.id).bind(bob.id).execute(&core.db).await.unwrap();
+    ctx.social.handle_event(&delivered(USER_UNBLOCKED, alice.id, &BlockChanged { user_id: alice.id, blocked_id: bob.id })).await.unwrap();
+    ctx.social.handle_event(&delivered(FRIEND_ACCEPTED, alice.id, &FriendAccepted { user_id: alice.id, friend_id: bob.id, source: 0 })).await.unwrap();
+    assert!(graph::blocked_ids_either(core, bob.id).await.unwrap().is_empty());
+    assert_eq!(graph::friend_ids(core, bob.id).await.unwrap(), vec![alice.id]);
+}
