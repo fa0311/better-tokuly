@@ -245,6 +245,74 @@ async fn many_edits_do_not_launder_a_comment() {
     assert!(seen.contains("（2件の編集は記録なし）"), "{seen}");
 }
 
+/// The moderation team gets what the reporter is no longer shown: the
+/// admin case of a report about an edited, then deleted comment carries
+/// every version, while its title is what the reporter saw.
+#[tokio::test]
+async fn the_moderation_case_carries_the_versions_of_a_withdrawn_comment() {
+    let (ctx, admin) = start_with_admin().await;
+    let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);
+    let moderator = ctx.app.user_with_roles("Mod", &["moderator"]).await;
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, "ひどいことば").await;
+    ctx.edit(&alice, &comment.id, "ごめんね").await.unwrap();
+    ctx.delete(&alice, &comment.id).await;
+    let filed = ctx.report_comment(&bob, &comment.id).await.unwrap();
+    assert_eq!(filed.subject_title, "コメント");
+
+    let event = ctx
+        .app
+        .events("engagement.report.created")
+        .await
+        .into_iter()
+        .find(|event| event.data["report_id"] == filed.id.as_str())
+        .expect("the report was emitted");
+    admin.handle_event(event).await.unwrap();
+    let listed: tokuly_proto::admin::ListCasesResponse = ctx
+        .app
+        .call(
+            "tokuly.admin.v1.ModerationService/ListCases",
+            Some(&moderator),
+            &tokuly_proto::admin::ListCasesRequest { owner_id: alice.id.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let case = listed.cases.iter().find(|case| case.subject.id == comment.id).expect("a case about the comment");
+    let opened: tokuly_proto::admin::GetCaseResponse = ctx
+        .app
+        .call(
+            "tokuly.admin.v1.ModerationService/GetCase",
+            Some(&moderator),
+            &tokuly_proto::admin::GetCaseRequest { case_id: case.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened.moderation_case.subject_title, "コメント");
+    assert_eq!(opened.moderation_case.reported_content, "[2版] ひどいことば → ごめんね");
+
+    // An erased author takes it with them, like the title.
+    admin
+        .handle_event(tokuly_core::events::Event {
+            id: uuid::Uuid::now_v7(),
+            topic: "identity.user.deleted".into(),
+            actor_id: None,
+            occurred_at: chrono::Utc::now(),
+            data: serde_json::json!({ "user_id": alice.id }),
+        })
+        .await
+        .unwrap();
+    let opened: tokuly_proto::admin::GetCaseResponse = ctx
+        .app
+        .call(
+            "tokuly.admin.v1.ModerationService/GetCase",
+            Some(&moderator),
+            &tokuly_proto::admin::GetCaseRequest { case_id: case.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened.moderation_case.reported_content, "");
+}
+
 /// What was kept for reports goes 30 days after its removal — counted from
 /// the removal, not from when the comment was written — and at once when
 /// its author's account is erased.

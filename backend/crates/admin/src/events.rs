@@ -65,6 +65,11 @@ pub struct ReportCreated {
     pub subject_title: String,
     #[serde(default)]
     pub subject_path: String,
+    /// What the reporter received, as the owning domain kept it for
+    /// moderation: for content edited or withdrawn since, every version.
+    /// `subject_title` is what the reporter could still see.
+    #[serde(default)]
+    pub reported_content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,8 +94,10 @@ mod tests {
             "text": "宣伝です",
             "subject_title": "今日のランチ",
             "subject_path": "/notes/abc",
+            "reported_content": "[2版] 今日のランチ → 昨日のランチ",
         }))
         .unwrap();
+        assert_eq!(full.reported_content, "[2版] 今日のランチ → 昨日のランチ");
         assert_eq!((full.report_id, full.reporter_id, full.subject_type, full.subject_id), (report, reporter, 3, subject));
         assert_eq!(full.subject_owner_id, Some(owner));
         assert_eq!(
@@ -110,6 +117,7 @@ mod tests {
         }))
         .unwrap();
         assert!(sparse.subject_owner_id.is_none() && sparse.text.is_empty() && sparse.subject_title.is_empty());
+        assert!(sparse.reported_content.is_empty());
     }
 
     #[test]

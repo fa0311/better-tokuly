@@ -179,6 +179,7 @@ export default {
     },
     case: {
       openInApp: "アプリで開く",
+      reportedContent: "通報された内容（編集・取り消し前の版も含む）",
       subjectId: "対象ID",
       ownerRecord: "投稿者の履歴",
       firstReported: "最初の通報",

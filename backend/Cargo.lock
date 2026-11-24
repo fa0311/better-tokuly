@@ -6131,6 +6131,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tokuly-admin",
  "tokuly-chat",
  "tokuly-core",
  "tokuly-identity",

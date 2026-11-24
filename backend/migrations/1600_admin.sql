@@ -22,6 +22,10 @@ CREATE TABLE moderation_cases (
     -- Snapshot from the latest report: the content itself lives in its domain.
     subject_title     text        NOT NULL DEFAULT '',
     subject_path      text        NOT NULL DEFAULT '',
+    -- What the reporters received as the owning domain kept it for
+    -- moderation (every version of content edited or withdrawn since); from
+    -- the latest report that carried it, and cleared with the title.
+    reported_content  text        NOT NULL DEFAULT '',
     status            text        NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
     report_count      integer     NOT NULL DEFAULT 0,
     -- Distinct report categories (SPAM, HARASSMENT, ...) in the order first seen.

@@ -168,6 +168,13 @@ message ModerationCase {
   // moderator has to handle the case. Resolving it answers
   // CONFLICT_OF_INTEREST.
   bool conflict_of_interest = 19;
+  // What the reporters received, as the domain that keeps the content kept
+  // it for moderation, captured with the latest report that carried it: for
+  // content edited or withdrawn since (a comment, a chat message), every
+  // version (`[2版] before → after`). `subject_title` is what the reporter
+  // could still see then, e.g. only 「コメント」 for a deleted comment. Empty
+  // when the report carried nothing; cleared with `subject_title`.
+  string reported_content = 20;
 }
 
 // One user's report inside a case.

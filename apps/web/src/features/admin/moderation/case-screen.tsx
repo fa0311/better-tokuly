@@ -250,6 +250,19 @@ function SubjectCard({
           </span>
         </div>
         <p className="break-words text-xl leading-snug font-black">{caseTitle(moderationCase)}</p>
+        {moderationCase.reportedContent && (
+          <figure
+            data-testid="reported-content"
+            className="flex flex-col gap-1 rounded-xl border-2 border-line bg-surface-2 p-3"
+          >
+            <figcaption className="text-xs font-bold text-ink-soft">
+              {t("moderation.case.reportedContent")}
+            </figcaption>
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+              {moderationCase.reportedContent}
+            </p>
+          </figure>
+        )}
         {moderationCase.subjectPath && (
           <a
             href={moderationCase.subjectPath}

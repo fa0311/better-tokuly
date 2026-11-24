@@ -21,7 +21,7 @@ pub(crate) const STATUS_RESOLVED: &str = "resolved";
 
 macro_rules! case_columns {
     () => {
-        "id, subject_type, subject_id, subject_owner_id, owner_hidden, subject_title, subject_path, status, report_count, categories, \
+        "id, subject_type, subject_id, subject_owner_id, owner_hidden, subject_title, subject_path, reported_content, status, report_count, categories, \
          assignee_id, assigned_at, last_reported_at, resolution, content_removed, resolution_reason, resolved_by, \
          resolved_at, created_at"
     };
@@ -39,6 +39,8 @@ pub(crate) struct CaseRow {
     pub owner_hidden: bool,
     pub subject_title: String,
     pub subject_path: String,
+    /// What the reporters received, as kept for moderation (see `intake.rs`).
+    pub reported_content: String,
     pub status: String,
     pub report_count: i32,
     pub categories: Vec<String>,
@@ -75,6 +77,7 @@ impl CaseRow {
             subject: SubjectRef { r#type: self.subject_type.into(), id: self.subject_id.to_string(), ..Default::default() }.into(),
             subject_title: self.subject_title.clone(),
             subject_path: self.subject_path.clone(),
+            reported_content: self.reported_content.clone(),
             subject_owner: person(self.shown_owner(reveal_hidden)).into(),
             owner_withheld: self.owner_hidden && !reveal_hidden,
             status: if self.is_open() { CaseStatus::CASE_STATUS_OPEN } else { CaseStatus::CASE_STATUS_RESOLVED }.into(),
@@ -377,6 +380,7 @@ mod tests {
             subject_owner_id: Some(owner),
             owner_hidden: false,
             subject_title: "こんにちは".into(),
+            reported_content: String::new(),
             subject_path: "/notes/x".into(),
             status: STATUS_RESOLVED.into(),
             report_count: 2,

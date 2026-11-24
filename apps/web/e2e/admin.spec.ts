@@ -3,6 +3,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 import {
   type Account,
   adminAccount,
+  befriend,
   createAccount,
   expect,
   PASSWORD,
@@ -714,6 +715,76 @@ test.describe("moderation", () => {
     await page.getByRole("dialog").getByRole("button", { name: "再オープンする" }).click();
     await expect(page.getByText("ケースをキューにもどしました")).toBeVisible();
     await expect(page.getByRole("region", { name: "このケースを解決する" })).toBeVisible();
+  });
+
+  test("a case about a comment its author edited and deleted shows the moderator every version", async ({
+    page,
+    request,
+  }) => {
+    const admin = await asAdmin(page, request);
+    const author = await createAccount(request, "author");
+    const reporter = await createAccount(request, "reader");
+    await befriend(request, author, reporter);
+    const rules = await rpc<{ version: number }>(
+      request,
+      "tokuly.notes.v1.NoteService/GetNoteRules",
+      {},
+      author,
+    );
+    await rpc(
+      request,
+      "tokuly.notes.v1.NoteService/AgreeToNoteRules",
+      { version: rules.version },
+      author,
+    );
+    const { note } = await rpc<{ note: { id: string } }>(
+      request,
+      "tokuly.notes.v1.NoteService/CreateNote",
+      { text: `e2e: 今日のこと ${tag()}` },
+      author,
+    );
+    const hurtful = `e2e: ひどいことば ${tag()}`;
+    const COMMENTS = "tokuly.engagement.v1.CommentService";
+    const { comment } = await rpc<{ comment: { id: string } }>(
+      request,
+      `${COMMENTS}/CreateComment`,
+      { subject: { type: "SUBJECT_TYPE_NOTE", id: note.id }, text: hurtful },
+      author,
+    );
+    await rpc(
+      request,
+      `${COMMENTS}/UpdateComment`,
+      { commentId: comment.id, text: "ごめんね" },
+      author,
+    );
+    await rpc(request, `${COMMENTS}/DeleteComment`, { commentId: comment.id }, author);
+    const filed = await rpc<{ report: { subjectTitle: string } }>(
+      request,
+      "tokuly.engagement.v1.ReportService/CreateReport",
+      {
+        subject: { type: "SUBJECT_TYPE_COMMENT", id: comment.id },
+        category: "REPORT_CATEGORY_HARASSMENT",
+      },
+      reporter,
+    );
+    // The reporter's copy says what it was, not what it said.
+    expect(filed.report.subjectTitle).toBe("コメント");
+    let caseId = "";
+    await expect(async () => {
+      const queue = await rpc<{ cases?: { id: string; subject?: { id: string } }[] }>(
+        request,
+        `${MODERATION}/ListCases`,
+        { ownerId: author.userId },
+        admin,
+      );
+      caseId = queue.cases?.find((item) => item.subject?.id === comment.id)?.id ?? "";
+      expect(caseId).not.toBe("");
+    }).toPass({ timeout: 20_000 });
+
+    await page.goto(`/admin/moderation/${caseId}`);
+    const reported = page.getByTestId("reported-content");
+    await expect(reported).toContainText("通報された内容");
+    await expect(reported).toContainText(`[2版] ${hurtful} → ごめんね`);
   });
 
   test("the author of an anonymous post is hidden from a moderator who reported it, and shown to one who did not", async ({
