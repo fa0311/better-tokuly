@@ -173,7 +173,12 @@ export function NoteCard({
                 {time}
               </>
             )}
-            {!focus && <VisibilityMark visibility={note.visibility} />}
+            {!focus && (
+              <VisibilityMark
+                visibility={note.visibility}
+                direct={note.directRecipients.length > 0}
+              />
+            )}
             <span className="flex-1" />
             <NoteMenu note={note} onDeleted={onDeleted} />
           </header>
@@ -187,7 +192,10 @@ export function NoteCard({
             <NoteBody note={note} large />
             <p className="mt-3 flex items-center gap-2 text-sm text-ink-faint">
               {time}
-              <VisibilityMark visibility={note.visibility} />
+              <VisibilityMark
+                visibility={note.visibility}
+                direct={note.directRecipients.length > 0}
+              />
             </p>
           </div>
         )}

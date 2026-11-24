@@ -43,7 +43,7 @@ import { useMe } from "#/stores/session";
 import { useDeleteNote, useLike, usePin, useRenote, useSetVisibility } from "./actions";
 import { noteClient, notesKeys } from "./api";
 import { openCompose } from "./compose-store";
-import { VisibilityChoices } from "./visibility";
+import { type Audience, noteAudience, sameAudience, VisibilityChoices } from "./visibility";
 
 export const noteSubject = (noteId: string): Subject => ({
   type: common.SubjectType.NOTE,
@@ -72,7 +72,9 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
   const subject = noteSubject(note.id);
   const liked = note.viewer?.liked ?? false;
   const renoted = note.viewer?.renoted ?? false;
-  const isPublic = note.visibility === common.Visibility.PUBLIC;
+  // What the viewer may do is the server's call (locked accounts, audiences).
+  const canRenote = note.viewer?.canRenote ?? false;
+  const canQuote = note.viewer?.canQuote ?? false;
   const author = note.author?.handle ?? "";
 
   return (
@@ -94,8 +96,8 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
             type="button"
             aria-label={t("actions.renote")}
             aria-pressed={renoted}
-            disabled={!isPublic}
-            title={isPublic ? undefined : t("actions.renotePublicOnly")}
+            disabled={!canRenote && !canQuote}
+            title={canRenote || canQuote ? undefined : t("actions.renotePublicOnly")}
             className={cn(
               ACTION,
               renoted ? "text-success" : "hover:bg-surface-2 hover:text-success",
@@ -109,11 +111,13 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
           {
             label: renoted ? t("actions.undoRenote") : t("actions.renoteNow"),
             icon: <Repeat2 />,
+            disabled: !canRenote && !renoted,
             onSelect: () => void renote(note),
           },
           {
             label: t("actions.quote"),
             icon: <Quote />,
+            disabled: !canQuote,
             onSelect: () => openCompose({ quote: note }),
           },
         ]}
@@ -245,7 +249,7 @@ export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): 
 function VisibilityDialog({ note, onClose }: { note: notes.Note; onClose(): void }) {
   const { t } = useTranslation("notes");
   const setVisibility = useSetVisibility();
-  const [value, setValue] = useState(note.visibility);
+  const [value, setValue] = useState<Audience>(() => noteAudience(note));
   const [saving, setSaving] = useState(false);
   return (
     <Dialog
@@ -259,7 +263,7 @@ function VisibilityDialog({ note, onClose }: { note: notes.Note; onClose(): void
             {t("visibility.cancel")}
           </Button>
           <Button
-            disabled={value === note.visibility}
+            disabled={sameAudience(value, noteAudience(note))}
             loading={saving}
             onClick={async () => {
               setSaving(true);

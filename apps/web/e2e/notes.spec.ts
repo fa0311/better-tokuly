@@ -1,6 +1,6 @@
 import zlib from "node:zlib";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { type Account, befriend, createAccount, expect, rpc, test } from "./support";
+import { type Account, befriend, createAccount, expect, rpc, signInAs, test } from "./support";
 
 // Several tests post through the UI, upload a picture, or wait for a realtime push.
 test.describe.configure({ timeout: 90_000 });
@@ -520,4 +520,114 @@ test("the recap turns the month into cards", async ({ page, me, request }) => {
   await page.getByRole("tab", { name: "年" }).click();
   await expect(page).toHaveURL(/p=\d{4}$/);
   await expect(page.getByTestId("recap")).toBeVisible();
+});
+
+test("a locked account's public note reaches its followers, not strangers", async ({
+  page,
+  me,
+  request,
+  browser,
+}) => {
+  await agree(request, me);
+  const follower = await createAccount(request, "follower");
+  await rpc(request, "tokuly.social.v1.FollowService/Follow", { userId: me.userId }, follower);
+  await rpc(
+    request,
+    "tokuly.social.v1.FollowService/UpdateFollowSettings",
+    { settings: { locked: true } },
+    me,
+  );
+  const text = `e2e 鍵アカのノート ${tag()}`;
+  const note = await post(request, me, { text });
+
+  // Followers read it; a stranger finds nothing.
+  const stranger = await createAccount(request, "stranger");
+  const strangerPage = await (await browser.newContext()).newPage();
+  await dismissDevServerOverlay(strangerPage);
+  await signInAs(strangerPage, stranger);
+  await strangerPage.goto(`/notes/${note.id}`);
+  await expect(strangerPage.getByText("このノートは見つからないよ")).toBeVisible();
+  await strangerPage.context().close();
+
+  const followerPage = await (await browser.newContext()).newPage();
+  await dismissDevServerOverlay(followerPage);
+  await signInAs(followerPage, follower);
+  await followerPage.goto(`/notes/${note.id}`);
+  await expect(card(followerPage, text).first()).toBeVisible();
+  // Nobody else may pass it on: renote and quote are off.
+  await expect(
+    card(followerPage, text).first().getByRole("button", { name: "リノート" }),
+  ).toBeDisabled();
+  await followerPage.context().close();
+
+  await page.goto(`/notes/${note.id}`);
+  await expect(card(page, text).first()).toBeVisible();
+});
+
+test("a note is shared with followers, a circle or named people from the composer", async ({
+  page,
+  me,
+  request,
+}) => {
+  await agree(request, me);
+  const friend = await friendOf(request, me, "addressee");
+  const circle = await rpc<{ circle: { id: string } }>(
+    request,
+    "tokuly.social.v1.CircleService/CreateCircle",
+    { name: "部活" },
+    me,
+  );
+  await rpc(
+    request,
+    "tokuly.social.v1.CircleService/AddCircleMembers",
+    { circleId: circle.circle.id, userIds: [friend.userId] },
+    me,
+  );
+
+  const write = async (text: string, choose: (dialog: Locator) => Promise<void>) => {
+    await page.goto("/notes?tab=home");
+    await page.getByRole("button", { name: "ノートを書く" }).first().click();
+    const composer = page.getByRole("dialog");
+    await composer.getByRole("textbox").fill(text);
+    await composer.getByRole("button", { name: "公開範囲" }).click();
+    const audience = page.getByRole("dialog", { name: "公開範囲" });
+    await choose(audience);
+    await audience.getByRole("button", { name: "これでOK" }).click();
+    await composer.getByRole("button", { name: "ノートする", exact: true }).click();
+    await expect(page.getByText("ノートしたよ!")).toBeVisible();
+  };
+
+  const forFollowers = `e2e フォロワー限定 ${tag()}`;
+  await write(forFollowers, (dialog) => dialog.getByRole("radio", { name: /フォロワー/ }).click());
+  const club = `e2e 部活だけ ${tag()}`;
+  await write(club, (dialog) => dialog.getByRole("radio", { name: /部活/ }).click());
+  const secret = `e2e ひみつの宛先 ${tag()}`;
+  await write(secret, async (dialog) => {
+    await dialog.getByRole("radio", { name: /宛先を指定/ }).click();
+    await dialog.getByRole("checkbox", { name: new RegExp(friend.handle) }).check();
+  });
+
+  await page.goto(`/u/${me.handle}`);
+  await expect(card(page, forFollowers).getByRole("img", { name: "フォロワー" })).toBeVisible();
+  await expect(card(page, club).getByRole("img", { name: "リスト" })).toBeVisible();
+  await expect(card(page, secret).getByRole("img", { name: "宛先を指定" })).toBeVisible();
+
+  // The friend received the direct note in their mentions.
+  const mentions = await rpc<{ entries: { note: { text: string } }[] }>(
+    request,
+    `${NOTES}/GetMentionsTimeline`,
+    { page: { limit: 10 } },
+    friend,
+  );
+  expect(mentions.entries.map((entry) => entry.note.text)).toContain(secret);
+});
+
+test("the following tab shows notes of accounts I follow", async ({ page, me, request }) => {
+  const followed = await createAccount(request, "followed");
+  await agree(request, followed);
+  await rpc(request, "tokuly.social.v1.FollowService/Follow", { userId: followed.userId }, me);
+  const text = `e2e フォロー中の人のノート ${tag()}`;
+  await post(request, followed, { text, visibility: "VISIBILITY_FOLLOWERS" });
+  await page.goto("/notes?tab=following");
+  await expect(card(page, text)).toBeVisible();
 });

@@ -1,10 +1,13 @@
 import type { common } from "@tokuly/api";
 import type { ComposeContext } from "./compose-store";
+import type { Audience } from "./visibility";
 
 /** What is kept of a note that was started and not posted. Uploads are not kept: they would be gone by the time the draft is opened again. */
 export interface Draft {
   text: string;
+  /** Drafts kept before audiences had circles and named people. */
   visibility?: common.Visibility;
+  audience?: Audience;
   contentWarning?: boolean;
   /** When the draft was last changed (epoch ms): the oldest ones make room for new ones. */
   savedAt: number;

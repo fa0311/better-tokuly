@@ -16,7 +16,6 @@ import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
-import { Menu } from "#/components/ui/menu";
 import { EmojiSuggestBar, EmojiText } from "#/features/emoji";
 import { useSettings } from "#/features/settings";
 import { StampImage, StampPicker } from "#/features/stamps";
@@ -33,7 +32,7 @@ import { NoteBody } from "./note-card";
 import { RulesAgreement, useNoteRules } from "./rules";
 import { applyCompletion, type Completion, charCount, completionAt, NOTE_MAX_CHARS } from "./text";
 import { UploadTile, useUploads } from "./uploads";
-import { VISIBILITY_OPTIONS, visibilityOption } from "./visibility";
+import { type Audience, audienceOption, noteAudience, VisibilityChoices } from "./visibility";
 
 const friendClient = () => api().service(social.FriendService);
 
@@ -132,9 +131,10 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
 
   const [text, setText] = useState(draft?.text ?? context.text ?? "");
   const [caret, setCaret] = useState(text.length);
-  const [chosenVisibility, setChosenVisibility] = useState<common.Visibility | undefined>(
-    draft?.visibility,
+  const [chosenAudience, setChosenAudience] = useState<Audience | undefined>(
+    draft?.audience ?? (draft?.visibility ? { visibility: draft.visibility } : undefined),
   );
+  const [audienceOpen, setAudienceOpen] = useState(false);
   const [contentWarning, setContentWarning] = useState(draft?.contentWarning ?? false);
   const [stamp, setStamp] = useState<common.StampRef>();
   const [place, setPlace] = useState<PlaceDraft>();
@@ -160,14 +160,19 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
     Boolean(completion) && suggestions.length > 0 && dismissedAt !== completion?.start;
   const activeIndex = Math.min(active, suggestions.length - 1);
 
-  // The audience: what was chosen here, else the account's default; a reply is never wider than the note it answers.
-  const fallback = settings.data?.privacy?.defaultNoteVisibility || common.Visibility.PUBLIC;
-  const rank = (value: common.Visibility) =>
-    VISIBILITY_OPTIONS.findIndex((option) => option.value === value);
-  const wanted = chosenVisibility ?? fallback;
-  const ceiling = context.replyTo?.visibility;
-  const visibility = ceiling !== undefined && rank(ceiling) > rank(wanted) ? ceiling : wanted;
-  const audience = visibilityOption(visibility);
+  // The audience: what was chosen here, else the account's default; a reply is never wider than
+  // the note it answers (and a reply to close friends, a circle or named people goes back directly).
+  const fallback: Audience = {
+    visibility: settings.data?.privacy?.defaultNoteVisibility || common.Visibility.PUBLIC,
+  };
+  const wanted = chosenAudience ?? fallback;
+  const ceiling = context.replyTo ? audienceOption(noteAudience(context.replyTo)) : undefined;
+  const narrowed = ceiling !== undefined && ceiling.rank > audienceOption(wanted).rank;
+  const audience = narrowed
+    ? ceiling.rank >= 3
+      ? audienceOption({ visibility: common.Visibility.PRIVATE, direct: true })
+      : ceiling
+    : audienceOption(wanted);
   const AudienceIcon = audience.icon;
 
   const length = charCount(text.trim());
@@ -187,15 +192,15 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
   useEffect(() => {
     if (!touched) return;
     const timer = setTimeout(
-      () => saveDraft(user.id, key, { text, visibility: chosenVisibility, contentWarning }),
+      () => saveDraft(user.id, key, { text, audience: chosenAudience, contentWarning }),
       500,
     );
     return () => clearTimeout(timer);
-  }, [touched, user.id, key, text, chosenVisibility, contentWarning]);
+  }, [touched, user.id, key, text, chosenAudience, contentWarning]);
 
   const close = () => {
     if (touched) {
-      saveDraft(user.id, key, { text, visibility: chosenVisibility, contentWarning });
+      saveDraft(user.id, key, { text, audience: chosenAudience, contentWarning });
       if (text.trim()) toast(t("compose.draftSaved"));
     }
     closeCompose();
@@ -210,7 +215,9 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
         place: place
           ? { name: place.name, location: { lat: place.lat, lng: place.lng } }
           : undefined,
-        visibility: chosenVisibility ?? common.Visibility.UNSPECIFIED,
+        visibility: chosenAudience?.visibility ?? common.Visibility.UNSPECIFIED,
+        circleId: chosenAudience?.circleId ?? "",
+        directUserIds: chosenAudience?.directUserIds ?? [],
         replyToId: context.replyTo?.id ?? "",
         quoteOfId: context.quote?.id ?? "",
         contentWarning,
@@ -541,29 +548,33 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
               <EyeOff className="size-5" />
             </ToolButton>
             <span className="flex-1" />
-            <Menu
-              trigger={
-                <button
-                  type="button"
-                  aria-label={t("visibility.title")}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-full border-2 border-line px-3 text-sm font-black hover:border-ink-faint"
-                >
-                  <AudienceIcon className="size-4" />
-                  {t(`visibility.${audience.key}.label`)}
-                  <ChevronDown className="size-4 text-ink-faint" />
-                </button>
-              }
-              actions={VISIBILITY_OPTIONS.map((option) => {
-                const Icon = option.icon;
-                return {
-                  label: t(`visibility.${option.key}.label`),
-                  icon: <Icon />,
-                  // A reply cannot be shown more widely than the note it answers.
-                  disabled: ceiling !== undefined && rank(option.value) < rank(ceiling),
-                  onSelect: () => setChosenVisibility(option.value),
-                };
-              })}
-            />
+            <button
+              type="button"
+              aria-label={t("visibility.title")}
+              onClick={() => setAudienceOpen(true)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-full border-2 border-line px-3 text-sm font-black hover:border-ink-faint"
+            >
+              <AudienceIcon className="size-4" />
+              {t(`visibility.${audience.key}.label`)}
+              <ChevronDown className="size-4 text-ink-faint" />
+            </button>
+            {audienceOpen && (
+              <Dialog
+                open
+                onOpenChange={(open) => !open && setAudienceOpen(false)}
+                title={t("visibility.title")}
+                description={context.replyTo ? t("visibility.replyHint") : undefined}
+                footer={
+                  <Button onClick={() => setAudienceOpen(false)}>{t("visibility.done")}</Button>
+                }
+              >
+                <VisibilityChoices
+                  value={wanted}
+                  onChange={setChosenAudience}
+                  minRank={ceiling && ceiling.rank < 3 ? ceiling.rank : 0}
+                />
+              </Dialog>
+            )}
           </div>
         </div>
       )}

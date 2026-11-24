@@ -13,6 +13,7 @@ export const noteClient = () => api().service(notes.NoteService);
 /** Which list of notes a timeline shows. */
 export type TimelineSource =
   | { kind: "home" }
+  | { kind: "following" }
   | { kind: "global" }
   | { kind: "mentions" }
   | { kind: "user"; userId: string; filter: notes.UserTimelineFilter }
@@ -67,6 +68,10 @@ export async function fetchTimeline(
   switch (source.kind) {
     case "home": {
       const response = await client.getHomeTimeline({ page });
+      return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
+    }
+    case "following": {
+      const response = await client.getFollowingTimeline({ page });
       return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
     }
     case "global": {

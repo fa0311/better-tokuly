@@ -12,7 +12,7 @@ import { ComposeButton, NotesPage, useScroller } from "./shell";
 import { Timeline, type TimelineHandle, TimelineSkeleton } from "./timeline";
 import { TrendingHashtags } from "./trending";
 
-export const NOTES_TABS = ["feed", "home", "global", "mentions"] as const;
+export const NOTES_TABS = ["feed", "home", "following", "global", "mentions"] as const;
 export type NotesTab = (typeof NOTES_TABS)[number];
 
 /** Reads `/notes?tab=…`; anything else means "the default tab". */
@@ -50,6 +50,7 @@ export function NotesScreen({
   const items = [
     ...(mixed || chosen === "feed" ? [{ value: "feed" as const, label: t("tabs.feed") }] : []),
     { value: "home" as const, label: t("tabs.home") },
+    { value: "following" as const, label: t("tabs.following") },
     { value: "global" as const, label: t("tabs.global") },
     { value: "mentions" as const, label: t("tabs.mentions") },
   ];
@@ -114,6 +115,17 @@ export function NotesScreen({
               body={t("empty.homeBody")}
               action={writeFirst}
             />
+          }
+        />
+      )}
+      {tab === "following" && (
+        <Timeline
+          key="following"
+          ref={timeline}
+          source={{ kind: "following" }}
+          live
+          empty={
+            <EmptyState emoji="👀" title={t("empty.following")} body={t("empty.followingBody")} />
           }
         />
       )}
