@@ -167,26 +167,40 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
       <div className="@container">
         <div className="grid items-start gap-4 @4xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="flex min-w-0 flex-col gap-4">
-            {moderationCase.conflictOfInterest && <ConflictNotice />}
+            {moderationCase.conflictOfInterest && (
+              <ConflictNotice own={!moderationCase.ownerWithheld} />
+            )}
             <SubjectCard moderationCase={moderationCase} ownerRecord={detail.data.ownerRecord} />
-            <Reports
-              caseId={caseId}
-              total={moderationCase.reportCount}
-              latest={detail.data.reports}
-            />
-            <Notes
-              caseId={caseId}
-              notes={detail.data.notes}
-              onAdded={() => queryClient.invalidateQueries({ queryKey: key })}
-            />
+            {/* Who reported it, and what staff noted, is for whoever handles the case. */}
+            {!moderationCase.conflictOfInterest && (
+              <>
+                <Reports
+                  caseId={caseId}
+                  total={moderationCase.reportCount}
+                  latest={detail.data.reports}
+                />
+                <Notes
+                  caseId={caseId}
+                  notes={detail.data.notes}
+                  onAdded={() => queryClient.invalidateQueries({ queryKey: key })}
+                />
+              </>
+            )}
           </div>
           <div className="flex min-w-0 flex-col gap-4">
-            <Assignment moderationCase={moderationCase} onChanged={applied} />
+            {/* A case about the viewer is not theirs to take (the server refuses). */}
+            {!(moderationCase.conflictOfInterest && !moderationCase.ownerWithheld) && (
+              <Assignment moderationCase={moderationCase} onChanged={applied} />
+            )}
             {isOpen && moderationCase.conflictOfInterest ? (
               // Involved in the post: the server refuses every resolution, so none is offered.
               <Section title={t("moderation.resolve.title")}>
                 <p className="p-4 text-sm text-ink-soft" data-testid="resolve-conflict">
-                  {t("moderation.conflict.cannotResolve")}
+                  {t(
+                    moderationCase.ownerWithheld
+                      ? "moderation.conflict.cannotResolve"
+                      : "moderation.conflict.ownCannotResolve",
+                  )}
                 </p>
               </Section>
             ) : isOpen ? (
@@ -212,8 +226,11 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
   );
 }
 
-/** Shown to a moderator who is involved in an anonymous post: its author stays hidden from them, and the case is someone else's to handle. */
-function ConflictNotice() {
+/**
+ * Shown to a moderator who may not handle the case: it is about them or their own content (`own`), or
+ * they are involved in an anonymous post whose author stays hidden from them.
+ */
+function ConflictNotice({ own }: { own: boolean }) {
   const { t } = useTranslation("admin");
   return (
     <div
@@ -224,7 +241,9 @@ function ConflictNotice() {
       <ShieldAlert className="mt-0.5 size-5 shrink-0" />
       <div className="flex min-w-0 flex-col gap-1">
         <p className="font-black">{t("moderation.conflict.title")}</p>
-        <p className="text-sm">{t("moderation.conflict.body")}</p>
+        <p className="text-sm">
+          {t(own ? "moderation.conflict.ownBody" : "moderation.conflict.body")}
+        </p>
       </div>
     </div>
   );
