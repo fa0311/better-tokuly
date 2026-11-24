@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Bookmark, CalendarHeart, History, Sparkles } from "lucide-react";
+import { Bookmark, CalendarHeart, History, ListChecks, Radio, Sparkles } from "lucide-react";
 import { type ReactNode, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
@@ -191,6 +191,8 @@ function Shortcuts() {
     { to: "/activity", label: t("shortcuts.activity"), icon: History, tint: "bg-mint" },
     { to: "/stories/archive", label: t("shortcuts.archive"), icon: CalendarHeart, tint: "bg-pink" },
     { to: "/recap", label: t("shortcuts.recap"), icon: Sparkles, tint: "bg-sun" },
+    { to: "/notes/lists", label: t("notelists:tile"), icon: ListChecks, tint: "bg-sky" },
+    { to: "/notes/antennas", label: t("notelists:antennaTile"), icon: Radio, tint: "bg-lime" },
   ] as const;
   return (
     <nav aria-label={t("shortcuts.title")} className="rounded-card bg-surface p-2">
