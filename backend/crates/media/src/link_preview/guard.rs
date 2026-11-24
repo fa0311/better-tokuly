@@ -82,19 +82,21 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
         || (segments[0] & 0xff00) == 0xff00               // multicast
         || (segments[0] == 0x2001 && segments[1] == 0x0db8) // documentation
         || (segments[0] == 0x2001 && segments[1] == 0)    // Teredo tunnels
+        || segments[..3] == [0x0064, 0xff9b, 0x0001]      // local-use NAT64 (64:ff9b:1::/48)
         || (segments[0] == 0x0100 && segments[1..4] == [0, 0, 0]); // discard-only
     !special
 }
 
 /// The IPv4 address inside an IPv4-mapped (`::ffff:a.b.c.d`),
-/// IPv4-compatible (`::a.b.c.d`), NAT64 (`64:ff9b::/96`) or 6to4
-/// (`2002::/16`) IPv6 address.
+/// IPv4-translated (`::ffff:0:a.b.c.d`), IPv4-compatible (`::a.b.c.d`, the
+/// whole deprecated `::/96`), NAT64 (`64:ff9b::/96`) or 6to4 (`2002::/16`)
+/// IPv6 address. `::` and `::1` come out as `0.0.0.0` and `0.0.0.1`, which
+/// are refused like everything else in `0.0.0.0/8`.
 fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     let segments = ip.segments();
     let low = || Ipv4Addr::new((segments[6] >> 8) as u8, segments[6] as u8, (segments[7] >> 8) as u8, segments[7] as u8);
     match segments {
-        [0, 0, 0, 0, 0, 0xffff, _, _] => Some(low()),
-        [0, 0, 0, 0, 0, 0, high, _] if high != 0 => Some(low()),
+        [0, 0, 0, 0, 0, 0xffff, _, _] | [0, 0, 0, 0, 0xffff, 0, _, _] | [0, 0, 0, 0, 0, 0, _, _] => Some(low()),
         [0x0064, 0xff9b, 0, 0, 0, 0, _, _] => Some(low()),
         [0x2002, high, low_bits, ..] => Some(Ipv4Addr::new((high >> 8) as u8, high as u8, (low_bits >> 8) as u8, low_bits as u8)),
         _ => None,
@@ -244,6 +246,20 @@ mod tests {
         }
         for ip in ["::ffff:8.8.8.8", "64:ff9b::808:808", "2002:808:808::1"] {
             assert!(public(ip), "{ip} is public");
+        }
+    }
+
+    #[test]
+    fn translated_and_local_nat64_forms_are_not_public() {
+        for ip in [
+            "::ffff:0:7f00:1",      // IPv4-translated (SIIT) 127.0.0.1
+            "::ffff:0:a9fe:a9fe",   // IPv4-translated 169.254.169.254
+            "64:ff9b:1::a00:1",     // local-use NAT64 (RFC 8215), whatever it embeds
+            "64:ff9b:1:fffe::1",
+            "::2",                  // the rest of the deprecated IPv4-compatible block
+            "::0.0.1.1",
+        ] {
+            assert!(!public(ip), "{ip} must be refused");
         }
     }
 
