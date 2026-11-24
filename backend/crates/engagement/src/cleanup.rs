@@ -126,14 +126,18 @@ impl Engagement {
         Ok(())
     }
 
-    /// `social.user.blocked`: what the blocked user wrote on the blocker's
+    /// `social.user.blocked`: what either of the two wrote on the other's
     /// subjects leaves public view (and the review queue) for everyone, not
-    /// just for the two of them. Lifting the block brings nothing back by
-    /// itself; the owner can approve the comments again.
+    /// just for the two of them. The blocked user's comments, because the
+    /// blocker asked not to deal with them; the blocker's own, because the
+    /// owner of the content could no longer see, hide or delete them.
+    /// Lifting the block brings nothing back by itself; the owner can
+    /// approve the comments again.
     pub(crate) async fn on_user_blocked(&self, blocker_id: Uuid, blocked_id: Uuid) -> AppResult<()> {
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
         lifecycle::hide_comments_of(&mut tx, &mut effects, blocker_id, blocked_id, None).await?;
+        lifecycle::hide_comments_of(&mut tx, &mut effects, blocked_id, blocker_id, None).await?;
         tx.commit().await?;
         self.apply(effects).await;
         self.recheck_subject_topics(blocker_id, blocked_id).await;

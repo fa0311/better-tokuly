@@ -51,6 +51,22 @@ impl Ctx {
 
 // ───────────────────────────── comments ─────────────────────────────
 
+#[tokio::test]
+async fn a_commenter_who_blocks_the_owner_takes_their_comments_down() {
+    let ctx = start().await;
+    let (owner, alice, carol) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Carol").await);
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, "オーナーの悪口").await;
+    ctx.block(&alice, &owner).await;
+    let seen = ctx.comments(Some(&carol), &video).await;
+    assert!(!ids(&seen.comments).contains(&comment.id.as_str()), "the comment stayed up for everyone else");
+    assert_eq!(seen.total_count, 0);
+    // The commenter is not told.
+    let mine: ListMyCommentsResponse =
+        ctx.call("CommentService", "ListMyComments", Some(&alice), &ListMyCommentsRequest::default()).await.unwrap();
+    assert_eq!(mine.comments[0].comment.status, CommentStatus::COMMENT_STATUS_PUBLISHED);
+}
+
 // ───────────────────────────── counts ─────────────────────────────
 
 #[tokio::test]
