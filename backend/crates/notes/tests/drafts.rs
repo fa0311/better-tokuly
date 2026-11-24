@@ -283,14 +283,25 @@ async fn drafts_are_saved_listed_scheduled_and_posted_once() {
         .await
         .unwrap();
     ctx.notes.publish_due_drafts().await.unwrap();
-    let kept: GetDraftResponse = draft_call(
-        &ctx,
-        "GetDraft",
-        &alice,
-        &GetDraftRequest { draft_id: broken.draft.id.clone(), ..Default::default() },
-    )
-    .await
-    .unwrap();
+    // Other tests run the scheduler on the same database: a pass of theirs may have claimed this
+    // draft (it reads INTERRUPTED meanwhile) and finish it a moment later.
+    let mut kept: GetDraftResponse;
+    let mut tries = 0;
+    loop {
+        kept = draft_call(
+            &ctx,
+            "GetDraft",
+            &alice,
+            &GetDraftRequest { draft_id: broken.draft.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+        if kept.draft.failure_reason != "INTERRUPTED" || tries >= 50 {
+            break;
+        }
+        tries += 1;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     assert_eq!(kept.draft.failure_reason, "NOTE_NOT_FOUND");
     assert!(kept.draft.scheduled_at.as_option().is_none());
     assert_eq!(ctx.notifications_for(alice.id, "notes.schedule_failed").await.len(), 1);
