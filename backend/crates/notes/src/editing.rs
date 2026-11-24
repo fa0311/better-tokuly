@@ -191,7 +191,13 @@ impl Notes {
             &mut *tx,
             crate::events::NOTE_EDITED,
             Some(user_id),
-            &crate::events::NoteEditedEvent { note_id: updated.id, author_id: user_id, version: updated.edit_count },
+            &crate::events::NoteEditedEvent {
+                note_id: updated.id,
+                author_id: user_id,
+                version: updated.edit_count,
+                text: crate::text::excerpt(&updated.text, 140),
+                content_warning: updated.content_warning,
+            },
         )
         .await?;
         tx.commit().await?;

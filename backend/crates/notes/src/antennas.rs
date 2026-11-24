@@ -20,8 +20,12 @@
 //! - FOLLOWING, LIST and USERS antennas are found from the author: their
 //!   followers and friends, the lists they are on (an index on list
 //!   members), and the antennas naming them (an in-memory index);
-//! - only then is each candidate's owner checked against the note
-//!   (`Viewer::can_see_note`), once per owner.
+//! - only then is the note's audience worked out once, from the author's
+//!   side, for all matching owners together (at most
+//!   [`MAX_OWNERS_PER_NOTE`]), with one batch of queries however many
+//!   antennas matched;
+//! - keywords are at least [`MIN_KEYWORD_CHARS`] long, so a common
+//!   character does not put every note in front of every owner check.
 //!
 //! The automaton lives in-process ([`AntennaIndex`]) and is rebuilt when the
 //! version counter `notes:antennas:version` in Valkey moves (every change to
@@ -68,6 +72,16 @@ pub const MAX_WORDS_PER_GROUP: usize = 5;
 pub const MAX_EXCLUDE_WORDS: usize = 10;
 /// Longest keyword, in characters.
 pub const MAX_WORD_CHARS: usize = 50;
+/// Shortest keyword that collects notes. One character — a single kana, a
+/// letter, even one kanji — is in a large share of all notes, so every
+/// note would reach every such antenna's owner check; two characters
+/// (「映画」, 「cat」 needs three letters anyway to mean much) keep matches
+/// rare. The same for every script, so no language gets a cheaper path.
+pub const MIN_KEYWORD_CHARS: usize = 2;
+/// Most owners whose antennas one note is checked for; beyond it the note
+/// reaches the first ones in antenna order. Bounds the work of one post
+/// however popular a keyword is.
+pub const MAX_OWNERS_PER_NOTE: usize = 2000;
 pub const MAX_USERS: usize = 50;
 /// Notes each antenna keeps.
 pub const MAX_COLLECTED: i64 = 1000;
@@ -144,7 +158,9 @@ pub(crate) struct AntennaSpec {
 }
 
 /// Folds and checks one list of words: blank ones dropped, duplicates once.
-fn words(input: &[String], max: usize) -> AppResult<Vec<String>> {
+/// `min_chars`: keywords that collect notes are at least
+/// [`MIN_KEYWORD_CHARS`] long; excluded words may be a single character.
+fn words(input: &[String], max: usize, min_chars: usize) -> AppResult<Vec<String>> {
     let mut out: Vec<String> = Vec::new();
     for word in input {
         let word = fold(word);
@@ -152,10 +168,10 @@ fn words(input: &[String], max: usize) -> AppResult<Vec<String>> {
             continue;
         }
         ensure!(
-            text::fits(&word, MAX_WORD_CHARS),
+            text::fits(&word, MAX_WORD_CHARS) && text::char_count(&word) >= min_chars,
             invalid,
             "INVALID_KEYWORDS",
-            "a keyword is at most {MAX_WORD_CHARS} characters"
+            "a keyword has {min_chars} to {MAX_WORD_CHARS} characters"
         );
         out.push(word);
     }
@@ -175,12 +191,12 @@ impl AntennaSpec {
         ensure!(input.keywords.len() <= MAX_GROUPS, invalid, "INVALID_KEYWORDS", "at most {MAX_GROUPS} keyword groups");
         let mut keywords: Vec<Vec<String>> = Vec::new();
         for group in &input.keywords {
-            let group = words(&group.words, MAX_WORDS_PER_GROUP)?;
+            let group = words(&group.words, MAX_WORDS_PER_GROUP, MIN_KEYWORD_CHARS)?;
             if !group.is_empty() && !keywords.contains(&group) {
                 keywords.push(group);
             }
         }
-        let exclude_words = words(&input.exclude_words, MAX_EXCLUDE_WORDS)?;
+        let exclude_words = words(&input.exclude_words, MAX_EXCLUDE_WORDS, 1)?;
         let source = Source::from_api(input.source)?;
         ensure!(
             !keywords.is_empty() || source.names_accounts(),
@@ -580,6 +596,9 @@ impl Notes {
         }
 
         let author = note.author_id;
+        if tokuly_identity::users::filter_active(core, &[author]).await?.is_empty() {
+            return Ok(0); // a suspended account's notes reach nobody
+        }
         let (followers, friends) =
             tokio::try_join!(graph::follower_ids(core, author), graph::friend_ids(core, author))?;
         let followers: HashSet<Uuid> = followers.into_iter().chain(friends).collect();
@@ -599,22 +618,28 @@ impl Notes {
             return Ok(0);
         }
 
-        // Each owner is asked once whether they may see the note.
-        let mut owners: Vec<Uuid> = matched.iter().map(|index| matcher.watch(*index).owner_id).collect();
-        owners.sort_unstable();
-        owners.dedup();
-        let active: HashSet<Uuid> = tokuly_identity::users::filter_active(core, &owners).await?.into_iter().collect();
-        let mut seeing = HashSet::new();
-        for owner in owners.into_iter().filter(|owner| active.contains(owner)) {
-            let viewer = Viewer::load(core, Some(owner)).await?;
-            if viewer.hides(author) || !viewer.can_see_note(&core.db, note.id).await? {
-                continue;
+        // Who may see the note is decided once, from the author's side (its
+        // audience, blocks, a lock that only just happened), for all
+        // matching owners together; at most MAX_OWNERS_PER_NOTE of them.
+        let mut owners: Vec<Uuid> = Vec::new();
+        for index in &matched {
+            let owner = matcher.watch(*index).owner_id;
+            if !owners.contains(&owner) {
+                if owners.len() == MAX_OWNERS_PER_NOTE {
+                    break;
+                }
+                owners.push(owner);
             }
-            if viewer.newly_locked(core, &[&note]).await?.contains(&author) && !viewer.is_tied_to(author) {
-                continue;
-            }
-            seeing.insert(owner);
         }
+        let locked_now = note.listed && graph::locked_among(core, &[author]).await?.contains(&author);
+        let reaching = if locked_now {
+            // Listed a moment ago, locked now: followers and friends only.
+            let tied: Vec<Uuid> = owners.iter().copied().filter(|owner| followers.contains(owner)).collect();
+            self.still_reaching(&NoteRow { listed: false, ..note.clone() }, &tied).await?
+        } else {
+            self.still_reaching(&note, &owners).await?
+        };
+        let seeing: HashSet<Uuid> = reaching.into_iter().collect();
         let watches: Vec<&Watch> = matched
             .iter()
             .map(|index| matcher.watch(*index))
@@ -998,6 +1023,14 @@ mod tests {
             "INVALID_KEYWORDS"
         );
         assert_eq!(reason(input(|input| input.keywords[0].words = vec!["あ".repeat(51)])), "INVALID_KEYWORDS");
+        // One character collects too much: refused for every script; excluded words may be one.
+        for short in ["あ", "猫", "a"] {
+            assert_eq!(
+                reason(input(|input| input.keywords[0].words = vec![short.into()])),
+                "INVALID_KEYWORDS",
+                "{short}"
+            );
+        }
         // A list or accounts are enough without keywords.
         let list = AntennaSpec::parse(&input(|input| {
             input.keywords.clear();

@@ -144,6 +144,9 @@ CREATE TABLE notes (
     pinned_at          timestamptz,
     edited_at          timestamptz,
     edit_count         integer     NOT NULL DEFAULT 0,
+    -- The draft this note was posted from (no foreign key: the draft is
+    -- deleted once posted). Unique, so a draft is posted at most once.
+    draft_id           uuid        UNIQUE,
     attrs              jsonb       NOT NULL DEFAULT '{}',
     created_at         timestamptz NOT NULL DEFAULT now(),
     CHECK ((visibility = 8) = (circle_id IS NOT NULL)),

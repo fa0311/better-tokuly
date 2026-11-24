@@ -124,6 +124,7 @@ impl NoteService for Notes {
                 content_warning_text: request.content_warning_text,
                 attachment_details: request.attachment_details,
                 poll: request.poll.into_option(),
+                draft_id: None,
             };
             let note = self.create_note_once(user_id, &request.idempotency_key, input).await?;
             ok(CreateNoteResponse { note: self.hydrate_one(&viewer, &note).await?.into(), ..Default::default() })

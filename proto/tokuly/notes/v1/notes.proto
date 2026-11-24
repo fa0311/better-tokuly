@@ -59,7 +59,8 @@ service NoteService {
   // ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_FAILED, STAMP_NOT_USABLE,
   // INVALID_PLACE, INVALID_VISIBILITY, CIRCLE_NOT_FOUND (not a circle of the
   // caller), TOO_MANY_RECIPIENTS (a direct note names at most 20 people),
-  // RECIPIENT_NOT_FOUND, INVALID_IDEMPOTENCY_KEY, REQUEST_IN_PROGRESS,
+  // RECIPIENT_NOT_FOUND, DIRECT_NOT_ALLOWED (someone named does not accept
+  // messages from the caller: their `direct_messages_from` setting), INVALID_IDEMPOTENCY_KEY, REQUEST_IN_PROGRESS,
   // NOTE_NOT_FOUND (the note replied to or quoted), NOTE_NOT_PUBLIC (only
   // notes everyone may see can be quoted), RATE_LIMITED.
   rpc CreateNote(CreateNoteRequest) returns (CreateNoteResponse);
@@ -565,10 +566,11 @@ message CreateNoteRequest {
   // PRIVATE (with `direct_user_ids`: a direct note). UNSPECIFIED uses the
   // caller's default (privacy setting `default_note_visibility`). A reply is
   // never shown more widely than the note it answers: a reply to a PUBLIC,
-  // FOLLOWERS or FRIENDS note takes the narrower of the two; a reply to a
-  // CLOSE_FRIENDS, CIRCLE or direct note becomes a direct note to that
-  // note's author (and the people it was addressed to); a reply to a
-  // PRIVATE note is private.
+  // FOLLOWERS, FRIENDS or CIRCLE note (the last looks like FOLLOWERS to the
+  // replier) takes the narrower of the two; a reply to a CLOSE_FRIENDS or
+  // direct note becomes a direct note to that note's author (and the people
+  // it was addressed to); a reply to a PRIVATE note is private. The author
+  // answering their own close-friends or circle note keeps it there.
   tokuly.common.v1.Visibility visibility = 5;
   // Makes the note a reply to this note.
   string reply_to_id = 6;
@@ -1232,8 +1234,9 @@ message GetListTimelineResponse {
 // matches when its text contains every word of at least one keyword group
 // and none of the excluded words (case and width folded), it comes from the
 // chosen source, and the owner may see it. At most 5 antennas per person,
-// 10 groups of 5 words each, 10 excluded words, 50 accounts; matching costs
-// the same however many antennas exist (one pass over the text). Each
+// 10 groups of 5 words each (2–50 characters a word), 10 excluded words, 50
+// accounts; matching costs the same however many antennas exist (one pass
+// over the text), and one note is checked for at most 2000 owners. Each
 // antenna keeps its latest 1000 notes. Only the owner sees an antenna.
 service AntennaService {
   // Errors: INVALID_NAME (1–30), INVALID_KEYWORDS, LIST_NOT_FOUND,
@@ -2119,8 +2122,9 @@ message NotesEvent {
     StoryReaction story_reaction = 6;
     // To the owner: someone new watched their story.
     StoryViewCount story_viewed = 7;
-    // Topic: someone voted in the note's poll, or it closed. Carries no
-    // counts (what a reader may see of them differs): read the note again.
+    // Topic: someone voted in the note's poll (at most one push every few
+    // seconds per poll), or it closed. What a reader may see of the counts
+    // differs: read the note again.
     PollTally poll_updated = 8;
     // Topic: the note was edited. Read it again.
     NoteEdited note_edited = 9;
@@ -2129,6 +2133,8 @@ message NotesEvent {
 
 message PollTally {
   string note_id = 1;
+  // People who voted, only when everyone may see it (results always
+  // visible, or the poll closed); 0 otherwise.
   int64 voter_count = 2;
   bool closed = 3;
 }

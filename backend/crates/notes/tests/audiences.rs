@@ -334,14 +334,14 @@ async fn close_friends_and_circles_reach_their_members_only_and_circles_stay_unn
     }
     // Nobody but the author renotes these, and a reply to them goes back directly.
     assert!(!shown.viewer.can_renote);
+    // A reply to it is limited as one to a followers note: nothing tells the
+    // member it was anything else.
     let answer = ctx.reply(&member, &in_circle, "わかる").await;
-    assert_eq!(answer.visibility, buffa::EnumValue::from(Visibility::VISIBILITY_PRIVATE));
-    assert_eq!(
-        answer.direct_recipients.iter().map(|user| user.id.clone()).collect::<Vec<_>>(),
-        vec![author.id.to_string()]
-    );
-    assert!(ctx.get_note(Some(&author), &answer.id).await.is_ok());
-    assert_eq!(ctx.get_note(Some(&outsider), &answer.id).await.unwrap_err().reason, "NOTE_NOT_FOUND");
+    assert_eq!(answer.visibility, buffa::EnumValue::from(Visibility::VISIBILITY_FOLLOWERS));
+    assert!(answer.direct_recipients.is_empty());
+    assert!(ctx.get_note(Some(&author), &answer.id).await.is_ok(), "the author answered sees it");
+    let close_answer = ctx.reply(&close, &cf, "ありがと").await;
+    assert_eq!(close_answer.visibility, buffa::EnumValue::from(Visibility::VISIBILITY_PRIVATE));
 
     // A member who stops following is out at once.
     let unfollow = tokuly_proto::social::UnfollowRequest { user_id: author.id.to_string(), ..Default::default() };
@@ -371,6 +371,11 @@ async fn direct_notes_reach_and_notify_the_people_they_name() {
             request.direct_user_ids = ids;
         }
     };
+    // By default people accept messages from friends only (direct_messages_from).
+    let stranger = ctx.member("stranger").await;
+    assert_eq!(ctx.post_reason(&author, "x", direct(&[&stranger])).await, "DIRECT_NOT_ALLOWED");
+    ctx.befriend(&author, &bob).await;
+    ctx.befriend(&author, &carol).await;
     let note = ctx.post_with(&author, "ひみつの相談", direct(&[&bob, &carol])).await;
     assert_eq!(note.direct_recipients.len(), 2);
     for person in [&bob, &carol] {

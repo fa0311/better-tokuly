@@ -224,10 +224,40 @@ async fn drafts_are_saved_listed_scheduled_and_posted_once() {
         .execute(&ctx.app.core.db)
         .await
         .unwrap();
+    ctx.post(&alice, "posted before the schedule came").await;
+    // (Scheduler passes of other tests in this binary may take it too: what
+    // counts is that it is posted, once.)
     let (first, second) = tokio::join!(ctx.notes.publish_due_drafts(), ctx.notes.publish_due_drafts());
-    assert_eq!(first.unwrap() + second.unwrap(), 1);
-    let posted = ctx.get_note(Some(&alice), &scheduled.draft.id).await.unwrap();
-    assert_eq!(posted.text, "予約したノート", "the note takes the draft's ID");
+    first.unwrap();
+    second.unwrap();
+    for _ in 0..50 {
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM note_drafts WHERE id = $1")
+            .bind(id(&scheduled.draft.id))
+            .fetch_one(&ctx.app.core.db)
+            .await
+            .unwrap();
+        if left == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(ctx.get_note(Some(&alice), &scheduled.draft.id).await.is_err(), "the note has an ID of its own");
+    // It is new: on top of the profile, above what was posted while it waited.
+    let profile: GetUserTimelineResponse = ctx
+        .note(
+            "GetUserTimeline",
+            Some(&alice),
+            &GetUserTimelineRequest { user_id: alice.id.to_string(), page: page(5, ""), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(texts(&profile.entries)[0], "予約したノート");
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM notes WHERE author_id = $1 AND text = '予約したノート'")
+        .bind(alice.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
 
     // A scheduled draft that cannot be posted stays, with the reason.
     let broken: SaveDraftResponse = draft_call(
@@ -305,4 +335,48 @@ async fn the_draft_limit_holds_under_concurrent_saves() {
     .await;
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 2);
     assert!(results.iter().filter_map(|result| result.as_ref().err()).all(|reason| reason == "TOO_MANY_DRAFTS"));
+}
+
+#[tokio::test]
+async fn publishing_a_draft_while_the_scheduler_posts_it_posts_it_once() {
+    let ctx = start().await;
+    let alice = ctx.member("alice").await;
+    for round in 0..3 {
+        let text = format!("race {round}");
+        let saved: SaveDraftResponse = draft_call(
+            &ctx,
+            "SaveDraft",
+            &alice,
+            &SaveDraftRequest {
+                content: DraftContent { text: text.clone(), ..Default::default() }.into(),
+                scheduled_at: tokuly_core::time::ts(chrono::Utc::now() + chrono::Duration::seconds(600)),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE note_drafts SET scheduled_at = now() WHERE id = $1")
+            .bind(id(&saved.draft.id))
+            .execute(&ctx.app.core.db)
+            .await
+            .unwrap();
+        let request = PublishDraftRequest { draft_id: saved.draft.id.clone(), ..Default::default() };
+        let (published, scheduled) = tokio::join!(
+            draft_call::<_, PublishDraftResponse>(&ctx, "PublishDraft", &alice, &request),
+            ctx.notes.publish_due_drafts(),
+        );
+        let published = published.expect("the person pressing the button gets the note");
+        scheduled.unwrap();
+        assert_eq!(published.note.text, text);
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM notes WHERE author_id = $1 AND text = $2")
+            .bind(alice.id)
+            .bind(&text)
+            .fetch_one(&ctx.app.core.db)
+            .await
+            .unwrap();
+        assert_eq!(count, 1, "posted once");
+        let again: PublishDraftResponse = draft_call(&ctx, "PublishDraft", &alice, &request).await.unwrap();
+        assert_eq!(again.note.id, published.note.id, "a retry gets the same note");
+    }
+    assert!(ctx.notifications_for(alice.id, "notes.schedule_failed").await.is_empty(), "no false failure notice");
 }

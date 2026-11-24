@@ -84,6 +84,9 @@ pub struct NoteEditedEvent {
     pub note_id: Uuid,
     pub author_id: Uuid,
     pub version: i32,
+    /// The excerpt activity entries show (as on `note.posted`, 140 characters).
+    pub text: String,
+    pub content_warning: bool,
 }
 
 /// `notes.story.created`: a story was posted.

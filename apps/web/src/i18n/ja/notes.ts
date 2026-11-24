@@ -411,6 +411,7 @@ export default {
     threadUnmuted: "会話のミュートを解除したよ",
   },
   errors: {
+    DIRECT_NOT_ALLOWED: "メッセージを受け付けていない人がいるよ",
     CW_TOO_LONG: "注意書きは100文字までだよ",
     ALT_TEXT_TOO_LONG: "画像の説明は1500文字までだよ",
     INVALID_POLL: "アンケートは2〜10個のちがう選択肢と、5分〜30日の期間で作ってね",

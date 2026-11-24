@@ -28,6 +28,8 @@ use crate::{
 
 /// Votes one user may cast per minute.
 const VOTES_PER_MINUTE: u32 = 60;
+/// At most one vote push per poll in this long.
+const PUSH_EVERY: Duration = Duration::from_secs(3);
 /// Polls closed per pass of the closing worker.
 const CLOSE_BATCH: i64 = 100;
 
@@ -187,10 +189,21 @@ impl Notes {
         Ok(poll.view(&viewer, note.author_id, Some(&picked)))
     }
 
+    /// Tells the note's topic that its poll moved. The topic is shared by
+    /// everyone showing the note, so it carries the number of voters only
+    /// when everyone may see it (results always visible, or the poll ended).
+    /// Votes push at most once per [`PUSH_EVERY`] per poll; closing always does.
     async fn push_tally(&self, poll: &PollRow, closed: bool) {
+        if !closed {
+            let key = format!("notes:poll-push:{}", poll.note_id.simple());
+            if !self.core.cache.set_nx(&key, "1", PUSH_EVERY).await.unwrap_or(true) {
+                return;
+            }
+        }
+        let public = closed || poll.results_visibility == ALWAYS;
         let tally = PollTally {
             note_id: poll.note_id.to_string(),
-            voter_count: poll.voter_count,
+            voter_count: if public { poll.voter_count } else { 0 },
             closed,
             ..Default::default()
         };

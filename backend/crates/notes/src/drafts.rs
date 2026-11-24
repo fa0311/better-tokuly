@@ -7,9 +7,10 @@
 //! uploads are the author's: a draft is allowed to be unfinished.
 //!
 //! Scheduled drafts are posted by the scheduler ([`Notes::publish_due_drafts`])
-//! as if their author had pressed the button then. A posted draft's note
-//! takes the draft's ID, which makes posting it exactly-once: a pass that
-//! stops after the note was stored finds it there the next time.
+//! as if their author had pressed the button then. The note gets an ID of
+//! its own (it sorts and trends as posted now) and records the draft in the
+//! unique `notes.draft_id`: a draft is posted at most once, and whoever
+//! comes second (the scheduler, `PublishDraft`, a retry) finds that note.
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -324,27 +325,58 @@ impl Notes {
             attachment_details: content.attachment_details.clone(),
             poll: content.poll.as_option().cloned(),
             channel_id: parse_opt_id(&content.channel_id)?,
+            draft_id: None,
         })
     }
 
-    /// Posts one of `author`'s drafts now and deletes it. The note takes the
-    /// draft's ID: posting it twice finds the note posted the first time.
+    /// Posts one of `author`'s drafts now and deletes it. A draft is posted
+    /// once (`notes.draft_id` is unique): whoever comes second — the
+    /// scheduler, a retry, a second device — gets the note posted first.
     pub(crate) async fn publish_draft(&self, author: Uuid, draft_id: Uuid) -> AppResult<NoteRow> {
-        let row = self.draft(author, draft_id).await?;
-        let note = match self.existing_note(row.id).await? {
-            Some(note) => note,
-            None => self.create_note_with_id(author, row.id, Self::draft_note(&row.content())?).await?,
+        let row = match self.draft(author, draft_id).await {
+            Ok(row) => row,
+            // Posted (and deleted) a moment ago by someone else.
+            Err(error) if error.is_not_found() => {
+                return self.note_of_draft(draft_id).await?.filter(|note| note.author_id == author).ok_or(error);
+            }
+            Err(error) => return Err(error),
         };
-        let mut tx = self.core.db.begin().await?;
-        sqlx::query("DELETE FROM note_drafts WHERE id = $1").bind(row.id).execute(&mut *tx).await?;
-        assets::detach_holder(&mut *tx, &draft_holder(row.id)).await?;
-        tx.commit().await?;
+        let note = self.post_draft(&row).await?;
+        self.forget_draft(row.id).await?;
         Ok(note)
     }
 
-    async fn existing_note(&self, note_id: Uuid) -> AppResult<Option<NoteRow>> {
-        let sql = format!("SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id = $1");
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(sql)).bind(note_id).fetch_optional(&self.core.db).await?)
+    /// Posts a draft as its author would, once: the note gets an ID of its
+    /// own (so it sorts and trends as posted now) and remembers the draft.
+    async fn post_draft(&self, row: &DraftRow) -> AppResult<NoteRow> {
+        if let Some(note) = self.note_of_draft(row.id).await? {
+            return Ok(note);
+        }
+        let mut input = Self::draft_note(&row.content())?;
+        input.draft_id = Some(row.id);
+        match self.create_note(row.author_id, input).await {
+            Ok(note) => Ok(note),
+            // Lost a race with another poster of the same draft, or was
+            // refused (a rate limit) after it was posted: that note counts.
+            Err(error) => match self.note_of_draft(row.id).await? {
+                Some(note) => Ok(note),
+                None => Err(error),
+            },
+        }
+    }
+
+    async fn forget_draft(&self, draft_id: Uuid) -> AppResult<()> {
+        let mut tx = self.core.db.begin().await?;
+        sqlx::query("DELETE FROM note_drafts WHERE id = $1").bind(draft_id).execute(&mut *tx).await?;
+        assets::detach_holder(&mut *tx, &draft_holder(draft_id)).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The note posted from a draft, if any.
+    async fn note_of_draft(&self, draft_id: Uuid) -> AppResult<Option<NoteRow>> {
+        let sql = format!("SELECT {NOTE_COLUMNS} FROM notes n WHERE n.draft_id = $1");
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(sql)).bind(draft_id).fetch_optional(&self.core.db).await?)
     }
 
     /// Posts the drafts whose time has come (the scheduler; public for tools
@@ -362,19 +394,9 @@ impl Notes {
             sqlx::query_as(sqlx::AssertSqlSafe(sql)).bind(PUBLISH_BATCH).fetch_all(&core.db).await?;
         let mut posted = 0;
         for row in due {
-            let result = match self.existing_note(row.id).await? {
-                Some(note) => Ok(note),
-                None => match Self::draft_note(&row.content()) {
-                    Ok(input) => self.create_note_with_id(row.author_id, row.id, input).await,
-                    Err(error) => Err(error),
-                },
-            };
-            match result {
+            match self.post_draft(&row).await {
                 Ok(_) => {
-                    let mut tx = core.db.begin().await?;
-                    sqlx::query("DELETE FROM note_drafts WHERE id = $1").bind(row.id).execute(&mut *tx).await?;
-                    assets::detach_holder(&mut *tx, &draft_holder(row.id)).await?;
-                    tx.commit().await?;
+                    self.forget_draft(row.id).await?;
                     posted += 1;
                 }
                 Err(error) => {

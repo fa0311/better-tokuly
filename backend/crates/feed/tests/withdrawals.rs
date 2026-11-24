@@ -305,3 +305,37 @@ async fn a_deleted_answer_withdraws_its_entries_but_the_question_can_be_answered
 async fn seen(ctx: &Ctx, viewer: &TestUser, owner: Uuid, id: &str) -> bool {
     ids(&ctx.profile(Some(viewer), owner).await.unwrap()).iter().any(|shown| shown == id)
 }
+
+#[tokio::test]
+async fn an_edited_note_shows_its_new_words_and_a_followers_note_reaches_friends() {
+    let ctx = start().await;
+    let (author, friend) = (ctx.app.user("author").await, ctx.app.user("friend").await);
+    ctx.befriend(&author, &friend).await;
+    let note_id = Uuid::now_v7();
+    let id = ctx.record(public_note(&author, note_id), 5).await.to_string();
+    let edited = |version: i32, text: &str| {
+        produced(
+            "notes.note.edited",
+            Some(author.id),
+            &tokuly_notes::events::NoteEditedEvent {
+                note_id,
+                author_id: author.id,
+                version,
+                text: text.into(),
+                content_warning: false,
+            },
+        )
+    };
+    ctx.feed.handle_event(edited(2, "直した")).await.unwrap();
+    ctx.feed.handle_event(edited(1, "古い版")).await.unwrap(); // late: an older edit
+    ctx.feed.handle_event(edited(2, "直した")).await.unwrap(); // twice
+    let log = ctx.my_log(&author).await;
+    let entry = log.iter().find(|activity| activity.id == id).expect("the entry");
+    let data: serde_json::Value = serde_json::from_str(&entry.data_json).unwrap();
+    assert_eq!(data["text"], "直した");
+
+    // Narrowed to followers: friends (who are followers too) still see it, visitors do not.
+    ctx.feed.handle_event(visibility_changed(note_id, author.id, 6)).await.unwrap();
+    assert!(ctx.profile(None, author.id).await.unwrap().is_empty());
+    assert_eq!(ids(&ctx.profile(Some(&friend), author.id).await.unwrap()), vec![id]);
+}

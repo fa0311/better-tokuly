@@ -62,7 +62,7 @@ transaction that makes the change.
 | `notes.note.created` | `{ note_id, author_id, visibility, reply_to_id, quote_of_id }` | A note, reply or quote note was posted. `visibility` is `tokuly.common.v1.Visibility` as its number (1 public, 4 friends, 5 private). |
 | `notes.note.deleted` | `{ note_id, author_id, reason }` | A note is gone for good. `reason`: `author`, `moderation`, `account_deleted`, `media_deleted`. Actor: the author, the moderator, the erased user, or nobody. |
 | `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to, changed_at }` | The author changed who may see a note (not emitted when nothing changed), or locked or unlocked their account (once per public note whose reach changed). `visibility`: the audience now in effect — the note's own, except that a public note of a locked author reads 6 (followers). `visible_to`: who besides the author may still see it — `null` when everyone may; otherwise everyone in the audience as the social graph gives it (followers and friends, friends, close friends or circle members, the people a direct note names) and, for a reply narrower than public, the author of the note answered, people in a block with the author left out; `[]` for a private note. For a change caused by a lock, only the people this domain told about the note or who reacted to it are considered (a full follower list per note would be unbounded). Anyone shown the note before (an inbox entry about it) who is not listed lost access with this change. `changed_at`: when the change was made, taken while the note was locked; consumers (feed, notify) order two changes of one note by it, not by the event's time (the start of its transaction). **Never forward this event to webhooks or other outside parties: `visible_to` is the author's friend list.** |
-| `notes.note.edited` | `{ note_id, author_id, version }` | The author changed a note's words within the edit window (`version` = its edit count now). Audience and media do not change with an edit. |
+| `notes.note.edited` | `{ note_id, author_id, version, text, content_warning }` | The author changed a note's words within the edit window (`version` = its edit count now). Audience and media do not change with an edit. |
 | `notes.story.created` | `{ story_id, owner_id, audience, expires_at }` | A story was posted. `audience` is `tokuly.notes.v1.StoryAudience` as its number (1 friends, 2 close friends). |
 | `notes.story.deleted` | `{ story_id, owner_id, reason }` | A story was deleted (same reasons as notes). Not emitted for an expiry. |
 | `notes.story.expired` | `{ story_id, owner_id }` | A story's day is over: it left the tray and is archive-only. Emitted exactly once per story by the expiry worker, shortly after `expires_at`. |
@@ -96,7 +96,7 @@ it can see at that moment):
 |---|---|
 | `counters_changed` (`NoteCounters`) | Likes, renotes, replies or quotes of the note changed. Views alone do not push; the view count rides along with the next change. |
 | `note_deleted_id` | The note was deleted. |
-| `poll_updated` (`PollTally`) | Someone voted, or the poll closed. Carries only the number of voters and whether it closed: what a reader may see of the counts differs, so clients read the note again. |
+| `poll_updated` (`PollTally`) | Someone voted (at most one push per poll every 3 s), or the poll closed. Carries whether it closed and — only when everyone may see results (always visible, or closed) — the number of voters: what a reader may see of the counts differs, so clients read the note again. |
 | `note_edited` (`NoteEdited`) | The note was edited: read it again. |
 | `link_preview_resolved` | The preview of the note's first link was fetched. To the topic only when the note is listed; always to the author (user-scoped). |
 
@@ -122,7 +122,7 @@ each person at most once per note (reply, then quote, then mention).
 | `notes.reply` | author of the note answered | Body is the reply's text. |
 | `notes.quote` | author of the quoted note | |
 | `notes.mention` | each mentioned user | At most 10 mentions per note are resolved. People in a block with the author are not mentioned at all. |
-| `notes.direct` | each person a direct note names | Not repeated when the audience is changed later. |
+| `notes.direct` | each person a direct note names | Not repeated when the audience is changed later. Only people whose `direct_messages_from` setting accepts the author can be named (`DIRECT_NOT_ALLOWED`); people a reply inherits from the note it answers stay. |
 | `notes.post` | followers who set post notifications for the author (social notify level ALL) and may see the note | Top-level notes only, sent by the `notes.post_notify` job, collapsed per note; not to people already told about the note. |
 | `notes.poll_ended` | every voter who may still see the note, and the author | Once per poll, when the closing worker closes it; collapsed per note. |
 | `notes.schedule_failed` | the author of a scheduled draft that could not be posted | `data = { draft_id, reason }`; path `/notes/drafts`. |
@@ -198,7 +198,7 @@ only people mentioned for the first time.
 | trends (`Notes::refresh_trends`) | every `TOKULY_NOTES_TREND_INTERVAL_SECONDS` | Recomputes `hashtag_trends` and `note_trends` (top 50, for all notes and per language): hashtags used in listed notes, and listed top-level notes liked, renoted, answered or quoted, by at least `TOKULY_NOTES_TREND_MIN_AUTHORS` different people within the window; each person counts once, by their latest use, halved every 6 hours. Protection against manipulation: accounts younger than `TREND_MIN_ACCOUNT_AGE_HOURS` do not count, accounts younger than `TREND_NEW_ACCOUNT_DAYS` that joined on the same day count as one person, suspended accounts and the author's own reactions do not count. Also refreshes stale hashtag search documents. Safe to run in several processes (advisory lock). |
 | job `notes.post_notify` | payload `PostNotifyJob { note_id }`, concurrency 4, 5 attempts | Post notifications (`Notes::notify_post`), in batches of 500. |
 | job `notes.antenna_match` | payload `AntennaMatchJob { note_id }` | Queued for every new note; see "Antennas". |
-| polls and schedule | every `TOKULY_NOTES_SCHEDULE_INTERVAL_SECONDS` | `Notes::close_polls` (marks ended polls closed with a conditional update and tells voters once) and `Notes::publish_due_drafts` (claims due drafts with `FOR UPDATE SKIP LOCKED`, posts each as its author with the draft's ID as the note's — so a pass cut short never posts twice — and keeps the reason on the draft when posting fails). |
+| polls and schedule | every `TOKULY_NOTES_SCHEDULE_INTERVAL_SECONDS` | `Notes::close_polls` (marks ended polls closed with a conditional update and tells voters once) and `Notes::publish_due_drafts` (claims due drafts with `FOR UPDATE SKIP LOCKED`, posts each as its author, once: the note gets its own ID and records the draft in the unique `notes.draft_id`, so a pass cut short, `PublishDraft` or a retry never posts twice — and keeps the reason on the draft when posting fails). |
 
 ## Analytics
 
@@ -407,9 +407,14 @@ collect new notes into a timeline only their owner sees.
   pass; EVERYONE antennas become candidates only through a word hit;
   FOLLOWING ones from the author's followers and friends, LIST ones from the
   lists the author is on (`note_list_members_user` index), USERS ones from an
-  in-memory index of the accounts they name. Each candidate's owner is then
-  checked once (`Viewer::can_see_note`, blocks both ways, the account lock
-  the social domain knows now, owner account active).
+  in-memory index of the accounts they name. Who may see the note is then
+  worked out once, from the author's side (its audience, blocks both ways,
+  a lock the social domain knows now, active accounts), for at most 2000
+  matching owners together — one batch of queries however many antennas
+  matched. Keywords are 2–50 characters in every script: a single kana,
+  letter or kanji is in a large share of all notes and would put nearly
+  every note in front of the owner check; excluded words may be one
+  character (they only filter).
 - A note matches when every word of one keyword group appears and no
   excluded word does; replies only with `with_replies`, media only with
   `media_only`; notes older than the antenna are not collected late. LIST

@@ -408,6 +408,7 @@ export default {
     threadUnmuted: "Conversation unmuted",
   },
   errors: {
+    DIRECT_NOT_ALLOWED: "Someone you picked doesn't accept messages from you",
     CW_TOO_LONG: "A content warning is at most 100 characters",
     ALT_TEXT_TOO_LONG: "An image description is at most 1500 characters",
     INVALID_POLL: "A poll needs 2–10 different choices and runs 5 minutes to 30 days",

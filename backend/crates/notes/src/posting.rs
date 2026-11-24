@@ -23,6 +23,7 @@ use tokuly_identity::settings;
 use tokuly_media::assets;
 use tokuly_proto::{
     common::{UserSummary, Visibility},
+    identity::Audience as PrivacyAudience,
     media::{AssetKind, AssetPurpose, Attachment},
     notes::{AttachmentDetailsInput, Mention, NoteCounters, PlaceTag, PollInput, notes_event::Event as Push},
 };
@@ -99,6 +100,8 @@ pub(crate) struct NewNote {
     pub poll: Option<PollInput>,
     /// Posts into this channel (a reply goes into the channel of the note it answers).
     pub channel_id: Option<Uuid>,
+    /// Posted from this draft: at most one note per draft (`DRAFT_ALREADY_POSTED`).
+    pub draft_id: Option<Uuid>,
 }
 
 /// A place tag as stored.
@@ -243,15 +246,33 @@ fn default_audience(setting: buffa::EnumValue<Visibility>) -> Audience {
 ///
 /// - an answer to a PUBLIC, FOLLOWERS or FRIENDS note takes the narrower of
 ///   the two (a close-friends, circle or direct reply stays as it is);
-/// - an answer to a close-friends, circle or direct note becomes a direct
-///   note to that note's author and the people it named (plus whoever the
-///   replier named), unless the replier made it private;
+/// - an answer to a circle note is limited like one to a FOLLOWERS note
+///   (that is what it looks like to the replier);
+/// - an answer to a close-friends or direct note becomes a direct note to
+///   that note's author and the people it named (plus whoever the replier
+///   named), unless the replier made it private;
+/// - the author answering their own close-friends or circle note keeps it
+///   in the same group;
 /// - an answer to a private note is private.
 pub(crate) fn narrow_reply(wanted: Audience, parent: &NoteRow, replier: Uuid) -> Audience {
-    let limit = Audience::of_note(parent);
+    if replier == parent.author_id
+        && matches!(parent.visibility, visibility::CLOSE_FRIENDS | visibility::CIRCLE)
+        && !(wanted.visibility == visibility::PRIVATE)
+    {
+        // The author answering their own note keeps it in the same group.
+        return Audience::of_note(parent);
+    }
+    // To everyone but its author a circle note is a followers note (they
+    // are never told about the circle), so it limits a reply like one:
+    // narrowing it to the author directly would show it was something else.
+    let limit = if parent.visibility == visibility::CIRCLE {
+        Audience::of(visibility::FOLLOWERS)
+    } else {
+        Audience::of_note(parent)
+    };
     match limit.rank() {
         0..=2 if wanted.rank() >= limit.rank() => wanted,
-        0..=2 => Audience::of(parent.visibility),
+        0..=2 => Audience::of(limit.visibility),
         3 if wanted.visibility == visibility::PRIVATE && wanted.direct.is_empty() => wanted,
         3 => {
             let mut direct = if wanted.visibility == visibility::PRIVATE { wanted.direct } else { Vec::new() };
@@ -390,6 +411,22 @@ impl Notes {
             "RECIPIENT_NOT_FOUND",
             "user not found"
         );
+        // A direct note reaches people like a message does: the people the
+        // author names must accept messages from them (privacy setting
+        // `direct_messages_from`). Those a reply inherits are answering
+        // the author's own conversation and stay.
+        if let Some(author) = viewer.id {
+            for person in named.iter().filter(|id| !viewer.is(**id)) {
+                let privacy = settings::privacy_of(&self.core, *person).await?;
+                let audience = privacy.direct_messages_from.as_known().unwrap_or(PrivacyAudience::AUDIENCE_UNSPECIFIED);
+                ensure!(
+                    graph::allows(&self.core, *person, Some(author), audience).await?,
+                    denied,
+                    "DIRECT_NOT_ALLOWED",
+                    "someone you named does not accept messages from you"
+                );
+            }
+        }
         let mut people = Vec::with_capacity(wanted.len());
         for id in wanted.into_iter().filter(usable) {
             if !people.contains(&id) {
@@ -446,8 +483,7 @@ impl Notes {
         self.create_note_with_id(author, new_id(), input).await
     }
 
-    /// [`Self::create_note`] with the note's ID chosen by the caller (a
-    /// posted draft's note takes the draft's ID).
+    /// [`Self::create_note`] with the note's ID chosen by the caller.
     pub(crate) async fn create_note_with_id(&self, author: Uuid, note_id: Uuid, input: NewNote) -> AppResult<NoteRow> {
         self.admit_post(author).await?;
         self.store_note(author, note_id, input).await
@@ -612,9 +648,9 @@ impl Notes {
             "INSERT INTO notes AS n (id, author_id, text, attachments, asset_ids, stamp_id, place_name, place_lat, place_lng, place_id,
                                      visibility, content_warning, reply_to_id, reply_to_author_id, quote_of_id, hashtags, mentions, link_url,
                                      circle_id, direct_user_ids, listed, channel_id, thread_root_id,
-                                     content_warning_text, attachment_details, body, language)
+                                     content_warning_text, attachment_details, body, language, draft_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-                     $24, $25, $26, $27)
+                     $24, $25, $26, $27, $28)
              RETURNING {NOTE_COLUMNS}"
         );
         let note: NoteRow = sqlx::query_as(sqlx::AssertSqlSafe(sql))
@@ -645,8 +681,15 @@ impl Notes {
             .bind(to_json(&details)?)
             .bind(to_json(&said.body)?)
             .bind(said.language)
+            .bind(input.draft_id)
             .fetch_one(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| match &e {
+                sqlx::Error::Database(db) if db.constraint() == Some("notes_draft_id_key") => {
+                    AppError::already_exists("DRAFT_ALREADY_POSTED", "this draft was posted already")
+                }
+                _ => AppError::from(e),
+            })?;
         if let Some(poll) = &poll {
             polls::insert(&mut tx, note.id, poll).await?;
         }
@@ -1220,11 +1263,15 @@ mod tests {
             "a narrower choice stays"
         );
         assert_eq!(reply(Audience::of(PRIVATE), &note(author, PUBLIC, vec![])), Audience::of(PRIVATE));
-        // Close friends, circles and direct notes are answered directly.
-        for parent in [note(author, CLOSE_FRIENDS, vec![]), note(author, CIRCLE, vec![])] {
-            let applied = reply(Audience::of(PUBLIC), &parent);
-            assert_eq!((applied.visibility, applied.direct), (PRIVATE, vec![author]));
-        }
+        // Close friends and direct notes are answered directly.
+        let applied = reply(Audience::of(PUBLIC), &note(author, CLOSE_FRIENDS, vec![]));
+        assert_eq!((applied.visibility, applied.direct), (PRIVATE, vec![author]));
+        // A circle note looks like a followers note to the replier, and limits like one.
+        let circle = note(author, CIRCLE, vec![]);
+        assert_eq!(reply(Audience::of(PUBLIC), &circle), Audience::of(FOLLOWERS));
+        assert_eq!(reply(Audience::of(FRIENDS), &circle), Audience::of(FRIENDS));
+        // Its author answering keeps the circle.
+        assert_eq!(narrow_reply(Audience::of(PUBLIC), &circle, author), Audience::of_note(&circle));
         let direct = note(author, PRIVATE, vec![replier, other]);
         let applied = reply(Audience::of(FRIENDS), &direct);
         assert_eq!(
