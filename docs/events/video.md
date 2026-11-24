@@ -159,7 +159,7 @@ published to).
 |---|---|---|
 | `channel` | the owner is not suspended | `title` = name, `text` = description, `tags` = [handle], `path` = `/channel/<handle>`, `score` = subscribers (as of the last edit), `extra = { handle, verified, subscriber_count }` |
 | `video` | PUBLISHED, PUBLIC and not suspended | `title`, `text` = description, `tags` = tags + game, `path` = `/watch/<short_id>`, `created_at` = publication time, `score` = views (as of the last edit), `extra = { short_id, channel_id, channel_handle, channel_name, duration_seconds, category, game, age_restricted, origin }` |
-| `playlist` | custom, PUBLIC and not suspended | `title`, `text` = description, `path` = `/playlist/<short_id>`, `image_url` = first public video's thumbnail, `extra = { short_id, item_count, channel_id }` |
+| `playlist` | custom, PUBLIC and not suspended | `title`, `text` = description, `path` = `/playlist/<short_id>`, `image_url` = first public video's thumbnail, `extra = { short_id, item_count, channel_id, channel_handle, channel_name }` (the channel's, for a playlist on a channel) |
 
 ## Subjects
 

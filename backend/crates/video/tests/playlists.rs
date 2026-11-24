@@ -561,3 +561,22 @@ async fn a_playlists_search_picture_never_shows_a_video_that_left_the_public() {
     assert_ne!(video_doc["image_url"].as_str(), Some(custom_url.as_str()));
     assert_ne!(picture(&list).await, Some(custom_url));
 }
+
+#[tokio::test]
+async fn a_channel_playlist_in_search_names_its_channel() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let channel = ctx.channel(&alice, "ch").await;
+    let request = CreatePlaylistRequest {
+        title: "best of".into(),
+        visibility: Visibility::VISIBILITY_PUBLIC.into(),
+        channel_id: channel.summary.id.clone(),
+        ..Default::default()
+    };
+    let created: CreatePlaylistResponse = ctx.call(PLAYLISTS, "CreatePlaylist", Some(&alice), &request).await.unwrap();
+    let docs = search_docs(&ctx, &created.playlist.id).await;
+    let doc = docs.last().cloned().flatten().expect("a public playlist is searchable");
+    assert_eq!(doc["extra"]["channel_name"], channel.summary.name);
+    assert_eq!(doc["extra"]["channel_handle"], channel.summary.handle);
+    assert_eq!(doc["owner_id"], alice.id.to_string(), "kept for blocks; search does not show it");
+}
