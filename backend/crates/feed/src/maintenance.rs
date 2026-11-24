@@ -18,9 +18,10 @@ use crate::{
     Feed,
     events::{
         ACTIVITY_TOPIC, CONSUMER_NAME, CONTENT_REMOVED, ContentRemoved, FETCH_JOB, FRIEND_REMOVED, FetchSourceJob,
-        TOPICS, USER_BLOCKED, USER_CREATED, USER_DELETED,
+        USER_BLOCKED, USER_CREATED, USER_DELETED, consumed_topics,
     },
     news::ranking::AFFINITY_EPSILON,
+    withdrawals,
 };
 
 const SCHEDULER_INTERVAL: Duration = Duration::from_secs(30);
@@ -42,6 +43,7 @@ pub struct RetentionReport {
     pub activities: u64,
     pub story_views: u64,
     pub processed_events: u64,
+    pub subject_changes: u64,
     pub articles: u64,
     pub interests: u64,
     pub recap_notices: u64,
@@ -59,7 +61,7 @@ impl Feed {
             events::consume(
                 feed.core.bus.clone(),
                 CONSUMER_NAME,
-                TOPICS,
+                &consumed_topics(),
                 ConsumeOptions::default(),
                 feed.core.shutdown.clone(),
                 move |event| {
@@ -166,6 +168,9 @@ impl Feed {
             CONTENT_REMOVED => {
                 let removed: ContentRemoved = event.data()?;
                 self.handle_content_removed(&removed).await
+            }
+            topic if withdrawals::RULES.iter().any(|rule| rule.topic == topic) => {
+                self.handle_subject_change(&event).await
             }
             _ => Ok(()),
         }
@@ -303,6 +308,15 @@ impl Feed {
                 "feed_processed_events",
                 "event_id",
                 "processed_at < now() - make_interval(days => $1)",
+                PROCESSED_EVENT_DAYS,
+            )
+            .await?;
+        // Remembered for as long as an event about the subject can still arrive.
+        report.subject_changes = self
+            .sweep(
+                "feed_subject_changes",
+                "ctid",
+                "recorded_at < now() - make_interval(days => $1)",
                 PROCESSED_EVENT_DAYS,
             )
             .await?;

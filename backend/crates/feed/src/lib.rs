@@ -28,6 +28,8 @@
 //!   `news::sources`: the six RPC services.
 //! - [`maintenance`]: the event consumer, workers, retention, account
 //!   deletion and data export.
+//! - [`withdrawals`]: entries about content that was deleted, narrowed or
+//!   expired since they were stored.
 use std::{ops::Deref, sync::Arc, time::Duration};
 
 use tokuly_core::prelude::*;
@@ -45,6 +47,7 @@ pub mod maintenance;
 pub mod news;
 pub mod recap;
 mod stories;
+pub mod withdrawals;
 
 pub use activity::IngestOutcome;
 pub use config::FeedConfig;

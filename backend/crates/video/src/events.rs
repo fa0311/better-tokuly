@@ -9,6 +9,7 @@
 //! | `video.video.created` | [`VideoEvent`] | a draft was created |
 //! | `video.video.published` | [`VideoEvent`] | a video went live (first time or again) |
 //! | `video.video.unpublished` | [`VideoEvent`] | a published video went back to draft |
+//! | `video.video.visibility_changed` | [`VideoEvent`] | a published video got another visibility (it stays published) |
 //! | `video.video.deleted` | [`VideoEvent`] | a video is gone (owner, channel deletion, takedown, account deletion) |
 //! | `video.playlist.deleted` | [`PlaylistEvent`] | a playlist is gone |
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,7 @@ pub const CHANNEL_UNSUBSCRIBED: &str = "video.channel.unsubscribed";
 pub const VIDEO_CREATED: &str = "video.video.created";
 pub const VIDEO_PUBLISHED: &str = "video.video.published";
 pub const VIDEO_UNPUBLISHED: &str = "video.video.unpublished";
+pub const VIDEO_VISIBILITY_CHANGED: &str = "video.video.visibility_changed";
 pub const VIDEO_DELETED: &str = "video.video.deleted";
 pub const PLAYLIST_DELETED: &str = "video.playlist.deleted";
 

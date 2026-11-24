@@ -63,6 +63,7 @@ transaction of the change they describe.
 | `video.video.created` | `VideoEvent` | A draft was created. |
 | `video.video.published` | `VideoEvent` | A video went live, or a live video became visible to an audience for the first time. `first_publication` is true exactly once per video: when it is first both PUBLISHED and PUBLIC or FRIENDS. |
 | `video.video.unpublished` | `VideoEvent` | A published video went back to draft. |
+| `video.video.visibility_changed` | `VideoEvent` | A published video got another visibility and stays published (`visibility` is the new one). Not emitted when the visibility stayed the same, nor with a publication (that is `video.video.published`). |
 | `video.video.deleted` | `VideoEvent` | A video is gone: deleted by the owner, with its channel or account, by a takedown, or because its upload was deleted. Consumers drop what they keep about it (comments, clips). |
 | `video.playlist.deleted` | `{ playlist_id, owner_id }` | A custom playlist is gone. |
 
