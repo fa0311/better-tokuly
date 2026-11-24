@@ -8,7 +8,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use sqlx::PgConnection;
-use tokuly_admin::HiddenOwners;
+use tokuly_admin::{HiddenOwners, ReportEvidence};
 use tokuly_community::Community;
 use tokuly_core::prelude::*;
 use tokuly_dev::ImageStore;
@@ -32,6 +32,7 @@ pub fn connect(core: &Core, domains: &Domains) {
     domains.quest.set_direct_chats(Arc::new(DirectChatsForStreaks { core: core.clone() }));
     domains.dev.set_images(Arc::new(ImagesForDevelopers { core: core.clone() }));
     domains.admin.set_hidden_owners(Arc::new(AnonymousAuthors { community: domains.community.clone() }));
+    domains.admin.set_report_evidence(Arc::new(EvidenceOfReports));
     domains.shorts.set_clip_directory(Arc::new(ClipsForShorts { core: core.clone() }));
 }
 
@@ -129,6 +130,27 @@ impl HiddenOwners for AnonymousAuthors {
 
     async fn is_party(&self, subject_type: SubjectType, subject_id: Uuid, user_id: Uuid) -> AppResult<bool> {
         self.community.is_party_for_moderation(subject_type, subject_id, user_id).await
+    }
+}
+
+/// Uploads of reported content: the admin domain holds them for a case, the
+/// domain that keeps the content knows which they are, media keeps them.
+/// Chat messages are the content whose uploads the sender can take back
+/// (unsend); other domains keep theirs until they delete the content.
+struct EvidenceOfReports;
+
+#[async_trait]
+impl ReportEvidence for EvidenceOfReports {
+    async fn hold(&self, conn: &mut PgConnection, subject_type: SubjectType, subject_id: Uuid, holder: &str) -> AppResult<()> {
+        if subject_type == SubjectType::SUBJECT_TYPE_CHAT_MESSAGE {
+            tokuly_chat::hold_message_media(conn, subject_id, holder).await?;
+        }
+        Ok(())
+    }
+
+    async fn release(&self, conn: &mut PgConnection, holder: &str) -> AppResult<()> {
+        assets::detach_holder(conn, holder).await?;
+        Ok(())
     }
 }
 

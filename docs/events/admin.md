@@ -107,8 +107,12 @@ moment a report files into it (on the transaction that files the report)
 until `TOKULY_MODERATION_EVIDENCE_DAYS` after it is resolved; a reopened
 case keeps them. The holding is done by a lookup the server hands in
 (`Admin::set_report_evidence`, trait `tokuly_admin::ReportEvidence`), since
-admin may not depend on media or the content domains. Without it nothing is
-held. A takedown still deletes the uploads (media drops the holds of what it
+admin may not depend on media or the content domains. The server's bridge
+holds the uploads of chat messages (`tokuly_chat::hold_message_media`), the
+content whose sender can take its uploads back; other domains keep theirs
+until they delete the content. What a message no longer shows when the
+report is filed (unsent before the report reached the queue) cannot be held
+any more. A takedown still deletes the uploads (media drops the holds of what it
 deletes on a domain's authority).
 
 Everything a resolution does (case update, events, notifications, both logs)
