@@ -49,6 +49,23 @@ impl SubjectResolver for ChannelSubjects {
             interactions_enabled: true,
         }))
     }
+
+    /// A channel stays reportable when it hides itself from the reporter by
+    /// a block: what it showed them before is what they report.
+    async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
+        if viewer.is_none() {
+            return Ok(None);
+        }
+        let Some(channel) = channels::find(&self.core, id).await? else { return Ok(None) };
+        Ok(Some(SubjectInfo {
+            id: channel.id,
+            owner_id: channel.owner_id,
+            title: channel.name.clone(),
+            path: channel.path(),
+            image_url: channel.icon_url(),
+            interactions_enabled: true,
+        }))
+    }
 }
 
 struct VideoSubjects {
@@ -71,6 +88,31 @@ impl SubjectResolver for VideoSubjects {
             image_url: video.thumbnail_url(),
             // Drafts have no audience to hear from.
             interactions_enabled: video.comments_enabled && video.is_published(),
+        }))
+    }
+
+    /// A video the reporter watched stays reportable after its uploader made
+    /// it private, unpublished it or blocked them: hiding what they already
+    /// saw must not take away the report. Whoever never watched it learns
+    /// nothing more than through [`Self::resolve`].
+    async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
+        if let Some(info) = self.resolve(id, viewer).await? {
+            return Ok(Some(info));
+        }
+        let (Some(user_id), Some(video)) = (viewer, videos::find_ref(&self.core, id).await?) else { return Ok(None) };
+        let watched: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM watch_history WHERE user_id = $1 AND video_id = $2)")
+                .bind(user_id)
+                .bind(video.id)
+                .fetch_one(&self.core.db)
+                .await?;
+        Ok(watched.then(|| SubjectInfo {
+            id: video.id,
+            owner_id: video.owner_id,
+            title: video.title.clone(),
+            path: video.path(),
+            image_url: None,
+            interactions_enabled: false,
         }))
     }
 
