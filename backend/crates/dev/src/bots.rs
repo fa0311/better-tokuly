@@ -224,7 +224,7 @@ impl BotService for Dev {
     ) -> ServiceResult<CreateBotResponse> {
         handle(async {
             let owner = ctx.require_session()?.user_id;
-            let handle = users::validate_handle(request.handle)?;
+            let handle = users::validate_unheld_handle(&self.core, request.handle, None).await?;
             let display_name = users::validate_display_name(request.display_name)?;
             let bio = users::validate_bio(request.bio)?;
             self.core.cache.rate_limit(&format!("dev-bot-create:{owner}"), 10, Duration::from_secs(24 * 3600)).await?;
@@ -293,7 +293,10 @@ impl BotService for Dev {
             let bot = self.owned_bot(parse_id(request.bot_id)?, owner).await?;
             let display_name = request.display_name.map(users::validate_display_name).transpose()?;
             let bio = request.bio.map(users::validate_bio).transpose()?;
-            let handle = request.handle.map(users::validate_handle).transpose()?;
+            let handle = match request.handle {
+                Some(handle) => Some(users::validate_unheld_handle(&self.core, handle, Some(bot.user_id)).await?),
+                None => None,
+            };
             // Each change is announced to every domain that keeps a copy of profiles.
             self.core.cache.rate_limit(&format!("dev-bot-update:{owner}"), 30, Duration::from_secs(3600)).await?;
             if handle.is_some() {

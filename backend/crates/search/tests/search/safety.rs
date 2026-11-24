@@ -218,3 +218,46 @@ async fn channel_content_never_names_the_account_behind_it() {
     assert!(mine.hits.iter().all(|hit| hit.owner.as_option().is_some_and(|o| o.id == owner.id.to_string())));
     assert!(hit_ids(&mine.hits).contains(&video.id.to_string()));
 }
+
+#[tokio::test]
+async fn a_channel_clip_is_left_out_of_someone_elses_search_of_the_account() {
+    let ctx = start().await;
+    let (owner, stranger) = (ctx.app.user("creator").await, ctx.app.user("stranger").await);
+    let word = unique("channelclip");
+    let mut own = doc("clip", Some(owner.id), &format!("{word} own clip"));
+    own.extra = serde_json::json!({ "channel_id": Uuid::now_v7(), "channel_clip": true });
+    let mut fan = doc("clip", Some(owner.id), &format!("{word} fan clip"));
+    fan.extra = serde_json::json!({ "channel_id": Uuid::now_v7(), "channel_clip": false });
+    let note = doc("note", Some(owner.id), &format!("{word} note"));
+    ctx.index(&[own.clone(), fan.clone(), note.clone()]).await;
+
+    // Found by its words, without the account's name.
+    let found = ctx.find(Some(&stranger), &word).await;
+    assert_eq!(found.hits.len(), 3);
+    let own_hit = found.hits.iter().find(|hit| hit.id == own.id.to_string()).unwrap();
+    assert!(own_hit.owner.as_option().is_none());
+
+    // Searching the account: not there, neither in the hits nor in the counts.
+    let mut expected = hit_ids(&ctx.find_owned(Some(&stranger), owner.id, &word).await.hits);
+    expected.sort();
+    let mut want = vec![fan.id.to_string(), note.id.to_string()];
+    want.sort();
+    assert_eq!(expected, want);
+    let tab = ctx
+        .search(
+            Some(&stranger),
+            &SearchRequest {
+                query: word.clone(),
+                kind: SearchKind::SEARCH_KIND_CLIP.into(),
+                owner_id: owner.id.to_string(),
+                ..Default::default()
+            },
+        )
+        .await;
+    assert_eq!(hit_ids(&tab.hits), vec![fan.id.to_string()]);
+    assert_eq!((tab.total, count_of(&tab, SearchKind::SEARCH_KIND_CLIP)), (1, 1));
+
+    // The owner searching themselves finds it.
+    let mine = ctx.find_owned(Some(&owner), owner.id, &word).await;
+    assert!(hit_ids(&mine.hits).contains(&own.id.to_string()));
+}

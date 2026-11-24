@@ -429,8 +429,7 @@ impl Admitted {
         };
         // A stream opened with the token must not outlive it.
         let watch = outlived(self.verifier.clone(), self.secret, self.token.expires_at, self.recheck);
-        let body = std::mem::take(response.body_mut());
-        *response.body_mut() = axum::body::Body::new(Guarded { inner: body, watch: Some(Box::pin(watch)) });
+        Guarded::wrap(response, watch);
         let (verifier, token) = (self.verifier, self.token);
         tokio::spawn(async move { verifier.record(&token, call).await });
     }
@@ -454,9 +453,17 @@ async fn outlived(verifier: Arc<dyn ApiTokenVerifier>, secret: String, expires_a
 /// A response body that ends when its token does. The watch costs a timer
 /// per response; a verification only when a response is still open after
 /// the re-check interval.
-struct Guarded {
+pub(crate) struct Guarded {
     inner: axum::body::Body,
     watch: Option<std::pin::Pin<Box<dyn Future<Output = ()> + Send>>>,
+}
+
+impl Guarded {
+    /// Makes `response` end when `watch` resolves.
+    pub(crate) fn wrap(response: &mut axum::response::Response, watch: impl Future<Output = ()> + Send + 'static) {
+        let body = std::mem::take(response.body_mut());
+        *response.body_mut() = axum::body::Body::new(Guarded { inner: body, watch: Some(Box::pin(watch)) });
+    }
 }
 
 impl connectrpc::http_body::Body for Guarded {

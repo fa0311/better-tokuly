@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::json;
+use tokuly_core::egress;
 use tokuly_proto::notify::PushChannelKind;
 
 use super::{
@@ -151,6 +152,12 @@ impl PushChannel for WebPush {
         }
         match request.body(body).send().await {
             Ok(response) => {
+                // Belt and braces behind the guarded resolver.
+                if !self.policy.allow_insecure
+                    && egress::check_peer(&response, egress::Policy::default()).is_err()
+                {
+                    return PushOutcome::Retry("network: address not allowed".into());
+                }
                 let (status, detail) = read_response(response).await;
                 classify(status, &detail)
             }

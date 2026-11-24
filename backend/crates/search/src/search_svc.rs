@@ -200,20 +200,21 @@ impl SearchService for Search {
             let limit = page.limit as usize;
 
             let hidden = self.hidden_from(caller).await?;
+            // Nobody lists the channels of someone else's account.
+            let owner_kinds_only = owner.is_some_and(|owner| caller != Some(owner));
             let answer = self
                 .ask_engine(&EngineQuery {
                     text: parsed.text.clone(),
                     scope: parsed.scope,
                     kind,
-                    filter: owner_filter(&hidden, owner),
+                    filter: owner_filter(&hidden, owner, owner_kinds_only),
                     sort,
                     offset,
                     limit,
                     snippets: true,
                     counts: first_page,
                     typeahead: false,
-                    // Nobody lists the channels of someone else's account.
-                    owner_kinds_only: owner.is_some_and(|owner| caller != Some(owner)),
+                    owner_kinds_only,
                 })
                 .await?;
             let next_offset = offset + limit;
@@ -314,7 +315,7 @@ impl SearchService for Search {
                         text: parsed.text.clone(),
                         scope: if parsed.scope == Scope::Tags { Scope::Tags } else { Scope::Names },
                         kind,
-                        filter: owner_filter(&hidden, None),
+                        filter: owner_filter(&hidden, None, false),
                         sort: None,
                         offset: 0,
                         limit: hit_limit as usize,

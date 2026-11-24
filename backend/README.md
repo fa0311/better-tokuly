@@ -233,6 +233,7 @@ Everything else is asynchronous, through `tokuly_core`:
 | Make something searchable | `outbound::index(&mut *tx, SearchDoc { kind: "video".into(), … })` / `outbound::unindex` |
 | Push to connected clients | `core.rt.notify_user(user, &event).await` / `notify_users` / `notify_topic("live:<id>", &event)`, where `event` is your `<Domain>Event` (see below) |
 | Background work | `core.jobs.enqueue("media.transcode", &payload)`, handled with `core.jobs.run(...)` in `spawn_workers` |
+| Request a URL or host that comes from outside (previews, feeds, webhooks, push endpoints) | `tokuly_core::egress`: `check_url`, `client_builder(Some(policy), timeout)` (guarded resolver, no redirects, no proxy), `check_peer`, `read_capped` |
 | Product analytics | `core.analytics.track(AnalyticsEvent::new("video.view").user(..).subject("video", id))` |
 | Comments/likes/reports on your content | register a `SubjectResolver` for your `SubjectType` in `core.subjects` |
 | Personal data export | register a `DataExporter` in `core.exporters` |

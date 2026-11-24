@@ -414,3 +414,37 @@ async fn deleting_a_bot_deletes_its_account() {
         "BOT_NOT_FOUND"
     );
 }
+
+#[tokio::test]
+async fn a_bot_cannot_take_a_handle_held_for_the_person_who_gave_it_up() {
+    let ctx = start().await;
+    let (owen, carol) = (ctx.app.user("owen").await, ctx.app.user("carol").await);
+    let given_up = carol.handle.clone();
+    let renamed = format!("carol_{}", tokuly_core::ids::random_base62(6).to_lowercase());
+    let _: identity::UpdateProfileResponse = ctx
+        .app
+        .call(
+            "tokuly.identity.v1.AccountService/UpdateProfile",
+            Some(&carol),
+            &identity::UpdateProfileRequest { handle: Some(renamed), ..Default::default() },
+        )
+        .await
+        .expect("carol renames");
+
+    let request = CreateBotRequest { handle: given_up.clone(), display_name: "Squatter".into(), ..Default::default() };
+    let refused = ctx
+        .app
+        .call::<_, CreateBotResponse>(&format!("{BOT_SERVICE}/CreateBot"), Some(&owen), &request)
+        .await
+        .unwrap_err();
+    assert_eq!(refused.reason, "HANDLE_TAKEN", "the handle is held for carol");
+
+    let bot = create_bot(&ctx, &owen, "Helper").await;
+    let rename = UpdateBotRequest { bot_id: bot_id(&bot), handle: Some(given_up), ..Default::default() };
+    let refused = ctx
+        .app
+        .call::<_, UpdateBotResponse>(&format!("{BOT_SERVICE}/UpdateBot"), Some(&owen), &rename)
+        .await
+        .unwrap_err();
+    assert_eq!(refused.reason, "HANDLE_TAKEN");
+}

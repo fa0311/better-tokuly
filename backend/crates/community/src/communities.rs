@@ -125,7 +125,7 @@ impl Community {
 
     /// Whether a handle is well-formed and free: `(available, reason, normalized)`.
     pub(crate) async fn check_handle(&self, input: &str) -> AppResult<(bool, &'static str, String)> {
-        let handle = match tokuly_identity::users::normalize_handle(input) {
+        let handle = match tokuly_identity::users::claimable_handle(input) {
             Ok(handle) => handle,
             Err("RESERVED") => return Ok((false, "HANDLE_RESERVED", String::new())),
             Err(_) => return Ok((false, "HANDLE_INVALID", String::new())),
@@ -133,7 +133,8 @@ impl Community {
         let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM communities WHERE handle = $1::citext)")
             .bind(&handle)
             .fetch_one(&self.core.db)
-            .await?;
+            .await?
+            || tokuly_identity::users::handle_held_from(&self.core, &handle, None).await?;
         Ok(if taken { (false, "HANDLE_TAKEN", handle) } else { (true, "", handle) })
     }
 
@@ -145,7 +146,7 @@ impl Community {
     ) -> AppResult<CommunityRow> {
         let core = &self.core;
         let name = validate::community_name(&req.name)?;
-        let handle = validate::handle(&req.handle)?;
+        let handle = validate::unheld_handle(core, &req.handle).await?;
         let description = validate::description(&req.description, validate::MAX_DESCRIPTION_CHARS)?;
         let category = validate::category(req.category)?;
         let visibility = validate::visibility(req.visibility)?;

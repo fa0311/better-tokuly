@@ -76,7 +76,7 @@ impl Core {
         }
         let bus = Bus::connect(&cfg.nats_url, &cfg.nats_prefix).await?;
         bus.ensure_streams().await?;
-        let tokens = Tokens::new(&keys)?;
+        let tokens = Tokens::new(&keys)?.with_revocations(cache.clone());
         let api_tokens = ApiTokens::default();
         let auth_layer =
             AuthLayer::new(tokens.clone(), cfg.trusted_proxies()?).with_api_tokens(api_tokens.clone(), cfg.rate_limits.then(|| cache.clone()));
@@ -115,6 +115,9 @@ impl Core {
             shutdown: CancellationToken::new(),
         }));
         core.spawn_system_listeners().await?;
+        // After subscribing: a revocation is either broadcast to us or stored already.
+        let loaded = core.tokens.load_revocations().await?;
+        tracing::debug!(loaded, "session revocations loaded");
         Ok(core)
     }
 
@@ -142,9 +145,11 @@ impl Core {
         Ok(())
     }
 
-    /// Invalidates a session's access tokens on every service instance.
+    /// Invalidates a session's access tokens on every service instance:
+    /// stored in Valkey for their next request, and broadcast to the running
+    /// ones (the realtime gateway checks only what it was told).
     pub async fn revoke_session(&self, session_id: Uuid) {
-        self.tokens.revoke_session(session_id);
+        self.tokens.revoke(session_id).await;
         if let Err(e) = self
             .bus
             .publish(SESSION_REVOKED_SUBJECT, session_id.to_string())

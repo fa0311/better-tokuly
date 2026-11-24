@@ -3,14 +3,12 @@
 //! One preview costs at most [`TOTAL_TIMEOUT`] of wall-clock time,
 //! [`MAX_BODY_BYTES`] of downloaded (decompressed) body and
 //! [`MAX_REDIRECTS`] redirect hops. Redirects are followed by hand so that
-//! every hop passes the SSRF checks in [`super::guard`].
-use std::{sync::Arc, time::Duration};
+//! every hop passes the SSRF checks of `tokuly_core::egress`.
+use std::time::Duration;
 
-use bytes::BytesMut;
 use reqwest::{StatusCode, header};
+use tokuly_core::egress::{self, Policy, Refusal, check_url};
 use url::Url;
-
-use super::guard::{GuardedResolver, Policy, Refusal, check_url};
 
 pub const TOTAL_TIMEOUT: Duration = Duration::from_secs(5);
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -54,18 +52,13 @@ impl std::fmt::Display for FetchError {
 
 /// An HTTP client that can only talk to what `policy` permits.
 pub fn guarded_client(policy: Policy, user_agent: &str) -> anyhow::Result<reqwest::Client> {
-    reqwest::Client::builder()
+    // Hops are followed (and checked) by `fetch`.
+    egress::client_builder(Some(policy), TOTAL_TIMEOUT)
         .user_agent(user_agent)
-        .dns_resolver(Arc::new(GuardedResolver { policy }))
-        // Hops are followed (and checked) by `fetch`.
-        .redirect(reqwest::redirect::Policy::none())
-        // A proxy would resolve host names for us, bypassing the resolver.
-        .no_proxy()
         // Every preview goes to a different site; keeping connections around
         // buys nothing.
         .pool_max_idle_per_host(0)
         .connect_timeout(Duration::from_secs(3))
-        .timeout(TOTAL_TIMEOUT)
         .build()
         .map_err(|e| anyhow::anyhow!("link preview http client: {e}"))
 }
@@ -74,15 +67,10 @@ fn network_error(error: reqwest::Error) -> FetchError {
     if error.is_timeout() {
         return FetchError::Timeout;
     }
-    // The guarded resolver's refusal travels inside the connect error.
-    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
-    while let Some(cause) = source {
-        if let Some(refusal) = cause.downcast_ref::<Refusal>() {
-            return FetchError::Refused(refusal.clone());
-        }
-        source = cause.source();
+    match egress::refusal_of(&error) {
+        Some(refusal) => FetchError::Refused(refusal),
+        None => FetchError::Network(format!("{error:#}")),
     }
-    FetchError::Network(format!("{error:#}"))
 }
 
 /// GETs `url`, following up to [`MAX_REDIRECTS`] checked redirects.
@@ -104,11 +92,7 @@ async fn fetch_unbounded(client: &reqwest::Client, policy: Policy, mut url: Url,
             .await
             .map_err(network_error)?;
         // Belt and braces: whatever we ended up connected to must be permitted.
-        if let Some(peer) = response.remote_addr()
-            && !policy.permits(peer.ip())
-        {
-            return Err(FetchError::Refused(Refusal::Address(peer.ip())));
-        }
+        egress::check_peer(&response, policy).map_err(FetchError::Refused)?;
 
         let status = response.status();
         if status.is_redirection() {
@@ -125,13 +109,8 @@ async fn fetch_unbounded(client: &reqwest::Client, policy: Policy, mut url: Url,
 
         let content_type =
             response.headers().get(header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).unwrap_or_default().to_ascii_lowercase();
-        let mut body = BytesMut::new();
-        while body.len() < MAX_BODY_BYTES {
-            let Some(chunk) = response.chunk().await.map_err(network_error)? else { break };
-            let room = MAX_BODY_BYTES - body.len();
-            body.extend_from_slice(&chunk[..chunk.len().min(room)]);
-        }
-        return Ok(Page { url, content_type, body: body.freeze() });
+        let body = egress::read_capped(&mut response, MAX_BODY_BYTES).await.map_err(network_error)?;
+        return Ok(Page { url, content_type, body });
     }
     Err(FetchError::TooManyRedirects)
 }

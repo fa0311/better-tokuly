@@ -594,6 +594,62 @@ async fn clips_follow_their_source_and_belong_to_their_creator() {
 }
 
 #[tokio::test]
+async fn a_channel_owner_clipping_their_own_channel_speaks_as_the_channel() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let bob = ctx.app.user("bob").await;
+    let carol = ctx.app.user("carol").await;
+    let channel = ctx.channel(&alice, "覆面ch").await;
+    let public = video(&ctx, &alice, &channel, Visibility::VISIBILITY_PUBLIC).await;
+    let cut = |title: &str| CreateClipRequest {
+        video_id: public.short_id.clone(),
+        title: title.to_owned(),
+        start_seconds: 0.0,
+        duration_seconds: 5.0,
+        ..Default::default()
+    };
+    let own: CreateClipResponse = ctx.call(CLIPS, "CreateClip", Some(&alice), &cut("本人")).await.unwrap();
+    let own = own.clip.as_option().unwrap().clone();
+    let fan: CreateClipResponse = ctx.call(CLIPS, "CreateClip", Some(&bob), &cut("ファン")).await.unwrap();
+    let fan = fan.clip.as_option().unwrap().clone();
+    for clip in [&own, &fan] {
+        make_ready(&ctx, &clip.id).await;
+    }
+
+    // To everyone else the owner's clip is the channel's: no creator.
+    let get = |clip: &Clip| GetClipRequest { clip_id: clip.short_id.clone(), ..Default::default() };
+    for viewer in [Some(&carol), Some(&bob), None] {
+        let seen: GetClipResponse = ctx.call(CLIPS, "GetClip", viewer, &get(&own)).await.unwrap();
+        let seen = seen.clip.as_option().unwrap();
+        assert!(!seen.creator.is_set(), "the channel's owner is not named");
+        assert_eq!(seen.channel.as_option().unwrap().id, channel.summary.id, "the channel is");
+        let other: GetClipResponse = ctx.call(CLIPS, "GetClip", viewer, &get(&fan)).await.unwrap();
+        assert_eq!(other.clip.as_option().unwrap().creator.as_option().unwrap().id, bob.id.to_string());
+    }
+    let mine: GetClipResponse = ctx.call(CLIPS, "GetClip", Some(&alice), &get(&own)).await.unwrap();
+    assert_eq!(mine.clip.as_option().unwrap().creator.as_option().unwrap().id, alice.id.to_string());
+
+    // Listing alice's clips by person does not lead to her channel, except for alice.
+    let by_alice = ListClipsRequest { filter: Some(Filter::CreatorId(alice.id.to_string())), ..Default::default() };
+    let listed: ListClipsResponse = ctx.call(CLIPS, "ListClips", Some(&carol), &by_alice).await.unwrap();
+    assert!(listed.clips.is_empty());
+    let listed: ListClipsResponse = ctx.call(CLIPS, "ListClips", Some(&alice), &by_alice).await.unwrap();
+    assert_eq!(listed.clips.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), vec![own.id.as_str()]);
+    let by_channel =
+        ListClipsRequest { filter: Some(Filter::ChannelId(channel.summary.id.clone())), ..Default::default() };
+    let listed: ListClipsResponse = ctx.call(CLIPS, "ListClips", Some(&carol), &by_channel).await.unwrap();
+    assert_eq!(listed.clips.len(), 2, "the channel lists both");
+
+    // Its search document says it is channel content.
+    for (clip, user, channel_clip) in [(&own, &alice, true), (&fan, &bob, false)] {
+        let rename = UpdateClipRequest { clip_id: clip.id.clone(), title: "改題".into(), ..Default::default() };
+        let _: UpdateClipResponse = ctx.call(CLIPS, "UpdateClip", Some(user), &rename).await.unwrap();
+        let doc = ctx.search_docs(&clip.id).await.pop().unwrap().expect("searchable");
+        assert_eq!(doc["extra"]["channel_clip"], channel_clip, "{doc}");
+    }
+}
+
+#[tokio::test]
 async fn a_stream_is_clipped_while_on_air_within_its_dvr_window() {
     let ctx = start().await;
     let alice = ctx.app.user("alice").await;

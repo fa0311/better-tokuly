@@ -84,6 +84,21 @@ async fn invalid_tokens_are_fatal_and_say_why() {
 }
 
 #[tokio::test]
+async fn a_hello_is_refused_for_a_session_revoked_by_another_process() {
+    let harness = Harness::start().await;
+    let alice = harness.app.user("alice").await;
+    // Another process revokes the session: Valkey knows, this gateway was not told.
+    let elsewhere =
+        tokuly_core::auth::Tokens::new(&harness.app.core.keys).unwrap().with_revocations(harness.app.core.cache.clone());
+    elsewhere.revoke(alice.session_id).await;
+    assert!(!harness.app.core.tokens.is_revoked(alice.session_id), "no broadcast reached this process");
+
+    let mut client = harness.ws().await;
+    let reply = client.request(hello_body(&alice.token, true, &[])).await;
+    assert_eq!(error_of(&reply).message, "SESSION_REVOKED");
+}
+
+#[tokio::test]
 async fn only_ping_works_before_hello() {
     let harness = Harness::start().await;
     let mut client = harness.ws().await;

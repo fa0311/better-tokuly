@@ -373,7 +373,10 @@ pub(crate) async fn handle_holder(core: &Core, handle: &str) -> AppResult<Option
 }
 
 /// Whether `handle` was recently let go by someone other than `claimant`.
-pub(crate) async fn handle_held_from(core: &Core, handle: &str, claimant: Option<Uuid>) -> AppResult<bool> {
+/// Domains that give handles to things other than people (bots,
+/// communities) check this beside [`claimable_handle`]: a held handle goes
+/// back to its previous owner or to no one.
+pub async fn handle_held_from(core: &Core, handle: &str, claimant: Option<Uuid>) -> AppResult<bool> {
     Ok(handle_holder(core, handle).await?.is_some_and(|holder| Some(holder) != claimant))
 }
 
@@ -484,6 +487,15 @@ fn fold_lookalikes(handle: &str) -> String {
 
 pub fn validate_handle(input: &str) -> AppResult<String> {
     handle_error(claimable_handle(input))
+}
+
+/// [`validate_handle`], and refused with `HANDLE_TAKEN` while the handle is
+/// held for an account other than `claimant` ([`handle_held_from`]).
+pub async fn validate_unheld_handle(core: &Core, input: &str, claimant: Option<Uuid>) -> AppResult<String> {
+    let handle = validate_handle(input)?;
+    let held = handle_held_from(core, &handle, claimant).await?;
+    ensure!(!held, already_exists, "HANDLE_TAKEN", "this handle is already in use");
+    Ok(handle)
 }
 
 /// The API error for a handle that [`claimable_handle`] refused.

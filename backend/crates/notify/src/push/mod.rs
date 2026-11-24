@@ -7,13 +7,12 @@
 //! hours, mutes) and about retries lives in `delivery.rs`, not here.
 use async_trait::async_trait;
 use sha2::{Digest as _, Sha256};
-use tokuly_core::{keys::b64url, prelude::*};
+use tokuly_core::{egress, keys::b64url, prelude::*};
 use tokuly_proto::notify::PushChannelKind;
 
 pub mod apns;
 pub mod ece;
 pub mod fcm;
-pub mod resolver;
 pub mod vapid;
 pub mod webpush;
 
@@ -125,15 +124,15 @@ pub fn http_client() -> anyhow::Result<reqwest::Client> {
 }
 
 /// The HTTP client for Web Push: endpoints are chosen by clients, so it only
-/// ever connects to public addresses ([`resolver`]). `allow_insecure`
+/// ever connects to public addresses (`tokuly_core::egress`, checked when
+/// the name resolves and again on the connected peer). `allow_insecure`
 /// (development and tests, never production) lets it reach local stand-ins.
 pub fn web_push_client(allow_insecure: bool) -> anyhow::Result<reqwest::Client> {
-    let builder = builder();
-    // Never through a proxy from the environment: the proxy would resolve
-    // the name, out of the resolver's reach.
-    let builder = builder.no_proxy();
-    let builder = if allow_insecure { builder } else { builder.dns_resolver(resolver::PublicOnly::shared()) };
-    builder.build().map_err(|e| anyhow::anyhow!("web push http client: {e}"))
+    let guard = (!allow_insecure).then(egress::Policy::default);
+    egress::client_builder(guard, std::time::Duration::from_secs(15))
+        .user_agent("Tokuly/1.0")
+        .build()
+        .map_err(|e| anyhow::anyhow!("web push http client: {e}"))
 }
 
 fn builder() -> reqwest::ClientBuilder {
@@ -150,16 +149,9 @@ fn builder() -> reqwest::ClientBuilder {
 pub(crate) async fn read_response(mut response: reqwest::Response) -> (u16, String) {
     const MAX_BODY_BYTES: usize = 64 * 1024;
     let status = response.status().as_u16();
-    let mut body = Vec::new();
-    while body.len() < MAX_BODY_BYTES {
-        match response.chunk().await {
-            Ok(Some(chunk)) => {
-                let room = MAX_BODY_BYTES - body.len();
-                body.extend_from_slice(&chunk[..chunk.len().min(room)]);
-            }
-            _ => break,
-        }
-    }
+    let body = egress::read_capped(&mut response, MAX_BODY_BYTES)
+        .await
+        .unwrap_or_default();
     (status, String::from_utf8_lossy(&body).into_owned())
 }
 

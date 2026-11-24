@@ -8,6 +8,7 @@
 mod common;
 
 use common::*;
+use tokuly_core::livekit::RoomOptions;
 use tokuly_proto::spaces::{spaces_event::Event as Push, *};
 use tokuly_spaces::{Reconciled, SpacesConfig, WEBHOOK_PATH};
 use tokuly_testkit::TestUser;
@@ -393,6 +394,8 @@ async fn the_sweep_closes_what_was_left_open_and_forgets_old_rooms() {
         &room.id,
     )
     .await;
+    // The room LiveKit kept (it does not make rooms on its own).
+    ctx.livekit().create_room(&RoomOptions::named(&credentials.room)).await.unwrap();
     let _lingering = ctx.connect(&credentials).await;
     ctx.spaces.sweep().await.unwrap();
     assert!(closed_at().await.is_some());
@@ -450,6 +453,10 @@ async fn the_full_pass_covers_rooms_hangouts_and_what_just_ended() {
     let (ended, _) = ctx.open_room(&other_host, "おわったはず", SpaceAudience::SPACE_AUDIENCE_PUBLIC).await;
     let lingering = credentials_of(&ctx.join(&friend, &ended.id).await);
     end_request(&ctx, &other_host, &ended.id).await;
+    // LiveKit does not make rooms on its own (`room.auto_create: false`), so
+    // a reconnect into a closed room is refused: this is the room LiveKit
+    // kept because closing it did not reach it.
+    ctx.livekit().create_room(&RoomOptions::named(&lingering.room)).await.unwrap();
     let _lingerer = ctx.connect(&lingering).await;
 
     // A hangout someone left while their token is still good.
@@ -466,4 +473,22 @@ async fn the_full_pass_covers_rooms_hangouts_and_what_just_ended() {
     ctx.wait_until_connected(&in_hangout.room, &friend.id.to_string(), false).await;
     assert!(ctx.connected(&host_credentials.room, &host.id.to_string()).await.is_some());
     end_request(&ctx, &host, &live.id).await;
+}
+
+#[tokio::test]
+async fn every_entry_makes_sure_the_room_exists() {
+    let ctx = start().await;
+    let host = ctx.app.user("taro").await;
+    let (first, second) = (ctx.app.user("jiro").await, ctx.app.user("hanako").await);
+    let (room, credentials) = ctx.open_room(&host, "だれでも", SpaceAudience::SPACE_AUDIENCE_PUBLIC).await;
+    ctx.join(&first, &room.id).await;
+    // LiveKit closed the room while nobody was connected (it makes none on
+    // its own: `room.auto_create: false`).
+    ctx.livekit().delete_room(&credentials.room).await.unwrap();
+    let exists = || async { !ctx.livekit().list_rooms(std::slice::from_ref(&credentials.room)).await.unwrap().is_empty() };
+    assert!(!exists().await);
+    // Someone enters while others are still counted inside: the room is back.
+    ctx.join(&second, &room.id).await;
+    assert!(exists().await, "the entry re-created the room");
+    end_request(&ctx, &host, &room.id).await;
 }

@@ -55,7 +55,10 @@ impl CommunityService for Domain {
             let access = self.access(&caller, &req.community_id).await?;
             let edit = CommunityEdit {
                 name: req.name.as_deref().map(validate::community_name).transpose()?,
-                handle: req.handle.as_deref().map(validate::handle).transpose()?,
+                handle: match req.handle.as_deref() {
+                    Some(handle) => Some(validate::unheld_handle(&self.core, handle).await?),
+                    None => None,
+                },
                 description: req
                     .description
                     .as_deref()

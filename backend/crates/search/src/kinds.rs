@@ -143,10 +143,13 @@ pub const USER: &str = "user";
 /// searching one account's content leaves them out.
 const CHANNEL_KINDS: &[&str] = &["channel", "video", "short", "live"];
 
-/// Whether a hit of `kind` must not name its owner: channel content, and a
-/// playlist published on a channel (`extra.channel_id` set).
+/// Whether a hit of `kind` must not name its owner: channel content, a
+/// playlist published on a channel (`extra.channel_id` set), and a clip a
+/// channel's owner cut from their own channel (`extra.channel_clip`, live).
 pub fn hides_owner(kind: &str, extra: &serde_json::Value) -> bool {
-    CHANNEL_KINDS.contains(&kind) || (kind == "playlist" && extra.get("channel_id").is_some_and(|id| id.is_string()))
+    CHANNEL_KINDS.contains(&kind)
+        || (kind == "playlist" && extra.get("channel_id").is_some_and(|id| id.is_string()))
+        || (kind == "clip" && extra.get("channel_clip").is_some_and(|flag| flag == true))
 }
 
 /// Whether someone other than the owner may search one account's documents
@@ -223,6 +226,8 @@ mod tests {
         assert!(hides_owner("playlist", &serde_json::json!({ "channel_id": "c" })));
         assert!(!hides_owner("playlist", &serde_json::json!({ "channel_id": null })));
         assert!(!searchable_by_owner("playlist"));
+        assert!(hides_owner("clip", &serde_json::json!({ "channel_id": "c", "channel_clip": true })));
+        assert!(!hides_owner("clip", &serde_json::json!({ "channel_id": "c", "channel_clip": false })));
         for kind in ["user", "note", "answer", "clip", "stamp_pack", "thread"] {
             assert!(!hides_owner(kind, &none) && searchable_by_owner(kind), "{kind}");
         }

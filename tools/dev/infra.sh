@@ -178,7 +178,7 @@ up() {
       start mediamtx "$BIN/mediamtx" "${TOKULY_MEDIAMTX_CONFIG:-$REPO/infra/mediamtx/mediamtx.yml}"
   fi
   if [ "${TOKULY_DEV_LIVEKIT:-1}" = "1" ]; then
-    start livekit "$BIN/livekit-server" --config-body "$(printf 'port: %s\nbind_addresses: ["127.0.0.1"]\nrtc:\n  tcp_port: %s\n  udp_port: %s\n  use_external_ip: false\nkeys:\n  %s: %s\nwebhook:\n  api_key: %s\n  urls:\n    - http://127.0.0.1:%s/spaces/livekit/webhook\nlogging:\n  level: info\n' \
+    start livekit "$BIN/livekit-server" --config-body "$(printf 'port: %s\nbind_addresses: ["127.0.0.1"]\nrtc:\n  tcp_port: %s\n  udp_port: %s\n  use_external_ip: false\nroom:\n  auto_create: false\nkeys:\n  %s: %s\nwebhook:\n  api_key: %s\n  urls:\n    - http://127.0.0.1:%s/spaces/livekit/webhook\nlogging:\n  level: info\n' \
       "$P_LIVEKIT" "$P_LIVEKIT_TCP" "$P_LIVEKIT_UDP" "$LIVEKIT_KEY" "$LIVEKIT_SECRET" "$LIVEKIT_KEY" "$P_API")"
   fi
   wait_port valkey "$P_VALKEY" || true

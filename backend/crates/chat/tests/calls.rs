@@ -711,6 +711,24 @@ async fn start_with_room_service() -> (Ctx, RoomService) {
 }
 
 #[tokio::test]
+async fn every_join_makes_sure_the_room_exists() {
+    let (ctx, livekit) = start_with_room_service().await;
+    let (group, owner, members) = ctx.group_of("部活", 2).await;
+    let created = |room: &str| {
+        livekit.calls.lock().unwrap().iter().filter(|(method, body)| method == "CreateRoom" && body["name"] == room).count()
+    };
+    let started = start_call(&ctx, &owner, &group.id, false).await;
+    let (call_id, room) = (started.call.id.clone(), started.credentials.room.clone());
+    assert_eq!(created(&room), 1);
+    // LiveKit may have closed the room since (it makes none on its own):
+    // answering late and reconnecting each ask for it again.
+    join(&ctx, &members[0], &call_id).await;
+    assert_eq!(created(&room), 2);
+    join(&ctx, &members[0], &call_id).await;
+    assert_eq!(created(&room), 3);
+}
+
+#[tokio::test]
 async fn nobody_stays_connected_to_a_call_they_are_no_longer_part_of() {
     let (ctx, livekit) = start_with_room_service().await;
     let (group, owner, members) = ctx.group_of("部活", 2).await;
