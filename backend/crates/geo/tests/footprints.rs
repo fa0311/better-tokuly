@@ -148,7 +148,9 @@ async fn moving_uncovers_cells_at_three_resolutions() {
     // Coarser cells further out; each is the parent of cells that were visited.
     let town = cells(&ctx, &aoi, None, around(from, 0.5), 9.0).await.unwrap();
     assert_eq!(town.resolution, 7);
-    assert!((1..=3).contains(&town.cells.len()) && town.cells.len() < fine.cells.len());
+    // Resolution 7 cells have edges of about 1.2 km: a 2 km ride from a random start touches
+    // up to four of them when it passes near a corner.
+    assert!((1..=4).contains(&town.cells.len()) && town.cells.len() < fine.cells.len(), "{} town cells", town.cells.len());
     let parents: std::collections::HashSet<String> = fine
         .cells
         .iter()
