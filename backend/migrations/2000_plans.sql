@@ -417,10 +417,10 @@ CREATE TABLE plan_anniversary_notices (
 
 -- ───────────────────────────── settings ─────────────────────────────
 
+-- Preferences of this domain. (Who sees a birthday is identity's privacy
+-- setting, `birthday_visible_to`.)
 CREATE TABLE plan_settings (
     user_id        uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
-    -- Friends may see my birthday (month and day).
-    share_birthday boolean     NOT NULL DEFAULT false,
     attrs          jsonb       NOT NULL DEFAULT '{}',
     updated_at     timestamptz NOT NULL DEFAULT now()
 );
