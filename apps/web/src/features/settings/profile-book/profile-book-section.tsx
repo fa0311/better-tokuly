@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { common, create, identity, media } from "@tokuly/api";
+import { common, create, identity, media, social } from "@tokuly/api";
 import {
   ArrowDown,
   ArrowUp,
@@ -19,15 +19,16 @@ import { Chip } from "#/components/ui/card";
 import { TextArea, TextField } from "#/components/ui/field";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
-import { accountClient, profileClient } from "#/lib/api";
+import { accountClient, api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
 import { useMe } from "#/stores/session";
 import { adoptMe } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";
 
-type VisibilityName = "PUBLIC" | "FRIENDS" | "PRIVATE";
-const AUDIENCES: VisibilityName[] = ["PUBLIC", "FRIENDS", "PRIVATE"];
+type VisibilityName = "PUBLIC" | "FOLLOWERS" | "FRIENDS" | "CLOSE_FRIENDS" | "PRIVATE";
+/** The audiences of the social graph, widest first (a locked account's "public" is its followers). */
+const AUDIENCES: VisibilityName[] = ["PUBLIC", "FOLLOWERS", "FRIENDS", "CLOSE_FRIENDS", "PRIVATE"];
 type Field = keyof Omit<identity.ProfileFieldVisibility, "$typeName" | "$unknown">;
 
 const BLOOD_TYPES = ["UNSPECIFIED", "A", "B", "O", "AB"] as const;
@@ -45,12 +46,25 @@ const CATEGORIES = [
 ] as const;
 type Category = (typeof CATEGORIES)[number];
 
-const visibilityName = (value: common.Visibility): VisibilityName =>
-  value === common.Visibility.FRIENDS
-    ? "FRIENDS"
-    : value === common.Visibility.PRIVATE
-      ? "PRIVATE"
-      : "PUBLIC";
+/** The name of a stored audience; anything not offered here reads as the narrowest. */
+const visibilityName = (value: common.Visibility): VisibilityName => {
+  const name = common.Visibility[value] as VisibilityName | undefined;
+  return name && AUDIENCES.includes(name) ? name : "PRIVATE";
+};
+
+/** A card's audience as one select value: an audience name, or `circle:<id>`. */
+const cardAudienceValue = (audience: common.AudienceRef | undefined): string =>
+  audience?.visibility === common.Visibility.CIRCLE && audience.circleId
+    ? `circle:${audience.circleId}`
+    : visibilityName(audience?.visibility ?? common.Visibility.PUBLIC);
+
+const cardAudienceRef = (value: string): common.AudienceRef =>
+  value.startsWith("circle:")
+    ? create(common.AudienceRefSchema, {
+        visibility: common.Visibility.CIRCLE,
+        circleId: value.slice(7),
+      })
+    : create(common.AudienceRefSchema, { visibility: common.Visibility[value as VisibilityName] });
 
 const ns = { namespace: "profileBook" } as const;
 
@@ -291,7 +305,8 @@ interface CardDraft {
   promptId: string;
   question: string;
   answer: string;
-  visibility: common.Visibility;
+  /** An audience name or `circle:<id>`. */
+  audience: string;
   hidden: boolean;
 }
 
@@ -309,11 +324,16 @@ function CardsGroup({ extras }: { extras: identity.ProfileExtras }) {
       promptId: c.promptId,
       question: c.promptId ? "" : (c.question?.ja ?? ""),
       answer: c.answer,
-      visibility: c.visibility || common.Visibility.PUBLIC,
+      audience: cardAudienceValue(c.audience),
       hidden: c.hidden,
     })),
   );
   const [picking, setPicking] = useState("");
+  // The owner's own circles, for cards only some of them see (shared with the friends screens).
+  const { data: circles } = useQuery({
+    queryKey: ["social", "circles", "list"],
+    queryFn: () => api().service(social.CircleService).listCircles({}),
+  });
   const promptText = (id: string) => {
     const prompt = prompts?.prompts.find((p) => p.id === id);
     if (!prompt) return id;
@@ -388,10 +408,21 @@ function CardsGroup({ extras }: { extras: identity.ProfileExtras }) {
               onChange={(e) => update(index, { answer: e.target.value })}
             />
             <div className="mt-2 grid gap-2 sm:grid-cols-2 sm:items-center">
-              <AudienceSelect
+              <SelectField<string>
                 label={t("whoSees")}
-                value={card.visibility}
-                onChange={(visibility) => update(index, { visibility })}
+                value={card.audience}
+                onChange={(audience) => update(index, { audience })}
+                options={[
+                  ...AUDIENCES.map((name) => ({ value: name, label: t(`audience.${name}`) })),
+                  ...(circles?.circles ?? [])
+                    .filter((circle) => circle.kind !== social.CircleKind.CLOSE_FRIENDS)
+                    .map((circle) => ({
+                      value: `circle:${circle.id}`,
+                      label: t("audience.circle", {
+                        name: `${circle.emoji} ${circle.name}`.trim(),
+                      }),
+                    })),
+                ]}
               />
               <SwitchRow
                 label={t("cards.hidden")}
@@ -425,7 +456,7 @@ function CardsGroup({ extras }: { extras: identity.ProfileExtras }) {
                 promptId: picking,
                 question: "",
                 answer: "",
-                visibility: common.Visibility.PUBLIC,
+                audience: "PUBLIC",
                 hidden: false,
               },
             ]);
@@ -441,7 +472,16 @@ function CardsGroup({ extras }: { extras: identity.ProfileExtras }) {
           save.mutate(
             {
               qaCards: create(identity.ProfileQaCardListSchema, {
-                items: cards.map((c) => create(identity.ProfileQaCardInputSchema, c)),
+                items: cards.map((c) =>
+                  create(identity.ProfileQaCardInputSchema, {
+                    id: c.id,
+                    promptId: c.promptId,
+                    question: c.question,
+                    answer: c.answer,
+                    hidden: c.hidden,
+                    audience: cardAudienceRef(c.audience),
+                  }),
+                ),
               }),
             },
             {
@@ -452,7 +492,7 @@ function CardsGroup({ extras }: { extras: identity.ProfileExtras }) {
                     promptId: c.promptId,
                     question: c.promptId ? "" : (c.question?.ja ?? ""),
                     answer: c.answer,
-                    visibility: c.visibility || common.Visibility.PUBLIC,
+                    audience: cardAudienceValue(c.audience),
                     hidden: c.hidden,
                   })),
                 ),

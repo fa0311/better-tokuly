@@ -131,6 +131,11 @@ export default {
     },
   },
   moderation: {
+    profileBook: {
+      title: "Profile book (all of it)",
+      lead: "Every field and card whatever its audience, hidden cards included. Looking is written to the audit log.",
+      open: "Show the whole profile book",
+    },
     title: "Moderation",
     untitled: "(no title)",
     unassigned: "Unassigned",
@@ -719,6 +724,8 @@ export default {
     },
   },
   errors: {
+    CASE_CLOSED: "The case is resolved; reopen it to look again",
+    NOT_AN_ACCOUNT: "This case is not about an account",
     INVALID_CURSOR: "Couldn't load more of this list. Please reopen the page",
     CASE_NOT_FOUND: "This case could not be found",
     CASE_ALREADY_RESOLVED: "This case is already resolved",

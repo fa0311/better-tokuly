@@ -21,6 +21,8 @@ export type SessionState =
   | { status: "signedIn"; me: Me; sessionId: string };
 
 type Listener = (state: SessionState) => void;
+/** Told when the session starts to belong to another account (or another session of it). */
+type AccountChangeListener = (next: { userId: string; sessionId: string }) => void;
 
 /** Refresh this long before the access token actually expires. */
 const REFRESH_MARGIN_MS = 60_000;
@@ -38,6 +40,7 @@ export class Session {
   private refreshing: Promise<boolean> | null = null;
   private current: SessionState = { status: "unknown" };
   private readonly listeners = new Set<Listener>();
+  private readonly accountListeners = new Set<AccountChangeListener>();
   private readonly auth: Client<typeof AuthService>;
 
   /**
@@ -66,13 +69,33 @@ export class Session {
     for (const listener of this.listeners) listener(state);
   }
 
+  /**
+   * Subscribes to the session moving to another account: a refresh that
+   * came back as someone else (another tab switched the active account of
+   * this browser) or a switch made here. Everything held for the previous
+   * account (caches, subscriptions, the screen) is stale then; a web client
+   * reloads. Returns an unsubscribe function.
+   */
+  onAccountChange(listener: AccountChangeListener): () => void {
+    this.accountListeners.add(listener);
+    return () => this.accountListeners.delete(listener);
+  }
+
   /** Adopts the tokens of a successful sign-in / sign-up / refresh. */
   async adopt(response: AuthResponse): Promise<void> {
     if (!response.accessToken || !response.me) return;
+    const previous = this.current;
+    const userId = response.me.user?.id ?? "";
+    const changed =
+      previous.status === "signedIn" &&
+      (previous.me.user?.id !== userId || previous.sessionId !== response.sessionId);
     this.accessTokenValue = response.accessToken;
     this.expiresAtMs = toMillis(response.accessTokenExpiresAt);
     if (response.refreshToken && this.store) await this.store.set(response.refreshToken);
     this.setState({ status: "signedIn", me: response.me, sessionId: response.sessionId });
+    if (changed)
+      for (const listener of this.accountListeners)
+        listener({ userId, sessionId: response.sessionId });
   }
 
   /** Replaces the cached account (after a profile update). */
@@ -153,12 +176,16 @@ export class Session {
     return this.accessTokenValue && Date.now() < this.expiresAtMs ? this.accessTokenValue : null;
   }
 
-  /** Signs out on the server and locally. */
-  async signOut(allSessions = false): Promise<void> {
+  /**
+   * Signs out on the server and locally. `allAccountsOnDevice`: every
+   * account of this browser too (a shared computer; native clients sign
+   * their parked accounts out with the tokens they hold).
+   */
+  async signOut(allSessions = false, allAccountsOnDevice = false): Promise<void> {
     const token = this.peekAccessToken();
     try {
       await this.auth.signOut(
-        { allSessions },
+        { allSessions, allAccountsOnDevice },
         { headers: token ? { authorization: `Bearer ${token}` } : undefined },
       );
     } catch {

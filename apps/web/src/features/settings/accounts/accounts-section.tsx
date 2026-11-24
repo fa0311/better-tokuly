@@ -13,7 +13,7 @@ import { Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
-import { rememberSession } from "#/stores/session";
+import { announceAccountChange, rememberSession } from "#/stores/session";
 import { Group, SettingsPage, StateChip } from "../shell/settings-page";
 
 export const deviceAccountsKey = ["identity", "device-accounts"] as const;
@@ -25,6 +25,7 @@ export const deviceAccountsKey = ["identity", "device-accounts"] as const;
  */
 export function enterAccount(): void {
   rememberSession();
+  announceAccountChange();
   window.location.assign("/map");
 }
 

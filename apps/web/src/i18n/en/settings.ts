@@ -593,6 +593,9 @@ export default {
       confirm: "Schedule deletion",
     },
     signOut: {
+      browser: "Sign every account out of this browser",
+      browserHint:
+        "On a shared computer (school, family), use this one: the other accounts you switch between are signed out of this browser too (other devices stay signed in).",
       title: "Sign out",
       lead: "Signing out does not delete anything.",
       here: "Sign out of this device",

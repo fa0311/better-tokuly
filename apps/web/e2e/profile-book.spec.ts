@@ -19,7 +19,7 @@ test("the プロフ帳 is filled in and each part reaches its own audience", asy
   await page.getByLabel("MBTI", { exact: true }).fill("enfp");
   const audiences = page.getByRole("combobox", { name: "見せる相手" });
   await audiences.first().click();
-  await page.getByRole("option", { name: "ともだち" }).click();
+  await page.getByRole("option", { name: "ともだち", exact: true }).click();
   await page.getByRole("button", { name: "保存する" }).first().click();
   await expect(
     page.locator("[data-sonner-toast]").filter({ hasText: "プロフ帳を保存しました" }).first(),
@@ -75,9 +75,18 @@ test("hidden cards and only-me answers stay off other people's view", async ({
     {
       qaCards: {
         items: [
-          { promptId: "fav_food", answer: "カレー", visibility: "VISIBILITY_PUBLIC" },
-          { promptId: "dream", answer: "ひみつの夢", visibility: "VISIBILITY_PRIVATE" },
-          { promptId: "club", answer: "軽音部", visibility: "VISIBILITY_PUBLIC", hidden: true },
+          { promptId: "fav_food", answer: "カレー", audience: { visibility: "VISIBILITY_PUBLIC" } },
+          {
+            promptId: "dream",
+            answer: "ひみつの夢",
+            audience: { visibility: "VISIBILITY_PRIVATE" },
+          },
+          {
+            promptId: "club",
+            answer: "軽音部",
+            audience: { visibility: "VISIBILITY_PUBLIC" },
+            hidden: true,
+          },
         ],
       },
     },

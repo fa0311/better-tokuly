@@ -29,10 +29,58 @@ export function rememberSession(): void {
   window.localStorage.setItem(SESSION_HINT_KEY, "1");
 }
 
+/** Tabs of this browser tell each other when the active account changed. */
+const ACCOUNT_CHANNEL = "tokuly.account";
+const ACCOUNT_CHANGED_KEY = "tokuly.accountChanged";
+let announcing = false;
+
+/**
+ * Starts this tab over as whoever is active now. Nothing of the previous
+ * account (cached lists, realtime subscriptions, an open screen) may go on
+ * acting under the new one.
+ */
+function reloadAsActiveAccount(): void {
+  window.localStorage.setItem(SESSION_HINT_KEY, "1");
+  window.location.reload();
+}
+
+/**
+ * Tells the other tabs that this browser's active account changed (a switch,
+ * an added account, signing every account out), so they reload instead of
+ * acting under an account their screen no longer shows.
+ */
+export function announceAccountChange(): void {
+  // This tab moves on by itself; the message is for the others.
+  announcing = true;
+  try {
+    const channel = new BroadcastChannel(ACCOUNT_CHANNEL);
+    channel.postMessage("changed");
+    channel.close();
+  } catch {
+    // No BroadcastChannel: the storage event below reaches the other tabs.
+  }
+  window.localStorage.setItem(ACCOUNT_CHANGED_KEY, String(Date.now()));
+}
+
+function listenForAccountChanges(): void {
+  try {
+    new BroadcastChannel(ACCOUNT_CHANNEL).onmessage = () => {
+      if (!announcing) reloadAsActiveAccount();
+    };
+  } catch {
+    window.addEventListener("storage", (event) => {
+      if (event.key === ACCOUNT_CHANGED_KEY) reloadAsActiveAccount();
+    });
+  }
+}
+
 export function startSession(): void {
   if (started || typeof window === "undefined") return;
   started = true;
   const session = api().session;
+  // A refresh that came back as another account: another tab switched.
+  session.onAccountChange(() => reloadAsActiveAccount());
+  listenForAccountChanges();
   session.subscribe((state) => {
     useSessionStore.setState({ state });
     if (state.status === "signedIn") window.localStorage.setItem(SESSION_HINT_KEY, "1");
@@ -90,7 +138,8 @@ function runHook(hook: BeforeSignOut): Promise<void> {
  * Signs out, after giving the registered hooks their moment. Signing out
  * always completes: a hook that fails or hangs is left behind.
  */
-export async function signOut(allSessions = false): Promise<void> {
+export async function signOut(allSessions = false, allAccountsOnDevice = false): Promise<void> {
   await Promise.all([...beforeSignOut].map(runHook));
-  await api().session.signOut(allSessions);
+  await api().session.signOut(allSessions, allAccountsOnDevice);
+  if (allAccountsOnDevice) announceAccountChange();
 }

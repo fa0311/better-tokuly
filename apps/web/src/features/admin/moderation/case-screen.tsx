@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { admin, toMillis } from "@tokuly/api";
+import { admin, common, toMillis } from "@tokuly/api";
 import { ExternalLink, Hand, RotateCcw, ShieldAlert, UserMinus, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -33,6 +33,7 @@ import {
   useCaseTitle,
 } from "./parts";
 import { type QueueSearch, useCaseQueue } from "./queue";
+import { ReportedProfile } from "./reported-profile";
 import { type Resolution, ResolvePanel } from "./resolve-panel";
 
 /** `/admin/moderation/:caseId`: one case; on wide screens the queue stays beside it. */
@@ -169,6 +170,12 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
           <div className="flex min-w-0 flex-col gap-4">
             {moderationCase.conflictOfInterest && <ConflictNotice own={moderationCase.aboutYou} />}
             <SubjectCard moderationCase={moderationCase} ownerRecord={detail.data.ownerRecord} />
+            {/* A reported account's whole プロフ帳: open cases, not one about the viewer. */}
+            {isOpen &&
+              !moderationCase.conflictOfInterest &&
+              moderationCase.subject?.type === common.SubjectType.USER && (
+                <ReportedProfile moderationCase={moderationCase} />
+              )}
             {/* Who reported it, and what staff noted, is for whoever handles the case. */}
             {!moderationCase.conflictOfInterest && (
               <>

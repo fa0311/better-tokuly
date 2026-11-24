@@ -1,10 +1,17 @@
 export default {
   title: "プロフ帳",
-  lead: "MBTIも推しも好きなものも、ぜんぶここに！項目ごとに「だれに見せるか」を選べるよ。",
+  lead: "MBTIも推しも好きなものも、ぜんぶここに！項目ごとに「だれに見せるか」を選べるよ。鍵アカのときの「だれでも」は、フォロワーとともだちだけに見えます。",
   saved: "プロフ帳を保存しました！",
   save: "保存する",
   whoSees: "見せる相手",
-  audience: { PUBLIC: "だれでも", FRIENDS: "ともだち", PRIVATE: "自分だけ" },
+  audience: {
+    PUBLIC: "だれでも",
+    FOLLOWERS: "フォロワー",
+    FRIENDS: "ともだち",
+    CLOSE_FRIENDS: "親しい友達",
+    PRIVATE: "自分だけ",
+    circle: "サークル: {{name}}",
+  },
   about: {
     title: "わたしのこと",
     lead: "MBTI・血液型・星座・呼ばれ方・長めの自己紹介",

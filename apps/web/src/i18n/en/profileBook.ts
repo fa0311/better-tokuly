@@ -1,10 +1,17 @@
 export default {
   title: "Profile book",
-  lead: "MBTI, faves, the things you love: it all goes here! Pick who sees each part.",
+  lead: "MBTI, faves, the things you love: it all goes here! Pick who sees each part. While your account is locked, “Everyone” means your followers and friends.",
   saved: "Profile book saved!",
   save: "Save",
   whoSees: "Who sees it",
-  audience: { PUBLIC: "Everyone", FRIENDS: "Friends", PRIVATE: "Only me" },
+  audience: {
+    PUBLIC: "Everyone",
+    FOLLOWERS: "Followers",
+    FRIENDS: "Friends",
+    CLOSE_FRIENDS: "Close friends",
+    PRIVATE: "Only me",
+    circle: "Circle: {{name}}",
+  },
   about: {
     title: "About me",
     lead: "MBTI, blood type, zodiac, pronouns and a longer bio",
