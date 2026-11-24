@@ -46,7 +46,7 @@ impl UserAdminService for Admin {
             let (actions, _) = self.list_actions(&history, &first_page(RECENT_ACTIONS)).await?;
             ok(GetUserResponse {
                 user: user.into(),
-                moderation: self.moderation_summary(user_id).await?.into(),
+                moderation: self.moderation_summary(&staff, user_id).await?.into(),
                 // Not what was done about an anonymous post the viewer is involved in:
                 // here it would say whose post that was.
                 recent_actions: self.actions_for(&staff, &actions, Some(user_id)).await?,

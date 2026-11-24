@@ -80,7 +80,7 @@ impl ModerationService for Admin {
             // A hidden author is named here, to a moderator who is not involved, and nowhere else.
             let (moderation_case, owner_named) = self.opened_case(&staff, &case).await?;
             let owner_record = match case.subject_owner_id.filter(|_| owner_named) {
-                Some(owner_id) => Some(self.moderation_summary(owner_id).await?),
+                Some(owner_id) => Some(self.moderation_summary(&staff, owner_id).await?),
                 None => None,
             };
             let actions = self.actions_for(&staff, &actions, None).await?;

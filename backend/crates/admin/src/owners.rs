@@ -29,7 +29,20 @@ use async_trait::async_trait;
 use tokuly_core::prelude::*;
 use tokuly_proto::common::SubjectType;
 
-use crate::Admin;
+use crate::{Admin, staff::Staff};
+
+/// Anonymous posts of an account asked about one by one; an account with
+/// more has all of them withheld from everyone's record of it.
+const HIDDEN_SUBJECTS_CHECKED: i64 = 100;
+
+/// The anonymous posts of one account that a staff member is involved in.
+#[derive(Debug, Default)]
+pub(crate) struct WithheldSubjects {
+    /// `(SubjectType as i32, id)`.
+    pub subjects: Vec<(i32, Uuid)>,
+    /// Too many to ask about: every one of them is withheld.
+    pub all: bool,
+}
 
 /// Who answers for content whose resolver names no owner.
 #[async_trait]
@@ -92,5 +105,32 @@ impl Admin {
             return Ok(true);
         };
         owners.is_party(subject_type, subject_id, staff_id).await
+    }
+
+    /// The anonymous posts `user_id` answers for (cases about them, log
+    /// entries about them) that `staff` is involved in, and must not see
+    /// connected to the account.
+    pub(crate) async fn withheld_hidden_subjects(&self, staff: &Staff, user_id: Uuid) -> AppResult<WithheldSubjects> {
+        let hidden: Vec<(i32, Uuid)> = sqlx::query_as(
+            "SELECT subject_type, subject_id FROM moderation_cases WHERE subject_owner_id = $1 AND owner_hidden
+             UNION
+             SELECT subject_type, subject_id FROM moderation_actions
+             WHERE target_user_id = $1 AND target_hidden AND subject_type IS NOT NULL AND subject_id IS NOT NULL
+             LIMIT $2",
+        )
+        .bind(user_id)
+        .bind(HIDDEN_SUBJECTS_CHECKED + 1)
+        .fetch_all(&self.core.db)
+        .await?;
+        if hidden.len() as i64 > HIDDEN_SUBJECTS_CHECKED {
+            return Ok(WithheldSubjects { subjects: Vec::new(), all: true });
+        }
+        let mut withheld = WithheldSubjects::default();
+        for (subject_type, subject_id) in hidden {
+            if self.is_party_to_hidden(staff.id, subject_type, subject_id).await? {
+                withheld.subjects.push((subject_type, subject_id));
+            }
+        }
+        Ok(withheld)
     }
 }

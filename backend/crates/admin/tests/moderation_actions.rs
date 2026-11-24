@@ -724,3 +724,46 @@ async fn takedown_resolves_the_open_case_about_the_subject() {
     assert!(again.resolved_case.is_unset());
     assert_eq!(again.action.target_user.id, owner.id.to_string());
 }
+
+/// An anonymous thread by `author` in which `involved` took part, reported by
+/// someone else; returns the case's ID.
+async fn anonymous_case(app: &tokuly_testkit::TestApp, admin: &tokuly_admin::Admin, author: Uuid, involved: Vec<Uuid>) -> String {
+    let thread = Uuid::now_v7();
+    admin.set_hidden_owners(Arc::new(FakeAnonymousPosts { thread_id: thread, author_id: author, involved }));
+    let reporter = app.user("rep").await;
+    admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "HARASSMENT", "ひどい")).await.unwrap();
+    let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+    case_id.to_string()
+}
+
+async fn staff_view_of(app: &tokuly_testkit::TestApp, staff: &tokuly_testkit::TestUser, user_id: Uuid) -> GetUserResponse {
+    app.call(&format!("{USERS}/GetUser"), Some(staff), &GetUserRequest { user_id: user_id.to_string(), ..Default::default() }).await.unwrap()
+}
+
+#[tokio::test]
+async fn an_involved_moderator_cannot_read_a_hidden_author_off_their_moderation_record() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    let involved = app.user_with_roles("involved", &["moderator"]).await;
+    let neutral = app.user_with_roles("neutral", &["moderator"]).await;
+    let reporter = app.user("rep").await;
+    // An ordinary case about the author, so their record is on screen anyway.
+    let ordinary = open_case(&app, &admin, &neutral, &reporter, &author).await;
+    let record = |view: GetUserResponse| view.moderation.into_option().unwrap();
+    let before = record(staff_view_of(&app, &involved, author.id).await);
+    assert_eq!((before.reports_received, before.open_cases, before.warnings), (1, 1, 0));
+
+    // The anonymous post is reported, then the author is warned and the post removed for it.
+    let case_id = anonymous_case(&app, &admin, author.id, vec![involved.id]).await;
+    let case = get_case(&app, &neutral, &case_id).await.moderation_case.into_option().unwrap();
+    resolve(&app, &neutral, ResolveCaseRequest { remove_content: true, ..resolution(&case, WARN, "嫌がらせ") }).await.unwrap();
+
+    // To the moderator involved in the post nothing about the author moved: not in the
+    // staff view of the account, not in the owner record of the ordinary case.
+    let after = record(staff_view_of(&app, &involved, author.id).await);
+    assert_eq!(after, before);
+    assert_eq!(get_case(&app, &involved, &ordinary.id).await.owner_record.into_option().unwrap(), before);
+    // A moderator who is not involved reads the record as it is.
+    let full = record(staff_view_of(&app, &neutral, author.id).await);
+    assert_eq!((full.reports_received, full.open_cases, full.warnings, full.content_removals), (2, 1, 1, 1));
+}

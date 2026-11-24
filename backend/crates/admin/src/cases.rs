@@ -309,18 +309,39 @@ impl Admin {
         Ok(rows.into_iter().map(|row| note_to_proto(row, &people)).collect())
     }
 
-    /// An account's moderation record in numbers.
-    pub(crate) async fn moderation_summary(&self, user_id: Uuid) -> AppResult<UserModerationSummary> {
+    /// An account's moderation record in numbers, as `staff` may read it:
+    /// without the cases and log entries about anonymous posts of the
+    /// account that `staff` is involved in (`owners.rs`). Counted in, they
+    /// would move the moment such a post is reported or acted on, and say
+    /// whose it is.
+    pub(crate) async fn moderation_summary(&self, staff: &Staff, user_id: Uuid) -> AppResult<UserModerationSummary> {
+        let withheld = self.withheld_hidden_subjects(staff, user_id).await?;
+        let (types, ids): (Vec<i32>, Vec<Uuid>) = withheld.subjects.into_iter().unzip();
         let (reports_received, reports_filed, open_cases, warnings, content_removals, suspensions): (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
-            "SELECT
-                    (SELECT COALESCE(sum(report_count), 0) FROM moderation_cases WHERE subject_owner_id = $1),
+            "WITH withheld (subject_type, subject_id) AS (SELECT * FROM unnest($3::int4[], $4::uuid[])),
+                  cases AS (
+                      SELECT report_count, status FROM moderation_cases
+                      WHERE subject_owner_id = $1
+                        AND NOT (owner_hidden AND ($2 OR (subject_type, subject_id) IN (SELECT subject_type, subject_id FROM withheld)))
+                  ),
+                  actions AS (
+                      SELECT kind FROM moderation_actions
+                      WHERE target_user_id = $1
+                        AND NOT (target_hidden AND ($2 OR subject_id IS NULL
+                                 OR (subject_type, subject_id) IN (SELECT subject_type, subject_id FROM withheld)))
+                  )
+             SELECT
+                    (SELECT COALESCE(sum(report_count), 0) FROM cases),
                     (SELECT count(*) FROM moderation_reports WHERE reporter_id = $1),
-                    (SELECT count(*) FROM moderation_cases WHERE subject_owner_id = $1 AND status = 'open'),
-                    (SELECT count(*) FROM moderation_actions WHERE target_user_id = $1 AND kind = 3),
-                    (SELECT count(*) FROM moderation_actions WHERE target_user_id = $1 AND kind = 2),
-                    (SELECT count(*) FROM moderation_actions WHERE target_user_id = $1 AND kind IN (4, 5))",
+                    (SELECT count(*) FROM cases WHERE status = 'open'),
+                    (SELECT count(*) FROM actions WHERE kind = 3),
+                    (SELECT count(*) FROM actions WHERE kind = 2),
+                    (SELECT count(*) FROM actions WHERE kind IN (4, 5))",
         )
         .bind(user_id)
+        .bind(withheld.all)
+        .bind(types)
+        .bind(ids)
         .fetch_one(&self.core.db)
         .await?;
         Ok(UserModerationSummary {
