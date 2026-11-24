@@ -26,6 +26,10 @@ CREATE TABLE notifications (
     collapse_key text,
     -- Extra structured data from the producing domain.
     data         jsonb       NOT NULL DEFAULT 'null',
+    -- IDs the entry refers to: the subject and every `*_id` value at the top
+    -- level of `data` (the comment, the message...). When one of them is
+    -- deleted or taken down the entry is withdrawn (see `withdraw.rs`).
+    refs         uuid[]      NOT NULL DEFAULT '{}',
     -- The producing domain marked it urgent (incoming call, SOS): its push
     -- was sent even during quiet hours and while pushes were paused.
     urgent       boolean     NOT NULL DEFAULT false,
@@ -41,8 +45,19 @@ CREATE UNIQUE INDEX notifications_collapse ON notifications (user_id, collapse_k
 CREATE INDEX notifications_inbox ON notifications (user_id, occurred_at DESC, id DESC);
 CREATE INDEX notifications_unread ON notifications (user_id, category) WHERE read_at IS NULL;
 CREATE INDEX notifications_actor ON notifications (actor_id) WHERE actor_id IS NOT NULL;
+CREATE INDEX notifications_refs ON notifications USING gin (refs);
 -- Retention sweep.
 CREATE INDEX notifications_age ON notifications (occurred_at);
+
+-- IDs of content that was deleted or taken down. A request about one that
+-- arrives after the deletion (events are not ordered) is dropped, and a push
+-- still queued for it is not sent. Swept with the handled-event markers.
+CREATE TABLE notify_withdrawn (
+    ref_id       uuid PRIMARY KEY,
+    withdrawn_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX notify_withdrawn_age ON notify_withdrawn (withdrawn_at);
 
 -- IDs of `notify.requested` events that were already handled. Event delivery
 -- is at-least-once; a row here makes a redelivery a no-op. Rows outlive the

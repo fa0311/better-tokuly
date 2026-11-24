@@ -22,6 +22,7 @@ use crate::{
     devices::{self, DeliveryDevice},
     inbox,
     push::{PushMessage, PushOutcome, PushPriority},
+    withdraw,
 };
 
 pub const PUSH_JOB: &str = "notify.push";
@@ -50,6 +51,10 @@ pub struct PushJob {
     pub badge: i64,
     #[serde(default)]
     pub data: serde_json::Value,
+    /// What the notification refers to, when it can be withdrawn: a job for
+    /// withdrawn content sends nothing.
+    #[serde(default)]
+    pub refs: Vec<Uuid>,
     /// The producing domain marked the notification urgent (incoming call,
     /// SOS): delivered at the highest priority every channel offers.
     #[serde(default)]
@@ -130,6 +135,10 @@ impl Notify {
             // Stuck behind an outage for longer than a push service would
             // have kept it: showing it now would only confuse.
             tracing::warn!(job = %job.id, kind = %job.kind, "push job expired before delivery");
+            return Ok(report);
+        }
+        if withdraw::any_withdrawn(&self.core.db, &job.refs).await? {
+            // Deleted or taken down while the push waited.
             return Ok(report);
         }
         let devices = devices::for_delivery(&self.core, job.user_id).await?;
@@ -280,6 +289,7 @@ mod tests {
             collapse_key: None,
             badge: 0,
             data: serde_json::Value::Null,
+            refs: Vec::new(),
             urgent,
             created_at: now(),
         }

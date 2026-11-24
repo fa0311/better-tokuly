@@ -32,12 +32,25 @@ use crate::{
     preferences::{self, DeliveryContext},
     preferences_svc::{delete_mute, insert_mute},
     sanitize::sanitize,
+    withdraw::{self, CONTENT_REMOVED_TOPIC, UNWITHDRAWABLE_CATEGORY},
 };
 
 /// Durable consumer name on the event stream.
 pub const CONSUMER_NAME: &str = "notify";
 /// Topics the consumer subscribes to.
-pub const TOPICS: &[&str] = &[NOTIFY_TOPIC, FRIEND_PREFS_CHANGED_TOPIC, USER_DELETED_TOPIC];
+pub const TOPICS: &[&str] = &[
+    NOTIFY_TOPIC,
+    FRIEND_PREFS_CHANGED_TOPIC,
+    USER_DELETED_TOPIC,
+    CONTENT_REMOVED_TOPIC,
+    // `withdraw::DELETION_TOPICS`
+    "chat.message.deleted",
+    "engagement.comment.deleted",
+    "notes.note.deleted",
+    "notes.story.deleted",
+    "community.thread.deleted",
+    "video.playlist.deleted",
+];
 
 /// Why a notification was not pushed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +87,8 @@ pub enum DropReason {
     Muted,
     /// A newer event with the same collapse key was handled first.
     Superseded,
+    /// What it is about was deleted or taken down before it was handled.
+    Withdrawn,
 }
 
 /// What became of one `notify.requested` event.
@@ -141,6 +156,7 @@ async fn claim_event(tx: &mut Transaction<'_, Postgres>, event_id: Uuid) -> AppR
 fn inbox_entry<'a>(
     request: &'a NotificationRequest,
     category: &'a Category,
+    refs: &'a [Uuid],
     occurred_at: Time,
 ) -> NewNotification<'a> {
     NewNotification {
@@ -155,6 +171,7 @@ fn inbox_entry<'a>(
         subject: request.subject,
         collapse_key: request.collapse_key.as_deref(),
         data: &request.data,
+        refs,
         urgent: request.urgent,
         occurred_at,
     }
@@ -168,6 +185,7 @@ fn push_job(
     category: &Category,
     stored: Option<&NotificationRow>,
     unread: &UnreadCount,
+    withdrawable_refs: &[Uuid],
 ) -> PushJob {
     PushJob {
         id: event.id,
@@ -182,6 +200,7 @@ fn push_job(
         collapse_key: request.collapse_key.clone(),
         badge: i64::from(unread.total),
         data: request.data.clone(),
+        refs: withdrawable_refs.to_vec(),
         urgent: request.urgent,
         created_at: event.occurred_at,
     }
@@ -197,7 +216,10 @@ impl Notify {
                 let deleted: UserDeleted = event.data()?;
                 self.purge_user(deleted.user_id).await
             }
-            _ => Ok(()),
+            _ => match withdraw::withdrawn_by(&event)? {
+                Some(ref_id) => self.withdraw(ref_id).await,
+                None => Ok(()),
+            },
         }
     }
 
@@ -227,6 +249,13 @@ impl Notify {
             return Ok(RequestOutcome::Dropped(DropReason::Muted));
         }
         let plan = plan(&request, category, &recipient, now());
+        let refs = withdraw::refs_of(&request);
+        // System notices are never withdrawn (see `withdraw.rs`).
+        let withdrawable_refs: &[Uuid] = if category.id == UNWITHDRAWABLE_CATEGORY {
+            &[]
+        } else {
+            &refs
+        };
 
         // Nothing above changed anything, so a redelivery may safely repeat
         // it. From here on the event ID guards against doing the work twice.
@@ -234,8 +263,19 @@ impl Notify {
         if !claim_event(&mut tx, event.id).await? {
             return Ok(RequestOutcome::Duplicate);
         }
+        // Checked under the locks a withdrawal takes, so that an entry is
+        // either refused here or seen and removed by the withdrawal.
+        withdraw::lock_shared(
+            &mut tx,
+            withdrawable_refs.iter().map(|id| withdraw::lock_key(*id)).collect(),
+        )
+        .await?;
+        if withdraw::any_withdrawn(&mut *tx, withdrawable_refs).await? {
+            tx.commit().await?;
+            return Ok(RequestOutcome::Dropped(DropReason::Withdrawn));
+        }
         let stored = if plan.inbox {
-            let entry = inbox_entry(&request, category, event.occurred_at);
+            let entry = inbox_entry(&request, category, &refs, event.occurred_at);
             match inbox::upsert(&mut tx, &entry).await? {
                 Some(row) => Some(row),
                 None => {
@@ -259,7 +299,14 @@ impl Notify {
                 PushDecision::Skipped(PushSkip::RateLimited)
             }
             Ok(()) => {
-                let job = push_job(event, &request, category, stored.as_ref(), &unread);
+                let job = push_job(
+                    event,
+                    &request,
+                    category,
+                    stored.as_ref(),
+                    &unread,
+                    withdrawable_refs,
+                );
                 // Queued before the commit: if queuing fails nothing is
                 // recorded and the event is retried as a whole. The job is
                 // unique per event, so a retry after a failed commit does not
@@ -339,6 +386,13 @@ impl Notify {
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone as _;
+
+    #[test]
+    fn every_deletion_topic_is_consumed() {
+        for (topic, _) in withdraw::DELETION_TOPICS {
+            assert!(TOPICS.contains(topic), "{topic}");
+        }
+    }
     use tokuly_core::outbound::Localized;
 
     use super::*;

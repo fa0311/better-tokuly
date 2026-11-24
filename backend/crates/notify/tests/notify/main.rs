@@ -11,4 +11,5 @@ mod inbox;
 mod inbox_changes;
 mod maintenance;
 mod mutes;
+mod withdrawals;
 mod preferences;

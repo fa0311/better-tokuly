@@ -36,6 +36,18 @@ and a category whose push is switched off stay silent. They are delivered at
 the highest priority of every channel (table below), and the inbox entry
 carries `urgent = true`.
 
+**Withdrawn content.** Every inbox entry records the IDs it refers to: its
+subject and every `*_id` value at the top level of its `data` (`comment_id`,
+`message_id`...). When one of them is deleted or taken down (events below),
+every entry referring to it leaves every inbox (`NotifyEvent.removed` to the
+owners' clients), the ID is remembered for 8 days, and a request about it
+that arrives late, or a push job still queued for it, is dropped. Entries of
+the `system` category are never withdrawn: the notice telling an owner that
+their content was taken down refers to that content. A withdrawal and a
+request about the same ID serialize on an advisory lock, so an entry stored
+while the withdrawal runs is not missed. Pushes already delivered cannot be
+recalled.
+
 The consumer is idempotent on the event ID (`notify_processed_events`, written
 in the same transaction as the inbox entry). Events with the same collapse key
 handled out of order: the older one is discarded.
@@ -50,6 +62,12 @@ account's) for push.
 |---|---|---|
 | `notify.requested` | `tokuly_core::outbound::NotificationRequest` | inbox entry, realtime event, push job (see above) |
 | `social.friend.prefs_changed` | `{ user_id, friend_id, muted }` (`tokuly_notify::events::FriendPrefsChanged`) | `muted = true` adds a mute of `friend_id` for `user_id`, `false` removes it |
+| `admin.content.removed` | `{ subject_type, subject_id, … }` | withdraws `subject_id` (any subject type but `SUBJECT_TYPE_USER`: a profile takedown keeps what the person did in other inboxes) |
+| `chat.message.deleted` | `{ message_id, … }` | withdraws `message_id` |
+| `engagement.comment.deleted` | `{ comment_id, … }` | withdraws `comment_id` |
+| `notes.note.deleted` / `notes.story.deleted` | `{ note_id, … }` / `{ story_id, … }` | withdraws the note / story |
+| `community.thread.deleted` | `{ community_id, thread_id }` | withdraws `thread_id` |
+| `video.playlist.deleted` | `{ playlist_id, owner_id }` | withdraws `playlist_id` |
 | `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes and push registrations, inbox entries they caused for others, and mutes on them |
 
 ## Events emitted
@@ -123,7 +141,7 @@ Sent to every connection of the user:
 |---|---|---|
 | Event consumer | durable `notify` | topics above |
 | Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; up to 5 attempts with the job queue's backoff; devices already reached are remembered in Valkey (`notify:push:delivered:{job}`) so a retry only reaches the rest |
-| Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers older than 8 days; push registrations of revoked or expired sessions |
+| Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers and withdrawn-content markers older than 8 days; push registrations of revoked or expired sessions |
 
 Push outcomes: accepted → `last_delivered_at`; token gone (Web Push 404/410,
 FCM `UNREGISTERED` / `SENDER_ID_MISMATCH`, APNs 410 / `BadDeviceToken` /

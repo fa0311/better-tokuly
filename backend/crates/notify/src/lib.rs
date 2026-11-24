@@ -9,6 +9,9 @@
 //!                               └─▶ notify.push job (delivery.rs) ─▶ Web Push / FCM / APNs (push/)
 //! ```
 //!
+//! Entries about content that is deleted or taken down are withdrawn
+//! ([`withdraw`]).
+//!
 //! What a user receives is governed by their preferences ([`preferences`]):
 //! per-category toggles, a global push pause, quiet hours and per-person
 //! mutes. Push tokens are registered per session ([`devices`]).
@@ -31,6 +34,7 @@ mod preferences_svc;
 pub mod push;
 mod push_svc;
 pub mod sanitize;
+pub mod withdraw;
 
 pub use config::NotifyConfig;
 pub use push_svc::TEST_KIND;

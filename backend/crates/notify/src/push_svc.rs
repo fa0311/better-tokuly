@@ -156,6 +156,7 @@ impl PushService for Notify {
                 collapse_key: Some("notify:test".to_owned()),
                 badge: i64::from(inbox::unread_count(&self.core.db, user_id).await?.total),
                 data: serde_json::Value::Null,
+                refs: Vec::new(),
                 urgent: false,
                 created_at: now(),
             };

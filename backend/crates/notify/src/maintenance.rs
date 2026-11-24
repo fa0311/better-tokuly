@@ -28,6 +28,8 @@ const PROCESSED_EVENT_DAYS: i32 = 8;
 pub struct RetentionReport {
     pub notifications: u64,
     pub processed_events: u64,
+    /// Markers of withdrawn content (`notify_withdrawn`).
+    pub withdrawn: u64,
     pub devices: u64,
 }
 
@@ -119,6 +121,23 @@ impl Notify {
             .execute(db)
             .await?;
             report.processed_events += done.rows_affected();
+            if done.rows_affected() < SWEEP_BATCH as u64 {
+                break;
+            }
+        }
+        // A request or push about withdrawn content cannot arrive later
+        // than any other event, so the markers are kept as long.
+        loop {
+            let done = sqlx::query(
+                "DELETE FROM notify_withdrawn WHERE ref_id IN (
+                     SELECT ref_id FROM notify_withdrawn WHERE withdrawn_at < now() - make_interval(days => $1) LIMIT $2
+                 )",
+            )
+            .bind(PROCESSED_EVENT_DAYS)
+            .bind(SWEEP_BATCH)
+            .execute(db)
+            .await?;
+            report.withdrawn += done.rows_affected();
             if done.rows_affected() < SWEEP_BATCH as u64 {
                 break;
             }
