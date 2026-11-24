@@ -74,6 +74,26 @@ pub trait ProfileExtension: Send + Sync + 'static {
         Ok(true)
     }
 
+    /// What `viewer` (`None`: signed out) is to `owner` for the audiences of
+    /// the プロフ帳 — friend, follower or neither, whether `owner` is locked,
+    /// in their close friends, in which of `circles` (the owner's circles
+    /// something is shared with) — or `None` when this domain does not know
+    /// (the social domain's audience API answers it, wired by the server).
+    async fn audience_tie(
+        &self,
+        _viewer: Option<Uuid>,
+        _owner: Uuid,
+        _circles: &[Uuid],
+    ) -> AppResult<Option<extras::AudienceTie>> {
+        Ok(None)
+    }
+
+    /// Which of `owners` have locked accounts (their public parts reach only
+    /// their followers and friends).
+    async fn locked_among(&self, _owners: &[Uuid]) -> AppResult<std::collections::HashSet<Uuid>> {
+        Ok(std::collections::HashSet::new())
+    }
+
     /// Those among `user_ids` that `viewer` may not see, the same rule as
     /// [`Self::can_view`] for a whole list at once (profile viewers, search
     /// results). The default asks `can_view` per user; a domain that can
@@ -94,6 +114,8 @@ pub struct IdentityInner {
     pub cfg: IdentityConfig,
     pub(crate) webauthn: Webauthn,
     extensions: RwLock<Vec<Arc<dyn ProfileExtension>>>,
+    /// Fetches in flight per host for the profile link check.
+    pub(crate) link_hosts: parking_lot::Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>,
 }
 
 /// The identity domain. Cheap to clone.
@@ -123,7 +145,13 @@ impl Identity {
             .allow_any_port(!core.cfg.is_production())
             .build()
             .map_err(|e| anyhow::anyhow!("webauthn configuration: {e}"))?;
-        Ok(Self(Arc::new(IdentityInner { core, cfg, webauthn, extensions: RwLock::new(Vec::new()) })))
+        Ok(Self(Arc::new(IdentityInner {
+            core,
+            cfg,
+            webauthn,
+            extensions: RwLock::new(Vec::new()),
+            link_hosts: parking_lot::Mutex::new(HashMap::new()),
+        })))
     }
 
     /// Registers a domain that enriches profiles. Call once at startup.

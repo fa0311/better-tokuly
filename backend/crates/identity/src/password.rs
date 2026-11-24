@@ -22,7 +22,8 @@ pub async fn hash(password: &str) -> AppResult<String> {
 /// without a password) still performs a hash so timing does not reveal which.
 pub async fn verify(password: &str, stored: Option<&str>) -> bool {
     // PHC string of a throwaway password, used only to burn comparable time.
-    const DUMMY: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$Z2KmMbTmM0LZj2pP3YBBDX0LPsgqtTNT0EXW4bXDq1g";
+    const DUMMY: &str =
+        "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$Z2KmMbTmM0LZj2pP3YBBDX0LPsgqtTNT0EXW4bXDq1g";
     let password = password.to_owned();
     let (hash, real) = match stored {
         Some(h) => (h.to_owned(), true),
@@ -30,11 +31,7 @@ pub async fn verify(password: &str, stored: Option<&str>) -> bool {
     };
     tokio::task::spawn_blocking(move || {
         let ok = PasswordHash::new(&hash)
-            .map(|parsed| {
-                Argon2::default()
-                    .verify_password(password.as_bytes(), &parsed)
-                    .is_ok()
-            })
+            .map(|parsed| Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
             .unwrap_or(false);
         ok && real
     })

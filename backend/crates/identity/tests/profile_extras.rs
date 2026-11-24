@@ -34,7 +34,7 @@ fn card(prompt: &str, question: &str, answer: &str, visibility: Visibility, hidd
         prompt_id: prompt.into(),
         question: question.into(),
         answer: answer.into(),
-        visibility: vis(visibility),
+        audience: tokuly_proto::common::AudienceRef { visibility: vis(visibility), ..Default::default() }.into(),
         hidden,
         ..Default::default()
     }
@@ -126,7 +126,7 @@ async fn each_field_and_card_reaches_its_own_audience() {
     assert_eq!(extras.qa_cards.iter().map(|c| c.answer.as_str()).collect::<Vec<_>>(), ["数学"]);
     assert_eq!(extras.qa_cards[0].question.as_option().unwrap().ja, "好きな教科");
     assert!(extras.visibility.as_option().is_none(), "audiences are the owner's business");
-    assert_eq!(extras.qa_cards[0].visibility, Visibility::VISIBILITY_UNSPECIFIED);
+    assert!(extras.qa_cards[0].audience.as_option().is_none(), "nor the cards' audiences");
     let anonymous = profile(&ext, None, &owner).await.unwrap();
     assert_eq!(anonymous.extras.as_option().unwrap().qa_cards.len(), 1);
 
@@ -184,32 +184,18 @@ async fn moderators_see_everything_and_others_may_not_ask() {
     )
     .await
     .unwrap();
-    // Even across a block: what was written is what is judged.
+    // Even across a block: what was written is what is judged. (The admin
+    // domain calls this for an open case it is not a party to.)
     ext.social.block(owner.id, moderator.id);
-    let request = GetProfileRequest {
-        by: Some(get_profile_request::By::UserId(owner.id.to_string())),
-        as_moderator: true,
-        ..Default::default()
-    };
-    let response: GetProfileResponse = ext.app.call(GET_PROFILE, Some(&moderator), &request).await.unwrap();
-    let extras = response.profile.as_option().unwrap().extras.as_option().unwrap().clone();
+    let extras = ext.identity.extras_for_moderation(owner.id).await.unwrap();
     assert_eq!(extras.long_bio, "ここだけの話");
     assert!(extras.qa_cards[0].hidden);
     assert_eq!(extras.visibility.as_option().unwrap().long_bio, Visibility::VISIBILITY_PRIVATE);
-    let log: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM security_events WHERE user_id = $1 AND type = 'MODERATOR_PROFILE_VIEW'",
-    )
-    .bind(moderator.id)
-    .fetch_one(&ext.app.core.db)
-    .await
-    .unwrap();
-    assert_eq!(log, 1);
-    let err = ext.app.call::<_, GetProfileResponse>(GET_PROFILE, Some(&nobody), &request).await.unwrap_err();
-    assert_eq!(err.reason, "DENIED");
-    assert_eq!(
-        ext.app.call::<_, GetProfileResponse>(GET_PROFILE, None, &request).await.unwrap_err().code,
-        "unauthenticated"
-    );
+    assert_eq!(extras.qa_cards[0].audience.as_option().unwrap().visibility, Visibility::VISIBILITY_PRIVATE);
+    // Through the public API nobody gets past the audiences, a moderator neither.
+    let seen = profile(&ext, Some(&nobody), &owner).await.unwrap();
+    assert_eq!(seen.extras.as_option().unwrap().long_bio, "");
+    assert!(seen.extras.as_option().unwrap().qa_cards.is_empty());
 }
 
 #[tokio::test]
@@ -572,7 +558,8 @@ async fn tag_suggestions_count_public_tags_of_people() {
     let word = unique("ｻﾝﾌﾟﾙ");
     let folded_prefix: String = tokuly_identity::extras::tag_key(&word).chars().take(4).collect();
     let music = ProfileTagCategory::PROFILE_TAG_CATEGORY_MUSIC;
-    for (name, public) in [("A", true), ("B", true), ("C", false)] {
+    let mut people = Vec::new();
+    for (name, public) in [("A", true), ("B", true), ("C", true), ("D", true), ("E", true), ("F", false)] {
         let user = ext.app.user(name).await;
         let mut visibility = everything_public();
         if !public {
@@ -589,6 +576,7 @@ async fn tag_suggestions_count_public_tags_of_people() {
         )
         .await
         .unwrap();
+        people.push(user);
     }
     // A bot showing it does not count.
     let owner = ext.app.user("Owner").await;
@@ -605,25 +593,32 @@ async fn tag_suggestions_count_public_tags_of_people() {
         .await
         .unwrap();
 
-    let response: SuggestProfileTagsResponse = ext
-        .app
-        .call(
-            "tokuly.identity.v1.ProfileService/SuggestProfileTags",
-            None,
-            &SuggestProfileTagsRequest {
-                category: music.into(),
-                query: folded_prefix.to_uppercase(),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-    let hit = response
-        .suggestions
-        .iter()
-        .find(|s| tokuly_identity::extras::tag_key(&s.name) == tokuly_identity::extras::tag_key(&word))
-        .unwrap();
-    assert_eq!(hit.count, 2, "two people show it publicly");
+    let suggest = || async {
+        let response: SuggestProfileTagsResponse = ext
+            .app
+            .call(
+                "tokuly.identity.v1.ProfileService/SuggestProfileTags",
+                None,
+                &SuggestProfileTagsRequest {
+                    category: music.into(),
+                    query: folded_prefix.to_uppercase(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        response
+            .suggestions
+            .into_iter()
+            .find(|s| tokuly_identity::extras::tag_key(&s.name) == tokuly_identity::extras::tag_key(&word))
+            .map(|s| s.count)
+    };
+    assert_eq!(suggest().await, Some(5), "five people show it publicly (not the friends-only one, not the bot)");
+    // One of the five locks their account: four is too few to suggest it.
+    ext.social.lock(people[0].id, true);
+    assert_eq!(suggest().await, None, "a tag of fewer than five people points at them");
+    ext.social.lock(people[0].id, false);
+    assert_eq!(suggest().await, Some(5));
     let err = ext
         .app
         .call::<_, SuggestProfileTagsResponse>(
@@ -669,7 +664,12 @@ async fn search_terms_carry_only_public_fields() {
     )
     .await
     .unwrap();
-    let terms = tokuly_identity::extras::search_terms(&ext.app.core, &[user.id]).await.unwrap();
+    let terms = tokuly_identity::extras::search_terms(&ext.app.core, &[user.id], &Default::default()).await.unwrap();
+    let locked: std::collections::HashSet<uuid::Uuid> = [user.id].into();
+    assert!(
+        tokuly_identity::extras::search_terms(&ext.app.core, &[user.id], &locked).await.unwrap().is_empty(),
+        "a locked account is not found by its プロフ帳"
+    );
     let terms = &terms[&user.id];
     assert_eq!(terms.text, "写真部です");
     assert_eq!(terms.tags, ["スプラ"]);
@@ -1079,4 +1079,133 @@ async fn the_zodiac_is_derived_and_starts_private() {
         profile(&ext, Some(&stranger), &owner).await.unwrap().extras.as_option().unwrap().zodiac,
         Zodiac::ZODIAC_CAPRICORN
     );
+}
+
+#[tokio::test]
+async fn followers_close_friends_circles_and_locked_accounts() {
+    let ext = start(IdentityConfig::default()).await;
+    let owner = ext.app.user("Owner").await;
+    let follower = ext.app.user("Follower").await;
+    let friend = ext.app.user("Friend").await;
+    let close = ext.app.user("Close").await;
+    let stranger = ext.app.user("Stranger").await;
+    ext.social.follow(follower.id, owner.id);
+    ext.social.befriend(owner.id, friend.id);
+    ext.social.befriend(owner.id, close.id);
+    ext.social.close_friend(owner.id, close.id);
+    let circle = uuid::Uuid::now_v7();
+    ext.social.join_circle(circle, follower.id);
+    let mut visibility = everything_public();
+    visibility.mbti = vis(Visibility::VISIBILITY_FOLLOWERS);
+    visibility.pronouns = vis(Visibility::VISIBILITY_CLOSE_FRIENDS);
+    let in_circle = ProfileQaCardInput {
+        audience: tokuly_proto::common::AudienceRef {
+            visibility: vis(Visibility::VISIBILITY_CIRCLE),
+            circle_id: circle.to_string(),
+            ..Default::default()
+        }
+        .into(),
+        ..card("club", "", "サークルだけ", Visibility::VISIBILITY_PUBLIC, false)
+    };
+    update(
+        &ext,
+        &owner,
+        &UpdateProfileExtrasRequest {
+            mbti: Some("ISTP".into()),
+            pronouns: Some("they/them".into()),
+            long_bio: Some("みんなへ".into()),
+            visibility: visibility.into(),
+            qa_cards: ProfileQaCardList { items: vec![in_circle], ..Default::default() }.into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let seen = |viewer: &tokuly_testkit::TestUser| {
+        let (ext, owner, viewer) = (&ext, &owner, viewer.clone());
+        async move { profile(ext, Some(&viewer), owner).await.unwrap().extras.into_option().unwrap() }
+    };
+    let s = seen(&stranger).await;
+    assert_eq!((s.mbti.as_str(), s.pronouns.as_str(), s.long_bio.as_str(), s.qa_cards.len()), ("", "", "みんなへ", 0));
+    let f = seen(&follower).await;
+    assert_eq!((f.mbti.as_str(), f.pronouns.as_str(), f.qa_cards.len()), ("ISTP", "", 1));
+    let fr = seen(&friend).await;
+    assert_eq!((fr.mbti.as_str(), fr.pronouns.as_str(), fr.qa_cards.len()), ("ISTP", "", 0));
+    let c = seen(&close).await;
+    assert_eq!(c.pronouns, "they/them");
+
+    // Locked: the public parts reach followers and friends only.
+    ext.social.lock(owner.id, true);
+    assert_eq!(seen(&stranger).await.long_bio, "");
+    assert_eq!(profile(&ext, None, &owner).await.unwrap().extras.as_option().unwrap().long_bio, "");
+    assert_eq!(seen(&follower).await.long_bio, "みんなへ");
+    assert_eq!(seen(&friend).await.long_bio, "みんなへ");
+
+    // A circle card needs its circle.
+    let err = update(
+        &ext,
+        &owner,
+        &UpdateProfileExtrasRequest {
+            qa_cards: ProfileQaCardList {
+                items: vec![ProfileQaCardInput {
+                    audience: tokuly_proto::common::AudienceRef {
+                        visibility: vis(Visibility::VISIBILITY_CIRCLE),
+                        ..Default::default()
+                    }
+                    .into(),
+                    ..card("dream", "", "x", Visibility::VISIBILITY_PUBLIC, false)
+                }],
+                ..Default::default()
+            }
+            .into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.reason, "CARD_INVALID");
+    // Link-only audiences are not offered.
+    let err = update(
+        &ext,
+        &owner,
+        &UpdateProfileExtrasRequest {
+            visibility: ProfileFieldVisibility { tags: vis(Visibility::VISIBILITY_NO_FEED), ..everything_public() }
+                .into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.reason, "VISIBILITY_INVALID");
+}
+
+#[tokio::test]
+async fn new_links_are_checked_within_a_daily_budget() {
+    let ext = start(IdentityConfig { profile_links_allow_loopback: true, ..Default::default() }).await;
+    let user = ext.app.user("Budget").await;
+    let page = serve_page("<html></html>".to_owned()).await;
+    let mut checked = 0;
+    for round in 0..3 {
+        let items =
+            (0..8).map(|i| ProfileLinkInput { url: format!("{page}/r{round}/l{i}"), ..Default::default() }).collect();
+        update(
+            &ext,
+            &user,
+            &UpdateProfileExtrasRequest {
+                links: ProfileLinkList { items, ..Default::default() }.into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        checked += ext.identity.check_profile_links(user.id).await.unwrap();
+    }
+    assert_eq!(checked, tokuly_identity::link_check::NEW_LINK_CHECKS_PER_DAY as usize, "the rest waits for tomorrow");
+    let waiting: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM profile_links WHERE user_id = $1 AND checked_at IS NULL")
+            .bind(user.id)
+            .fetch_one(&ext.app.core.db)
+            .await
+            .unwrap();
+    assert_eq!(waiting, 4);
 }

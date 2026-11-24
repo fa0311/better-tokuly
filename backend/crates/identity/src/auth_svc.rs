@@ -465,8 +465,36 @@ impl AuthService for Identity {
                     self.revoke_session(user_id, session_id).await?;
                 }
             }
+            // A shared computer: every account of this device goes, the parked ones too.
+            if request.all_accounts_on_device {
+                let parked: Vec<String> = if meta.is_web {
+                    crate::device_accounts::DeviceTokens::from_cookies(&meta).parked
+                } else {
+                    request.parked_refresh_tokens.iter().take(16).map(|t| t.to_string()).collect()
+                };
+                for session in self.live_sessions(&parked).await? {
+                    self.revoke_session(session.user_id, session.id).await?;
+                    self.log_security_event(
+                        session.user_id,
+                        "SIGN_OUT",
+                        &meta,
+                        "",
+                        serde_json::json!({ "all": false }),
+                    )
+                    .await;
+                }
+            }
             let response = Response::new(SignOutResponse::default());
-            Ok(if meta.is_web { response.with_header("set-cookie", self.clear_refresh_cookie()) } else { response })
+            Ok(if meta.is_web {
+                let response = response.with_header("set-cookie", self.clear_refresh_cookie());
+                if request.all_accounts_on_device {
+                    response.with_header("set-cookie", self.parked_cookie(&[]))
+                } else {
+                    response
+                }
+            } else {
+                response
+            })
         })
         .await
     }

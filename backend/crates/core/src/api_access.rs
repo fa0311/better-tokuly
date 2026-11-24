@@ -71,6 +71,7 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
     ("tokuly.admin.v1.ModerationService", &[
         ("ListCases", Session),
         ("GetCase", Session),
+        ("GetReportedProfile", Session),
         ("ListCaseReports", Session),
         ("AssignCase", Session),
         ("AddCaseNote", Session),

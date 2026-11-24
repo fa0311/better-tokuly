@@ -21,6 +21,13 @@ pub const MIGRATIONS: &[&str] = &["0001", "0100", "0400"];
 pub struct FakeSocial {
     friends: Mutex<HashSet<(Uuid, Uuid)>>,
     blocks: Mutex<HashSet<(Uuid, Uuid)>>,
+    /// (follower, followee)
+    follows: Mutex<HashSet<(Uuid, Uuid)>>,
+    locked: Mutex<HashSet<Uuid>>,
+    /// (owner, member)
+    close_friends: Mutex<HashSet<(Uuid, Uuid)>>,
+    /// (circle, member)
+    circles: Mutex<HashSet<(Uuid, Uuid)>>,
 }
 
 fn pair(a: Uuid, b: Uuid) -> (Uuid, Uuid) {
@@ -34,6 +41,27 @@ impl FakeSocial {
 
     pub fn block(&self, blocker: Uuid, blocked: Uuid) {
         self.blocks.lock().unwrap().insert((blocker, blocked));
+    }
+
+    pub fn follow(&self, follower: Uuid, followee: Uuid) {
+        self.follows.lock().unwrap().insert((follower, followee));
+    }
+
+    pub fn lock(&self, owner: Uuid, locked: bool) {
+        let mut set = self.locked.lock().unwrap();
+        if locked {
+            set.insert(owner);
+        } else {
+            set.remove(&owner);
+        }
+    }
+
+    pub fn close_friend(&self, owner: Uuid, member: Uuid) {
+        self.close_friends.lock().unwrap().insert((owner, member));
+    }
+
+    pub fn join_circle(&self, circle: Uuid, member: Uuid) {
+        self.circles.lock().unwrap().insert((circle, member));
     }
 
     fn blocked_either(&self, a: Uuid, b: Uuid) -> bool {
@@ -68,6 +96,33 @@ impl ProfileExtension for FakeSocial {
 
     async fn can_view(&self, viewer: Uuid, owner: Uuid) -> AppResult<bool> {
         Ok(!self.blocked_either(viewer, owner))
+    }
+
+    async fn audience_tie(
+        &self,
+        viewer: Option<Uuid>,
+        owner: Uuid,
+        circles: &[Uuid],
+    ) -> AppResult<Option<tokuly_identity::extras::AudienceTie>> {
+        use tokuly_identity::extras::{AudienceTie, Tier};
+        let owner_locked = self.locked.lock().unwrap().contains(&owner);
+        let Some(viewer) = viewer else { return Ok(Some(AudienceTie { owner_locked, ..Default::default() })) };
+        let tier = if self.are_friends(viewer, owner) {
+            Tier::Friend
+        } else if self.follows.lock().unwrap().contains(&(viewer, owner)) {
+            Tier::Follower
+        } else {
+            Tier::Other
+        };
+        let close_friend = self.close_friends.lock().unwrap().contains(&(owner, viewer));
+        let member = self.circles.lock().unwrap();
+        let circles = circles.iter().copied().filter(|c| member.contains(&(*c, viewer))).collect();
+        Ok(Some(AudienceTie { tier, owner_locked, close_friend, circles }))
+    }
+
+    async fn locked_among(&self, owners: &[Uuid]) -> AppResult<HashSet<Uuid>> {
+        let locked = self.locked.lock().unwrap();
+        Ok(owners.iter().copied().filter(|o| locked.contains(o)).collect())
     }
 }
 

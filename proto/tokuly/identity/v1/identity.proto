@@ -141,6 +141,12 @@ message RefreshTokenRequest {
 message SignOutRequest {
   // Also revoke every other session of this account.
   bool all_sessions = 1;
+  // Sign every account on this device out (a shared computer): the active
+  // one and the parked ones. Web: both refresh cookies are read and cleared.
+  bool all_accounts_on_device = 2;
+  // Native clients with `all_accounts_on_device`: the parked accounts'
+  // refresh tokens they hold.
+  repeated string parked_refresh_tokens = 3;
 }
 
 message SignOutResponse {}
@@ -757,7 +763,7 @@ message UpdateProfileExtrasRequest {
   // The long bio: up to 2000 characters, line breaks and the note markup.
   optional string long_bio = 4;
   ProfileTheme theme = 5;
-  // Replaces every field audience at once. PUBLIC, FRIENDS or PRIVATE.
+  // Replaces every field audience at once (see ProfileFieldVisibility).
   ProfileFieldVisibility visibility = 6;
   OshiList oshi = 7;
   ProfileTagList tags = 8;
@@ -814,10 +820,13 @@ message ProfileQaCardInput {
   string question = 3;
   // 1-200 characters.
   string answer = 4;
-  // PUBLIC, FRIENDS or PRIVATE (only me).
-  tokuly.common.v1.Visibility visibility = 5;
+  reserved 5;
+  reserved "visibility";
   // Kept but not shown on the profile.
   bool hidden = 6;
+  // Who sees the card: PUBLIC, FOLLOWERS, FRIENDS, CLOSE_FRIENDS, CIRCLE
+  // (with `circle_id`, one of the owner's circles) or PRIVATE (only me).
+  tokuly.common.v1.AudienceRef audience = 7;
 }
 
 message UpdateProfileExtrasResponse {
@@ -856,7 +865,9 @@ service ProfileService {
   // The curated questions of the プロフ帳.
   rpc ListProfilePrompts(ListProfilePromptsRequest) returns (ListProfilePromptsResponse);
   // Favourite things other people show publicly, most used first, for the
-  // tag picker. QUERY_TOO_LONG, RATE_LIMITED.
+  // tag picker. A tag is suggested once at least 5 people show it (one
+  // person's tag would point at them); locked accounts and bots do not
+  // count. QUERY_TOO_LONG, RATE_LIMITED.
   rpc SuggestProfileTags(SuggestProfileTagsRequest) returns (SuggestProfileTagsResponse);
 }
 
@@ -935,8 +946,11 @@ message ProfileExtras {
   ProfileFieldVisibility visibility = 12;
 }
 
-// Who sees each field of the プロフ帳: VISIBILITY_PUBLIC, VISIBILITY_FRIENDS
-// or VISIBILITY_PRIVATE (only me). Defaults: public, except zodiac (private).
+// Who sees each field of the プロフ帳: VISIBILITY_PUBLIC, VISIBILITY_FOLLOWERS,
+// VISIBILITY_FRIENDS, VISIBILITY_CLOSE_FRIENDS or VISIBILITY_PRIVATE (only
+// me), with the meaning of the social domain's audiences: the public fields
+// of a locked account reach only its followers and friends (and stay out of
+// search and tag suggestions). Defaults: public, except zodiac (private).
 message ProfileFieldVisibility {
   tokuly.common.v1.Visibility mbti = 1;
   tokuly.common.v1.Visibility blood_type = 2;
@@ -1048,10 +1062,12 @@ message ProfileQaCard {
   // The prompt's text, or the free question in both fields.
   tokuly.common.v1.LocalizedText question = 3;
   string answer = 4;
-  // The owner's own view only.
-  tokuly.common.v1.Visibility visibility = 5;
+  reserved 5;
+  reserved "visibility";
   // The owner's own view only: kept but not shown.
   bool hidden = 6;
+  // The owner's own view only: who sees the card.
+  tokuly.common.v1.AudienceRef audience = 7;
 }
 
 // A question from the curated bank ("好きな教科", "無人島に1つ持っていくなら").
@@ -1120,10 +1136,10 @@ message GetProfileRequest {
     string user_id = 1;
     string handle = 2;
   }
-  // Moderators and admins: every field of the プロフ帳 whatever its audience,
-  // hidden cards included, with the audiences. DENIED without the role;
-  // the look is written to the moderator's own security log.
-  bool as_moderator = 3;
+  // Field 3 (as_moderator) is gone: moderators read a reported プロフ帳
+  // through tokuly.admin.v1.ModerationService.GetReportedProfile.
+  reserved 3;
+  reserved "as_moderator";
 }
 
 message GetProfileResponse {

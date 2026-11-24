@@ -8,7 +8,9 @@
 //! An account is searchable when it is active (not suspended, not deleted)
 //! and its privacy settings say `discoverable`. Besides the name and bio,
 //! the public parts of its プロフ帳 are found: the long bio as text, its
-//! favourite things and 推し as tags (`tokuly_identity::extras::search_terms`).
+//! favourite things and 推し as tags (`tokuly_identity::extras::search_terms`),
+//! none of it for a locked account (its public parts reach followers and
+//! friends only).
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokuly_core::{outbound::SearchDoc, prelude::*};
@@ -103,7 +105,8 @@ impl Search {
                 .bind(user_id)
                 .fetch_optional(&self.core.db)
                 .await?;
-        let terms = tokuly_identity::extras::search_terms(&self.core, &[user_id]).await?;
+        let locked = tokuly_social::graph::locked_among(&self.core, &[user_id]).await?;
+        let terms = tokuly_identity::extras::search_terms(&self.core, &[user_id], &locked).await?;
         match row.as_ref().and_then(|row| row.document(terms.get(&user_id))) {
             Some(doc) => self.store_document(version, doc).await?,
             None => self.remove_document(version, kinds::USER, user_id).await?,
@@ -135,7 +138,8 @@ impl Search {
             after = Some(last.id);
             report.scanned += rows.len() as u64;
             let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
-            let terms = tokuly_identity::extras::search_terms(&self.core, &ids).await?;
+            let locked = tokuly_social::graph::locked_among(&self.core, &ids).await?;
+            let terms = tokuly_identity::extras::search_terms(&self.core, &ids, &locked).await?;
             let mut docs = Vec::new();
             let mut gone = Vec::new();
             for row in &rows {

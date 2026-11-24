@@ -43,7 +43,7 @@ Durable `identity-sessions`:
 | Name | What |
 |---|---|
 | `identity.export` | Builds the personal data archive (the account, the プロフ帳 with its audiences, settings, sessions with their switch marks, every domain's exporter) and mails a link. |
-| `identity.profile.links` | `{ user_id }`: fetches the account's profile links that are due (never checked, or checked a week ago) through media's guarded fetcher (`tokuly_core::egress`: public addresses only, every redirect hop checked, 512 KiB, 5 s) and marks a link verified while the page has an `<a>` or `<link>` with `rel="me"` pointing at `<public url>/u/<handle>` or `/@<handle>`. Queued (deduplicated per account) after links change, after a handle change, and by `RecheckProfileLinks`. Idempotent; an edit in between wins. |
+| `identity.profile.links` | `{ user_id }`: at most 20 never-checked links per account and day (the rest wait), at most 2 pages at once per host and process; fetches the account's profile links that are due (never checked, or checked a week ago) through media's guarded fetcher (`tokuly_core::egress`: public addresses only, every redirect hop checked, 512 KiB, 5 s) and marks a link verified while the page has an `<a>` or `<link>` with `rel="me"` pointing at `<public url>/u/<handle>` or `/@<handle>`. Queued (deduplicated per account) after links change, after a handle change, and by `RecheckProfileLinks`. Idempotent; an edit in between wins. |
 | timer, 6 h | Queues `identity.profile.links` for accounts with links that are due. |
 | timer, 1 h | Erases accounts whose deletion grace period ran out (the プロフ帳 and its uploads included) and emits `identity.user.deleted`. |
 
@@ -52,7 +52,9 @@ Durable `identity-sessions`:
 - `users::{summaries, summaries_ordered, summary, pick, filter_active, …}`, `settings::{privacy_of, privacy_of_many}` (unchanged).
 - **Bots** (`bots`): `create_bot_account(tx, owner, handle, display_name, bio) -> Uuid`, `set_bot_owner(tx, bot, owner)`, `is_bot(core, id)`, `bots_among(core, ids) -> HashSet`, `bot_owners(core, ids) -> HashMap<bot, owner>`, and the one rule for places where only people count: `humans_only(core, ids) -> Vec<Uuid>` (or `NOT u.bot` in a join on `users`). Friend suggestions, leaderboards, rankings, nearby discovery, intro counts and anonymity group sizes use it.
 - **Birthdays** (`birthdays`): `shared_birthdays(core, owners, closeness) -> HashMap<Uuid, SharedBirthday { month, day, year: Option }>` (batched, the caller says who is a friend), `Identity::visible_birthdays(viewer, owners)` (friendships and blocks from the profile extensions), `set_birthday_audience(core, user, audience, show_year)`, `audience_of(&PrivacySettings)`.
-- **プロフ帳** (`extras`): `search_terms(core, ids) -> HashMap<Uuid, ProfileSearchTerms { text, tags }>` (public fields only, for search documents), `Extras::load(..).view(Viewer)`, `tag_key`.
+- **プロフ帳** (`extras`): `search_terms(core, ids, &locked) -> HashMap<Uuid, ProfileSearchTerms { text, tags }>` (public fields of unlocked accounts only, for search documents), `Extras::load(..).view(&Viewer)`, `reaches(visibility, circle, &Viewer)` (an allowlist: unknown values reach only the owner), `tag_key`.
+- **Moderation**: `Identity::extras_for_moderation(user_id)` — the whole プロフ帳 whatever its audiences. Not an RPC: the admin domain calls it from `ModerationService.GetReportedProfile` after checking that an open case is about the account and that the moderator is not a party, and records `case.profile_viewed` in its audit log.
+- **Audiences** come from the social domain through two `ProfileExtension` hooks, `audience_tie` (friend / follower / other, locked, close friend, circles) and `locked_among`, which the server wires to `tokuly_social::graph` (`bridges.rs`). Fields take PUBLIC, FOLLOWERS, FRIENDS, CLOSE_FRIENDS or PRIVATE; cards also a CIRCLE (`AudienceRef`). A locked account's PUBLIC parts reach its followers and friends only, and stay out of search documents and tag suggestions. Tags are suggested once 5 people show them.
 - **Sessions**: `Identity::create_session_with(user, client, meta, SessionOrigin { mfa, added_by_switch })` beside `create_session`.
 
 ## Several accounts on one device
@@ -63,6 +65,7 @@ session; the others are parked (`RefreshToken` answers `SWITCH_REQUIRED`
 for a parked session); `SwitchAccount` activates one without its password,
 asking for its TOTP when it has two-factor authentication on and its session
 on that device has not passed it within `TOKULY_ACCOUNT_SWITCH_MFA_HOURS`.
+`SignOut { all_accounts_on_device }` signs every account of the device out (a shared computer).
 Web clients get the parked refresh tokens in a second HttpOnly cookie,
 `tokuly_ra` (same path as `tokuly_rt`). Nothing links the accounts on the
 server. Security log entries: `ACCOUNT_SWITCHED` (on the target account),

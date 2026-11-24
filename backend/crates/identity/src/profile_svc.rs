@@ -45,17 +45,6 @@ impl Identity {
 
     /// The profile of `user` as `viewer` sees it.
     pub async fn profile_of(&self, user: &UserRow, viewer: Option<Uuid>) -> AppResult<Profile> {
-        self.profile_as(user, viewer, false).await
-    }
-
-    /// [`Self::profile_of`]; `moderating` shows the whole プロフ帳 with its
-    /// audiences (the caller checked the role).
-    pub(crate) async fn profile_as(
-        &self,
-        user: &UserRow,
-        viewer: Option<Uuid>,
-        moderating: bool,
-    ) -> AppResult<Profile> {
         let days = (Utc::now() - user.created_at).num_days().max(0) as i32;
         let mut profile = Profile {
             user: user.summary().into(),
@@ -93,16 +82,15 @@ impl Identity {
         }
         // The プロフ帳, by what the viewer is to the owner (blocks never get
         // here: such a viewer cannot see the profile at all).
+        let book = extras::Extras::load(&self.core, user.id, user.birthdate).await?;
         let as_viewer = match profile.relationship.as_known() {
-            _ if moderating => extras::Viewer::Moderator,
             Some(Relationship::RELATIONSHIP_SELF) => extras::Viewer::Owner,
-            Some(Relationship::RELATIONSHIP_FRIENDS) => extras::Viewer::Friend,
-            _ => extras::Viewer::Other,
+            _ => self.audience_viewer(viewer, user.id, &book.card_circles(), profile.relationship.as_known()).await?,
         };
-        profile.extras = extras::Extras::load(&self.core, user.id, user.birthdate).await?.view(as_viewer).into();
-        let closeness = match as_viewer {
+        profile.extras = book.view(&as_viewer).into();
+        let closeness = match &as_viewer {
             extras::Viewer::Owner => birthdays::Closeness::Owner,
-            extras::Viewer::Friend => birthdays::Closeness::Friend,
+            extras::Viewer::Audience(tie) if tie.tier == extras::Tier::Friend => birthdays::Closeness::Friend,
             _ => birthdays::Closeness::Other,
         };
         if let Some(birthdate) = user.birthdate
@@ -129,6 +117,55 @@ impl Identity {
             }
         }
         Ok(profile)
+    }
+
+    /// What `viewer` is to `owner` for the audiences of the プロフ帳, from the
+    /// profile extensions; without one that knows (no social domain), a
+    /// friend is who `relationship` says and nobody is locked.
+    pub(crate) async fn audience_viewer(
+        &self,
+        viewer: Option<Uuid>,
+        owner: Uuid,
+        circles: &[Uuid],
+        relationship: Option<Relationship>,
+    ) -> AppResult<extras::Viewer> {
+        if viewer == Some(owner) {
+            return Ok(extras::Viewer::Owner);
+        }
+        for extension in self.profile_extensions() {
+            if let Some(tie) = extension.audience_tie(viewer, owner, circles).await? {
+                return Ok(extras::Viewer::Audience(tie));
+            }
+        }
+        let tier = match relationship {
+            Some(Relationship::RELATIONSHIP_FRIENDS) => extras::Tier::Friend,
+            _ => extras::Tier::Other,
+        };
+        Ok(extras::Viewer::Audience(extras::AudienceTie { tier, ..Default::default() }))
+    }
+
+    /// Which of `owners` have locked accounts, per every registered domain.
+    pub async fn locked_among(&self, owners: &[Uuid]) -> AppResult<std::collections::HashSet<Uuid>> {
+        let mut locked = std::collections::HashSet::new();
+        if owners.is_empty() {
+            return Ok(locked);
+        }
+        for extension in self.profile_extensions() {
+            locked.extend(extension.locked_among(owners).await?);
+        }
+        Ok(locked)
+    }
+
+    /// The whole プロフ帳 of `user_id`, every field whatever its audience,
+    /// hidden cards included, with the audiences: for a moderator handling a
+    /// report about the account. Not an RPC: the admin domain calls it after
+    /// checking that an open case is about this account and that the
+    /// moderator is not a party to it, and records the look in its audit
+    /// log. Suspended accounts included; `USER_NOT_FOUND` for erased ones.
+    pub async fn extras_for_moderation(&self, user_id: Uuid) -> AppResult<ProfileExtras> {
+        let user = users::get(&self.core, user_id).await?;
+        ensure!(user.deleted_at.is_none(), not_found, "USER_NOT_FOUND", "user not found");
+        Ok(extras::Extras::load(&self.core, user.id, user.birthdate).await?.view(&extras::Viewer::Moderator))
     }
 
     /// Relationship and mutual-friend count of `viewer` to each of
@@ -169,42 +206,14 @@ impl ProfileService for Identity {
             use tokuly_proto::identity::get_profile_request::By;
             let viewer = ctx.maybe_user_id()?;
             let req = request.to_owned_message();
-            let moderating = req.as_moderator;
-            if moderating {
-                let auth = ctx.auth()?;
-                ensure!(
-                    auth.api_token.is_none() && auth.has_role("moderator"),
-                    denied,
-                    "DENIED",
-                    "only moderators see a profile in full"
-                );
-            }
             let user = match req.by {
                 Some(By::UserId(id)) => users::find_by_id(&self.core, parse_id(&id)?).await?,
                 Some(By::Handle(handle)) => users::find_by_handle(&self.core, &handle).await?,
                 None => bail!(invalid, "MISSING_TARGET", "user_id or handle is required"),
             };
-            // Moderators also look at suspended accounts; nobody at erased ones.
-            let user = user
-                .filter(|u| u.is_active() || (moderating && u.deleted_at.is_none()))
-                .or_not_found("USER_NOT_FOUND", "user not found")?;
-            ensure!(moderating || self.can_view(viewer, user.id).await?, not_found, "USER_NOT_FOUND", "user not found");
-            if let (true, Some(moderator)) = (moderating, viewer) {
-                // A moderator's look past the audiences stays on record (in
-                // their own log: the owner is not told about a review).
-                self.log_security_event(
-                    moderator,
-                    "MODERATOR_PROFILE_VIEW",
-                    &ctx.client(),
-                    "",
-                    serde_json::json!({ "user_id": user.id }),
-                )
-                .await;
-            }
-            ok(GetProfileResponse {
-                profile: self.profile_as(&user, viewer, moderating).await?.into(),
-                ..Default::default()
-            })
+            let user = user.filter(|u| u.is_active()).or_not_found("USER_NOT_FOUND", "user not found")?;
+            ensure!(self.can_view(viewer, user.id).await?, not_found, "USER_NOT_FOUND", "user not found");
+            ok(GetProfileResponse { profile: self.profile_of(&user, viewer).await?.into(), ..Default::default() })
         })
         .await
     }
@@ -412,7 +421,7 @@ impl ProfileService for Identity {
                 }
                 Some(category) => category as i32,
             };
-            let suggestions = extras::suggest_tags(&self.core, category, query).await?;
+            let suggestions = self.suggest_tags(category, query).await?;
             ok(SuggestProfileTagsResponse { suggestions, ..Default::default() })
         })
         .await

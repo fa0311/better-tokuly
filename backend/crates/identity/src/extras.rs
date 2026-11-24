@@ -32,7 +32,7 @@ use sqlx::PgConnection;
 use tokuly_core::{events, prelude::*};
 use tokuly_media::assets;
 use tokuly_proto::{
-    common::{LocalizedText, Visibility},
+    common::{AudienceRef, LocalizedText, Visibility},
     identity::*,
     media::AssetPurpose,
 };
@@ -50,23 +50,66 @@ const LONG_BIO_MAX: usize = 2000;
 /// Job that checks an account's links for a link back.
 pub const LINK_CHECK_JOB: &str = "identity.profile.links";
 
-/// What the viewer of a profile is to its owner.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Viewer {
-    Owner,
-    /// A moderator or admin looking at a profile for moderation.
-    Moderator,
+/// How close a viewer is to an owner, as the social graph says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Tier {
     Friend,
+    /// Follows the owner (and is not a friend).
+    Follower,
     /// Anyone else, signed in or not.
+    #[default]
     Other,
 }
 
-/// Whether a field with `visibility` reaches `viewer`.
-pub fn reaches(visibility: i32, viewer: Viewer) -> bool {
-    match viewer {
-        Viewer::Owner | Viewer::Moderator => true,
-        Viewer::Friend => visibility != Visibility::VISIBILITY_PRIVATE as i32,
-        Viewer::Other => visibility == Visibility::VISIBILITY_PUBLIC as i32,
+/// What a viewer is to an owner for the audiences of the プロフ帳: the
+/// tier, whether the owner's account is locked, whether the viewer is in
+/// the owner's close friends, and which of the owner's circles (among those
+/// asked about) the viewer is in. Filled by the profile extensions (the
+/// social domain's audience API, wired by the server).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AudienceTie {
+    pub tier: Tier,
+    pub owner_locked: bool,
+    pub close_friend: bool,
+    pub circles: Vec<Uuid>,
+}
+
+/// What the viewer of a profile is to its owner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Viewer {
+    Owner,
+    /// A moderator reading a reported account (see
+    /// [`crate::Identity::extras_for_moderation`]).
+    Moderator,
+    Audience(AudienceTie),
+}
+
+impl Viewer {
+    /// A stranger (or someone signed out) looking at an unlocked account.
+    pub fn stranger() -> Self {
+        Self::Audience(AudienceTie::default())
+    }
+}
+
+/// Whether something shared with `visibility` (and `circle` for
+/// `VISIBILITY_CIRCLE`) reaches `viewer`, with the meaning of the social
+/// domain's audiences. An allowlist: a value not named here (unset, or one
+/// added later) reaches nobody but the owner.
+pub fn reaches(visibility: i32, circle: Option<Uuid>, viewer: &Viewer) -> bool {
+    use buffa::Enumeration as _;
+    let tie = match viewer {
+        Viewer::Owner | Viewer::Moderator => return true,
+        Viewer::Audience(tie) => tie,
+    };
+    let tied = matches!(tie.tier, Tier::Friend | Tier::Follower);
+    let friend = tie.tier == Tier::Friend;
+    match Visibility::from_i32(visibility) {
+        Some(Visibility::VISIBILITY_PUBLIC) => !tie.owner_locked || tied,
+        Some(Visibility::VISIBILITY_FOLLOWERS) => tied,
+        Some(Visibility::VISIBILITY_FRIENDS) => friend,
+        Some(Visibility::VISIBILITY_CLOSE_FRIENDS) => tied && tie.close_friend,
+        Some(Visibility::VISIBILITY_CIRCLE) => tied && circle.is_some_and(|c| tie.circles.contains(&c)),
+        _ => false,
     }
 }
 
@@ -254,13 +297,30 @@ pub fn validate_theme(theme: &ProfileTheme) -> AppResult<ProfileTheme> {
     Ok(ProfileTheme { color, style: theme.style, ..Default::default() })
 }
 
-/// The audiences offered for profile fields: public, friends, only me.
+/// The audiences offered for profile fields: public, followers, friends,
+/// close friends, only me.
 pub fn check_visibility(value: &buffa::EnumValue<Visibility>, field: &str) -> AppResult<i32> {
+    use Visibility::*;
     match value.as_known() {
-        Some(v @ (Visibility::VISIBILITY_PUBLIC | Visibility::VISIBILITY_FRIENDS | Visibility::VISIBILITY_PRIVATE)) => {
-            Ok(v as i32)
-        }
-        _ => Err(AppError::invalid("VISIBILITY_INVALID", format!("{field} must be public, friends or private"))),
+        Some(
+            v @ (VISIBILITY_PUBLIC
+            | VISIBILITY_FOLLOWERS
+            | VISIBILITY_FRIENDS
+            | VISIBILITY_CLOSE_FRIENDS
+            | VISIBILITY_PRIVATE),
+        ) => Ok(v as i32),
+        _ => Err(AppError::invalid(
+            "VISIBILITY_INVALID",
+            format!("{field} must be public, followers, friends, close friends or private"),
+        )),
+    }
+}
+
+/// A card's audience: one of the field audiences, or one of the owner's circles.
+fn check_card_audience(value: &buffa::EnumValue<Visibility>) -> AppResult<i32> {
+    match value.as_known() {
+        Some(Visibility::VISIBILITY_CIRCLE) => Ok(Visibility::VISIBILITY_CIRCLE as i32),
+        _ => check_visibility(value, "audience"),
     }
 }
 
@@ -390,6 +450,7 @@ struct CardRow {
     question: String,
     answer: String,
     visibility: i32,
+    circle_id: Option<Uuid>,
     hidden: bool,
 }
 
@@ -439,7 +500,7 @@ impl Extras {
         .fetch_all(&core.db)
         .await?;
         let cards = sqlx::query_as(
-            "SELECT id, prompt_id, question, answer, visibility, hidden FROM profile_qa_cards WHERE user_id = $1 ORDER BY position, id",
+            "SELECT id, prompt_id, question, answer, visibility, circle_id, hidden FROM profile_qa_cards WHERE user_id = $1 ORDER BY position, id",
         )
         .bind(user_id)
         .fetch_all(&core.db)
@@ -450,10 +511,18 @@ impl Extras {
     /// The プロフ帳 as `viewer` sees it. The owner and moderators get every
     /// field with its audience and the hidden cards; everyone else only what
     /// reaches them, without the audiences.
-    pub fn view(&self, viewer: Viewer) -> ProfileExtras {
+    /// The circles the cards are shared with, to ask the social graph about.
+    pub fn card_circles(&self) -> Vec<Uuid> {
+        let mut circles: Vec<Uuid> = self.cards.iter().filter_map(|c| c.circle_id).collect();
+        circles.sort_unstable();
+        circles.dedup();
+        circles
+    }
+
+    pub fn view(&self, viewer: &Viewer) -> ProfileExtras {
         let r = &self.row;
         let full = matches!(viewer, Viewer::Owner | Viewer::Moderator);
-        let shows = |visibility: i32| reaches(visibility, viewer);
+        let shows = |visibility: i32| reaches(visibility, None, viewer);
         let mut extras = ProfileExtras {
             theme: serde_json::from_value::<ProfileTheme>(r.theme.clone()).unwrap_or_default().into(),
             ..Default::default()
@@ -516,13 +585,19 @@ impl Extras {
         extras.qa_cards = self
             .cards
             .iter()
-            .filter(|card| full || (!card.hidden && shows(card.visibility)))
+            .filter(|card| full || (!card.hidden && reaches(card.visibility, card.circle_id, viewer)))
             .map(|card| ProfileQaCard {
                 id: card.id.to_string(),
                 prompt_id: card.prompt_id.clone(),
                 question: card_question(&card.prompt_id, &card.question).into(),
                 answer: card.answer.clone(),
-                visibility: if full { card.visibility.into() } else { Visibility::VISIBILITY_UNSPECIFIED.into() },
+                audience: full
+                    .then(|| AudienceRef {
+                        visibility: card.visibility.into(),
+                        circle_id: card.circle_id.map(|c| c.to_string()).unwrap_or_default(),
+                        ..Default::default()
+                    })
+                    .into(),
                 hidden: full && card.hidden,
                 ..Default::default()
             })
@@ -571,6 +646,7 @@ struct CardPlan {
     question: String,
     answer: String,
     visibility: i32,
+    circle_id: Option<Uuid>,
     hidden: bool,
 }
 
@@ -597,12 +673,24 @@ fn plan_card(input: &ProfileQaCardInput) -> AppResult<CardPlan> {
         "CARD_INVALID",
         "the answer contains control characters"
     );
+    let audience = input.audience.as_option().cloned().unwrap_or_default();
+    let circle_id = if audience.visibility.as_known() == Some(Visibility::VISIBILITY_CIRCLE) {
+        // A circle that is not the owner's reaches nobody (the social graph
+        // checks owner and member together), so only the form is checked.
+        Some(
+            parse_id(&audience.circle_id)
+                .map_err(|_| AppError::invalid("CARD_INVALID", "a circle card needs one of your circles"))?,
+        )
+    } else {
+        None
+    };
     Ok(CardPlan {
         id,
         prompt_id,
         question,
         answer,
-        visibility: check_visibility(&input.visibility, "visibility")?,
+        visibility: check_card_audience(&audience.visibility)?,
+        circle_id,
         hidden: input.hidden,
     })
 }
@@ -610,7 +698,7 @@ fn plan_card(input: &ProfileQaCardInput) -> AppResult<CardPlan> {
 impl Identity {
     /// The プロフ帳 of `user_id` for its owner.
     pub async fn own_extras(&self, user_id: Uuid, birthdate: Option<NaiveDate>) -> AppResult<ProfileExtras> {
-        Ok(Extras::load(&self.core, user_id, birthdate).await?.view(Viewer::Owner))
+        Ok(Extras::load(&self.core, user_id, birthdate).await?.view(&Viewer::Owner))
     }
 
     /// `UpdateProfileExtras`: validates everything first (and resolves the
@@ -984,7 +1072,7 @@ async fn replace_cards(tx: &mut PgConnection, user_id: Uuid, cards: &[CardPlan])
         match card.id {
             Some(id) => {
                 sqlx::query(
-                    "UPDATE profile_qa_cards SET position = $2, prompt_id = $3, question = $4, answer = $5, visibility = $6, hidden = $7
+                    "UPDATE profile_qa_cards SET position = $2, prompt_id = $3, question = $4, answer = $5, visibility = $6, hidden = $7, circle_id = $8
                      WHERE id = $1",
                 )
                 .bind(id)
@@ -994,13 +1082,14 @@ async fn replace_cards(tx: &mut PgConnection, user_id: Uuid, cards: &[CardPlan])
                 .bind(&card.answer)
                 .bind(card.visibility)
                 .bind(card.hidden)
+                .bind(card.circle_id)
                 .execute(&mut *tx)
                 .await?;
             }
             None => {
                 sqlx::query(
-                    "INSERT INTO profile_qa_cards (user_id, position, prompt_id, question, answer, visibility, hidden)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                    "INSERT INTO profile_qa_cards (user_id, position, prompt_id, question, answer, visibility, hidden, circle_id)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
                 )
                 .bind(user_id)
                 .bind(position as i32)
@@ -1009,6 +1098,7 @@ async fn replace_cards(tx: &mut PgConnection, user_id: Uuid, cards: &[CardPlan])
                 .bind(&card.answer)
                 .bind(card.visibility)
                 .bind(card.hidden)
+                .bind(card.circle_id)
                 .execute(&mut *tx)
                 .await?;
             }
@@ -1049,8 +1139,16 @@ pub struct ProfileSearchTerms {
 }
 
 /// [`ProfileSearchTerms`] for many accounts at once (for the search
-/// domain's user documents). Accounts with nothing public are absent.
-pub async fn search_terms(core: &Core, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, ProfileSearchTerms>> {
+/// domain's user documents). Accounts with nothing public are absent, and so
+/// are the `locked` ones (the caller asks the social graph which those are).
+pub async fn search_terms(
+    core: &Core,
+    user_ids: &[Uuid],
+    locked: &HashSet<Uuid>,
+) -> AppResult<HashMap<Uuid, ProfileSearchTerms>> {
+    // A locked account's public fields reach only its followers and friends.
+    let user_ids: Vec<Uuid> = user_ids.iter().copied().filter(|id| !locked.contains(id)).collect();
+    let user_ids = user_ids.as_slice();
     if user_ids.is_empty() {
         return Ok(HashMap::new());
     }
@@ -1083,28 +1181,64 @@ pub async fn search_terms(core: &Core, user_ids: &[Uuid]) -> AppResult<HashMap<U
     Ok(terms)
 }
 
-/// Favourite things people show publicly in `category`, by how many show
-/// them, beginning with `query` (folded like [`tag_key`]). Suspended,
-/// deleted and bot accounts do not count.
-pub(crate) async fn suggest_tags(core: &Core, category: i32, query: &str) -> AppResult<Vec<TagSuggestion>> {
-    let key = tag_key(query);
-    let pattern = format!("{}%", key.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
-    let rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT mode() WITHIN GROUP (ORDER BY t.name), count(*) FROM profile_tags t
-         JOIN profile_extras e ON e.user_id = t.user_id AND e.tags_visibility = $3
-         JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL AND u.banned_at IS NULL AND NOT u.bot
-         WHERE t.category = $1 AND t.name_key LIKE $2
-         GROUP BY t.name_key ORDER BY count(*) DESC, t.name_key LIMIT 20",
-    )
-    .bind(category)
-    .bind(pattern)
-    .bind(Visibility::VISIBILITY_PUBLIC as i32)
-    .fetch_all(&core.db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(name, count)| TagSuggestion { name, count: count as i32, ..Default::default() })
-        .collect())
+/// How many people must show a tag publicly before it is suggested: a tag
+/// only one person uses would point at them.
+pub const TAG_SUGGESTION_MIN_PEOPLE: usize = 5;
+
+impl Identity {
+    /// Favourite things people show publicly in `category`, by how many show
+    /// them, beginning with `query` (folded like [`tag_key`]). Only tags at
+    /// least [`TAG_SUGGESTION_MIN_PEOPLE`] people show; suspended, deleted,
+    /// bot and locked accounts do not count.
+    pub(crate) async fn suggest_tags(&self, category: i32, query: &str) -> AppResult<Vec<TagSuggestion>> {
+        let key = tag_key(query);
+        let pattern = format!("{}%", key.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+        // The candidates (bounded), then who counts among them.
+        let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT t.user_id, t.name_key, t.name FROM profile_tags t
+             JOIN profile_extras e ON e.user_id = t.user_id AND e.tags_visibility = $3
+             JOIN users u ON u.id = t.user_id AND u.deleted_at IS NULL AND u.banned_at IS NULL AND NOT u.bot
+             WHERE t.category = $1 AND t.name_key LIKE $2
+             ORDER BY t.name_key LIMIT 20000",
+        )
+        .bind(category)
+        .bind(pattern)
+        .bind(Visibility::VISIBILITY_PUBLIC as i32)
+        .fetch_all(&self.core.db)
+        .await?;
+        let mut owners: Vec<Uuid> = rows.iter().map(|(user, _, _)| *user).collect();
+        owners.sort_unstable();
+        owners.dedup();
+        let locked = self.locked_among(&owners).await?;
+        let mut by_key: HashMap<String, (HashSet<Uuid>, HashMap<String, usize>)> = HashMap::new();
+        for (user, key, name) in rows {
+            if locked.contains(&user) {
+                continue;
+            }
+            let entry = by_key.entry(key).or_default();
+            entry.0.insert(user);
+            *entry.1.entry(name).or_default() += 1;
+        }
+        let mut suggestions: Vec<(usize, String, String)> = by_key
+            .into_iter()
+            .filter(|(_, (people, _))| people.len() >= TAG_SUGGESTION_MIN_PEOPLE)
+            .map(|(key, (people, spellings))| {
+                // The spelling most of them use.
+                let name = spellings
+                    .into_iter()
+                    .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+                    .map(|(name, _)| name)
+                    .unwrap_or_default();
+                (people.len(), key, name)
+            })
+            .collect();
+        suggestions.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        Ok(suggestions
+            .into_iter()
+            .take(20)
+            .map(|(count, _, name)| TagSuggestion { name, count: count as i32, ..Default::default() })
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -1147,18 +1281,47 @@ mod tests {
 
     #[test]
     fn audiences_reach_the_right_people() {
-        let (public, friends, private) = (
-            Visibility::VISIBILITY_PUBLIC as i32,
-            Visibility::VISIBILITY_FRIENDS as i32,
-            Visibility::VISIBILITY_PRIVATE as i32,
-        );
-        assert!(reaches(public, Viewer::Other));
-        assert!(!reaches(friends, Viewer::Other) && reaches(friends, Viewer::Friend));
+        use Visibility::*;
+        let v = |x: Visibility| x as i32;
+        let tie = |tier: Tier, locked: bool| {
+            Viewer::Audience(AudienceTie { tier, owner_locked: locked, ..Default::default() })
+        };
+        let (stranger, follower, friend) =
+            (tie(Tier::Other, false), tie(Tier::Follower, false), tie(Tier::Friend, false));
+        assert!(reaches(v(VISIBILITY_PUBLIC), None, &stranger));
         assert!(
-            !reaches(private, Viewer::Friend) && reaches(private, Viewer::Owner) && reaches(private, Viewer::Moderator)
+            !reaches(v(VISIBILITY_FOLLOWERS), None, &stranger) && reaches(v(VISIBILITY_FOLLOWERS), None, &follower)
         );
-        // An unknown value reaches nobody but the owner.
-        assert!(!reaches(99, Viewer::Other));
+        assert!(reaches(v(VISIBILITY_FOLLOWERS), None, &friend), "friends are inside followers");
+        assert!(!reaches(v(VISIBILITY_FRIENDS), None, &follower) && reaches(v(VISIBILITY_FRIENDS), None, &friend));
+        assert!(!reaches(v(VISIBILITY_PRIVATE), None, &friend));
+        assert!(
+            reaches(v(VISIBILITY_PRIVATE), None, &Viewer::Owner)
+                && reaches(v(VISIBILITY_PRIVATE), None, &Viewer::Moderator)
+        );
+        // A locked account's public parts reach followers and friends only.
+        assert!(!reaches(v(VISIBILITY_PUBLIC), None, &tie(Tier::Other, true)));
+        assert!(reaches(v(VISIBILITY_PUBLIC), None, &tie(Tier::Follower, true)));
+        // Close friends and circles: tied, and in them.
+        let circle = Uuid::now_v7();
+        let close = Viewer::Audience(AudienceTie {
+            tier: Tier::Follower,
+            close_friend: true,
+            circles: vec![circle],
+            ..Default::default()
+        });
+        assert!(
+            reaches(v(VISIBILITY_CLOSE_FRIENDS), None, &close) && !reaches(v(VISIBILITY_CLOSE_FRIENDS), None, &friend)
+        );
+        assert!(reaches(v(VISIBILITY_CIRCLE), Some(circle), &close));
+        assert!(!reaches(v(VISIBILITY_CIRCLE), Some(Uuid::now_v7()), &close));
+        assert!(!reaches(v(VISIBILITY_CIRCLE), None, &close));
+        let untied = Viewer::Audience(AudienceTie { close_friend: true, circles: vec![circle], ..Default::default() });
+        assert!(!reaches(v(VISIBILITY_CIRCLE), Some(circle), &untied), "a circle needs a tie that still holds");
+        // Anything not on the list reaches nobody but the owner.
+        for unlisted in [0, v(VISIBILITY_NO_FEED), v(VISIBILITY_UNLISTED), 99] {
+            assert!(!reaches(unlisted, None, &friend), "{unlisted}");
+        }
     }
 
     #[test]
@@ -1187,6 +1350,7 @@ mod tests {
             question: String::new(),
             answer: "ラーメン".into(),
             visibility: visibility as i32,
+            circle_id: None,
             hidden,
         };
         let extras = Extras {
@@ -1204,15 +1368,15 @@ mod tests {
             birthdate: NaiveDate::from_ymd_opt(2008, 7, 7),
             ..Default::default()
         };
-        let other = extras.view(Viewer::Other);
+        let other = extras.view(&Viewer::stranger());
         assert_eq!(other.qa_cards.len(), 1);
         assert_eq!(other.mbti, "");
         assert_eq!(other.zodiac, Zodiac::ZODIAC_UNSPECIFIED, "the zodiac starts private");
         assert!(other.visibility.as_option().is_none());
-        let friend = extras.view(Viewer::Friend);
+        let friend = extras.view(&Viewer::Audience(AudienceTie { tier: Tier::Friend, ..Default::default() }));
         assert_eq!(friend.qa_cards.len(), 2);
         assert_eq!(friend.mbti, "ENFP");
-        let owner = extras.view(Viewer::Owner);
+        let owner = extras.view(&Viewer::Owner);
         assert_eq!(owner.qa_cards.len(), 4);
         assert_eq!(owner.zodiac, Zodiac::ZODIAC_CANCER);
         assert!(owner.qa_cards[3].hidden);

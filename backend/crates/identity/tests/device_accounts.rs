@@ -397,3 +397,30 @@ async fn concurrent_switches_settle_on_one_active_account() {
     .unwrap();
     assert_eq!(parked_now, 1, "the target ends up active");
 }
+
+#[tokio::test]
+async fn a_shared_computer_signs_every_account_out_at_once() {
+    let ext = start(IdentityConfig::default()).await;
+    let mut browser = Browser::new(&ext);
+    let first = browser.call("tokuly.identity.v1.AuthService/SignUp", None, sign_up_json(&unique("sa"), false)).await;
+    let first_id = user_id(&first.body);
+    let second = browser.call("tokuly.identity.v1.AuthService/SignUp", None, sign_up_json(&unique("sb"), true)).await;
+    let token = second.body["accessToken"].as_str().unwrap().to_owned();
+    let out = browser
+        .call("tokuly.identity.v1.AuthService/SignOut", Some(&token), json!({ "allAccountsOnDevice": true }))
+        .await;
+    assert_eq!(out.status, 200, "{}", out.reason);
+    assert_eq!(out.cookie("tokuly_rt").as_deref(), Some(""));
+    assert_eq!(out.cookie("tokuly_ra").as_deref(), Some(""));
+    let live: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM sessions WHERE user_id IN ($1::uuid, $2::uuid) AND revoked_at IS NULL",
+    )
+    .bind(&first_id)
+    .bind(user_id(&second.body))
+    .fetch_one(&ext.app.core.db)
+    .await
+    .unwrap();
+    assert_eq!(live, 0, "the parked account is signed out too");
+    let listed = browser.call("tokuly.identity.v1.AuthService/ListDeviceAccounts", None, json!({})).await;
+    assert!(listed.body["accounts"].as_array().is_none_or(|a| a.is_empty()));
+}

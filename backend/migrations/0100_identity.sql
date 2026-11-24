@@ -202,7 +202,7 @@ CREATE INDEX data_exports_user ON data_exports (user_id, id DESC);
 
 -- The single-valued fields of the プロフ帳, one row per account that filled
 -- any of it. `*_visibility` are tokuly.common.v1.Visibility values (public 1,
--- friends 4, private 5) of the field next to them.
+-- friends 4, private 5, followers 6, close friends 7) of the field next to them.
 CREATE TABLE profile_extras (
     user_id                uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
     mbti                   text        NOT NULL DEFAULT '',
@@ -285,7 +285,10 @@ CREATE TABLE profile_qa_cards (
     prompt_id  text        NOT NULL DEFAULT '',
     question   text        NOT NULL DEFAULT '',
     answer     text        NOT NULL,
+    -- tokuly.common.v1.Visibility; with VISIBILITY_CIRCLE (8), `circle_id`
+    -- names one of the owner's circles (social domain; no foreign key).
     visibility integer     NOT NULL DEFAULT 1,
+    circle_id  uuid,
     hidden     boolean     NOT NULL DEFAULT false,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()

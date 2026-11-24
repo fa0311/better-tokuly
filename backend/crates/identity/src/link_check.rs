@@ -6,7 +6,9 @@
 //! The check runs in the background (job [`crate::extras::LINK_CHECK_JOB`]),
 //! after links change, when the handle changes (the profile URL moves with
 //! it), on request (`RecheckProfileLinks`) and again for every link a week
-//! after its last check. Pages are fetched through media's guarded fetcher
+//! after its last check. At most 20 new links per account and day are
+//! checked (more wait for the next day) and at most two pages are fetched
+//! from one host at once. Pages are fetched through media's guarded fetcher
 //! (`tokuly_core::egress` underneath): public addresses only, every redirect
 //! hop checked, at most 512 KiB read, five seconds per page.
 use std::time::Duration;
@@ -20,6 +22,10 @@ use crate::Identity;
 
 /// What a page may weigh before the rest is ignored.
 const MAX_PAGE_BYTES: usize = 512 * 1024;
+/// New links checked per account and day; more wait for the next day.
+pub const NEW_LINK_CHECKS_PER_DAY: u32 = 20;
+/// Pages fetched from one host at once, per process.
+pub const PER_HOST_FETCHES: usize = 2;
 /// A checked link is checked again after this long.
 const RECHECK_AFTER_DAYS: i32 = 7;
 
@@ -85,9 +91,10 @@ impl Identity {
         let Some(user) = crate::users::find_by_id(&self.core, user_id).await?.filter(|u| u.is_active()) else {
             return Ok(0);
         };
-        let due: Vec<(Uuid, String)> = sqlx::query_as(
-            "SELECT id, url FROM profile_links
-             WHERE user_id = $1 AND (checked_at IS NULL OR checked_at < now() - make_interval(days => $2))",
+        let due: Vec<(Uuid, String, bool)> = sqlx::query_as(
+            "SELECT id, url, checked_at IS NULL FROM profile_links
+             WHERE user_id = $1 AND (checked_at IS NULL OR checked_at < now() - make_interval(days => $2))
+             ORDER BY position",
         )
         .bind(user_id)
         .bind(RECHECK_AFTER_DAYS)
@@ -96,9 +103,30 @@ impl Identity {
         let policy = self.link_policy();
         let client =
             fetch::guarded_client(policy, "TokulyBot/1.0 (+profile link check)").map_err(AppError::internal)?;
-        for (link_id, url) in &due {
+        let mut checked = 0;
+        for (link_id, url, new) in &due {
+            // Saving links again and again must not make the server fetch
+            // pages without end: new links get a daily budget per account;
+            // the rest wait for the sweep (the next day).
+            if *new
+                && self
+                    .core
+                    .cache
+                    .rate_limit(
+                        &format!("link-check-new:{user_id}"),
+                        NEW_LINK_CHECKS_PER_DAY,
+                        Duration::from_secs(24 * 3600),
+                    )
+                    .await
+                    .is_err()
+            {
+                tracing::debug!(%user_id, "daily budget of new link checks used up");
+                break;
+            }
             let verified = match Url::parse(url) {
                 Ok(url) => {
+                    // Few requests at a time to any one site, whoever's links point there.
+                    let _slot = self.link_host_slot(url.host_str().unwrap_or_default()).await;
                     match fetch::fetch_limited(&client, policy, url, "text/html,application/xhtml+xml", MAX_PAGE_BYTES)
                         .await
                     {
@@ -127,8 +155,9 @@ impl Identity {
             .bind(verified)
             .execute(&self.core.db)
             .await?;
+            checked += 1;
         }
-        Ok(due.len())
+        Ok(checked)
     }
 
     /// The handle changed: the profile URL moved, so every link must link
@@ -157,6 +186,23 @@ impl Identity {
             self.enqueue_link_check(*user_id).await;
         }
         Ok(due.len())
+    }
+
+    /// A slot for fetching from `host`: at most [`PER_HOST_FETCHES`] at once
+    /// in this process (each worker process keeps its own count).
+    async fn link_host_slot(&self, host: &str) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        let semaphore = {
+            let mut hosts = self.link_hosts.lock();
+            // Idle hosts are dropped now and then, so the map stays small.
+            if hosts.len() > 1024 {
+                hosts.retain(|_, s| s.available_permits() < PER_HOST_FETCHES);
+            }
+            hosts
+                .entry(host.to_ascii_lowercase())
+                .or_insert_with(|| std::sync::Arc::new(tokio::sync::Semaphore::new(PER_HOST_FETCHES)))
+                .clone()
+        };
+        semaphore.acquire_owned().await.ok()
     }
 
     fn link_policy(&self) -> tokuly_core::egress::Policy {

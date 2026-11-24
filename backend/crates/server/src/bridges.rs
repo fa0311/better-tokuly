@@ -28,6 +28,7 @@ use crate::app::Domains;
 
 /// Connects the domains to each other. Called once, after all of them exist.
 pub fn connect(core: &Core, domains: &Domains) {
+    domains.identity.add_profile_extension(Arc::new(AudienceForProfiles { core: core.clone() }));
     domains.video.set_party_stamps(Arc::new(StampsInParties { core: core.clone() }));
     domains.engagement.set_channel_directory(Arc::new(ChannelsForComments { core: core.clone() }));
     domains.quest.set_direct_chats(Arc::new(DirectChatsForStreaks { core: core.clone() }));
@@ -216,5 +217,48 @@ impl ReportedSubjects for ReportedForModerators {
         subject_id: Uuid,
     ) -> AppResult<Option<SubjectInfo>> {
         self.engagement.resolve_reported_subject(staff_id, subject_type, subject_id).await
+    }
+}
+
+/// The social domain's audiences (followers, locked accounts, close
+/// friends, circles) for the プロフ帳 of identity, which cannot depend on
+/// the social domain.
+struct AudienceForProfiles {
+    core: Core,
+}
+
+#[async_trait]
+impl tokuly_identity::ProfileExtension for AudienceForProfiles {
+    async fn audience_tie(
+        &self,
+        viewer: Option<Uuid>,
+        owner: Uuid,
+        circles: &[Uuid],
+    ) -> AppResult<Option<tokuly_identity::extras::AudienceTie>> {
+        use tokuly_identity::extras::{AudienceTie, Tier};
+        use tokuly_social::graph;
+        let owner_locked = graph::locked_among(&self.core, &[owner]).await?.contains(&owner);
+        let Some(viewer) = viewer else {
+            return Ok(Some(AudienceTie { owner_locked, ..Default::default() }));
+        };
+        let tier = if graph::are_friends(&self.core, owner, viewer).await? {
+            Tier::Friend
+        } else if graph::follows(&self.core, viewer, owner).await? {
+            Tier::Follower
+        } else {
+            Tier::Other
+        };
+        let close_friend = graph::is_close_friend(&self.core, owner, viewer).await?;
+        let mut member_of = Vec::new();
+        for circle in circles {
+            if graph::may_see(&self.core, owner, Some(viewer), graph::ContentAudience::Circle(*circle)).await? {
+                member_of.push(*circle);
+            }
+        }
+        Ok(Some(AudienceTie { tier, owner_locked, close_friend, circles: member_of }))
+    }
+
+    async fn locked_among(&self, owners: &[Uuid]) -> AppResult<std::collections::HashSet<Uuid>> {
+        tokuly_social::graph::locked_among(&self.core, owners).await
     }
 }
