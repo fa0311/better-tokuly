@@ -80,6 +80,44 @@ async fn a_burst_of_suspensions_from_one_moderator_does_not_starve_the_pool() {
 }
 
 #[tokio::test]
+async fn a_suspension_waiting_for_one_account_does_not_hold_up_the_others() {
+    let (app, _admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (stuck, other) = (app.user("stuck").await, app.user("other").await);
+    let suspend = |target: uuid::Uuid| {
+        let request = SuspendUserRequest {
+            user_id: target.to_string(),
+            reason: "スパム".into(),
+            suspension_seconds: 86_400,
+            ..Default::default()
+        };
+        let (app, moderator) = (&app, &moderator);
+        async move { app.call::<_, SuspendUserResponse>(&format!("{USERS}/SuspendUser"), Some(moderator), &request).await }
+    };
+    // Something else holds the sanction lock of one account for a while
+    // (another moderator's request, the expiry worker).
+    let mut holder = app.core.db.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(1600, hashtext($1))")
+        .bind(stuck.id.to_string())
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+
+    let (waited, meanwhile) = tokio::join!(suspend(stuck.id), async {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        // Sanctions of other accounts go through in the meantime: nothing
+        // makes them queue behind the one that waits.
+        let meanwhile = tokio::time::timeout(Duration::from_secs(5), suspend(other.id)).await;
+        holder.rollback().await.unwrap();
+        meanwhile
+    });
+    let meanwhile = meanwhile.expect("the other suspension waited for an unrelated account's lock");
+    assert!(meanwhile.is_ok(), "{meanwhile:?}");
+    assert!(waited.is_ok(), "{waited:?}");
+    assert!(is_banned(&app, other.id).await && is_banned(&app, stuck.id).await);
+}
+
+#[tokio::test]
 async fn two_admins_demoting_each_other_at_once_leave_one_of_them_admin() {
     let (app, _admin) = start().await;
     for round in 0..5 {

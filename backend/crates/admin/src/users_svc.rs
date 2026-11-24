@@ -86,12 +86,10 @@ impl UserAdminService for Admin {
             let target = self.target(parse_id(request.user_id)?).await?;
             Self::check_may_sanction(&staff, &target)?;
             self.limit_sanctions(&staff).await?;
-            let slot = self.identity_slot().await?;
             let mut tx = self.core.db.begin().await?;
             let action = self.suspend(&mut tx, &staff, &target, Sanction { reason: &reason, note: &note, case: None }, expires_at).await?;
             tx.commit().await?;
-            drop(slot);
-            self.mail_suspension(&target, &reason, expires_at);
+            self.after_suspension(&target, &reason, expires_at).await;
             ok(SuspendUserResponse {
                 user: self.admin_user(target.id).await?.into(),
                 action: self.action_to_proto(&action).await?.into(),
@@ -150,7 +148,6 @@ impl UserAdminService for Admin {
             // caller still is an admin: the role travels in access tokens, so
             // two admins demoting each other at once would otherwise both
             // succeed and leave nobody to manage the deployment.
-            let slot = self.identity_slot().await?;
             let mut tx = self.core.db.begin().await?;
             lock_admin_roles(&mut tx).await?;
             let still_admin: bool = sqlx::query_scalar(
@@ -161,7 +158,7 @@ impl UserAdminService for Admin {
             .await?;
             ensure!(still_admin, denied, "FORBIDDEN", "requires role admin");
             let target = Target::load(&mut *tx, target_id).await?;
-            self.identity.set_roles(target.id, &roles).await?;
+            tokuly_identity::moderation::set_roles_on(&mut tx, target.id, &roles).await?;
             Audit::by(&staff, "user.roles_changed")
                 .user(target.id)
                 .reason(note)
@@ -170,7 +167,6 @@ impl UserAdminService for Admin {
                 .record(&mut *tx)
                 .await?;
             tx.commit().await?;
-            drop(slot);
             // Roles travel inside access tokens. A removed role must stop
             // working now, not when the token expires, so the account is
             // signed out. (Not for the caller: they keep `admin`, which

@@ -18,7 +18,7 @@ pub mod config;
 mod connections;
 mod mailer;
 pub mod maintenance;
-mod moderation;
+pub mod moderation;
 mod passkeys;
 pub mod password;
 mod profile_svc;

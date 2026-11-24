@@ -18,7 +18,7 @@ engagement ── engagement.report.created ──▶ consumer "admin"
                          moderator: ModerationService.ResolveCase
           ┌───────────────┬──────────────────┬──────────────────┬─────────────────┐
        DISMISS      REMOVE_CONTENT          WARN            SUSPEND / BAN
-          │      admin.content.removed   system.warning   Identity::set_banned
+          │      admin.content.removed   system.warning   set_banned_on
           │      system.content_removed  (to the owner)   + user_suspensions row
           │      (to the owner)                            + email to the owner
           └───────────────┴──────────────────┴──────────────────┴─────────────────┘
@@ -117,8 +117,10 @@ any more. A takedown still deletes the uploads (media drops the holds of what it
 deletes on a domain's authority).
 
 Everything a resolution does (case update, events, notifications, both logs)
-commits in one transaction. The account lock itself is committed by identity
-(`set_banned`) just before; see `sanctions.rs` for why that order is safe.
+commits in one transaction, and so does a suspension's account lock
+(`tokuly_identity::moderation::set_banned_on`, on admin's transaction):
+nothing in it asks the pool for a second connection. The account is signed
+out once that transaction has committed.
 
 ## Events emitted
 
