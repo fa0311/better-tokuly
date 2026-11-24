@@ -21,8 +21,11 @@ pub struct Page {
     pub url: Url,
     /// The `Content-Type` header, lowercased.
     pub content_type: String,
-    /// At most [`MAX_BODY_BYTES`]; longer bodies are cut off.
+    /// At most the limit of the fetch ([`MAX_BODY_BYTES`] for pages);
+    /// longer bodies are cut off.
     pub body: bytes::Bytes,
+    /// Whether the body was longer than the limit (and was cut off).
+    pub truncated: bool,
 }
 
 #[derive(Debug)]
@@ -73,15 +76,22 @@ fn network_error(error: reqwest::Error) -> FetchError {
     }
 }
 
-/// GETs `url`, following up to [`MAX_REDIRECTS`] checked redirects.
+/// GETs `url`, following up to [`MAX_REDIRECTS`] checked redirects, and
+/// reads at most [`MAX_BODY_BYTES`] of the answer.
 pub async fn fetch(client: &reqwest::Client, policy: Policy, url: Url, accept: &str) -> Result<Page, FetchError> {
-    match tokio::time::timeout(TOTAL_TIMEOUT, fetch_unbounded(client, policy, url, accept)).await {
+    fetch_limited(client, policy, url, accept, MAX_BODY_BYTES).await
+}
+
+/// [`fetch`] with another body limit: at most `max_bytes` are kept, and
+/// [`Page::truncated`] says whether there was more.
+pub async fn fetch_limited(client: &reqwest::Client, policy: Policy, url: Url, accept: &str, max_bytes: usize) -> Result<Page, FetchError> {
+    match tokio::time::timeout(TOTAL_TIMEOUT, fetch_unbounded(client, policy, url, accept, max_bytes)).await {
         Ok(result) => result,
         Err(_) => Err(FetchError::Timeout),
     }
 }
 
-async fn fetch_unbounded(client: &reqwest::Client, policy: Policy, mut url: Url, accept: &str) -> Result<Page, FetchError> {
+async fn fetch_unbounded(client: &reqwest::Client, policy: Policy, mut url: Url, accept: &str, max_bytes: usize) -> Result<Page, FetchError> {
     for _hop in 0..=MAX_REDIRECTS {
         check_url(&url, policy).map_err(FetchError::Refused)?;
         let mut response = client
@@ -109,8 +119,12 @@ async fn fetch_unbounded(client: &reqwest::Client, policy: Policy, mut url: Url,
 
         let content_type =
             response.headers().get(header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).unwrap_or_default().to_ascii_lowercase();
-        let body = egress::read_capped(&mut response, MAX_BODY_BYTES).await.map_err(network_error)?;
-        return Ok(Page { url, content_type, body });
+        // One byte more than the limit tells a body of exactly the limit
+        // from a longer one.
+        let mut body = egress::read_capped(&mut response, max_bytes.saturating_add(1)).await.map_err(network_error)?;
+        let truncated = body.len() > max_bytes;
+        body.truncate(max_bytes);
+        return Ok(Page { url, content_type, body, truncated });
     }
     Err(FetchError::TooManyRedirects)
 }

@@ -91,7 +91,7 @@ uploads unfinished after `TOKULY_MEDIA_UPLOAD_TTL_HOURS`, removes unheld
 FAILED assets after 7 days, deletes READY assets that nothing has held for
 `TOKULY_MEDIA_UNATTACHED_TTL_HOURS`, purges objects of deleted assets,
 re-queues PROCESSING assets whose worker died, drops link preview cache rows
-older than 30 days.
+older than 30 days and cached preview pictures older than a day.
 
 ## Link previews of this instance
 
@@ -104,6 +104,52 @@ and shown to everyone in the conversation: the client asks the owning
 domain with the viewer's own permissions, so a hidden community, a private
 note or a friends-only video previews as a plain link to whoever may not
 read it.
+
+## Pictures of link previews
+
+A preview's picture and site icon (`LinkPreview.image_url`,
+`favicon_url`) are never the other site's addresses: every preview handed
+out (`GetLinkPreview`, `tokuly_media::link_preview`, so also what chat and
+notes store) points them at this instance,
+
+```
+{TOKULY_PUBLIC_URL}{TOKULY_API_PATH_PREFIX}/media/link-image/{image|icon}/{signature}/{base64url of the URL}
+```
+
+and the API fetches them on the viewer's behalf (`Media::http_routes`,
+`link_preview::image_proxy`). Viewing a preview therefore tells the linked
+site nothing about who looked. The route:
+
+- answers only URLs the server signed (an HMAC of kind and URL under
+  `TOKULY_SECRET`): it is not an open proxy; anything else is a 404;
+- fetches through the egress guard of `tokuly_core::egress` (no private or
+  internal addresses, every redirect hop checked), 5 s at most, 8 MB at most;
+- bounds what a miss costs: 4 downloads at once per API process (taken
+  before anything is downloaded; a miss that finds them all busy is answered
+  `503`, `Cache-Control: no-store`, `Retry-After: 60`, and nothing is
+  remembered), 2 decodes of those at once, 60 picture fetches a minute per
+  site (a budget of its own, so viewers' misses do not starve page
+  previews), and 120 misses a minute per client address (per /64 for IPv6;
+  cache hits are free);
+- serves only raster images (JPEG, PNG, WebP, GIF's first frame, ICO; never
+  SVG), decoded within 16 megapixels and re-encoded as WebP at most 1200 px
+  (pictures) or 128 px (icons) on the longest edge, so nothing of the file
+  itself reaches the viewer;
+- keeps the result for 24 hours ("nothing to show" for 30 minutes): the WebP
+  in the private bucket as `link-images/<image|icon>/<sha256 of the URL>.webp`,
+  a row in `link_preview_images`; the janitor removes expired rows with their
+  objects. Responses carry `Cache-Control: public, max-age=86400`.
+
+A picture on this instance's own media origin (`TOKULY_MEDIA_URL`) is never
+proxied: the preview keeps its URL, so the picture ends the moment the file
+is deleted or taken down (a proxied copy would outlive it by a day). Any
+other URL of this instance is dropped, and the route refuses both even when
+signed.
+
+Clients show a preview picture only when it is a proxy URL or one of this
+instance's own `/media/` files (the web app's `linkPreviewImage`; a separate
+media origin is not recognised there, so such pictures are not shown);
+previews stored before the proxy existed show without one.
 
 ## Configuration (`MediaConfig`)
 
@@ -153,7 +199,7 @@ upload URL (valid for an hour) cannot replace a finished file. What a late
 PUT leaves under the upload key is removed by the janitor once the URL has
 expired.
 
-Media bucket (public, `Cache-Control: public, max-age=31536000, immutable`):
+Media bucket (public, `Cache-Control: public, max-age=300, s-maxage=0, must-revalidate`; see "Caches and CDNs"):
 
 ```
 img/{asset_id}/{size}-{hash}.webp          image variants (2048/1024/512/256/96 px longest edge, never upscaled)
@@ -188,3 +234,53 @@ nothing to do client-side). Presigned URLs are signed for
 bucket is served through the edge at `TOKULY_MEDIA_URL`; players need CORS
 `GET` there too when the app and media origins differ (HLS via MSE, WebVTT
 tracks).
+
+## Caches and CDNs
+
+Keys in the media bucket never change their content, but any of them can
+be **removed**: the owner deletes the asset, a moderator takes it down, the
+janitor collects it. A removed object must stop being served at once, so
+nothing may be cached as immutable:
+
+- `assets::delete` commits the deletion, then purges the objects straight
+  away, public renditions first (the janitor retries within five minutes if
+  the object store fails). From then on the bucket answers `404`.
+- The edge (`infra/caddy/Caddyfile`) serves `/media/*` with
+  `Cache-Control: public, max-age=300, s-maxage=0, must-revalidate`,
+  replacing what an object was stored with (objects are stored with the same
+  value, `store::PUBLIC_CACHE`; a test keeps the two equal). Shared caches
+  must ask the edge on every request; for an unchanged object that is a
+  conditional request answered `304` without a body. Browsers keep their
+  copy for at most five minutes. So with the stack as shipped, a deleted
+  object is gone for everyone who has not already loaded it, at once.
+- The edge also tags every object of an asset with
+  `Cache-Tag: asset-<asset_id>` and `Surrogate-Key: asset-<asset_id>`.
+
+### A CDN in front of a self-hosted instance
+
+A CDN that honours the headers above needs nothing else (it revalidates
+every request, which still saves the transfer). A CDN configured to cache
+`/media/*` for longer than that — an "edge TTL" override, "cache
+everything", ignoring `s-maxage` — keeps serving removed media, which turns
+every takedown into a no-op. Such a deployment **must purge on deletion**:
+
+1. Consume `media.asset.deleted` from the `EVENTS` JetStream stream (NATS
+   subject `evt.media.asset.deleted`, prefixed with `TOKULY_NATS_PREFIX.`
+   when that is set) with a durable consumer of its own, so no deletion is
+   missed while the hook is down. The payload's `asset_id` is all it needs.
+2. Purge everything of that asset: by tag `asset-<asset_id>` where the CDN
+   supports tags, otherwise by prefix (or every URL) under
+   `{TOKULY_MEDIA_URL}/img/<asset_id>/`, `/anim/<asset_id>/`,
+   `/video/<asset_id>/`, `/audio/<asset_id>/` and `/file/<asset_id>/`.
+3. Acknowledge the event only after the CDN confirmed the purge; events
+   arrive at least once, and purging twice is harmless.
+
+The same holds when `TOKULY_MEDIA_URL` points at a CDN that pulls straight
+from the bucket instead of through the edge: that CDN must apply the
+`Cache-Control` above (objects stored before this change carry the old
+one-year `immutable` value) or purge as described.
+
+Other domains write a few objects of their own to the media bucket
+(subtitles under `subtitles/<video_id>/`, official stamp art under
+`stamps/official/`). They get the same edge headers; their removal is
+announced by those domains' own events, not by `media.asset.deleted`.

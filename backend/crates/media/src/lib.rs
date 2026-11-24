@@ -13,12 +13,13 @@
 //!                      process::{image, animation, video, audio, file}
 //!                              │ renditions
 //!                              ▼
-//!                      object store (media bucket, public, immutable)
+//!                      object store (media bucket, public, revalidated)
 //! ```
 //!
 //! What other domains use:
 //! - [`assets`] to resolve asset IDs received from clients ([`assets::require_ready`]…);
-//! - [`link_preview`] for link metadata in messages and notes;
+//! - [`link_preview`] for link metadata in messages and notes (its pictures
+//!   are served by [`Media::http_routes`]);
 //! - [`create_asset_from_file`] for media the server produces itself;
 //! - [`events`] for the payload of `media.asset.*` events.
 use std::{ops::Deref, sync::Arc, time::Duration};
@@ -97,6 +98,13 @@ impl Media {
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
         use tokuly_proto::media::MediaServiceExt;
         MediaServiceExt::register(Arc::new(self.clone()), router)
+    }
+
+    /// The plain HTTP routes of this domain: the pictures of link previews
+    /// (`link_preview::image_proxy`). Mount them inside the auth layer, which
+    /// tells them the client's address.
+    pub fn http_routes(&self) -> axum::Router {
+        link_preview::image_proxy::routes(self.clone())
     }
 
     /// Starts the processing workers, the janitor and the account-deletion

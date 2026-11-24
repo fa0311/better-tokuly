@@ -14,6 +14,10 @@
 //!
 //! A failed or refused fetch is not an error for the caller: it simply
 //! means there is no preview.
+//!
+//! The pictures of a preview are never handed out as the other site's
+//! addresses: [`image_proxy`] serves them from this instance, so viewing a
+//! preview tells the other site nothing about the viewer.
 use std::{sync::OnceLock, time::Duration};
 
 use serde::Deserialize;
@@ -25,6 +29,7 @@ use url::Url;
 pub mod embed;
 pub mod fetch;
 pub mod html;
+pub mod image_proxy;
 
 use embed::Embed;
 use fetch::{FetchError, Page};
@@ -47,11 +52,17 @@ const JSON_ACCEPT: &str = "application/json";
 pub struct Previews {
     client: reqwest::Client,
     policy: Policy,
+    /// Bounds the pictures [`image_proxy`] fetches and decodes at once.
+    work_slots: tokio::sync::Semaphore,
+    /// Bounds the pictures [`image_proxy`] decodes at once.
+    decode_slots: tokio::sync::Semaphore,
 }
 
 /// Fetches (or recalls) the preview of `url`. `None` when the page has
 /// nothing to show, cannot be reached, or may not be fetched. The only
-/// error is `URL_INVALID` (besides infrastructure failures).
+/// error is `URL_INVALID` (besides infrastructure failures). Its
+/// `image_url` and `favicon_url` are URLs of this instance
+/// ([`image_proxy`]), whatever the page referred to.
 ///
 /// Callers are expected to rate-limit their own users; the fetch itself is
 /// throttled per target host.
@@ -165,11 +176,22 @@ impl Previews {
     pub fn new(policy: Policy, public_url: &str) -> anyhow::Result<Self> {
         // Sites vary their markup by client; identify as a link-preview bot.
         let user_agent = format!("Mozilla/5.0 (compatible; TokulyBot/1.0; +{public_url})");
-        Ok(Self { client: fetch::guarded_client(policy, &user_agent)?, policy })
+        Ok(Self {
+            client: fetch::guarded_client(policy, &user_agent)?,
+            policy,
+            work_slots: tokio::sync::Semaphore::new(image_proxy::WORK_SLOTS),
+            decode_slots: tokio::sync::Semaphore::new(image_proxy::DECODE_SLOTS),
+        })
     }
 
     /// See [`link_preview`].
     pub async fn preview(&self, core: &Core, input: &str) -> AppResult<Option<LinkPreview>> {
+        // The cache keeps the pictures' own addresses (the proxy needs them
+        // to sign); clients only ever get the proxied ones.
+        Ok(self.preview_unproxied(core, input).await?.map(|preview| image_proxy::proxied(core, preview)))
+    }
+
+    async fn preview_unproxied(&self, core: &Core, input: &str) -> AppResult<Option<LinkPreview>> {
         let url = normalize_url(input)?;
         let embed = embed::recognise(&url, core.cfg.public_url());
         if embed::is_own(&url, core.cfg.public_url()) {
@@ -187,8 +209,7 @@ impl Previews {
         if let Some(cached) = self.cached(core, &key).await? {
             return Ok(cached);
         }
-        let server = format!("{}:{}", url.host_str().unwrap_or_default(), url.port_or_known_default().unwrap_or(0));
-        if core.cache.rate_limit(&format!("media:preview-host:{server}"), HOST_FETCHES_PER_MINUTE, Duration::from_secs(60)).await.is_err() {
+        if !self.may_fetch_from(core, &url).await {
             return Ok(None); // not cached: the next minute may succeed
         }
 
@@ -198,6 +219,13 @@ impl Previews {
         };
         self.store(core, &key, &url, preview.as_ref()).await?;
         Ok(preview)
+    }
+
+    /// Whether the server of `url` may get one more page request from us
+    /// this minute (pictures have their own budget, see [`image_proxy`]).
+    async fn may_fetch_from(&self, core: &Core, url: &Url) -> bool {
+        let server = format!("{}:{}", url.host_str().unwrap_or_default(), url.port_or_known_default().unwrap_or(0));
+        core.cache.rate_limit(&format!("media:preview-host:{server}"), HOST_FETCHES_PER_MINUTE, Duration::from_secs(60)).await.is_ok()
     }
 
     async fn fetch_page(&self, url: &Url) -> Option<LinkPreview> {
@@ -271,7 +299,7 @@ mod tests {
     use super::*;
 
     fn page(url: &str, content_type: &str, body: &str) -> Page {
-        Page { url: Url::parse(url).unwrap(), content_type: content_type.to_owned(), body: bytes::Bytes::copy_from_slice(body.as_bytes()) }
+        Page { url: Url::parse(url).unwrap(), content_type: content_type.to_owned(), body: bytes::Bytes::copy_from_slice(body.as_bytes()), truncated: false }
     }
 
     #[test]

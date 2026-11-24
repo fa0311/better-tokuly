@@ -103,7 +103,9 @@ track is stored as its own WebVTT object and the upload is deleted.
 
 ## Storage
 
-Media bucket, `Cache-Control: public, max-age=31536000, immutable`:
+Media bucket, served by the edge with `Cache-Control: public, max-age=300,
+s-maxage=0, must-revalidate` (revalidated, so a removed track stops being
+served at once; see `docs/events/media.md`, "Caches and CDNs"):
 `subtitles/<video_id>/<subtitle_id>-<content hash>.vtt`. Replacing a track's
 content writes a new object (new URL) and deletes the old one; deleting a
 video removes the prefix.

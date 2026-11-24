@@ -33,7 +33,7 @@ impl Media {
                 tracing::debug!(asset_id = %asset.id, width = rendered.width, height = rendered.height, frames = rendered.frame_count, "animation rendered");
                 let poster = self.publish_image(asset.id, rendered.poster).await?;
                 let key = store::animation_key(asset.id, &store::content_hash(&rendered.webp));
-                core.storage.put_with_cache(Bucket::Media, &key, rendered.webp, WEBP, Some(store::IMMUTABLE)).await?;
+                core.storage.put_with_cache(Bucket::Media, &key, rendered.webp, WEBP, Some(store::PUBLIC_CACHE)).await?;
                 return Ok(Processed {
                     kind: Some(AssetKind::ASSET_KIND_ANIMATION),
                     url: core.storage.media_url(&key),
@@ -62,7 +62,7 @@ impl Media {
                 (width, height) = (variant.width, variant.height);
             }
             let key = store::image_key(asset_id, variant.size, &store::content_hash(&variant.webp));
-            storage.put_with_cache(Bucket::Media, &key, variant.webp, WEBP, Some(store::IMMUTABLE)).await?;
+            storage.put_with_cache(Bucket::Media, &key, variant.webp, WEBP, Some(store::PUBLIC_CACHE)).await?;
             variants.push(ImageVariant { size: variant.size as i32, url: storage.media_url(&key), ..Default::default() });
         }
         Ok(Image {
