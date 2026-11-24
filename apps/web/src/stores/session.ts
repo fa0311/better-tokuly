@@ -21,6 +21,14 @@ const SESSION_HINT_KEY = "tokuly.signedIn";
 
 let started = false;
 
+/**
+ * Says that this browser has a session again, before a reload that must
+ * resume it (another account on this device became the active one).
+ */
+export function rememberSession(): void {
+  window.localStorage.setItem(SESSION_HINT_KEY, "1");
+}
+
 export function startSession(): void {
   if (started || typeof window === "undefined") return;
   started = true;

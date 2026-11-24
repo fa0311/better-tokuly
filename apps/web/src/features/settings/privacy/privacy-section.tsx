@@ -33,6 +33,9 @@ const REQUEST_AUDIENCES: AudienceName[] = ["EVERYONE", "FRIENDS_OF_FRIENDS", "NO
 type VisibilityName = "PUBLIC" | "FRIENDS" | "PRIVATE";
 const NOTE_VISIBILITIES: VisibilityName[] = ["PUBLIC", "FRIENDS", "PRIVATE"];
 
+/** Who may see the birthday: friends of friends is not offered for it. */
+const BIRTHDAY_AUDIENCES: AudienceName[] = ["EVERYONE", "FRIENDS", "NOBODY"];
+
 /** How long raw location history is kept, in days; 0 keeps it forever. */
 const HISTORY_DAYS = [0, 7, 30, 90, 365];
 
@@ -96,6 +99,8 @@ export function PrivacySection() {
     ? HISTORY_DAYS
     : [...HISTORY_DAYS, privacy.locationHistoryDays].sort((a, b) => a - b);
   const noteVisibility = common.Visibility[privacy.defaultNoteVisibility] as VisibilityName;
+  const storedBirthday = identity.Audience[privacy.birthdayVisibleTo] as AudienceName;
+  const birthdayAudience = BIRTHDAY_AUDIENCES.includes(storedBirthday) ? storedBirthday : "NOBODY";
 
   return (
     <SettingsPage title={t("sections.privacy.title")}>
@@ -144,6 +149,32 @@ export function PrivacySection() {
           }))}
         />
         {audience("footprintsVisibleTo")}
+      </Group>
+
+      <Group
+        title={t("privacy.groups.birthday.title")}
+        lead={t("privacy.groups.birthday.lead")}
+        flush
+      >
+        <SelectField<AudienceName>
+          className="px-3 py-3"
+          label={t("privacy.birthdayVisibleTo.label")}
+          hint={t("privacy.birthdayVisibleTo.hint")}
+          value={birthdayAudience}
+          onChange={(next) => set("birthdayVisibleTo", identity.Audience[next])}
+          options={BIRTHDAY_AUDIENCES.map((name) => ({
+            value: name,
+            label: t(`privacy.audience.${name}`),
+            hint: t(`privacy.birthdayVisibleTo.options.${name}`),
+          }))}
+        />
+        <SwitchRow
+          label={t("privacy.birthdayShowYear.label")}
+          hint={t("privacy.birthdayShowYear.hint")}
+          checked={privacy.birthdayShowYear}
+          disabled={birthdayAudience === "NOBODY"}
+          onChange={(checked) => set("birthdayShowYear", checked)}
+        />
       </Group>
 
       <Group title={t("privacy.groups.other.title")} flush>

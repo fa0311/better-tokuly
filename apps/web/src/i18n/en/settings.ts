@@ -10,6 +10,8 @@ export default {
   },
   sections: {
     profile: { title: "Profile", hint: "Picture, name, bio" },
+    profileBook: { title: "Profile book", hint: "MBTI, faves, favourite things, question cards" },
+    accounts: { title: "Switch accounts", hint: "Main, alt and creator accounts on this device" },
     account: { title: "Account", hint: "Email, password, language" },
     security: { title: "Security", hint: "Passkeys, 2-step, devices" },
     privacy: { title: "Privacy", hint: "Who sees what" },
@@ -235,6 +237,8 @@ export default {
       revokeOthersTitle: "Sign out all other devices?",
       revokeBody: "Using Tokuly there again needs a new sign-in.",
       revokeConfirm: "Sign out",
+      addedBySwitch: "Added with account switching",
+      parked: "Parked",
     },
     log: {
       title: "Security log",
@@ -242,6 +246,8 @@ export default {
       all: "See everything",
       empty: "Nothing recorded yet",
       types: {
+        ACCOUNT_SWITCHED: "Switched to this account",
+        MODERATOR_PROFILE_VIEW: "Reviewed a profile as a moderator",
         SIGN_UP: "Account created",
         SIGN_IN: "Signed in",
         SIGN_IN_FAILED: "Sign-in failed",
@@ -297,6 +303,19 @@ export default {
   },
 
   privacy: {
+    birthdayVisibleTo: {
+      label: "Who sees your birthday",
+      hint: "Shown on your profile and in friends' calendars",
+      options: {
+        EVERYONE: "Everyone who views your profile",
+        FRIENDS: "Friends only",
+        NOBODY: "Nobody",
+      },
+    },
+    birthdayShowYear: {
+      label: "Show the year too",
+      hint: "Off shows the month and day only. Under 18 the year is never shown to everyone",
+    },
     audience: {
       EVERYONE: "Everyone",
       FRIENDS_OF_FRIENDS: "Friends of friends",
@@ -304,6 +323,7 @@ export default {
       NOBODY: "Nobody",
     },
     groups: {
+      birthday: { title: "Birthday", lead: "You decide who gets to celebrate with you" },
       connect: { title: "Connecting", lead: "Who can find you and become your friend." },
       talk: { title: "Messages and calls" },
       map: {
@@ -584,6 +604,7 @@ export default {
   },
 
   errors: {
+    BIRTHDAY_YEAR_RESTRICTED: "Under 18 the year of your birthday cannot be shown to everyone",
     BIO_TOO_LONG: "Keep your bio to 300 characters",
     SCHOOL_NAME_INVALID: "Keep the school name to 60 characters",
     STATUS_INVALID: "A status is up to two emoji and 60 characters",

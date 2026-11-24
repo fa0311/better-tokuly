@@ -1,0 +1,32 @@
+export default {
+  tile: "Switch accounts",
+  title: "Switch accounts",
+  listTitle: "Accounts on this device",
+  lead: "Main, alt, creator… switch between the accounts you use here with one tap!",
+  active: "In use",
+  switch: "Switch",
+  switched: "Switched to {{name}}!",
+  remove: "Sign @{{handle}} out of this device",
+  removeConfirm: "Sign @{{handle}} out of this device? Your other accounts stay signed in.",
+  removed: "Signed out of this device",
+  needsCode: "Switching asks for a two-factor code",
+  add: "Add an account",
+  create: "Create a new account",
+  full: "A device can hold up to {{count}} accounts",
+  privacyNote:
+    "Your accounts are never linked: nobody else, and none of the accounts, can tell they are the same person.",
+  codeTitle: "Code for @{{handle}}",
+  codeLead:
+    "This account has two-factor authentication on. Enter the code from your authenticator app (or a recovery code).",
+  code: "Code",
+  codeSubmit: "Switch",
+  onDevice: "Continue with an account on this device",
+  addTitle: "Add an account",
+  addLead: "The account you are using stays signed in; switch back any time!",
+  errors: {
+    ACCOUNT_NOT_ON_DEVICE: "That account was signed out of this device. Sign in again.",
+    ACCOUNT_ALREADY_ACTIVE: "That account is already in use",
+    TOO_MANY_ACCOUNTS: "This device cannot hold any more accounts",
+    SWITCH_REQUIRED: "Switch to this account first",
+  },
+} as const;

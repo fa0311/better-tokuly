@@ -111,14 +111,18 @@ test("the settings home lists every section and opens each of them", async ({ pa
   const sections = page.getByRole("navigation", { name: "設定" });
   for (const [title, path] of [
     ["プロフィール", "/settings/profile"],
+    ["プロフ帳", "/settings/profile-book"],
     ["アカウント", "/settings/account"],
+    ["アカウント切り替え", "/settings/accounts"],
     ["セキュリティ", "/settings/security"],
     ["プライバシー", "/settings/privacy"],
     ["見た目", "/settings/appearance"],
     ["連携サービス", "/settings/connections"],
     ["あなたのデータ", "/settings/data"],
   ] as const) {
-    await sections.getByRole("link", { name: new RegExp(`^${title}`) }).click();
+    // The row's name is its title and then its hint ("アカウント" is not "アカウント切り替え").
+    const name = new RegExp(`^${title}(?!切り替え)`);
+    await sections.getByRole("link", { name }).click();
     await expect(page).toHaveURL(new RegExp(`${path}$`));
     await expect(heading(page, title)).toBeVisible();
     // Phones show one thing at a time; wide screens keep the list next to the section.
