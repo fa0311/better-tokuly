@@ -183,7 +183,6 @@ impl Engagement {
             .await?;
 
         let mut tx = self.core.db.begin().await?;
-        let mut effects = Effects::default();
         // Blocking the same identity again returns the block that exists.
         let block: BlockRow = sqlx::query_as(
             "INSERT INTO comment_blocks (owner_id, blocked_user_id, channel_id) VALUES ($1, $2, $3)
@@ -195,9 +194,10 @@ impl Engagement {
         .bind(channel_id)
         .fetch_one(&mut *tx)
         .await?;
-        lifecycle::hide_comments_of(&mut tx, &mut effects, owner_id, blocked_user_id, Some(channel_id)).await?;
+        // From now on the screening hides what they write; what they
+        // wrote before is hidden in batches.
         tx.commit().await?;
-        self.apply(effects).await;
+        self.hide_all_comments_of(owner_id, blocked_user_id, Some(channel_id)).await?;
         Ok(block)
     }
 

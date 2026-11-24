@@ -143,14 +143,33 @@ impl Engagement {
         if !graph::is_blocked_either(&self.core, blocker_id, blocked_id).await? {
             return Ok(());
         }
-        let mut tx = self.core.db.begin().await?;
-        let mut effects = Effects::default();
-        lifecycle::hide_comments_of(&mut tx, &mut effects, blocker_id, blocked_id, None).await?;
-        lifecycle::hide_comments_of(&mut tx, &mut effects, blocked_id, blocker_id, None).await?;
-        tx.commit().await?;
-        self.apply(effects).await;
+        for (owner_id, author_id) in [(blocker_id, blocked_id), (blocked_id, blocker_id)] {
+            self.hide_all_comments_of(owner_id, author_id, None).await?;
+        }
         self.recheck_subject_topics(blocker_id, blocked_id).await;
         Ok(())
+    }
+
+    /// Hides what `author_id` wrote on the subjects of `owner_id` (see
+    /// [`lifecycle::hide_comments_of`]), a batch per transaction, so one
+    /// prolific commenter does not hold locks for long. A redelivered event
+    /// picks up where the last one stopped.
+    pub(crate) async fn hide_all_comments_of(
+        &self,
+        owner_id: Uuid,
+        author_id: Uuid,
+        identity: Option<Option<Uuid>>,
+    ) -> AppResult<()> {
+        loop {
+            let mut tx = self.core.db.begin().await?;
+            let mut effects = Effects::default();
+            let handled = lifecycle::hide_comments_of(&mut tx, &mut effects, owner_id, author_id, identity).await?;
+            tx.commit().await?;
+            self.apply(effects).await;
+            if handled < lifecycle::HIDE_BATCH {
+                return Ok(());
+            }
+        }
     }
 
     /// `social.friend.removed`: friends-only subjects of either are no

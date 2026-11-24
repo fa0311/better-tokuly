@@ -220,6 +220,34 @@ async fn a_commenter_who_blocks_the_owner_takes_their_comments_down() {
     assert_eq!(mine.comments[0].comment.status, CommentStatus::COMMENT_STATUS_PUBLISHED);
 }
 
+/// A block hides everything, also for a prolific commenter, in batches of
+/// 200 per transaction.
+#[tokio::test]
+async fn a_block_hides_every_comment_in_batches() {
+    let ctx = start().await;
+    let (owner, alice) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await);
+    let video = ctx.video(&owner, "v");
+    let written = sqlx::query(
+        "INSERT INTO comments (subject_type, subject_id, subject_owner_id, author_id, text)
+         SELECT $1, $2, $3, $4, 'こんにちは ' || n FROM generate_series(1, 450) AS n",
+    )
+    .bind(SubjectType::SUBJECT_TYPE_VIDEO as i32)
+    .bind(video.id)
+    .bind(owner.id)
+    .bind(alice.id)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+    assert_eq!(written.rows_affected(), 450);
+    ctx.block(&owner, &alice).await;
+    let published: i64 = sqlx::query_scalar("SELECT count(*) FROM comments WHERE author_id = $1 AND status <> 3")
+        .bind(alice.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(published, 0);
+}
+
 /// An event delivered again after the block was lifted must not undo the
 /// owner's decision to bring the comments back.
 #[tokio::test]
