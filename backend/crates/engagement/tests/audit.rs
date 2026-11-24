@@ -67,6 +67,28 @@ async fn a_commenter_who_blocks_the_owner_takes_their_comments_down() {
     assert_eq!(mine.comments[0].comment.status, CommentStatus::COMMENT_STATUS_PUBLISHED);
 }
 
+#[tokio::test]
+async fn a_late_block_event_does_not_hide_comments_again() {
+    let ctx = start().await;
+    let (owner, alice, carol) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Carol").await);
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, "やあ").await;
+    ctx.block(&owner, &alice).await;
+    ctx.unblock(&owner, &alice).await;
+    let approve = ApproveCommentRequest { comment_id: comment.id.clone(), ..Default::default() };
+    let _: ApproveCommentResponse =
+        ctx.call("CommentModerationService", "ApproveComment", Some(&owner), &approve).await.unwrap();
+    assert_eq!(ctx.comments(Some(&carol), &video).await.total_count, 1);
+
+    ctx.deliver(
+        "social.user.blocked",
+        Some(owner.id),
+        serde_json::json!({ "user_id": owner.id, "blocked_id": alice.id }),
+    )
+    .await;
+    assert_eq!(ctx.comments(Some(&carol), &video).await.total_count, 1);
+}
+
 // ───────────────────────────── counts ─────────────────────────────
 
 #[tokio::test]

@@ -5,6 +5,7 @@
 use sqlx::PgConnection;
 use tokuly_core::{events, prelude::*};
 use tokuly_media::assets;
+use tokuly_social::graph;
 
 use crate::{
     Engagement,
@@ -132,8 +133,12 @@ impl Engagement {
     /// blocker asked not to deal with them; the blocker's own, because the
     /// owner of the content could no longer see, hide or delete them.
     /// Lifting the block brings nothing back by itself; the owner can
-    /// approve the comments again.
+    /// approve the comments again — so an event that arrives late or twice,
+    /// after the block was lifted, changes nothing.
     pub(crate) async fn on_user_blocked(&self, blocker_id: Uuid, blocked_id: Uuid) -> AppResult<()> {
+        if !graph::is_blocked_either(&self.core, blocker_id, blocked_id).await? {
+            return Ok(());
+        }
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
         lifecycle::hide_comments_of(&mut tx, &mut effects, blocker_id, blocked_id, None).await?;
