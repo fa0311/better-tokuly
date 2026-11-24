@@ -4,8 +4,6 @@
 //! transaction as the change, so the log can never disagree with what
 //! happened. Entries record who acted, on what, why, and (where it is
 //! meaningful) the state before and after as JSON.
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{PgExecutor, Postgres, QueryBuilder};
@@ -175,8 +173,6 @@ pub(crate) struct AuditRow {
     pub target_id: String,
     pub target_user_id: Option<Uuid>,
     pub target_hidden: bool,
-    pub subject_type: Option<i32>,
-    pub subject_id: Option<Uuid>,
     pub reason: String,
     pub before: Option<Value>,
     pub after: Option<Value>,
@@ -201,7 +197,7 @@ impl Admin {
     /// One page of the audit log, newest first.
     pub(crate) async fn list_audit(&self, filter: &AuditFilter, page: &Page) -> AppResult<Vec<AuditRow>> {
         let mut query: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT id, actor_id, action, target_type, target_id, target_user_id, target_hidden, subject_type, subject_id, reason, before, after, ip, created_at
+            "SELECT id, actor_id, action, target_type, target_id, target_user_id, target_hidden, reason, before, after, ip, created_at
              FROM admin_audit_log WHERE true",
         );
         if let Some(actor_id) = filter.actor_id {
@@ -234,31 +230,20 @@ impl Admin {
         Ok(query.build_query_as().fetch_all(&self.core.db).await?)
     }
 
-    /// Audit rows as `staff` may read them, with the people involved
-    /// resolved. An entry about an anonymous post `staff` is involved in
-    /// comes without its author, and not at all when `filter` asks for one
-    /// account's history (the same rule as the moderation log, `actions.rs`).
-    pub(crate) async fn audit_entries(&self, staff: &Staff, filter: &AuditFilter, rows: Vec<AuditRow>) -> AppResult<Vec<AuditEntry>> {
-        let mut involved: HashMap<(i32, Uuid), bool> = HashMap::new();
-        let mut shown = Vec::with_capacity(rows.len());
-        for row in rows {
-            let withheld = match (row.target_hidden, row.subject_type, row.subject_id) {
-                (false, _, _) => false,
-                (true, Some(subject_type), Some(subject_id)) => match involved.get(&(subject_type, subject_id)) {
-                    Some(involved) => *involved,
-                    None => {
-                        let answer = self.is_party_to_hidden(staff.id, subject_type, subject_id).await?;
-                        involved.insert((subject_type, subject_id), answer);
-                        answer
-                    }
-                },
-                (true, _, _) => true,
-            };
-            if withheld && filter.names_account(&row) {
-                continue;
-            }
-            shown.push((row, withheld));
-        }
+    /// Audit rows as API messages, with the people involved resolved. An
+    /// entry about an anonymous post never names its author (`GetCase` is
+    /// the one place that does, `owners.rs`), and does not come at all when
+    /// `filter` asks for one account's history (the same rule as the
+    /// moderation log, `actions.rs`).
+    pub(crate) async fn audit_entries(&self, filter: &AuditFilter, rows: Vec<AuditRow>) -> AppResult<Vec<AuditEntry>> {
+        let shown: Vec<(AuditRow, bool)> = rows
+            .into_iter()
+            .filter(|row| !(row.target_hidden && filter.names_account(row)))
+            .map(|row| {
+                let withheld = row.target_hidden;
+                (row, withheld)
+            })
+            .collect();
         let ids: Vec<Uuid> =
             shown.iter().flat_map(|(r, withheld)| [r.actor_id, r.target_user_id.filter(|_| !withheld)]).flatten().collect();
         let people = tokuly_identity::summaries(&self.core, &ids).await?;

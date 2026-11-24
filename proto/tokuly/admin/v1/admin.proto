@@ -225,13 +225,15 @@ message ModerationAction {
   google.protobuf.Timestamp expires_at = 10;
   google.protobuf.Timestamp created_at = 11;
   // The action is about an anonymous post and this message does not name
-  // its author: always in the answer to the change that made it, and in the
-  // moderation log for a moderator who is involved in the post. (Such a
-  // moderator does not find the action in an account's history at all.)
+  // its author. Only `GetCase` names one (to a moderator who is not involved,
+  // counted and on record); the answers to changes and the moderation log
+  // never do, and an account's history leaves such actions out. A dismissal
+  // of such a post records no target at all.
   bool target_withheld = 12;
 }
 
-// An account's moderation record in numbers.
+// An account's moderation record in numbers. The account's anonymous posts
+// are not counted, except, in `GetCase`, the one whose author it names.
 message UserModerationSummary {
   // Reports filed against this account or its content.
   int32 reports_received = 1;
@@ -442,9 +444,7 @@ enum AccountState {
 message Suspension {
   // Empty when the account was suspended outside the admin console.
   string id = 1;
-  // Reason given to the user. Empty, like `case_id`, to a staff member
-  // involved in the anonymous post the suspension was imposed for: either
-  // would say who wrote it.
+  // Reason given to the user.
   string reason = 2;
   // Staff member who imposed it; unset when unknown or deleted.
   tokuly.common.v1.UserSummary moderator = 3;
@@ -452,7 +452,8 @@ message Suspension {
   // When it is lifted automatically. Unset for a permanent ban.
   google.protobuf.Timestamp expires_at = 5;
   bool permanent = 6;
-  // The case that led to it; empty for direct suspensions (and see `reason`).
+  // The case that led to it; empty for direct suspensions, and for a case
+  // about an anonymous post (it would say who wrote it).
   string case_id = 7;
 }
 
@@ -1031,10 +1032,11 @@ message AuditEntry {
   // The account affected, when there is one. Unset while `target_withheld`
   // is set.
   tokuly.common.v1.UserSummary target_user = 6;
-  // The entry is about an anonymous post the caller is involved in, and
-  // leaves out its author: `target_user` is unset and so is `target_id` when
-  // it names that account. Such entries are left out altogether when the
-  // log is filtered by an account.
+  // The entry is about an anonymous post and leaves out its author, for
+  // every reader (`GetCase` is the one place that names one):
+  // `target_user` is unset and so is `target_id` when it names that account.
+  // Such entries are left out altogether when the log is filtered by an
+  // account.
   bool target_withheld = 12;
   // The reason or note the staff member gave.
   string reason = 7;

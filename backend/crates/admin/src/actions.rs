@@ -10,7 +10,7 @@ use tokuly_proto::{
     common::{SubjectRef, UserSummary},
 };
 
-use crate::{Admin, staff::Staff};
+use crate::Admin;
 
 macro_rules! action_columns {
     () => {
@@ -212,38 +212,22 @@ impl Admin {
         Ok(self.actions_to_proto(std::slice::from_ref(row)).await?.remove(0))
     }
 
-    /// Log entries as `staff` may read them. An entry about anonymous
-    /// content names the sanctioned author only to a moderator who is not
-    /// involved in that content. To one who is, it comes without the target
-    /// — and in the history of one account (`about` is that account), where
-    /// the target is known anyway, it does not come at all: there the entry
-    /// itself would say whose post it was.
-    pub(crate) async fn actions_for(&self, staff: &Staff, rows: &[ActionRow], about: Option<Uuid>) -> AppResult<Vec<ModerationAction>> {
-        // One question per piece of content, however many entries are about it.
-        let mut involved: HashMap<(i32, Uuid), bool> = HashMap::new();
-        let mut kept = Vec::with_capacity(rows.len());
-        let mut shown = Vec::with_capacity(rows.len());
-        for row in rows {
-            let withheld = match (row.target_hidden, row.subject_type, row.subject_id) {
-                (false, _, _) => false,
-                (true, Some(subject_type), Some(subject_id)) => match involved.get(&(subject_type, subject_id)) {
-                    Some(involved) => *involved,
-                    None => {
-                        let answer = self.is_party_to_hidden(staff.id, subject_type, subject_id).await?;
-                        involved.insert((subject_type, subject_id), answer);
-                        answer
-                    }
-                },
-                // Nothing says what it was about: nobody can be cleared.
-                (true, _, _) => true,
-            };
-            if withheld && about.is_some() {
-                continue;
-            }
-            kept.push(row.clone());
-            shown.push(if withheld { Shown::WithoutTarget } else { Shown::All });
-        }
-        self.actions_shown(&kept, &shown).await
+    /// Log entries as a list or a history shows them. An entry about
+    /// anonymous content never names the account it hit, to anyone:
+    /// `GetCase` is the one place a hidden author is named (counted and on
+    /// record, `owners.rs`). In the history of one account (`about` is that
+    /// account) such an entry does not come at all: there the entry itself
+    /// would say whose post it was.
+    pub(crate) async fn actions_listed(&self, rows: &[ActionRow], about: Option<Uuid>) -> AppResult<Vec<ModerationAction>> {
+        let kept: Vec<ActionRow> = rows.iter().filter(|row| !(row.target_hidden && about.is_some())).cloned().collect();
+        self.actions_to_proto(&kept).await
+    }
+
+    /// The log entries of one case in `GetCase`: an anonymous post's author
+    /// is named only when the case view named them (`revealed`).
+    pub(crate) async fn case_actions(&self, rows: &[ActionRow], revealed: bool) -> AppResult<Vec<ModerationAction>> {
+        let shown: Vec<Shown> = rows.iter().map(|row| if row.target_hidden && !revealed { Shown::WithoutTarget } else { Shown::All }).collect();
+        self.actions_shown(rows, &shown).await
     }
 
     async fn actions_shown(&self, rows: &[ActionRow], shown: &[Shown]) -> AppResult<Vec<ModerationAction>> {

@@ -140,8 +140,9 @@ impl Admin {
                 suspended_until = Some(expires_at);
             }
             (DISMISS, _) => {
+                // Nothing happened to the owner: a hidden author is not even recorded.
                 let dismissal = NewAction::new(DISMISS, Some(staff.id))
-                    .target(case.subject_owner_id)
+                    .target(case.subject_owner_id.filter(|_| !case.owner_hidden))
                     .hidden_target(case.owner_hidden)
                     .case(Some(case.id))
                     .subject(case.subject_type, case.subject_id, &case.subject_title)

@@ -574,11 +574,15 @@ async fn the_author_of_an_anonymous_post_is_withheld_from_moderators_who_are_inv
         assert!(log(staff, of_author.clone()).await.is_empty(), "{}", staff.handle);
         assert!(staff_view(staff).await.is_empty(), "{}", staff.handle);
     }
-    // The moderator who is not involved reads the log as it is.
-    for entries in [log(&neutral, of_case.clone()).await, log(&neutral, of_author.clone()).await, staff_view(&neutral).await] {
-        assert_eq!(entries.len(), 2);
-        assert!(entries.iter().all(|action| action.target_user.id == author.id.to_string() && !action.target_withheld));
-    }
+    // The moderator who is not involved sees whom they hit in the case itself, which is counted and on
+    // record; the log and the account's history do not name the author to them either.
+    let opened = get_case(&app, &neutral, &case_id).await;
+    assert!(opened.actions.iter().all(|action| action.target_user.id == author.id.to_string() && !action.target_withheld));
+    let entries = log(&neutral, of_case.clone()).await;
+    assert_eq!(entries.len(), 2);
+    assert!(entries.iter().all(|action| action.target_user.is_unset() && action.target_withheld));
+    assert!(log(&neutral, of_author.clone()).await.is_empty());
+    assert!(staff_view(&neutral).await.is_empty());
 
     // A sanction that has nothing to do with the anonymous post is in everyone's view of the account.
     let _: WarnUserResponse = app
@@ -590,7 +594,61 @@ async fn the_author_of_an_anonymous_post_is_withheld_from_moderators_who_are_inv
         assert_eq!(seen.len(), 1, "{}", staff.handle);
         assert_eq!((seen[0].reason.as_str(), seen[0].target_user.id.as_str()), ("別件", author.id.to_string().as_str()));
     }
-    assert_eq!(staff_view(&neutral).await.len(), 3);
+    assert_eq!(staff_view(&neutral).await.len(), 1);
+}
+
+#[tokio::test]
+async fn lists_never_name_a_hidden_author_and_a_dismissal_does_not_record_one() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    let neutral = app.user_with_roles("neutral", &["moderator"]).await;
+    let boss = app.user_with_roles("boss", &["admin"]).await;
+    admin.set_hidden_owners(Arc::new(EveryThreadBy { author: author.id }));
+    let reporter = app.user("rep").await;
+    // Three anonymous posts, dismissed without anyone opening them.
+    let mut cases = Vec::new();
+    for _ in 0..3 {
+        let thread = Uuid::now_v7();
+        admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "SPAM", "")).await.unwrap();
+        let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+        let _: ResolveCaseResponse =
+            resolve(&app, &neutral, ResolveCaseRequest { case_id: case_id.to_string(), action: DISMISS.into(), ..Default::default() }).await.unwrap();
+        cases.push(case_id);
+    }
+    // Nothing happened to the author, so nothing names them.
+    let named: i64 = sqlx::query_scalar("SELECT count(*) FROM moderation_actions WHERE case_id = ANY($1) AND target_user_id IS NOT NULL")
+        .bind(&cases)
+        .fetch_one(&app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(named, 0);
+
+    // A warning by case names the author in no list, whoever reads it, and in no history.
+    let thread = Uuid::now_v7();
+    admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "HARASSMENT", "")).await.unwrap();
+    let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+    let case = get_case(&app, &neutral, &case_id.to_string()).await.moderation_case.into_option().unwrap();
+    resolve(&app, &neutral, resolution(&case, WARN, "嫌がらせ")).await.unwrap();
+    for staff in [&neutral, &boss] {
+        let listed: ListModerationActionsResponse =
+            app.call(&format!("{MODERATION}/ListModerationActions"), Some(staff), &ListModerationActionsRequest::default()).await.unwrap();
+        let ours: Vec<&ModerationAction> = listed.actions.iter().filter(|a| a.target_withheld || a.target_user.id == author.id.to_string()).collect();
+        assert!(!ours.is_empty() && ours.iter().all(|a| a.target_user.is_unset()), "{}", staff.handle);
+        let view: GetUserResponse =
+            app.call(&format!("{USERS}/GetUser"), Some(staff), &GetUserRequest { user_id: author.id.to_string(), ..Default::default() }).await.unwrap();
+        assert!(view.recent_actions.is_empty());
+        let record = view.moderation.into_option().unwrap();
+        assert_eq!((record.reports_received, record.warnings), (0, 0));
+    }
+    let audit: ListAuditLogResponse = app.call(&format!("{SYSTEM}/ListAuditLog"), Some(&boss), &ListAuditLogRequest::default()).await.unwrap();
+    assert!(audit.entries.iter().all(|entry| entry.target_user.id != author.id.to_string()));
+    // The one look at the case is the one record of the author being named.
+    let reveals: i64 = sqlx::query_scalar("SELECT count(*) FROM admin_audit_log WHERE action = 'case.author_revealed' AND target_user_id = $1")
+        .bind(author.id)
+        .fetch_one(&app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(reveals, 1);
 }
 
 #[tokio::test]
@@ -763,9 +821,10 @@ async fn an_involved_moderator_cannot_read_a_hidden_author_off_their_moderation_
     let after = record(staff_view_of(&app, &involved, author.id).await);
     assert_eq!(after, before);
     assert_eq!(get_case(&app, &involved, &ordinary.id).await.owner_record.into_option().unwrap(), before);
-    // A moderator who is not involved reads the record as it is.
-    let full = record(staff_view_of(&app, &neutral, author.id).await);
-    assert_eq!((full.reports_received, full.open_cases, full.warnings, full.content_removals), (2, 1, 1, 1));
+    // Nor to one who is not: the record moves only in the case that named the author.
+    assert_eq!(record(staff_view_of(&app, &neutral, author.id).await), before);
+    let named = get_case(&app, &neutral, &case_id).await.owner_record.into_option().unwrap();
+    assert_eq!((named.reports_received, named.open_cases, named.warnings, named.content_removals), (2, 1, 1, 1));
 }
 
 #[tokio::test]
@@ -779,16 +838,14 @@ async fn an_involved_moderator_is_not_told_which_case_suspended_a_hidden_author(
     resolve(&app, &neutral, resolution(&case, BAN, "匿名スレッドでの嫌がらせ")).await.unwrap();
 
     let suspension = |user: Option<&AdminUser>| user.unwrap().suspension.clone().into_option().expect("suspended");
-    let seen = suspension(staff_view_of(&app, &neutral, author.id).await.user.as_option());
-    assert_eq!((seen.case_id.as_str(), seen.reason.as_str()), (case_id.as_str(), "匿名スレッドでの嫌がらせ"));
-
-    // The account is suspended for everyone to see, but not for which post, nor why.
-    let withheld = suspension(staff_view_of(&app, &involved, author.id).await.user.as_option());
-    assert!(withheld.case_id.is_empty() && withheld.reason.is_empty(), "{withheld:?}");
-    let searched: SearchUsersResponse =
-        app.call(&format!("{USERS}/SearchUsers"), Some(&involved), &SearchUsersRequest { query: author.id.to_string(), ..Default::default() }).await.unwrap();
-    let withheld = suspension(searched.users.first());
-    assert!(withheld.case_id.is_empty() && withheld.reason.is_empty(), "{withheld:?}");
+    // The account is suspended for everyone to see, like any direct suspension: not for which post.
+    for staff in [&neutral, &involved] {
+        let shown = suspension(staff_view_of(&app, staff, author.id).await.user.as_option());
+        assert!(shown.case_id.is_empty() && shown.reason == "匿名スレッドでの嫌がらせ", "{shown:?}");
+        let searched: SearchUsersResponse =
+            app.call(&format!("{USERS}/SearchUsers"), Some(staff), &SearchUsersRequest { query: author.id.to_string(), ..Default::default() }).await.unwrap();
+        assert!(suspension(searched.users.first()).case_id.is_empty());
+    }
 }
 
 #[tokio::test]
@@ -815,14 +872,14 @@ async fn the_audit_log_does_not_name_a_hidden_author_to_an_involved_admin() {
     for action in ["case.author_revealed", "user.suspended", "content.removed", "case.resolved"] {
         assert!(actions.contains(&action), "{actions:?}");
     }
-    assert!(full.iter().all(|entry| entry.target_user.id == author.id.to_string() && !entry.target_withheld));
-
-    // The admin who took part in the thread reads the same entries without the author.
-    let withheld = audit(&involved, by_neutral).await;
-    assert_eq!(withheld.len(), full.len());
-    for entry in &withheld {
-        assert!(entry.target_user.is_unset() && entry.target_withheld, "{entry:?}");
-        assert!(!entry.target_id.contains(&author.id.to_string()), "{entry:?}");
+    // Neither the admin who acted nor one who took part in the thread is named the author here.
+    for staff in [&neutral, &involved] {
+        let withheld = audit(staff, by_neutral.clone()).await;
+        assert_eq!(withheld.len(), full.len());
+        for entry in &withheld {
+            assert!(entry.target_user.is_unset() && entry.target_withheld, "{entry:?}");
+            assert!(!entry.target_id.contains(&author.id.to_string()), "{entry:?}");
+        }
     }
     // And the author's own history has none of them.
     for request in [
@@ -830,7 +887,7 @@ async fn the_audit_log_does_not_name_a_hidden_author_to_an_involved_admin() {
         ListAuditLogRequest { target_type: "user".into(), target_id: author.id.to_string(), ..Default::default() },
     ] {
         assert!(audit(&involved, request.clone()).await.is_empty(), "{request:?}");
-        assert!(!audit(&neutral, request).await.is_empty());
+        assert!(audit(&neutral, request).await.is_empty());
     }
 }
 

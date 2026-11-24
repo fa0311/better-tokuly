@@ -325,26 +325,20 @@ impl Admin {
         Ok(rows.into_iter().map(|row| note_to_proto(row, &people)).collect())
     }
 
-    /// An account's moderation record in numbers, as `staff` may read it:
-    /// without the cases and log entries about anonymous posts of the
-    /// account that `staff` is involved in (`owners.rs`). Counted in, they
+    /// An account's moderation record in numbers, without the cases and log
+    /// entries about the account's anonymous posts: counted in, the record
     /// would move the moment such a post is reported or acted on, and say
-    /// whose it is.
-    pub(crate) async fn moderation_summary(&self, staff: &Staff, user_id: Uuid) -> AppResult<UserModerationSummary> {
-        let withheld = self.withheld_hidden_subjects(staff, user_id).await?;
-        let (types, ids): (Vec<i32>, Vec<Uuid>) = withheld.subjects.into_iter().unzip();
+    /// whose it is to anyone watching. `revealed` is the one anonymous post a
+    /// `GetCase` has just named the author of, which is counted.
+    pub(crate) async fn moderation_summary(&self, user_id: Uuid, revealed: Option<(i32, Uuid)>) -> AppResult<UserModerationSummary> {
         let (reports_received, reports_filed, open_cases, warnings, content_removals, suspensions): (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
-            "WITH withheld (subject_type, subject_id) AS (SELECT * FROM unnest($3::int4[], $4::uuid[])),
-                  cases AS (
+            "WITH cases AS (
                       SELECT report_count, status FROM moderation_cases
-                      WHERE subject_owner_id = $1
-                        AND NOT (owner_hidden AND ($2 OR (subject_type, subject_id) IN (SELECT subject_type, subject_id FROM withheld)))
+                      WHERE subject_owner_id = $1 AND (NOT owner_hidden OR (subject_type = $2 AND subject_id = $3))
                   ),
                   actions AS (
                       SELECT kind FROM moderation_actions
-                      WHERE target_user_id = $1
-                        AND NOT (target_hidden AND ($2 OR subject_id IS NULL
-                                 OR (subject_type, subject_id) IN (SELECT subject_type, subject_id FROM withheld)))
+                      WHERE target_user_id = $1 AND (NOT target_hidden OR (subject_type = $2 AND subject_id = $3))
                   )
              SELECT
                     (SELECT COALESCE(sum(report_count), 0) FROM cases),
@@ -355,9 +349,8 @@ impl Admin {
                     (SELECT count(*) FROM actions WHERE kind IN (4, 5))",
         )
         .bind(user_id)
-        .bind(withheld.all)
-        .bind(types)
-        .bind(ids)
+        .bind(revealed.map(|r| r.0))
+        .bind(revealed.map(|r| r.1))
         .fetch_one(&self.core.db)
         .await?;
         Ok(UserModerationSummary {
