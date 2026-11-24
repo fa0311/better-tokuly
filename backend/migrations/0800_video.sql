@@ -364,9 +364,10 @@ CREATE TABLE watch_party_members (
     party_id         uuid        NOT NULL REFERENCES watch_parties (id) ON DELETE CASCADE,
     -- NULL for guests.
     user_id          uuid REFERENCES users (id) ON DELETE CASCADE,
-    -- Guests: the name they chose, the keyed hash of their seat token, the
-    -- secret segment of the realtime topic they follow (`party:<id>:<key>`)
-    -- and the keyed hash of their network address (for bans).
+    -- Guests: the name they chose, the keyed hash of their seat token and the
+    -- secret segment of the realtime topic they follow (`party:<id>:<key>`).
+    -- Every seat: the keyed hash of the network address it was taken from
+    -- (for bans: a removed account cannot come back as a guest).
     guest_name       text        NOT NULL DEFAULT '',
     guest_token_hash text,
     topic_key        text,
