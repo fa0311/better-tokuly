@@ -78,9 +78,7 @@ pub(crate) const USER_DELETED: &str = "identity.user.deleted";
 pub(crate) const USER_BANNED: &str = "identity.user.banned";
 pub(crate) const USER_UNBANNED: &str = "identity.user.unbanned";
 pub(crate) const USER_BLOCKED: &str = tokuly_social::events::USER_BLOCKED;
-pub(crate) const FRIEND_ACCEPTED: &str = tokuly_social::events::FRIEND_ACCEPTED;
 pub(crate) const FRIEND_REMOVED: &str = tokuly_social::events::FRIEND_REMOVED;
-pub(crate) const FRIEND_PREFS_CHANGED: &str = tokuly_social::events::FRIEND_PREFS_CHANGED;
 pub(crate) const CONTENT_REMOVED: &str = "admin.content.removed";
 pub(crate) const ASSET_DELETED: &str = "media.asset.deleted";
 
@@ -109,9 +107,7 @@ pub(crate) const CONSUMED: &[&str] = &[
     USER_BANNED,
     USER_UNBANNED,
     USER_BLOCKED,
-    FRIEND_ACCEPTED,
     FRIEND_REMOVED,
-    FRIEND_PREFS_CHANGED,
     CONTENT_REMOVED,
     ASSET_DELETED,
 ];

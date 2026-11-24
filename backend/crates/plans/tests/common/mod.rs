@@ -53,7 +53,7 @@ pub async fn start_with(cfg: PlansConfig) -> Ctx {
     let mut domains = None;
     let app = TestApp::start(MIGRATIONS, |core, identity, router| {
         let social = Social::new(core.clone(), identity.clone(), SocialConfig::default()).expect("social config");
-        let plans = Plans::new(core.clone(), identity.clone(), cfg, social.clone()).expect("plans config");
+        let plans = Plans::new(core.clone(), identity.clone(), cfg).expect("plans config");
         let router = plans.register(social.register(identity.register(router)));
         domains = Some((plans, social));
         router

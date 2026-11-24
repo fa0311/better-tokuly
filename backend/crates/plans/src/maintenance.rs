@@ -507,7 +507,6 @@ impl Plans {
                 .await?;
         tx.commit().await?;
 
-        self.forget_best_friend(a, b).await;
         for (plan_id, user_id) in uninvited {
             self.push([user_id], plan_changed(plan_id, PlanChange::PLAN_CHANGE_REMOVED)).await;
         }
