@@ -987,3 +987,221 @@ async fn open_uploads_are_capped_per_user() {
     let error = h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &request).await.unwrap_err();
     assert_eq!((error.code.as_str(), error.reason.as_str()), ("resource_exhausted", "TOO_MANY_UPLOADS"));
 }
+
+#[tokio::test]
+async fn a_completed_upload_cannot_be_replaced_through_its_upload_url() {
+    let _sweeping = SWEEPING.lock().await;
+    let h = start().await;
+    let alice = h.app.user("alice").await;
+
+    // A chat file is READY as soon as it completes, and its recipients
+    // download whatever the original holds.
+    let signed = b"%PDF-1.7 I owe you nothing. -- signed, alice".to_vec();
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_CHAT_FILE, "contract.pdf", "application/pdf", &signed).await;
+    assert!(h.put(&upload, signed.clone()).await.status().is_success());
+    let asset = h.complete(&alice, &upload.upload_id).await.unwrap();
+    assert_eq!(asset.status, AssetStatus::ASSET_STATUS_READY);
+
+    // The upload URL is still within its lifetime. A second PUT of the same
+    // size (the signature only fixes the length) must not change the file.
+    let forged: Vec<u8> = signed.iter().map(u8::to_ascii_uppercase).collect();
+    let _ = h.put(&upload, forged.clone()).await;
+    let url = h.get_asset(&alice, &asset.id).await.unwrap().url;
+    assert_eq!(h.http.get(&url).send().await.unwrap().bytes().await.unwrap(), signed, "the file is what was completed");
+
+    // Two completions at once each check a copy of their own; the winner's is kept.
+    let note = b"see you at the station at 7".to_vec();
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_CHAT_FILE, "note.txt", "text/plain", &note).await;
+    assert!(h.put(&upload, note.clone()).await.status().is_success());
+    let (first, second) = tokio::join!(h.complete(&alice, &upload.upload_id), h.complete(&alice, &upload.upload_id));
+    assert!(first.is_ok() && second.is_ok(), "{first:?} {second:?}");
+    h.media.process_now(upload.asset_id.parse().unwrap()).await.unwrap();
+    let url = h.get_asset(&alice, &upload.asset_id).await.unwrap().url;
+    assert_eq!(h.http.get(&url).send().await.unwrap().bytes().await.unwrap(), note);
+
+    // The same between completion and processing: the worker processes what
+    // was checked, not what was put there afterwards.
+    let picture = png(64, 64);
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_AVATAR, "me.png", "image/png", &picture).await;
+    assert!(h.put(&upload, picture.clone()).await.status().is_success());
+    let pending = h.complete(&alice, &upload.upload_id).await.unwrap();
+    assert_eq!(pending.status, AssetStatus::ASSET_STATUS_PROCESSING);
+    let _ = h.put(&upload, noise(picture.len())).await;
+    h.media.process_now(asset_id(&pending)).await.unwrap();
+    assert_eq!(h.get_asset(&alice, &pending.id).await.unwrap().status, AssetStatus::ASSET_STATUS_READY);
+
+    // Whatever a late PUT leaves behind is removed once the URL has expired,
+    // and the asset itself keeps its file.
+    let id = asset_id(&asset);
+    let late_key = format!("originals/{id}/source.pdf");
+    let core = &h.app.core;
+    h.media.sweep().await.unwrap();
+    sqlx::query("UPDATE media_assets SET created_at = created_at - interval '2 hours', repurge_after = repurge_after - interval '2 hours' WHERE id = $1")
+        .bind(id)
+        .execute(&core.db)
+        .await
+        .unwrap();
+    h.media.sweep().await.unwrap();
+    assert!(core.storage.head(tokuly_core::storage::Bucket::Private, &late_key).await.unwrap().is_none(), "the late PUT is gone");
+    assert!(h.original_exists(id).await, "the completed file stays");
+    let url = h.get_asset(&alice, &asset.id).await.unwrap().url;
+    assert_eq!(h.http.get(&url).send().await.unwrap().bytes().await.unwrap(), signed);
+}
+
+#[tokio::test]
+async fn private_downloads_are_never_cached_by_shared_caches() {
+    let h = start().await;
+    let alice = h.app.user("alice").await;
+    let bytes = b"bank statement".to_vec();
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_CHAT_FILE, "statement.txt", "text/plain", &bytes).await;
+    // The uploader may send headers the signature does not cover.
+    let mut request = h.http.put(&upload.put_url).body(bytes.clone()).header("Cache-Control", "public, max-age=31536000");
+    for (name, value) in &upload.put_headers {
+        request = request.header(name, value);
+    }
+    assert!(request.send().await.unwrap().status().is_success());
+    let asset = h.complete(&alice, &upload.upload_id).await.unwrap();
+
+    let download = h.http.get(&asset.url).send().await.unwrap();
+    assert_eq!(download.status(), 200);
+    let cache_control = download.headers().get("cache-control").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+    assert!(cache_control.contains("private") && cache_control.contains("no-store") && !cache_control.contains("public"), "{cache_control:?}");
+}
+
+#[tokio::test]
+async fn unused_uploads_are_capped_in_bytes_per_user() {
+    let h = start_with(MediaConfig { max_unused_gb: 50, daily_upload_gb: 1000, ..Default::default() }).await;
+    let alice = h.app.user("alice").await;
+    let video = |size_bytes: i64| CreateUploadRequest {
+        purpose: AssetPurpose::ASSET_PURPOSE_VIDEO.into(),
+        file_name: "long.mp4".into(),
+        content_type: "video/mp4".into(),
+        size_bytes,
+        ..Default::default()
+    };
+    const GB: i64 = 1024 * 1024 * 1024;
+    // Two 20 GB videos are fine, a third would put 60 GB in flight.
+    for _ in 0..2 {
+        let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(20 * GB)).await.unwrap();
+    }
+    let error = h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &video(20 * GB)).await.unwrap_err();
+    assert_eq!((error.code.as_str(), error.reason.as_str()), ("resource_exhausted", "UNUSED_QUOTA_EXCEEDED"));
+    // What fits still fits, and other people have their own allowance.
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(5 * GB)).await.unwrap();
+    let bob = h.app.user("bob").await;
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&bob), &video(20 * GB)).await.unwrap();
+
+    // Uploads that are in use no longer count.
+    let carol = h.app.user("carol").await;
+    let held = h.upload(&carol, AssetPurpose::ASSET_PURPOSE_CHAT_FILE, "a.bin", "application/octet-stream", vec![1u8; 1000]).await;
+    sqlx::query("UPDATE media_assets SET size_bytes = $2 WHERE id = $1").bind(asset_id(&held)).bind(45 * GB).execute(&h.app.core.db).await.unwrap();
+    assert_eq!(
+        reason(h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&carol), &video(10 * GB)).await),
+        "UNUSED_QUOTA_EXCEEDED"
+    );
+    assets::attach(&h.app.core.db, asset_id(&held), "test:holder").await.unwrap();
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&carol), &video(10 * GB)).await.unwrap();
+
+    // Requests at the same moment cannot squeeze past the limit together.
+    let dave = h.app.user("dave").await;
+    let large = video(20 * GB);
+    let attempts = futures::future::join_all((0..6).map(|_| h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&dave), &large))).await;
+    assert_eq!(attempts.iter().filter(|a| a.is_ok()).count(), 2, "{attempts:?}");
+}
+
+/// A gzip stream holding `data` in one stored (uncompressed) deflate block.
+fn gzip_stored(data: &[u8]) -> Vec<u8> {
+    let crc = data.iter().fold(!0u32, |mut crc, byte| {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 { (crc >> 1) ^ 0xedb8_8320 } else { crc >> 1 };
+        }
+        crc
+    });
+    let len = data.len() as u16;
+    let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff, 1];
+    out.extend_from_slice(&len.to_le_bytes());
+    out.extend_from_slice(&(!len).to_le_bytes());
+    out.extend_from_slice(data);
+    out.extend_from_slice(&(!crc).to_le_bytes());
+    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    out
+}
+
+#[tokio::test]
+async fn private_downloads_serve_the_stored_bytes_as_they_are() {
+    let h = start().await;
+    let alice = h.app.user("alice").await;
+    // What was checked is a gzip file; announced as `Content-Encoding: gzip`
+    // the recipient's browser would unpack it on the fly (unchecked bytes,
+    // or a decompression bomb from a large chat file).
+    let inner = b"<html><script>alert(document.cookie)</script></html>".repeat(20);
+    let gzip = gzip_stored(&inner);
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_CHAT_FILE, "notes.gz", "application/gzip", &gzip).await;
+    let mut request = h.http.put(&upload.put_url).body(gzip.clone()).header("Content-Encoding", "gzip").header("Content-Language", "de");
+    for (name, value) in &upload.put_headers {
+        request = request.header(name, value);
+    }
+    assert!(request.send().await.unwrap().status().is_success());
+    let asset = h.complete(&alice, &upload.upload_id).await.unwrap();
+    assert_eq!(asset.content_type, "application/gzip");
+
+    // The test client unpacks gzip transparently, like a browser does.
+    let download = h.http.get(&asset.url).send().await.unwrap();
+    assert_eq!(download.status(), 200);
+    let headers = download.headers().clone();
+    let encoding = headers.get("content-encoding").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+    assert!(encoding.is_empty() || encoding == "identity", "{encoding:?}");
+    assert!(headers.get("content-language").is_none_or(|v| v.to_str().unwrap() != "de"), "{headers:?}");
+    assert_eq!(download.bytes().await.unwrap(), gzip, "the file downloads as the gzip file it is");
+}
+
+#[tokio::test]
+async fn uploads_are_capped_in_bytes_per_day_used_or_not() {
+    let h = start_with(MediaConfig { daily_upload_gb: 30, ..Default::default() }).await;
+    let core = &h.app.core;
+    let alice = h.app.user("alice").await;
+    const GB: i64 = 1024 * 1024 * 1024;
+    let video = |size_bytes: i64| CreateUploadRequest {
+        purpose: AssetPurpose::ASSET_PURPOSE_VIDEO.into(),
+        file_name: "long.mp4".into(),
+        content_type: "video/mp4".into(),
+        size_bytes,
+        ..Default::default()
+    };
+    // Uploaded and published (held): out of the unused quota, still today's bytes.
+    let first: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(20 * GB)).await.unwrap();
+    assets::attach(&core.db, first.asset_id.parse().unwrap(), "test:published").await.unwrap();
+    let error = h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &video(15 * GB)).await.unwrap_err();
+    assert_eq!((error.code.as_str(), error.reason.as_str()), ("resource_exhausted", "DAILY_UPLOAD_LIMIT_EXCEEDED"));
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(5 * GB)).await.unwrap();
+
+    // An upload aborted before any completion gives its allowance back.
+    let aborted: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(5 * GB)).await.unwrap();
+    let _: AbortUploadResponse = h.rpc("AbortUpload", Some(&alice), &AbortUploadRequest { upload_id: aborted.upload_id, ..Default::default() }).await.unwrap();
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(5 * GB)).await.unwrap();
+    assert_eq!(reason(h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &video(GB)).await), "DAILY_UPLOAD_LIMIT_EXCEEDED");
+
+    // A day later the window has moved on.
+    sqlx::query("UPDATE media_assets SET created_at = created_at - interval '25 hours' WHERE owner_id = $1").bind(alice.id).execute(&core.db).await.unwrap();
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(GB)).await.unwrap();
+}
+
+#[tokio::test]
+async fn completing_one_upload_over_and_over_is_rate_limited() {
+    let h = start().await;
+    let alice = h.app.user("alice").await;
+    let bytes = png(40, 40);
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_AVATAR, "a.png", "image/png", &bytes).await;
+    // Every attempt on an unfinished upload reads the store (and, once the
+    // bytes are there, copies them): a burst of them is cut off.
+    let attempts = futures::future::join_all((0..15).map(|_| h.complete(&alice, &upload.upload_id))).await;
+    let reasons: Vec<String> = attempts.into_iter().map(|a| a.expect_err("nothing uploaded yet").reason).collect();
+    assert_eq!(reasons.iter().filter(|r| *r == "UPLOAD_INCOMPLETE").count(), 10, "{reasons:?}");
+    assert_eq!(reasons.iter().filter(|r| *r == "RATE_LIMITED").count(), 5, "{reasons:?}");
+    // Other uploads are not affected, and a finished upload answers at once.
+    let other = h.upload(&alice, AssetPurpose::ASSET_PURPOSE_AVATAR, "b.png", "image/png", png(40, 40)).await;
+    for _ in 0..12 {
+        assert_eq!(h.complete(&alice, &other.id).await.unwrap().id, other.id);
+    }
+}

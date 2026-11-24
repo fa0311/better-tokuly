@@ -6,9 +6,10 @@
 //!
 //! - upload URLs are signed together with the exact `Content-Length`, so a
 //!   URL issued for a 2 MB avatar cannot be used to store 50 GB;
-//! - download URLs of private files force `Content-Disposition: attachment`
-//!   and the detected content type, so an uploaded HTML file can never render
-//!   in the storage origin;
+//! - download URLs of private files force `Content-Disposition: attachment`,
+//!   the detected content type and `Cache-Control: private, no-store`, so an
+//!   uploaded HTML file can never render in the storage origin and no shared
+//!   cache keeps a copy;
 //! - type detection reads only the first bytes of an object, and checksums
 //!   are computed on a stream, so neither loads a large upload into memory.
 use std::{sync::OnceLock, time::Duration};
@@ -27,6 +28,9 @@ use tokuly_core::{config::Config, prelude::*, storage::Bucket};
 /// content-addressed or scoped to an asset that never changes once READY.
 pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
+/// `Cache-Control` of every download of a private file.
+pub const PRIVATE_NO_STORE: &str = "private, no-store";
+
 /// Part size for originals the server itself stores in parts.
 const SERVER_PART_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -36,6 +40,20 @@ pub fn original_key(asset_id: Uuid, extension: &str) -> String {
         format!("originals/{asset_id}/source")
     } else {
         format!("originals/{asset_id}/source.{extension}")
+    }
+}
+
+/// Where a single-PUT upload is kept once it is complete. The upload URL
+/// stays valid for a while after completion and writes `original_key`
+/// only, so the bytes that were checked cannot be replaced through it.
+/// `attempt` is unique per completion attempt: two completions at once each
+/// check their own copy, and only the winner's is kept.
+pub fn stored_key(asset_id: Uuid, attempt: Uuid, extension: &str) -> String {
+    let attempt = attempt.simple();
+    if extension.is_empty() {
+        format!("originals/{asset_id}/stored-{attempt}")
+    } else {
+        format!("originals/{asset_id}/stored-{attempt}.{extension}")
     }
 }
 
@@ -176,6 +194,13 @@ impl Presigner {
             .key(key)
             .response_content_disposition(attachment_disposition(file_name))
             .response_content_type(content_type)
+            // Whatever the uploader sent along with the PUT, a private file
+            // is never kept by a shared cache (or by the browser).
+            .response_cache_control(PRIVATE_NO_STORE)
+            // The bytes are served as stored: never unpacked by the browser
+            // (they were checked packed), and in no language the uploader picked.
+            .response_content_encoding("identity")
+            .response_content_language("und")
             .presigned(presigning(ttl)?)
             .await
             .map_err(|e| s3_err("presign get", e))?;
@@ -308,6 +333,9 @@ mod tests {
         assert_eq!(original_key(id, "mp4"), format!("originals/{id}/source.mp4"));
         assert_eq!(original_key(id, ""), format!("originals/{id}/source"));
         assert!(original_key(id, "mp4").starts_with(&original_prefix(id)));
+        assert!(stored_key(id, Uuid::max(), "mp4").starts_with(&original_prefix(id)));
+        assert_ne!(stored_key(id, Uuid::nil(), "mp4"), original_key(id, "mp4"));
+        assert_ne!(stored_key(id, Uuid::nil(), "mp4"), stored_key(id, Uuid::max(), "mp4"));
         assert_eq!(image_key(id, 512, "abcd"), format!("img/{id}/512-abcd.webp"));
         for prefix in public_prefixes(id) {
             assert!(prefix.ends_with(&format!("{id}/")), "{prefix}");

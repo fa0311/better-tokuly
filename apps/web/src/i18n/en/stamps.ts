@@ -438,5 +438,8 @@ export default {
     FILE_EMPTY: "The file is empty",
     UNSUPPORTED_CONTENT_TYPE: "This file type isn't supported",
     TOO_MANY_UPLOADS: "Too many uploads in progress. Wait a moment",
+    UNUSED_QUOTA_EXCEEDED:
+      "Too many uploaded pictures aren't stamps yet. Add them to a pack or wait a bit",
+    DAILY_UPLOAD_LIMIT_EXCEEDED: "You've reached today's upload limit. Try again tomorrow!",
   },
 } as const;

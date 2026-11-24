@@ -1,7 +1,9 @@
 -- Media: uploaded assets and their processed renditions.
 --
 -- Object layout (see crates/media/src/store.rs):
---   private bucket  originals/<asset_id>/source[.ext]      the uploaded bytes
+--   private bucket  originals/<asset_id>/source[.ext]      the upload (what the upload URLs write)
+--                   originals/<asset_id>/stored-<n>[.ext]  a completed single-PUT upload, out of
+--                                                          reach of its still valid upload URL
 --   media bucket    img/<asset_id>/<size>-<hash>.webp      image variants
 --                   anim/<asset_id>/<hash>.webp            animated WebP
 --                   video/<asset_id>/...                   HLS ladder, MP4, storyboard, preview
@@ -23,7 +25,8 @@ CREATE TABLE media_assets (
     -- Lowercase hex SHA-256 the client promised; '' when none was given.
     sha256        text        NOT NULL DEFAULT '',
 
-    -- Where the original bytes live in the private bucket.
+    -- Where the original bytes live in the private bucket (the upload key,
+    -- or the stored copy of a completed single-PUT upload).
     original_key  text        NOT NULL,
     -- Storage multipart upload ID while a multipart upload is in flight.
     multipart_id  text,
@@ -67,13 +70,19 @@ CREATE TABLE media_assets (
     -- as a tombstone so other domains' references never dangle.
     deleted_at    timestamptz,
     purged_at     timestamptz,
-    -- Set when an asset is purged while one of its presigned upload URLs may
-    -- still be valid: a late PUT would recreate the original, so the janitor
-    -- purges once more after this time.
+    -- When a presigned upload URL may have outlived the asset's upload: a
+    -- late PUT can still store bytes under the upload key. The janitor then
+    -- runs once more after this time: a deleted asset is purged again, a
+    -- completed one loses whatever was stored under its upload key.
     repurge_after timestamptz
 );
 
 CREATE INDEX media_assets_owner ON media_assets (owner_id, id DESC);
+-- CreateUpload's limits: an owner's unfinished uploads and unused bytes.
+CREATE INDEX media_assets_owner_unused ON media_assets (owner_id)
+    WHERE deleted_at IS NULL AND status IN (1, 2, 3) AND (holder_count = 0 OR status = 1);
+-- CreateUpload's daily byte budget: what an owner uploaded in the last 24 hours.
+CREATE INDEX media_assets_owner_created ON media_assets (owner_id, created_at);
 -- Janitor scans: abandoned uploads, stalled jobs, objects awaiting removal.
 CREATE INDEX media_assets_stale_uploads ON media_assets (created_at) WHERE status = 1 AND deleted_at IS NULL;
 CREATE INDEX media_assets_processing ON media_assets (updated_at) WHERE status = 2 AND deleted_at IS NULL;

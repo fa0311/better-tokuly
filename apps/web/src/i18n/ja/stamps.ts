@@ -430,5 +430,8 @@ export default {
     FILE_EMPTY: "ファイルがからっぽです",
     UNSUPPORTED_CONTENT_TYPE: "このファイル形式には対応していません",
     TOO_MANY_UPLOADS: "アップロード中のファイルが多すぎます。少し待ってね",
+    UNUSED_QUOTA_EXCEEDED:
+      "まだスタンプにしていない画像がたまりすぎています。パックに追加するか、少し待ってね",
+    DAILY_UPLOAD_LIMIT_EXCEEDED: "今日アップロードできる量の上限に達しました。また明日ためしてね！",
   },
 } as const;

@@ -227,6 +227,7 @@ export default {
     attachments: "添付するファイル",
     removeFile: "{{name}}を外す",
     tooManyFiles: "一度に送れるのは{{count}}件までだよ",
+    photoUnreadable: "このブラウザでは開けない写真がありました。JPEGかPNGにしてから送ってね",
     replyingTo: "{{name}}に返信",
     editing: "メッセージを編集中",
     mentions: "メンション候補",
@@ -561,5 +562,8 @@ export default {
     UNSUPPORTED_CONTENT_TYPE: "このファイル形式には対応していません",
     UNSUPPORTED_CONTENT: "このファイルは送れませんでした",
     TOO_MANY_UPLOADS: "アップロード中のファイルが多すぎます。少し待ってね",
+    UNUSED_QUOTA_EXCEEDED:
+      "送っていないファイルがたまりすぎています。少し待つか、いらない下書きを消してね",
+    DAILY_UPLOAD_LIMIT_EXCEEDED: "今日送れるファイルの量の上限に達しました。また明日送ってね！",
   },
 } as const;

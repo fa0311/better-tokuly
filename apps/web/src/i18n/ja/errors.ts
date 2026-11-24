@@ -46,5 +46,8 @@ export default {
   UNSUPPORTED_CONTENT_TYPE: "このファイル形式には対応していません",
   UNSUPPORTED_CONTENT: "このファイルは使えませんでした",
   TOO_MANY_UPLOADS: "アップロード中のファイルが多すぎます。少し待ってね",
+  UNUSED_QUOTA_EXCEEDED:
+    "使っていないアップロードがたまりすぎています。使わないファイルを消してからためしてね",
+  DAILY_UPLOAD_LIMIT_EXCEEDED: "今日アップロードできる量の上限に達しました。また明日ためしてね！",
   UPLOAD_INCOMPLETE: "アップロードが途中で止まりました。もう一度ためしてね",
 } as const;
