@@ -593,7 +593,8 @@ message GetMapViewsResponse {
 // with followers. Following someone never gives access to their location.
 //
 // Locked accounts approve every new follower. Accounts of minors (by their
-// birthdate) are locked until their owner unlocks them.
+// birthdate) are created locked and stay so until their owner unlocks them
+// (turning 18 changes nothing).
 //
 // Every RPC needs a signed-in caller. Blocking is silent here too: a user who
 // blocked the caller looks like one that does not exist (USER_NOT_FOUND), and
@@ -642,7 +643,8 @@ service FollowService {
   // The caller's follow settings.
   rpc GetFollowSettings(GetFollowSettingsRequest) returns (GetFollowSettingsResponse);
   // Locks or unlocks the caller's account. Unlocking approves every request
-  // that is still waiting (not the declined ones).
+  // that is still waiting; declined ones are dropped silently (their senders
+  // then see an open account they do not follow).
   rpc UpdateFollowSettings(UpdateFollowSettingsRequest) returns (UpdateFollowSettingsResponse);
 
   // Accounts the caller may want to follow: people who follow the caller,

@@ -82,6 +82,7 @@ impl Social {
         match event.topic.as_str() {
             USER_CREATED => {
                 let created: UserCreated = event.data()?;
+                self.lock_if_minor(created.user_id).await?;
                 self.record_intro(created.user_id, &created.invite_code).await
             }
             USER_DELETED => self.forget_user(event.data::<UserRef>()?.user_id).await,

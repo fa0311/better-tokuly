@@ -13,8 +13,11 @@ Three relationships, none of which implies another:
 - **Follow**: one way, for public content (notes, shorts, videos, lives,
   communities). Following someone gives no access to their location.
   A **locked** account approves its followers (requests, declined silently;
-  unlocking approves every request still waiting). Without a stored setting
-  an account is locked exactly when its owner is a minor by birthdate.
+  unlocking approves every request still waiting and silently drops the
+  declined ones, whose senders then simply do not follow). Accounts of
+  minors (by birthdate) are stored as locked when they are created
+  (`identity.user.created`); the lock is never derived from today's date, so
+  an 18th birthday changes nothing anyone can see.
 - **Circles**: the built-in close-friends list and up to 20 custom ones
   (name, one emoji, colour, order; 1000 members each). Members are the
   owner's friends and followers only — a circle is an audience for what the
@@ -73,7 +76,7 @@ Durable consumer `social`. Every handler is idempotent.
 
 | Topic | Reaction |
 |---|---|
-| `identity.user.created` | If `invite_code` belongs to someone: records the intro, suggests the two to each other, and sends a friend request from the newcomer to the inviter (source `INVITE_LINK`; the inviter's "who may send me requests" audience does not apply, since they handed out the link). |
+| `identity.user.created` | Stores `locked = true` follow settings for an account of a minor (unless it has settings already). If `invite_code` belongs to someone: records the intro, suggests the two to each other, and sends a friend request from the newcomer to the inviter (source `INVITE_LINK`; the inviter's "who may send me requests" audience does not apply, since they handed out the link). |
 | `identity.user.deleted` | Deletes every row about the user (friendships, requests, blocks, suggestions, invite, intros, shared history, bumps, map reactions, map views, follows, follow requests, follow settings, dismissed follow suggestions, their circles and their memberships in others'), drops cached lists, and pushes `friend_removed_user_id` to their former friends. |
 | `identity.user.privacy_changed` | Re-syncs friends' view of the user's online state with `share_online_status`: hidden → pushed as offline (no "last seen"); shown again while online → pushed as online. With `nearby_discoverable` off, ends the user's open nearby session and takes them off the nearby map at once. |
 | `social.friend.accepted`, `social.friend.removed`, `social.friend.prefs_changed`, `social.user.blocked`, `social.user.unblocked`, `social.follow.created`, `social.follow.removed`, `social.circle.members_changed`, `social.circle.deleted` | Our own: drops the cached lists they changed (friends and friendship details, hidden, followers / following, circle members and memberships). The request that made the change does this right after its commit too, but it can be cut off there (deadline, lost connection); these events come from the same transaction and arrive at least once. |

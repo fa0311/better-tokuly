@@ -6,10 +6,11 @@
 //! - A follow is one way and independent of friendship: becoming friends
 //!   follows nobody, unfollowing unfriends nobody. Both count as a tie for
 //!   circles and as an audience (see [`crate::audience`]).
-//! - A **locked** account approves its followers. Without a stored setting an
-//!   account is locked exactly when its owner is a minor. Declining a request
+//! - A **locked** account approves its followers. Accounts of minors are
+//!   stored as locked when they are created (never derived from the date, so
+//!   an 18th birthday changes nothing visible). Declining a request
 //!   is silent: the requester keeps seeing it as pending. Unlocking approves
-//!   every request that is still waiting.
+//!   every request that is still waiting and drops the declined ones.
 //! - Blocks: a block ends follows and requests in both directions and keeps
 //!   new ones out; to the blocked user the blocker does not exist.
 //! - Lists and counts show active accounts only and leave out people in a
@@ -154,11 +155,20 @@ impl FollowsEnded {
 /// Inside `tx` (under the pair lock): ends every follow and follow request
 /// between `a` and `b`, and every circle membership between them. For blocks:
 /// `a` is the one who blocked.
+///
+/// Takes both users' follow-settings locks (shared) first: an unlock of one
+/// of them that is approving a request between the two right now either
+/// commits before (and its follow is deleted here) or waits until the block
+/// is in (and finds no request left). Without them, the follow it inserts
+/// would outlive the block.
 pub(crate) async fn end_follows_between(
     tx: &mut Transaction<'_, Postgres>,
     a: Uuid,
     b: Uuid,
 ) -> AppResult<FollowsEnded> {
+    let (first, second) = if a < b { (a, b) } else { (b, a) };
+    graph::lock_follow_settings(tx, first, false).await?;
+    graph::lock_follow_settings(tx, second, false).await?;
     let follows: Vec<(Uuid, Uuid)> = sqlx::query_as(
         "DELETE FROM follows WHERE (follower_id = $1 AND followee_id = $2) OR (follower_id = $2 AND followee_id = $1)
          RETURNING follower_id, followee_id",
@@ -226,6 +236,20 @@ fn mute_until(seconds: i64, now: DateTime<Utc>) -> AppResult<Option<DateTime<Utc
 }
 
 impl Social {
+    /// Stores a locked setting for a new account of a minor (by birthdate),
+    /// unless the account already has a setting of its own. Called once, when
+    /// the account is created: the lock then stays until its owner lifts it,
+    /// whatever the date.
+    pub(crate) async fn lock_if_minor(&self, user_id: Uuid) -> AppResult<()> {
+        if people::minors_among(&self.core, &[user_id]).await?.contains(&user_id) {
+            sqlx::query("INSERT INTO follow_settings (user_id, locked) VALUES ($1, true) ON CONFLICT (user_id) DO NOTHING")
+                .bind(user_id)
+                .execute(&self.core.db)
+                .await?;
+        }
+        Ok(())
+    }
+
     /// Follows `followee`, or asks to when their account is locked.
     pub(crate) async fn follow(&self, follower: Uuid, followee: Uuid) -> AppResult<FollowOutcome> {
         ensure!(follower != followee, invalid, "CANNOT_FOLLOW_SELF", "you cannot follow yourself");
@@ -940,6 +964,15 @@ impl Social {
                     .await?;
             approve_requests(&mut tx, &owner, &waiting).await?;
             approved = waiting.into_iter().map(|(_, follower)| follower).collect();
+            // Requests declined earlier go too, without a word: their
+            // senders now see an open account they do not follow, which is
+            // also what a request withdrawn or a follower removed looks like.
+            // Keeping them "pending" on an account that takes no requests
+            // would tell them they had been declined.
+            sqlx::query("DELETE FROM follow_requests WHERE followee_id = $1 AND declined_at IS NOT NULL")
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
         }
         tx.commit().await?;
         if !approved.is_empty() {

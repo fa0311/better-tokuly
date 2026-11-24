@@ -222,8 +222,10 @@ CREATE INDEX map_views_at ON map_views (viewed_at);
 
 -- ───────────────────────────── follows ─────────────────────────────
 
--- One row per user who changed their follow settings. Without a row an
--- account is locked exactly when its owner is a minor (by birthdate).
+-- Follow settings. Without a row an account is unlocked. Accounts of minors
+-- (by birthdate) get `locked = true` when they are created, and keep it until
+-- their owner unlocks them: the lock is never derived from today's date, so
+-- turning 18 changes nothing anybody can see.
 CREATE TABLE follow_settings (
     user_id    uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
     locked     boolean     NOT NULL,
@@ -235,6 +237,12 @@ CREATE TRIGGER follow_settings_updated_at
     BEFORE UPDATE ON follow_settings
     FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
+
+-- Accounts of minors that exist already start locked too.
+INSERT INTO follow_settings (user_id, locked)
+SELECT id, true FROM users
+WHERE birthdate > current_date - interval '18 years' AND deleted_at IS NULL
+ON CONFLICT (user_id) DO NOTHING;
 
 -- `follower_id` follows `followee_id`. The follower's preferences about the
 -- followee (mute, notifications) live on the row and are private to them.

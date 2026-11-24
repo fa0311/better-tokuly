@@ -92,18 +92,14 @@ impl ContentAudience {
     }
 }
 
-/// SQL: whether the account `{user}` (an expression) is locked. Without a
-/// stored setting an account is locked when its owner is a minor (18, by
-/// the birthdate on the account, as for nearby discovery and bumps).
+/// SQL: whether the account `{user}` (an expression) is locked: its stored
+/// setting, unlocked without one. Accounts of minors get a stored `true` when
+/// they are created (see `Social::lock_if_minor`), never a value computed from
+/// today's date: that would unlock them on their 18th birthday and tell
+/// everyone watching when it is.
 macro_rules! locked_sql {
     ($user:literal) => {
-        concat!(
-            "COALESCE((SELECT fs_.locked FROM follow_settings fs_ WHERE fs_.user_id = ",
-            $user,
-            "), (SELECT u_.birthdate > current_date - interval '18 years' FROM users u_ WHERE u_.id = ",
-            $user,
-            "), false)"
-        )
+        concat!("COALESCE((SELECT fs_.locked FROM follow_settings fs_ WHERE fs_.user_id = ", $user, "), false)")
     };
 }
 pub(crate) use locked_sql;

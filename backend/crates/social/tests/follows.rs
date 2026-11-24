@@ -222,26 +222,55 @@ async fn requests_can_be_withdrawn_and_unlocking_approves_the_waiting_ones() {
     let unlocked = ctx.set_locked(&lock, false).await;
     assert_eq!(unlocked.approved_request_count, 1);
     assert!(graph::follows(core, waiting.id, lock.id).await.unwrap());
-    assert!(!graph::follows(core, declined.id, lock.id).await.unwrap(), "a declined request stays declined");
+    assert!(!graph::follows(core, declined.id, lock.id).await.unwrap(), "a declined request is not approved");
+    // ...but it is dropped: its sender sees an open account they do not follow.
+    assert!(requests(&ctx, &declined, FollowRequestDirection::FOLLOW_REQUEST_DIRECTION_OUTGOING).await.requests.is_empty());
+    assert_eq!(summary(&ctx, &declined, &lock).await.relation.as_option().unwrap().following.as_known(), Some(FollowState::FOLLOW_STATE_NONE));
     assert_eq!(ctx.notifications_for(waiting.id, "social.follow_approved").await.len(), 1);
     assert_eq!(state(&ctx.follow(&withdrawn, &lock).await), FollowState::FOLLOW_STATE_FOLLOWING, "open now");
     assert_eq!(ctx.app.events_by("social.follow.settings_changed", lock.id).await.len(), 2);
 }
 
+/// Delivers `identity.user.created` for `user` (no relay runs in tests).
+async fn created(ctx: &Ctx, user: &TestUser) {
+    let event = tokuly_core::events::Event {
+        id: Uuid::now_v7(),
+        topic: "identity.user.created".into(),
+        actor_id: Some(user.id),
+        occurred_at: chrono::Utc::now(),
+        data: serde_json::json!({ "user_id": user.id, "handle": user.handle, "invite_code": "" }),
+    };
+    ctx.social.handle_event(&event).await.unwrap();
+}
+
+async fn locked(ctx: &Ctx, user: &TestUser) -> bool {
+    let settings: GetFollowSettingsResponse = ctx.follows("GetFollowSettings", user, &GetFollowSettingsRequest::default()).await.unwrap();
+    settings.settings.as_option().unwrap().locked
+}
+
 #[tokio::test]
-async fn minors_start_locked() {
+async fn minors_start_locked_and_birthdays_change_nothing() {
     let ctx = start().await;
-    let (teen, adult) = (ctx.app.user("teen").await, ctx.app.user("adult").await);
+    let (teen, adult, late) = (ctx.app.user("teen").await, ctx.app.user("adult").await, ctx.app.user("late").await);
     ctx.make_minor(&teen).await;
-    let settings: GetFollowSettingsResponse =
-        ctx.follows("GetFollowSettings", &teen, &GetFollowSettingsRequest::default()).await.unwrap();
-    assert!(settings.settings.as_option().unwrap().locked);
+    created(&ctx, &teen).await;
+    created(&ctx, &adult).await;
+    assert!(locked(&ctx, &teen).await);
+    assert!(!locked(&ctx, &adult).await);
     assert_eq!(state(&ctx.follow(&adult, &teen).await), FollowState::FOLLOW_STATE_REQUESTED);
+
+    // The 18th birthday passes: nothing anyone can see changes.
+    sqlx::query("UPDATE users SET birthdate = current_date - interval '18 years 1 day' WHERE id = $1").bind(teen.id).execute(&ctx.app.core.db).await.unwrap();
+    assert!(locked(&ctx, &teen).await, "the lock does not lift itself");
+    assert!(summary(&ctx, &adult, &teen).await.locked);
+    // Nor does a birthdate alone lock an account after it was created.
+    ctx.make_minor(&late).await;
+    assert!(!locked(&ctx, &late).await);
+    // A redelivered sign-up event does not undo the owner's own choice.
     ctx.set_locked(&teen, false).await;
-    assert_eq!(
-        summary(&ctx, &adult, &teen).await.relation.as_option().unwrap().following.as_known(),
-        Some(FollowState::FOLLOW_STATE_FOLLOWING)
-    );
+    ctx.make_minor(&teen).await;
+    created(&ctx, &teen).await;
+    assert!(!locked(&ctx, &teen).await);
 }
 
 #[tokio::test]
@@ -599,5 +628,24 @@ async fn profiles_carry_a_follow_card() {
         .await;
     if let Ok(after) = after {
         assert!(after.profile.as_option().unwrap().cards.iter().all(|c| c.kind != "social.follow"));
+    }
+}
+
+#[tokio::test]
+async fn a_block_during_an_unlock_leaves_no_follow_behind() {
+    let ctx = start().await;
+    let core = &ctx.app.core;
+    for round in 0..8 {
+        let (lock, fan) = (ctx.app.user(&format!("lock{round}")).await, ctx.app.user(&format!("fan{round}")).await);
+        ctx.set_locked(&lock, true).await;
+        ctx.follow(&fan, &lock).await;
+        // The blocker is either side, in turn.
+        let (blocker, blocked) = if round % 2 == 0 { (&lock, &fan) } else { (&fan, &lock) };
+        tokio::join!(ctx.set_locked(&lock, false), ctx.block(blocker, blocked));
+        assert!(
+            !graph::follows(core, fan.id, lock.id).await.unwrap() && !graph::follows(core, lock.id, fan.id).await.unwrap(),
+            "round {round}: a follow outlived the block"
+        );
+        assert!(requests(&ctx, &lock, FollowRequestDirection::FOLLOW_REQUEST_DIRECTION_INCOMING).await.requests.is_empty());
     }
 }
