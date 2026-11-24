@@ -55,32 +55,33 @@ community: wrote in that thread, is mentioned or answered by its author
 there, reported it to the community's staff, or wrote the post). A case
 marked hidden on a server without a lookup is withheld from everyone.
 
-The moderation log follows the same rule. An entry about an anonymous post
-is marked (`moderation_actions.target_hidden`). `ListModerationActions` and
-the actions in `GetCase` show it to an involved moderator without the account
-it hit (`target_withheld`); in the history of one account
-(`ListModerationActions` by `user_id`, the staff view `GetUser`) such a
-moderator does not get the entry at all, because there the entry itself would
-say whose post it was. A moderator who is not involved reads the log as it
-is. The answers to `ResolveCase` and `TakedownContent` never name the target
-of such an entry.
+`GetCase` is the one place a hidden author is named; everywhere else an
+account and an anonymous post meet, for every reader:
 
-The same holds wherever else an account and an anonymous post meet:
-
-- the numbers of an account's moderation record (`UserModerationSummary`,
-  in `GetUser` and as the owner record of `GetCase`) leave out the cases and
-  log entries about anonymous posts the reader is involved in (an account
-  with more than 100 such posts has all of them left out for everyone);
-- a suspension imposed for such a post comes to an involved reader without
-  `case_id` and `reason` (`GetUser`, `SearchUsers`, the account RPCs);
-- the audit log marks entries about such a post
+- The moderation log marks entries about such a post
+  (`moderation_actions.target_hidden`). `ListModerationActions`, the actions
+  in `GetCase` (unless that view named the author) and the answers to
+  changes show them with `target_withheld`, without the account, and without
+  anything that could be matched against the account's own record: no
+  `expires_at`, `reason` or `note`, and `created_at` cut to the day (UTC).
+  In the history of one account (`ListModerationActions` by `user_id`, the
+  staff view `GetUser`) they do not come at all. A dismissal records no
+  target.
+- A case shown without its author has no `resolution_reason`, and
+  `resolved_at` cut to the day.
+- The moderation record (`UserModerationSummary`) leaves the account's
+  anonymous posts out, except, in `GetCase`, the one whose author it names.
+- A suspension imposed for such a post shows no `case_id`, like a direct
+  one; its reason stays, so it does not stand out among the others.
+- The audit log marks entries about such a post
   (`admin_audit_log.target_hidden`, with the post's subject) and shows them
-  to an involved admin with `target_withheld` and without the account,
-  and not at all in the log filtered by that account.
+  with `target_withheld`, without the account, without a reason, cut to the
+  day, and with snapshots lacking `suspension_id`, `replaced_suspension_id`,
+  `expires_at` and `note`; filtered by that account, it leaves them out.
 
-What stays visible: that an account is suspended, and since when. A reader
-who watches the moment an anonymous post's case is resolved with a
-suspension can line it up with the accounts suspended at that moment.
+What stays visible: that an account is suspended, and since when. On a
+quiet day, the day a case about an anonymous post was resolved with a
+suspension can still be compared with the accounts suspended that day.
 
 **Unmasking is limited.** `GetCase` names at most
 `TOKULY_MODERATOR_REVEALS_PER_HOUR` hidden authors per staff member and hour
