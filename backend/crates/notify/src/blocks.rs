@@ -27,6 +27,23 @@ pub(crate) async fn either_blocked<'e, E: PgExecutor<'e>>(executor: E, a: Uuid, 
     .await?)
 }
 
+/// Whether nothing caused by `actor_id` may reach `user_id` any more: they
+/// are in a block, or `user_id` muted them.
+pub(crate) async fn silenced<'e, E: PgExecutor<'e>>(executor: E, user_id: Uuid, actor_id: Uuid) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (
+                    SELECT 1 FROM notify_blocks
+                    WHERE blocked AND ((user_id = $1 AND blocked_id = $2) OR (user_id = $2 AND blocked_id = $1))
+                ) OR EXISTS (
+                    SELECT 1 FROM notify_mutes WHERE user_id = $1 AND muted_user_id = $2 AND muted
+                )",
+    )
+    .bind(user_id)
+    .bind(actor_id)
+    .fetch_one(executor)
+    .await?)
+}
+
 impl Notify {
     /// Handles `social.user.blocked` (`blocked = true`) and
     /// `social.user.unblocked`.

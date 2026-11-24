@@ -20,7 +20,7 @@ use tokuly_core::{jobs::JobOptions, outbound::Localized, prelude::*};
 use crate::{
     Notify, categories,
     devices::{self, DeliveryDevice},
-    inbox,
+    blocks, inbox,
     push::{PushMessage, PushOutcome, PushPriority},
     withdraw,
 };
@@ -38,6 +38,10 @@ pub struct PushJob {
     /// Identifies this push across retries (the ID of the event behind it).
     pub id: Uuid,
     pub user_id: Uuid,
+    /// Who caused it, when the recipient can block or mute them: a job is
+    /// dropped when that happened while it waited. `None` for system notices.
+    #[serde(default)]
+    pub actor_id: Option<Uuid>,
     /// The inbox entry, when the notification has one.
     pub notification_id: Option<Uuid>,
     pub kind: String,
@@ -139,6 +143,12 @@ impl Notify {
         }
         if withdraw::any_withdrawn(&self.core.db, &job.refs).await? {
             // Deleted or taken down while the push waited.
+            return Ok(report);
+        }
+        if let Some(actor_id) = job.actor_id
+            && blocks::silenced(&self.core.db, job.user_id, actor_id).await?
+        {
+            // Blocked or muted while the push waited.
             return Ok(report);
         }
         let devices = devices::for_delivery(&self.core, job.user_id).await?;
@@ -279,6 +289,7 @@ mod tests {
         PushJob {
             id: Uuid::now_v7(),
             user_id: Uuid::now_v7(),
+            actor_id: None,
             notification_id: None,
             kind: format!("{kind_category}.something"),
             category: kind_category.to_owned(),

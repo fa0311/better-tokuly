@@ -201,10 +201,12 @@ fn push_job(
     stored: Option<&NotificationRow>,
     unread: &UnreadCount,
     withdrawable_refs: &[Uuid],
+    blockable_actor: Option<Uuid>,
 ) -> PushJob {
     PushJob {
         id: event.id,
         user_id: request.user_id,
+        actor_id: blockable_actor,
         notification_id: stored.map(|row| row.id),
         kind: request.kind.clone(),
         category: category.id.to_owned(),
@@ -324,6 +326,7 @@ impl Notify {
                     stored.as_ref(),
                     &unread,
                     withdrawable_refs,
+                    blockable_actor,
                 );
                 // Queued before the commit: if queuing fails nothing is
                 // recorded and the event is retried as a whole. The job is

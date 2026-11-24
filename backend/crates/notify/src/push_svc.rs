@@ -143,6 +143,7 @@ impl PushService for Notify {
             let job = PushJob {
                 id: new_id(),
                 user_id,
+                actor_id: None,
                 notification_id: None,
                 kind: TEST_KIND.to_owned(),
                 category: categories::of_kind(TEST_KIND).id.to_owned(),

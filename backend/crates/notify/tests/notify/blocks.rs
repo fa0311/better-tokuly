@@ -73,3 +73,36 @@ async fn a_block_handled_while_the_blocked_persons_notifications_arrive_leaves_n
         assert!(ctx.inbox(&alice).await.notifications.is_empty());
     }
 }
+
+#[tokio::test]
+async fn a_push_queued_before_a_block_or_mute_is_not_sent() {
+    let ctx = start_insecure().await;
+    let (alice, bob, carol) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("carol").await);
+    let stub = Stub::accepting().await;
+    let subscription = Subscription::new(&format!("{}/push/laptop", stub.url));
+    ctx.register(&alice, &subscription.request()).await;
+    let from_bob = ctx.deliver_for_push(&chat_message(&alice, &bob)).await;
+    let from_carol = ctx.deliver_for_push(&chat_message(&alice, &carol)).await;
+
+    // Alice blocks Bob and mutes Carol before the push service is reached.
+    ctx.notify.handle_event(block_event(&alice, &bob, true, 0)).await.unwrap();
+    let _: tokuly_proto::notify::MuteUserResponse = ctx
+        .app
+        .call(
+            "tokuly.notify.v1.PreferencesService/MuteUser",
+            Some(&alice),
+            &tokuly_proto::notify::MuteUserRequest { user_id: carol.id.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(ctx.notify.deliver_push(&from_bob).await.unwrap().delivered, 0);
+    assert_eq!(ctx.notify.deliver_push(&from_carol).await.unwrap().delivered, 0);
+    assert!(stub.requests().is_empty());
+
+    // A block in the other direction holds too.
+    let dave = ctx.app.user("dave").await;
+    let from_dave = ctx.deliver_for_push(&chat_message(&alice, &dave)).await;
+    ctx.notify.handle_event(block_event(&dave, &alice, true, 0)).await.unwrap();
+    assert_eq!(ctx.notify.deliver_push(&from_dave).await.unwrap().delivered, 0);
+    assert!(stub.requests().is_empty());
+}
