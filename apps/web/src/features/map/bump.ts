@@ -1,4 +1,4 @@
-import { fromDate } from "@tokuly/api";
+import { errorReason, fromDate } from "@tokuly/api";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
@@ -7,6 +7,7 @@ import { useLocations } from "#/stores/locations";
 import { useMe } from "#/stores/session";
 import { interactionClient } from "./data";
 import { emitEffect } from "./effects";
+import { reportFreshFix } from "./own-location";
 
 let bumping = false;
 
@@ -15,9 +16,8 @@ let bumping = false;
  * seconds for someone nearby to do the same. Returns whether a bump happened.
  */
 export async function tryBump(myId: string | undefined, intensity = 1.5): Promise<boolean> {
-  const own = useLocations.getState().own;
   const t = (key: string) => i18n.t(key, { ns: "map" });
-  if (!own) {
+  if (!useLocations.getState().own) {
     toast.error(t("bump.needLocation"));
     return false;
   }
@@ -25,6 +25,12 @@ export async function tryBump(myId: string | undefined, intensity = 1.5): Promis
   bumping = true;
   const waiting = toast.loading(t("bump.waiting"));
   try {
+    // The server takes a shake only where our own latest fix puts us: send a fresh one first.
+    const own = (await reportFreshFix()) ?? useLocations.getState().own;
+    if (!own) {
+      toast.error(t("bump.needLocation"));
+      return false;
+    }
     // The other person has a few seconds to shake too: ask again until the window closes.
     for (let attempt = 0; attempt < 4; attempt++) {
       const response = await interactionClient().bump({
@@ -53,7 +59,11 @@ export async function tryBump(myId: string | undefined, intensity = 1.5): Promis
     toast(t("bump.nobody"), { icon: "🤷" });
     return false;
   } catch (error) {
-    toast.error(errorMessage(error, { namespace: "map" }));
+    if (errorReason(error) === "LOCATION_NOT_VERIFIED")
+      toast.error(errorMessage(error, { namespace: "map" }), {
+        action: { label: i18n.t("actions.retry"), onClick: () => void tryBump(myId, intensity) },
+      });
+    else toast.error(errorMessage(error, { namespace: "map" }));
     return false;
   } finally {
     toast.dismiss(waiting);

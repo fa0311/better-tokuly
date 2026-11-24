@@ -2,6 +2,7 @@
 export default {
   generic: "Something went wrong. Please try again",
   network: "Couldn't reach Tokuly. Check your connection",
+  LOCATION_NOT_VERIFIED: "We couldn't confirm where you are. Turn on location and try again.",
   INVALID_CREDENTIALS: "Wrong email, handle or password",
   INVALID_TOTP: "Wrong authentication code",
   ACCOUNT_BANNED: "This account has been suspended",
