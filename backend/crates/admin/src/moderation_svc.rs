@@ -79,7 +79,15 @@ impl ModerationService for Admin {
             }
             let (reports, _) = self.case_reports(case.id, &first_page(CASE_PREVIEW_REPORTS)).await?;
             // A hidden author is named here, to a moderator who is not involved, and nowhere else.
-            let (moderation_case, owner_named) = self.opened_case(&staff, &case).await?;
+            let (mut moderation_case, owner_named) = self.opened_case(&staff, &case).await?;
+            // The content as its reporters can still see it, also after its
+            // owner hid it; not for a moderator involved in a hidden author's post.
+            if !moderation_case.conflict_of_interest
+                && let Some(subject) = self.reported_subject(&staff, case.subject_type, case.subject_id).await?
+            {
+                moderation_case.current_subject =
+                    CaseSubject { title: subject.title, path: subject.path, ..Default::default() }.into();
+            }
             // The owner's record counts their anonymous posts only where this view named them: this one.
             let revealed = case.owner_hidden.then_some((case.subject_type, case.subject_id)).filter(|_| owner_named);
             let owner_record = match case.subject_owner_id.filter(|_| owner_named) {

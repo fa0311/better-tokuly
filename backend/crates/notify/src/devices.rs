@@ -51,44 +51,27 @@ pub fn validate(policy: &EndpointPolicy, request: RegisterDeviceRequest) -> AppR
         "DEVICE_NAME_TOO_LONG",
         "device names have at most {MAX_DEVICE_NAME_CHARS} characters"
     );
-    let platform = request
-        .platform
-        .as_known()
-        .unwrap_or(Platform::PLATFORM_UNSPECIFIED);
+    let platform = request.platform.as_known().unwrap_or(Platform::PLATFORM_UNSPECIFIED);
     let or_default = |default: Platform| {
-        if platform == Platform::PLATFORM_UNSPECIFIED {
-            default
-        } else {
-            platform
-        }
+        if platform == Platform::PLATFORM_UNSPECIFIED { default } else { platform }
     };
 
     let Some(token) = request.token else {
-        bail!(
-            invalid,
-            "TOKEN_REQUIRED",
-            "a push subscription or device token is required"
-        );
+        bail!(invalid, "TOKEN_REQUIRED", "a push subscription or device token is required");
     };
     Ok(match token {
         Token::WebPush(subscription) => {
             match policy.check(&subscription.endpoint) {
                 Ok(_) => {}
-                Err(EndpointError::Invalid) => bail!(
-                    invalid,
-                    "ENDPOINT_INVALID",
-                    "the push endpoint is not a valid https URL"
-                ),
-                Err(EndpointError::NotAllowed) => bail!(
-                    invalid,
-                    "ENDPOINT_NOT_ALLOWED",
-                    "the push endpoint does not belong to a known push service"
-                ),
+                Err(EndpointError::Invalid) => {
+                    bail!(invalid, "ENDPOINT_INVALID", "the push endpoint is not a valid https URL")
+                }
+                Err(EndpointError::NotAllowed) => {
+                    bail!(invalid, "ENDPOINT_NOT_ALLOWED", "the push endpoint does not belong to a known push service")
+                }
             }
-            let p256dh = decode_key(&subscription.p256dh)
-                .filter(|key| ece::validate_public_key(key).is_ok());
-            let auth = decode_key(&subscription.auth)
-                .filter(|secret| secret.len() == ece::AUTH_SECRET_LEN);
+            let p256dh = decode_key(&subscription.p256dh).filter(|key| ece::validate_public_key(key).is_ok());
+            let auth = decode_key(&subscription.auth).filter(|secret| secret.len() == ece::AUTH_SECRET_LEN);
             let (Some(p256dh), Some(auth)) = (p256dh, auth) else {
                 bail!(
                     invalid,
@@ -134,12 +117,7 @@ pub fn validate(policy: &EndpointPolicy, request: RegisterDeviceRequest) -> AppR
                 && token.len() <= 400
                 && token.len() % 2 == 0
                 && token.bytes().all(|b| b.is_ascii_hexdigit());
-            ensure!(
-                hex,
-                invalid,
-                "TOKEN_INVALID",
-                "an APNs device token is at least 32 bytes as hex"
-            );
+            ensure!(hex, invalid, "TOKEN_INVALID", "an APNs device token is at least 32 bytes as hex");
             NewDevice {
                 channel: PushChannelKind::PUSH_CHANNEL_KIND_APNS,
                 platform: or_default(Platform::PLATFORM_IOS),
@@ -157,11 +135,7 @@ pub fn validate(policy: &EndpointPolicy, request: RegisterDeviceRequest) -> AppR
 /// Decodes a subscription key. Browsers produce unpadded base64url; some
 /// client libraries pad it or use the standard alphabet.
 fn decode_key(encoded: &str) -> Option<Vec<u8>> {
-    let normalized = encoded
-        .trim()
-        .trim_end_matches('=')
-        .replace('+', "-")
-        .replace('/', "_");
+    let normalized = encoded.trim().trim_end_matches('=').replace('+', "-").replace('/', "_");
     b64url_decode(&normalized)
 }
 
@@ -204,12 +178,7 @@ impl DeviceRow {
 /// channel, and a token belongs to one session: the token it replaces is
 /// dropped, and a token another session (or account) registered earlier —
 /// the same browser after switching accounts — moves here.
-pub async fn register(
-    core: &Core,
-    user_id: Uuid,
-    session_id: Uuid,
-    device: &NewDevice,
-) -> AppResult<DeviceRow> {
+pub async fn register(core: &Core, user_id: Uuid, session_id: Uuid, device: &NewDevice) -> AppResult<DeviceRow> {
     let channel = device.channel as i32;
     let mut tx = core.db.begin().await?;
     // A session holds one registration per channel: two registrations of
@@ -306,10 +275,7 @@ pub async fn for_delivery(core: &Core, user_id: Uuid) -> AppResult<Vec<DeliveryD
 }
 
 pub async fn delete(core: &Core, device_id: Uuid) -> AppResult<()> {
-    sqlx::query("DELETE FROM push_devices WHERE id = $1")
-        .bind(device_id)
-        .execute(&core.db)
-        .await?;
+    sqlx::query("DELETE FROM push_devices WHERE id = $1").bind(device_id).execute(&core.db).await?;
     Ok(())
 }
 
@@ -346,17 +312,11 @@ mod tests {
     }
 
     fn valid_keys() -> (String, String) {
-        (
-            b64url(&ece::public_key_bytes(&ece::random_secret_key())),
-            b64url(&[9u8; 16]),
-        )
+        (b64url(&ece::public_key_bytes(&ece::random_secret_key())), b64url(&[9u8; 16]))
     }
 
     fn reason(request: RegisterDeviceRequest) -> String {
-        validate(&policy(), request)
-            .unwrap_err()
-            .reason
-            .into_owned()
+        validate(&policy(), request).unwrap_err().reason.into_owned()
     }
 
     #[test]
@@ -365,80 +325,46 @@ mod tests {
         let endpoint = "https://fcm.googleapis.com/fcm/send/abc";
         let device = validate(&policy(), web_push(endpoint, &p256dh, &auth)).unwrap();
         assert_eq!(device.channel, PushChannelKind::PUSH_CHANNEL_KIND_WEB_PUSH);
-        assert_eq!(
-            device.platform,
-            Platform::PLATFORM_WEB,
-            "the platform defaults by channel"
-        );
-        assert_eq!(
-            (device.token.as_str(), device.auth.as_deref()),
-            (endpoint, Some(&[9u8; 16][..]))
-        );
+        assert_eq!(device.platform, Platform::PLATFORM_WEB, "the platform defaults by channel");
+        assert_eq!((device.token.as_str(), device.auth.as_deref()), (endpoint, Some(&[9u8; 16][..])));
 
         assert_eq!(reason(web_push("nope", &p256dh, &auth)), "ENDPOINT_INVALID");
-        assert_eq!(
-            reason(web_push("https://attacker.example/x", &p256dh, &auth)),
-            "ENDPOINT_NOT_ALLOWED"
-        );
-        assert_eq!(
-            reason(web_push(endpoint, "AAAA", &auth)),
-            "SUBSCRIPTION_KEYS_INVALID"
-        );
+        assert_eq!(reason(web_push("https://attacker.example/x", &p256dh, &auth)), "ENDPOINT_NOT_ALLOWED");
+        assert_eq!(reason(web_push(endpoint, "AAAA", &auth)), "SUBSCRIPTION_KEYS_INVALID");
         assert_eq!(
             reason(web_push(endpoint, &b64url(&[4u8; 65]), &auth)),
             "SUBSCRIPTION_KEYS_INVALID",
             "not a curve point"
         );
-        assert_eq!(
-            reason(web_push(endpoint, &p256dh, &b64url(&[1u8; 8]))),
-            "SUBSCRIPTION_KEYS_INVALID"
-        );
-        assert_eq!(
-            reason(web_push(endpoint, &p256dh, "***")),
-            "SUBSCRIPTION_KEYS_INVALID"
-        );
+        assert_eq!(reason(web_push(endpoint, &p256dh, &b64url(&[1u8; 8]))), "SUBSCRIPTION_KEYS_INVALID");
+        assert_eq!(reason(web_push(endpoint, &p256dh, "***")), "SUBSCRIPTION_KEYS_INVALID");
     }
 
     #[test]
     fn padded_and_standard_base64_keys_are_accepted() {
         use base64::Engine as _;
         let secret = ece::random_secret_key();
-        let p256dh =
-            base64::engine::general_purpose::STANDARD.encode(ece::public_key_bytes(&secret));
+        let p256dh = base64::engine::general_purpose::STANDARD.encode(ece::public_key_bytes(&secret));
         let auth = base64::engine::general_purpose::STANDARD.encode([250u8; 16]);
-        let device = validate(
-            &policy(),
-            web_push("https://web.push.apple.com/abc", &p256dh, &auth),
-        )
-        .unwrap();
+        let device = validate(&policy(), web_push("https://web.push.apple.com/abc", &p256dh, &auth)).unwrap();
         assert_eq!(device.p256dh.unwrap(), ece::public_key_bytes(&secret));
     }
 
     #[test]
     fn native_tokens_are_validated_and_normalized() {
-        let fcm = |token: &str| RegisterDeviceRequest {
-            token: Some(Token::FcmToken(token.into())),
-            ..Default::default()
-        };
+        let fcm =
+            |token: &str| RegisterDeviceRequest { token: Some(Token::FcmToken(token.into())), ..Default::default() };
         let device = validate(&policy(), fcm(" cXyz:APA91b-token_123 ")).unwrap();
         assert_eq!(
             (device.channel, device.platform, device.token.as_str()),
-            (
-                PushChannelKind::PUSH_CHANNEL_KIND_FCM,
-                Platform::PLATFORM_ANDROID,
-                "cXyz:APA91b-token_123"
-            )
+            (PushChannelKind::PUSH_CHANNEL_KIND_FCM, Platform::PLATFORM_ANDROID, "cXyz:APA91b-token_123")
         );
         assert_eq!(reason(fcm("")), "TOKEN_INVALID");
         assert_eq!(reason(fcm("has space")), "TOKEN_INVALID");
         assert_eq!(reason(fcm(&"a".repeat(MAX_TOKEN_LEN + 1))), "TOKEN_INVALID");
 
         let apns = |token: &str, sandbox: bool| RegisterDeviceRequest {
-            token: Some(Token::from(ApnsToken {
-                token: token.into(),
-                sandbox,
-                ..Default::default()
-            })),
+            token: Some(Token::from(ApnsToken { token: token.into(), sandbox, ..Default::default() })),
             ..Default::default()
         };
         let device = validate(&policy(), apns(&"AB".repeat(32), true)).unwrap();
@@ -455,20 +381,8 @@ mod tests {
         let (p256dh, auth) = valid_keys();
         let base = || web_push("https://fcm.googleapis.com/fcm/send/abc", &p256dh, &auth);
         assert_eq!(reason(RegisterDeviceRequest::default()), "TOKEN_REQUIRED");
-        assert_eq!(
-            reason(RegisterDeviceRequest {
-                locale: "not a locale!".into(),
-                ..base()
-            }),
-            "LOCALE_INVALID"
-        );
-        assert_eq!(
-            reason(RegisterDeviceRequest {
-                device_name: "x".repeat(101),
-                ..base()
-            }),
-            "DEVICE_NAME_TOO_LONG"
-        );
+        assert_eq!(reason(RegisterDeviceRequest { locale: "not a locale!".into(), ..base() }), "LOCALE_INVALID");
+        assert_eq!(reason(RegisterDeviceRequest { device_name: "x".repeat(101), ..base() }), "DEVICE_NAME_TOO_LONG");
         let device = validate(
             &policy(),
             RegisterDeviceRequest {
@@ -480,11 +394,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            (
-                device.locale.as_str(),
-                device.device_name.as_str(),
-                device.platform
-            ),
+            (device.locale.as_str(), device.device_name.as_str(), device.platform),
             ("en-US", "Pixel 10", Platform::PLATFORM_DESKTOP)
         );
     }

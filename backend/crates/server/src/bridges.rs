@@ -8,11 +8,11 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use sqlx::PgConnection;
-use tokuly_admin::{HiddenOwners, ReportEvidence};
+use tokuly_admin::{HiddenOwners, ReportEvidence, ReportedSubjects};
 use tokuly_community::Community;
-use tokuly_core::prelude::*;
+use tokuly_core::{prelude::*, subject::SubjectInfo};
 use tokuly_dev::ImageStore;
-use tokuly_engagement::ChannelDirectory;
+use tokuly_engagement::{ChannelDirectory, Engagement};
 use tokuly_media::assets;
 use tokuly_proto::{
     common::{ChannelSummary, StampRef, SubjectType},
@@ -33,6 +33,7 @@ pub fn connect(core: &Core, domains: &Domains) {
     domains.dev.set_images(Arc::new(ImagesForDevelopers { core: core.clone() }));
     domains.admin.set_hidden_owners(Arc::new(AnonymousAuthors { community: domains.community.clone() }));
     domains.admin.set_report_evidence(Arc::new(EvidenceOfReports));
+    domains.admin.set_reported_subjects(Arc::new(ReportedForModerators { engagement: domains.engagement.clone() }));
     domains.shorts.set_clip_directory(Arc::new(ClipsForShorts { core: core.clone() }));
 }
 
@@ -178,5 +179,23 @@ impl ClipDirectory for ClipsForShorts {
             }
         }
         Ok(Some(ClipMedia { clip_id: clip.id, asset_id }))
+    }
+}
+
+/// Reported content in the case view: admin asks, engagement keeps the
+/// reports and asks the owning domain as each reporter.
+struct ReportedForModerators {
+    engagement: Engagement,
+}
+
+#[async_trait]
+impl ReportedSubjects for ReportedForModerators {
+    async fn reported_subject(
+        &self,
+        staff_id: Uuid,
+        subject_type: SubjectType,
+        subject_id: Uuid,
+    ) -> AppResult<Option<SubjectInfo>> {
+        self.engagement.resolve_reported_subject(staff_id, subject_type, subject_id).await
     }
 }

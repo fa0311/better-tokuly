@@ -195,6 +195,21 @@ message ModerationCase {
   // the reports: only in `GetCase`, and not in a case about the caller
   // (`about_you`).
   string reported_content = 21;
+  // Only in `GetCase`: the subject as the people who reported it can still
+  // see it now, also after its owner hid it from everyone else (a video made
+  // private, a comment hidden after the report). Unset when it resolves for
+  // none of them, in a case about the caller, for a moderator involved in a
+  // hidden author's post (`conflict_of_interest`), and for a moderator who
+  // owns or reported the subject.
+  CaseSubject current_subject = 22;
+}
+
+// A case's subject as the moderation team may look at it. Names no owner.
+message CaseSubject {
+  // For content edited or withdrawn since it was reported, every version.
+  string title = 1;
+  // Where it is in the app.
+  string path = 2;
 }
 
 // One user's report inside a case.

@@ -291,4 +291,13 @@ promotes a named account unconditionally (for tools and tests).
 - **Takedown by short ID** works for subject types whose domain registered a
   `SubjectResolver`; otherwise the UUID is required. The resolver is asked
   with the moderator as viewer, so content the moderator cannot see must be
-  referenced by UUID as well.
+  referenced by UUID as well; reported content referenced so is found the way
+  its reporters see it (below), with its current title.
+- **Reported content its owner hid** (a video made private, a comment hidden
+  after the report): the server hands in `ReportedSubjects`
+  (`Admin::set_reported_subjects`, implemented with engagement's
+  `resolve_reported_subject`), which resolves a subject the way its reporters
+  can still see it. `GetCase` shows it as `ModerationCase.current_subject`
+  (title and path, never an owner), except in a case about the caller, for a
+  moderator involved in a hidden author's post, and for the subject's owner
+  or reporters. Nothing else uses it.

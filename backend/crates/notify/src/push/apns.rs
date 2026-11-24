@@ -18,8 +18,7 @@ use tokuly_core::prelude::*;
 use tokuly_proto::notify::PushChannelKind;
 
 use super::{
-    PushChannel, PushMessage, PushOutcome, PushTarget, Trim, collapse_id, fit_json,
-    network_failure, read_response,
+    PushChannel, PushMessage, PushOutcome, PushTarget, Trim, collapse_id, fit_json, network_failure, read_response,
 };
 
 const PRODUCTION_ENDPOINT: &str = "https://api.push.apple.com";
@@ -56,17 +55,10 @@ pub struct Apns {
 impl Apns {
     /// `key_p8` is the content of the `.p8` file (PKCS#8 PEM). Environment
     /// variables often carry it on one line, so literal `\n` is accepted.
-    pub fn new(
-        key_p8: &str,
-        key_id: &str,
-        team_id: &str,
-        topic: &str,
-        http: reqwest::Client,
-    ) -> anyhow::Result<Self> {
+    pub fn new(key_p8: &str, key_id: &str, team_id: &str, topic: &str, http: reqwest::Client) -> anyhow::Result<Self> {
         let pem = key_p8.trim().replace("\\n", "\n");
-        let signing_key = EncodingKey::from_ec_pem(pem.as_bytes()).map_err(|e| {
-            anyhow::anyhow!("TOKULY_APNS_KEY_P8 is not a PKCS#8 EC private key in PEM form: {e}")
-        })?;
+        let signing_key = EncodingKey::from_ec_pem(pem.as_bytes())
+            .map_err(|e| anyhow::anyhow!("TOKULY_APNS_KEY_P8 is not a PKCS#8 EC private key in PEM form: {e}"))?;
         Ok(Self {
             http,
             key_id: key_id.trim().to_owned(),
@@ -100,17 +92,10 @@ impl Apns {
         header.kid = Some(self.key_id.clone());
         // Apple documents exactly two header fields: `alg` and `kid`.
         header.typ = None;
-        let claims = ProviderClaims {
-            iss: self.team_id.clone(),
-            iat: now,
-        };
-        let value = jsonwebtoken::encode(&header, &claims, &self.signing_key).map_err(|e| {
-            AppError::internal(anyhow::anyhow!("APNs provider token signing failed: {e}"))
-        })?;
-        *cached = Some(ProviderToken {
-            value: value.clone(),
-            issued_at: now,
-        });
+        let claims = ProviderClaims { iss: self.team_id.clone(), iat: now };
+        let value = jsonwebtoken::encode(&header, &claims, &self.signing_key)
+            .map_err(|e| AppError::internal(anyhow::anyhow!("APNs provider token signing failed: {e}")))?;
+        *cached = Some(ProviderToken { value: value.clone(), issued_at: now });
         Ok(value)
     }
 
@@ -121,11 +106,7 @@ impl Apns {
     /// Where the notification for a device goes. Tokens issued to development
     /// builds only exist in the sandbox environment.
     pub fn device_url(&self, target: &PushTarget) -> String {
-        let endpoint = if target.apns_sandbox {
-            &self.sandbox_endpoint
-        } else {
-            &self.production_endpoint
-        };
+        let endpoint = if target.apns_sandbox { &self.sandbox_endpoint } else { &self.production_endpoint };
         format!("{endpoint}/3/device/{}", target.token)
     }
 
@@ -135,15 +116,7 @@ impl Apns {
             ("apns-topic", self.topic.clone()),
             ("apns-push-type", "alert".to_owned()),
             // 10 delivers immediately; 5 lets the device pick a power-friendly moment.
-            (
-                "apns-priority",
-                if message.priority.is_high() {
-                    "10"
-                } else {
-                    "5"
-                }
-                .to_owned(),
-            ),
+            ("apns-priority", if message.priority.is_high() { "10" } else { "5" }.to_owned()),
             ("apns-expiration", message.expires_at().to_string()),
         ];
         if let Some(key) = &message.collapse_key {
@@ -192,11 +165,7 @@ impl PushChannel for Apns {
 /// own keys for routing a tap.
 pub fn payload(message: &PushMessage, trim: Trim) -> serde_json::Value {
     // Notifications of one conversation (or category) stack together.
-    let thread = message
-        .collapse_key
-        .as_deref()
-        .map(collapse_id)
-        .unwrap_or_else(|| message.category.clone());
+    let thread = message.collapse_key.as_deref().map(collapse_id).unwrap_or_else(|| message.category.clone());
     let mut aps = json!({
         "alert": { "title": trim.title(&message.title), "body": trim.body(&message.body) },
         "badge": message.badge.max(0),
@@ -245,9 +214,7 @@ pub fn classify(status: u16, body: &str) -> PushOutcome {
     match (status, reason.as_str()) {
         // The app was removed, or the token is not one of this app's
         // (wrong environment, another bundle).
-        (410, _) | (_, "BadDeviceToken") | (_, "DeviceTokenNotForTopic") => {
-            PushOutcome::Gone(detail)
-        }
+        (410, _) | (_, "BadDeviceToken") | (_, "DeviceTokenNotForTopic") => PushOutcome::Gone(detail),
         (_, "ExpiredProviderToken") | (429, _) | (500..=599, _) => PushOutcome::Retry(detail),
         _ => PushOutcome::Rejected(detail),
     }
@@ -262,10 +229,7 @@ mod tests {
     fn payload_has_the_aps_dictionary_and_routing_keys() {
         let message = sample_message();
         let value = payload(&message, Trim::NONE);
-        assert_eq!(
-            value["aps"]["alert"],
-            json!({ "title": "ありす", "body": "やっほー！" })
-        );
+        assert_eq!(value["aps"]["alert"], json!({ "title": "ありす", "body": "やっほー！" }));
         assert_eq!(value["aps"]["badge"], 3);
         assert_eq!(value["aps"]["sound"], "default");
         assert_eq!(value["aps"]["thread-id"], collapse_id("chat:42"));
@@ -286,10 +250,7 @@ mod tests {
         message.badge = -4;
         let value = payload(&message, Trim::NONE);
         assert!(value["aps"].get("mutable-content").is_none());
-        assert_eq!(
-            value["aps"]["thread-id"], "chat",
-            "falls back to the category"
-        );
+        assert_eq!(value["aps"]["thread-id"], "chat", "falls back to the category");
         assert_eq!(value["aps"]["badge"], 0);
     }
 
@@ -322,63 +283,21 @@ mod tests {
     fn responses_map_to_outcomes() {
         let reason = |r: &str| json!({ "reason": r }).to_string();
         assert_eq!(classify(200, ""), PushOutcome::Delivered);
-        assert!(matches!(
-            classify(410, &reason("Unregistered")),
-            PushOutcome::Gone(_)
-        ));
-        assert!(matches!(
-            classify(410, &reason("ExpiredToken")),
-            PushOutcome::Gone(_)
-        ));
-        assert!(matches!(
-            classify(400, &reason("BadDeviceToken")),
-            PushOutcome::Gone(_)
-        ));
-        assert!(matches!(
-            classify(400, &reason("DeviceTokenNotForTopic")),
-            PushOutcome::Gone(_)
-        ));
-        assert!(matches!(
-            classify(403, &reason("ExpiredProviderToken")),
-            PushOutcome::Retry(_)
-        ));
-        assert!(matches!(
-            classify(429, &reason("TooManyRequests")),
-            PushOutcome::Retry(_)
-        ));
-        assert!(matches!(
-            classify(503, &reason("ServiceUnavailable")),
-            PushOutcome::Retry(_)
-        ));
-        assert!(matches!(
-            classify(403, &reason("InvalidProviderToken")),
-            PushOutcome::Rejected(_)
-        ));
-        assert!(matches!(
-            classify(413, &reason("PayloadTooLarge")),
-            PushOutcome::Rejected(_)
-        ));
-        assert!(matches!(
-            classify(400, &reason("BadTopic")),
-            PushOutcome::Rejected(_)
-        ));
-        assert!(matches!(
-            classify(400, "not json"),
-            PushOutcome::Rejected(_)
-        ));
+        assert!(matches!(classify(410, &reason("Unregistered")), PushOutcome::Gone(_)));
+        assert!(matches!(classify(410, &reason("ExpiredToken")), PushOutcome::Gone(_)));
+        assert!(matches!(classify(400, &reason("BadDeviceToken")), PushOutcome::Gone(_)));
+        assert!(matches!(classify(400, &reason("DeviceTokenNotForTopic")), PushOutcome::Gone(_)));
+        assert!(matches!(classify(403, &reason("ExpiredProviderToken")), PushOutcome::Retry(_)));
+        assert!(matches!(classify(429, &reason("TooManyRequests")), PushOutcome::Retry(_)));
+        assert!(matches!(classify(503, &reason("ServiceUnavailable")), PushOutcome::Retry(_)));
+        assert!(matches!(classify(403, &reason("InvalidProviderToken")), PushOutcome::Rejected(_)));
+        assert!(matches!(classify(413, &reason("PayloadTooLarge")), PushOutcome::Rejected(_)));
+        assert!(matches!(classify(400, &reason("BadTopic")), PushOutcome::Rejected(_)));
+        assert!(matches!(classify(400, "not json"), PushOutcome::Rejected(_)));
     }
 
     #[test]
     fn a_key_that_is_not_pem_is_reported_at_startup() {
-        assert!(
-            Apns::new(
-                "garbage",
-                "KEYID",
-                "TEAMID",
-                "app.tokuly",
-                reqwest::Client::new()
-            )
-            .is_err()
-        );
+        assert!(Apns::new("garbage", "KEYID", "TEAMID", "app.tokuly", reqwest::Client::new()).is_err());
     }
 }

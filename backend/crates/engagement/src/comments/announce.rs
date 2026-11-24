@@ -85,7 +85,7 @@ pub(crate) struct Sender {
 }
 
 /// What a notification shows of the comment itself.
-fn body_of(row: &CommentRow) -> Localized {
+pub(crate) fn body_of(row: &CommentRow) -> Localized {
     let excerpt = text::excerpt(&row.text, 100);
     if !excerpt.is_empty() {
         Localized::same(excerpt)
@@ -96,7 +96,7 @@ fn body_of(row: &CommentRow) -> Localized {
     }
 }
 
-fn title_of(reason: Reason, sender: &str, subject_title: &str) -> Localized {
+pub(crate) fn title_of(reason: Reason, sender: &str, subject_title: &str) -> Localized {
     let subject_title = text::excerpt(subject_title, 30);
     match reason {
         Reason::Reply => Localized::new(format!("{sender}が返信したよ!"), format!("{sender} replied to your comment")),
@@ -122,10 +122,16 @@ fn kind_of(reason: Reason) -> &'static str {
     }
 }
 
+/// What every notification about a comment carries: its subject, the
+/// comment, and the version of the comment it quotes (`edited_at`), by which
+/// the notify domain tells a stale copy from a current one when the comment
+/// is edited (`engagement.comment.edited`).
 fn about(request: NotificationRequest, row: &CommentRow, subject: &Subject) -> NotificationRequest {
-    request
-        .subject(subject.key.subject_type(), subject.key.id)
-        .data(serde_json::json!({ "comment_id": row.id, "parent_id": row.parent_id }))
+    request.subject(subject.key.subject_type(), subject.key.id).data(serde_json::json!({
+        "comment_id": row.id,
+        "parent_id": row.parent_id,
+        "edited_at": row.edited_at,
+    }))
 }
 
 impl Engagement {
@@ -292,17 +298,18 @@ impl Engagement {
         if subject.is_owned_by(row.author_id) {
             return Ok(());
         }
-        let mut request = about(
-            NotificationRequest::new(
-                row.author_id,
-                KIND_HEART,
-                Localized::new("コメントに❤️がついたよ!", "Your comment got a heart"),
-                body_of(row),
-                comment_path(&subject.info.path, row.id),
-            ),
-            row,
-            subject,
+        // Addressed to the comment's own author, who sees it whatever becomes
+        // of the thread above it: the thread is named, but not as a `*_id`
+        // the notify domain would withdraw the heart with.
+        let mut request = NotificationRequest::new(
+            row.author_id,
+            KIND_HEART,
+            Localized::new("コメントに❤️がついたよ!", "Your comment got a heart"),
+            body_of(row),
+            comment_path(&subject.info.path, row.id),
         )
+        .subject(subject.key.subject_type(), subject.key.id)
+        .data(serde_json::json!({ "comment_id": row.id, "thread": row.parent_id, "edited_at": row.edited_at }))
         .collapse(format!("engagement.heart:{}", row.id));
         if let Some(image_url) = &subject.info.image_url {
             request = request.image(image_url);

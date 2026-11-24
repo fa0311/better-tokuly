@@ -51,6 +51,7 @@ mod intake;
 mod moderation_svc;
 mod notices;
 mod owners;
+pub mod reported;
 mod resolution;
 mod sanctions;
 mod staff;
@@ -62,6 +63,7 @@ mod workers;
 pub use config::AdminConfig;
 pub use evidence::ReportEvidence;
 pub use owners::HiddenOwners;
+pub use reported::ReportedSubjects;
 
 /// The day (UTC) of a moment, for what is shown about an anonymous post
 /// without its author: an exact time would line up with the one account
@@ -84,6 +86,8 @@ pub struct AdminInner {
     hidden_owners: OnceLock<Arc<dyn HiddenOwners>>,
     /// Holds the uploads of reported content.
     evidence: OnceLock<Arc<dyn ReportEvidence>>,
+    /// Resolves reported content the way its reporters see it.
+    reported: OnceLock<Arc<dyn ReportedSubjects>>,
     /// See [`Admin::identity_slot`].
     identity_slot: tokio::sync::Semaphore,
 }
@@ -104,7 +108,7 @@ impl Admin {
     pub fn new(core: Core, identity: Identity, cfg: AdminConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
         core.exporters.register(Arc::new(cleanup::ModerationExporter { core: core.clone() }));
-        Ok(Self(Arc::new(AdminInner { core, identity, cfg, hidden_owners: OnceLock::new(), evidence: OnceLock::new(), identity_slot: tokio::sync::Semaphore::new(1) })))
+        Ok(Self(Arc::new(AdminInner { core, identity, cfg, hidden_owners: OnceLock::new(), evidence: OnceLock::new(), reported: OnceLock::new(), identity_slot: tokio::sync::Semaphore::new(1) })))
     }
 
     /// Taken before opening a transaction that will hold a lock (a case row,

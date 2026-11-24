@@ -4,7 +4,9 @@
 //! Everything emitted here is written in the transaction of the change it
 //! describes. `subject_type` is always `tokuly.common.v1.SubjectType` as its
 //! number and `subject_id` the subject's UUID.
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use tokuly_core::outbound::Localized;
 use uuid::Uuid;
 
 // ── emitted ──
@@ -19,9 +21,15 @@ pub const COMMENT_PUBLISHED: &str = "engagement.comment.published";
 /// nor for comments purged with their subject or their author's account.
 pub const COMMENT_DELETED: &str = "engagement.comment.deleted";
 /// The author changed the text of a comment, whatever its status. Payload:
-/// [`CommentEvent`]. Lets copies of the old text (inbox entries) be updated
-/// or withdrawn.
+/// [`CommentEdited`]. Lets copies of the old text (inbox entries, pushes
+/// still queued) be updated, or withdrawn where the new text no longer
+/// mentions their recipient.
 pub const COMMENT_EDITED: &str = "engagement.comment.edited";
+/// A comment left public view without being deleted: hidden by the subject
+/// owner, hidden because of a block, or held for review again by an edit.
+/// Payload: [`CommentHidden`]. Lets copies of it (inbox entries) be
+/// withdrawn from those who can no longer see it.
+pub const COMMENT_HIDDEN: &str = "engagement.comment.hidden";
 /// A user set, changed or removed their reaction. Payload: [`ReactionChanged`].
 pub const REACTION_CHANGED: &str = "engagement.reaction.changed";
 /// A user saved a subject or removed it from everything they saved.
@@ -70,6 +78,61 @@ pub struct CommentEvent {
     pub channel_id: Option<Uuid>,
     /// The top-level comment, for replies.
     pub parent_id: Option<Uuid>,
+}
+
+/// `engagement.comment.edited`: the comment's fields, and what
+/// notifications about it show from now on.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentEdited {
+    #[serde(flatten)]
+    pub comment: CommentEvent,
+    /// The body notifications about the comment carry, as engagement writes
+    /// it for the new text (an excerpt, or a description of a stamp or image).
+    pub body: Localized,
+    /// The users the new text mentions.
+    pub mentioned: Vec<Uuid>,
+    /// For a top-level comment: what the subject owner's notification about
+    /// it becomes when the new text no longer mentions them. Engagement
+    /// tells each person once, with the first reason that applies, so an
+    /// owner who was mentioned got the mention instead of the ordinary "new
+    /// comment" notification; that one must not go with the mention.
+    #[serde(default)]
+    pub owner_notice: Option<OwnerNotice>,
+    /// The version this edit made: the comment's new `edited_at`, taken
+    /// while the comment was locked, so two edits are ordered by it. Every
+    /// notification about the comment names the version it quotes
+    /// (`data.edited_at`, `null` before the first edit).
+    pub edited_at: DateTime<Utc>,
+}
+
+/// `engagement.comment.hidden`: the comment's fields, and who may still see it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentHidden {
+    #[serde(flatten)]
+    pub comment: CommentEvent,
+    /// `tokuly.engagement.v1.CommentStatus` as its number (2 held, 3 hidden).
+    pub status: i32,
+    /// `tokuly.engagement.v1.HoldReason` as its number.
+    pub hold_reason: i32,
+    /// Who besides its author may still see the comment: the subject owner
+    /// when the owner hid it or it waits for their review; nobody when a
+    /// block hid it (the owner and the author are in a block, or the owner
+    /// asked not to deal with the author). Everyone else lost it, and with
+    /// it the replies below it.
+    pub visible_to: Vec<Uuid>,
+    /// When it was hidden, taken while the comment was locked: consumers
+    /// order this against other changes of the comment by it.
+    pub changed_at: DateTime<Utc>,
+}
+
+/// The notification a subject owner keeps about a comment that no longer
+/// mentions them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwnerNotice {
+    pub user_id: Uuid,
+    /// `engagement.comment`.
+    pub kind: String,
+    pub title: Localized,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

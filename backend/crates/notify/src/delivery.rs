@@ -18,9 +18,10 @@ use serde::{Deserialize, Serialize};
 use tokuly_core::{jobs::JobOptions, outbound::Localized, prelude::*};
 
 use crate::{
-    Notify, categories,
+    Notify, blocks, categories,
     devices::{self, DeliveryDevice},
-    blocks, inbox,
+    edits::{self, Current},
+    inbox,
     push::{PushMessage, PushOutcome, PushPriority},
     withdraw,
 };
@@ -83,11 +84,7 @@ pub struct DeliveryReport {
 }
 
 pub(crate) fn job_options() -> JobOptions {
-    JobOptions {
-        concurrency: 16,
-        lease: Duration::from_secs(60),
-        max_deliver: MAX_ATTEMPTS,
-    }
+    JobOptions { concurrency: 16, lease: Duration::from_secs(60), max_deliver: MAX_ATTEMPTS }
 }
 
 /// How insistently a job's notification is delivered: urgent requests at the
@@ -110,23 +107,14 @@ impl Notify {
     /// Queues a push. Unique per job ID, so a consumer that is retried right
     /// after queuing does not push twice.
     pub(crate) async fn enqueue_push(&self, job: &PushJob) -> AppResult<()> {
-        self.core
-            .jobs
-            .enqueue_unique(PUSH_JOB, &job.id.to_string(), job)
-            .await
+        self.core.jobs.enqueue_unique(PUSH_JOB, &job.id.to_string(), job).await
     }
 
     /// The `notify.push` job handler: delivers, and fails the job when some
     /// device has to be tried again.
     pub async fn run_push_job(&self, job: PushJob) -> AppResult<()> {
         let report = self.deliver_push(&job).await?;
-        ensure!(
-            report.retry == 0,
-            unavailable,
-            "PUSH_RETRY",
-            "{} device(s) could not be reached",
-            report.retry
-        );
+        ensure!(report.retry == 0, unavailable, "PUSH_RETRY", "{} device(s) could not be reached", report.retry);
         Ok(())
     }
 
@@ -141,8 +129,10 @@ impl Notify {
             tracing::warn!(job = %job.id, kind = %job.kind, "push job expired before delivery");
             return Ok(report);
         }
-        if withdraw::any_withdrawn(&self.core.db, &job.refs).await? {
-            // Deleted or taken down while the push waited.
+        if withdraw::any_withdrawn(&self.core.db, &job.refs).await?
+            || withdraw::hidden_since(&self.core.db, &job.refs, job.user_id, job.created_at).await?
+        {
+            // Deleted, taken down or hidden from the recipient while the push waited.
             return Ok(report);
         }
         if let Some(actor_id) = job.actor_id
@@ -151,6 +141,20 @@ impl Notify {
             // Blocked or muted while the push waited.
             return Ok(report);
         }
+        // A comment edited while the push waited: its text now, or nothing
+        // for a mention the edit took out.
+        let edited;
+        let job = match edits::current(&self.core.db, &job.kind, job.user_id, &job.data).await? {
+            Current::Unchanged => job,
+            current => {
+                let mut copy = job.clone();
+                if !current.apply(&mut copy.kind, &mut copy.title, &mut copy.body, &mut copy.data) {
+                    return Ok(report);
+                }
+                edited = copy;
+                &edited
+            }
+        };
         let devices = devices::for_delivery(&self.core, job.user_id).await?;
         if devices.is_empty() {
             return Ok(report);
@@ -174,11 +178,7 @@ impl Notify {
                 report.skipped += 1;
                 continue;
             };
-            let locale = if device.locale.is_empty() {
-                account_locale.as_str()
-            } else {
-                device.locale.as_str()
-            };
+            let locale = if device.locale.is_empty() { account_locale.as_str() } else { device.locale.as_str() };
             let message = self.message_for(job, locale);
             sends.push(async move {
                 let outcome = channel.send(&device.target(), &message).await;
@@ -187,8 +187,7 @@ impl Notify {
         }
         // A user has a handful of devices; reach them all at once.
         for (device, outcome) in futures::future::join_all(sends).await {
-            self.record_outcome(job, &device, outcome, &mut report)
-                .await?;
+            self.record_outcome(job, &device, outcome, &mut report).await?;
         }
         Ok(report)
     }
@@ -227,7 +226,12 @@ impl Notify {
                 // Remember first: if the bookkeeping below fails and the job
                 // is retried, the device must not get the message twice.
                 self.mark_delivered(job.id, device.id).await?;
-                sqlx::query("UPDATE push_devices SET last_delivered_at = now(), rejections = 0, last_error = '' WHERE id = $1").bind(device.id).execute(db).await?;
+                sqlx::query(
+                    "UPDATE push_devices SET last_delivered_at = now(), rejections = 0, last_error = '' WHERE id = $1",
+                )
+                .bind(device.id)
+                .execute(db)
+                .await?;
                 report.delivered += 1;
             }
             PushOutcome::Gone(reason) => {
@@ -241,7 +245,11 @@ impl Notify {
                 // message are there for whoever investigates.
                 tracing::warn!(device = %device.id, kind = %job.kind, %reason, "push rejected");
                 self.mark_delivered(job.id, device.id).await?;
-                sqlx::query("UPDATE push_devices SET rejections = rejections + 1, last_error = $2 WHERE id = $1").bind(device.id).bind(&reason).execute(db).await?;
+                sqlx::query("UPDATE push_devices SET rejections = rejections + 1, last_error = $2 WHERE id = $1")
+                    .bind(device.id)
+                    .bind(&reason)
+                    .execute(db)
+                    .await?;
                 report.rejected += 1;
             }
             PushOutcome::Retry(reason) => {
@@ -259,24 +267,15 @@ impl Notify {
 
     /// Devices an earlier attempt of this job is done with.
     async fn delivered_devices(&self, job_id: Uuid) -> AppResult<HashSet<Uuid>> {
-        let members: Vec<String> = self
-            .core
-            .cache
-            .conn()
-            .smembers(delivered_set_key(job_id))
-            .await?;
-        Ok(members
-            .iter()
-            .filter_map(|m| Uuid::parse_str(m).ok())
-            .collect())
+        let members: Vec<String> = self.core.cache.conn().smembers(delivered_set_key(job_id)).await?;
+        Ok(members.iter().filter_map(|m| Uuid::parse_str(m).ok()).collect())
     }
 
     async fn mark_delivered(&self, job_id: Uuid, device_id: Uuid) -> AppResult<()> {
         let key = delivered_set_key(job_id);
         let mut conn = self.core.cache.conn();
         conn.sadd::<_, _, ()>(&key, device_id.to_string()).await?;
-        conn.expire::<_, ()>(&key, DELIVERED_SET_TTL.as_secs() as i64)
-            .await?;
+        conn.expire::<_, ()>(&key, DELIVERED_SET_TTL.as_secs() as i64).await?;
         Ok(())
     }
 }

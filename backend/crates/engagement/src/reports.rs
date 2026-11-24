@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use tokuly_core::{analytics::AnalyticsEvent, events, prelude::*};
+use tokuly_core::{analytics::AnalyticsEvent, events, prelude::*, subject::SubjectInfo};
 use tokuly_proto::{
     common::{PageInfo, SubjectType},
     engagement::{Report, ReportCategory, ReportStatus},
@@ -259,5 +259,69 @@ mod tests {
             "REPORT_CATEGORY_INVALID"
         );
         assert_eq!(requested_category(buffa::EnumValue::from(77)).unwrap_err().reason, "REPORT_CATEGORY_INVALID");
+    }
+}
+
+/// Reporters asked in turn by [`Engagement::resolve_reported_subject`].
+const REPORTERS_ASKED: i64 = 20;
+
+impl Engagement {
+    /// A reported subject as the moderation team may see it while working
+    /// its case: the way the owning domain answers the people who reported
+    /// it (`SubjectResolver::resolve_for_report`), so content the normal
+    /// lookup now refuses to the moderator — a video made private, a
+    /// comment hidden after the report — still resolves. It asks as each
+    /// reporter in turn, latest report first (at most 20), and returns the
+    /// first answer; its `title` is the moderators' view (for content edited
+    /// or withdrawn since, every version).
+    ///
+    /// `None` when nobody reported the subject, when it resolves for none of
+    /// its reporters, or when `staff_id` is a party to it (its owner, or one
+    /// of its reporters): staff powers are not for one's own cases.
+    ///
+    /// For the admin domain's case view only, which the server wires to it.
+    /// No RPC of this domain calls it, and nothing else may show its answer:
+    /// it reveals content its owner hid from everyone else.
+    pub async fn resolve_reported_subject(
+        &self,
+        staff_id: Uuid,
+        subject_type: SubjectType,
+        subject_id: Uuid,
+    ) -> AppResult<Option<SubjectInfo>> {
+        let kind = subject_type as i32;
+        let party: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                 SELECT 1 FROM reports
+                 WHERE subject_type = $1 AND subject_id = $2 AND (reporter_id = $3 OR subject_owner_id = $3)
+             )",
+        )
+        .bind(kind)
+        .bind(subject_id)
+        .bind(staff_id)
+        .fetch_one(&self.core.db)
+        .await?;
+        if party {
+            return Ok(None);
+        }
+        let reporters: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT reporter_id FROM reports WHERE subject_type = $1 AND subject_id = $2
+             GROUP BY reporter_id ORDER BY max(created_at) DESC, reporter_id LIMIT $3",
+        )
+        .bind(kind)
+        .bind(subject_id)
+        .bind(REPORTERS_ASKED)
+        .fetch_all(&self.core.db)
+        .await?;
+        for reporter_id in reporters {
+            match self.core.subjects.resolve_for_report(subject_type, &subject_id.to_string(), Some(reporter_id)).await
+            {
+                // Owned by the moderator since (a channel changed hands): theirs, not a case to work.
+                Ok(info) if info.owner_id == staff_id => return Ok(None),
+                Ok(info) => return Ok(Some(info)),
+                Err(error) if error.is_not_found() => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(None)
     }
 }

@@ -11,12 +11,7 @@ pub struct NotifyConfig {
     /// VAPID private key (raw 32-byte P-256 scalar, base64url) for Web Push.
     /// Empty derives one from `TOKULY_SECRET`. Changing the key invalidates
     /// every existing browser subscription.
-    #[arg(
-        long,
-        env = "TOKULY_VAPID_PRIVATE_KEY",
-        default_value = "",
-        hide_env_values = true
-    )]
+    #[arg(long, env = "TOKULY_VAPID_PRIVATE_KEY", default_value = "", hide_env_values = true)]
     pub vapid_private_key: String,
 
     /// Contact URI (`mailto:` or `https:`) push services may use to reach the
@@ -39,23 +34,13 @@ pub struct NotifyConfig {
     pub webpush_allow_insecure: bool,
 
     /// Content of the Firebase service-account JSON file. Empty disables FCM.
-    #[arg(
-        long,
-        env = "TOKULY_FCM_SERVICE_ACCOUNT_JSON",
-        default_value = "",
-        hide_env_values = true
-    )]
+    #[arg(long, env = "TOKULY_FCM_SERVICE_ACCOUNT_JSON", default_value = "", hide_env_values = true)]
     pub fcm_service_account_json: String,
 
     /// APNs token-signing key (the `.p8` file's content; `\n` escapes are
     /// accepted). APNs is enabled when the key, key ID, team ID and topic are
     /// all set.
-    #[arg(
-        long,
-        env = "TOKULY_APNS_KEY_P8",
-        default_value = "",
-        hide_env_values = true
-    )]
+    #[arg(long, env = "TOKULY_APNS_KEY_P8", default_value = "", hide_env_values = true)]
     pub apns_key_p8: String,
     #[arg(long, env = "TOKULY_APNS_KEY_ID", default_value = "")]
     pub apns_key_id: String,
@@ -91,31 +76,21 @@ pub struct NotifyConfig {
 impl std::fmt::Debug for NotifyConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let secret = |value: &str| {
-            if value.trim().is_empty() {
-                "(not set)"
-            } else {
-                "(set)"
-            }
+            if value.trim().is_empty() { "(not set)" } else { "(set)" }
         };
         f.debug_struct("NotifyConfig")
             .field("vapid_private_key", &secret(&self.vapid_private_key))
             .field("vapid_subject", &self.vapid_subject)
             .field("webpush_allowed_hosts", &self.webpush_allowed_hosts)
             .field("webpush_allow_insecure", &self.webpush_allow_insecure)
-            .field(
-                "fcm_service_account_json",
-                &secret(&self.fcm_service_account_json),
-            )
+            .field("fcm_service_account_json", &secret(&self.fcm_service_account_json))
             .field("apns_key_p8", &secret(&self.apns_key_p8))
             .field("apns_key_id", &self.apns_key_id)
             .field("apns_team_id", &self.apns_team_id)
             .field("apns_topic", &self.apns_topic)
             .field("push_ttl_seconds", &self.push_ttl_seconds)
             .field("push_rate_per_minute", &self.push_rate_per_minute)
-            .field(
-                "push_rate_per_sender_per_minute",
-                &self.push_rate_per_sender_per_minute,
-            )
+            .field("push_rate_per_sender_per_minute", &self.push_rate_per_sender_per_minute)
             .field("notify_retention_days", &self.notify_retention_days)
             .finish()
     }
@@ -156,14 +131,9 @@ impl NotifyConfig {
     }
 
     pub fn apns_enabled(&self) -> bool {
-        [
-            &self.apns_key_p8,
-            &self.apns_key_id,
-            &self.apns_team_id,
-            &self.apns_topic,
-        ]
-        .iter()
-        .all(|v| !v.trim().is_empty())
+        [&self.apns_key_p8, &self.apns_key_id, &self.apns_team_id, &self.apns_topic]
+            .iter()
+            .all(|v| !v.trim().is_empty())
     }
 }
 
@@ -173,10 +143,7 @@ mod tests {
 
     #[test]
     fn insecure_endpoints_are_refused_in_production() {
-        let insecure = NotifyConfig {
-            webpush_allow_insecure: true,
-            ..Default::default()
-        };
+        let insecure = NotifyConfig { webpush_allow_insecure: true, ..Default::default() };
         assert!(insecure.validate(false).is_ok());
         assert!(insecure.validate(true).is_err());
         assert!(NotifyConfig::default().validate(true).is_ok());
@@ -200,27 +167,10 @@ mod tests {
     fn native_channels_need_complete_credentials() {
         let cfg = NotifyConfig::default();
         assert!(!cfg.fcm_enabled() && !cfg.apns_enabled());
-        let partial = NotifyConfig {
-            apns_key_p8: "key".into(),
-            apns_key_id: "id".into(),
-            ..Default::default()
-        };
-        assert!(
-            !partial.apns_enabled(),
-            "all four APNs settings are required"
-        );
-        let complete = NotifyConfig {
-            apns_team_id: "team".into(),
-            apns_topic: "app.tokuly".into(),
-            ..partial
-        };
+        let partial = NotifyConfig { apns_key_p8: "key".into(), apns_key_id: "id".into(), ..Default::default() };
+        assert!(!partial.apns_enabled(), "all four APNs settings are required");
+        let complete = NotifyConfig { apns_team_id: "team".into(), apns_topic: "app.tokuly".into(), ..partial };
         assert!(complete.apns_enabled());
-        assert!(
-            NotifyConfig {
-                fcm_service_account_json: "{}".into(),
-                ..Default::default()
-            }
-            .fcm_enabled()
-        );
+        assert!(NotifyConfig { fcm_service_account_json: "{}".into(), ..Default::default() }.fcm_enabled());
     }
 }

@@ -82,18 +82,12 @@ impl PushService for Notify {
                 Some(device_id) => {
                     // Scoped to the caller: other people's registrations look
                     // like they do not exist.
-                    let done =
-                        sqlx::query("DELETE FROM push_devices WHERE id = $1 AND user_id = $2")
-                            .bind(device_id)
-                            .bind(auth.user_id)
-                            .execute(&self.core.db)
-                            .await?;
-                    ensure!(
-                        done.rows_affected() > 0,
-                        not_found,
-                        "DEVICE_NOT_FOUND",
-                        "push registration not found"
-                    );
+                    let done = sqlx::query("DELETE FROM push_devices WHERE id = $1 AND user_id = $2")
+                        .bind(device_id)
+                        .bind(auth.user_id)
+                        .execute(&self.core.db)
+                        .await?;
+                    ensure!(done.rows_affected() > 0, not_found, "DEVICE_NOT_FOUND", "push registration not found");
                 }
             }
             ok(UnregisterDeviceResponse::default())
@@ -110,10 +104,7 @@ impl PushService for Notify {
             let auth = ctx.auth()?;
             let devices = devices::list(&self.core, auth.user_id).await?;
             ok(ListDevicesResponse {
-                devices: devices
-                    .iter()
-                    .map(|d| d.to_proto(auth.session_id))
-                    .collect(),
+                devices: devices.iter().map(|d| d.to_proto(auth.session_id)).collect(),
                 ..Default::default()
             })
         })
@@ -127,10 +118,7 @@ impl PushService for Notify {
     ) -> ServiceResult<SendTestPushResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            self.core
-                .cache
-                .rate_limit(&format!("push-test:{user_id}"), 5, Duration::from_secs(60))
-                .await?;
+            self.core.cache.rate_limit(&format!("push-test:{user_id}"), 5, Duration::from_secs(60)).await?;
             let device_count = devices::list(&self.core, user_id).await?.len();
             ensure!(
                 device_count > 0,
@@ -148,10 +136,7 @@ impl PushService for Notify {
                 kind: TEST_KIND.to_owned(),
                 category: categories::of_kind(TEST_KIND).id.to_owned(),
                 title: Localized::new("テスト通知だよ！", "Test notification"),
-                body: Localized::new(
-                    "プッシュ通知はちゃんと届いてるよ🎉",
-                    "Push notifications are working 🎉",
-                ),
+                body: Localized::new("プッシュ通知はちゃんと届いてるよ🎉", "Push notifications are working 🎉"),
                 image_url: None,
                 path: "/notifications/settings".to_owned(),
                 collapse_key: Some("notify:test".to_owned()),
@@ -162,10 +147,7 @@ impl PushService for Notify {
                 created_at: now(),
             };
             self.enqueue_push(&job).await?;
-            ok(SendTestPushResponse {
-                device_count: device_count.min(i32::MAX as usize) as i32,
-                ..Default::default()
-            })
+            ok(SendTestPushResponse { device_count: device_count.min(i32::MAX as usize) as i32, ..Default::default() })
         })
         .await
     }
