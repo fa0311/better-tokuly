@@ -38,14 +38,14 @@ pub fn sanitize(mut request: NotificationRequest) -> Option<NotificationRequest>
     request.body = clean_text(&request.body, MAX_BODY_CHARS);
 
     // A path we cannot trust to be a route in the app opens the app's start page.
-    let path_ok = request.path.starts_with('/')
+    let path_ok = is_app_path(&request.path)
         && request.path.len() <= MAX_PATH_LEN
         && !request.path.chars().any(char::is_control);
     if !path_ok {
         request.path = "/".to_owned();
     }
     request.image_url = request.image_url.filter(|url| {
-        let web = url.starts_with("https://") || url.starts_with("http://") || url.starts_with('/');
+        let web = url.starts_with("https://") || url.starts_with("http://") || is_app_path(url);
         web && url.len() <= MAX_IMAGE_URL_LEN
     });
     request.collapse_key = request
@@ -64,6 +64,12 @@ pub fn sanitize(mut request: NotificationRequest) -> Option<NotificationRequest>
         request.data = serde_json::Value::Null;
     }
     Some(request)
+}
+
+/// A path on this site. `//host/…` and `/\host/…` begin with a slash too, but
+/// browsers read them as another site.
+fn is_app_path(path: &str) -> bool {
+    path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/\\")
 }
 
 /// Trims and bounds both languages, filling a missing one from the other so
@@ -152,5 +158,25 @@ mod tests {
         );
         let key = clean.collapse_key.unwrap();
         assert!(key.starts_with("sha256:") && key.len() == 7 + 64);
+    }
+
+    #[test]
+    fn protocol_relative_paths_and_images_do_not_leave_the_app() {
+        // `//host` and `/\host` start with a slash but are another site to a
+        // browser: a tap would open it, an image would be fetched from it.
+        for path in ["//evil.example/login", "/\\evil.example/login"] {
+            let mut raw = request();
+            raw.path = path.into();
+            raw.image_url = Some(path.into());
+            let clean = sanitize(raw).unwrap();
+            assert_eq!(clean.path, "/", "{path}");
+            assert_eq!(clean.image_url, None, "{path}");
+        }
+        let mut raw = request();
+        raw.image_url = Some("/media/a.webp".into());
+        assert_eq!(
+            sanitize(raw).unwrap().image_url.as_deref(),
+            Some("/media/a.webp")
+        );
     }
 }
