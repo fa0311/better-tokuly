@@ -648,3 +648,36 @@ async fn the_data_export_has_a_video_section() {
     let other = exporter.export(bob.id).await.unwrap();
     assert!(other["ratings"].as_array().unwrap().is_empty() && other["videos"].as_array().unwrap().len() == 1);
 }
+
+#[tokio::test]
+async fn what_someone_watched_stays_reportable_after_it_is_hidden_from_them() {
+    let ctx = start().await;
+    let (alice, bob, carol) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("carol").await);
+    let channel = ctx.channel(&alice, "ch").await;
+    let video = ctx.public_video(&alice, &channel, "harassing").await;
+    let video_id = card(&video).id.clone();
+    ctx.watch(Some(&bob), &video_id, 5.0, TrafficSource::TRAFFIC_SOURCE_DIRECT).await;
+
+    // The uploader hides the video and blocks the viewer.
+    let edit = UpdateVideoRequest {
+        video_id: video_id.clone(),
+        visibility: Some(Visibility::VISIBILITY_PRIVATE.into()),
+        ..Default::default()
+    };
+    ctx.call::<_, UpdateVideoResponse>(VIDEOS, "UpdateVideo", Some(&alice), &edit).await.unwrap();
+    ctx.block(&alice, &bob).await;
+
+    let subjects = &ctx.app.core.subjects;
+    assert!(subjects.resolve(SubjectType::SUBJECT_TYPE_VIDEO, &video_id, Some(bob.id)).await.is_err());
+    // Bob watched it: he can still report it, and the channel too.
+    let info = subjects.resolve_for_report(SubjectType::SUBJECT_TYPE_VIDEO, &video_id, Some(bob.id)).await.unwrap();
+    assert_eq!(info.owner_id, alice.id);
+    let channel_info = subjects
+        .resolve_for_report(SubjectType::SUBJECT_TYPE_CHANNEL, &channel.summary.id, Some(bob.id))
+        .await
+        .unwrap();
+    assert_eq!(channel_info.id.to_string(), channel.summary.id);
+    // Someone who never watched it learns nothing about a private video.
+    assert!(subjects.resolve_for_report(SubjectType::SUBJECT_TYPE_VIDEO, &video_id, Some(carol.id)).await.is_err());
+    assert!(subjects.resolve_for_report(SubjectType::SUBJECT_TYPE_VIDEO, &video_id, None).await.is_err());
+}

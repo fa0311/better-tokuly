@@ -337,13 +337,18 @@ impl WatchPartyService for Video {
             ensure!(seated < self.cfg.party_max_members, precondition, "PARTY_FULL", "this watch party is full");
             match user_id {
                 Some(user_id) => {
-                    sqlx::query("INSERT INTO watch_party_members (id, party_id, user_id, role) VALUES ($1, $2, $3, $4)")
-                        .bind(seat_id)
-                        .bind(row.id)
-                        .bind(user_id)
-                        .bind(ROLE_MEMBER)
-                        .execute(&mut *tx)
-                        .await?;
+                    // The address is kept for accounts too: removing someone
+                    // also keeps them from coming back as a guest.
+                    sqlx::query(
+                        "INSERT INTO watch_party_members (id, party_id, user_id, ip_hash, role) VALUES ($1, $2, $3, $4, $5)",
+                    )
+                    .bind(seat_id)
+                    .bind(row.id)
+                    .bind(user_id)
+                    .bind(&ip_hash)
+                    .bind(ROLE_MEMBER)
+                    .execute(&mut *tx)
+                    .await?;
                 }
                 None => {
                     // The token proves the seat in later calls; only its keyed hash is stored.
@@ -625,28 +630,27 @@ impl WatchPartyService for Video {
             if !me.is_host() && target.can_control() {
                 return Err(not_host());
             }
-            match target.user_id {
-                Some(removed) => {
-                    sqlx::query(
-                        "INSERT INTO watch_party_bans (party_id, user_id) VALUES ($1, $2)
-                         ON CONFLICT (party_id, user_id) WHERE user_id IS NOT NULL DO NOTHING",
-                    )
-                    .bind(party_id)
-                    .bind(removed)
-                    .execute(&mut *tx)
-                    .await?;
-                }
-                None if !target.ip_hash.is_empty() => {
-                    sqlx::query(
-                        "INSERT INTO watch_party_bans (party_id, ip_hash) VALUES ($1, $2)
-                         ON CONFLICT (party_id, ip_hash) WHERE ip_hash IS NOT NULL DO NOTHING",
-                    )
-                    .bind(party_id)
-                    .bind(&target.ip_hash)
-                    .execute(&mut *tx)
-                    .await?;
-                }
-                None => {}
+            // The account, and the address the seat was taken from: signing
+            // out does not get a removed account back in as a guest.
+            if let Some(removed) = target.user_id {
+                sqlx::query(
+                    "INSERT INTO watch_party_bans (party_id, user_id) VALUES ($1, $2)
+                     ON CONFLICT (party_id, user_id) WHERE user_id IS NOT NULL DO NOTHING",
+                )
+                .bind(party_id)
+                .bind(removed)
+                .execute(&mut *tx)
+                .await?;
+            }
+            if !target.ip_hash.is_empty() {
+                sqlx::query(
+                    "INSERT INTO watch_party_bans (party_id, ip_hash) VALUES ($1, $2)
+                     ON CONFLICT (party_id, ip_hash) WHERE ip_hash IS NOT NULL DO NOTHING",
+                )
+                .bind(party_id)
+                .bind(&target.ip_hash)
+                .execute(&mut *tx)
+                .await?;
             }
             let departure = party::remove_member_in(&mut tx, &row, &target).await?;
             tx.commit().await?;

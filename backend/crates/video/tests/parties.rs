@@ -1061,3 +1061,25 @@ async fn the_worker_drops_silent_members_and_ends_old_parties() {
     let get = GetPartyRequest { party_id: party_id.clone(), ..Default::default() };
     assert_eq!(ctx.reason(PARTIES, "GetParty", Some(&carol), &get).await, "PARTY_NOT_FOUND");
 }
+
+#[tokio::test]
+async fn a_removed_account_does_not_come_back_as_a_guest() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let video = some_video(&ctx, &alice, "movie night").await;
+    let session = create(&ctx, &alice, &video).await;
+    let bob_seat = join(&ctx, &bob, &session).await;
+
+    let remove = RemovePartyMemberRequest {
+        party_id: session.party.id.clone(),
+        member_id: bob_seat.self_.id.clone(),
+        ..Default::default()
+    };
+    let _: RemovePartyMemberResponse = ctx.call(PARTIES, "RemovePartyMember", Some(&alice), &remove).await.unwrap();
+    assert_eq!(try_join(&ctx, Some(&bob), &session.party.code, "", "").await.unwrap_err().reason, "PARTY_BANNED");
+    // Signed out, from the same address.
+    assert_eq!(
+        try_join(&ctx, None, &session.party.code, "ぼぶじゃないよ", "").await.unwrap_err().reason,
+        "PARTY_BANNED"
+    );
+}

@@ -108,11 +108,8 @@ impl Stamp {
     /// could see.
     async fn erase_pack_of_deleted_creator(&self, tx: &mut Transaction<'_, Postgres>, pack_id: Uuid) -> AppResult<()> {
         let pack = packs::lock(tx, pack_id).await?;
-        let sold: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM stamp_pack_purchases WHERE pack_id = $1)")
-            .bind(pack.id)
-            .fetch_one(&mut **tx)
-            .await?;
-        if !sold {
+        // A purchase not settled yet counts: its buyer may have paid.
+        if !crate::studio_svc::has_buyers(tx, pack.id).await? {
             return packs::delete(tx, &pack).await;
         }
         let unreviewed: Vec<Uuid> =
@@ -125,6 +122,32 @@ impl Stamp {
             lifecycle::unpublish(tx, &pack, None).await?;
         }
         packs::refresh_derived(tx, pack.id).await?;
+        Ok(())
+    }
+
+    /// Deletes a pack whose creator's account was erased once nothing keeps
+    /// it any more: no purchase and no open order (see
+    /// `erase_pack_of_deleted_creator`, which kept it for them). Called when
+    /// an order ends without a purchase.
+    pub(crate) async fn erase_if_creator_gone(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        pack_id: Uuid,
+    ) -> AppResult<()> {
+        let orphaned: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM stamp_packs p JOIN users u ON u.id = p.creator_id
+                            WHERE p.id = $1 AND u.deleted_at IS NOT NULL)",
+        )
+        .bind(pack_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if !orphaned {
+            return Ok(());
+        }
+        let pack = packs::lock(tx, pack_id).await?;
+        if !crate::studio_svc::has_buyers(tx, pack.id).await? {
+            packs::delete(tx, &pack).await?;
+        }
         Ok(())
     }
 

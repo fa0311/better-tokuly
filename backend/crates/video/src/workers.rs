@@ -25,7 +25,8 @@ use crate::{
     channels::{self, ChannelRow, channel_columns},
     events::{
         ASSET_DELETED, ASSET_FAILED, ASSET_READY, AnnounceJob, CONTENT_REMOVED, ContentRemoved, JOB_ANNOUNCE,
-        USER_BANNED, USER_BLOCKED, USER_DELETED, USER_UNBANNED, UserBlocked, UserRef, VIDEO_PUBLISHED, VideoEvent,
+        JOB_PLAYLIST_SEARCH, PLAYLISTS_STALE, PlaylistSearchJob, PlaylistsStale, USER_BANNED, USER_BLOCKED,
+        USER_DELETED, USER_UNBANNED, UserBlocked, UserRef, VIDEO_PUBLISHED, VideoEvent,
     },
     feeds, party, playlists, search,
     videos::{self, VideoRow, video_columns},
@@ -58,6 +59,7 @@ impl Video {
                     USER_BLOCKED,
                     CONTENT_REMOVED,
                     VIDEO_PUBLISHED,
+                    PLAYLISTS_STALE,
                 ],
                 // Deleting a creator's whole catalogue takes a while.
                 ConsumeOptions { ack_wait: Duration::from_secs(300), ..Default::default() },
@@ -83,6 +85,31 @@ impl Video {
                     move |job: AnnounceJob| {
                         let video = handler.clone();
                         async move { video.announce(job).await.map(|_| ()) }
+                    },
+                )
+                .await;
+        });
+
+        let video = self.clone();
+        tokio::spawn(async move {
+            let core = video.core.clone();
+            video
+                .core
+                .jobs
+                .run(
+                    JOB_PLAYLIST_SEARCH,
+                    JobOptions { concurrency: 2, lease: Duration::from_secs(120), max_deliver: 5 },
+                    video.core.shutdown.clone(),
+                    move |job: PlaylistSearchJob| {
+                        let core = core.clone();
+                        async move {
+                            if let Some(next) = playlists::refresh_search(&core, &job).await? {
+                                let key =
+                                    format!("{}:{}", next.video_id.unwrap_or_default(), next.after.unwrap_or_default());
+                                core.jobs.enqueue_unique(JOB_PLAYLIST_SEARCH, &key, &next).await?;
+                            }
+                            Ok(())
+                        }
                     },
                 )
                 .await;
@@ -162,6 +189,12 @@ impl Video {
             }
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
             VIDEO_PUBLISHED => self.on_video_published(event.data()?).await,
+            PLAYLISTS_STALE => {
+                let stale: PlaylistsStale = event.data()?;
+                let job = PlaylistSearchJob { video_id: stale.video_id, playlist_ids: stale.playlist_ids, after: None };
+                // Unique per event: a redelivery does not queue the work twice.
+                self.core.jobs.enqueue_unique(JOB_PLAYLIST_SEARCH, &event.id.to_string(), &job).await
+            }
             _ => Ok(()),
         }
     }
@@ -190,19 +223,42 @@ impl Video {
         if let Some(video) = video {
             videos::delete(&self.core, &video, None, false).await?;
         }
-        // A custom thumbnail falls back to the poster frame; channel art is cleared.
-        sqlx::query("UPDATE videos SET thumbnail_asset_id = NULL, thumbnail = playback -> 'poster' WHERE thumbnail_asset_id = $1")
-            .bind(asset_id)
-            .execute(&self.core.db)
-            .await?;
-        sqlx::query("UPDATE channels SET icon = NULL, icon_asset_id = NULL WHERE icon_asset_id = $1")
-            .bind(asset_id)
-            .execute(&self.core.db)
-            .await?;
+        // A custom thumbnail falls back to the poster frame; channel art is
+        // cleared. Search documents that showed the picture show the new one.
+        let mut tx = self.core.db.begin().await?;
+        let videos: Vec<Uuid> = sqlx::query_scalar(
+            "UPDATE videos SET thumbnail_asset_id = NULL, thumbnail = playback -> 'poster' WHERE thumbnail_asset_id = $1
+             RETURNING id",
+        )
+        .bind(asset_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for video_id in videos {
+            let Some(video) = videos::find_in(&mut tx, video_id).await? else { continue };
+            if !video.is_public() {
+                continue;
+            }
+            if let Some(channel) = channels::find_in(&mut tx, video.channel_id).await? {
+                search::sync_video(&mut tx, true, &video, &channel).await?;
+            }
+            playlists::sync_search_of_video_in(&mut tx, video.id).await?;
+        }
+        let iconless: Vec<Uuid> = sqlx::query_scalar(
+            "UPDATE channels SET icon = NULL, icon_asset_id = NULL WHERE icon_asset_id = $1 RETURNING id",
+        )
+        .bind(asset_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for channel_id in iconless {
+            if let Some(channel) = channels::find_in(&mut tx, channel_id).await? {
+                search::index_channel(&mut tx, &channel).await?;
+            }
+        }
         sqlx::query("UPDATE channels SET banner = NULL, banner_asset_id = NULL WHERE banner_asset_id = $1")
             .bind(asset_id)
-            .execute(&self.core.db)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -307,6 +363,8 @@ impl Video {
             for video in &public {
                 // `was_public` forces the write: the document is rewritten or removed.
                 search::sync_video(&mut tx, true, video, channel).await?;
+                // Other people's playlists show it as their picture, or stop to.
+                playlists::sync_search_of_video_in(&mut tx, video.id).await?;
             }
         }
         let listed: Vec<Uuid> =

@@ -57,6 +57,31 @@ pub async fn balance(core: &Core, user_id: Uuid) -> AppResult<Balance> {
     Ok(row.map(|(coins, earnings)| Balance { coins, earnings }).unwrap_or(Balance { coins: 0, earnings: 0 }))
 }
 
+/// A movement as its idempotency key finds it.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct KeyedEntry {
+    #[sqlx(rename = "id")]
+    pub entry_id: Uuid,
+    pub amount: i64,
+    /// Platform fee withheld (transfers; 0 otherwise).
+    pub fee: i64,
+    /// The movement was reversed since.
+    pub refunded: bool,
+}
+
+/// The committed movement made under `idempotency_key`, if one was. Lets a
+/// caller that lost the answer of a [`spend`] or [`transfer`] (a timeout, a
+/// crash) tell "paid" from "not paid" without making the movement. It sees
+/// committed movements only: a call still running under the key is not
+/// found, so "not paid" holds only once no such call can be running (see
+/// the time bound of [`transfer`]).
+pub async fn find_by_key(core: &Core, idempotency_key: &str) -> AppResult<Option<KeyedEntry>> {
+    Ok(sqlx::query_as("SELECT id, amount, fee, refunded_at IS NOT NULL AS refunded FROM wallet_entries WHERE idempotency_key = $1")
+        .bind(idempotency_key)
+        .fetch_optional(&core.db)
+        .await?)
+}
+
 /// Issues new coins to a user (a purchase, a bonus, an admin adjustment).
 /// Returns the entry ID and whether this call applied it.
 pub async fn grant(core: &Core, user_id: Uuid, amount: i64, reason: &str, idempotency_key: &str, memo: serde_json::Value) -> AppResult<(Uuid, bool)> {
@@ -81,6 +106,10 @@ pub async fn spend(core: &Core, user_id: Uuid, amount: i64, reason: &str, idempo
     check_amount(amount)?;
     check_key(idempotency_key)?;
     let mut tx = core.db.begin().await?;
+    // Bounded like a transfer (see `TRANSFER_TIME_BOUND`).
+    for limit in TRANSFER_TIME_BOUND {
+        sqlx::query(limit).execute(&mut *tx).await?;
+    }
     let before = lock_account(&mut tx, user_id).await?;
     if let Some(existing) = existing_entry(&mut tx, idempotency_key).await? {
         return Ok((existing.retry_of("spend", Some(user_id), None, amount)?.entry_id, false));
@@ -94,6 +123,11 @@ pub async fn spend(core: &Core, user_id: Uuid, amount: i64, reason: &str, idempo
     tx.commit().await?;
     Ok((entry_id, true))
 }
+
+/// Limits of one transfer's (and spend's) transaction: no lock waited for
+/// longer than 5 seconds, no statement longer than 10. With its dozen-odd
+/// statements a movement is over within about two minutes whatever happens.
+const TRANSFER_TIME_BOUND: [&str; 2] = ["SET LOCAL lock_timeout = '5s'", "SET LOCAL statement_timeout = '10s'"];
 
 /// Moves coins from a payer to a recipient's earnings, withholding
 /// `fee_percent` (0-100) for the platform. Fails with `INSUFFICIENT_COINS`
@@ -150,6 +184,12 @@ async fn transfer_inner(
     let fee = amount * fee_percent as i64 / 100;
     let net = amount - fee;
     let mut tx = core.db.begin().await?;
+    // A transfer gives up rather than wait long on a lock or a statement:
+    // callers that hand the same payment to a retry (stamp purchases) rely
+    // on a transfer having ended within a known time.
+    for limit in TRANSFER_TIME_BOUND {
+        sqlx::query(limit).execute(&mut *tx).await?;
+    }
     // Lock both accounts in a stable order so opposite transfers cannot deadlock.
     let (first, second) = if from_user < to_user { (from_user, to_user) } else { (to_user, from_user) };
     let first_balance = lock_account(&mut tx, first).await?;

@@ -56,24 +56,38 @@ impl Range {
         if (end - start).num_days() > MAX_RANGE_DAYS {
             return Err(bad("the range is longer than 366 days"));
         }
-        let midnight = |day: NaiveDate| -> AppResult<i64> {
-            let local = day.and_hms_opt(0, 0, 0).ok_or_else(|| bad("date out of range"))?;
-            // A midnight skipped by a clock change starts at the first valid instant after it.
-            let instant = time_zone
-                .from_local_datetime(&local)
-                .earliest()
-                .or_else(|| time_zone.from_local_datetime(&(local + chrono::Duration::hours(1))).earliest())
-                .ok_or_else(|| bad("date out of range"))?;
-            Ok(instant.timestamp_millis())
-        };
+        let midnight = |day: NaiveDate| local_midnight(time_zone, day).ok_or_else(|| bad("date out of range"));
         let after_end = end.checked_add_days(Days::new(1)).ok_or_else(|| bad("date out of range"))?;
         Ok(Self { start, end, time_zone, from_ms: midnight(start)?, until_ms: midnight(after_end)? })
+    }
+
+    /// The two ranges one day shorter, at either end (none for a single
+    /// day), as `(from_ms, until_ms)`. Comparing a report with these is how
+    /// one would isolate the viewers of its first or last day.
+    pub fn neighbours(&self) -> Vec<(i64, i64)> {
+        if self.start == self.end {
+            return Vec::new();
+        }
+        let second = self.start.succ_opt().and_then(|day| local_midnight(self.time_zone, day));
+        let last = local_midnight(self.time_zone, self.end);
+        [second.map(|at| (at, self.until_ms)), last.map(|at| (self.from_ms, at))].into_iter().flatten().collect()
     }
 
     /// Every day of the range, in order.
     pub fn days(&self) -> impl Iterator<Item = NaiveDate> {
         self.start.iter_days().take_while(move |day| *day <= self.end)
     }
+}
+
+/// The first instant of `day` in `time_zone`, Unix milliseconds. A midnight
+/// skipped by a clock change starts at the first valid instant after it.
+fn local_midnight(time_zone: chrono_tz::Tz, day: NaiveDate) -> Option<i64> {
+    let local = day.and_hms_opt(0, 0, 0)?;
+    let instant = time_zone
+        .from_local_datetime(&local)
+        .earliest()
+        .or_else(|| time_zone.from_local_datetime(&(local + chrono::Duration::hours(1))).earliest())?;
+    Some(instant.timestamp_millis())
 }
 
 /// What a report is about.
@@ -165,6 +179,30 @@ pub async fn totals(core: &Core, scope: Scope, range: &Range) -> AppResult<Analy
         dislikes: dislikes as i64,
         ..Default::default()
     })
+}
+
+/// Distinct viewers with a counted view of the scope between two instants.
+pub async fn unique_viewers(core: &Core, scope: Scope, from_ms: i64, until_ms: i64) -> AppResult<i64> {
+    let sql = format!(
+        "SELECT toUInt64(uniqExactIf(JSONExtractString(props, 'viewer'), name = 'video.view')) FROM events
+         WHERE owner_id = toUUID(?) AND name IN {NAMES}
+           AND at >= fromUnixTimestamp64Milli(?) AND at < fromUnixTimestamp64Milli(?) AND {}",
+        scope.predicate()
+    );
+    let target = scope.target().to_string();
+    let viewers: u64 = core
+        .analytics
+        .ch
+        .query(&sql)
+        .bind(scope.owner_id().to_string())
+        .bind(from_ms)
+        .bind(until_ms)
+        .bind(&target)
+        .bind(&target)
+        .fetch_one()
+        .await
+        .map_err(unavailable)?;
+    Ok(viewers as i64)
 }
 
 /// One entry per day of the range (days without activity included), cut in
@@ -454,6 +492,17 @@ mod tests {
         // A day with a clock change is 23 or 25 hours long.
         let spring = range("2026-03-08", "2026-03-08", "America/New_York").unwrap();
         assert_eq!(spring.until_ms - spring.from_ms, 23 * 3_600_000);
+    }
+
+    #[test]
+    fn neighbours_are_one_day_shorter_at_either_end() {
+        let tokyo = range("2026-11-01", "2026-11-03", "Asia/Tokyo").unwrap();
+        let day = 86_400_000;
+        assert_eq!(
+            tokyo.neighbours(),
+            vec![(tokyo.from_ms + day, tokyo.until_ms), (tokyo.from_ms, tokyo.until_ms - day)]
+        );
+        assert!(range("2026-11-01", "2026-11-01", "").unwrap().neighbours().is_empty());
     }
 
     #[test]

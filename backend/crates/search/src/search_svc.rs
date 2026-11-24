@@ -212,11 +212,13 @@ impl SearchService for Search {
                     snippets: true,
                     counts: first_page,
                     typeahead: false,
+                    // Nobody lists the channels of someone else's account.
+                    owner_kinds_only: owner.is_some_and(|owner| caller != Some(owner)),
                 })
                 .await?;
             let next_offset = offset + limit;
             let has_more = answer.has_more && next_offset < MAX_TOTAL_HITS;
-            let hits = self.present_hits(&hidden, answer.hits).await?;
+            let hits = self.present_hits(caller, &hidden, answer.hits).await?;
 
             if first_page {
                 if let Some(user_id) = caller
@@ -319,9 +321,10 @@ impl SearchService for Search {
                         snippets: false,
                         counts: false,
                         typeahead: true,
+                        owner_kinds_only: false,
                     })
                     .await?;
-                self.present_hits(&hidden, answer.hits).await
+                self.present_hits(caller, &hidden, answer.hits).await
             };
             let (completions, hits) = tokio::join!(completions, hits);
             ok(SuggestResponse { completions: completions?, hits: hits?, ..Default::default() })

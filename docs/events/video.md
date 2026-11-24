@@ -84,6 +84,7 @@ Durable consumer `video`. Every handler is idempotent.
 | `social.user.blocked` | Subscriptions between the two users are removed in both directions. (Lists, feeds and lookups hide the other's content immediately, without waiting for the event.) |
 | `admin.content.removed` | `SUBJECT_TYPE_VIDEO`: the video is deleted and its upload removed by force. `SUBJECT_TYPE_CHANNEL`: the channel is deleted with its content. `SUBJECT_TYPE_PLAYLIST`: the playlist is deleted. Unknown IDs and other subject types are ignored. |
 | `video.video.published` (own) | With `first_publication`: queues the first `video.announce` job. |
+| `video.playlists.stale` (own, internal) `{ video_id?, playlist_ids }` | Emitted in the transaction that changed a video's public state or thumbnail (or deleted it, naming its public playlists); queues a `video.playlists.search` job. |
 
 ## Media assets
 
@@ -158,7 +159,7 @@ published to).
 |---|---|---|
 | `channel` | the owner is not suspended | `title` = name, `text` = description, `tags` = [handle], `path` = `/channel/<handle>`, `score` = subscribers (as of the last edit), `extra = { handle, verified, subscriber_count }` |
 | `video` | PUBLISHED, PUBLIC and not suspended | `title`, `text` = description, `tags` = tags + game, `path` = `/watch/<short_id>`, `created_at` = publication time, `score` = views (as of the last edit), `extra = { short_id, channel_id, channel_handle, channel_name, duration_seconds, category, game, age_restricted, origin }` |
-| `playlist` | custom, PUBLIC and not suspended | `title`, `text` = description, `path` = `/playlist/<short_id>`, `image_url` = first public video's thumbnail, `extra = { short_id, item_count, channel_id }` |
+| `playlist` | custom, PUBLIC and not suspended | `title`, `text` = description, `path` = `/playlist/<short_id>`, `image_url` = first public video's thumbnail, `extra = { short_id, item_count, channel_id, channel_handle, channel_name }` (the channel's, for a playlist on a channel) |
 
 ## Subjects
 
@@ -190,6 +191,7 @@ tracked. No ClickHouse table of its own is needed.
 |---|---|---|
 | event consumer `video` | — | See "Events consumed". |
 | job `video.announce` `{ video_id, after }` | — | One batch (`TOKULY_VIDEO_ANNOUNCE_BATCH_SIZE` subscribers, by user ID after `after`) of `video.published` notifications, then queues the next batch. |
+| job `video.playlists.search` `{ video_id?, playlist_ids, after }` | — | Rewrites the search documents of public playlists listing a video (200 per job, by playlist ID after `after`, then the next job), so their picture never shows a video that left the public. Reads without locks; only the write takes the rows `FOR SHARE`, so a playlist that stopped being public meanwhile is skipped. |
 | publishing | `TOKULY_VIDEO_PUBLISH_INTERVAL_SECONDS` | Publishes scheduled videos that are due; every 20th run catches up videos whose `media.asset.*` event was missed. |
 | trending | `TOKULY_VIDEO_TRENDING_INTERVAL_SECONDS` | `trending_score` = Σ over the last 7 days of each hour's `views + 4 × likes`, halved per `TOKULY_VIDEO_TRENDING_HALF_LIFE_HOURS`; prunes `video_hourly_stats` older than 8 days. |
 | parties | 10 s | Drops members without a heartbeat for `TOKULY_VIDEO_PARTY_MEMBER_TIMEOUT_SECONDS` (hosting is handed over), ends parties older than `TOKULY_VIDEO_PARTY_MAX_HOURS`, deletes parties a day after they ended. |
@@ -226,6 +228,7 @@ marks and the history setting.
 | `TOKULY_VIDEO_PARTY_MAX_HOSTED` (`--video-party-max-hosted`) | `3` | Open parties one account may host. |
 | `TOKULY_VIDEO_PARTY_MAX_HOURS` (`--video-party-max-hours`) | `12` | Lifetime of a party. |
 | `TOKULY_VIDEO_PARTY_MEMBER_TIMEOUT_SECONDS` (`--video-party-member-timeout-seconds`) | `60` | Heartbeat silence after which a member is dropped. |
+| `TOKULY_VIDEO_ANALYTICS_MIN_AUDIENCE` (`--video-analytics-min-audience`) | `5` | Distinct viewers before analytics describe an audience: below it (or when a range differs from the same range one day shorter by fewer viewers), unique viewers, watch time, traffic sources and retention are left out, and days with fewer viewers show no numbers. Best effort against comparing reports. |
 
 Fixed limits (`tokuly_video::validate`, `subtitles`): channel name 50,
 description 1000, 5 links; title 100, description 5000, 20 tags of 30
@@ -249,6 +252,7 @@ days ahead.
 | `video-report:<session>` | 120 / minute (`ReportPlayback`) |
 | `video-home:<user or ip>` | 120 / minute (`GetHomeFeed`) |
 | `video-playlist-create:<user>` | 30 / hour |
+| `video-playlist-items:<user>` | 120 / minute (`AddPlaylistItem` and `RemovePlaylistItem` together) |
 | `video-party-create:<user>` | 20 / hour |
 | `video-party-preview:<user or ip>`, `video-party-join:<user or ip>` | 60 / minute, 30 / minute |
 | `video-party-control:<seat>` | 240 / minute (`SetPartyPlayback`) |

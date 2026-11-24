@@ -88,6 +88,12 @@ pub async fn sync_playlist(
     if !(playlist.is_public() || was_public) {
         return Ok(());
     }
+    // A playlist on a channel is shown by its channel (whose owner search
+    // does not name).
+    let channel = match playlist.channel_id {
+        Some(channel_id) => crate::channels::find_in(tx, channel_id).await?,
+        None => None,
+    };
     let doc = SearchDoc {
         kind: "playlist".to_owned(),
         id: playlist.id,
@@ -104,6 +110,8 @@ pub async fn sync_playlist(
             "short_id": playlist.short_id,
             "item_count": playlist.item_count,
             "channel_id": playlist.channel_id,
+            "channel_handle": channel.as_ref().map(|c| c.handle.clone()),
+            "channel_name": channel.as_ref().map(|c| c.name.clone()),
         }),
     };
     outbound::index(&mut **tx, doc).await

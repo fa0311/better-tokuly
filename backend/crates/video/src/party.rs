@@ -121,7 +121,8 @@ pub struct MemberRow {
     pub guest_name: String,
     /// Guests: the secret segment of their realtime topic.
     pub topic_key: Option<String>,
-    /// Guests: keyed hash of the address they joined from.
+    /// Keyed hash of the address the seat was taken from (guests and, since
+    /// a removal bans it too, accounts).
     pub ip_hash: String,
     pub role: i32,
     pub joined_at: Time,

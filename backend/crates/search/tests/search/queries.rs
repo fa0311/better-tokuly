@@ -15,7 +15,7 @@ async fn a_hit_carries_everything_a_result_row_needs() {
     let ctx = start().await;
     let creator = ctx.app.user("creator").await;
     let word = unique("row");
-    let mut video = doc("video", Some(creator.id), &format!("{word} 渋谷の夜を歩く"));
+    let mut video = doc("note", Some(creator.id), &format!("{word} 渋谷の夜を歩く"));
     video.text = format!("東京の街を歩きながら {word} について話します。");
     video.tags = vec!["散歩".into(), "東京".into()];
     video.image_url = Some("https://media.example/poster.webp".into());
@@ -28,7 +28,7 @@ async fn a_hit_carries_everything_a_result_row_needs() {
     assert_eq!(found.query, word);
     assert_eq!(found.total, 1);
     let hit = &found.hits[0];
-    assert_eq!(kind_of(hit), SearchKind::SEARCH_KIND_VIDEO);
+    assert_eq!(kind_of(hit), SearchKind::SEARCH_KIND_NOTE);
     assert_eq!(hit.id, video.id.to_string());
     assert_eq!(hit.title, video.title);
     assert_eq!(joined(&hit.title_segments), video.title, "segments reassemble the title");
@@ -376,7 +376,7 @@ async fn japanese_queries_find_japanese_titles() {
     let english = doc("video", Some(owner.id), "Tokyo night walk");
     ctx.index(&[night.clone(), crossing.clone(), walk.clone(), tower.clone(), english.clone()]).await;
     let found = async |query: &str| {
-        let mut ids = hit_ids(&ctx.find_owned(None, owner.id, query).await.hits);
+        let mut ids = hit_ids(&ctx.find_owned(Some(&owner), owner.id, query).await.hits);
         ids.sort();
         ids
     };
@@ -399,8 +399,13 @@ async fn japanese_queries_find_japanese_titles() {
     assert_eq!(found("ｔｏｋｙｏ").await, ids(&[&english]));
 
     // The match is highlighted inside the Japanese sentence.
-    let hit =
-        ctx.find_owned(None, owner.id, "渋谷").await.hits.into_iter().find(|h| h.id == night.id.to_string()).unwrap();
+    let hit = ctx
+        .find_owned(Some(&owner), owner.id, "渋谷")
+        .await
+        .hits
+        .into_iter()
+        .find(|h| h.id == night.id.to_string())
+        .unwrap();
     assert_eq!(highlighted(&hit.title_segments), vec!["渋谷"]);
     assert_eq!(joined(&hit.title_segments), "渋谷の夜を歩く");
 }
@@ -489,13 +494,13 @@ async fn searching_inside_one_owners_content() {
     let ctx = start().await;
     let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
     let word = unique("mine");
-    let (hers, his) = (doc("video", Some(alice.id), &word), doc("video", Some(bob.id), &word));
+    let (hers, his) = (doc("note", Some(alice.id), &word), doc("note", Some(bob.id), &word));
     ctx.index(&[hers.clone(), his.clone()]).await;
 
     assert_eq!(ctx.find(None, &word).await.hits.len(), 2);
     let owned = ctx.find_owned(None, alice.id, &word).await;
     assert_eq!(hit_ids(&owned.hits), vec![hers.id.to_string()]);
-    assert_eq!((owned.total, count_of(&owned, SearchKind::SEARCH_KIND_VIDEO)), (1, 1));
+    assert_eq!((owned.total, count_of(&owned, SearchKind::SEARCH_KIND_NOTE)), (1, 1));
 }
 
 #[tokio::test]

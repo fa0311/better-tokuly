@@ -161,14 +161,25 @@ CREATE TABLE stamp_pack_purchases (
 CREATE INDEX stamp_pack_purchases_recent ON stamp_pack_purchases (user_id, purchased_at DESC, pack_id DESC);
 CREATE INDEX stamp_pack_purchases_pack ON stamp_pack_purchases (pack_id);
 
--- A purchase that has started but whose payment is not recorded yet. It keeps
--- the creator from deleting the pack between the payment and the purchase
--- row. Rows are removed when the purchase completes or fails, and swept after
--- a day (a retry recreates them and recognises an earlier payment).
+-- An order: a purchase that has started but is not recorded yet, at the
+-- price the buyer confirmed. It keeps the creator from deleting the pack
+-- until it is settled. Each order pays under a ledger key of its own, so
+-- whatever happened to an earlier order (refunded, refused) never blocks a
+-- later one. Settling looks the key up in the ledger: paid orders are
+-- recorded at `price` (refunded only if moderators took the pack down),
+-- unpaid ones are paid at the buyer's request or ended by the worker. One
+-- settler at a time holds an order, through `leased_until`.
 CREATE TABLE stamp_purchase_intents (
-    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    pack_id    uuid        NOT NULL REFERENCES stamp_packs (id) ON DELETE CASCADE,
-    created_at timestamptz NOT NULL DEFAULT now(),
+    user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    pack_id      uuid        NOT NULL REFERENCES stamp_packs (id) ON DELETE CASCADE,
+    -- The price the buyer agreed to; the order pays exactly this.
+    price        integer     NOT NULL CHECK (price > 0),
+    -- The ledger idempotency key of this order's payment.
+    payment_key  text        NOT NULL UNIQUE,
+    -- Held by a settler until then (a request, or the worker); a worker
+    -- attempt that could not finish leaves it set as its back-off.
+    leased_until timestamptz,
+    created_at   timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, pack_id)
 );
 

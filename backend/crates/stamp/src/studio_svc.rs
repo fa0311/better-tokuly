@@ -25,17 +25,14 @@ use crate::{
     validate::{self, MAX_PRICE, MAX_STAMPS_PER_PACK, MAX_STAMPS_PER_REQUEST, MIN_PAID_PRICE},
 };
 
-/// How long an unfinished purchase protects a pack from deletion.
-const PURCHASE_IN_FLIGHT: &str = "15 minutes";
-
-/// Whether somebody bought the pack, or is in the middle of buying it.
-async fn has_buyers(tx: &mut Transaction<'_, Postgres>, pack_id: Uuid) -> AppResult<bool> {
+/// Whether somebody bought the pack, or has a purchase of it that is not
+/// settled yet (and may have paid already).
+pub(crate) async fn has_buyers(tx: &mut Transaction<'_, Postgres>, pack_id: Uuid) -> AppResult<bool> {
     Ok(sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM stamp_pack_purchases WHERE pack_id = $1)
-             OR EXISTS (SELECT 1 FROM stamp_purchase_intents WHERE pack_id = $1 AND created_at > now() - $2::interval)",
+             OR EXISTS (SELECT 1 FROM stamp_purchase_intents WHERE pack_id = $1)",
     )
     .bind(pack_id)
-    .bind(PURCHASE_IN_FLIGHT)
     .fetch_one(&mut **tx)
     .await?)
 }

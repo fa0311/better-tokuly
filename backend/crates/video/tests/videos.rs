@@ -932,6 +932,63 @@ async fn deleting_a_video_removes_everything_that_hangs_off_it() {
 }
 
 #[tokio::test]
+async fn deleting_from_a_stale_copy_still_removes_the_search_document() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let channel = ctx.channel(&alice, "ch").await;
+    let draft =
+        ctx.draft_with(&alice, &channel, "stale", |r| r.visibility = Visibility::VISIBILITY_PUBLIC.into()).await;
+    let video_id = card(&draft).id.clone();
+    // Read while it was a draft (as a takedown or an asset deletion reads it)...
+    let stale = tokuly_video::videos::find_ref(&ctx.app.core, &video_id).await.unwrap().unwrap();
+    // ...and published before the deletion went through.
+    ctx.publish(&alice, &video_id).await;
+    assert!(search_docs(&ctx, &video_id).await.last().is_some_and(Option::is_some));
+
+    tokuly_video::videos::delete(&ctx.app.core, &stale, None, false).await.unwrap();
+    assert_eq!(search_docs(&ctx, &video_id).await.last(), Some(&None), "the video left search with its row");
+}
+
+#[tokio::test]
+async fn a_video_made_private_while_it_goes_live_leaves_search() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let channel = ctx.channel(&alice, "ch").await;
+    let draft = ctx.draft_with(&alice, &channel, "race", |r| r.visibility = Visibility::VISIBILITY_PUBLIC.into()).await;
+    let video_id = card(&draft).id.clone();
+
+    // The scheduler publishes the video (and writes its search document)
+    // while the owner's edit making it private waits for the row.
+    let mut scheduler = ctx.app.core.db.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM videos WHERE id = $1 FOR UPDATE")
+        .bind(id(&video_id))
+        .execute(&mut *scheduler)
+        .await
+        .unwrap();
+    let edit = UpdateVideoRequest {
+        video_id: video_id.clone(),
+        visibility: Some(Visibility::VISIBILITY_PRIVATE.into()),
+        ..Default::default()
+    };
+    let editing = async { ctx.call::<_, UpdateVideoResponse>(VIDEOS, "UpdateVideo", Some(&alice), &edit).await };
+    let publishing = async {
+        tokio::time::sleep(QUIET).await;
+        sqlx::query("UPDATE videos SET status = 3, published_at = now() WHERE id = $1")
+            .bind(id(&video_id))
+            .execute(&mut *scheduler)
+            .await
+            .unwrap();
+        scheduler.commit().await.unwrap();
+    };
+    let (edited, ()) = tokio::join!(editing, publishing);
+    let edited = edited.unwrap().video.as_option().cloned().unwrap();
+    assert_eq!(card(&edited).visibility, Visibility::VISIBILITY_PRIVATE);
+    assert_eq!(card(&edited).status, VideoStatus::VIDEO_STATUS_PUBLISHED);
+    // Whatever the scheduler indexed, the private video's document is removed.
+    assert_eq!(search_docs(&ctx, &video_id).await.last(), Some(&None));
+}
+
+#[tokio::test]
 async fn a_published_video_that_changes_visibility_says_so() {
     let ctx = start().await;
     let alice = ctx.app.user("alice").await;

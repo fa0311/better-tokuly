@@ -122,7 +122,10 @@ message SearchHit {
   // Path in the app, e.g. `/watch/<short_id>` or `/@handle`.
   string path = 7;
   // Who owns the document; for a user hit, the user. Unset for content
-  // without an owning account (official content, places, hashtags).
+  // without an owning account (official content, places, hashtags), and for
+  // channel content (channels, videos, shorts, live streams, playlists on a
+  // channel) except when the caller owns it: a channel does not reveal the
+  // account behind it.
   tokuly.common.v1.UserSummary owner = 8;
   google.protobuf.Timestamp created_at = 9;
   repeated string tags = 10;
@@ -149,6 +152,8 @@ message SearchRequest {
   // query are not reachable.
   tokuly.common.v1.PageRequest page = 4;
   // Only documents owned by this user ("search this profile"). Empty = anyone.
+  // Channels, videos, shorts, live streams and playlists are left out unless
+  // the caller is that user: a channel does not reveal the account behind it.
   string owner_id = 5;
   // Do not remember this query in the caller's recent searches and do not
   // count it towards trending (e.g. a query replayed from a shared link).

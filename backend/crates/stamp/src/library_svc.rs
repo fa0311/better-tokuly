@@ -27,6 +27,15 @@ fn first_page(size: i32) -> Page {
     Page::new(size, "", size as i64, size as i64)
 }
 
+impl Stamp {
+    /// Installs and uninstalls per user and minute. Each one writes a row,
+    /// moves a pack's install counter and emits an event (quests count
+    /// installs), so a loop of them must not run unchecked.
+    async fn limit_library_changes(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("stamp-install:{user_id}"), 60, Duration::from_secs(60)).await
+    }
+}
+
 impl StampLibraryService for Stamp {
     async fn get_library(
         &self,
@@ -95,6 +104,7 @@ impl StampLibraryService for Stamp {
                 }
                 InstallCheck::Unavailable => bail!(not_found, "PACK_NOT_FOUND", "stamp pack not found"),
             }
+            self.limit_library_changes(user_id).await?;
             let mut tx = self.core.db.begin().await?;
             installs::ensure_room(&mut *tx, user_id, pack.id).await?;
             let installed = installs::install(&mut tx, user_id, &pack, !viewer.manages(&pack.facts())).await?;
@@ -124,6 +134,7 @@ impl StampLibraryService for Stamp {
             let Some(pack) = crate::packs::find(&self.core, request.pack_id).await? else {
                 return ok(UninstallPackResponse::default());
             };
+            self.limit_library_changes(user_id).await?;
             let mut tx = self.core.db.begin().await?;
             installs::uninstall(&mut tx, user_id, &pack, !viewer.manages(&pack.facts())).await?;
             tx.commit().await?;
@@ -159,7 +170,12 @@ impl StampLibraryService for Stamp {
     ) -> ServiceResult<PurchasePackResponse> {
         handle(async {
             let (viewer, user_id) = Viewer::signed_in(&ctx)?;
-            let (pack, holding) = self.visible_pack(&viewer, request.pack_id).await?;
+            // A buyer with an unfinished purchase finishes it, also after the
+            // pack left the store.
+            let (pack, holding) = match self.visible_pack(&viewer, request.pack_id).await {
+                Err(e) if e.is_not_found() => self.pack_being_bought(user_id, request.pack_id).await?.ok_or(e)?,
+                other => other?,
+            };
             let charged = self.purchase(&viewer, user_id, &pack, holding, request.expected_price).await?;
             let (pack, _) = self.visible_pack(&viewer, &pack.id.to_string()).await?;
             ok(PurchasePackResponse { pack: self.summary(&viewer, &pack).await?.into(), charged, ..Default::default() })

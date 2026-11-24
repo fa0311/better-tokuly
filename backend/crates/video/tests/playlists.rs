@@ -483,3 +483,137 @@ async fn playlists_can_be_edited_and_deleted_by_their_owner() {
     assert_eq!(deleted.len(), 1);
     assert_eq!(deleted[0].data["playlist_id"], playlist.id);
 }
+
+#[tokio::test]
+async fn a_playlists_search_picture_never_shows_a_video_that_left_the_public() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let channel = ctx.channel(&alice, "ch").await;
+    let image_of = |video: &Video| card(video).thumbnail.as_option().unwrap().url.clone();
+    let picture = async |playlist: &Playlist| {
+        // What the worker does: the stale events become refresh jobs.
+        for event in ctx.app.events("video.playlists.stale").await {
+            let stale: tokuly_video::events::PlaylistsStale = serde_json::from_value(event.data).unwrap();
+            let mut job = Some(tokuly_video::events::PlaylistSearchJob {
+                video_id: stale.video_id,
+                playlist_ids: stale.playlist_ids,
+                after: None,
+            });
+            while let Some(next) = job {
+                job = tokuly_video::playlists::refresh_search(&ctx.app.core, &next).await.unwrap();
+            }
+        }
+        let docs = search_docs(&ctx, &playlist.id).await;
+        let doc = docs.last().cloned().flatten().expect("a public playlist is searchable");
+        doc["image_url"].as_str().map(str::to_owned)
+    };
+
+    // Made private.
+    let secret = ctx.public_video(&alice, &channel, "soon private").await;
+    let list = create(&ctx, &bob, "mix", Visibility::VISIBILITY_PUBLIC).await;
+    add(&ctx, &bob, &list.id, &secret).await;
+    assert_eq!(picture(&list).await, Some(image_of(&secret)));
+    let edit = UpdateVideoRequest {
+        video_id: card(&secret).id.clone(),
+        visibility: Some(Visibility::VISIBILITY_PRIVATE.into()),
+        ..Default::default()
+    };
+    ctx.call::<_, UpdateVideoResponse>(VIDEOS, "UpdateVideo", Some(&alice), &edit).await.unwrap();
+    assert_eq!(picture(&list).await, None);
+
+    // Deleted.
+    let doomed = ctx.public_video(&alice, &channel, "soon gone").await;
+    let list = create(&ctx, &bob, "mix 2", Visibility::VISIBILITY_PUBLIC).await;
+    add(&ctx, &bob, &list.id, &doomed).await;
+    assert_eq!(picture(&list).await, Some(image_of(&doomed)));
+    let request = DeleteVideoRequest { video_id: card(&doomed).id.clone(), ..Default::default() };
+    ctx.call::<_, DeleteVideoResponse>(VIDEOS, "DeleteVideo", Some(&alice), &request).await.unwrap();
+    assert_eq!(picture(&list).await, None);
+
+    // Its owner suspended.
+    let banned = ctx.public_video(&alice, &channel, "owner banned").await;
+    let list = create(&ctx, &bob, "mix 3", Visibility::VISIBILITY_PUBLIC).await;
+    add(&ctx, &bob, &list.id, &banned).await;
+    assert_eq!(picture(&list).await, Some(image_of(&banned)));
+    ctx.deliver_event("identity.user.banned", None, serde_json::json!({ "user_id": alice.id })).await;
+    assert_eq!(picture(&list).await, None);
+
+    // Its custom thumbnail taken down: the video and the list show the poster frame.
+    let carol = ctx.app.user("carol").await;
+    let channel = ctx.channel(&carol, "ch").await;
+    let custom = ctx.image_upload(&carol, tokuly_proto::media::AssetPurpose::ASSET_PURPOSE_THUMBNAIL).await;
+    let pictured = ctx
+        .published_with(&carol, &channel, "custom picture", Visibility::VISIBILITY_PUBLIC, |r| {
+            r.thumbnail_asset_id = custom.clone()
+        })
+        .await;
+    let list = create(&ctx, &bob, "mix 4", Visibility::VISIBILITY_PUBLIC).await;
+    add(&ctx, &bob, &list.id, &pictured).await;
+    let custom_url = image_of(&pictured);
+    assert_eq!(picture(&list).await, Some(custom_url.clone()));
+    ctx.deliver_event(
+        "media.asset.deleted",
+        None,
+        serde_json::json!({ "asset_id": custom, "owner_id": carol.id, "purpose": 0, "kind": 0 }),
+    )
+    .await;
+    let video_doc = search_docs(&ctx, &card(&pictured).id).await.last().cloned().flatten().unwrap();
+    assert_ne!(video_doc["image_url"].as_str(), Some(custom_url.as_str()));
+    assert_ne!(picture(&list).await, Some(custom_url));
+}
+
+#[tokio::test]
+async fn a_channel_playlist_in_search_names_its_channel() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let channel = ctx.channel(&alice, "ch").await;
+    let request = CreatePlaylistRequest {
+        title: "best of".into(),
+        visibility: Visibility::VISIBILITY_PUBLIC.into(),
+        channel_id: channel.summary.id.clone(),
+        ..Default::default()
+    };
+    let created: CreatePlaylistResponse = ctx.call(PLAYLISTS, "CreatePlaylist", Some(&alice), &request).await.unwrap();
+    let docs = search_docs(&ctx, &created.playlist.id).await;
+    let doc = docs.last().cloned().flatten().expect("a public playlist is searchable");
+    assert_eq!(doc["extra"]["channel_name"], channel.summary.name);
+    assert_eq!(doc["extra"]["channel_handle"], channel.summary.handle);
+    assert_eq!(doc["owner_id"], alice.id.to_string(), "kept for blocks; search does not show it");
+}
+
+#[tokio::test]
+async fn adding_and_removing_items_in_a_loop_is_rate_limited() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let channel = ctx.channel(&alice, "ch").await;
+    let video = ctx.public_video(&alice, &channel, "loop").await;
+    let list = create(&ctx, &alice, "loop", Visibility::VISIBILITY_PUBLIC).await;
+    let add = AddPlaylistItemRequest {
+        playlist_id: list.id.clone(),
+        video_id: card(&video).id.clone(),
+        ..Default::default()
+    };
+    let remove = RemovePlaylistItemRequest {
+        playlist_id: list.id.clone(),
+        video_id: card(&video).id.clone(),
+        ..Default::default()
+    };
+    let mut limited = None;
+    for round in 0..150 {
+        let added = ctx.call::<_, AddPlaylistItemResponse>(PLAYLISTS, "AddPlaylistItem", Some(&alice), &add).await;
+        let removed = match added {
+            Ok(_) => ctx
+                .call::<_, RemovePlaylistItemResponse>(PLAYLISTS, "RemovePlaylistItem", Some(&alice), &remove)
+                .await
+                .map(|_| ()),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = removed {
+            limited = Some((round, e.reason));
+            break;
+        }
+    }
+    let (round, reason) = limited.expect("an endless add/remove loop is refused at some point");
+    assert_eq!(reason, "RATE_LIMITED");
+    assert!(round >= 30, "normal use is not limited (stopped at round {round})");
+}

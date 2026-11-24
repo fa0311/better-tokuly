@@ -146,6 +146,9 @@ impl Search {
     /// behind includes every search counted before the call. Returns the
     /// queries that qualified, most searched first.
     pub async fn refresh_trending(&self) -> AppResult<Vec<PopularQuery>> {
+        // Read before the lock: a transaction waiting on the lock holds a
+        // connection, so the holder must not ask the pool for another.
+        let blocked = self.blocked_terms().await?;
         let mut tx = self.core.db.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
             .bind(format!("search:trending:{}", self.cfg.index_prefix))
@@ -193,7 +196,6 @@ impl Search {
             pipe.query_async(&mut conn).await?
         };
 
-        let blocked = self.blocked_terms().await?;
         let mut qualified: Vec<PopularQuery> = candidates
             .into_iter()
             .zip(searchers)

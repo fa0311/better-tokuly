@@ -136,6 +136,18 @@ pub struct VideoConfig {
         default_value_t = 60
     )]
     pub party_member_timeout_seconds: u64,
+
+    /// Distinct viewers a video or channel needs within a report's range
+    /// before analytics break its audience down (retention curve, traffic
+    /// sources): below that, the breakdown describes what one or two known
+    /// people did.
+    #[arg(
+        id = "video_analytics_min_audience",
+        long = "video-analytics-min-audience",
+        env = "TOKULY_VIDEO_ANALYTICS_MIN_AUDIENCE",
+        default_value_t = 5
+    )]
+    pub analytics_min_audience: i64,
 }
 
 impl Default for VideoConfig {
@@ -155,6 +167,7 @@ impl Default for VideoConfig {
             party_max_hosted: 3,
             party_max_hours: 12,
             party_member_timeout_seconds: 60,
+            analytics_min_audience: 5,
         }
     }
 }
@@ -181,6 +194,7 @@ impl VideoConfig {
             self.party_member_timeout_seconds >= 10,
             "TOKULY_VIDEO_PARTY_MEMBER_TIMEOUT_SECONDS must be at least 10"
         );
+        anyhow::ensure!(self.analytics_min_audience >= 1, "TOKULY_VIDEO_ANALYTICS_MIN_AUDIENCE must be at least 1");
         Ok(())
     }
 }

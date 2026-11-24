@@ -935,9 +935,10 @@ service PlaylistService {
   rpc ListPlaylistItems(ListPlaylistItemsRequest) returns (ListPlaylistItemsResponse);
   // Appends a video the caller may watch. Adding a video twice is a no-op.
   // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_FULL, VIDEO_NOT_FOUND,
-  // PLAYLIST_READ_ONLY (`LL` changes only through RateVideo).
+  // PLAYLIST_READ_ONLY (`LL` changes only through RateVideo), RATE_LIMITED
+  // (adding and removing together, 120 a minute).
   rpc AddPlaylistItem(AddPlaylistItemRequest) returns (AddPlaylistItemResponse);
-  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_READ_ONLY.
+  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_READ_ONLY, RATE_LIMITED.
   rpc RemovePlaylistItem(RemovePlaylistItemRequest) returns (RemovePlaylistItemResponse);
   // Moves a video to a new place in the list.
   // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_ITEM_NOT_FOUND, PLAYLIST_READ_ONLY
@@ -1527,6 +1528,14 @@ message DateRange {
   string time_zone = 3;
 }
 
+// Reports describe an audience only from a minimum size (the deployment's
+// TOKULY_VIDEO_ANALYTICS_MIN_AUDIENCE, default 5 distinct viewers): below it,
+// and when the range differs by fewer than that many viewers from the same
+// range one day shorter at either end, `unique_viewers`, the watch times,
+// traffic sources, retention and the watch time of top videos are 0 or
+// empty; a day with fewer viewers than the minimum has all its numbers at 0
+// (subscriber changes excepted). Views are always counted. Best effort: it
+// rules out the obvious comparisons, not every one.
 message AnalyticsTotals {
   int64 views = 1;
   // Distinct viewers (accounts, and network addresses of anonymous viewers).
@@ -1571,6 +1580,8 @@ message GetChannelAnalyticsResponse {
   AnalyticsTotals totals = 1;
   // One entry per day of the range, including days without activity.
   repeated DailyAnalytics daily = 2;
+  // Empty while fewer distinct viewers than the deployment's minimum
+  // audience (default 5) watched in the range.
   repeated TrafficSourceStats traffic_sources = 3;
   // The ten most viewed videos of the range.
   repeated VideoStats top_videos = 4;
@@ -1588,7 +1599,10 @@ message GetVideoAnalyticsResponse {
   repeated DailyAnalytics daily = 2;
   repeated TrafficSourceStats traffic_sources = 3;
   // 100 values: the share (0-1) of playback sessions that watched each
-  // hundredth of the video. Empty without sessions.
+  // hundredth of the video. Empty without sessions, and (like
+  // `traffic_sources`) while fewer distinct viewers than the deployment's
+  // minimum audience (default 5) watched in the range: a breakdown of one or
+  // two viewers tells what those people did.
   repeated double retention = 4;
 }
 

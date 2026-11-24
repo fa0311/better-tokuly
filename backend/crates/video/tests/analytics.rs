@@ -244,3 +244,40 @@ async fn analytics_are_for_the_owner_and_need_a_sane_range() {
         .unwrap();
     assert_eq!((report.totals.views, report.daily.len(), report.traffic_sources.len()), (0, 7, 0));
 }
+
+#[tokio::test]
+async fn an_audience_of_one_is_not_broken_down() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let channel = ctx.channel(&alice, "ch").await;
+    // Shared with one friend: whatever the curve shows is what bob did.
+    let video = ctx.published(&alice, &channel, "for bob", tokuly_proto::common::Visibility::VISIBILITY_UNLISTED).await;
+    watch_fifths(&ctx, Some(&bob), &card(&video).id, TrafficSource::TRAFFIC_SOURCE_DIRECT, 2).await;
+    assert!(ctx.app.flush_analytics().await > 0);
+
+    let request = GetVideoAnalyticsRequest {
+        video_id: card(&video).id.clone(),
+        range: around_today().into(),
+        ..Default::default()
+    };
+    let report: GetVideoAnalyticsResponse =
+        ctx.call(ANALYTICS, "GetVideoAnalytics", Some(&alice), &request).await.unwrap();
+    let totals = report.totals.as_option().unwrap();
+    assert_eq!(totals.views, 1, "views are counted");
+    assert_eq!((totals.unique_viewers, totals.watch_time_seconds, totals.average_view_duration_seconds), (0, 0.0, 0.0));
+    assert!(report.daily.iter().all(|day| day.views == 0 && day.unique_viewers == 0 && day.watch_time_seconds == 0.0));
+    assert!(report.retention.is_empty(), "no retention curve of a single viewer");
+    assert!(report.traffic_sources.is_empty(), "no word on where a single viewer came from");
+
+    let request = GetChannelAnalyticsRequest {
+        channel_id: channel.summary.id.clone(),
+        range: around_today().into(),
+        ..Default::default()
+    };
+    let report: GetChannelAnalyticsResponse =
+        ctx.call(ANALYTICS, "GetChannelAnalytics", Some(&alice), &request).await.unwrap();
+    let totals = report.totals.as_option().unwrap();
+    assert_eq!((totals.views, totals.watch_time_seconds), (1, 0.0));
+    assert!(report.traffic_sources.is_empty());
+    assert!(report.top_videos.iter().all(|stats| stats.watch_time_seconds == 0.0));
+}

@@ -328,6 +328,8 @@ impl PlaylistService for Video {
             let core = &self.core;
             let user_id = ctx.user_id()?;
             let viewer = Viewer::load(core, Some(user_id)).await?;
+            // Every change writes rows and the playlist's search document.
+            core.cache.rate_limit(&format!("video-playlist-items:{user_id}"), 120, Duration::from_secs(60)).await?;
             let playlist = playlists::resolve_owned(core, user_id, request.playlist_id).await?;
             if playlist.kind == KIND_LIKED {
                 return Err(read_only());
@@ -371,6 +373,8 @@ impl PlaylistService for Video {
         handle(async {
             let core = &self.core;
             let user_id = ctx.user_id()?;
+            // Every change writes rows and the playlist's search document.
+            core.cache.rate_limit(&format!("video-playlist-items:{user_id}"), 120, Duration::from_secs(60)).await?;
             let playlist = playlists::resolve_owned(core, user_id, request.playlist_id).await?;
             if playlist.kind == KIND_LIKED {
                 return Err(read_only());
