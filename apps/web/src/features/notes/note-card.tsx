@@ -11,6 +11,7 @@ import { cn } from "#/lib/cn";
 import { linkPreviewImage } from "#/lib/link-preview-image";
 import { useMe } from "#/stores/session";
 import { useIsDeleted } from "./api";
+import { ChannelChip } from "./channels-chip";
 import { attachmentImage, ImageGrid, imageUrl, isVideo, NoteVideo } from "./media";
 import { NoteActions, NoteMenu, noteSubject } from "./note-actions";
 import { NotePoll } from "./poll";
@@ -151,6 +152,7 @@ export function NoteCard({
           {t("card.pinned")}
         </p>
       )}
+      <ChannelChip channel={note.channel} />
 
       <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3">
         {author && (

@@ -11,6 +11,7 @@ import {
   History,
   Link2,
   MessageCircle,
+  Paperclip,
   Pencil,
   Pin,
   PinOff,
@@ -46,6 +47,7 @@ import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { useDeleteNote, useLike, usePin, useRenote, useSetVisibility } from "./actions";
 import { noteClient, notesKeys } from "./api";
+import { AddToClipSheet } from "./clips-sheet";
 import { openCompose } from "./compose-store";
 import {
   EditDialog,
@@ -170,7 +172,8 @@ type Sheet =
   | "report"
   | "stats"
   | "edit"
-  | "history";
+  | "history"
+  | "clip";
 
 /**
  * The "more" menu of a note: copy its link, see who liked and renoted it,
@@ -229,6 +232,8 @@ export function NoteMenu({
       icon: <BellOff />,
       onSelect: () => void muteThread(note, !note.viewer?.threadMuted),
     });
+  if (me?.user)
+    actions.push({ label: t("clips:menu"), icon: <Paperclip />, onSelect: () => setSheet("clip") });
   if (mine) {
     if (note.viewer?.canEdit)
       actions.push({ label: t("edit.title"), icon: <Pencil />, onSelect: () => setSheet("edit") });
@@ -295,6 +300,7 @@ export function NoteMenu({
       {sheet === "stats" && <StatsDialog note={note} onClose={close} />}
       {sheet === "edit" && <EditDialog note={note} onClose={close} />}
       {sheet === "history" && <HistoryDialog note={note} onClose={close} />}
+      {sheet === "clip" && <AddToClipSheet note={note} onClose={close} />}
       <ReportDialog
         subject={noteSubject(note.id)}
         open={sheet === "report"}
@@ -427,13 +433,13 @@ function StatsDialog({ note, onClose }: { note: notes.Note; onClose(): void }) {
         <Stat label={t("stats.renotes")} value={number(counters?.renoteCount)} />
         <Stat label={t("stats.quotes")} value={number(counters?.quoteCount)} />
         <Stat label={t("stats.replies")} value={number(counters?.replyCount)} />
+        <Stat label={t("clips:stat")} value={number(counters?.clipCount)} />
         <Stat label={t("stats.reactions")} value={number(data?.emojiTotal)} />
         <Stat label={t("stats.saves")} value={number(data?.bookmarkCount)} />
         <Stat
           label={t("stats.shares")}
           value={number(shares.data?.shareCount ?? data?.shareCount)}
         />
-        <Stat label={t("stats.clips")} value={number(counters?.clipCount)} />
       </dl>
       <NoteAnalyticsPanel noteId={note.id} />
       {shares.data && shares.data.targets.length > 0 && (

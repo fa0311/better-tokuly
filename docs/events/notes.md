@@ -441,3 +441,82 @@ Rate limits: `notes:antenna-change:<user>` 60/hour (creates and updates).
 Valkey keys: `notes:antennas:version` (no TTL) — the antenna version
 counter; `notes:notified:antenna:<antenna>` (10 min) — the owner was just
 told about this antenna.
+## Channels
+
+`NoteChannelService` (`channels.rs`, handlers in `channel_svc.rs`). A channel
+is a topic timeline anyone can post into (`CreateNote.channel_id`; a reply
+stays in the channel of the note it answers; channel notes are public). Its
+notes stay out of the home, following and global timelines unless the reader
+follows the channel (then they come home: top-level notes only). A channel of
+a suspended or deleted owner is gone for everyone; one whose owner is in a
+block with the caller is gone for them (`CHANNEL_NOT_FOUND`, also when
+posting). Archived channels take no new notes and no edits, stay readable,
+and leave search.
+
+Roles: the owner edits, archives, names and removes moderators; moderators
+edit, pin notes and take notes out of the channel (`channel_removed_at`: the
+note stays on its author's profile, leaves the channel's count and pins);
+a moderator may step down. A block between the owner and a moderator ends the
+seat (`social.user.blocked`), and nobody in a block with the owner can be
+named. Moderators act only on notes they can see themselves.
+
+Notification kinds (category `notes`):
+
+| kind | to | when |
+|---|---|---|
+| `notes.channel_removed` | the note's author | a moderator took their note out of a channel (not sent for one's own note) |
+| `notes.channel_moderator` | the new moderator | the owner named them (collapses per channel) |
+
+Search documents: kind `note_channel` (title = name, text = description,
+image = banner, path `/notes/channels/<id>`, score = followers, extra
+`{ color, follower_count }`), public while the channel is not archived;
+re-indexed on every edit and archive change, removed with the channel.
+
+Account deletion: the user's follows go (follower counts put right), their
+moderator seats go, and their channels are deleted — notes other people
+posted there stay, outside any channel (`channel_id` becomes NULL). A
+`media.asset.deleted` banner leaves the channel without one. The data export
+has `channels` (owned, with moderators and pins) and `channel_follows`.
+
+Limits: name 1–50, description 500, colour `#rrggbb` or empty; 10 channels
+per owner (no deleting: archive), 500 followed channels per user, 20
+moderators and 5 pinned notes per channel; channel lists 50 per page, the
+featured list 1000 deep (active channels — a note in the last 7 days — first,
+then by followers).
+
+Rate limits per user: creating 10/hour; editing and archiving 60/hour
+together; following and unfollowing 60/min; naming and removing moderators
+60/hour; pinning and unpinning 30/min; taking notes out 60/min.
+
+Locks: the note row before the channel row (as posting and deleting notes
+take them); the channel row serializes moderators and pins; advisory locks
+`notes:channels:<owner>` and `notes:channel-follows:<user>` keep the limits.
+
+## Clips
+
+`ClipService` (`clips.rs`, handlers in `clip_svc.rs`). A clip is a named
+collection of notes, public or private. It exists for its owner, and for
+everyone else while it is public and its owner is in good standing and not
+in a block with them (`CLIP_NOT_FOUND` otherwise). Everything a reader gets
+from a clip — its notes, `note_count`, `contains_note` — is computed from the
+notes that reader may see, so a clip never confirms a note hidden from them.
+A note goes into a clip only if the clipper may see it; adding twice changes
+nothing.
+
+`notes.clip_count` (`NoteCounters.clip_count`) is the number of public clips
+holding the note, kept exact when notes are added or removed, when a clip
+turns public or private, and when a public clip is deleted; each change
+pushes fresh counters (`counters_changed`) on the note's topic. Lock order:
+the clip row, then the note rows in ID order, then the items.
+
+`ListClips` lists a user's clips (all for the owner, public ones for others)
+latest changed first; with `note_id` each says whether it holds that note.
+`ListNoteClips` lists the public clips holding a note plus the caller's own.
+
+No notifications, no search documents. Account deletion deletes the user's
+clips (counts put right); their notes leave other people's clips with them.
+The data export has `clips` with their note IDs.
+
+Limits: name 1–50, description 500; 100 clips per user, 1000 notes per clip;
+lists 50 per page. Rate limits per user: creating 30/hour; editing and
+deleting 60/min; adding and removing notes 120/min.

@@ -1,4 +1,5 @@
 import type { ProfileSection } from "#/seams/profile";
+import { ProfileClipsLink } from "./clips-screen";
 import { AddToListButton, ProfileLists } from "./lists-profile";
 import { ProfileNotes } from "./profile-notes";
 
@@ -22,4 +23,5 @@ export default [
     order: 30,
     Component: ({ user }) => <ProfileLists user={user} />,
   },
+  { id: "notes-clips", slot: "action", order: 62, Component: ProfileClipsLink },
 ] satisfies ProfileSection[];

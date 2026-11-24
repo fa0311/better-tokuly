@@ -72,6 +72,9 @@ impl Notes {
             tx.commit().await?;
         }
 
+        self.erase_channels_of(user_id).await?;
+        self.erase_clips_of(user_id).await?;
+
         let mut tx = db.begin().await?;
         // What the user did to other people's content. A user has at most
         // one like, renote and view per note or story, so each is worth one.
@@ -171,6 +174,7 @@ impl Notes {
     pub(crate) async fn on_asset_deleted(&self, asset_id: Uuid) -> AppResult<()> {
         let db = &self.core.db;
         let asset = asset_id.to_string();
+        self.forget_channel_banner(asset_id).await?;
 
         let sql = format!("SELECT {NOTE_COLUMNS} FROM notes n WHERE n.asset_ids @> ARRAY[$1]::uuid[] ORDER BY n.id");
         let notes: Vec<NoteRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql)).bind(asset_id).fetch_all(db).await?;
@@ -245,6 +249,7 @@ impl Notes {
         .execute(&self.core.db)
         .await?;
         self.sever_list_ties(blocker, blocked).await?;
+        self.drop_channel_moderators_across(blocker, blocked).await?;
         Ok(())
     }
 }
