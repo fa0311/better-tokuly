@@ -240,6 +240,19 @@ engagement.spawn_workers();                                                     
 `Engagement::new` must also run in gateway processes: the topic guard lives
 in `core.topic_guards`.
 
+**Reported subjects in the case view.** `Engagement::resolve_reported_subject(staff_id,
+subject_type, subject_id)` resolves a reported subject the way the owning
+domain answers the people who reported it (`resolve_for_report`, asked as
+each reporter in turn, latest report first, at most 20), so a moderator
+working the case still sees content the normal lookup now refuses them: a
+video made private, a comment hidden after the report. Its `title` is the
+moderators' view (every version of edited or withdrawn content). `None` when
+nobody reported the subject, when it resolves for none of its reporters, or
+when the staff member is a party to it (its owner or one of its reporters).
+It exists for the admin domain's case view only, which the server wires to
+it through a bridge; no RPC of this domain calls it, and nothing else may
+show its answer.
+
 ## Gaps and requests
 
 - **Deleted content.** Engagement cannot tell a deleted subject from one the

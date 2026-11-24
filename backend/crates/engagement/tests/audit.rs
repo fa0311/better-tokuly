@@ -12,6 +12,7 @@ use tokuly_proto::{
     engagement::*,
 };
 use tokuly_testkit::TestUser;
+use uuid::Uuid;
 
 fn report(subject: SubjectRef) -> CreateReportRequest {
     CreateReportRequest {
@@ -657,4 +658,64 @@ async fn hiding_a_comment_is_an_event_naming_who_still_sees_it() {
     assert_eq!(blocked.len(), 1);
     assert_eq!(blocked[0]["visible_to"], serde_json::json!([]));
     assert_eq!(blocked[0]["hold_reason"], HoldReason::HOLD_REASON_BLOCKED_COMMENTER as i32);
+}
+
+/// Video, stamp and search audit (#87) asked for it: a moderator working a
+/// case sees reported content the way its reporters do, also after its
+/// owner hid it from everyone else — and nowhere else.
+#[tokio::test]
+async fn moderators_resolve_a_reported_subject_like_its_reporters() {
+    let ctx = start().await;
+    let (owner, alice, bob, moderator) = (
+        ctx.app.user("Owner").await,
+        ctx.app.user("Alice").await,
+        ctx.app.user("Bob").await,
+        ctx.app.user("Mod").await,
+    );
+    let video = ctx.video(&owner, "ひどい動画");
+    let comment = ctx.comment(&alice, &video, "ひどいコメント").await;
+    let engagement = &ctx.engagement;
+    let lookup = |staff: Uuid, kind: SubjectType, id: &str| {
+        let id = Uuid::parse_str(id).unwrap();
+        async move { engagement.resolve_reported_subject(staff, kind, id).await.unwrap() }
+    };
+    let video_id = video.id.to_string();
+    // Nobody reported them yet.
+    assert!(lookup(moderator.id, SubjectType::SUBJECT_TYPE_VIDEO, &video_id).await.is_none());
+
+    let _: CreateReportResponse =
+        ctx.call("ReportService", "CreateReport", Some(&bob), &report(video.subject_ref())).await.unwrap();
+    ctx.report_comment(&bob, &comment.id).await.unwrap();
+    // The owner hides the comment and makes the video private.
+    let hide = HideCommentRequest { comment_id: comment.id.clone(), ..Default::default() };
+    let _: HideCommentResponse =
+        ctx.call("CommentModerationService", "HideComment", Some(&owner), &hide).await.unwrap();
+    // (Made private, a video still resolves for a report by those who watched it.)
+    ctx.videos.update(video.id, |subject| subject.withdrawn = true);
+    // The normal lookup refuses both to the moderator.
+    assert!(
+        ctx.app.core.subjects.resolve(SubjectType::SUBJECT_TYPE_VIDEO, &video_id, Some(moderator.id)).await.is_err()
+    );
+    assert!(ctx.get_comment(Some(&moderator), &comment.id).await.is_err());
+
+    // The case view resolves them as their reporter received them.
+    let seen = lookup(moderator.id, SubjectType::SUBJECT_TYPE_VIDEO, &video_id).await.expect("the reported video");
+    assert_eq!((seen.id, seen.owner_id, seen.title.as_str()), (video.id, owner.id, "ひどい動画"));
+    let seen =
+        lookup(moderator.id, SubjectType::SUBJECT_TYPE_COMMENT, &comment.id).await.expect("the reported comment");
+    assert_eq!(seen.owner_id, alice.id);
+    assert!(seen.title.contains("ひどいコメント"), "{}", seen.title);
+
+    // Staff powers are not for one's own cases: not as the owner, not as the reporter.
+    assert!(lookup(owner.id, SubjectType::SUBJECT_TYPE_VIDEO, &video_id).await.is_none());
+    assert!(lookup(bob.id, SubjectType::SUBJECT_TYPE_VIDEO, &video_id).await.is_none());
+    assert!(lookup(alice.id, SubjectType::SUBJECT_TYPE_COMMENT, &comment.id).await.is_none());
+    // And nothing else answers like that: the moderator still cannot see,
+    // comment on or react to either.
+    assert!(ctx.get_comment(Some(&moderator), &comment.id).await.is_err());
+    let request =
+        SetReactionRequest { subject: video.subject_ref().into(), reaction: like().into(), ..Default::default() };
+    assert!(
+        ctx.call::<_, SetReactionResponse>("ReactionService", "SetReaction", Some(&moderator), &request).await.is_err()
+    );
 }
