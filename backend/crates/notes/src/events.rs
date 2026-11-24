@@ -56,6 +56,13 @@ pub struct NoteVisibilityChanged {
     pub author_id: Uuid,
     /// The new `tokuly.common.v1.Visibility`.
     pub visibility: i32,
+    /// Who besides the author may still see the note: `None` for a public
+    /// note (everyone); otherwise every one of them (the author's friends,
+    /// and for a reply the author of the note answered, minus anyone in a
+    /// block with the author; empty for a private note). Whoever was shown
+    /// the note before (notifications, inboxes) and is not listed lost
+    /// access with this change.
+    pub visible_to: Option<Vec<Uuid>>,
 }
 
 /// `notes.story.created`: a story was posted.

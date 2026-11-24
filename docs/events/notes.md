@@ -39,7 +39,7 @@ transaction that makes the change.
 |---|---|---|
 | `notes.note.created` | `{ note_id, author_id, visibility, reply_to_id, quote_of_id }` | A note, reply or quote note was posted. `visibility` is `tokuly.common.v1.Visibility` as its number (1 public, 4 friends, 5 private). |
 | `notes.note.deleted` | `{ note_id, author_id, reason }` | A note is gone for good. `reason`: `author`, `moderation`, `account_deleted`, `media_deleted`. Actor: the author, the moderator, the erased user, or nobody. |
-| `notes.note.visibility_changed` | `{ note_id, author_id, visibility }` | The author changed who may see a note (not emitted when nothing changed). |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to }` | The author changed who may see a note (not emitted when nothing changed). `visible_to`: who besides the author may still see it — `null` for a public note (everyone); for a friends note the author's friends and, for a reply, the author of the note answered (people in a block with the author left out); `[]` for a private note. Anyone shown the note before (an inbox entry about it) who is not listed lost access with this change. |
 | `notes.story.created` | `{ story_id, owner_id, audience, expires_at }` | A story was posted. `audience` is `tokuly.notes.v1.StoryAudience` as its number (1 friends, 2 close friends). |
 | `notes.story.deleted` | `{ story_id, owner_id, reason }` | A story was deleted (same reasons as notes). Not emitted for an expiry. |
 | `notes.story.expired` | `{ story_id, owner_id }` | A story's day is over: it left the tray and is archive-only. Emitted exactly once per story by the expiry worker, shortly after `expires_at`. |

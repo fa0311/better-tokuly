@@ -631,6 +631,8 @@ impl Notes {
     pub(crate) async fn set_visibility(&self, user_id: Uuid, note_id: Uuid, wanted: i32) -> AppResult<NoteRow> {
         let note = self.own_note(user_id, note_id).await?;
         let actor = tokuly_identity::summary(&self.core, user_id).await?;
+        // The author's friends and blocks, for who may still see the note.
+        let author = Viewer::load(&self.core, Some(user_id)).await?;
         let mut tx = self.core.db.begin().await?;
         // Changes of one note apply one after the other, each starting from
         // what the previous one left: two narrowings at once must not both
@@ -666,7 +668,12 @@ impl Notes {
             &mut *tx,
             NOTE_VISIBILITY_CHANGED,
             Some(user_id),
-            &NoteVisibilityChanged { note_id: updated.id, author_id: user_id, visibility: updated.visibility },
+            &NoteVisibilityChanged {
+                note_id: updated.id,
+                author_id: user_id,
+                visibility: updated.visibility,
+                visible_to: still_visible_to(&updated, &author),
+            },
         )
         .await?;
         tx.commit().await?;
@@ -746,6 +753,27 @@ impl Notes {
             self.push_topic(&note_topic(note_id), event()).await;
         }
         Ok(())
+    }
+}
+
+/// Who besides its author may see `note` (see
+/// [`NoteVisibilityChanged::visible_to`]), as `sees_note` decides it:
+/// `author` is the note's author as a viewer (their friends and blocks).
+fn still_visible_to(note: &NoteRow, author: &Viewer) -> Option<Vec<Uuid>> {
+    match note.visibility {
+        visibility::PUBLIC => None,
+        visibility::FRIENDS => {
+            let mut people: Vec<Uuid> = author.friends().iter().copied().filter(|id| !author.hides(*id)).collect();
+            if let Some(answered) = note.reply_to_author_id
+                && answered != note.author_id
+                && !author.hides(answered)
+                && !people.contains(&answered)
+            {
+                people.push(answered);
+            }
+            Some(people)
+        }
+        _ => Some(Vec::new()),
     }
 }
 

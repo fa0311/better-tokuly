@@ -703,3 +703,45 @@ async fn concurrent_visibility_changes_count_a_note_once() {
         assert_eq!(count().await, 2, "and making it public again counts it once");
     }
 }
+
+#[tokio::test]
+async fn a_narrowed_note_says_who_can_still_see_it() {
+    let ctx = start().await;
+    let (alice, friend, parent_author, stranger) = (
+        ctx.member("alice").await,
+        ctx.member("friend").await,
+        ctx.member("parent").await,
+        ctx.member("stranger").await,
+    );
+    ctx.befriend(&alice, &friend).await;
+    let parent = ctx.post(&parent_author, "a public question").await;
+    let reply = ctx
+        .post_with(&alice, &format!("@{} @{} answer", stranger.handle, friend.handle), |r| {
+            r.reply_to_id = parent.id.clone();
+        })
+        .await;
+    assert_eq!(ctx.notifications_for(stranger.id, "notes.mention").await.len(), 1, "the stranger was told");
+
+    let change = |visibility: Visibility| SetNoteVisibilityRequest {
+        note_id: reply.id.clone(),
+        visibility: visibility.into(),
+        ..Default::default()
+    };
+    let _: SetNoteVisibilityResponse =
+        ctx.note("SetNoteVisibility", Some(&alice), &change(Visibility::VISIBILITY_FRIENDS)).await.unwrap();
+    let _: SetNoteVisibilityResponse =
+        ctx.note("SetNoteVisibility", Some(&alice), &change(Visibility::VISIBILITY_PRIVATE)).await.unwrap();
+    let _: SetNoteVisibilityResponse =
+        ctx.note("SetNoteVisibility", Some(&alice), &change(Visibility::VISIBILITY_PUBLIC)).await.unwrap();
+    let events = ctx.app.events_by("notes.note.visibility_changed", alice.id).await;
+    assert_eq!(events.len(), 3);
+    // Friends only: the author's friends and the person answered may still
+    // see it, so the notification domain can withdraw what reached anyone else.
+    let mut visible_to: Vec<String> = serde_json::from_value(events[0].data["visible_to"].clone()).unwrap();
+    visible_to.sort();
+    let mut expected = vec![friend.id.to_string(), parent_author.id.to_string()];
+    expected.sort();
+    assert_eq!(visible_to, expected);
+    assert_eq!(events[1].data["visible_to"], serde_json::json!([]), "private: nobody else");
+    assert!(events[2].data["visible_to"].is_null(), "public: everyone");
+}
