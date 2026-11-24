@@ -48,7 +48,7 @@ fn plain() -> String {
 /// puts it, or at its own position when none of them renoted it. Without
 /// that, a note posted by one friend and renoted by another would show up
 /// twice, pages apart.
-fn with_renotes(filter: &str, renoters: &str) -> String {
+pub(crate) fn with_renotes(filter: &str, renoters: &str) -> String {
     let visible = sees_note("n");
     format!(
         "SELECT e.entry_id, e.renoter_id, e.renoted_at, {NOTE_COLUMNS}

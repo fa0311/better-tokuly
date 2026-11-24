@@ -151,7 +151,7 @@ impl ProfileExtension for NoteCount {
 }
 
 /// The `notes` section of a personal data export: everything the user
-/// wrote, liked, renoted and posted as stories.
+/// wrote, liked, renoted and posted as stories, and the lists and antennas they made.
 struct NotesExporter {
     core: Core,
 }
@@ -228,6 +228,22 @@ impl DataExporter for NotesExporter {
                 "SELECT jsonb_build_object('id', h.id, 'title', h.title, 'created_at', h.created_at,
                         'story_ids', (SELECT COALESCE(jsonb_agg(i.story_id ORDER BY i.position), '[]') FROM story_highlight_items i WHERE i.highlight_id = h.id))
                  FROM story_highlights h WHERE h.owner_id = $1 ORDER BY h.position, h.id"
+            ).await?,
+            "lists": section(
+                "SELECT jsonb_build_object('id', l.id, 'name', l.name, 'description', l.description, 'public', l.public,
+                        'created_at', l.created_at,
+                        'members', (SELECT COALESCE(jsonb_agg(jsonb_build_object('user_id', m.user_id, 'added_at', m.added_at) ORDER BY m.id), '[]')
+                                    FROM note_list_members m WHERE m.list_id = l.id))
+                 FROM note_lists l WHERE l.owner_id = $1 ORDER BY l.id"
+            ).await?,
+            "list_follows": section(
+                "SELECT jsonb_build_object('list_id', list_id, 'followed_at', followed_at) FROM note_list_follows WHERE user_id = $1 ORDER BY id"
+            ).await?,
+            "antennas": section(
+                "SELECT jsonb_build_object('id', id, 'name', name, 'keywords', keywords, 'exclude_words', exclude_words,
+                        'source', source, 'list_id', list_id, 'user_ids', user_ids, 'with_replies', with_replies,
+                        'media_only', media_only, 'notify', notify, 'created_at', created_at)
+                 FROM antennas WHERE owner_id = $1 ORDER BY id"
             ).await?,
         }))
     }

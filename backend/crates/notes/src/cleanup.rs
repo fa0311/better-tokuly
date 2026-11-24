@@ -131,6 +131,7 @@ impl Notes {
             sqlx::query(sql).bind(user_id).execute(&mut *tx).await?;
         }
         tx.commit().await?;
+        self.erase_lists_and_antennas(user_id).await?;
         Ok(())
     }
 
@@ -243,6 +244,7 @@ impl Notes {
         .bind(blocked)
         .execute(&self.core.db)
         .await?;
+        self.sever_list_ties(blocker, blocked).await?;
         Ok(())
     }
 }

@@ -545,7 +545,9 @@ test("a locked account's public note reaches its followers, not strangers", asyn
   await dismissDevServerOverlay(strangerPage);
   await signInAs(strangerPage, stranger);
   await strangerPage.goto(`/notes/${note.id}`);
-  await expect(strangerPage.getByText("このノートは見つからないよ")).toBeVisible({ timeout: 30_000 });
+  await expect(strangerPage.getByText("このノートは見つからないよ")).toBeVisible({
+    timeout: 30_000,
+  });
   await strangerPage.context().close();
 
   const followerPage = await (await browser.newContext()).newPage();

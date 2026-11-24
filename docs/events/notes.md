@@ -346,3 +346,98 @@ the reader has not asked for reduced motion.
 list, antenna and channel timelines and to trending notes — not to profiles,
 threads, mentions or a note opened directly. Patterns run on the `regex`
 crate (linear time). Mute changes 60/min.
+
+## Lists
+
+`NoteListService` (`lists.rs`, `list_svc.rs`): named sets of accounts with a
+timeline of their own (members' notes and renotes plus the replies among
+members, through the same visibility condition as every other timeline,
+leaving out members the viewer blocked or is blocked by and accounts the
+viewer muted as a followee). Channel notes appear only for readers who
+follow the channel, as on the following timeline.
+
+- **Who sees a list**: the owner always; anyone (signed in or not) when it is
+  public and its owner is an account in good standing that no block hides
+  from them. A private list is `LIST_NOT_FOUND` for everyone else.
+  `member_count` and `ListListMembers` count only members the viewer may
+  see (no block either way, account active).
+- **Blocks**: nobody is added across a block (`USER_NOT_FOUND`, as for a
+  missing account). `social.user.blocked` takes the two off each other's
+  lists and list follows (follower counts go down) and out of each other's
+  USERS antennas. Adding re-checks the block after commit, so a block that
+  lands while members are added is still applied.
+- **Locked accounts**: on a public list only when the owner follows them
+  (an approved follower) or is their friend (`MEMBER_NOT_ALLOWED`); on a
+  private list, anyone. A private list made public drops the locked members
+  that would not be allowed and tells the others they are on it.
+- A list made private loses its followers (`follower_count` = 0).
+- **Account deletion**: the account's lists (members, follows) and antennas
+  are deleted, it leaves every list, its list follows are removed (counts
+  go down) and other people's antennas stop naming it.
+- **Export**: `notes.lists` (with member IDs), `notes.list_follows`.
+
+| Notification kind | Recipient | Notes |
+|---|---|---|
+| `notes.list_added` | the person added to a **public** list (not the owner themself) | Collapsed per list (`notes.list_added:<list_id>`), path `/notes/lists/<id>`, `data = { list_id, list_name }`. Once per person and list a day; at most 100 per owner and hour (people are still added beyond that, just not told). |
+
+Limits: 50 lists per owner, 500 members per list, 50 accounts per
+add/remove call, 200 followed lists per person; name 1–50 characters,
+description 200. The list and member limits hold under concurrent calls
+(per-owner advisory lock; the list row is locked while members are added).
+
+Rate limits: `notes:list-create:<user>` 30/hour; `notes:list-change:<user>`
+(updates and member adds) 60/min; `notes:list-follow:<user>` 60/min;
+`notes:list-notices:<owner>` 100/hour (silently stops notifying).
+
+Valkey keys: `notes:notified:list:<list>:<user>` (24 h) — the person was told
+about this list.
+
+## Antennas
+
+`AntennaService` (`antennas.rs`, `antenna_svc.rs`): saved searches that
+collect new notes into a timeline only their owner sees.
+
+- **Matching** happens in the job `notes.antenna_match`
+  (`posting::JOB_ANTENNA_MATCH`, payload `{ note_id }`, queued once per new
+  note; concurrency 4, lease 60 s, 5 deliveries) through
+  `Notes::match_antennas(note_id) -> AppResult<usize>`. Its cost does not
+  grow with the number of antennas: one in-process Aho-Corasick automaton
+  over the folded words of all antennas (NFKC + lowercase, blank runs as one
+  space) finds every word in the note's text and content warning in one
+  pass; EVERYONE antennas become candidates only through a word hit;
+  FOLLOWING ones from the author's followers and friends, LIST ones from the
+  lists the author is on (`note_list_members_user` index), USERS ones from an
+  in-memory index of the accounts they name. Each candidate's owner is then
+  checked once (`Viewer::can_see_note`, blocks both ways, the account lock
+  the social domain knows now, owner account active).
+- A note matches when every word of one keyword group appears and no
+  excluded word does; replies only with `with_replies`, media only with
+  `media_only`; notes older than the antenna are not collected late. LIST
+  and USERS antennas may have no keywords (everything of those accounts).
+- Collected notes go into `antenna_notes`; the latest 1000 per antenna are
+  kept. The job is idempotent (`ON CONFLICT DO NOTHING`; nothing is
+  announced twice). The timeline shows only collected notes the owner may
+  still see.
+- The automaton is rebuilt when `notes:antennas:version` (Valkey counter,
+  `INCR` on every antenna change, list deletion, block or account erasure
+  touching antennas) moves, at least every 5 minutes, and every 30 s while
+  Valkey cannot be read.
+- Deleting a list deletes the LIST antennas built on it (foreign key).
+- **Export**: `notes.antennas`.
+
+| Notification kind | Recipient | Notes |
+|---|---|---|
+| `notes.antenna` | antenna owner, when `notify` is on | Collapsed per antenna (`notes.antenna:<antenna_id>`), at most one per antenna every 10 minutes; actor = the note's author; path `/notes/antennas/<id>`; `data = { antenna_id, note_id }`. |
+
+Limits: 5 antennas per person (holds under concurrent creation), name 1–30
+characters, 10 keyword groups of 5 words, 10 excluded words, words of at
+most 50 characters, 1–50 accounts for USERS.
+
+Errors beyond the proto's list: `INVALID_USERS` (USERS antenna with no or
+more than 50 accounts) and `INVALID_SOURCE` (an unknown source value).
+
+Rate limits: `notes:antenna-change:<user>` 60/hour (creates and updates).
+
+Valkey keys: `notes:antennas:version` (no TTL) — the antenna version
+counter; `notes:notified:antenna:<antenna>` (10 min) — the owner was just
+told about this antenna.

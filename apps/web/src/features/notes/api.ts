@@ -20,7 +20,11 @@ export type TimelineSource =
   | { kind: "mentions" }
   | { kind: "user"; userId: string; filter: notes.UserTimelineFilter }
   /** `tag` is normalized (lowercase, no `#`). */
-  | { kind: "hashtag"; tag: string };
+  | { kind: "hashtag"; tag: string }
+  /** A note list's members (`lists-api.ts`). */
+  | { kind: "list"; listId: string }
+  /** What one of the viewer's antennas collected. */
+  | { kind: "antenna"; antennaId: string };
 
 /** One page of any timeline, in one shape. */
 export interface TimelinePage {
@@ -39,6 +43,8 @@ export const PAGE_SIZE = 30;
 function sourceKey(source: TimelineSource): readonly unknown[] {
   if (source.kind === "user") return ["user", source.userId, source.filter];
   if (source.kind === "hashtag") return ["hashtag", source.tag];
+  if (source.kind === "list") return ["list", source.listId];
+  if (source.kind === "antenna") return ["antenna", source.antennaId];
   return [source.kind];
 }
 
@@ -108,6 +114,18 @@ export async function fetchTimeline(
         nextCursor: response.page?.nextCursor ?? "",
         hashtag: response.hashtag,
       };
+    }
+    case "list": {
+      const response = await api()
+        .service(notes.NoteListService)
+        .getListTimeline({ listId: source.listId, page });
+      return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
+    }
+    case "antenna": {
+      const response = await api()
+        .service(notes.AntennaService)
+        .getAntennaTimeline({ antennaId: source.antennaId, page });
+      return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
     }
   }
 }

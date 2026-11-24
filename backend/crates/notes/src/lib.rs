@@ -26,6 +26,8 @@
 //! | `hydrate` | note rows → the `Note` messages one viewer gets |
 //! | [`stories`], [`highlights`] | stories, their viewers and reactions, the archive, highlights |
 //! | `note_svc`, `story_svc` | the two Connect services: thin handlers over the modules above |
+//! | [`lists`], `list_svc` | lists of accounts, their members, followers and timeline |
+//! | [`antennas`], `antenna_svc` | antennas: saved searches matched against every new note in the background |
 //! | `copy` | notification and activity texts |
 //! | `subjects` | subject resolvers, data export, note count on profiles |
 //! | `cleanup`, `workers` | reactions to other domains' events; background workers |
@@ -35,6 +37,8 @@ use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
 use tokuly_proto::notes::{NotesEvent, notes_event::Event as Push};
 
+mod antenna_svc;
+pub mod antennas;
 mod authors;
 pub mod channels;
 mod cleanup;
@@ -50,6 +54,8 @@ pub mod hashtags;
 pub mod highlights;
 mod hydrate;
 mod insights;
+mod list_svc;
+pub mod lists;
 pub mod markup;
 pub mod model;
 pub mod mutes;
@@ -74,6 +80,8 @@ pub struct NotesInner {
     pub core: Core,
     pub identity: Identity,
     pub cfg: NotesConfig,
+    /// The antenna matcher of this process (see [`antennas`]).
+    pub(crate) antenna_index: antennas::AntennaIndex,
 }
 
 /// The notes domain. Cheap to clone.
@@ -94,18 +102,24 @@ impl Notes {
     /// data export, and the note count on profiles.
     pub fn new(core: Core, identity: Identity, cfg: NotesConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
-        let notes = Self(Arc::new(NotesInner { core, identity, cfg }));
+        let notes = Self(Arc::new(NotesInner { core, identity, cfg, antenna_index: Default::default() }));
         subjects::register(&notes);
         Ok(notes)
     }
 
-    /// Registers `NoteService` and `StoryService` on the Connect router.
+    /// Registers `NoteService`, `NoteListService`, `AntennaService` and
+    /// `StoryService` on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::notes::{NoteDraftServiceExt, NoteMuteServiceExt, NoteServiceExt, StoryServiceExt};
+        use tokuly_proto::notes::{
+            AntennaServiceExt, NoteDraftServiceExt, NoteListServiceExt, NoteMuteServiceExt, NoteServiceExt,
+            StoryServiceExt,
+        };
         let me = Arc::new(self.clone());
         let router = NoteServiceExt::register(me.clone(), router);
         let router = NoteDraftServiceExt::register(me.clone(), router);
         let router = NoteMuteServiceExt::register(me.clone(), router);
+        let router = NoteListServiceExt::register(me.clone(), router);
+        let router = AntennaServiceExt::register(me.clone(), router);
         StoryServiceExt::register(me, router)
     }
 
