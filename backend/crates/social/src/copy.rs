@@ -16,17 +16,23 @@ fn notice(title: (&str, &str), body: (String, String)) -> Notice {
 /// "X wants to be friends", worded after how the request came about.
 pub(crate) fn friend_request(from: &str, source: FriendSource) -> Notice {
     let body = match source {
-        FriendSource::FRIEND_SOURCE_INVITE_LINK => {
-            (format!("{from}さんがあなたの招待でTokulyに来たよ! 友達になろう!"), format!("{from} joined Tokuly through your invite. Become friends!"))
+        FriendSource::FRIEND_SOURCE_INVITE_LINK => (
+            format!("{from}さんがあなたの招待でTokulyに来たよ! 友達になろう!"),
+            format!("{from} joined Tokuly through your invite. Become friends!"),
+        ),
+        FriendSource::FRIEND_SOURCE_BUMP => {
+            (format!("{from}さんとBumpしたよ! 友達になろう!"), format!("You bumped with {from}. Become friends!"))
         }
-        FriendSource::FRIEND_SOURCE_BUMP => (format!("{from}さんとBumpしたよ! 友達になろう!"), format!("You bumped with {from}. Become friends!")),
         _ => (format!("{from}さんから友達リクエストが届いたよ!"), format!("{from} wants to be friends!")),
     };
     notice(("友達リクエスト!", "Friend request"), body)
 }
 
 pub(crate) fn friend_accepted(by: &str) -> Notice {
-    notice(("友達になったよ!", "New friend!"), (format!("{by}さんと友達になったよ!"), format!("You and {by} are friends now!")))
+    notice(
+        ("友達になったよ!", "New friend!"),
+        (format!("{by}さんと友達になったよ!"), format!("You and {by} are friends now!")),
+    )
 }
 
 pub(crate) fn bumped(with: &str) -> Notice {
@@ -38,7 +44,10 @@ pub(crate) fn friends_bumped(a: &str, b: &str) -> Notice {
 }
 
 pub(crate) fn buzz(from: &str) -> Notice {
-    notice(("ブルブル!", "Buzz!"), (format!("{from}さんがすぐ近くで呼んでるよ!"), format!("{from} is buzzing you from nearby!")))
+    notice(
+        ("ブルブル!", "Buzz!"),
+        (format!("{from}さんがすぐ近くで呼んでるよ!"), format!("{from} is buzzing you from nearby!")),
+    )
 }
 
 pub(crate) fn knock(from: &str) -> Notice {
@@ -47,15 +56,44 @@ pub(crate) fn knock(from: &str) -> Notice {
 
 pub(crate) fn map_reaction(from: &str, kind: MapReactionKind, emoji: &str) -> Notice {
     let body = match kind {
-        MapReactionKind::MAP_REACTION_KIND_EYES => (format!("{from}さんがあなたを見てるよ 👀"), format!("{from} is checking on you 👀")),
-        MapReactionKind::MAP_REACTION_KIND_DRINKS => (format!("{from}さんが「遊ぼう!」って言ってるよ 🍻"), format!("{from} wants to hang out 🍻")),
-        MapReactionKind::MAP_REACTION_KIND_EMOJI => (format!("{from}さんから{emoji}が届いたよ!"), format!("{from} sent you {emoji}")),
-        MapReactionKind::MAP_REACTION_KIND_STAMP => (format!("{from}さんからスタンプが届いたよ!"), format!("{from} threw a stamp at you!")),
+        MapReactionKind::MAP_REACTION_KIND_EYES => {
+            (format!("{from}さんがあなたを見てるよ 👀"), format!("{from} is checking on you 👀"))
+        }
+        MapReactionKind::MAP_REACTION_KIND_DRINKS => {
+            (format!("{from}さんが「遊ぼう!」って言ってるよ 🍻"), format!("{from} wants to hang out 🍻"))
+        }
+        MapReactionKind::MAP_REACTION_KIND_EMOJI => {
+            (format!("{from}さんから{emoji}が届いたよ!"), format!("{from} sent you {emoji}"))
+        }
+        MapReactionKind::MAP_REACTION_KIND_STAMP => {
+            (format!("{from}さんからスタンプが届いたよ!"), format!("{from} threw a stamp at you!"))
+        }
         MapReactionKind::MAP_REACTION_KIND_HEARTS | MapReactionKind::MAP_REACTION_KIND_UNSPECIFIED => {
             (format!("{from}さんからハートが届いたよ! 💖"), format!("{from} sent you hearts 💖"))
         }
     };
     notice(("マップリアクション", "Map reaction"), body)
+}
+
+pub(crate) fn new_follower(from: &str) -> Notice {
+    notice(
+        ("フォローされたよ!", "New follower"),
+        (format!("{from}さんがあなたをフォローしたよ!"), format!("{from} started following you!")),
+    )
+}
+
+pub(crate) fn follow_request(from: &str) -> Notice {
+    notice(
+        ("フォローリクエスト!", "Follow request"),
+        (format!("{from}さんがフォローしたいって!"), format!("{from} wants to follow you!")),
+    )
+}
+
+pub(crate) fn follow_approved(by: &str) -> Notice {
+    notice(
+        ("フォローOK!", "Request approved"),
+        (format!("{by}さんがフォローを承認したよ!"), format!("{by} approved your follow request!")),
+    )
 }
 
 /// Activity log summary: the user became friends with `with`.

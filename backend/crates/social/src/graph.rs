@@ -1,4 +1,4 @@
-//! The friend graph as the rest of the backend sees it.
+//! The social graph as the rest of the backend sees it.
 //!
 //! Other domains call these functions to decide who may see or do what:
 //! geo fans locations out to [`friend_ids`], chat asks [`allows`] before
@@ -6,9 +6,23 @@
 //! two friends do together is reported through [`record_interaction`], which
 //! feeds the best-friend ranking.
 //!
-//! Yes/no questions that gate access ([`are_friends`], [`is_blocked_either`],
-//! [`allows`]) always read PostgreSQL, so an unfriend or a block takes effect
-//! immediately. Only the two list functions are cached (see [`crate::idcache`]).
+//! Three relationships live here, and none implies another:
+//! - **friends**: mutual, with the map and everything private ([`friend_ids`],
+//!   [`are_friends`], and the details of each friendship: [`friend_links`],
+//!   [`friends_since`], [`best_friend_ids`], [`muted_friend_ids`]);
+//! - **follows**: one way, for public content ([`follows`], [`follower_ids`],
+//!   [`following_ids`], [`muted_followee_ids`], [`post_notification_recipients`]);
+//! - **circles**: lists of friends and followers an owner shares with
+//!   (close friends and custom lists).
+//!
+//! "May this viewer see that content" for every audience built from them is
+//! [`crate::audience`], re-exported here ([`ContentAudience`], [`may_see`],
+//! [`may_see_many`], [`AudienceViewer`], [`audience_member_ids`]).
+//!
+//! Yes/no questions that gate access ([`are_friends`], [`follows`],
+//! [`is_blocked_either`], [`allows`], [`may_see`]) always read PostgreSQL, so
+//! an unfriend, an unfollow or a block takes effect immediately. The list
+//! functions are cached (see [`crate::idcache`]) and dropped on every change.
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
@@ -16,8 +30,12 @@ use sqlx::{Postgres, Transaction};
 use tokuly_core::prelude::*;
 use tokuly_proto::identity::{Audience, Relationship};
 
+pub use crate::audience::{
+    AudienceViewer, ContentAudience, audience_member_ids, ensure_circle_of, is_close_friend, locked_among, may_see,
+    may_see_many,
+};
 use crate::{
-    idcache,
+    idcache::{self, Record},
     ranking::{self, Bucket},
 };
 
@@ -77,12 +95,18 @@ impl Pair {
 /// crossed friend requests could both be stored instead of becoming a
 /// friendship.
 pub(crate) async fn lock_pair(tx: &mut Transaction<'_, Postgres>, a: Uuid, b: Uuid) -> AppResult<()> {
-    let pair = Pair::of(a, b);
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-        .bind(format!("social:pair:{}:{}", pair.lo.simple(), pair.hi.simple()))
+        .bind(pair_lock_key(a, b))
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+/// The name of [`lock_pair`]'s lock, for taking several in one statement
+/// (in sorted order, so that two such transactions never wait in a circle).
+pub(crate) fn pair_lock_key(a: Uuid, b: Uuid) -> String {
+    let pair = Pair::of(a, b);
+    format!("social:pair:{}:{}", pair.lo.simple(), pair.hi.simple())
 }
 
 /// Serializes, for the rest of the transaction, everything that adds
@@ -101,19 +125,239 @@ pub(crate) async fn lock_friend_lists(tx: &mut Transaction<'_, Postgres>, a: Uui
     Ok(())
 }
 
+/// Serializes, for the rest of the transaction, everything that adds to the
+/// accounts `user_id` follows or asks to follow, so that two follows at once
+/// cannot both pass the limit. Take it after the pair lock.
+pub(crate) async fn lock_following_of(tx: &mut Transaction<'_, Postgres>, user_id: Uuid) -> AppResult<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(format!("social:following-of:{}", user_id.simple()))
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Takes `user_id`'s follow-settings lock for the rest of the transaction:
+/// shared by everything that follows them or asks to (which reads whether
+/// they are locked), exclusive for changing the setting (which approves the
+/// waiting requests when unlocking). A request can therefore never be stored
+/// for an account that is being unlocked and miss the approval. Take it
+/// last, after the pair and following locks.
+pub(crate) async fn lock_follow_settings(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: Uuid,
+    exclusive: bool,
+) -> AppResult<()> {
+    let sql = if exclusive {
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
+    } else {
+        "SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))"
+    };
+    sqlx::query(sql).bind(format!("social:follow-settings:{}", user_id.simple())).execute(&mut **tx).await?;
+    Ok(())
+}
+
 /// IDs of a user's friends. Hot path: served from Valkey, loaded from the
 /// database on a miss.
 pub async fn friend_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {
     idcache::FRIENDS
         .get_or_load(core, user_id, || async {
-            Ok(sqlx::query_scalar("SELECT friend_id FROM friendships WHERE user_id = $1").bind(user_id).fetch_all(&core.db).await?)
+            Ok(sqlx::query_scalar("SELECT friend_id FROM friendships WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_all(&core.db)
+                .await?)
         })
         .await
 }
 
+/// One of a user's friendships, with what other domains ask about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FriendLink {
+    pub friend_id: Uuid,
+    /// When the two became friends.
+    pub since: DateTime<Utc>,
+    /// Rank among the user's automatically ranked best friends (1 = closest);
+    /// 0 when not ranked.
+    pub best_friend_rank: i32,
+    /// Starred by the user.
+    pub favorite: bool,
+    /// Muted by the user: the friend does not trigger notifications.
+    pub muted: bool,
+}
+
+impl FriendLink {
+    /// Ranked or starred: what the app shows as a best friend.
+    pub fn is_best_friend(&self) -> bool {
+        self.best_friend_rank > 0 || self.favorite
+    }
+}
+
+impl Record for FriendLink {
+    const SIZE: usize = 16 + 8 + 4 + 1;
+
+    fn write(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(self.friend_id.as_bytes());
+        out.extend_from_slice(&self.since.timestamp_micros().to_le_bytes());
+        out.extend_from_slice(&self.best_friend_rank.to_le_bytes());
+        out.push(u8::from(self.favorite) | (u8::from(self.muted) << 1));
+    }
+
+    fn read(bytes: &[u8]) -> Option<Self> {
+        let friend_id = Uuid::from_slice(&bytes[..16]).ok()?;
+        let since = DateTime::from_timestamp_micros(i64::from_le_bytes(bytes[16..24].try_into().ok()?))?;
+        let best_friend_rank = i32::from_le_bytes(bytes[24..28].try_into().ok()?);
+        let flags = bytes[28];
+        Some(Self { friend_id, since, best_friend_rank, favorite: flags & 1 != 0, muted: flags & 2 != 0 })
+    }
+}
+
+/// Every friendship of `user_id` with its details. Served from Valkey,
+/// dropped whenever a friendship, a preference or a rank changes.
+pub async fn friend_links(core: &Core, user_id: Uuid) -> AppResult<Vec<FriendLink>> {
+    idcache::FRIEND_LINKS
+        .get_or_load(core, user_id, || async {
+            let rows: Vec<(Uuid, DateTime<Utc>, i32, bool, bool)> = sqlx::query_as(
+                "SELECT friend_id, created_at, best_friend_rank, favorite, muted FROM friendships WHERE user_id = $1",
+            )
+            .bind(user_id)
+            .fetch_all(&core.db)
+            .await?;
+            Ok(rows
+                .into_iter()
+                .map(|(friend_id, since, best_friend_rank, favorite, muted)| FriendLink {
+                    friend_id,
+                    since,
+                    best_friend_rank,
+                    favorite,
+                    muted,
+                })
+                .collect())
+        })
+        .await
+}
+
+/// `user_id`'s friendship with `friend_id`; `None` when the two are not friends.
+pub async fn friend_link(core: &Core, user_id: Uuid, friend_id: Uuid) -> AppResult<Option<FriendLink>> {
+    Ok(friend_links(core, user_id).await?.into_iter().find(|link| link.friend_id == friend_id))
+}
+
+/// Since when `a` and `b` are friends; `None` when they are not.
+pub async fn friends_since(core: &Core, a: Uuid, b: Uuid) -> AppResult<Option<DateTime<Utc>>> {
+    Ok(friend_link(core, a, b).await?.map(|link| link.since))
+}
+
+/// [`friends_since`] between `user_id` and many users; those who are not
+/// friends of `user_id` are absent from the map.
+pub async fn friends_since_many(
+    core: &Core,
+    user_id: Uuid,
+    others: &[Uuid],
+) -> AppResult<HashMap<Uuid, DateTime<Utc>>> {
+    Ok(friend_links(core, user_id)
+        .await?
+        .into_iter()
+        .filter(|link| others.contains(&link.friend_id))
+        .map(|link| (link.friend_id, link.since))
+        .collect())
+}
+
+/// `user_id`'s best friends: the automatically ranked ones in rank order,
+/// then the starred ones (oldest friendship first).
+pub async fn best_friend_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {
+    let mut best: Vec<FriendLink> =
+        friend_links(core, user_id).await?.into_iter().filter(FriendLink::is_best_friend).collect();
+    best.sort_by_key(|link| (link.best_friend_rank == 0, link.best_friend_rank, link.since, link.friend_id));
+    Ok(best.into_iter().map(|link| link.friend_id).collect())
+}
+
+/// The friends `user_id` muted (in the friend's settings or the
+/// notification settings: the two are kept in step).
+pub async fn muted_friend_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {
+    Ok(friend_links(core, user_id).await?.into_iter().filter(|link| link.muted).map(|link| link.friend_id).collect())
+}
+
+/// Of `user_ids`, those who are friends of `friend_id` and muted them. One
+/// indexed query (the reverse direction of [`muted_friend_ids`]).
+pub async fn muted_by(core: &Core, friend_id: Uuid, user_ids: &[Uuid]) -> AppResult<Vec<Uuid>> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(sqlx::query_scalar("SELECT user_id FROM friendships WHERE friend_id = $1 AND user_id = ANY($2) AND muted")
+        .bind(friend_id)
+        .bind(user_ids)
+        .fetch_all(&core.db)
+        .await?)
+}
+
+/// Whether `follower` follows `followee` (an approved follow; a pending
+/// request is not one).
+pub async fn follows(core: &Core, follower: Uuid, followee: Uuid) -> AppResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2)")
+        .bind(follower)
+        .bind(followee)
+        .fetch_one(&core.db)
+        .await?)
+}
+
+/// IDs of `user_id`'s followers (every account, whatever its state: filter
+/// with [`tokuly_identity::users::filter_active`] where it matters). Cached.
+pub async fn follower_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {
+    idcache::FOLLOWERS
+        .get_or_load(core, user_id, || async {
+            Ok(sqlx::query_scalar("SELECT follower_id FROM follows WHERE followee_id = $1")
+                .bind(user_id)
+                .fetch_all(&core.db)
+                .await?)
+        })
+        .await
+}
+
+/// IDs of the accounts `user_id` follows. Cached.
+pub async fn following_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {
+    idcache::FOLLOWING
+        .get_or_load(core, user_id, || async {
+            Ok(sqlx::query_scalar("SELECT followee_id FROM follows WHERE follower_id = $1")
+                .bind(user_id)
+                .fetch_all(&core.db)
+                .await?)
+        })
+        .await
+}
+
+/// The accounts `user_id` follows but muted (right now: timed mutes that
+/// ran out are not included). A following timeline leaves them out.
+pub async fn muted_followee_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>> {
+    Ok(sqlx::query_scalar(
+        "SELECT followee_id FROM follows WHERE follower_id = $1 AND muted AND (muted_until IS NULL OR muted_until > now())",
+    )
+    .bind(user_id)
+    .fetch_all(&core.db)
+    .await?)
+}
+
+/// Who wants a notification for each new post of `owner`: followers who set
+/// notifications to all posts and have not muted them, with active accounts
+/// and no block with the owner. The content domain still applies the post's
+/// own audience (see [`audience_member_ids`]).
+pub async fn post_notification_recipients(core: &Core, owner: Uuid) -> AppResult<Vec<Uuid>> {
+    Ok(sqlx::query_scalar(
+        "SELECT f.follower_id FROM follows f JOIN users u ON u.id = f.follower_id
+         WHERE f.followee_id = $1 AND f.notify_level = 2
+           AND NOT (f.muted AND (f.muted_until IS NULL OR f.muted_until > now()))
+           AND u.deleted_at IS NULL AND u.banned_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM user_blocks b
+                           WHERE (b.blocker_id = $1 AND b.blocked_id = f.follower_id) OR (b.blocker_id = f.follower_id AND b.blocked_id = $1))",
+    )
+    .bind(owner)
+    .fetch_all(&core.db)
+    .await?)
+}
+
 /// How many friends a user has.
 pub(crate) async fn friend_count(core: &Core, user_id: Uuid) -> AppResult<i64> {
-    Ok(sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1").bind(user_id).fetch_one(&core.db).await?)
+    Ok(sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_one(&core.db)
+        .await?)
 }
 
 /// How many friends of `owner` a viewer gets to see: active accounts other
@@ -199,7 +443,11 @@ pub async fn relationship(core: &Core, viewer: Uuid, other: Uuid) -> AppResult<R
 }
 
 /// [`relationship`] for many users at once. Every requested user is in the map.
-pub(crate) async fn relationships(core: &Core, viewer: Uuid, others: &[Uuid]) -> AppResult<HashMap<Uuid, Relationship>> {
+pub(crate) async fn relationships(
+    core: &Core,
+    viewer: Uuid,
+    others: &[Uuid],
+) -> AppResult<HashMap<Uuid, Relationship>> {
     // One row per fact; several facts about the same user are resolved below
     // by precedence (a declined incoming request is not a fact).
     const BLOCKED: i32 = 1;
@@ -262,7 +510,9 @@ pub async fn allows(core: &Core, owner: Uuid, viewer: Option<Uuid>, audience: Au
         Audience::AUDIENCE_EVERYONE => Ok(true),
         Audience::AUDIENCE_NOBODY => Ok(false),
         Audience::AUDIENCE_FRIENDS | Audience::AUDIENCE_UNSPECIFIED => are_friends(core, owner, viewer).await,
-        Audience::AUDIENCE_FRIENDS_OF_FRIENDS => Ok(are_friends(core, owner, viewer).await? || have_mutual_friend(core, owner, viewer).await?),
+        Audience::AUDIENCE_FRIENDS_OF_FRIENDS => {
+            Ok(are_friends(core, owner, viewer).await? || have_mutual_friend(core, owner, viewer).await?)
+        }
     }
 }
 
@@ -327,7 +577,13 @@ const MAX_WEIGHT: i32 = 1440;
 /// map views and map reactions (usually 1), minutes for calls and time
 /// together. Interactions between users who are not friends are ignored, so
 /// callers need not check first.
-pub async fn record_interaction(core: &Core, from: Uuid, to: Uuid, kind: InteractionKind, weight: i32) -> AppResult<()> {
+pub async fn record_interaction(
+    core: &Core,
+    from: Uuid,
+    to: Uuid,
+    kind: InteractionKind,
+    weight: i32,
+) -> AppResult<()> {
     if from == to || weight <= 0 {
         return Ok(());
     }
@@ -384,20 +640,28 @@ pub async fn record_interaction(core: &Core, from: Uuid, to: Uuid, kind: Interac
 
 /// Counts time together during the small hours towards a night spent
 /// together. "Night" is judged in the reporting user's time zone.
-async fn record_night_minutes(core: &Core, pair: Pair, reporter: Uuid, minutes: i32, at: DateTime<Utc>) -> AppResult<()> {
-    let time_zone: Option<String> = sqlx::query_scalar("SELECT time_zone FROM users WHERE id = $1").bind(reporter).fetch_optional(&core.db).await?;
+async fn record_night_minutes(
+    core: &Core,
+    pair: Pair,
+    reporter: Uuid,
+    minutes: i32,
+    at: DateTime<Utc>,
+) -> AppResult<()> {
+    let time_zone: Option<String> =
+        sqlx::query_scalar("SELECT time_zone FROM users WHERE id = $1").bind(reporter).fetch_optional(&core.db).await?;
     let time_zone: chrono_tz::Tz = time_zone.and_then(|tz| tz.parse().ok()).unwrap_or(chrono_tz::Asia::Tokyo);
     let local = at.with_timezone(&time_zone);
     if !ranking::is_night(local.time()) {
         return Ok(());
     }
     let mut tx = core.db.begin().await?;
-    let previous: (i32, Option<chrono::NaiveDate>) =
-        sqlx::query_as("SELECT night_minutes, night_date FROM friend_pairs WHERE user_lo = $1 AND user_hi = $2 FOR UPDATE")
-            .bind(pair.lo)
-            .bind(pair.hi)
-            .fetch_one(&mut *tx)
-            .await?;
+    let previous: (i32, Option<chrono::NaiveDate>) = sqlx::query_as(
+        "SELECT night_minutes, night_date FROM friend_pairs WHERE user_lo = $1 AND user_hi = $2 FOR UPDATE",
+    )
+    .bind(pair.lo)
+    .bind(pair.hi)
+    .fetch_one(&mut *tx)
+    .await?;
     let progress = ranking::night_progress(previous, local.date_naive(), minutes);
     sqlx::query(
         "UPDATE friend_pairs SET night_minutes = $3, night_date = $4, nights_together = nights_together + $5

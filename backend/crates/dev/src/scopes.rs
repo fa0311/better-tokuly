@@ -74,12 +74,12 @@ const DOMAINS: &[Domain] = &[
         name: "social",
         sensitive: true,
         read: (
-            "友達・友達リクエスト・ブロックリスト・招待リンクを見る",
-            "See your friends, friend requests, block list and invite link",
+            "友達・友達リクエスト・フォロー・フォロワー・リスト（親しい友達を含む）・ブロックリスト・招待リンクを見る",
+            "See your friends, friend requests, follows and followers, your circles (close friends included), block list and invite link",
         ),
         write: Some((
-            "友達リクエストの送信・承認、友達の削除、ブロック、バンプやノックの送信",
-            "Send and answer friend requests, remove friends, block people, send bumps and knocks",
+            "友達リクエストやフォローの送信・承認、友達やフォロワーの削除、鍵アカウントの切り替え、リストの編集、ブロック、バンプやノックの送信",
+            "Send and answer friend and follow requests, remove friends and followers, lock your account, edit your circles, block people, send bumps and knocks",
         )),
     },
     Domain {

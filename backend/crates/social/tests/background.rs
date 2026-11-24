@@ -20,8 +20,14 @@ use uuid::Uuid;
 static RANKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn best_friends(ctx: &Ctx, viewer: &TestUser, owner: &TestUser) -> Vec<Friend> {
-    let response: ListBestFriendsResponse =
-        ctx.friends("ListBestFriends", viewer, &ListBestFriendsRequest { user_id: owner.id.to_string(), ..Default::default() }).await.unwrap();
+    let response: ListBestFriendsResponse = ctx
+        .friends(
+            "ListBestFriends",
+            viewer,
+            &ListBestFriendsRequest { user_id: owner.id.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     response.friends
 }
 
@@ -30,7 +36,10 @@ fn ranks(friends: &[Friend]) -> Vec<(Uuid, i32)> {
 }
 
 async fn friendship(ctx: &Ctx, user: &TestUser, friend: &TestUser) -> Friendship {
-    let response: GetFriendshipResponse = ctx.friends("GetFriendship", user, &GetFriendshipRequest { user_id: friend.id.to_string(), ..Default::default() }).await.unwrap();
+    let response: GetFriendshipResponse = ctx
+        .friends("GetFriendship", user, &GetFriendshipRequest { user_id: friend.id.to_string(), ..Default::default() })
+        .await
+        .unwrap();
     response.friendship.into_option().unwrap()
 }
 
@@ -43,7 +52,8 @@ async fn interactions_rank_best_friends_and_earn_titles() {
     let _turn = RANKING.lock().await;
     let ctx = start().await;
     let me = ctx.app.user("me").await;
-    let (chatty, caller, quiet) = (ctx.app.user("chatty").await, ctx.app.user("caller").await, ctx.app.user("quiet").await);
+    let (chatty, caller, quiet) =
+        (ctx.app.user("chatty").await, ctx.app.user("caller").await, ctx.app.user("quiet").await);
     for friend in [&chatty, &caller, &quiet] {
         ctx.befriend(&me, friend).await;
     }
@@ -61,7 +71,11 @@ async fn interactions_rank_best_friends_and_earn_titles() {
     interact(&ctx, &me, &quiet, InteractionKind::MapView, 2).await;
 
     assert!(ctx.social.rescore_pending().await.unwrap() >= 3);
-    assert_eq!(ranks(&best_friends(&ctx, &me, &me).await), vec![(chatty.id, 1), (caller.id, 2)], "one-sided glances do not make a best friend");
+    assert_eq!(
+        ranks(&best_friends(&ctx, &me, &me).await),
+        vec![(chatty.id, 1), (caller.id, 2)],
+        "one-sided glances do not make a best friend"
+    );
     assert_eq!(ranks(&best_friends(&ctx, &chatty, &chatty).await), vec![(me.id, 1)]);
     // A friend may look at the list and finds themselves in it.
     assert_eq!(ranks(&best_friends(&ctx, &caller, &me).await), vec![(chatty.id, 1), (caller.id, 2)]);
@@ -75,12 +89,23 @@ async fn interactions_rank_best_friends_and_earn_titles() {
     assert_eq!(friendship(&ctx, &me, &caller).await.titles, vec!["NEW_FRIENDS"]);
 
     // When a best friend leaves, the others move up.
-    let _: RemoveFriendResponse = ctx.friends("RemoveFriend", &me, &RemoveFriendRequest { user_id: chatty.id.to_string(), ..Default::default() }).await.unwrap();
+    let _: RemoveFriendResponse = ctx
+        .friends("RemoveFriend", &me, &RemoveFriendRequest { user_id: chatty.id.to_string(), ..Default::default() })
+        .await
+        .unwrap();
     assert_eq!(ranks(&best_friends(&ctx, &me, &me).await), vec![(caller.id, 1)]);
 
     // Scores fade: six weeks later, with nothing new, nobody is a best friend.
-    sqlx::query("UPDATE friend_interaction_days SET day = day - 42 WHERE user_lo = $1 OR user_hi = $1").bind(me.id).execute(&ctx.app.core.db).await.unwrap();
-    sqlx::query("UPDATE friend_pairs SET scored_at = now() - interval '7 hours' WHERE user_lo = $1 OR user_hi = $1").bind(me.id).execute(&ctx.app.core.db).await.unwrap();
+    sqlx::query("UPDATE friend_interaction_days SET day = day - 42 WHERE user_lo = $1 OR user_hi = $1")
+        .bind(me.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE friend_pairs SET scored_at = now() - interval '7 hours' WHERE user_lo = $1 OR user_hi = $1")
+        .bind(me.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
     ctx.social.rescore_pending().await.unwrap();
     assert!(best_friends(&ctx, &me, &me).await.is_empty());
     assert_eq!(friendship(&ctx, &me, &caller).await.interaction_score, 0);
@@ -102,13 +127,22 @@ async fn only_the_closest_friends_are_ranked_and_stars_follow() {
     }
     // The least close one is starred by hand.
     let _: UpdateFriendPrefsResponse = ctx
-        .friends("UpdateFriendPrefs", &me, &UpdateFriendPrefsRequest { user_id: friends[0].id.to_string(), favorite: Some(true), ..Default::default() })
+        .friends(
+            "UpdateFriendPrefs",
+            &me,
+            &UpdateFriendPrefsRequest {
+                user_id: friends[0].id.to_string(),
+                favorite: Some(true),
+                ..Default::default()
+            },
+        )
         .await
         .unwrap();
     ctx.social.rescore_pending().await.unwrap();
 
     let listed = best_friends(&ctx, &me, &me).await;
-    let mut expected: Vec<(Uuid, i32)> = friends[2..].iter().rev().zip(1..).map(|(friend, rank)| (friend.id, rank)).collect();
+    let mut expected: Vec<(Uuid, i32)> =
+        friends[2..].iter().rev().zip(1..).map(|(friend, rank)| (friend.id, rank)).collect();
     expected.push((friends[0].id, 0));
     assert_eq!(ranks(&listed), expected, "the eight closest in order, then starred friends without a rank");
     assert!(listed.last().unwrap().favorite);
@@ -117,9 +151,11 @@ async fn only_the_closest_friends_are_ranked_and_stars_follow() {
 #[tokio::test]
 async fn presence_is_fanned_out_to_friends_unless_hidden() {
     let ctx = start().await;
-    let (alice, bob, stranger) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("stranger").await);
+    let (alice, bob, stranger) =
+        (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("stranger").await);
     ctx.befriend(&alice, &bob).await;
-    let (mut bob_devices, mut stranger_devices) = (ctx.app.listen_user(bob.id).await, ctx.app.listen_user(stranger.id).await);
+    let (mut bob_devices, mut stranger_devices) =
+        (ctx.app.listen_user(bob.id).await, ctx.app.listen_user(stranger.id).await);
     let came_online = PresenceChange { user_id: alice.id, online: true, at: Utc::now() };
 
     ctx.social.fan_out_presence(&came_online).await.unwrap();
@@ -163,7 +199,8 @@ async fn friend_lists_carry_online_state_when_shared() {
     let friend = |id: Uuid| {
         let (ctx, me) = (&ctx, me.clone());
         async move {
-            let list: ListFriendsResponse = ctx.friends("ListFriends", &me, &ListFriendsRequest::default()).await.unwrap();
+            let list: ListFriendsResponse =
+                ctx.friends("ListFriends", &me, &ListFriendsRequest::default()).await.unwrap();
             list.friends.into_iter().find(|f| id_of(f.user.as_option().unwrap()) == id).unwrap()
         }
     };
@@ -190,7 +227,8 @@ async fn mutes_made_in_notification_settings_show_on_the_friend() {
         data: serde_json::json!({ "user_id": alice.id, "muted_user_id": bob.id, "muted": muted }),
     };
     let bob_is_muted = || async {
-        let list: ListFriendsResponse = ctx.friends("ListFriends", &alice, &ListFriendsRequest::default()).await.unwrap();
+        let list: ListFriendsResponse =
+            ctx.friends("ListFriends", &alice, &ListFriendsRequest::default()).await.unwrap();
         list.friends[0].muted
     };
 
@@ -216,7 +254,13 @@ async fn rows_about(ctx: &Ctx, user: Uuid) -> i64 {
               + (SELECT count(*) FROM friend_interaction_days WHERE user_lo = $1 OR user_hi = $1)
               + (SELECT count(*) FROM bumps WHERE user_lo = $1 OR user_hi = $1)
               + (SELECT count(*) FROM map_reactions WHERE from_user_id = $1 OR to_user_id = $1)
-              + (SELECT count(*) FROM map_views WHERE viewed_id = $1 OR viewer_id = $1)",
+              + (SELECT count(*) FROM map_views WHERE viewed_id = $1 OR viewer_id = $1)
+              + (SELECT count(*) FROM follows WHERE follower_id = $1 OR followee_id = $1)
+              + (SELECT count(*) FROM follow_requests WHERE follower_id = $1 OR followee_id = $1)
+              + (SELECT count(*) FROM follow_settings WHERE user_id = $1)
+              + (SELECT count(*) FROM follow_suggestion_dismissals WHERE user_id = $1 OR dismissed_id = $1)
+              + (SELECT count(*) FROM circles WHERE owner_id = $1)
+              + (SELECT count(*) FROM circle_members WHERE owner_id = $1 OR member_id = $1)",
     )
     .bind(user)
     .fetch_one(&ctx.app.core.db)
@@ -227,12 +271,47 @@ async fn rows_about(ctx: &Ctx, user: Uuid) -> i64 {
 /// Gives `user` a bit of everything the social domain stores, with `friend`
 /// as their friend. Returns the user's invite code.
 async fn live_a_little(ctx: &Ctx, user: &TestUser, friend: &TestUser) -> String {
-    let (admirer, blocked, suggested, newcomer) = (ctx.app.user("admirer").await, ctx.app.user("blocked").await, ctx.app.user("suggested").await, ctx.app.user("newcomer").await);
+    let (admirer, blocked, suggested, newcomer) = (
+        ctx.app.user("admirer").await,
+        ctx.app.user("blocked").await,
+        ctx.app.user("suggested").await,
+        ctx.app.user("newcomer").await,
+    );
     ctx.befriend(user, friend).await;
+    // Follows and circles: the admirer follows the user, the user asks to
+    // follow a locked account, keeps the friend among close friends and is
+    // in the friend's.
+    ctx.follow(&admirer, user).await;
+    ctx.follow(user, friend).await;
+    ctx.set_locked(&suggested, true).await;
+    ctx.follow(user, &suggested).await;
+    ctx.set_locked(user, false).await;
+    let close = ctx.close_friends(user).await;
+    ctx.add_to_circle(user, &close.id, &[friend]).await.unwrap();
+    let theirs = ctx.close_friends(friend).await;
+    ctx.add_to_circle(friend, &theirs.id, &[user]).await.unwrap();
+    let _: DismissFollowSuggestionResponse = ctx
+        .follows(
+            "DismissFollowSuggestion",
+            user,
+            &DismissFollowSuggestionRequest { user_id: newcomer.id.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     ctx.request(&admirer, user).await;
     ctx.request(user, &suggested).await;
-    let _: BlockUserResponse = ctx.friends("BlockUser", user, &BlockUserRequest { user_id: blocked.id.to_string(), ..Default::default() }).await.unwrap();
-    let _: DismissSuggestionResponse = ctx.friends("DismissSuggestion", user, &DismissSuggestionRequest { user_id: admirer.id.to_string(), ..Default::default() }).await.unwrap();
+    let _: BlockUserResponse = ctx
+        .friends("BlockUser", user, &BlockUserRequest { user_id: blocked.id.to_string(), ..Default::default() })
+        .await
+        .unwrap();
+    let _: DismissSuggestionResponse = ctx
+        .friends(
+            "DismissSuggestion",
+            user,
+            &DismissSuggestionRequest { user_id: admirer.id.to_string(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     let invite: GetMyInviteResponse = ctx.friends("GetMyInvite", user, &GetMyInviteRequest::default()).await.unwrap();
     let code = invite.invite.into_option().unwrap().code;
     let signed_up = Event {
@@ -246,11 +325,21 @@ async fn live_a_little(ctx: &Ctx, user: &TestUser, friend: &TestUser) -> String 
 
     let spot = somewhere();
     for shaker in [user, friend] {
-        let _: BumpResponse = ctx.interact("Bump", shaker, &BumpRequest { location: lat_lng(spot).into(), ..Default::default() }).await.unwrap();
+        let _: BumpResponse = ctx
+            .interact("Bump", shaker, &BumpRequest { location: lat_lng(spot).into(), ..Default::default() })
+            .await
+            .unwrap();
     }
-    let reaction = SendMapReactionRequest { user_ids: vec![friend.id.to_string()], kind: MapReactionKind::MAP_REACTION_KIND_HEARTS.into(), ..Default::default() };
+    let reaction = SendMapReactionRequest {
+        user_ids: vec![friend.id.to_string()],
+        kind: MapReactionKind::MAP_REACTION_KIND_HEARTS.into(),
+        ..Default::default()
+    };
     let _: SendMapReactionResponse = ctx.interact("SendMapReaction", user, &reaction).await.unwrap();
-    let _: RecordMapViewResponse = ctx.interact("RecordMapView", friend, &RecordMapViewRequest { user_id: user.id.to_string(), ..Default::default() }).await.unwrap();
+    let _: RecordMapViewResponse = ctx
+        .interact("RecordMapView", friend, &RecordMapViewRequest { user_id: user.id.to_string(), ..Default::default() })
+        .await
+        .unwrap();
     code
 }
 
@@ -272,9 +361,18 @@ async fn a_deleted_account_leaves_nothing_behind() {
     let mut friend_devices = ctx.app.listen_user(friend.id).await;
     ctx.social.handle_event(&deleted).await.unwrap();
     assert_eq!(rows_about(&ctx, leaver.id).await, 0);
-    assert!(graph::friend_ids(&ctx.app.core, friend.id).await.unwrap().is_empty(), "cached friend lists forget the account too");
+    assert!(
+        graph::friend_ids(&ctx.app.core, friend.id).await.unwrap().is_empty(),
+        "cached friend lists forget the account too"
+    );
     assert!(graph::blocked_ids_either(&ctx.app.core, leaver.id).await.unwrap().is_empty());
-    assert!(matches!(next_push(&mut friend_devices).await, Some(Push::FriendRemovedUserId(id)) if id == leaver.id.to_string()));
+    assert!(
+        graph::follower_ids(&ctx.app.core, friend.id).await.unwrap().is_empty(),
+        "cached follower lists forget the account too"
+    );
+    assert!(
+        matches!(next_push(&mut friend_devices).await, Some(Push::FriendRemovedUserId(id)) if id == leaver.id.to_string())
+    );
 
     ctx.social.handle_event(&deleted).await.unwrap(); // redelivery is harmless
     // Events this domain does not care about are ignored.
@@ -288,7 +386,14 @@ async fn the_data_export_has_a_social_section() {
     let (user, friend) = (ctx.app.user("user").await, ctx.app.user("friend").await);
     let code = live_a_little(&ctx, &user, &friend).await;
 
-    let exporter = ctx.app.core.exporters.all().into_iter().find(|e| e.name() == "social").expect("the social exporter is registered");
+    let exporter = ctx
+        .app
+        .core
+        .exporters
+        .all()
+        .into_iter()
+        .find(|e| e.name() == "social")
+        .expect("the social exporter is registered");
     let export = exporter.export(user.id).await.unwrap();
     assert_eq!(export["friends"].as_array().unwrap().len(), 1);
     assert_eq!(export["friends"][0]["user_id"], serde_json::json!(friend.id));
@@ -304,14 +409,29 @@ async fn the_data_export_has_a_social_section() {
         ("map_reactions_sent", 1),
         ("map_reactions_received", 0),
         ("map_views_made", 0),
+        ("following", 1),
+        ("followers", 1),
+        ("follow_requests_sent", 1),
+        ("follow_requests_received", 0),
+        ("dismissed_follow_suggestions", 1),
+        ("circles", 1),
     ] {
-        assert_eq!(export[section].as_array().unwrap_or_else(|| panic!("{section} is a list")).len(), count, "{section}");
+        assert_eq!(
+            export[section].as_array().unwrap_or_else(|| panic!("{section} is a list")).len(),
+            count,
+            "{section}"
+        );
     }
     // The friend's export shows their side, not the user's private data.
     let friends_export = exporter.export(friend.id).await.unwrap();
     assert_eq!(friends_export["map_views_made"].as_array().unwrap().len(), 1);
     assert_eq!(friends_export["map_reactions_received"].as_array().unwrap().len(), 1);
     assert!(friends_export["blocked_users"].as_array().unwrap().is_empty());
+    assert_eq!(export["circles"][0]["members"].as_array().unwrap().len(), 1);
+    assert_eq!(export["follow_settings"]["locked"], serde_json::json!(false));
+    // Whose circles someone is in is not part of their export.
+    assert_eq!(friends_export["circles"][0]["members"][0]["user_id"], serde_json::json!(user.id));
+    assert_eq!(friends_export["circles"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -324,9 +444,19 @@ async fn pruning_removes_only_what_has_aged_out() {
     for kind in [InteractionKind::Message, InteractionKind::Stamp] {
         graph::record_interaction(&ctx.app.core, alice.id, bob.id, kind, 1).await.unwrap();
     }
-    sqlx::query("UPDATE friend_interaction_days SET day = day - 60 WHERE kind = 2 AND (user_lo = $1 OR user_hi = $1)").bind(alice.id).execute(db).await.unwrap();
+    sqlx::query("UPDATE friend_interaction_days SET day = day - 60 WHERE kind = 2 AND (user_lo = $1 OR user_hi = $1)")
+        .bind(alice.id)
+        .execute(db)
+        .await
+        .unwrap();
     for age in ["1 hour", "3 days"] {
-        sqlx::query("INSERT INTO map_views (viewed_id, viewer_id, viewed_at) VALUES ($1, $2, now() - $3::interval)").bind(alice.id).bind(bob.id).bind(age).execute(db).await.unwrap();
+        sqlx::query("INSERT INTO map_views (viewed_id, viewer_id, viewed_at) VALUES ($1, $2, now() - $3::interval)")
+            .bind(alice.id)
+            .bind(bob.id)
+            .bind(age)
+            .execute(db)
+            .await
+            .unwrap();
     }
     for age in ["1 day", "8 days"] {
         sqlx::query("INSERT INTO map_reactions (from_user_id, to_user_id, kind, created_at) VALUES ($1, $2, 1, now() - $3::interval)")
@@ -342,7 +472,12 @@ async fn pruning_removes_only_what_has_aged_out() {
     for (name, age) in [("recent", "7 days"), ("ancient", "120 days")] {
         let asker = ctx.app.user(name).await;
         ctx.request(&asker, &alice).await;
-        sqlx::query("UPDATE friend_requests SET declined_at = now() - $2::interval WHERE from_user_id = $1").bind(asker.id).bind(age).execute(db).await.unwrap();
+        sqlx::query("UPDATE friend_requests SET declined_at = now() - $2::interval WHERE from_user_id = $1")
+            .bind(asker.id)
+            .bind(age)
+            .execute(db)
+            .await
+            .unwrap();
     }
 
     ctx.social.prune().await.unwrap();
@@ -383,24 +518,59 @@ async fn graph_events_drop_cached_lists_that_a_cut_off_request_left_behind() {
     // A block commits, but its request is dropped (the phone lost its
     // connection) before it got to the cache: the lists are stale...
     let mut tx = core.db.begin().await.unwrap();
-    sqlx::query("DELETE FROM friendships WHERE user_id IN ($1, $2)").bind(alice.id).bind(bob.id).execute(&mut *tx).await.unwrap();
-    sqlx::query("INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)").bind(alice.id).bind(bob.id).execute(&mut *tx).await.unwrap();
+    sqlx::query("DELETE FROM friendships WHERE user_id IN ($1, $2)")
+        .bind(alice.id)
+        .bind(bob.id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)")
+        .bind(alice.id)
+        .bind(bob.id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(graph::friend_ids(core, alice.id).await.unwrap(), vec![bob.id], "stale until the events arrive");
     assert!(graph::blocked_ids_either(core, bob.id).await.unwrap().is_empty(), "stale until the events arrive");
 
     // ...until the events written by the same transaction arrive.
-    ctx.social.handle_event(&delivered(FRIEND_REMOVED, alice.id, &FriendRemoved { user_id: alice.id, friend_id: bob.id, blocked: true })).await.unwrap();
-    ctx.social.handle_event(&delivered(USER_BLOCKED, alice.id, &BlockChanged { user_id: alice.id, blocked_id: bob.id })).await.unwrap();
+    ctx.social
+        .handle_event(&delivered(
+            FRIEND_REMOVED,
+            alice.id,
+            &FriendRemoved { user_id: alice.id, friend_id: bob.id, blocked: true },
+        ))
+        .await
+        .unwrap();
+    ctx.social
+        .handle_event(&delivered(USER_BLOCKED, alice.id, &BlockChanged { user_id: alice.id, blocked_id: bob.id }))
+        .await
+        .unwrap();
     assert!(graph::friend_ids(core, alice.id).await.unwrap().is_empty());
     assert!(graph::friend_ids(core, bob.id).await.unwrap().is_empty());
     assert_eq!(graph::blocked_ids_either(core, bob.id).await.unwrap(), vec![alice.id]);
 
     // The same for an unblock and a new friendship.
     sqlx::query("DELETE FROM user_blocks WHERE blocker_id = $1").bind(alice.id).execute(&core.db).await.unwrap();
-    sqlx::query("INSERT INTO friendships (user_id, friend_id) VALUES ($1, $2), ($2, $1)").bind(alice.id).bind(bob.id).execute(&core.db).await.unwrap();
-    ctx.social.handle_event(&delivered(USER_UNBLOCKED, alice.id, &BlockChanged { user_id: alice.id, blocked_id: bob.id })).await.unwrap();
-    ctx.social.handle_event(&delivered(FRIEND_ACCEPTED, alice.id, &FriendAccepted { user_id: alice.id, friend_id: bob.id, source: 0 })).await.unwrap();
+    sqlx::query("INSERT INTO friendships (user_id, friend_id) VALUES ($1, $2), ($2, $1)")
+        .bind(alice.id)
+        .bind(bob.id)
+        .execute(&core.db)
+        .await
+        .unwrap();
+    ctx.social
+        .handle_event(&delivered(USER_UNBLOCKED, alice.id, &BlockChanged { user_id: alice.id, blocked_id: bob.id }))
+        .await
+        .unwrap();
+    ctx.social
+        .handle_event(&delivered(
+            FRIEND_ACCEPTED,
+            alice.id,
+            &FriendAccepted { user_id: alice.id, friend_id: bob.id, source: 0 },
+        ))
+        .await
+        .unwrap();
     assert!(graph::blocked_ids_either(core, bob.id).await.unwrap().is_empty());
     assert_eq!(graph::friend_ids(core, bob.id).await.unwrap(), vec![alice.id]);
 }

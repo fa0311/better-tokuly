@@ -12,8 +12,12 @@ use tokuly_identity::maintenance::{UserCreated, UserRef};
 use tokuly_proto::social::social_event::Event as Push;
 
 use crate::{
-    Social,
-    events::{BlockChanged, FRIEND_ACCEPTED, FRIEND_REMOVED, FriendAccepted, FriendRemoved, USER_BLOCKED, USER_UNBLOCKED},
+    Social, circles,
+    events::{
+        BlockChanged, CIRCLE_DELETED, CIRCLE_MEMBERS_CHANGED, CircleDeleted, CircleMembersChanged, FOLLOW_CREATED,
+        FOLLOW_REMOVED, FRIEND_ACCEPTED, FRIEND_PREFS_CHANGED, FRIEND_REMOVED, FollowCreated, FollowRemoved,
+        FriendAccepted, FriendPrefsChanged, FriendRemoved, USER_BLOCKED, USER_UNBLOCKED,
+    },
     idcache, map_reactions, nearby, ranking,
 };
 
@@ -46,7 +50,21 @@ impl Social {
         events::consume(
             self.core.bus.clone(),
             "social",
-            &[USER_CREATED, USER_DELETED, PRIVACY_CHANGED, MUTE_CHANGED, FRIEND_ACCEPTED, FRIEND_REMOVED, USER_BLOCKED, USER_UNBLOCKED],
+            &[
+                USER_CREATED,
+                USER_DELETED,
+                PRIVACY_CHANGED,
+                MUTE_CHANGED,
+                FRIEND_ACCEPTED,
+                FRIEND_REMOVED,
+                FRIEND_PREFS_CHANGED,
+                USER_BLOCKED,
+                USER_UNBLOCKED,
+                FOLLOW_CREATED,
+                FOLLOW_REMOVED,
+                CIRCLE_MEMBERS_CHANGED,
+                CIRCLE_DELETED,
+            ],
             ConsumeOptions::default(),
             self.core.shutdown.clone(),
             move |event| {
@@ -82,17 +100,43 @@ impl Social {
             // the lists are dropped whatever became of the request.
             FRIEND_ACCEPTED => {
                 let accepted: FriendAccepted = event.data()?;
-                idcache::FRIENDS.invalidate(&self.core, &[accepted.user_id, accepted.friend_id]).await;
+                idcache::friendships_changed(&self.core, &[accepted.user_id, accepted.friend_id]).await;
                 Ok(())
             }
             FRIEND_REMOVED => {
                 let removed: FriendRemoved = event.data()?;
-                idcache::FRIENDS.invalidate(&self.core, &[removed.user_id, removed.friend_id]).await;
+                idcache::friendships_changed(&self.core, &[removed.user_id, removed.friend_id]).await;
+                Ok(())
+            }
+            FRIEND_PREFS_CHANGED => {
+                let changed: FriendPrefsChanged = event.data()?;
+                idcache::FRIEND_LINKS.invalidate(&self.core, &[changed.user_id]).await;
                 Ok(())
             }
             USER_BLOCKED | USER_UNBLOCKED => {
                 let block: BlockChanged = event.data()?;
                 idcache::HIDDEN.invalidate(&self.core, &[block.user_id, block.blocked_id]).await;
+                Ok(())
+            }
+            FOLLOW_CREATED => {
+                let created: FollowCreated = event.data()?;
+                idcache::follows_changed(&self.core, &[created.follower_id], &[created.followee_id]).await;
+                Ok(())
+            }
+            FOLLOW_REMOVED => {
+                let removed: FollowRemoved = event.data()?;
+                idcache::follows_changed(&self.core, &[removed.follower_id], &[removed.followee_id]).await;
+                Ok(())
+            }
+            CIRCLE_MEMBERS_CHANGED => {
+                let changed: CircleMembersChanged = event.data()?;
+                let members: Vec<Uuid> = changed.added.into_iter().chain(changed.removed).collect();
+                circles::circles_changed(&self.core, &[changed.circle_id], &members).await;
+                Ok(())
+            }
+            CIRCLE_DELETED => {
+                let deleted: CircleDeleted = event.data()?;
+                circles::circles_changed(&self.core, &[deleted.circle_id], &deleted.member_ids).await;
                 Ok(())
             }
             _ => Ok(()),
@@ -110,6 +154,7 @@ impl Social {
             .bind(change.muted)
             .execute(&self.core.db)
             .await?;
+        idcache::FRIEND_LINKS.invalidate(&self.core, &[change.user_id]).await;
         Ok(())
     }
 
@@ -117,13 +162,36 @@ impl Social {
     /// makes the account disappear from its former friends' apps.
     async fn forget_user(&self, user_id: Uuid) -> AppResult<()> {
         let core = &self.core;
-        let friends: Vec<Uuid> = sqlx::query_scalar("SELECT friend_id FROM friendships WHERE user_id = $1").bind(user_id).fetch_all(&core.db).await?;
+        let friends: Vec<Uuid> = sqlx::query_scalar("SELECT friend_id FROM friendships WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(&core.db)
+            .await?;
         let in_a_block: Vec<Uuid> = sqlx::query_scalar(
             "SELECT blocked_id FROM user_blocks WHERE blocker_id = $1 UNION SELECT blocker_id FROM user_blocks WHERE blocked_id = $1",
         )
         .bind(user_id)
         .fetch_all(&core.db)
         .await?;
+        let followers: Vec<Uuid> = sqlx::query_scalar("SELECT follower_id FROM follows WHERE followee_id = $1")
+            .bind(user_id)
+            .fetch_all(&core.db)
+            .await?;
+        let following: Vec<Uuid> = sqlx::query_scalar("SELECT followee_id FROM follows WHERE follower_id = $1")
+            .bind(user_id)
+            .fetch_all(&core.db)
+            .await?;
+        // (circles the user owns or is in, members of the user's circles)
+        let touched_circles: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM circles WHERE owner_id = $1 UNION SELECT circle_id FROM circle_members WHERE member_id = $1",
+        )
+        .bind(user_id)
+        .fetch_all(&core.db)
+        .await?;
+        let their_members: Vec<Uuid> =
+            sqlx::query_scalar("SELECT DISTINCT member_id FROM circle_members WHERE owner_id = $1")
+                .bind(user_id)
+                .fetch_all(&core.db)
+                .await?;
 
         // Each statement removes the rows in which the user is either party.
         // (`friend_interaction_days` goes with `friend_pairs`.)
@@ -139,6 +207,12 @@ impl Social {
             "DELETE FROM bumps WHERE user_lo = $1 OR user_hi = $1",
             "DELETE FROM map_reactions WHERE from_user_id = $1 OR to_user_id = $1",
             "DELETE FROM map_views WHERE viewed_id = $1 OR viewer_id = $1",
+            "DELETE FROM follows WHERE follower_id = $1 OR followee_id = $1",
+            "DELETE FROM follow_requests WHERE follower_id = $1 OR followee_id = $1",
+            "DELETE FROM follow_settings WHERE user_id = $1",
+            "DELETE FROM follow_suggestion_dismissals WHERE user_id = $1 OR dismissed_id = $1",
+            "DELETE FROM circle_members WHERE owner_id = $1 OR member_id = $1",
+            "DELETE FROM circles WHERE owner_id = $1",
         ];
         let mut tx = core.db.begin().await?;
         for delete in DELETES {
@@ -148,10 +222,15 @@ impl Social {
 
         let mut stale_friend_lists = friends.clone();
         stale_friend_lists.push(user_id);
-        idcache::FRIENDS.invalidate(core, &stale_friend_lists).await;
+        idcache::friendships_changed(core, &stale_friend_lists).await;
         let mut stale_hidden_lists = in_a_block;
         stale_hidden_lists.push(user_id);
         idcache::HIDDEN.invalidate(core, &stale_hidden_lists).await;
+        idcache::follows_changed(core, &[&followers[..], &[user_id]].concat(), &[&following[..], &[user_id]].concat())
+            .await;
+        idcache::FOLLOWERS.invalidate(core, &[user_id]).await;
+        idcache::FOLLOWING.invalidate(core, &[user_id]).await;
+        circles::circles_changed(core, &touched_circles, &[&their_members[..], &[user_id]].concat()).await;
         // Valkey entries expire by themselves; failing here must not make the
         // whole cleanup retry.
         let _ = nearby::NEARBY.leave(&core.cache, user_id).await;
@@ -169,11 +248,18 @@ impl Social {
     /// operators can trigger it.
     pub async fn prune(&self) -> AppResult<()> {
         let core = &self.core;
-        sqlx::query("DELETE FROM friend_requests WHERE declined_at < now() - make_interval(days => $1)")
+        for table in ["friend_requests", "follow_requests"] {
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "DELETE FROM {table} WHERE declined_at < now() - make_interval(days => $1)"
+            )))
             .bind(DECLINED_REQUEST_RETENTION_DAYS)
             .execute(&core.db)
             .await?;
-        sqlx::query("DELETE FROM friend_interaction_days WHERE day < current_date - $1::int").bind(INTERACTION_RETENTION_DAYS as i32).execute(&core.db).await?;
+        }
+        sqlx::query("DELETE FROM friend_interaction_days WHERE day < current_date - $1::int")
+            .bind(INTERACTION_RETENTION_DAYS as i32)
+            .execute(&core.db)
+            .await?;
         // Views are shown for 24 hours; a second day covers clock edges.
         sqlx::query("DELETE FROM map_views WHERE viewed_at < now() - interval '48 hours'").execute(&core.db).await?;
         sqlx::query("DELETE FROM map_reactions WHERE created_at < now() - make_interval(days => $1)")
@@ -209,10 +295,14 @@ impl DataExporter for SocialExporter {
     }
 
     async fn export(&self, user_id: Uuid) -> AppResult<serde_json::Value> {
-        let invite_code: Option<String> =
-            sqlx::query_scalar("SELECT code FROM friend_invites WHERE user_id = $1").bind(user_id).fetch_optional(&self.core.db).await?;
-        let invited_by: Option<Uuid> =
-            sqlx::query_scalar("SELECT inviter_id FROM friend_intros WHERE invitee_id = $1").bind(user_id).fetch_optional(&self.core.db).await?;
+        let invite_code: Option<String> = sqlx::query_scalar("SELECT code FROM friend_invites WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.core.db)
+            .await?;
+        let invited_by: Option<Uuid> = sqlx::query_scalar("SELECT inviter_id FROM friend_intros WHERE invitee_id = $1")
+            .bind(user_id)
+            .fetch_optional(&self.core.db)
+            .await?;
         Ok(serde_json::json!({
             "friends": self.list(
                 "SELECT COALESCE(jsonb_agg(jsonb_build_object(
@@ -262,6 +352,35 @@ impl DataExporter for SocialExporter {
             "map_views_made": self.list(
                 "SELECT COALESCE(jsonb_agg(jsonb_build_object('user_id', viewed_id, 'at', viewed_at) ORDER BY viewed_at), '[]'::jsonb)
                  FROM map_views WHERE viewer_id = $1", user_id).await?,
+            "follow_settings": self.list(
+                "SELECT COALESCE((SELECT jsonb_build_object('locked', locked, 'updated_at', updated_at) FROM follow_settings WHERE user_id = $1), 'null'::jsonb)",
+                user_id).await?,
+            "following": self.list(
+                "SELECT COALESCE(jsonb_agg(jsonb_build_object('user_id', followee_id, 'since', created_at, 'muted', muted,
+                     'muted_until', muted_until, 'notify_level', notify_level) ORDER BY created_at), '[]'::jsonb)
+                 FROM follows WHERE follower_id = $1", user_id).await?,
+            "followers": self.list(
+                "SELECT COALESCE(jsonb_agg(jsonb_build_object('user_id', follower_id, 'since', created_at) ORDER BY created_at), '[]'::jsonb)
+                 FROM follows WHERE followee_id = $1", user_id).await?,
+            "follow_requests_sent": self.list(
+                "SELECT COALESCE(jsonb_agg(jsonb_build_object('to_user_id', followee_id, 'sent_at', created_at) ORDER BY id), '[]'::jsonb)
+                 FROM follow_requests WHERE follower_id = $1", user_id).await?,
+            "follow_requests_received": self.list(
+                "SELECT COALESCE(jsonb_agg(jsonb_build_object('from_user_id', follower_id, 'sent_at', created_at, 'declined_at', declined_at)
+                     ORDER BY id), '[]'::jsonb)
+                 FROM follow_requests WHERE followee_id = $1", user_id).await?,
+            "dismissed_follow_suggestions": self.list(
+                "SELECT COALESCE(jsonb_agg(jsonb_build_object('user_id', dismissed_id, 'dismissed_at', created_at) ORDER BY created_at), '[]'::jsonb)
+                 FROM follow_suggestion_dismissals WHERE user_id = $1", user_id).await?,
+            // Only the user's own circles: which circles of others they are
+            // in is not theirs to know.
+            "circles": self.list(
+                "SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                     'id', c.id, 'kind', CASE c.kind WHEN 1 THEN 'close_friends' ELSE 'custom' END, 'name', c.name, 'emoji', c.emoji,
+                     'created_at', c.created_at,
+                     'members', (SELECT COALESCE(jsonb_agg(jsonb_build_object('user_id', m.member_id, 'added_at', m.added_at) ORDER BY m.added_at), '[]'::jsonb)
+                                 FROM circle_members m WHERE m.circle_id = c.id)) ORDER BY c.kind, c.position), '[]'::jsonb)
+                 FROM circles c WHERE c.owner_id = $1", user_id).await?,
         }))
     }
 }
