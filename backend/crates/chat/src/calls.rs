@@ -160,6 +160,20 @@ async fn mark_left(tx: &mut Transaction<'_, Postgres>, call_id: Uuid, user_id: U
     Ok(left.rows_affected() > 0)
 }
 
+/// Creates the LiveKit room of a call (or finds it there), sized for the
+/// conversation.
+async fn open_room(livekit: &LiveKit, room: &str, member_count: i32) -> AppResult<()> {
+    livekit.create_room(room, member_count.max(2) as u32).await.map_err(|e| {
+        if e.is_unauthorized() {
+            tracing::error!(error = %e, "LiveKit rejected the server's token; check TOKULY_LIVEKIT_API_KEY / _SECRET");
+        } else {
+            tracing::error!(error = %e, "LiveKit room could not be created");
+        }
+        AppError::unavailable("CALL_UNAVAILABLE", "calls are unavailable right now")
+    })?;
+    Ok(())
+}
+
 impl Chat {
     /// The LiveKit deployment, or `CALLS_DISABLED`.
     fn require_livekit(&self) -> AppResult<&LiveKit> {
@@ -338,14 +352,7 @@ impl Chat {
 
         let call_id = new_id();
         let room = room_name(call_id);
-        livekit.create_room(&room, access.conv.member_count.max(2) as u32).await.map_err(|e| {
-            if e.is_unauthorized() {
-                tracing::error!(error = %e, "LiveKit rejected the server's token; check TOKULY_LIVEKIT_API_KEY / _SECRET");
-            } else {
-                tracing::error!(error = %e, "LiveKit room could not be created");
-            }
-            AppError::unavailable("CALL_UNAVAILABLE", "calls are unavailable right now")
-        })?;
+        open_room(livekit, &room, access.conv.member_count).await?;
 
         let started: AppResult<(CallRow, crate::send::Posted)> = async {
             let mut tx = core.db.begin().await?;
@@ -495,6 +502,11 @@ impl Chat {
         };
         tx.commit().await?;
         self.after_call_change(&CallChange::new(call.clone(), answers)).await;
+        // LiveKit closes a room soon after the last person left and makes
+        // none on its own (`room.auto_create: false`): a late answer or a
+        // reconnect gets the room back first. Creating an existing room is
+        // a no-op.
+        open_room(livekit, &call.room, conv.member_count).await?;
         let credentials = self.credentials(livekit, &call, user_id, &notices::name_of(&me))?;
         Ok((call, credentials))
     }

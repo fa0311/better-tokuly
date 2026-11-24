@@ -24,7 +24,10 @@ impl Spaces {
             return Ok(None);
         }
         let me = tokuly_identity::summary(&self.core, row.user_id).await?;
-        Ok(Some(self.credentials(Venue::Space(row.space_id), row.user_id, &notices::name_of(&me), row.role)?))
+        let venue = Venue::Space(row.space_id);
+        // New credentials are a way in: the room must be there to take them.
+        self.open_room(venue).await?;
+        Ok(Some(self.credentials(venue, row.user_id, &notices::name_of(&me), row.role)?))
     }
 }
 

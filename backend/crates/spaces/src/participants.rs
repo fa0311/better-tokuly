@@ -230,10 +230,10 @@ impl Spaces {
         self.limit(Limit::Enter, user_id).await?;
         let me = tokuly_identity::summary(core, user_id).await?;
         let venue = Venue::Space(space_id);
-        if space.listener_count == 0 || space.host_id == user_id {
-            // LiveKit may have closed a room nobody was connected to.
-            self.open_room(venue).await?;
-        }
+        // LiveKit may have closed a room nobody was connected to, and makes
+        // none on its own (`room.auto_create: false`): every entry makes sure
+        // the room is there (creating an existing room changes nothing).
+        self.open_room(venue).await?;
 
         // What the transaction did: someone already inside asked again, or
         // someone entered (for the first time, or coming back).

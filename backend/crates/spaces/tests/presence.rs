@@ -474,3 +474,21 @@ async fn the_full_pass_covers_rooms_hangouts_and_what_just_ended() {
     assert!(ctx.connected(&host_credentials.room, &host.id.to_string()).await.is_some());
     end_request(&ctx, &host, &live.id).await;
 }
+
+#[tokio::test]
+async fn every_entry_makes_sure_the_room_exists() {
+    let ctx = start().await;
+    let host = ctx.app.user("taro").await;
+    let (first, second) = (ctx.app.user("jiro").await, ctx.app.user("hanako").await);
+    let (room, credentials) = ctx.open_room(&host, "だれでも", SpaceAudience::SPACE_AUDIENCE_PUBLIC).await;
+    ctx.join(&first, &room.id).await;
+    // LiveKit closed the room while nobody was connected (it makes none on
+    // its own: `room.auto_create: false`).
+    ctx.livekit().delete_room(&credentials.room).await.unwrap();
+    let exists = || async { !ctx.livekit().list_rooms(std::slice::from_ref(&credentials.room)).await.unwrap().is_empty() };
+    assert!(!exists().await);
+    // Someone enters while others are still counted inside: the room is back.
+    ctx.join(&second, &room.id).await;
+    assert!(exists().await, "the entry re-created the room");
+    end_request(&ctx, &host, &room.id).await;
+}
