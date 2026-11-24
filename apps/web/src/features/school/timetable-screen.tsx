@@ -113,7 +113,16 @@ export function TimetableScreen({
     toast(message, {
       id: UNDO_TOAST,
       duration: 6000,
-      action: { label: t("timetable.undo"), onClick: () => undo.mutate(input) },
+      action: {
+        label: t("timetable.undo"),
+        onClick: (event) => {
+          // Keep this toast open: the answer replaces it in place (same id). Letting it close
+          // first would make a quick answer update a toast that is already leaving, so the
+          // confirmation never showed.
+          event.preventDefault();
+          if (!undo.isPending) undo.mutate(input);
+        },
+      },
     });
 
   const put = useMutation({
@@ -249,7 +258,10 @@ export function TimetableScreen({
       ]);
     },
     onSuccess: () => toast.success(t("timetable.undone"), { id: UNDO_TOAST }),
-    onError: toastError,
+    onError: (error) => {
+      toast.dismiss(UNDO_TOAST);
+      toastError(error);
+    },
     onSettled: (_data, _error, input) => settle(input.termId),
   });
 
