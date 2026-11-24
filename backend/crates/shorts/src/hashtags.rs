@@ -190,6 +190,9 @@ pub fn top_key(hashtag_id: Uuid) -> String {
 /// active shorts. Returns how many hashtags trend.
 pub async fn refresh_trending(core: &Core) -> AppResult<u64> {
     let mut tx = core.db.begin().await?;
+    // One refresh at a time (several instances, or a run that overlaps the next): two
+    // refreshes update the same hashtag rows in different orders and deadlock.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('shorts:trending', 0))").execute(&mut *tx).await?;
     // Hashtags whose shorts have all gone quiet leave the ranking.
     sqlx::query(
         "UPDATE short_hashtags h SET trend_score = 0, trend_rank = 0

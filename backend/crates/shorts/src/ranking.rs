@@ -133,6 +133,9 @@ pub fn base_score(engagement: f64, quality: f64, freshness: f64) -> f64 {
 /// integration test `scores_follow_the_documented_formula` holds it against
 /// the Rust functions above.
 pub async fn refresh_scores(core: &Core, half_life_hours: f64) -> AppResult<u64> {
+    // One refresh at a time, for the same reason as the hashtags' trending refresh.
+    let mut tx = core.db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('shorts:scores', 0))").execute(&mut *tx).await?;
     let scored = sqlx::query(
         "WITH engagement AS (
              SELECT h.short_id,
@@ -159,9 +162,10 @@ pub async fn refresh_scores(core: &Core, half_life_hours: f64) -> AppResult<u64>
     )
     .bind(half_life_hours)
     .bind(WINDOW_HOURS)
-    .execute(&core.db)
+    .execute(&mut *tx)
     .await?
     .rows_affected();
+    tx.commit().await?;
     sqlx::query("DELETE FROM short_hourly_stats WHERE hour < now() - make_interval(hours => $1)")
         .bind(WINDOW_HOURS + 1)
         .execute(&core.db)
