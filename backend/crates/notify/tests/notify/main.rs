@@ -2,6 +2,7 @@
 //! and NATS (one test binary, so the modules share a database).
 mod channels;
 mod common;
+mod concurrency;
 mod consumer;
 mod consumer_preferences;
 mod consumer_urgent;

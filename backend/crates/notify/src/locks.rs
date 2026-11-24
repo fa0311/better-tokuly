@@ -9,6 +9,8 @@
 //! So the change holds a key exclusively while it writes and removes, and the
 //! consumer holds the same key shared while it checks and stores.
 //!
+//! The registrations of one session are serialized the same way (`devices.rs`).
+//!
 //! Keys are derived from UUIDs. A collision only makes unrelated work wait.
 use sqlx::{Postgres, Transaction};
 use tokuly_core::prelude::*;
