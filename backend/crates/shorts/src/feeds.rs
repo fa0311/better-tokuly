@@ -182,11 +182,12 @@ impl Shorts {
                     )
                 })
                 .collect();
-            let rows: Vec<ShortRow> = shorts::find_many(core, &ids)
+            let mut rows: Vec<ShortRow> = shorts::find_many(core, &ids)
                 .await?
                 .into_iter()
                 .filter(|row| !viewer.is(row.owner_id) && access::feeds_carry(viewer, &row.facts()))
                 .collect();
+            viewer.drop_newly_locked(core, &mut rows, ShortRow::lock_facts).await?;
             let rows = self.without_hidden(viewer, rows).await?;
             out.extend(self.feed_items(viewer, &rows, &placements).await?);
         }
@@ -312,27 +313,26 @@ impl Shorts {
     ) -> AppResult<(Vec<FeedItem>, PageInfo)> {
         let before: Option<(Time, Uuid)> = page.decode()?;
         let seen = self.seen_to_skip(viewer, skip_seen).await?;
-        let mut rows: Vec<ShortRow> = sqlx::query_as(concat!(
-            "SELECT ",
-            short_columns!(),
-            " FROM shorts s
+        let mut rows: Vec<ShortRow> = viewer
+            .query_as(concat!(
+                "SELECT ",
+                short_columns!(),
+                " FROM shorts s
               WHERE s.channel_id IN (SELECT f.channel_id FROM short_follows f WHERE f.user_id = $1) AND ",
-            access::in_feed!(2, 3),
-            " AND NOT (s.id = ANY($4))
+                access::in_feed!(),
+                " AND NOT (s.id = ANY($7))
               AND NOT EXISTS (SELECT 1 FROM short_hidden x WHERE x.user_id = $1 AND x.short_id = s.id)
-              AND ($5::timestamptz IS NULL OR (s.published_at, s.id) < ($5, $6))
-              ORDER BY s.published_at DESC, s.id DESC LIMIT $7"
-        ))
-        .bind(viewer.user_id)
-        .bind(&viewer.friends)
-        .bind(&viewer.blocked)
-        .bind(&seen)
-        .bind(before.map(|(at, _)| at))
-        .bind(before.map(|(_, id)| id))
-        .bind(page.fetch())
-        .fetch_all(&self.core.db)
-        .await?;
+              AND ($8::timestamptz IS NULL OR (s.published_at, s.id) < ($8, $9))
+              ORDER BY s.published_at DESC, s.id DESC LIMIT $10"
+            ))
+            .bind(&seen)
+            .bind(before.map(|(at, _)| at))
+            .bind(before.map(|(_, id)| id))
+            .bind(page.fetch())
+            .fetch_all(&self.core.db)
+            .await?;
         let info = page.finish(&mut rows, |row| (row.published_at.unwrap_or(row.created_at), row.id));
+        viewer.drop_newly_locked(&self.core, &mut rows, ShortRow::lock_facts).await?;
         let items = self.feed_items(viewer, &rows, &HashMap::new()).await?;
         Ok((items, info))
     }
@@ -345,26 +345,25 @@ impl Shorts {
             return Ok((Vec::new(), PageInfo::default()));
         }
         let seen = self.seen_to_skip(viewer, skip_seen).await?;
-        let mut rows: Vec<ShortRow> = sqlx::query_as(concat!(
-            "SELECT ",
-            short_columns!(),
-            " FROM shorts s WHERE s.owner_id = ANY($2) AND ",
-            access::in_feed!(2, 3),
-            " AND NOT (s.id = ANY($4))
+        let mut rows: Vec<ShortRow> = viewer
+            .query_as(concat!(
+                "SELECT ",
+                short_columns!(),
+                " FROM shorts s WHERE s.owner_id = ANY($2) AND ",
+                access::in_feed!(),
+                " AND NOT (s.id = ANY($7))
               AND NOT EXISTS (SELECT 1 FROM short_hidden x WHERE x.user_id = $1 AND x.short_id = s.id)
-              AND ($5::timestamptz IS NULL OR (s.published_at, s.id) < ($5, $6))
-              ORDER BY s.published_at DESC, s.id DESC LIMIT $7"
-        ))
-        .bind(viewer.user_id)
-        .bind(&viewer.friends)
-        .bind(&viewer.blocked)
-        .bind(&seen)
-        .bind(before.map(|(at, _)| at))
-        .bind(before.map(|(_, id)| id))
-        .bind(page.fetch())
-        .fetch_all(&self.core.db)
-        .await?;
+              AND ($8::timestamptz IS NULL OR (s.published_at, s.id) < ($8, $9))
+              ORDER BY s.published_at DESC, s.id DESC LIMIT $10"
+            ))
+            .bind(&seen)
+            .bind(before.map(|(at, _)| at))
+            .bind(before.map(|(_, id)| id))
+            .bind(page.fetch())
+            .fetch_all(&self.core.db)
+            .await?;
         let info = page.finish(&mut rows, |row| (row.published_at.unwrap_or(row.created_at), row.id));
+        viewer.drop_newly_locked(&self.core, &mut rows, ShortRow::lock_facts).await?;
         let placements: HashMap<Uuid, Placement> =
             rows.iter().map(|row| (row.id, Placement { name_friend: true, ..Default::default() })).collect();
         let items = self.feed_items(viewer, &rows, &placements).await?;

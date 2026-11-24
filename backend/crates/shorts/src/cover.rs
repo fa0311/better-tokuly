@@ -162,13 +162,13 @@ impl Shorts {
             _ => None,
         };
         // Everything the change needs from elsewhere is read before the transaction.
-        let waiting: Option<(Uuid, Uuid)> =
-            sqlx::query_as("SELECT channel_id, owner_id FROM shorts WHERE cover_pending_asset_id = $1")
+        let waiting: Option<(Uuid, Uuid, Option<Uuid>)> =
+            sqlx::query_as("SELECT channel_id, owner_id, circle_id FROM shorts WHERE cover_pending_asset_id = $1")
                 .bind(asset_id)
                 .fetch_optional(&core.db)
                 .await?;
-        let Some((channel_id, owner_id)) = waiting else { return Ok(false) };
-        let context = listing::Context::of(core, channel_id, owner_id).await?;
+        let Some((channel_id, owner_id, circle_id)) = waiting else { return Ok(false) };
+        let context = listing::Context::of(core, channel_id, owner_id, circle_id).await?;
         let mut tx = core.db.begin().await?;
         let short_id: Option<Uuid> = match &frame {
             Some(image) => {

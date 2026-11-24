@@ -62,7 +62,10 @@ CREATE TABLE shorts (
     cover_offset_ms        integer,
     -- FRAME: the extracted frame while the media domain processes it.
     cover_pending_asset_id uuid,
-    visibility             integer          NOT NULL DEFAULT 4 CHECK (visibility BETWEEN 1 AND 5),
+    -- tokuly.common.v1.Visibility (1 public … 5 private, 6 followers,
+    -- 7 close friends, 8 circle), with `circle_id` for a circle.
+    visibility             integer          NOT NULL DEFAULT 4 CHECK (visibility BETWEEN 1 AND 8),
+    circle_id              uuid,
     comments_enabled       boolean          NOT NULL DEFAULT true,
     allow_remix            boolean          NOT NULL DEFAULT true,
     allow_duet             boolean          NOT NULL DEFAULT true,
@@ -111,8 +114,13 @@ CREATE TABLE shorts (
     -- The owner's account is suspended (mirrors identity.user.banned /
     -- unbanned): hidden from everyone else.
     suspended              boolean          NOT NULL DEFAULT false,
-    -- The short is public right now and therefore counted in its hashtags'
-    -- and its sound's `use_count` and in the `remix_count` of its original.
+    -- The owner's account is locked (copy of the social domain's follow
+    -- settings, kept on social.follow.settings_changed): open shorts reach
+    -- only the owner's followers and friends.
+    owner_locked           boolean          NOT NULL DEFAULT false,
+    -- The short is public right now (and its owner not locked) and
+    -- therefore counted in its hashtags' and its sound's `use_count` and in
+    -- the `remix_count` of its original.
     listed                 boolean          NOT NULL DEFAULT false,
     -- When friends were told and the subscriber notifications were set off;
     -- set once.
@@ -126,7 +134,8 @@ CREATE TABLE shorts (
     published_at           timestamptz,
     attrs                  jsonb            NOT NULL DEFAULT '{}',
     created_at             timestamptz      NOT NULL DEFAULT now(),
-    updated_at             timestamptz      NOT NULL DEFAULT now()
+    updated_at             timestamptz      NOT NULL DEFAULT now(),
+    CONSTRAINT shorts_circle_audience CHECK ((visibility = 8) = (circle_id IS NOT NULL))
 );
 
 ALTER TABLE short_sounds
@@ -163,7 +172,7 @@ CREATE INDEX shorts_active ON shorts (id) WHERE listed AND trending > 0;
 
 -- `updated_at` means "the creator changed it": counters and scores do not touch it.
 CREATE TRIGGER shorts_updated_at
-    BEFORE UPDATE OF caption, cover, cover_kind, visibility, comments_enabled, allow_remix, allow_duet, pinned_at ON shorts
+    BEFORE UPDATE OF caption, cover, cover_kind, visibility, circle_id, comments_enabled, allow_remix, allow_duet, pinned_at ON shorts
     FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

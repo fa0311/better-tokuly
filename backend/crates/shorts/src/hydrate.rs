@@ -121,6 +121,7 @@ pub async fn shorts(core: &Core, viewer: &Viewer, rows: &[ShortRow]) -> AppResul
                 cover_offset_ms: row.cover_offset_ms.unwrap_or(0),
                 cover_pending: row.cover_kind == COVER_FRAME && row.cover_asset_id.is_none(),
                 notify_subscribers: row.notify_subscribers,
+                circle_id: row.circle_id.map(|id| id.to_string()).unwrap_or_default(),
                 ..Default::default()
             });
             let remix_of = (row.remix_kind != 0).then(|| {
@@ -159,7 +160,7 @@ pub async fn shorts(core: &Core, viewer: &Viewer, rows: &[ShortRow]) -> AppResul
                 duration_seconds: row.duration_seconds,
                 width: row.width,
                 height: row.height,
-                visibility: row.visibility.into(),
+                visibility: tokuly_video::access::shown_visibility(row.visibility, is_owner).into(),
                 status: row.status.into(),
                 comments_enabled: row.comments_enabled,
                 allow_remix: row.allow_remix,

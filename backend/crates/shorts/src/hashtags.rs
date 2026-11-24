@@ -144,23 +144,24 @@ pub async fn shorts_page(
 ) -> AppResult<(Vec<ShortRow>, PageInfo)> {
     if sort == HashtagSort::HASHTAG_SORT_RECENT {
         let before: Option<(Time, Uuid)> = page.decode()?;
-        let mut rows: Vec<ShortRow> = sqlx::query_as(concat!(
-            "SELECT ",
-            short_columns!(),
-            " FROM short_hashtag_uses u JOIN shorts s ON s.id = u.short_id
-              WHERE u.hashtag_id = $1 AND ",
-            access::public!(2),
-            " AND ($3::timestamptz IS NULL OR (u.published_at, u.short_id) < ($3, $4))
-              ORDER BY u.published_at DESC, u.short_id DESC LIMIT $5"
-        ))
-        .bind(hashtag_id)
-        .bind(&viewer.blocked)
-        .bind(before.map(|(at, _)| at))
-        .bind(before.map(|(_, id)| id))
-        .bind(page.fetch())
-        .fetch_all(&core.db)
-        .await?;
+        let mut rows: Vec<ShortRow> = viewer
+            .query_as(concat!(
+                "SELECT ",
+                short_columns!(),
+                " FROM short_hashtag_uses u JOIN shorts s ON s.id = u.short_id
+              WHERE u.hashtag_id = $7 AND ",
+                access::public!(),
+                " AND ($8::timestamptz IS NULL OR (u.published_at, u.short_id) < ($8, $9))
+              ORDER BY u.published_at DESC, u.short_id DESC LIMIT $10"
+            ))
+            .bind(hashtag_id)
+            .bind(before.map(|(at, _)| at))
+            .bind(before.map(|(_, id)| id))
+            .bind(page.fetch())
+            .fetch_all(&core.db)
+            .await?;
         let info = page.finish(&mut rows, |row| (row.published_at.unwrap_or(row.created_at), row.id));
+        viewer.drop_newly_locked(core, &mut rows, ShortRow::lock_facts).await?;
         return Ok((rows, info));
     }
     // The score moves with every ranking run: page on a snapshot of the order.
@@ -175,7 +176,11 @@ pub async fn shorts_page(
         .await?;
         Ok(ids)
     };
-    snapshot::read(core, &top_key(hashtag_id), page, build, |row| access::sees_public(viewer, &row.facts())).await
+    let (mut rows, info) =
+        snapshot::read(core, &top_key(hashtag_id), page, build, |row| access::sees_public(viewer, &row.facts()))
+            .await?;
+    viewer.drop_newly_locked(core, &mut rows, ShortRow::lock_facts).await?;
+    Ok((rows, info))
 }
 
 /// Where the snapshot of a hashtag's TOP order is kept.

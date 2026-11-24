@@ -50,6 +50,7 @@ pub mod hashtags;
 pub mod hydrate;
 pub mod library;
 pub mod listing;
+pub mod locks;
 pub mod ranking;
 pub mod shorts;
 pub mod signals;

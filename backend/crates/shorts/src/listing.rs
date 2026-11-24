@@ -5,13 +5,15 @@
 //! them up to date through [`after_change_in`] or [`unlist_in`]:
 //!
 //! - **the `listed` flag**: the short is public right now (PUBLISHED,
-//!   PUBLIC, not suspended). While it is set, the short is counted in its
+//!   PUBLIC, not suspended, its owner not locked). While it is set, the short is counted in its
 //!   sound's `use_count` and in the `remix_count` of the short it remixes;
 //! - **hashtag pages**: a public short has one `short_hashtag_uses` row per
 //!   hashtag, and each hashtag's `use_count` counts those rows;
 //! - **the search document** (`kind: "short"`), present while public;
 //! - **the announcement**, made once, the first time the short is published
-//!   and PUBLIC or FRIENDS: an activity entry for the owner's friends and
+//!   and PUBLIC or shared with an audience (followers, friends, close
+//!   friends, a circle): an activity entry for the owner's friends (the
+//!   owner's own for close friends and circles) and
 //!   `shorts.short.published` with `first_publication`, from which the
 //!   subscriber notifications fan out (see `workers`);
 //! - **mention notifications**: each mentioned account is told once, the
@@ -32,38 +34,133 @@ use tokuly_proto::common::SubjectType;
 use tokuly_social::graph;
 use tokuly_video::channels::{self, ChannelRow};
 
+use std::collections::HashSet;
+
+use tokuly_social::graph::ContentAudience;
+
 use crate::{
     access::{self, FRIENDS, PUBLIC},
-    events::SHORT_PUBLISHED,
+    events::{SHORT_PUBLISHED, SHORT_VISIBILITY_CHANGED, ShortVisibilityChanged},
     shorts::{self, ShortRow, Tx},
     text,
 };
 
 /// What a change to a short needs to know from other domains: the channel
-/// it is on, and the owner's friends and blocks (who may be told about it).
-/// Loaded before the transaction of the change begins.
+/// it is on, whether the owner is locked, who is in the owner's audiences
+/// and who is in a block with them (who may be told about it). Loaded
+/// before the transaction of the change begins.
 #[derive(Debug, Clone, Default)]
 pub struct Context {
     /// `None` when the channel is gone already (its shorts are deleted
     /// right after it): nothing is published in its name then.
     pub channel: Option<ChannelRow>,
+    /// The owner's account is locked, as the social domain says now.
+    pub locked: bool,
     /// The owner's friends.
-    pub friends: Vec<Uuid>,
+    pub friends: HashSet<Uuid>,
+    /// The owner's followers and friends.
+    pub tied: HashSet<Uuid>,
+    /// The owner's close friends (still tied to them).
+    pub close_friends: HashSet<Uuid>,
+    /// The members of the circle the short is (about to be) shared with.
+    pub circle: Option<(Uuid, HashSet<Uuid>)>,
     /// Users in a block with the owner, either way.
     pub hidden: Vec<Uuid>,
 }
 
 impl Context {
     pub async fn load(core: &Core, short: &ShortRow) -> AppResult<Self> {
-        Self::of(core, short.channel_id, short.owner_id).await
+        Self::of(core, short.channel_id, short.owner_id, short.circle_id).await
     }
 
-    pub async fn of(core: &Core, channel_id: Uuid, owner_id: Uuid) -> AppResult<Self> {
+    /// `circle_id`: the circle the short is or will be shared with, if any.
+    pub async fn of(core: &Core, channel_id: Uuid, owner_id: Uuid, circle_id: Option<Uuid>) -> AppResult<Self> {
         let channel = channels::find_by_id(core, channel_id).await?;
-        let (friends, hidden) =
-            tokio::try_join!(graph::friend_ids(core, owner_id), graph::blocked_ids_either(core, owner_id))?;
-        Ok(Self { channel, friends, hidden })
+        let (friends, tied, close_friends, hidden, locked) = tokio::try_join!(
+            graph::friend_ids(core, owner_id),
+            graph::audience_member_ids(core, owner_id, ContentAudience::Followers),
+            graph::audience_member_ids(core, owner_id, ContentAudience::CloseFriends),
+            graph::blocked_ids_either(core, owner_id),
+            tokuly_video::access::is_locked_now(core, owner_id),
+        )?;
+        let circle = match circle_id {
+            Some(circle_id) => Some((
+                circle_id,
+                graph::audience_member_ids(core, owner_id, ContentAudience::Circle(circle_id))
+                    .await?
+                    .into_iter()
+                    .collect(),
+            )),
+            None => None,
+        };
+        Ok(Self {
+            channel,
+            locked,
+            friends: friends.into_iter().collect(),
+            tied: tied.into_iter().collect(),
+            close_friends: close_friends.into_iter().collect(),
+            circle,
+            hidden,
+        })
     }
+
+    /// Who besides the owner is in `audience` (`None`: everyone), people in
+    /// a block with the owner left out. Sorted.
+    pub fn members(&self, audience: ContentAudience) -> Option<Vec<Uuid>> {
+        let members: Vec<Uuid> = match audience {
+            ContentAudience::Public => return None,
+            ContentAudience::Followers => self.tied.iter().copied().collect(),
+            ContentAudience::Friends => self.friends.iter().copied().collect(),
+            ContentAudience::CloseFriends => self.close_friends.iter().copied().collect(),
+            ContentAudience::Circle(id) => match &self.circle {
+                Some((circle_id, members)) if *circle_id == id => members.iter().copied().collect(),
+                _ => Vec::new(),
+            },
+            ContentAudience::Private => Vec::new(),
+        };
+        let mut members: Vec<Uuid> = members.into_iter().filter(|id| !self.hidden.contains(id)).collect();
+        members.sort_unstable();
+        Some(members)
+    }
+
+    /// Whether `user_id` (not the owner) may open `row` as it is now.
+    pub fn reaches(&self, row: &ShortRow, user_id: Uuid) -> bool {
+        if row.status != access::PUBLISHED || row.suspended || self.hidden.contains(&user_id) {
+            return false;
+        }
+        match self.members(row.audience(self.locked)) {
+            None => true,
+            Some(members) => members.binary_search(&user_id).is_ok(),
+        }
+    }
+}
+
+/// Emits `shorts.short.visibility_changed` for a published short whose
+/// audience went from `before` to `after` (nothing when it did not).
+pub(crate) async fn announce_audience_in(
+    tx: &mut Tx<'_>,
+    before: &ShortRow,
+    after: &ShortRow,
+    context: &Context,
+) -> AppResult<()> {
+    let (was, now) = (before.audience(before.owner_locked), after.audience(after.owner_locked));
+    if !(before.is_published() && after.is_published() && was != now) {
+        return Ok(());
+    }
+    emit_visibility_changed_in(tx, after, context.members(now)).await
+}
+
+/// Emits `shorts.short.visibility_changed` for `row` as it is now.
+pub(crate) async fn emit_visibility_changed_in(
+    tx: &mut Tx<'_>,
+    row: &ShortRow,
+    visible_to: Option<Vec<Uuid>>,
+) -> AppResult<()> {
+    let changed_at: Time = sqlx::query_scalar("SELECT clock_timestamp()").fetch_one(&mut **tx).await?;
+    let mut short = row.event(false, "");
+    short.visibility = row.effective_visibility();
+    let payload = ShortVisibilityChanged { short, visible_to, changed_at };
+    core_events::emit(&mut **tx, SHORT_VISIBILITY_CHANGED, Some(row.owner_id), &payload).await
 }
 
 /// Brings everything derived from a short up to date after a change to it.
@@ -94,7 +191,7 @@ pub(crate) async fn after_change_in(
     let announce = row.is_published()
         && !row.suspended
         && row.announced_at.is_none()
-        && matches!(row.visibility, PUBLIC | FRIENDS)
+        && matches!(row.visibility, PUBLIC | FRIENDS | access::FOLLOWERS | access::CLOSE_FRIENDS | access::CIRCLE)
         && channel.is_some();
     if announce && let Some(channel) = channel {
         let at: Time =
@@ -246,11 +343,17 @@ fn activity_entry(row: &ShortRow, channel: &ChannelRow) -> outbound::ActivityEnt
     } else {
         outbound::Localized::new(format!("ショートを投稿したよ!「{caption}」"), format!("posted a short: {caption}"))
     };
-    let mut entry =
-        outbound::ActivityEntry::new(row.owner_id, "short.published", outbound::ActivityAudience::Friends, summary)
-            .subject(SubjectType::SUBJECT_TYPE_SHORT, row.id)
-            .path(row.path())
-            .data(short_data(row, channel));
+    // Friends are inside the public, followers and friends audiences; the
+    // feed cannot tell who is in a circle, so those entries are the owner's.
+    let audience = if matches!(row.visibility, access::CLOSE_FRIENDS | access::CIRCLE) {
+        outbound::ActivityAudience::Private
+    } else {
+        outbound::ActivityAudience::Friends
+    };
+    let mut entry = outbound::ActivityEntry::new(row.owner_id, "short.published", audience, summary)
+        .subject(SubjectType::SUBJECT_TYPE_SHORT, row.id)
+        .path(row.path())
+        .data(short_data(row, channel));
     if let Some(url) = row.cover_url() {
         entry = entry.image(url);
     }
@@ -269,14 +372,13 @@ async fn notify_mentions_in(
     if !row.is_published() || row.suspended {
         return Ok(());
     }
-    let facts = row.facts();
     let mut told: Vec<Uuid> = Vec::new();
     for mention in row.mentions() {
         let recipient = mention.user_id;
         let already = row.mentions_told.contains(&recipient) || told.contains(&recipient);
         // A block made after the caption was written still counts.
         let barred = recipient == row.owner_id || context.hidden.contains(&recipient);
-        if already || barred || !access::reaches(&facts, context.friends.contains(&recipient)) {
+        if already || barred || !context.reaches(row, recipient) {
             continue;
         }
         let caption = text::excerpt(&row.caption, 60);

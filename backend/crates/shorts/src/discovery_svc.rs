@@ -35,19 +35,17 @@ impl Shorts {
     /// The pinned shorts of a channel that `viewer` sees on its grid, the
     /// newest pin first.
     async fn pinned(&self, viewer: &Viewer, channel_id: Uuid) -> AppResult<Vec<ShortRow>> {
-        Ok(sqlx::query_as(concat!(
-            "SELECT ",
-            short_columns!(),
-            " FROM shorts s WHERE s.channel_id = $4 AND s.pinned_at IS NOT NULL AND ",
-            access::listed!(1, 2, 3),
-            " ORDER BY s.pinned_at DESC, s.id DESC"
-        ))
-        .bind(viewer.user_id)
-        .bind(&viewer.friends)
-        .bind(&viewer.blocked)
-        .bind(channel_id)
-        .fetch_all(&self.core.db)
-        .await?)
+        Ok(viewer
+            .query_as(concat!(
+                "SELECT ",
+                short_columns!(),
+                " FROM shorts s WHERE s.channel_id = $7 AND s.pinned_at IS NOT NULL AND ",
+                access::listed!(),
+                " ORDER BY s.pinned_at DESC, s.id DESC"
+            ))
+            .bind(channel_id)
+            .fetch_all(&self.core.db)
+            .await?)
     }
 }
 
@@ -73,24 +71,23 @@ impl ShortDiscoveryService for Shorts {
             );
             let page = Page::from_view(request.page.as_option(), MAX_PAGE);
             let before: Option<(Time, Uuid)> = page.decode()?;
-            let mut rows: Vec<ShortRow> = sqlx::query_as(concat!(
-                "SELECT ",
-                short_columns!(),
-                " FROM shorts s WHERE s.owner_id = $4 AND ",
-                access::listed!(1, 2, 3),
-                " AND ($5::timestamptz IS NULL OR (s.published_at, s.id) < ($5, $6))
-                  ORDER BY s.published_at DESC, s.id DESC LIMIT $7"
-            ))
-            .bind(viewer.user_id)
-            .bind(&viewer.friends)
-            .bind(&viewer.blocked)
-            .bind(user.id)
-            .bind(before.map(|(at, _)| at))
-            .bind(before.map(|(_, id)| id))
-            .bind(page.fetch())
-            .fetch_all(&core.db)
-            .await?;
+            let mut rows: Vec<ShortRow> = viewer
+                .query_as(concat!(
+                    "SELECT ",
+                    short_columns!(),
+                    " FROM shorts s WHERE s.owner_id = $7 AND ",
+                    access::listed!(),
+                    " AND ($8::timestamptz IS NULL OR (s.published_at, s.id) < ($8, $9))
+                  ORDER BY s.published_at DESC, s.id DESC LIMIT $10"
+                ))
+                .bind(user.id)
+                .bind(before.map(|(at, _)| at))
+                .bind(before.map(|(_, id)| id))
+                .bind(page.fetch())
+                .fetch_all(&core.db)
+                .await?;
             let info = page.finish(&mut rows, |row| (row.published_at.unwrap_or(row.created_at), row.id));
+            viewer.drop_newly_locked(core, &mut rows, ShortRow::lock_facts).await?;
             ok(ListUserShortsResponse {
                 shorts: hydrate::shorts(core, &viewer, &rows).await?,
                 page: info.into(),
@@ -111,7 +108,7 @@ impl ShortDiscoveryService for Shorts {
             let channel = channels::find_visible(core, &viewer, request.channel_id).await?;
             let page = Page::from_view(request.page.as_option(), MAX_PAGE);
             let popular = request.sort == ChannelShortSort::CHANNEL_SHORT_SORT_POPULAR;
-            let (rows, info) = if popular {
+            let (mut rows, info) = if popular {
                 // View counts move all the time: page on a snapshot of the order.
                 let channel_id = channel.id;
                 let build = || async move {
@@ -133,26 +130,25 @@ impl ShortDiscoveryService for Shorts {
                 let before: Option<(Time, Uuid)> = page.decode()?;
                 let pinned = if before.is_none() { self.pinned(&viewer, channel.id).await? } else { Vec::new() };
                 let rest = Page { limit: (page.limit - pinned.len() as i64).max(1), cursor: page.cursor.clone() };
-                let mut rows: Vec<ShortRow> = sqlx::query_as(concat!(
-                    "SELECT ",
-                    short_columns!(),
-                    " FROM shorts s WHERE s.channel_id = $4 AND s.pinned_at IS NULL AND ",
-                    access::listed!(1, 2, 3),
-                    " AND ($5::timestamptz IS NULL OR (s.published_at, s.id) < ($5, $6))
-                      ORDER BY s.published_at DESC, s.id DESC LIMIT $7"
-                ))
-                .bind(viewer.user_id)
-                .bind(&viewer.friends)
-                .bind(&viewer.blocked)
-                .bind(channel.id)
-                .bind(before.map(|(at, _)| at))
-                .bind(before.map(|(_, id)| id))
-                .bind(rest.fetch())
-                .fetch_all(&core.db)
-                .await?;
+                let mut rows: Vec<ShortRow> = viewer
+                    .query_as(concat!(
+                        "SELECT ",
+                        short_columns!(),
+                        " FROM shorts s WHERE s.channel_id = $7 AND s.pinned_at IS NULL AND ",
+                        access::listed!(),
+                        " AND ($8::timestamptz IS NULL OR (s.published_at, s.id) < ($8, $9))
+                      ORDER BY s.published_at DESC, s.id DESC LIMIT $10"
+                    ))
+                    .bind(channel.id)
+                    .bind(before.map(|(at, _)| at))
+                    .bind(before.map(|(_, id)| id))
+                    .bind(rest.fetch())
+                    .fetch_all(&core.db)
+                    .await?;
                 let info = rest.finish(&mut rows, |row| (row.published_at.unwrap_or(row.created_at), row.id));
                 (pinned.into_iter().chain(rows).collect(), info)
             };
+            viewer.drop_newly_locked(core, &mut rows, ShortRow::lock_facts).await?;
             ok(ListChannelShortsResponse {
                 shorts: hydrate::shorts(core, &viewer, &rows).await?,
                 page: info.into(),

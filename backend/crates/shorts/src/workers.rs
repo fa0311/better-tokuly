@@ -44,9 +44,9 @@ use crate::{
     events::{
         ASSET_DELETED, ASSET_FAILED, ASSET_READY, AnnounceJob, CHANNEL_DELETED, CHANNEL_SUBSCRIBED,
         CHANNEL_UNSUBSCRIBED, COMMENT_PUBLISHED, CONTENT_REMOVED, ChannelDeleted, ChannelSubscribed, CommentPublished,
-        ContentRemoved, CoverJob, JOB_ANNOUNCE, JOB_COVER, JOB_REINDEX, REACTION_CHANGED, REINDEX_REQUESTED,
-        REPORT_CREATED, ReactionChanged, ReindexJob, ReindexRequested, ReportCreated, SHORT_PUBLISHED, ShortEvent,
-        USER_BANNED, USER_BLOCKED, USER_DELETED, USER_UNBANNED, UserBlocked, UserRef,
+        ContentRemoved, CoverJob, FOLLOW_SETTINGS_CHANGED, JOB_ANNOUNCE, JOB_COVER, JOB_REINDEX, REACTION_CHANGED,
+        REINDEX_REQUESTED, REPORT_CREATED, ReactionChanged, ReindexJob, ReindexRequested, ReportCreated,
+        SHORT_PUBLISHED, ShortEvent, USER_BANNED, USER_BLOCKED, USER_DELETED, USER_UNBANNED, UserBlocked, UserRef,
     },
     hashtags, listing, ranking,
     shorts::{self, Removal, ShortRow, short_columns},
@@ -94,6 +94,7 @@ impl Shorts {
                     USER_BANNED,
                     USER_UNBANNED,
                     USER_BLOCKED,
+                    FOLLOW_SETTINGS_CHANGED,
                     CONTENT_REMOVED,
                     CHANNEL_DELETED,
                     CHANNEL_SUBSCRIBED,
@@ -266,6 +267,7 @@ impl Shorts {
                 let blocked: UserBlocked = event.data()?;
                 self.on_user_blocked(blocked.user_id, blocked.blocked_id).await
             }
+            FOLLOW_SETTINGS_CHANGED => self.sync_owner_lock(event.data::<UserRef>()?.user_id).await.map(drop),
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
             CHANNEL_DELETED => self.on_channel_deleted(event.data::<ChannelDeleted>()?.channel_id).await,
             CHANNEL_SUBSCRIBED | CHANNEL_UNSUBSCRIBED => {
@@ -617,8 +619,10 @@ impl Shorts {
     ///
     /// Who hears what: level ALL gets inbox and push; PERSONALIZED gets the
     /// inbox entry, and the push only if they liked or saved one of the
-    /// channel's shorts recently; NONE gets nothing. A friends-only short is
-    /// announced to subscribers who are friends of the owner. A channel
+    /// channel's shorts recently; NONE gets nothing. A short shared with an
+    /// audience (friends, followers, close friends, a circle — or a public
+    /// short of a locked account, which reaches followers) is announced to
+    /// the subscribers in that audience only. A channel
     /// announces a few shorts a day (`announcements_per_day`), not every one.
     ///
     /// How far the notifications got is stored with the short
@@ -629,7 +633,12 @@ impl Shorts {
     pub async fn announce(&self, job: AnnounceJob) -> AppResult<u64> {
         let core = &self.core;
         let Some(short) = shorts::find_by_id(core, job.short_id).await? else { return Ok(0) };
-        let audience_exists = short.is_published() && !short.suspended && matches!(short.visibility, PUBLIC | FRIENDS);
+        let audience_exists = short.is_published()
+            && !short.suspended
+            && matches!(
+                short.visibility,
+                PUBLIC | FRIENDS | access::FOLLOWERS | access::CLOSE_FRIENDS | access::CIRCLE
+            );
         if !audience_exists || !short.notify_subscribers {
             return Ok(0);
         }
@@ -644,10 +653,8 @@ impl Shorts {
         // Both lists are sorted by user ID; everyone at ALL is also in the wider one.
         let listeners = channels::subscriber_ids(core, channel.id, NotifyLevel::Personalized).await?;
         let pushed = channels::subscriber_ids(core, channel.id, NotifyLevel::All).await?;
-        let hidden = graph::blocked_ids_either(core, short.owner_id).await?;
-        let friends =
-            if short.visibility == FRIENDS { Some(graph::friend_ids(core, short.owner_id).await?) } else { None };
-        let facts = short.facts();
+        // Who is in the short's audience now (the lock as the social domain knows it).
+        let context = listing::Context::load(core, &short).await?;
 
         let batch_size = self.cfg.announce_batch_size.max(1) as usize;
         let mut notified = 0;
@@ -682,8 +689,7 @@ impl Shorts {
                 return Ok(notified);
             }
             for user_id in batch {
-                let is_friend = friends.as_ref().is_some_and(|friends| friends.contains(user_id));
-                if hidden.contains(user_id) || !access::reaches(&facts, is_friend) {
+                if *user_id == short.owner_id || !context.reaches(&short, *user_id) {
                     continue;
                 }
                 let push = pushed.binary_search(user_id).is_ok() || engaged.contains(user_id);

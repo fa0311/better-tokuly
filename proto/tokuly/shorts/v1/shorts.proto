@@ -17,7 +17,17 @@ syntax = "proto3";
 //   UNLISTED  everyone with the link; listed nowhere
 //   FRIENDS   friends of the channel's owner: on the grid, in their friends
 //             feed and (if they subscribe) their following feed
+//   FOLLOWERS the owner's followers and friends (tokuly.social.v1), listed
+//             for them like FRIENDS; CLOSE_FRIENDS the owner's close
+//             friends; CIRCLE (with `circle_id`) one custom circle of the
+//             owner, shown to its members as FOLLOWERS
 //   PRIVATE   the owner
+// Locked accounts (tokuly.social.v1 FollowSettings.locked): the PUBLIC,
+// NO_FEED and UNLISTED shorts of a locked account reach only its followers
+// and friends from the next read after the lock, and leave hashtag pages,
+// sound pages (and their counts), remix lists, for-you feeds and search.
+// Its channels stay visible (a channel never reveals its owner) and look
+// like channels without shorts to everyone else.
 //
 // Every `short_id` field accepts the UUID or the 11-character short ID;
 // every `channel_id` field the channel's UUID or handle (with or without a
@@ -228,6 +238,8 @@ message ShortStudioInfo {
   bool cover_pending = 4;
   // Subscribers are told when the short first goes public.
   bool notify_subscribers = 5;
+  // VISIBILITY_CIRCLE: the caller's circle the short is shared with.
+  string circle_id = 8;
 
   // How the short is watched is not here: live numbers would give away how
   // the latest viewer watched. See ShortAnalyticsService.
@@ -255,6 +267,8 @@ message Short {
   // landscape ones (at most 16:9) are centre-cropped by clients.
   int32 width = 11;
   int32 height = 12;
+  // See the file comment. To anyone but the owner a CIRCLE short reads as
+  // FOLLOWERS.
   tokuly.common.v1.Visibility visibility = 13;
   ShortStatus status = 14;
   // Comments are accepted (engagement service, `SUBJECT_TYPE_SHORT`). The
@@ -358,6 +372,9 @@ message CreateShortRequest {
   RemixInput remix = 11;
   // Unset = subscribers are told when the short first goes public.
   optional bool notify_subscribers = 12;
+  // For VISIBILITY_CIRCLE: one of the caller's circles (CIRCLE_REQUIRED
+  // without one, CIRCLE_NOT_FOUND for anyone else's).
+  string circle_id = 13;
 }
 
 message CreateShortResponse {
@@ -373,6 +390,8 @@ message UpdateShortRequest {
   optional bool allow_duet = 6;
   // Unset = keep the cover.
   CoverInput cover = 7;
+  // With `visibility` = VISIBILITY_CIRCLE: one of the caller's circles.
+  string circle_id = 8;
 }
 
 message UpdateShortResponse {
