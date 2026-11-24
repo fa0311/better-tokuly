@@ -958,7 +958,11 @@ message Report {
   string id = 1;
   // What was reported (`id` is the subject's UUID).
   tokuly.common.v1.SubjectRef subject = 2;
-  // Title and path of the subject when it was reported; it may be gone by now.
+  // Title and path of the subject when it was reported, as the reporter
+  // could see it then; it may be gone by now. Content withdrawn or hidden
+  // from the reporter by then is titled with what it was (「コメント」,
+  // 「メッセージ」, 「投稿」), never with what it said: the versions go to
+  // the moderation team only.
   string subject_title = 3;
   string subject_path = 4;
   ReportCategory category = 5;
@@ -973,11 +977,12 @@ service ReportService {
   // Reports a subject — content, a comment (`SUBJECT_TYPE_COMMENT`) or a
   // user (`SUBJECT_TYPE_USER`, by UUID or handle) — to the moderation team.
   // A comment can be reported by whoever had it in front of them also after
-  // a block, and for 30 days after its author edited or deleted it (the
-  // report then carries every version). A user has one open report per
-  // subject. A report that has gone unanswered for a week no longer stands
-  // in the way: reporting the subject again then replaces it (the old one
-  // becomes SUPERSEDED).
+  // it was hidden or a block came between them (not what was written after
+  // the block), and for 30 days after its author edited or deleted it; the
+  // moderation team then gets every version, the reporter none of them. A
+  // user has one open report per subject. A report that has gone unanswered
+  // for a week no longer stands in the way: reporting the subject again
+  // then replaces it (the old one becomes SUPERSEDED).
   //
   // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, REPORT_CATEGORY_INVALID,
   // REPORT_TEXT_TOO_LONG (more than 1000 characters), CANNOT_REPORT_OWN

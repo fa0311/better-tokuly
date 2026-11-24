@@ -10,7 +10,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use tokuly_core::{analytics::AnalyticsEvent, events, prelude::*};
 use tokuly_proto::{
-    common::PageInfo,
+    common::{PageInfo, SubjectType},
     engagement::{Report, ReportCategory, ReportStatus},
 };
 
@@ -74,18 +74,33 @@ pub(crate) fn requested_category(value: buffa::EnumValue<ReportCategory>) -> App
     }
 }
 
+/// What a reporter is shown of a subject they may no longer see (withdrawn,
+/// hidden from them, or behind a block): what it was, never what it said.
+pub(crate) fn withheld_title(kind: SubjectType) -> &'static str {
+    match kind {
+        SubjectType::SUBJECT_TYPE_COMMENT => "コメント",
+        SubjectType::SUBJECT_TYPE_CHAT_MESSAGE => "メッセージ",
+        SubjectType::SUBJECT_TYPE_USER => "アカウント",
+        _ => "投稿",
+    }
+}
+
 /// The category as the admin domain reads it: `SPAM`, `HARASSMENT`, ...
 pub(crate) fn category_name(category: ReportCategory) -> &'static str {
     REPORT_CATEGORIES.get((category as usize).wrapping_sub(1)).copied().unwrap_or("OTHER")
 }
 
 impl Engagement {
-    /// Files a report (`ReportService.CreateReport`). `subject` was
-    /// resolved without regard to blocks.
+    /// Files a report (`ReportService.CreateReport`). `subject` is what the
+    /// reporter received (`SubjectResolver::resolve_for_report`, without
+    /// regard to blocks): its title goes to the moderation team only, as
+    /// `reported_content`. What is stored with the reporter's copy, and
+    /// sent as `subject_title`, is `shown_title`: what they may see now.
     pub(crate) async fn create_report(
         &self,
         reporter_id: Uuid,
         subject: &Subject,
+        shown_title: &str,
         category: ReportCategory,
         text: &str,
     ) -> AppResult<ReportRow> {
@@ -131,7 +146,7 @@ impl Engagement {
         .bind(key.kind)
         .bind(key.id)
         .bind(subject.owner())
-        .bind(&subject.info.title)
+        .bind(shown_title)
         .bind(&subject.info.path)
         .bind(category as i32)
         .bind(&text)
@@ -148,8 +163,9 @@ impl Engagement {
             subject_owner_id: subject.owner(),
             category: category_name(category).to_owned(),
             text,
-            subject_title: subject.info.title.clone(),
+            subject_title: shown_title.to_owned(),
             subject_path: subject.info.path.clone(),
+            reported_content: subject.info.title.clone(),
         };
         events::emit(&mut *tx, REPORT_CREATED, Some(reporter_id), &event).await?;
         tx.commit().await?;

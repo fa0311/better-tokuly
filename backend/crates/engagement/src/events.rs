@@ -45,8 +45,18 @@ pub struct ReportCreated {
     /// One of [`REPORT_CATEGORIES`].
     pub category: String,
     pub text: String,
+    /// What the reporter may see of the subject now — the same title their
+    /// own copy of the report shows: what anyone sees of it, or a generic
+    /// label (「コメント」, 「メッセージ」, …) when it was withdrawn or is
+    /// hidden from them.
     pub subject_title: String,
     pub subject_path: String,
+    /// What the reporter received, as the owning domain kept it for
+    /// moderation: for content edited or withdrawn since, every version
+    /// (`[2版] before → after`). For the moderation team only; it is never
+    /// shown to the reporter, and how long it is kept is the admin
+    /// domain's decision.
+    pub reported_content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +162,7 @@ mod tests {
             text: "宣伝です".into(),
             subject_title: "今日のランチ".into(),
             subject_path: "/notes/abc".into(),
+            reported_content: "[2版] 今日のランチ → 昨日のランチ".into(),
         };
         assert_eq!(
             serde_json::to_value(&event).unwrap(),
@@ -165,6 +176,7 @@ mod tests {
                 "text": "宣伝です",
                 "subject_title": "今日のランチ",
                 "subject_path": "/notes/abc",
+                "reported_content": "[2版] 今日のランチ → 昨日のランチ",
             })
         );
         let ownerless = ReportCreated { subject_owner_id: None, ..event };

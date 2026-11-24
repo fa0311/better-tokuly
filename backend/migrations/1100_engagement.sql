@@ -109,10 +109,16 @@ CREATE TABLE comment_removed_texts (
     author_id        uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     -- 1: an edit replaced it; 2: the comment was deleted.
     reason           smallint    NOT NULL CHECK (reason IN (1, 2)),
+    -- For an edit: which edit of the comment replaced it (1 = the first).
+    -- The first ten and the latest ten are kept; numbers tell the gap.
+    version          integer     NOT NULL DEFAULT 0,
     text             text        NOT NULL,
     -- For a deletion: whether the comment had been in public view, so that
     -- everyone who sees the subject may have read it.
     was_public       boolean     NOT NULL DEFAULT false,
+    -- When the comment was written: a comment written after a block began
+    -- never reached the other side of it.
+    written_at       timestamptz NOT NULL,
     removed_at       timestamptz NOT NULL DEFAULT now()
 );
 

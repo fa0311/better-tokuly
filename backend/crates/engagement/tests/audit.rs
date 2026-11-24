@@ -47,6 +47,17 @@ impl Ctx {
             self.call("CommentService", "DeleteComment", Some(user), &request).await.unwrap();
     }
 
+    /// What the moderation team was sent about a report: every version.
+    async fn moderators_saw(&self, report: &Report) -> String {
+        self.app
+            .events("engagement.report.created")
+            .await
+            .into_iter()
+            .find(|event| event.data["report_id"] == report.id.as_str())
+            .map(|event| event.data["reported_content"].as_str().unwrap_or_default().to_owned())
+            .expect("the report reached the moderators")
+    }
+
     async fn unblock(&self, blocker: &TestUser, blocked: &TestUser) {
         let request =
             tokuly_proto::social::UnblockUserRequest { user_id: blocked.id.to_string(), ..Default::default() };
@@ -58,7 +69,9 @@ impl Ctx {
 // ───────────────────────────── reports ─────────────────────────────
 
 /// A block hides comments in both directions; it must not also take away
-/// the way to report what was already received.
+/// the way to report what was already received — but what was written
+/// after the block never reached the other side, and across the block the
+/// reporter is shown no text.
 #[tokio::test]
 async fn a_comment_stays_reportable_across_a_block() {
     let ctx = start().await;
@@ -74,16 +87,68 @@ async fn a_comment_stays_reportable_across_a_block() {
     let to_bob = ctx.comment(&alice, &video, "ボブのばか").await;
     ctx.block(&bob, &alice).await;
     let filed = ctx.report_comment(&bob, &to_bob.id).await.expect("reportable after the victim's block");
-    assert_eq!(filed.subject_title, "ボブのばか");
+    assert_eq!(filed.subject_title, "コメント", "behind the block the reporter is shown no text");
+    assert_eq!(ctx.moderators_saw(&filed).await, "ボブのばか");
 
     // The harasser blocks the victim first.
     let to_carol = ctx.comment(&alice, &video, "キャロルのばか").await;
     ctx.block(&alice, &carol).await;
     ctx.report_comment(&carol, &to_carol.id).await.expect("reportable after the harasser's block");
+    // What the harasser wrote after the block never reached Carol.
+    let later = ctx.comment(&alice, &video, "ブロックの後に書いた").await;
+    assert_eq!(ctx.report_comment(&carol, &later.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
+    assert_eq!(ctx.report_comment(&bob, &later.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
 
     // The owner of the content, blocked by the commenter.
     ctx.block(&alice, &owner).await;
     ctx.report_comment(&owner, &to_carol.id).await.expect("reportable by the owner after a block");
+    // A block with the owner of the content counts too: after it, Dave
+    // no longer saw the comments there.
+    let dave = ctx.app.user("Dave").await;
+    let video2 = ctx.video(&owner, "v2");
+    ctx.block(&owner, &dave).await;
+    let after = ctx.comment(&carol, &video2, "ブロックの後").await;
+    assert_eq!(ctx.report_comment(&dave, &after.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
+}
+
+/// A comment taken out of public view stays reportable by those who saw it
+/// while it was public, without showing them its text; a reply that was
+/// never in public view (below a hidden comment) is not theirs to report.
+#[tokio::test]
+async fn a_hidden_comment_is_reported_without_its_text() {
+    let ctx = start().await;
+    let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, "ひどいことば").await;
+    let hide = HideCommentRequest { comment_id: comment.id.clone(), ..Default::default() };
+    let _: HideCommentResponse =
+        ctx.call("CommentModerationService", "HideComment", Some(&owner), &hide).await.unwrap();
+    let filed = ctx.report_comment(&bob, &comment.id).await.expect("Bob saw it while it was public");
+    assert_eq!(filed.subject_title, "コメント");
+    assert_eq!(ctx.moderators_saw(&filed).await, "ひどいことば");
+    let mine: ListMyReportsResponse =
+        ctx.call("ReportService", "ListMyReports", Some(&bob), &ListMyReportsRequest::default()).await.unwrap();
+    assert_eq!(mine.reports[0].subject_title, "コメント");
+
+    // Alice is blocked from commenting: her comment is hidden from the
+    // start (she sees it as published). Once the block is lifted her reply
+    // to it is published — below a comment nobody else can see.
+    let block = BlockCommenterRequest {
+        target: Some(tokuly_proto::engagement::__buffa::oneof::block_commenter_request::Target::UserId(
+            alice.id.to_string(),
+        )),
+        ..Default::default()
+    };
+    let blocked: BlockCommenterResponse =
+        ctx.call("CommentModerationService", "BlockCommenter", Some(&owner), &block).await.unwrap();
+    let shadowed = ctx.comment(&alice, &video, "誰にも見えない").await;
+    let lift = UnblockCommenterRequest { block_id: blocked.blocked.id.clone(), ..Default::default() };
+    let _: UnblockCommenterResponse =
+        ctx.call("CommentModerationService", "UnblockCommenter", Some(&owner), &lift).await.unwrap();
+    let reply = ctx.reply(&alice, &shadowed.id, "これも").await;
+    assert_eq!(reply.status, CommentStatus::COMMENT_STATUS_PUBLISHED);
+    assert_eq!(ctx.report_comment(&bob, &shadowed.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
+    assert_eq!(ctx.report_comment(&bob, &reply.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
 }
 
 /// Deleting a comment must not take away the report of those who saw it,
@@ -103,10 +168,19 @@ async fn a_deleted_comment_stays_reportable_by_those_who_received_it() {
     let comment = ctx.comment(&alice, &note, "ひどいことば").await;
     ctx.delete(&alice, &comment.id).await;
     let filed = ctx.report_comment(&bob, &comment.id).await.expect("reportable after its deletion");
-    assert_eq!(filed.subject_title, "ひどいことば");
+    // The reporter is shown no text; the moderators get what was said.
+    assert_eq!(filed.subject_title, "コメント");
     assert_eq!(filed.subject_path, format!("{}?comment={}", note.path, comment.id));
+    assert_eq!(ctx.moderators_saw(&filed).await, "ひどいことば");
     let events = ctx.app.events_by("engagement.report.created", bob.id).await;
     assert_eq!(events[0].data["subject_owner_id"], serde_json::json!(alice.id));
+    assert_eq!(events[0].data["subject_title"], "コメント");
+    let stored: String = sqlx::query_scalar("SELECT subject_title FROM reports WHERE id = $1::uuid")
+        .bind(&filed.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(stored, "コメント", "the reporter's copy keeps no text");
     // Someone who could never see the note learns nothing.
     assert_eq!(ctx.report_comment(&carol, &comment.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
     // Nor can the author report their own words.
@@ -130,7 +204,8 @@ async fn a_deleted_comment_stays_reportable_by_those_who_received_it() {
     assert_eq!(ctx.report_comment(&owner, &comment.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
 }
 
-/// Editing a comment must not launder it: the report carries every version.
+/// Editing a comment must not launder it: the moderators get every
+/// version; the reporter is shown what the comment says now.
 #[tokio::test]
 async fn an_edited_comment_is_reported_with_every_version() {
     let ctx = start().await;
@@ -139,12 +214,35 @@ async fn an_edited_comment_is_reported_with_every_version() {
     let comment = ctx.comment(&alice, &video, "ひどいことば").await;
     ctx.edit(&alice, &comment.id, "ごめんね").await.unwrap();
     let filed = ctx.report_comment(&bob, &comment.id).await.unwrap();
-    assert_eq!(filed.subject_title, "[2版] ひどいことば → ごめんね");
+    assert_eq!(filed.subject_title, "ごめんね");
+    assert_eq!(ctx.moderators_saw(&filed).await, "[2版] ひどいことば → ごめんね");
 
     // Edited, then deleted: every version is still there.
     ctx.delete(&alice, &comment.id).await;
     let filed = ctx.report_comment(&owner, &comment.id).await.unwrap();
-    assert_eq!(filed.subject_title, "[2版] ひどいことば → ごめんね");
+    assert_eq!(filed.subject_title, "コメント");
+    assert_eq!(ctx.moderators_saw(&filed).await, "[2版] ひどいことば → ごめんね");
+}
+
+/// Twenty harmless edits used to fill the cap, so the next hurtful version
+/// was replaced by a harmless one without being kept. The latest edits are
+/// kept now, on top of the first ones.
+#[tokio::test]
+async fn many_edits_do_not_launder_a_comment() {
+    let ctx = start().await;
+    let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, "はじめまして").await;
+    for index in 1..=20 {
+        ctx.edit(&alice, &comment.id, &format!("編集{index}")).await.unwrap();
+    }
+    ctx.edit(&alice, &comment.id, "ひどいことば").await.unwrap();
+    ctx.edit(&alice, &comment.id, "なんでもない").await.unwrap();
+    let filed = ctx.report_comment(&bob, &comment.id).await.unwrap();
+    let seen = ctx.moderators_saw(&filed).await;
+    assert!(seen.contains("ひどいことば → なんでもない"), "{seen}");
+    assert!(seen.starts_with("[21版] はじめまして → 編集1 → "), "{seen}");
+    assert!(seen.contains("（2件の編集は記録なし）"), "{seen}");
 }
 
 /// What was kept for reports goes 30 days after its removal — counted from

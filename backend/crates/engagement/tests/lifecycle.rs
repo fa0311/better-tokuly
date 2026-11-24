@@ -38,11 +38,15 @@ async fn only_a_report_sees_what_its_owner_withdrew() {
         ctx.call("BookmarkService", "AddBookmark", Some(&bob), &save(video.subject_ref())).await.unwrap();
     ctx.videos.update(video.id, |subject| subject.withdrawn = true);
 
-    // Withdrawn content can still be reported, with what it said…
+    // Withdrawn content can still be reported; what it said goes to the
+    // moderation team only — the reporter's copy names no more than a post…
     let reported: CreateReportResponse =
         ctx.call("ReportService", "CreateReport", Some(&bob), &report(video.subject_ref())).await.unwrap();
-    assert_eq!(reported.report.subject_title, "取り消された中身");
-    // …but nothing else gets at it: not a bookmark, not its preview.
+    assert_eq!(reported.report.subject_title, "投稿");
+    let sent = ctx.app.events_by("engagement.report.created", bob.id).await;
+    assert_eq!(sent[0].data["subject_title"], "投稿");
+    assert_eq!(sent[0].data["reported_content"], "取り消された中身");
+    // …and nothing else gets at it: not a bookmark, not its preview.
     let refused = ctx
         .call::<_, AddBookmarkResponse>("BookmarkService", "AddBookmark", Some(&bob), &save(video.subject_ref()))
         .await

@@ -881,6 +881,7 @@ async fn a_report_reaches_the_moderation_team() {
             "text": "宣伝ばかりです",
             "subject_title": "あやしい動画",
             "subject_path": video.path,
+            "reported_content": "あやしい動画",
         })
     );
 
