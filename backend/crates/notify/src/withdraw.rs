@@ -98,6 +98,11 @@ pub const AUDIENCE_RULES: &[AudienceRule] = &[
     // still see it is the author's friends, the author of the note a reply
     // answers, or nobody else.
     AudienceRule { topic: "notes.note.visibility_changed", id_field: "note_id", owner_field: "author_id" },
+    // Shared with another audience, or the owner locked (or unlocked) their
+    // account: who may still watch it is in `visible_to`.
+    AudienceRule { topic: "video.video.visibility_changed", id_field: "video_id", owner_field: "owner_id" },
+    AudienceRule { topic: "shorts.short.visibility_changed", id_field: "id", owner_field: "owner_id" },
+    AudienceRule { topic: "live.stream.visibility_changed", id_field: "stream_id", owner_field: "owner_id" },
 ];
 
 /// The category whose entries are never withdrawn.
@@ -527,6 +532,36 @@ mod tests {
                 .unwrap()
                 .unwrap();
         assert_eq!((answer.kinds, answer.remember), (&["ask.answered"][..], false));
+    }
+
+    #[test]
+    fn videos_shorts_and_streams_narrowed_to_an_audience_stay_with_it() {
+        let (id, owner, follower) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let at = now() - chrono::Duration::seconds(2);
+        for (topic, id_field) in [
+            ("video.video.visibility_changed", "video_id"),
+            ("shorts.short.visibility_changed", "id"),
+            ("live.stream.visibility_changed", "stream_id"),
+        ] {
+            let narrowed = withdrawal_of(&event(
+                topic,
+                serde_json::json!({ id_field: id, "owner_id": owner, "visibility": 6, "visible_to": [follower], "changed_at": at }),
+            ))
+            .unwrap()
+            .unwrap_or_else(|| panic!("{topic} withdraws"));
+            let mut keep = vec![owner, follower];
+            keep.sort_unstable();
+            assert_eq!((narrowed.ref_id, narrowed.except_users), (id, keep), "{topic}");
+            assert_eq!(narrowed.audience.unwrap().changed_at, at, "{topic} is ordered by its own time");
+            let opened = withdrawal_of(&event(
+                topic,
+                serde_json::json!({ id_field: id, "owner_id": owner, "visibility": 1, "visible_to": null, "changed_at": at }),
+            ))
+            .unwrap()
+            .unwrap();
+            assert_eq!(opened.audience.unwrap().visible_to, None, "{topic}: open again");
+            assert!(crate::consumer::TOPICS.contains(&topic), "{topic} is consumed");
+        }
     }
 
     #[test]
