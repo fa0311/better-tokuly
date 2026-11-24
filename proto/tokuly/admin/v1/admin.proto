@@ -436,7 +436,9 @@ enum AccountState {
 message Suspension {
   // Empty when the account was suspended outside the admin console.
   string id = 1;
-  // Reason given to the user.
+  // Reason given to the user. Empty, like `case_id`, to a staff member
+  // involved in the anonymous post the suspension was imposed for: either
+  // would say who wrote it.
   string reason = 2;
   // Staff member who imposed it; unset when unknown or deleted.
   tokuly.common.v1.UserSummary moderator = 3;
@@ -444,7 +446,7 @@ message Suspension {
   // When it is lifted automatically. Unset for a permanent ban.
   google.protobuf.Timestamp expires_at = 5;
   bool permanent = 6;
-  // The case that led to it; empty for direct suspensions.
+  // The case that led to it; empty for direct suspensions (and see `reason`).
   string case_id = 7;
 }
 

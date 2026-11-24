@@ -4,12 +4,14 @@
 //! `sessions` tables: staff need to list and search every account, including
 //! suspended and deleted ones, which identity's public lookups hide. It is
 //! read-only; every change goes through `tokuly_identity::Identity`.
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use sqlx::{Postgres, QueryBuilder};
 use tokuly_core::prelude::*;
 use tokuly_proto::admin::{AccountState, AdminUser, Suspension};
 
-use crate::{Admin, audit::escape_like};
+use crate::{Admin, audit::escape_like, staff::Staff};
 
 /// Roles identity accepts.
 pub(crate) const ROLES: &[&str] = &["admin", "moderator", "staff"];
@@ -170,24 +172,29 @@ impl Admin {
             .or_not_found("USER_NOT_FOUND", "user not found")
     }
 
-    /// Accounts as API messages, with summaries and suspending moderators resolved.
-    pub(crate) async fn accounts_to_proto(&self, rows: &[AdminUserRow]) -> AppResult<Vec<AdminUser>> {
+    /// Accounts as API messages for `staff`, with summaries and suspending
+    /// moderators resolved.
+    pub(crate) async fn accounts_to_proto(&self, staff: &Staff, rows: &[AdminUserRow]) -> AppResult<Vec<AdminUser>> {
         let ids: Vec<Uuid> = rows.iter().flat_map(|r| [Some(r.id), r.suspension_moderator_id]).flatten().collect();
         let people = tokuly_identity::summaries(&self.core, &ids).await?;
+        let withheld = self.withheld_suspension_cases(staff, rows).await?;
         Ok(rows
             .iter()
             .map(|row| {
                 let state = row.state();
+                // A suspension imposed for an anonymous post the viewer is involved
+                // in does not say which post, nor why: either would name its author.
+                let secret = row.suspension_case_id.is_some_and(|case_id| withheld.contains(&case_id));
                 // An account locked outside the console has no suspension row;
                 // identity's own columns still say when and why.
                 let suspension = (state == AccountState::ACCOUNT_STATE_SUSPENDED).then(|| Suspension {
                     id: row.suspension_id.map(|id| id.to_string()).unwrap_or_default(),
-                    reason: row.suspension_reason.clone().unwrap_or_else(|| row.ban_reason.clone()),
+                    reason: if secret { String::new() } else { row.suspension_reason.clone().unwrap_or_else(|| row.ban_reason.clone()) },
                     moderator: row.suspension_moderator_id.and_then(|id| people.get(&id).cloned()).into(),
                     started_at: opt_ts(row.suspension_started_at.or(row.banned_at)),
                     expires_at: opt_ts(row.suspension_expires_at),
                     permanent: row.suspension_expires_at.is_none(),
-                    case_id: row.suspension_case_id.map(|id| id.to_string()).unwrap_or_default(),
+                    case_id: row.suspension_case_id.filter(|_| !secret).map(|id| id.to_string()).unwrap_or_default(),
                     ..Default::default()
                 });
                 AdminUser {
@@ -209,10 +216,28 @@ impl Admin {
             .collect())
     }
 
-    /// The current staff view of one account.
-    pub(crate) async fn admin_user(&self, user_id: Uuid) -> AppResult<AdminUser> {
+    /// The current view of one account for `staff`.
+    pub(crate) async fn admin_user(&self, staff: &Staff, user_id: Uuid) -> AppResult<AdminUser> {
         let row = self.account(user_id).await?;
-        Ok(self.accounts_to_proto(std::slice::from_ref(&row)).await?.remove(0))
+        Ok(self.accounts_to_proto(staff, std::slice::from_ref(&row)).await?.remove(0))
+    }
+
+    /// The cases behind these accounts' suspensions that are about an
+    /// anonymous post `staff` is involved in.
+    async fn withheld_suspension_cases(&self, staff: &Staff, rows: &[AdminUserRow]) -> AppResult<HashSet<Uuid>> {
+        let case_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.suspension_case_id).collect();
+        if case_ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let hidden: Vec<(Uuid, i32, Uuid)> =
+            sqlx::query_as("SELECT id, subject_type, subject_id FROM moderation_cases WHERE id = ANY($1) AND owner_hidden").bind(&case_ids).fetch_all(&self.core.db).await?;
+        let mut withheld = HashSet::new();
+        for (case_id, subject_type, subject_id) in hidden {
+            if self.is_party_to_hidden(staff.id, subject_type, subject_id).await? {
+                withheld.insert(case_id);
+            }
+        }
+        Ok(withheld)
     }
 }
 

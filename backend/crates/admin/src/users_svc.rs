@@ -21,7 +21,7 @@ const RECENT_ACTIONS: i64 = 10;
 impl UserAdminService for Admin {
     async fn search_users(&self, ctx: RequestContext, request: ServiceRequest<'_, SearchUsersRequest>) -> ServiceResult<SearchUsersResponse> {
         handle(async {
-            Staff::moderator(&ctx)?;
+            let staff = Staff::moderator(&ctx)?;
             let role = request.role.trim();
             ensure!(role.is_empty() || ROLES.contains(&role), invalid, "ROLE_INVALID", "unknown role {role:?}");
             let filter = UserFilter {
@@ -32,7 +32,7 @@ impl UserAdminService for Admin {
             };
             let page = Page::from_view(request.page.as_option(), 100);
             let (rows, info) = self.search_accounts(&filter, &page).await?;
-            ok(SearchUsersResponse { users: self.accounts_to_proto(&rows).await?, page: info.into(), ..Default::default() })
+            ok(SearchUsersResponse { users: self.accounts_to_proto(&staff, &rows).await?, page: info.into(), ..Default::default() })
         })
         .await
     }
@@ -41,7 +41,7 @@ impl UserAdminService for Admin {
         handle(async {
             let staff = Staff::moderator(&ctx)?;
             let user_id = parse_id(request.user_id)?;
-            let user = self.admin_user(user_id).await?;
+            let user = self.admin_user(&staff, user_id).await?;
             let history = ActionFilter { target_user_id: Some(user_id), ..Default::default() };
             let (actions, _) = self.list_actions(&history, &first_page(RECENT_ACTIONS)).await?;
             ok(GetUserResponse {
@@ -94,7 +94,7 @@ impl UserAdminService for Admin {
             drop(slot);
             self.mail_suspension(&target, &reason, expires_at);
             ok(SuspendUserResponse {
-                user: self.admin_user(target.id).await?.into(),
+                user: self.admin_user(&staff, target.id).await?.into(),
                 action: self.action_to_proto(&action).await?.into(),
                 ..Default::default()
             })
@@ -111,7 +111,7 @@ impl UserAdminService for Admin {
             // A moderator must not undo what an admin imposed on a staff account.
             ensure!(staff.may_sanction(&target.roles), denied, "TARGET_IS_STAFF", "only admins can act on staff accounts");
             self.lift_suspension(&staff, &target, &note).await?;
-            ok(UnsuspendUserResponse { user: self.admin_user(target.id).await?.into(), ..Default::default() })
+            ok(UnsuspendUserResponse { user: self.admin_user(&staff, target.id).await?.into(), ..Default::default() })
         })
         .await
     }
@@ -130,7 +130,7 @@ impl UserAdminService for Admin {
                 .after(serde_json::json!({ "verified": request.verified }))
                 .record(&self.core.db)
                 .await?;
-            ok(SetUserVerifiedResponse { user: self.admin_user(target.id).await?.into(), ..Default::default() })
+            ok(SetUserVerifiedResponse { user: self.admin_user(&staff, target.id).await?.into(), ..Default::default() })
         })
         .await
     }
@@ -160,7 +160,7 @@ impl UserAdminService for Admin {
             if lost_a_role && target.id != staff.id {
                 self.identity.revoke_all_sessions(target.id, None).await?;
             }
-            ok(SetUserRolesResponse { user: self.admin_user(target.id).await?.into(), ..Default::default() })
+            ok(SetUserRolesResponse { user: self.admin_user(&staff, target.id).await?.into(), ..Default::default() })
         })
         .await
     }

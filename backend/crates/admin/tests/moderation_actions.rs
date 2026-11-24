@@ -767,3 +767,26 @@ async fn an_involved_moderator_cannot_read_a_hidden_author_off_their_moderation_
     let full = record(staff_view_of(&app, &neutral, author.id).await);
     assert_eq!((full.reports_received, full.open_cases, full.warnings, full.content_removals), (2, 1, 1, 1));
 }
+
+#[tokio::test]
+async fn an_involved_moderator_is_not_told_which_case_suspended_a_hidden_author() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    let involved = app.user_with_roles("involved", &["moderator"]).await;
+    let neutral = app.user_with_roles("neutral", &["moderator"]).await;
+    let case_id = anonymous_case(&app, &admin, author.id, vec![involved.id]).await;
+    let case = get_case(&app, &neutral, &case_id).await.moderation_case.into_option().unwrap();
+    resolve(&app, &neutral, resolution(&case, BAN, "匿名スレッドでの嫌がらせ")).await.unwrap();
+
+    let suspension = |user: Option<&AdminUser>| user.unwrap().suspension.clone().into_option().expect("suspended");
+    let seen = suspension(staff_view_of(&app, &neutral, author.id).await.user.as_option());
+    assert_eq!((seen.case_id.as_str(), seen.reason.as_str()), (case_id.as_str(), "匿名スレッドでの嫌がらせ"));
+
+    // The account is suspended for everyone to see, but not for which post, nor why.
+    let withheld = suspension(staff_view_of(&app, &involved, author.id).await.user.as_option());
+    assert!(withheld.case_id.is_empty() && withheld.reason.is_empty(), "{withheld:?}");
+    let searched: SearchUsersResponse =
+        app.call(&format!("{USERS}/SearchUsers"), Some(&involved), &SearchUsersRequest { query: author.id.to_string(), ..Default::default() }).await.unwrap();
+    let withheld = suspension(searched.users.first());
+    assert!(withheld.case_id.is_empty() && withheld.reason.is_empty(), "{withheld:?}");
+}
