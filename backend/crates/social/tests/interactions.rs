@@ -180,15 +180,19 @@ async fn a_stranger_who_bumps_you_learns_nothing_of_where_you_are() {
     assert!(shake(&ctx, &stranger, stranger_at).await.unwrap().is_empty());
     let bumps = shake(&ctx, &lurker, lurker_at).await.unwrap();
     assert_eq!(bumps.len(), 1);
-    let at = |bump: &Bump| { let l = bump.location.as_option().unwrap(); (l.lat, l.lng) };
-    assert_eq!(at(&bumps[0]), lurker_at, "the response");
+    // (Equal up to the last bit of a float stored in jsonb.)
+    let is_at = |bump: &Bump, (lat, lng): (f64, f64)| {
+        let l = bump.location.as_option().unwrap();
+        (l.lat - lat).abs() < 1e-9 && (l.lng - lng).abs() < 1e-9
+    };
+    assert!(is_at(&bumps[0], lurker_at), "the response: {:?}", bumps[0].location);
     match next_push(&mut stranger_devices).await {
-        Some(Push::Bump(pushed)) => assert_eq!(at(&pushed), stranger_at, "the push"),
+        Some(Push::Bump(pushed)) => assert!(is_at(&pushed, stranger_at), "the push: {:?}", pushed.location),
         other => panic!("expected a bump, got {other:?}"),
     }
     for (user, own) in [(&lurker, lurker_at), (&stranger, stranger_at)] {
         let listed: ListBumpsResponse = ctx.interact("ListBumps", user, &ListBumpsRequest::default()).await.unwrap();
-        assert_eq!(at(&listed.bumps[0]), own, "the list");
+        assert!(is_at(&listed.bumps[0], own), "the list: {:?}", listed.bumps[0].location);
     }
 }
 
