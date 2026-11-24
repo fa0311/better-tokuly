@@ -222,6 +222,9 @@ export function audienceNote(
     3: "unlisted",
     4: allowLink ? "friendsOrLink" : "friends",
     5: "private",
+    6: "followers",
+    7: "closeFriends",
+    8: "circle",
   }[visibility as number];
   return t(`watch.audience.${key ?? "private"}`);
 }

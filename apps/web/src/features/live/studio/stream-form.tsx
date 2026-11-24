@@ -13,6 +13,7 @@ import { Page } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { PaneSpinner, Spinner } from "#/components/ui/spinner";
 import { SwitchRow } from "#/components/ui/switch";
+import { CircleField, LockedNote } from "#/features/video/audience";
 import { useAccountTimeZone, zonedMoment, zonedTime } from "#/lib/account-time";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
@@ -31,6 +32,8 @@ interface Draft {
   category: video.VideoCategory;
   game: string;
   visibility: common.Visibility;
+  /** For CIRCLE: one of the caller's circles. */
+  circleId: string;
   scheduled: boolean;
   /** The planned start on the account's clock: `YYYY-MM-DD` and `HH:MM`. */
   date: string;
@@ -65,6 +68,7 @@ function draftOf(stream: live.Stream | undefined, zone: string): Draft {
     category: summary?.category ?? video.VideoCategory.UNSPECIFIED,
     game: summary?.game ?? "",
     visibility: summary?.visibility || common.Visibility.PUBLIC,
+    circleId: stream?.studio?.circleId ?? "",
     scheduled: scheduledMs !== undefined,
     ...clockParts(scheduledMs ?? suggestion, zone),
     lowLatency: summary?.lowLatency ?? true,
@@ -123,6 +127,7 @@ function StreamForm({ stream, channelId }: { stream?: live.Stream; channelId: st
         category: draft.category,
         game: draft.game.trim(),
         visibility: draft.visibility,
+        circleId: draft.visibility === common.Visibility.CIRCLE ? draft.circleId : "",
       };
       if (!editing) {
         return (
@@ -149,6 +154,7 @@ function StreamForm({ stream, channelId }: { stream?: live.Stream; channelId: st
             title: basics.title,
             description: basics.description,
             visibility: basics.visibility,
+            circleId: basics.circleId,
             clearSchedule: false,
           })
         ).stream;
@@ -297,6 +303,15 @@ function StreamForm({ stream, channelId }: { stream?: live.Stream; channelId: st
             hint: t(`visibility.${option.key}Hint`),
           }))}
         />
+        {draft.visibility === common.Visibility.CIRCLE && (
+          <CircleField
+            label={t("visibility.circlePick")}
+            emptyText={t("visibility.circleNone")}
+            value={draft.circleId}
+            onChange={(circleId) => set({ circleId })}
+          />
+        )}
+        <LockedNote text={t("visibility.lockedNote")} />
       </Section>
 
       {!started && (

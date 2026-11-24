@@ -1,5 +1,5 @@
 import { common, video } from "@tokuly/api";
-import { EyeOff, Globe, Link2, Lock, Users } from "lucide-react";
+import { CircleDot, EyeOff, Globe, Link2, Lock, Star, UserRoundCheck, Users } from "lucide-react";
 import type { ComponentType } from "react";
 
 const { VideoCategory, TrafficSource } = video;
@@ -36,12 +36,15 @@ export interface VisibilityOption {
   icon: ComponentType<{ className?: string }>;
 }
 
-/** Who can see a video, from widest to narrowest. */
+/** Who can see a video, from widest to narrowest (the social graph's audiences included). */
 export const VIDEO_VISIBILITIES: VisibilityOption[] = [
   { value: Visibility.PUBLIC, key: "public", icon: Globe },
   { value: Visibility.NO_FEED, key: "noFeed", icon: EyeOff },
   { value: Visibility.UNLISTED, key: "unlisted", icon: Link2 },
+  { value: Visibility.FOLLOWERS, key: "followers", icon: UserRoundCheck },
   { value: Visibility.FRIENDS, key: "friends", icon: Users },
+  { value: Visibility.CLOSE_FRIENDS, key: "closeFriends", icon: Star },
+  { value: Visibility.CIRCLE, key: "circle", icon: CircleDot },
   { value: Visibility.PRIVATE, key: "private", icon: Lock },
 ];
 

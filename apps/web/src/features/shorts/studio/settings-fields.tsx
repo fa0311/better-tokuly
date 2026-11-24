@@ -2,12 +2,15 @@ import { common } from "@tokuly/api";
 import { useTranslation } from "react-i18next";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
+import { CircleField, LockedNote } from "#/features/video/audience";
 
 const { Visibility } = common;
 
 /** Who sees a short and what others may do with it. */
 export interface ShortSettings {
   visibility: common.Visibility;
+  /** For CIRCLE: one of the caller's circles. */
+  circleId: string;
   commentsEnabled: boolean;
   allowRemix: boolean;
   allowDuet: boolean;
@@ -16,6 +19,7 @@ export interface ShortSettings {
 export const DEFAULT_SETTINGS: ShortSettings = {
   // The server's own default: friends first, the world on purpose.
   visibility: Visibility.FRIENDS,
+  circleId: "",
   commentsEnabled: true,
   allowRemix: true,
   allowDuet: true,
@@ -23,11 +27,19 @@ export const DEFAULT_SETTINGS: ShortSettings = {
 
 const VISIBILITIES = [
   [Visibility.PUBLIC, "public"],
+  [Visibility.FOLLOWERS, "followers"],
   [Visibility.FRIENDS, "friends"],
+  [Visibility.CLOSE_FRIENDS, "closeFriends"],
+  [Visibility.CIRCLE, "circle"],
   [Visibility.NO_FEED, "noFeed"],
   [Visibility.UNLISTED, "unlisted"],
   [Visibility.PRIVATE, "private"],
 ] as const;
+
+/** What a request sends as `circle_id` for these settings. */
+export function circleOf(settings: ShortSettings): string {
+  return settings.visibility === Visibility.CIRCLE ? settings.circleId : "";
+}
 
 /**
  * The name of a visibility in the `shorts` strings (`visibility.<key>.label`). An audience
@@ -63,6 +75,15 @@ export function SettingsFields({
           hint: t(`visibility.${key}.hint`),
         }))}
       />
+      {value.visibility === Visibility.CIRCLE && (
+        <CircleField
+          label={t("form.circle")}
+          emptyText={t("form.circleNone")}
+          value={value.circleId}
+          onChange={(circleId) => onChange({ ...value, circleId })}
+        />
+      )}
+      <LockedNote text={t("form.lockedNote")} />
       <SwitchRow
         label={t("form.comments")}
         hint={t("form.commentsHint")}
