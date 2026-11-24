@@ -1,4 +1,4 @@
-import { fromDate } from "@tokuly/api";
+import { errorReason, fromDate } from "@tokuly/api";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
@@ -7,17 +7,29 @@ import { useLocations } from "#/stores/locations";
 import { useMe } from "#/stores/session";
 import { interactionClient } from "./data";
 import { emitEffect } from "./effects";
+import {
+  type ClaimProblem,
+  claimProblem,
+  PRECISE_ENOUGH_METERS,
+  reportFreshFix,
+} from "./own-location";
 
 let bumping = false;
+
+/** A refused position, with a retry. */
+function showClaimProblem(problem: ClaimProblem, retry: () => void): void {
+  toast.error(i18n.t(problem, { ns: "errors" }), {
+    action: { label: i18n.t("actions.retry"), onClick: retry },
+  });
+}
 
 /**
  * One bump attempt: tells the server "I shook here, now" and waits a few
  * seconds for someone nearby to do the same. Returns whether a bump happened.
  */
 export async function tryBump(myId: string | undefined, intensity = 1.5): Promise<boolean> {
-  const own = useLocations.getState().own;
   const t = (key: string) => i18n.t(key, { ns: "map" });
-  if (!own) {
+  if (!useLocations.getState().own) {
     toast.error(t("bump.needLocation"));
     return false;
   }
@@ -25,6 +37,17 @@ export async function tryBump(myId: string | undefined, intensity = 1.5): Promis
   bumping = true;
   const waiting = toast.loading(t("bump.waiting"));
   try {
+    // The server takes a shake only where our own latest fix puts us: send a fresh one first.
+    const own = (await reportFreshFix()) ?? useLocations.getState().own;
+    if (!own) {
+      toast.error(t("bump.needLocation"));
+      return false;
+    }
+    // Approximate location (an OS setting) is refused anyway: say so without asking.
+    if (own.accuracyMeters > PRECISE_ENOUGH_METERS) {
+      showClaimProblem("LOCATION_TOO_COARSE", () => void tryBump(myId, intensity));
+      return false;
+    }
     // The other person has a few seconds to shake too: ask again until the window closes.
     for (let attempt = 0; attempt < 4; attempt++) {
       const response = await interactionClient().bump({
@@ -53,7 +76,9 @@ export async function tryBump(myId: string | undefined, intensity = 1.5): Promis
     toast(t("bump.nobody"), { icon: "🤷" });
     return false;
   } catch (error) {
-    toast.error(errorMessage(error, { namespace: "map" }));
+    const problem = claimProblem(errorReason(error));
+    if (problem) showClaimProblem(problem, () => void tryBump(myId, intensity));
+    else toast.error(errorMessage(error, { namespace: "map" }));
     return false;
   } finally {
     toast.dismiss(waiting);

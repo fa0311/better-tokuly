@@ -15,6 +15,22 @@ import { MOVING_SPEED_MPS } from "./model";
 const MOVED_METERS = 15;
 /** Other tabs hear about a stop through a storage event; give them this long before the server is told. */
 const OTHER_TABS_MS = 300;
+/**
+ * The server takes nearby discovery and bumps only from fixes this good
+ * (`tokuly_geo::claims`): an approximate location is not enough.
+ */
+export const PRECISE_ENOUGH_METERS = 100;
+
+/** Why the server would refuse a claim, as far as the client can tell before asking. */
+export type ClaimProblem = "LOCATION_NOT_VERIFIED" | "LOCATION_TOO_COARSE";
+
+/** The refusal reasons nearby discovery and bumps can answer with. */
+export function claimProblem(reason: string | undefined): ClaimProblem | null {
+  return reason === "LOCATION_NOT_VERIFIED" || reason === "LOCATION_TOO_COARSE" ? reason : null;
+}
+
+/** A reading this recent counts as a fresh fix for nearby discovery and bumps. */
+const FRESH_FIX_MS = 10_000;
 /** The app's "someone is signed in here" marker (`stores/session.ts`): it goes when any tab signs out. */
 const SIGNED_IN_KEY = "tokuly.signedIn";
 /** Written by the tab that is signing out, a moment before the session goes: other tabs stop sending at once. */
@@ -242,9 +258,35 @@ const finite = (value: number | null) =>
  * this tab or another) must not be followed by one more sample.
  */
 async function report(position: OwnPosition, stillSharing: () => boolean): Promise<void> {
+  const sample = await sampleOf(position, stillSharing);
+  if (!sample) return;
+  // Prefer the realtime connection; fall back to a plain RPC while it is down.
+  if (realtime().sendLocation(sample)) return;
+  try {
+    await locationClient().reportLocations({ samples: [sample] });
+  } catch {
+    // Dropping one sample is fine: the next one supersedes it.
+  }
+}
+
+/** Sends one fix over the plain RPC and waits until the server has taken it. */
+async function reportNow(position: OwnPosition, stillSharing: () => boolean): Promise<void> {
+  const sample = await sampleOf(position, stillSharing);
+  if (!sample) return;
+  try {
+    await locationClient().reportLocations({ samples: [sample] });
+  } catch {
+    // The request that follows says so if the server has no fix.
+  }
+}
+
+async function sampleOf(
+  position: OwnPosition,
+  stillSharing: () => boolean,
+): Promise<geo.LocationSample | null> {
   const battery = await readBattery();
-  if (!stillSharing()) return;
-  const sample = create(geo.LocationSampleSchema, {
+  if (!stillSharing()) return null;
+  return create(geo.LocationSampleSchema, {
     position: { lat: position.lat, lng: position.lng },
     accuracyMeters: position.accuracyMeters,
     speedMps: finite(position.speedMps),
@@ -255,13 +297,39 @@ async function report(position: OwnPosition, stillSharing: () => boolean): Promi
     charging: battery?.charging,
     foreground: document.visibilityState === "visible",
   });
-  // Prefer the realtime connection; fall back to a plain RPC while it is down.
-  if (realtime().sendLocation(sample)) return;
-  try {
-    await locationClient().reportLocations({ samples: [sample] });
-  } catch {
-    // Dropping one sample is fine: the next one supersedes it.
+}
+
+/**
+ * Reads a fresh fix and makes sure the server has it before the caller goes
+ * on: nearby discovery and bumps are only accepted where the account's own
+ * latest fix puts it. Only for an account sharing from here with the
+ * browser's permission already given, so it never prompts; otherwise (or
+ * when the browser has no fix to give) it returns the position already known.
+ */
+export async function reportFreshFix(): Promise<OwnPosition | null> {
+  const { userId, choice, permission, sessionEnded } = useSharing.getState();
+  const known = useLocations.getState().own;
+  if (!userId || choice !== "on" || permission !== "granted" || sessionEnded) return known;
+  const stillSharing = () => sessionAlive() && readChoice(userId) === "on";
+  // A reading the watch delivered a moment ago is fresh enough; otherwise ask for a new one.
+  let position = known && Date.now() - known.recordedAt <= FRESH_FIX_MS ? known : null;
+  if (!position) {
+    const result = await new Promise<GeolocationPosition | null>((resolve) =>
+      navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), {
+        enableHighAccuracy: true,
+        // A cached reading may be older than what the server already has: it would be dropped.
+        maximumAge: 0,
+        timeout: 5_000,
+      }),
+    );
+    if (!result || !stillSharing()) return known;
+    position = toOwnPosition(result);
+    useLocations.getState().setOwn(position);
   }
+  // Awaited over the plain RPC, so the server has processed it when this returns (a fix it
+  // already has is simply skipped there).
+  await reportNow(position, stillSharing);
+  return position;
 }
 
 function toOwnPosition(result: GeolocationPosition): OwnPosition {

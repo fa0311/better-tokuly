@@ -9,6 +9,10 @@
 //! do, a `SET NX` on the pair decides who records the bump; the other caller
 //! (and any retry during the cool-down) is handed that same bump. The
 //! participant who was not calling learns of it through `SocialEvent.bump`.
+//!
+//! The shake's position is the client's word, so it is checked against the
+//! account's own recent location fixes before anything is published (see
+//! [`crate::claims`]).
 use std::{collections::HashSet, time::Duration};
 
 use chrono::{DateTime, Utc};
@@ -25,7 +29,9 @@ use tokuly_proto::{
 };
 
 use crate::{
-    Social, copy,
+    Social,
+    claims::Claim,
+    copy,
     events::{BUMP_CREATED, BumpCreated},
     graph::{self, InteractionKind, Pair},
     livegeo::LiveGeoSet,
@@ -233,6 +239,9 @@ impl Social {
         let core = &self.core;
         ensure!(geoindex::valid_coordinates(lat, lng), invalid, "INVALID_LOCATION", "a valid location is required");
         core.cache.rate_limit(&format!("bump:{user_id}"), 30, Duration::from_secs(60)).await?;
+        // Checked before the attempt is published: a shake from somewhere
+        // the user is not can match nobody (see [`crate::claims`]).
+        self.require_plausible(user_id, Claim { lat, lng, accuracy_meters }).await?;
         let mine = Attempt {
             lat,
             lng,
@@ -252,7 +261,7 @@ impl Social {
             }
             // Friends shaking together all bump each other. A stranger only
             // when the two are each other's best match: someone lurking
-            // nearby with a made-up position does not get to join in.
+            // nearby does not get to join in.
             if !candidate.friend && (rank > 0 || !self.is_best_match_of(candidate, user_id).await?) {
                 continue;
             }
@@ -305,8 +314,7 @@ impl Social {
     /// Who among `candidates` `user_id` may bump: friends always; strangers
     /// only when both of them have nearby discovery on and both are minors
     /// or both adults. A bump with a stranger tells each who the other is
-    /// and sends a friend request, so it is a way of being found nearby, and
-    /// the position it is matched on is the client's word.
+    /// and sends a friend request, so it is a way of being found nearby.
     /// Returns `(friends, strangers)` among the candidates who may.
     async fn may_bump(&self, user_id: Uuid, candidates: &[Uuid]) -> AppResult<(HashSet<Uuid>, HashSet<Uuid>)> {
         let core = &self.core;

@@ -2,6 +2,8 @@
 export default {
   generic: "うまくいきませんでした。もう一度ためしてね",
   network: "通信できませんでした。接続を確認してね",
+  LOCATION_NOT_VERIFIED: "今いる場所を確認できなかったよ!位置情報をオンにしてね",
+  LOCATION_TOO_COARSE: "正確な位置情報をオンにしてね!",
   INVALID_CREDENTIALS: "メールアドレス、ハンドル、またはパスワードがちがいます",
   INVALID_TOTP: "認証コードがちがいます",
   ACCOUNT_BANNED: "このアカウントは利用停止中です",

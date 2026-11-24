@@ -149,7 +149,10 @@ async fn a_bump_is_named_after_where_it_happened() {
     };
     let _: CreatePlaceResponse = ctx.places("CreatePlace", &owner, &request).await.unwrap();
 
-    // The two shake their phones (the social domain records the bump)...
+    // The two are there (a shake is checked against their own fixes) and
+    // shake their phones (the social domain records the bump)...
+    ctx.at(&aoi, spot).await;
+    ctx.at(&ren, spot).await;
     let shake =
         BumpRequest { location: lat_lng(spot).into(), accuracy_meters: 5.0, intensity: 2.0, ..Default::default() };
     let _: BumpResponse = ctx.app.call("tokuly.social.v1.InteractionService/Bump", Some(&aoi), &shake).await.unwrap();

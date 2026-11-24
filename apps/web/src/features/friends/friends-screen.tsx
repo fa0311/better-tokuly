@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type common, identity, social } from "@tokuly/api";
+import { type common, errorReason, identity, social } from "@tokuly/api";
 import { Check, Copy, Radar, Search, UserPlus, X } from "lucide-react";
 import QRCode from "qrcode";
 import { type ReactNode, useEffect, useState } from "react";
@@ -12,6 +12,12 @@ import { Card } from "#/components/ui/card";
 import { EmptyState, ListRow, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { EmojiText } from "#/features/emoji";
+import {
+  type ClaimProblem,
+  claimProblem,
+  PRECISE_ENOUGH_METERS,
+  reportFreshFix,
+} from "#/features/map/own-location";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { useLocations } from "#/stores/locations";
@@ -420,9 +426,31 @@ function Find() {
  */
 function Nearby() {
   const { t } = useTranslation("friends");
+  const { t: tc } = useTranslation("common");
+  const { t: te } = useTranslation("errors");
   const own = useLocations((s) => s.own);
   const [active, setActive] = useState(false);
+  const [starting, setStarting] = useState(false);
+  /** The server could not confirm we are where we said: shown with a retry. */
+  const [unverified, setUnverified] = useState<ClaimProblem | null>(null);
   const [users, setUsers] = useState<social.NearbyUser[]>([]);
+
+  // A session opens only where our own latest fix puts us: send a fresh one first.
+  const start = async () => {
+    setStarting(true);
+    setUnverified(null);
+    try {
+      const fix = await reportFreshFix();
+      // Approximate location (an OS setting) is refused anyway: say so without asking.
+      if (fix && fix.accuracyMeters > PRECISE_ENOUGH_METERS) {
+        setUnverified("LOCATION_TOO_COARSE");
+        return;
+      }
+    } finally {
+      setStarting(false);
+    }
+    setActive(true);
+  };
 
   const lat = own?.lat;
   const lng = own?.lng;
@@ -438,7 +466,12 @@ function Nearby() {
         );
         for await (const update of stream) setUsers(update.users);
       } catch (error) {
-        if (!abort.signal.aborted) toast.error(errorMessage(error));
+        if (abort.signal.aborted) return;
+        const problem = claimProblem(errorReason(error));
+        if (problem) {
+          setActive(false);
+          setUnverified(problem);
+        } else toast.error(errorMessage(error));
       }
     })();
     return () => {
@@ -470,12 +503,24 @@ function Nearby() {
         <Button
           size="sm"
           variant={active ? "secondary" : "primary"}
-          disabled={!own}
-          onClick={() => setActive((value) => !value)}
+          disabled={!own || starting}
+          onClick={() => (active ? setActive(false) : void start())}
         >
           {active ? t("nearby.stop") : t("nearby.start")}
         </Button>
       </div>
+      {unverified && !active && (
+        <div
+          role="alert"
+          className="mt-3 flex items-center gap-2 border-t-2 border-line pt-2 text-sm"
+          data-testid="nearby-unverified"
+        >
+          <p className="min-w-0 flex-1">{te(unverified)}</p>
+          <Button size="sm" variant="secondary" disabled={starting} onClick={() => void start()}>
+            {tc("actions.retry")}
+          </Button>
+        </div>
+      )}
       {active && users.length > 0 && (
         <div className="mt-3 border-t-2 border-line pt-2">
           {users.map(

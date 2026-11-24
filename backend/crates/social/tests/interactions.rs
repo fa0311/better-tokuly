@@ -566,3 +566,34 @@ async fn knocks_reactions_and_views_have_limits_per_sender_and_recipient() {
     let marked = ctx.app.core.cache.exists(&format!("social:map-view:{}:{}", viewer.id.simple(), crowd[120].simple())).await.unwrap();
     assert!(!marked);
 }
+
+#[tokio::test]
+async fn a_shake_where_the_shaker_is_not_is_refused_before_anyone_can_match_it() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    ctx.befriend(&alice, &bob).await;
+    let spot = somewhere();
+    ctx.claims.refuse(alice.id);
+
+    assert!(shake(&ctx, &bob, spot).await.unwrap().is_empty());
+    assert_eq!(shake(&ctx, &alice, north_of(spot, 2.0)).await.unwrap_err().reason, "LOCATION_NOT_VERIFIED");
+    assert!(shake(&ctx, &bob, spot).await.unwrap().is_empty(), "the refused shake was never published");
+    let asked = ctx.claims.asked.lock().unwrap().clone();
+    let (_, claim) = asked.iter().find(|(user, _)| *user == alice.id).copied().expect("Alice's claim was checked");
+    assert_eq!((claim.lat, claim.lng, claim.accuracy_meters), (north_of(spot, 2.0).0, north_of(spot, 2.0).1, 5.0));
+}
+
+#[tokio::test]
+async fn a_device_with_only_approximate_locations_is_told_so() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    ctx.claims.coarse(alice.id);
+    assert_eq!(shake(&ctx, &alice, somewhere()).await.unwrap_err().reason, "LOCATION_TOO_COARSE");
+}
+
+#[tokio::test]
+async fn without_a_position_check_no_shake_is_taken() {
+    let ctx = start_unchecked().await;
+    let alice = ctx.app.user("alice").await;
+    assert_eq!(shake(&ctx, &alice, somewhere()).await.unwrap_err().reason, "LOCATION_NOT_VERIFIED");
+}

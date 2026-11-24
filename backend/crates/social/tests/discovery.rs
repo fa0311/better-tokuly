@@ -483,3 +483,22 @@ async fn switching_nearby_discovery_off_ends_the_open_session() {
     assert!(lasted < Duration::from_secs(7), "the session ran on for {lasted:?}");
     assert!(bob_saw[0].users.is_empty(), "{:?}", seen(&bob_saw[0]));
 }
+
+#[tokio::test]
+async fn nearby_sessions_open_only_where_the_user_really_is() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let spot = somewhere();
+    let app = &ctx.app;
+    ctx.claims.refuse(alice.id);
+
+    let alice_open = app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&alice), &nearby_at(spot), 1, Duration::from_secs(3)).await;
+    assert_eq!(alice_open.unwrap_err().reason, "LOCATION_NOT_VERIFIED");
+    let bob_saw = app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&bob), &nearby_at(north_of(spot, 5.0)), 1, Duration::from_secs(3)).await.unwrap();
+    assert!(bob_saw[0].users.is_empty(), "a refused session never shows up on the map");
+
+    let unchecked = start_unchecked().await;
+    let carol = unchecked.app.user("carol").await;
+    let open = unchecked.app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&carol), &nearby_at(spot), 1, Duration::from_secs(3)).await;
+    assert_eq!(open.unwrap_err().reason, "LOCATION_NOT_VERIFIED", "no check plugged in: fail closed");
+}

@@ -127,7 +127,7 @@ impl Domains {
         let media = Media::new(core.clone(), cfg.media)?;
         let identity = Identity::new(core.clone(), cfg.identity)?;
         let social = Social::new(core.clone(), identity.clone(), cfg.social)?;
-        let geo = Geo::new(core.clone(), identity.clone(), cfg.geo)?;
+        let geo = Geo::new(core.clone(), identity.clone(), cfg.geo, &social)?;
         let wallet = Wallet::new(core.clone(), identity.clone(), cfg.wallet)?;
         let stamp = Stamp::new(core.clone(), identity.clone(), cfg.stamp)?;
         let notify = Notify::new(core.clone(), identity.clone(), cfg.notify)?;
@@ -405,6 +405,11 @@ pub async fn serve_api(
 mod tests {
     use clap::Parser;
     use tokuly_media::link_preview::image_proxy::{Kind, proxy_url};
+    use tokuly_proto::{
+        geo::{LocationSample, ReportLocationsRequest, ReportLocationsResponse},
+        social::{DiscoverNearbyRequest, DiscoverNearbyResponse},
+    };
+    use tokuly_testkit::TestApp;
     use tower::ServiceExt as _;
 
     use super::*;
@@ -459,5 +464,52 @@ mod tests {
         let busy = proxied[proxied.find("/media/link-image/").unwrap()..].to_owned();
         assert_eq!(get(busy, peer).await, (503, Some("no-store".to_owned())));
         core.cache.del(&format!("rl:media:link-image-client:{peer}")).await.unwrap();
+    }
+
+    /// The server plugs the geo domain's check of claimed positions into the
+    /// social domain: without it every nearby session and bump is refused.
+    #[tokio::test]
+    async fn a_real_fix_lets_a_nearby_session_open_there() {
+        let app = TestApp::start(MIGRATIONS, |core, _identity, _router| {
+            let cfg = Settings::try_parse_from(["tokuly"]).expect("default settings").domains;
+            Domains::new(core.clone(), cfg).expect("domains").connect_router()
+        })
+        .await;
+        let aoi = app.user("aoi").await;
+        let spot = (35.6595 + rand_offset(aoi.id), 139.7005);
+        let open = |at: (f64, f64)| {
+            let request = DiscoverNearbyRequest {
+                location: tokuly_proto::common::LatLng { lat: at.0, lng: at.1, ..Default::default() }.into(),
+                accuracy_meters: 5.0,
+                ..Default::default()
+            };
+            let (app, aoi) = (&app, aoi.clone());
+            async move {
+                app.stream::<_, DiscoverNearbyResponse>("tokuly.social.v1.FriendService/DiscoverNearby", Some(&aoi), &request, 1, Duration::from_secs(3)).await
+            }
+        };
+        assert_eq!(open(spot).await.unwrap_err().reason, "LOCATION_NOT_VERIFIED", "no fix yet");
+
+        let sample = LocationSample {
+            position: tokuly_proto::common::LatLng { lat: spot.0, lng: spot.1, ..Default::default() }.into(),
+            accuracy_meters: 10.0,
+            recorded_at: tokuly_core::time::ts(chrono::Utc::now()),
+            foreground: true,
+            ..Default::default()
+        };
+        let reported: ReportLocationsResponse = app
+            .call("tokuly.geo.v1.LocationService/ReportLocations", Some(&aoi), &ReportLocationsRequest { samples: vec![sample], ..Default::default() })
+            .await
+            .expect("report a fix");
+        assert_eq!(reported.accepted_count, 1);
+
+        let first = open(spot).await.expect("a session where the fix is");
+        assert_eq!(first.len(), 1, "the first snapshot arrives at once");
+        assert_eq!(open((spot.0 + 0.05, spot.1)).await.unwrap_err().reason, "LOCATION_NOT_VERIFIED", "5 km off the fix");
+    }
+
+    /// A latitude offset per run (Valkey is shared with other test runs).
+    fn rand_offset(id: uuid::Uuid) -> f64 {
+        (id.as_u128() % 10_000) as f64 / 100_000.0
     }
 }
