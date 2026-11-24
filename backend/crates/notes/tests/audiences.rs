@@ -453,3 +453,32 @@ async fn the_following_timeline_shows_followed_accounts_and_leaves_out_muted_one
         "SIGN_IN_REQUIRED"
     );
 }
+
+#[tokio::test]
+async fn posts_racing_a_lock_end_up_unlisted_and_the_pool_is_not_exhausted() {
+    let ctx = start().await;
+    let author = ctx.member("author").await;
+    for index in 0..5 {
+        ctx.post(&author, &format!("before {index}")).await;
+    }
+    ctx.set_locked(&author, true).await;
+    // Many posts from one account at once, while the lock's event is handled twice.
+    let posts = futures::future::join_all((0..12).map(|index| {
+        let ctx = &ctx;
+        let author = &author;
+        async move {
+            let request = CreateNoteRequest { text: format!("during {index}"), ..Default::default() };
+            ctx.note::<_, CreateNoteResponse>("CreateNote", Some(author), &request).await
+        }
+    }));
+    let syncs = futures::future::join_all((0..3).map(|_| ctx.notes.sync_author(author.id)));
+    let (posts, syncs) = tokio::join!(posts, syncs);
+    assert!(posts.iter().all(Result::is_ok), "{:?}", posts.iter().find(|r| r.is_err()));
+    assert!(syncs.iter().all(Result::is_ok));
+    let listed: i64 = sqlx::query_scalar("SELECT count(*) FROM notes WHERE author_id = $1 AND listed")
+        .bind(author.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(listed, 0, "nothing of a locked account is listed");
+}
