@@ -342,18 +342,23 @@ impl Admin {
         // The owning domain knows best, when it registered a resolver and
         // the content is visible to this moderator.
         if self.core.subjects.is_registered(subject_type) {
-            match self.core.subjects.resolve(subject_type, reference, Some(staff.id)).await {
-                Ok(info) => {
-                    let (owner_id, owner_hidden) = match self.existing_user(info.owner_id).await? {
-                        Some(owner_id) => (Some(owner_id), false),
-                        None => self.existing_hidden_owner(subject_type, info.id).await?,
-                    };
-                    return Ok(LocatedSubject { id: info.id, owner_id, owner_hidden, title: info.title });
-                }
-                // Private content is hidden from the resolver's viewer check;
-                // it can still be taken down by UUID below.
-                Err(e) if e.is_not_found() => {}
+            let found = match self.core.subjects.resolve(subject_type, reference, Some(staff.id)).await {
+                Ok(info) => Some(info),
+                // Private content is hidden from the resolver's viewer check.
+                // Reported, it resolves the way its reporters see it (not for
+                // its owner or reporters); otherwise by UUID below.
+                Err(e) if e.is_not_found() => match Uuid::parse_str(reference) {
+                    Ok(id) => self.reported_subject(staff, subject_type as i32, id).await?,
+                    Err(_) => None,
+                },
                 Err(e) => return Err(e),
+            };
+            if let Some(info) = found {
+                let (owner_id, owner_hidden) = match self.existing_user(info.owner_id).await? {
+                    Some(owner_id) => (Some(owner_id), false),
+                    None => self.existing_hidden_owner(subject_type, info.id).await?,
+                };
+                return Ok(LocatedSubject { id: info.id, owner_id, owner_hidden, title: info.title });
             }
         }
 

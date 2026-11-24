@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use common::*;
-use tokuly_admin::HiddenOwners;
+use tokuly_admin::{HiddenOwners, ReportedSubjects};
 use tokuly_core::{
     AppResult,
     subject::{SubjectInfo, SubjectResolver},
@@ -1026,4 +1026,98 @@ async fn nothing_shown_about_an_anonymous_post_lines_up_with_its_authors_suspens
         }
     }
     assert!(!suspended_entry.after_json.contains("expires_at"), "{}", suspended_entry.after_json);
+}
+
+/// A video its owner made private after it was reported: hidden from
+/// everyone but those who watched it, which its reporter did.
+struct PrivateVideo {
+    id: Uuid,
+    owner_id: Uuid,
+    watched_by: Uuid,
+}
+
+#[async_trait]
+impl SubjectResolver for PrivateVideo {
+    async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
+        if viewer == Some(self.owner_id) { self.resolve_for_report(id, viewer).await } else { Ok(None) }
+    }
+
+    async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
+        let seen = viewer == Some(self.owner_id) || viewer == Some(self.watched_by);
+        Ok((seen && id == self.id.to_string()).then(|| SubjectInfo {
+            id: self.id,
+            owner_id: self.owner_id,
+            title: "非公開にした動画".into(),
+            path: "/watch/private01".into(),
+            image_url: None,
+            interactions_enabled: false,
+        }))
+    }
+}
+
+/// The server's bridge stands in for engagement: the subject as each of its
+/// reporters can see it, never for its owner or a reporter.
+struct AsItsReporters {
+    core: tokuly_core::Core,
+}
+
+#[async_trait]
+impl ReportedSubjects for AsItsReporters {
+    async fn reported_subject(&self, staff_id: Uuid, subject_type: SubjectType, subject_id: Uuid) -> AppResult<Option<SubjectInfo>> {
+        let reporters: Vec<(Uuid, Option<Uuid>)> = sqlx::query_as(
+            "SELECT r.reporter_id, c.subject_owner_id FROM moderation_reports r JOIN moderation_cases c ON c.id = r.case_id
+             WHERE c.subject_type = $1 AND c.subject_id = $2 AND r.reporter_id IS NOT NULL",
+        )
+        .bind(subject_type as i32)
+        .bind(subject_id)
+        .fetch_all(&self.core.db)
+        .await?;
+        if reporters.iter().any(|(reporter, owner)| *reporter == staff_id || *owner == Some(staff_id)) {
+            return Ok(None);
+        }
+        for (reporter, _) in reporters {
+            if let Ok(info) = self.core.subjects.resolve_for_report(subject_type, &subject_id.to_string(), Some(reporter)).await {
+                return Ok(Some(info));
+            }
+        }
+        Ok(None)
+    }
+}
+
+#[tokio::test]
+async fn a_reported_video_made_private_still_shows_in_its_case() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let owner = app.user_with_roles("owner", &["moderator"]).await;
+    let reporter = app.user("reporter").await;
+    let video = Uuid::now_v7();
+    app.core.subjects.register(SubjectType::SUBJECT_TYPE_VIDEO, Arc::new(PrivateVideo { id: video, owner_id: owner.id, watched_by: reporter.id }));
+    admin.set_reported_subjects(Arc::new(AsItsReporters { core: app.core.clone() }));
+    admin.handle_event(report_event(reporter.id, (SubjectType::SUBJECT_TYPE_VIDEO, video), owner.id, "VIOLENCE", "")).await.unwrap();
+    let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(video).fetch_one(&app.core.db).await.unwrap();
+
+    // An uninvolved moderator sees the video as its reporter does, though
+    // the normal lookup refuses it to them.
+    assert!(app.core.subjects.resolve(SubjectType::SUBJECT_TYPE_VIDEO, &video.to_string(), Some(moderator.id)).await.is_err());
+    let opened = get_case(&app, &moderator, &case_id.to_string()).await;
+    let current = opened.moderation_case.current_subject.as_option().expect("the video as its reporter sees it");
+    assert_eq!((current.title.as_str(), current.path.as_str()), ("非公開にした動画", "/watch/private01"));
+
+    // Its owner, staff too, gets their own case without it.
+    let own = get_case(&app, &owner, &case_id.to_string()).await;
+    assert!(own.moderation_case.about_you);
+    assert!(own.moderation_case.current_subject.is_unset());
+
+    // Dismissed, then taken down after all by UUID: the takedown finds it
+    // the same way, with its title now.
+    let case = opened.moderation_case.as_option().unwrap().clone();
+    resolve(&app, &moderator, resolution(&case, DISMISS, "")).await.unwrap();
+    let request = TakedownContentRequest {
+        subject: subject_ref(SubjectType::SUBJECT_TYPE_VIDEO, video).into(),
+        reason: "暴力的な内容".into(),
+        ..Default::default()
+    };
+    let done: TakedownContentResponse = app.call(&format!("{MODERATION}/TakedownContent"), Some(&moderator), &request).await.unwrap();
+    assert_eq!(done.action.subject_title, "非公開にした動画");
+    assert_eq!(done.action.target_user.id, owner.id.to_string());
 }

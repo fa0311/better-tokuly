@@ -250,7 +250,7 @@ moderators' view (every version of edited or withdrawn content). `None` when
 nobody reported the subject, when it resolves for none of its reporters, or
 when the staff member is a party to it (its owner or one of its reporters).
 It exists for the admin domain's case view only, which the server wires to
-it through a bridge; no RPC of this domain calls it, and nothing else may
+it through admin's `ReportedSubjects` bridge (`GetCase`, takedowns by UUID); no RPC of this domain calls it, and nothing else may
 show its answer.
 
 ## Gaps and requests
