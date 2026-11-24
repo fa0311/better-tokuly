@@ -398,3 +398,75 @@ pub async fn serve_api(
         .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use clap::Parser;
+    use tokuly_proto::{
+        geo::{LocationSample, ReportLocationsRequest, ReportLocationsResponse},
+        social::{DiscoverNearbyRequest, DiscoverNearbyResponse},
+    };
+    use tokuly_testkit::TestApp;
+
+    use super::{DomainConfigs, Domains};
+
+    #[derive(Parser)]
+    struct Settings {
+        #[command(flatten)]
+        domains: DomainConfigs,
+    }
+
+    const ALL_MIGRATIONS: &[&str] = &[
+        "0001", "0100", "0200", "0300", "0400", "0500", "0600", "0700", "0800", "0900", "1000", "1100", "1200", "1300",
+        "1400", "1500", "1600", "1700", "1800", "1900", "2000", "2100", "2200", "2300", "2400",
+    ];
+
+    /// The server plugs the geo domain's check of claimed positions into the
+    /// social domain: without it every nearby session and bump is refused.
+    #[tokio::test]
+    async fn a_real_fix_lets_a_nearby_session_open_there() {
+        let app = TestApp::start(ALL_MIGRATIONS, |core, _identity, _router| {
+            let cfg = Settings::try_parse_from(["tokuly"]).expect("default settings").domains;
+            Domains::new(core.clone(), cfg).expect("domains").connect_router()
+        })
+        .await;
+        let aoi = app.user("aoi").await;
+        let spot = (35.6595 + rand_offset(aoi.id), 139.7005);
+        let open = |at: (f64, f64)| {
+            let request = DiscoverNearbyRequest {
+                location: tokuly_proto::common::LatLng { lat: at.0, lng: at.1, ..Default::default() }.into(),
+                accuracy_meters: 5.0,
+                ..Default::default()
+            };
+            let (app, aoi) = (&app, aoi.clone());
+            async move {
+                app.stream::<_, DiscoverNearbyResponse>("tokuly.social.v1.FriendService/DiscoverNearby", Some(&aoi), &request, 1, Duration::from_secs(3)).await
+            }
+        };
+        assert_eq!(open(spot).await.unwrap_err().reason, "LOCATION_NOT_VERIFIED", "no fix yet");
+
+        let sample = LocationSample {
+            position: tokuly_proto::common::LatLng { lat: spot.0, lng: spot.1, ..Default::default() }.into(),
+            accuracy_meters: 10.0,
+            recorded_at: tokuly_core::time::ts(chrono::Utc::now()),
+            foreground: true,
+            ..Default::default()
+        };
+        let reported: ReportLocationsResponse = app
+            .call("tokuly.geo.v1.LocationService/ReportLocations", Some(&aoi), &ReportLocationsRequest { samples: vec![sample], ..Default::default() })
+            .await
+            .expect("report a fix");
+        assert_eq!(reported.accepted_count, 1);
+
+        let first = open(spot).await.expect("a session where the fix is");
+        assert_eq!(first.len(), 1, "the first snapshot arrives at once");
+        assert_eq!(open((spot.0 + 0.05, spot.1)).await.unwrap_err().reason, "LOCATION_NOT_VERIFIED", "5 km off the fix");
+    }
+
+    /// A latitude offset per run (Valkey is shared with other test runs).
+    fn rand_offset(id: uuid::Uuid) -> f64 {
+        (id.as_u128() % 10_000) as f64 / 100_000.0
+    }
+}

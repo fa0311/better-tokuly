@@ -58,3 +58,8 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 sqlx.workspace = true
+
+[dev-dependencies]
+tokuly-testkit.workspace = true
+tokuly-proto = { workspace = true, features = ["common", "geo", "social"] }
+chrono.workspace = true
