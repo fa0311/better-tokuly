@@ -385,7 +385,8 @@ async fn deleted_accounts_are_scrubbed_from_the_moderation_record() {
     assert!(!audit.is_empty(), "audit rows survive");
     assert!(audit.iter().all(|entry| entry.target_user.is_unset()));
 
-    // A departing moderator is nulled out of the log too, and the rows stay.
+    // A departing moderator is nulled out of the moderation log, and the rows stay.
+    let before = audit_by(&app, &boss, moderator.id).await.len();
     admin.handle_event(deleted(moderator.id)).await.unwrap();
     let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM moderation_actions WHERE case_id = $1 AND moderator_id IS NULL")
         .bind(handled.id.parse::<Uuid>().unwrap())
@@ -393,7 +394,8 @@ async fn deleted_accounts_are_scrubbed_from_the_moderation_record() {
         .await
         .unwrap();
     assert_eq!(rows, 1);
-    assert!(audit_by(&app, &boss, moderator.id).await.is_empty(), "no audit row names the deleted moderator any more");
+    // The audit trail of what they did as staff keeps naming them (the account is anonymized, not gone).
+    assert_eq!(audit_by(&app, &boss, moderator.id).await.len(), before, "the audit trail keeps its actor");
 }
 
 /// Records what it was asked to hold and release, on the caller's transaction.

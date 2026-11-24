@@ -142,7 +142,7 @@ Durable consumer `admin` (`tokuly_admin::Admin::handle_event`).
 |---|---|---|
 | `engagement.report.created` | `{ report_id, reporter_id, subject_type, subject_id, subject_owner_id, category, text, subject_title, subject_path }` (`tokuly_admin::events::ReportCreated`) | Files the report into the subject's open case, opening one if needed. Idempotent on `report_id`. `category` is one of `SPAM`, `HARASSMENT`, `HATE`, `SEXUAL`, `VIOLENCE`, `SELF_HARM`, `ILLEGAL`, `IMPERSONATION`, `COPYRIGHT`, `OTHER`; anything else is stored as `OTHER`. Reporter or owner IDs that match no live account are stored as unknown. |
 | `identity.user.created`, `identity.user.email_verified` | not read | Grants `admin` to the account whose verified address is `TOKULY_ADMIN_USER`, if it now exists and the bootstrap has not happened yet. |
-| `identity.user.deleted` | `{ user_id }` | Reports they filed lose reporter and text; cases about them or their content lose owner, title and path, and open ones are closed ("account deleted"); the moderation log and the audit log keep their rows with the user reference nulled (as target, moderator or actor); their suspension rows are deleted; they are removed from feature-flag allow-lists. |
+| `identity.user.deleted` | `{ user_id }` | Reports they filed lose reporter and text; cases about them or their content lose owner, title and path, and open ones are closed ("account deleted"); the moderation log keeps its rows with the user reference nulled (as target or moderator); the audit log nulls them as the affected account but keeps them as the actor (see "Privacy"); their suspension rows are deleted; they are removed from feature-flag allow-lists. |
 
 ## Notification kinds
 
@@ -182,6 +182,16 @@ by mail (`core.mail`, in the account's locale; sent after commit, best effort):
 
 `PublishAnnouncement` also queues the broadcast directly when the
 announcement is visible at once, so API-only processes need no timer.
+
+## Privacy
+
+The audit log is the record of what staff did with their powers, kept as a
+legitimate interest of the service: when a staff account is erased, its
+entries keep their actor (the account is anonymized, not removed, so the
+reference holds and shows the erased placeholder) and their before/after
+snapshots as they are. Only references to the erased person as the affected
+account are cut. Entries about anonymous posts never name their author to
+readers (see above).
 
 ## Audit log
 
