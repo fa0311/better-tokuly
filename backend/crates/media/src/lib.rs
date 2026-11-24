@@ -52,7 +52,8 @@ pub use janitor::Sweep;
 pub use lifecycle::{JOB_PROCESS, JOB_TRANSCODE, ProcessJob};
 pub use link_preview::link_preview;
 
-use link_preview::{Previews, guard::Policy};
+use link_preview::Previews;
+use tokuly_core::egress::Policy;
 use process::ffmpeg::Ffmpeg;
 
 /// How often the janitor sweeps.

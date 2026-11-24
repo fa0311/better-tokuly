@@ -1,27 +1,42 @@
-//! SSRF protection for the link preview fetcher.
-//!
-//! The fetcher requests URLs chosen by users, from inside our network. It
-//! must therefore never reach anything that is not the public internet:
+//! The guard on requests the server makes to addresses that come from
+//! outside: link previews (media), news feeds (feed), webhooks (dev) and Web
+//! Push endpoints (notify). Such a request is made from inside our network,
+//! so it must never reach anything that is not the public internet:
 //! loopback, private ranges, link-local addresses (cloud metadata services
 //! live there), carrier NAT, multicast, and every IPv6 form that embeds such
-//! an IPv4 address.
+//! an IPv4 address (mapped, translated, compatible, NAT64, 6to4).
 //!
-//! Two checks enforce this, on every redirect hop:
-//! - [`check_url`] validates the URL itself (scheme, port, literal IPs);
+//! Three checks enforce this, on every request (and every redirect hop the
+//! caller follows by hand):
+//! - [`check_url`] validates the URL itself (scheme, credentials, port,
+//!   literal addresses); a domain with stricter URL rules checks those itself
+//!   and uses [`is_public`] for literal addresses;
 //! - [`GuardedResolver`] validates what a host name *resolves to*, at the
 //!   moment the connection is made. Checking a name earlier and connecting
 //!   later would let a hostile DNS server answer differently the second
-//!   time (DNS rebinding).
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+//!   time (DNS rebinding);
+//! - [`check_peer`] validates the address the response actually came from.
+//!
+//! [`client_builder`] puts the resolver in a client that never follows a
+//! redirect on its own and never uses a proxy (a proxy would resolve the
+//! name, out of the resolver's reach), with a time limit; [`read_capped`]
+//! bounds what is read of an answer.
+use std::{
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    sync::Arc,
+    time::Duration,
+};
 
+use bytes::{Bytes, BytesMut};
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use url::{Host, Url};
 
-/// What the fetcher may reach.
+/// What a guarded request may reach.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Policy {
-    /// Permit loopback addresses and any port. For integration tests against
-    /// a local server; never set in production code paths.
+    /// Also permit loopback addresses and non-default ports: a server on the
+    /// developer's machine or in a test. Private, link-local and every other
+    /// special range stay off limits. Never set in production.
     pub allow_loopback: bool,
 }
 
@@ -94,11 +109,14 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
 /// are refused like everything else in `0.0.0.0/8`.
 fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     let segments = ip.segments();
-    let low = || Ipv4Addr::new((segments[6] >> 8) as u8, segments[6] as u8, (segments[7] >> 8) as u8, segments[7] as u8);
+    let low =
+        || Ipv4Addr::new((segments[6] >> 8) as u8, segments[6] as u8, (segments[7] >> 8) as u8, segments[7] as u8);
     match segments {
         [0, 0, 0, 0, 0, 0xffff, _, _] | [0, 0, 0, 0, 0xffff, 0, _, _] | [0, 0, 0, 0, 0, 0, _, _] => Some(low()),
         [0x0064, 0xff9b, 0, 0, 0, 0, _, _] => Some(low()),
-        [0x2002, high, low_bits, ..] => Some(Ipv4Addr::new((high >> 8) as u8, high as u8, (low_bits >> 8) as u8, low_bits as u8)),
+        [0x2002, high, low_bits, ..] => {
+            Some(Ipv4Addr::new((high >> 8) as u8, high as u8, (low_bits >> 8) as u8, low_bits as u8))
+        }
         _ => None,
     }
 }
@@ -152,14 +170,67 @@ impl Resolve for GuardedResolver {
         let policy = self.policy;
         Box::pin(async move {
             let resolved: Vec<SocketAddr> = tokio::net::lookup_host((name.as_str(), 0)).await?.collect();
-            let permitted: Vec<SocketAddr> = resolved.iter().copied().filter(|address| policy.permits(address.ip())).collect();
+            let permitted: Vec<SocketAddr> =
+                resolved.iter().copied().filter(|address| policy.permits(address.ip())).collect();
             match (permitted.is_empty(), resolved.first()) {
                 (false, _) => Ok(Box::new(permitted.into_iter()) as Addrs),
-                (true, Some(refused)) => Err(Box::new(Refusal::Address(refused.ip())) as Box<dyn std::error::Error + Send + Sync>),
+                (true, Some(refused)) => {
+                    Err(Box::new(Refusal::Address(refused.ip())) as Box<dyn std::error::Error + Send + Sync>)
+                }
                 (true, None) => Err(format!("{} does not resolve", name.as_str()).into()),
             }
         })
     }
+}
+
+/// Whether the address a response came from is permitted: belt and braces
+/// behind the resolver, for whatever path the connection took.
+pub fn check_peer(response: &reqwest::Response, policy: Policy) -> Result<(), Refusal> {
+    match response.remote_addr() {
+        Some(peer) if !policy.permits(peer.ip()) => Err(Refusal::Address(peer.ip())),
+        _ => Ok(()),
+    }
+}
+
+/// The guard's refusal inside a failed request, if that is why it failed
+/// (the resolver's refusal travels inside the connect error).
+pub fn refusal_of(error: &reqwest::Error) -> Option<Refusal> {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(cause) = source {
+        if let Some(refusal) = cause.downcast_ref::<Refusal>() {
+            return Some(refusal.clone());
+        }
+        source = cause.source();
+    }
+    None
+}
+
+/// A client builder for requests to outside addresses: only to what `guard`
+/// permits (`None`: anything, for development setups that say so), never
+/// following a redirect (a caller that follows them does so by hand, through
+/// [`check_url`]), never through a proxy, and at most `timeout` per request
+/// (connecting at most 5 seconds of it).
+pub fn client_builder(guard: Option<Policy>, timeout: Duration) -> reqwest::ClientBuilder {
+    let builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .connect_timeout(timeout.min(Duration::from_secs(5)))
+        .timeout(timeout);
+    match guard {
+        Some(policy) => builder.dns_resolver(Arc::new(GuardedResolver { policy })),
+        None => builder,
+    }
+}
+
+/// Reads at most `max` bytes of a response body; the rest is not downloaded.
+pub async fn read_capped(response: &mut reqwest::Response, max: usize) -> Result<Bytes, reqwest::Error> {
+    let mut body = BytesMut::new();
+    while body.len() < max {
+        let Some(chunk) = response.chunk().await? else { break };
+        let room = max - body.len();
+        body.extend_from_slice(&chunk[..chunk.len().min(room)]);
+    }
+    Ok(body.freeze())
 }
 
 #[cfg(test)]
@@ -181,6 +252,7 @@ mod tests {
             "100.127.255.255",
             "127.0.0.1",
             "127.255.255.254",
+            "127.8.9.10",
             "169.254.169.254", // cloud metadata service
             "169.254.0.1",
             "172.16.0.1",
@@ -200,7 +272,19 @@ mod tests {
         ] {
             assert!(!public(ip), "{ip} must be refused");
         }
-        for ip in ["1.1.1.1", "8.8.8.8", "100.63.255.255", "100.128.0.1", "172.15.255.255", "172.32.0.1", "192.167.1.1", "198.17.0.1", "198.20.0.1", "223.255.255.255"] {
+        for ip in [
+            "1.1.1.1",
+            "8.8.8.8",
+            "203.0.114.1",
+            "100.63.255.255",
+            "100.128.0.1",
+            "172.15.255.255",
+            "172.32.0.1",
+            "192.167.1.1",
+            "198.17.0.1",
+            "198.20.0.1",
+            "223.255.255.255",
+        ] {
             assert!(public(ip), "{ip} is public");
         }
     }
@@ -219,6 +303,7 @@ mod tests {
             "ff02::1",
             "2001:db8::1",
             "2001:0:4136:e378:8000:63bf:3fff:fdd2", // Teredo
+            "2001::1",
             "100::1",
         ] {
             assert!(!public(ip), "{ip} must be refused");
@@ -236,11 +321,13 @@ mod tests {
             "::ffff:169.254.169.254",
             "::127.0.0.1",
             "::10.1.2.3",
-            "64:ff9b::7f00:1",        // NAT64 of 127.0.0.1
-            "64:ff9b::a9fe:a9fe",     // NAT64 of 169.254.169.254
-            "2002:7f00:1::1",         // 6to4 of 127.0.0.1
-            "2002:c0a8:101::1",       // 6to4 of 192.168.1.1
-            "2002:a9fe:a9fe::",       // 6to4 of 169.254.169.254
+            "64:ff9b::7f00:1",    // NAT64 of 127.0.0.1
+            "64:ff9b::a9fe:a9fe", // NAT64 of 169.254.169.254
+            "2002:7f00:1::1",     // 6to4 of 127.0.0.1
+            "2002:c0a8:101::1",   // 6to4 of 192.168.1.1
+            "2002:a9fe:a9fe::",   // 6to4 of 169.254.169.254
+            "64:ff9b::192.168.0.1",
+            "64:ff9b::a00:1",
         ] {
             assert!(!public(ip), "{ip} must be refused");
         }
@@ -252,11 +339,11 @@ mod tests {
     #[test]
     fn translated_and_local_nat64_forms_are_not_public() {
         for ip in [
-            "::ffff:0:7f00:1",      // IPv4-translated (SIIT) 127.0.0.1
-            "::ffff:0:a9fe:a9fe",   // IPv4-translated 169.254.169.254
-            "64:ff9b:1::a00:1",     // local-use NAT64 (RFC 8215), whatever it embeds
+            "::ffff:0:7f00:1",    // IPv4-translated (SIIT) 127.0.0.1
+            "::ffff:0:a9fe:a9fe", // IPv4-translated 169.254.169.254
+            "64:ff9b:1::a00:1",   // local-use NAT64 (RFC 8215), whatever it embeds
             "64:ff9b:1:fffe::1",
-            "::2",                  // the rest of the deprecated IPv4-compatible block
+            "::2", // the rest of the deprecated IPv4-compatible block
             "::0.0.1.1",
         ] {
             assert!(!public(ip), "{ip} must be refused");
@@ -282,6 +369,8 @@ mod tests {
         let check = |url: &str| check_url(&Url::parse(url).unwrap(), Policy::default());
         assert_eq!(check("https://example.com/page"), Ok(()));
         assert_eq!(check("http://example.com:80/"), Ok(()), "the default port is fine");
+        assert_eq!(check("https://example.com:443/"), Ok(()), "the default port is fine");
+        assert_eq!(check("https://localhost/"), Ok(()), "names are judged when they are resolved");
         assert_eq!(check("ftp://example.com/file"), Err(Refusal::Scheme));
         assert_eq!(check("file:///etc/passwd"), Err(Refusal::Scheme));
         assert_eq!(check("gopher://example.com/"), Err(Refusal::Scheme));
@@ -289,7 +378,10 @@ mod tests {
         assert_eq!(check("http://example.com:8080/"), Err(Refusal::Port));
         assert_eq!(check("http://example.com:22/"), Err(Refusal::Port));
         assert_eq!(check("http://127.0.0.1/"), Err(Refusal::Address("127.0.0.1".parse().unwrap())));
-        assert_eq!(check("http://169.254.169.254/latest/meta-data/"), Err(Refusal::Address("169.254.169.254".parse().unwrap())));
+        assert_eq!(
+            check("http://169.254.169.254/latest/meta-data/"),
+            Err(Refusal::Address("169.254.169.254".parse().unwrap()))
+        );
         assert_eq!(check("http://[::1]/"), Err(Refusal::Address("::1".parse().unwrap())));
         assert_eq!(check("http://[::ffff:10.0.0.1]/"), Err(Refusal::Address("::ffff:10.0.0.1".parse().unwrap())));
         // Numeric host forms are normalised to an address by the URL parser.
@@ -299,7 +391,10 @@ mod tests {
 
         let test = Policy { allow_loopback: true };
         assert_eq!(check_url(&Url::parse("http://127.0.0.1:4567/x").unwrap(), test), Ok(()));
-        assert_eq!(check_url(&Url::parse("http://10.0.0.1:4567/x").unwrap(), test), Err(Refusal::Address("10.0.0.1".parse().unwrap())));
+        assert_eq!(
+            check_url(&Url::parse("http://10.0.0.1:4567/x").unwrap(), test),
+            Err(Refusal::Address("10.0.0.1".parse().unwrap()))
+        );
     }
 
     #[tokio::test]
@@ -313,5 +408,59 @@ mod tests {
         let test = GuardedResolver { policy: Policy { allow_loopback: true } };
         let addresses: Vec<SocketAddr> = test.resolve(name("localhost")).await.unwrap().collect();
         assert!(!addresses.is_empty() && addresses.iter().all(|a| a.ip().is_loopback()));
+    }
+
+    /// A server on loopback that answers every connection with `body`.
+    async fn local_server(body: &'static str) -> u16 {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut request = [0u8; 4096];
+                let _ = socket.read(&mut request).await;
+                let answer =
+                    format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+                let _ = socket.write_all(answer.as_bytes()).await;
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn a_guarded_client_does_not_connect_inward() {
+        let port = local_server("hello").await;
+        let strict = client_builder(Some(Policy::default()), Duration::from_secs(5)).build().unwrap();
+        let error = strict.get(format!("http://localhost:{port}/")).send().await.unwrap_err();
+        assert!(matches!(refusal_of(&error), Some(Refusal::Address(ip)) if ip.is_loopback()), "{error}");
+
+        // Through the test policy the request goes out, and the peer is what the strict policy refuses.
+        let test = client_builder(Some(Policy { allow_loopback: true }), Duration::from_secs(5)).build().unwrap();
+        let mut response = test.get(format!("http://localhost:{port}/")).send().await.unwrap();
+        assert_eq!(check_peer(&response, Policy { allow_loopback: true }), Ok(()));
+        assert!(matches!(check_peer(&response, Policy::default()), Err(Refusal::Address(ip)) if ip.is_loopback()));
+        assert_eq!(read_capped(&mut response, 3).await.unwrap().as_ref(), b"hel", "the body is cut at the cap");
+    }
+
+    #[tokio::test]
+    async fn a_guarded_client_follows_no_redirect_and_gives_up_in_time() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let _ = socket.read(&mut [0u8; 4096]).await;
+            let _ = socket
+                .write_all(b"HTTP/1.1 302 Found\r\nlocation: http://169.254.169.254/\r\ncontent-length: 0\r\n\r\n")
+                .await;
+            // The second connection is accepted and never answered.
+            let (_silent, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        });
+        let client = client_builder(Some(Policy { allow_loopback: true }), Duration::from_millis(500)).build().unwrap();
+        let response = client.get(format!("http://127.0.0.1:{port}/")).send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FOUND, "the redirect is the caller's to follow");
+        let error = client.get(format!("http://127.0.0.1:{port}/")).send().await.unwrap_err();
+        assert!(error.is_timeout(), "{error}");
     }
 }

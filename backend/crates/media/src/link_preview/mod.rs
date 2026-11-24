@@ -10,7 +10,7 @@
 //! 3. the `link_previews` table answers repeat lookups, including "nothing
 //!    to show" results, so a URL pasted into a busy chat is fetched once;
 //! 4. otherwise the page (or the provider's oEmbed document) is fetched
-//!    under the limits in [`fetch`] and the SSRF rules in [`guard`].
+//!    under the limits in [`fetch`] and the SSRF rules of `tokuly_core::egress`.
 //!
 //! A failed or refused fetch is not an error for the caller: it simply
 //! means there is no preview.
@@ -24,12 +24,11 @@ use url::Url;
 
 pub mod embed;
 pub mod fetch;
-pub mod guard;
 pub mod html;
 
 use embed::Embed;
 use fetch::{FetchError, Page};
-use guard::Policy;
+use tokuly_core::egress::Policy;
 
 /// How long a found preview / a "nothing to show" result is reused.
 const POSITIVE_TTL_SECONDS: i64 = 7 * 24 * 3600;

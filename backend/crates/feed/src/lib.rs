@@ -54,7 +54,9 @@ pub use config::FeedConfig;
 pub use maintenance::RetentionReport;
 pub use news::refresh::RefreshOutcome;
 
-use crate::news::{guard::Policy, tagging::TagDictionary};
+use tokuly_core::egress::Policy;
+
+use crate::news::tagging::TagDictionary;
 
 pub struct FeedInner {
     pub core: Core,

@@ -7,13 +7,16 @@ use std::time::Duration;
 
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
 use sqlx::{Postgres, Transaction};
-use tokuly_core::{outbound, prelude::*};
+use tokuly_core::{
+    egress::{Policy, check_url},
+    outbound,
+    prelude::*,
+};
 use tokuly_proto::feed::*;
 use url::Url;
 
 use super::{
     articles::{ArticleRow, SEARCH_KIND, article_columns},
-    guard::{Policy, check_url},
     parse::MAX_URL_LEN,
     tagging::normalize_tag,
 };

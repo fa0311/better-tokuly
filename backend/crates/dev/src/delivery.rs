@@ -10,20 +10,18 @@
 //! The URL is the owner's, so the request must not be usable to reach
 //! anything the owner could not reach themselves: only `https`, never a
 //! redirect, no proxy, and the connection goes to an address that was
-//! checked to be public *at connection time* (a custom resolver filters
-//! what DNS returns, which also defeats names that re-resolve to an inside
-//! address after validation).
-use std::{
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    sync::Arc,
-    time::{Duration, Instant},
-};
+//! checked to be public *at connection time* and again on the connected
+//! peer (`tokuly_core::egress`, the guard every outbound request shares; it
+//! also defeats names that re-resolve to an inside address after
+//! validation).
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use hmac::{Hmac, Mac as _};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use tokuly_core::{
+    egress::{self, is_public},
     events,
     keys::secure_eq,
     outbound::{self, Localized, NotificationRequest},
@@ -47,72 +45,6 @@ const MAX_RESPONSE_BYTES: usize = 16 * 1024;
 
 // ───────────────────────────── where a delivery may go ─────────────────────────────
 
-/// Whether an address is on the public internet: not loopback, private,
-/// link-local, carrier-grade NAT, multicast, documentation or otherwise
-/// reserved — in either address family, including IPv4 addresses wrapped in
-/// IPv6.
-pub fn is_public_address(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => is_public_v4(ip),
-        IpAddr::V6(ip) => is_public_v6(ip),
-    }
-}
-
-fn is_public_v4(ip: Ipv4Addr) -> bool {
-    let [a, b, c, _] = ip.octets();
-    !(ip.is_unspecified()
-        || ip.is_loopback()
-        || ip.is_private()
-        || ip.is_link_local()
-        || ip.is_broadcast()
-        || ip.is_multicast()
-        || ip.is_documentation()
-        || a == 0
-        // Carrier-grade NAT 100.64/10, IETF protocol assignments 192.0.0/24,
-        // 6to4 relay anycast 192.88.99/24, benchmarking 198.18/15, reserved 240/4.
-        || (a == 100 && (64..128).contains(&b))
-        || (a == 192 && b == 0 && c == 0)
-        || (a == 192 && b == 88 && c == 99)
-        || (a == 198 && (b == 18 || b == 19))
-        || a >= 240)
-}
-
-/// The IPv4 address an IPv6 address carries: IPv4-mapped (`::ffff:a.b.c.d`),
-/// IPv4-compatible (`::a.b.c.d`), NAT64 (`64:ff9b::/96`) and 6to4
-/// (`2002::/16`). Such an address reaches the IPv4 host, so it is judged by it.
-fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
-    let segments = ip.segments();
-    let low =
-        || Ipv4Addr::new((segments[6] >> 8) as u8, segments[6] as u8, (segments[7] >> 8) as u8, segments[7] as u8);
-    match segments {
-        [0, 0, 0, 0, 0, 0xffff, _, _] | [0x64, 0xff9b, 0, 0, 0, 0, _, _] => Some(low()),
-        [0, 0, 0, 0, 0, 0, high, _] if high != 0 => Some(low()),
-        [0x2002, high, low_bits, ..] => {
-            Some(Ipv4Addr::new((high >> 8) as u8, high as u8, (low_bits >> 8) as u8, low_bits as u8))
-        }
-        _ => None,
-    }
-}
-
-fn is_public_v6(ip: Ipv6Addr) -> bool {
-    if let Some(v4) = embedded_v4(ip) {
-        return is_public_v4(v4);
-    }
-    let segments = ip.segments();
-    let first = segments[0];
-    !(ip.is_unspecified()
-        || ip.is_loopback()
-        // Unique local fc00::/7, link-local fe80::/10, site-local fec0::/10, multicast ff00::/8.
-        || (first & 0xfe00) == 0xfc00
-        || (first & 0xffc0) == 0xfe80
-        || (first & 0xffc0) == 0xfec0
-        || (first & 0xff00) == 0xff00
-        // Documentation 2001:db8::/32, Teredo 2001::/32, discard-only 100::/64.
-        || (first == 0x2001 && segments[1] == 0x0db8)
-        || (first == 0x2001 && segments[1] == 0)
-        || (first == 0x0100 && segments[1..4] == [0, 0, 0]))
-}
-
 /// Checks a webhook URL as far as it can be without connecting. `Err`
 /// completes the sentence "the URL …".
 pub fn check_url(url: &str, allow_private: bool) -> Result<url::Url, &'static str> {
@@ -131,8 +63,8 @@ pub fn check_url(url: &str, allow_private: bool) -> Result<url::Url, &'static st
         return Err("must use https");
     }
     let public = match host {
-        url::Host::Ipv4(ip) => is_public_v4(ip),
-        url::Host::Ipv6(ip) => is_public_v6(ip),
+        url::Host::Ipv4(ip) => is_public(ip.into()),
+        url::Host::Ipv6(ip) => is_public(ip.into()),
         // Names are judged for real when they are resolved; this only turns
         // away the obvious at registration.
         url::Host::Domain(name) => {
@@ -156,39 +88,18 @@ pub fn check_url(url: &str, allow_private: bool) -> Result<url::Url, &'static st
     if public { Ok(url) } else { Err("must point to a public host") }
 }
 
-/// Resolves names like the system does, then drops every address that is
-/// not public. A name with no public address does not resolve.
-struct PublicOnly;
-
-impl reqwest::dns::Resolve for PublicOnly {
-    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
-        Box::pin(async move {
-            let host = name.as_str().to_owned();
-            let resolved: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
-                .await?
-                .filter(|addr| is_public_address(addr.ip()))
-                .collect();
-            if resolved.is_empty() {
-                return Err(format!("{host} has no public address").into());
-            }
-            Ok(Box::new(resolved.into_iter()) as reqwest::dns::Addrs)
-        })
-    }
+/// The HTTP client deliveries are sent with: only to public addresses
+/// unless the deployment allows private ones (development).
+pub(crate) fn http_client(cfg: &DevConfig) -> anyhow::Result<reqwest::Client> {
+    egress::client_builder(guard(cfg), cfg.webhook_timeout())
+        .user_agent("Tokuly-Webhooks/1.0")
+        .build()
+        .map_err(|e| anyhow::anyhow!("webhook http client: {e}"))
 }
 
-/// The HTTP client deliveries are sent with.
-pub(crate) fn http_client(cfg: &DevConfig) -> anyhow::Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder()
-        .user_agent("Tokuly-Webhooks/1.0")
-        // A redirect could lead anywhere; a proxy would resolve names for us.
-        .redirect(reqwest::redirect::Policy::none())
-        .no_proxy()
-        .connect_timeout(Duration::from_secs(5).min(cfg.webhook_timeout()))
-        .timeout(cfg.webhook_timeout());
-    if !cfg.webhook_allow_private {
-        builder = builder.dns_resolver(Arc::new(PublicOnly));
-    }
-    builder.build().map_err(|e| anyhow::anyhow!("webhook http client: {e}"))
+/// What deliveries may reach; `None` is anything (`webhook_allow_private`).
+fn guard(cfg: &DevConfig) -> Option<egress::Policy> {
+    (!cfg.webhook_allow_private).then(egress::Policy::default)
 }
 
 // ───────────────────────────── signatures ─────────────────────────────
@@ -331,21 +242,14 @@ fn truncate_chars(text: &str, max: usize) -> String {
 
 /// Why a request got no answer, in words fit for the delivery log.
 fn describe_failure(error: &reqwest::Error) -> String {
-    use std::error::Error as _;
     if error.is_timeout() {
         return "timeout".to_owned();
     }
     if error.is_redirect() {
         return "redirects are not followed".to_owned();
     }
-    // The resolver's refusal sits at the bottom of the chain.
-    let mut source = error.source();
-    while let Some(cause) = source {
-        let text = cause.to_string();
-        if text.contains("has no public address") {
-            return "address not allowed: the host does not resolve to a public address".to_owned();
-        }
-        source = cause.source();
+    if egress::refusal_of(error).is_some() {
+        return "address not allowed: the host does not resolve to a public address".to_owned();
     }
     if error.is_connect() { "connection failed".to_owned() } else { "request failed".to_owned() }
 }
@@ -388,15 +292,15 @@ impl Dev {
         let latency_ms = started.elapsed().as_millis() as i64;
         match result {
             Ok(mut response) => {
-                let status_code = response.status().as_u16();
-                let mut bytes = Vec::new();
-                // The other end is not ours: read a bounded amount, and do not wait for more than the log shows.
-                while bytes.len() < MAX_RESPONSE_BYTES {
-                    match response.chunk().await {
-                        Ok(Some(chunk)) => bytes.extend_from_slice(&chunk),
-                        _ => break,
-                    }
+                // Belt and braces behind the guarded resolver.
+                if let Some(policy) = guard(&self.cfg)
+                    && egress::check_peer(&response, policy).is_err()
+                {
+                    return Attempt { latency_ms, ..failed("address not allowed") };
                 }
+                let status_code = response.status().as_u16();
+                // The other end is not ours: read a bounded amount.
+                let bytes = egress::read_capped(&mut response, MAX_RESPONSE_BYTES).await.unwrap_or_default();
                 let error = if (300..400).contains(&status_code) {
                     "redirects are not followed".to_owned()
                 } else {
@@ -692,66 +596,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_public_addresses_may_be_reached() {
-        for public in [
-            "8.8.8.8",
-            "203.0.114.1",
-            "1.1.1.1",
-            "2606:4700:4700::1111",
-            "2001:4860:4860::8888",
-            "::ffff:8.8.8.8",
-            "64:ff9b::808:808",
-        ] {
-            assert!(is_public_address(public.parse().unwrap()), "{public}");
-        }
-        for private in [
-            "127.0.0.1",
-            "127.8.9.10",
-            "10.0.0.5",
-            "172.16.0.1",
-            "172.31.255.255",
-            "192.168.1.1",
-            "169.254.169.254",
-            "0.0.0.0",
-            "0.1.2.3",
-            "100.64.0.1",
-            "100.127.255.254",
-            "192.0.0.8",
-            "192.0.2.1",
-            "198.18.0.1",
-            "198.51.100.7",
-            "203.0.113.9",
-            "224.0.0.1",
-            "240.0.0.1",
-            "255.255.255.255",
-            "::1",
-            "::",
-            "fc00::1",
-            "fd12:3456::1",
-            "fe80::1",
-            "ff02::1",
-            "2001:db8::1",
-            // Tunnels and other special ranges.
-            "192.88.99.1",
-            "2001::1",
-            "fec0::1",
-            "100::1",
-            // IPv4 hiding in IPv6: 6to4, then mapped, compatible and NAT64.
-            "2002:7f00:1::1",
-            "2002:a9fe:a9fe::1",
-            "2002:c0a8:101::",
-            "::ffff:127.0.0.1",
-            "::ffff:10.0.0.1",
-            "::ffff:169.254.169.254",
-            "::127.0.0.1",
-            "64:ff9b::7f00:1",
-            "64:ff9b::a00:1",
-        ] {
-            assert!(!is_public_address(private.parse().unwrap()), "{private}");
-        }
-    }
-
-    #[test]
     fn webhook_urls_are_https_to_public_hosts() {
         for good in ["https://hooks.example.com/tokuly", "https://example.org:8443/a?b=c", "https://8.8.8.8/hook"] {
             assert!(check_url(good, false).is_ok(), "{good}");
@@ -777,13 +621,6 @@ mod tests {
         // Development: anything over http(s).
         assert!(check_url("http://127.0.0.1:9000/hook", true).is_ok());
         assert!(check_url("file:///etc/passwd", true).is_err());
-    }
-
-    #[tokio::test]
-    async fn names_without_a_public_address_do_not_resolve() {
-        use reqwest::dns::Resolve as _;
-        let refused = PublicOnly.resolve("localhost".parse().unwrap()).await;
-        assert!(refused.is_err_and(|e| e.to_string().contains("has no public address")));
     }
 
     #[test]

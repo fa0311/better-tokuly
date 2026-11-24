@@ -3,7 +3,7 @@
 //! ```text
 //! news_sources ──(scheduler / RefreshNewsSources)──▶ feed.news.fetch job
 //!                                                        │ refresh.rs
-//!        guard.rs + fetch.rs: bounded, SSRF-safe, conditional GET
+//!        fetch.rs: bounded, SSRF-safe (tokuly_core::egress), conditional GET
 //!                                                        │
 //!        parse.rs: feed-rs → articles (text.rs strips markup, tagging.rs tags)
 //!                                                        │
@@ -17,7 +17,6 @@
 //! seeded from `TOKULY_NEWS_FEEDS`.
 pub mod articles;
 pub mod fetch;
-pub mod guard;
 pub mod parse;
 pub mod ranking;
 pub mod refresh;

@@ -3,16 +3,15 @@
 //! One fetch costs at most `limits.timeout` of wall-clock time (redirects
 //! included), `limits.max_bytes` of decompressed body and [`MAX_REDIRECTS`]
 //! redirect hops. Redirects are followed by hand so that every hop passes the
-//! SSRF checks of [`super::guard`]. Requests are conditional: the validators
+//! SSRF checks of `tokuly_core::egress`. Requests are conditional: the validators
 //! of the last successful response are sent back, and a `304 Not Modified`
 //! ends the fetch without a body.
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
 use reqwest::{StatusCode, header};
+use tokuly_core::egress::{self, Policy, Refusal, check_url};
 use url::Url;
-
-use super::guard::{GuardedResolver, Policy, Refusal, check_url};
 
 pub const MAX_REDIRECTS: usize = 5;
 /// Longest validator (`ETag` / `Last-Modified`) kept and sent back.
@@ -80,15 +79,9 @@ impl std::fmt::Display for FetchError {
 
 /// An HTTP client that can only talk to what `policy` permits.
 pub fn guarded_client(policy: Policy, timeout: Duration) -> anyhow::Result<reqwest::Client> {
-    reqwest::Client::builder()
+    // Hops are followed (and checked) by `fetch`.
+    egress::client_builder(Some(policy), timeout)
         .user_agent("Tokuly-News/1.0 (feed reader)")
-        .dns_resolver(Arc::new(GuardedResolver { policy }))
-        // Hops are followed (and checked) by `fetch`.
-        .redirect(reqwest::redirect::Policy::none())
-        // A proxy would resolve host names for us, bypassing the resolver.
-        .no_proxy()
-        .connect_timeout(timeout.min(Duration::from_secs(5)))
-        .timeout(timeout)
         .build()
         .map_err(|e| anyhow::anyhow!("news http client: {e}"))
 }
@@ -97,15 +90,10 @@ fn network_error(error: reqwest::Error) -> FetchError {
     if error.is_timeout() {
         return FetchError::Timeout;
     }
-    // The guarded resolver's refusal travels inside the connect error.
-    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
-    while let Some(cause) = source {
-        if let Some(refusal) = cause.downcast_ref::<Refusal>() {
-            return FetchError::Refused(refusal.clone());
-        }
-        source = cause.source();
+    match egress::refusal_of(&error) {
+        Some(refusal) => FetchError::Refused(refusal),
+        None => FetchError::Network(format!("{error:#}")),
     }
-    FetchError::Network(format!("{error:#}"))
 }
 
 /// A response header as a validator worth keeping.
@@ -146,11 +134,7 @@ async fn fetch_unbounded(
         }
         let mut response = request.send().await.map_err(network_error)?;
         // Belt and braces: whatever we ended up connected to must be permitted.
-        if let Some(peer) = response.remote_addr()
-            && !policy.permits(peer.ip())
-        {
-            return Err(FetchError::Refused(Refusal::Address(peer.ip())));
-        }
+        egress::check_peer(&response, policy).map_err(FetchError::Refused)?;
 
         let status = response.status();
         if status == StatusCode::NOT_MODIFIED {
