@@ -131,6 +131,9 @@ pub fn http_client() -> anyhow::Result<reqwest::Client> {
 /// (development and tests, never production) lets it reach local stand-ins.
 pub fn web_push_client(allow_insecure: bool) -> anyhow::Result<reqwest::Client> {
     let builder = builder();
+    // Never through a proxy from the environment: the proxy would resolve
+    // the name, out of the resolver's reach.
+    let builder = builder.no_proxy();
     let builder = if allow_insecure {
         builder
     } else {
