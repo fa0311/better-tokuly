@@ -11,7 +11,7 @@ use crate::{
     actions::ActionFilter,
     audit::Audit,
     first_page,
-    sanctions::Sanction,
+    sanctions::{Sanction, Target},
     staff::{Staff, note_text, reason_text, suspension_duration},
 };
 
@@ -141,17 +141,34 @@ impl UserAdminService for Admin {
             let request = request.to_owned_message();
             let roles = normalize_roles(&request.roles)?;
             let note = note_text(&request.note)?;
-            let target = self.target(parse_id(&request.user_id)?).await?;
+            let target_id = parse_id(&request.user_id)?;
             // Keeps at least one admin around: the last one cannot step down.
-            ensure!(target.id != staff.id || roles.iter().any(|r| r == "admin"), denied, "CANNOT_DEMOTE_SELF", "you cannot remove your own admin role");
+            ensure!(target_id != staff.id || roles.iter().any(|r| r == "admin"), denied, "CANNOT_DEMOTE_SELF", "you cannot remove your own admin role");
+            // Role changes take turns, and each checks under the lock that the
+            // caller still is an admin: the role travels in access tokens, so
+            // two admins demoting each other at once would otherwise both
+            // succeed and leave nobody to manage the deployment.
+            let slot = self.identity_slot().await?;
+            let mut tx = self.core.db.begin().await?;
+            sqlx::query("SELECT pg_advisory_xact_lock(1600, hashtext('admin.roles'))").execute(&mut *tx).await?;
+            let still_admin: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND 'admin' = ANY(roles) AND deleted_at IS NULL AND banned_at IS NULL)",
+            )
+            .bind(staff.id)
+            .fetch_one(&mut *tx)
+            .await?;
+            ensure!(still_admin, denied, "FORBIDDEN", "requires role admin");
+            let target = Target::load(&mut *tx, target_id).await?;
             self.identity.set_roles(target.id, &roles).await?;
             Audit::by(&staff, "user.roles_changed")
                 .user(target.id)
                 .reason(note)
                 .before(serde_json::json!({ "roles": target.roles }))
                 .after(serde_json::json!({ "roles": roles }))
-                .record(&self.core.db)
+                .record(&mut *tx)
                 .await?;
+            tx.commit().await?;
+            drop(slot);
             // Roles travel inside access tokens. A removed role must stop
             // working now, not when the token expires, so the account is
             // signed out. (Not for the caller: they keep `admin`, which

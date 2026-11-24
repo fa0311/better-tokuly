@@ -411,9 +411,12 @@ service UserAdminService {
   rpc SetUserVerified(SetUserVerifiedRequest) returns (SetUserVerifiedResponse);
   // Replaces the account's roles. Granted roles apply when the user's access
   // token is next refreshed; when a role is removed the user is signed out so
-  // it stops applying at once. Role: `admin`.
+  // it stops applying at once. Changes take turns, and each needs the caller
+  // to still hold `admin` at that moment, so two admins demoting each other
+  // at once leave one of them admin. Role: `admin`.
   // Errors: USER_NOT_FOUND, ROLE_INVALID, CANNOT_DEMOTE_SELF (an admin cannot
-  // drop their own admin role), NOTE_INVALID.
+  // drop their own admin role), NOTE_INVALID, FORBIDDEN (also when the
+  // caller's own admin role was removed a moment ago).
   rpc SetUserRoles(SetUserRolesRequest) returns (SetUserRolesResponse);
   // Signs the account out of every device (e.g. after a compromise).
   // Role: `moderator`.

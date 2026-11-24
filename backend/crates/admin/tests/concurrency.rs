@@ -65,3 +65,24 @@ async fn a_burst_of_suspensions_from_one_moderator_does_not_starve_the_pool() {
     // The pool's acquire timeout is 10 s: a starved request would take at least that long.
     assert!(started.elapsed() < Duration::from_secs(8), "took {:?}", started.elapsed());
 }
+
+#[tokio::test]
+async fn two_admins_demoting_each_other_at_once_leave_one_of_them_admin() {
+    let (app, _admin) = start().await;
+    for round in 0..5 {
+        let a = app.user_with_roles("a", &["admin"]).await;
+        let b = app.user_with_roles("b", &["admin"]).await;
+        let demote = |by: &tokuly_testkit::TestUser, whom: &tokuly_testkit::TestUser| {
+            let (app, by, request) = (&app, by.clone(), SetUserRolesRequest { user_id: whom.id.to_string(), ..Default::default() });
+            async move { app.call::<_, SetUserRolesResponse>(&format!("{USERS}/SetUserRoles"), Some(&by), &request).await }
+        };
+        let (a_demotes_b, b_demotes_a) = tokio::join!(demote(&a, &b), demote(&b, &a));
+        assert!(!(a_demotes_b.is_ok() && b_demotes_a.is_ok()), "round {round}: both admins lost the role");
+        let admins: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE id = ANY($1) AND 'admin' = ANY(roles)")
+            .bind(vec![a.id, b.id])
+            .fetch_one(&app.core.db)
+            .await
+            .unwrap();
+        assert_eq!(admins, 1, "round {round}");
+    }
+}

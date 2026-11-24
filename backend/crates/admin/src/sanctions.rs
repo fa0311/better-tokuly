@@ -44,6 +44,17 @@ pub(crate) struct Target {
     pub banned_at: Option<DateTime<Utc>>,
 }
 
+impl Target {
+    /// An existing (not deleted) account, or `USER_NOT_FOUND`.
+    pub async fn load<'e, E: sqlx::PgExecutor<'e>>(executor: E, user_id: Uuid) -> AppResult<Self> {
+        sqlx::query_as("SELECT id, roles, email::text AS email, locale, time_zone, banned_at FROM users WHERE id = $1 AND deleted_at IS NULL")
+            .bind(user_id)
+            .fetch_optional(executor)
+            .await?
+            .or_not_found("USER_NOT_FOUND", "user not found")
+    }
+}
+
 /// What a sanction says and where it comes from.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Sanction<'a> {
@@ -80,11 +91,7 @@ async fn lock_sanctions(conn: &mut PgConnection, user_id: Uuid) -> AppResult<()>
 impl Admin {
     /// An existing (not deleted) account, or `USER_NOT_FOUND`.
     pub(crate) async fn target(&self, user_id: Uuid) -> AppResult<Target> {
-        sqlx::query_as("SELECT id, roles, email::text AS email, locale, time_zone, banned_at FROM users WHERE id = $1 AND deleted_at IS NULL")
-            .bind(user_id)
-            .fetch_optional(&self.core.db)
-            .await?
-            .or_not_found("USER_NOT_FOUND", "user not found")
+        Target::load(&self.core.db, user_id).await
     }
 
     /// Rejects sanctions a staff member may not impose: on themselves, and —
