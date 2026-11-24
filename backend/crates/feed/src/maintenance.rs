@@ -18,7 +18,7 @@ use crate::{
     Feed,
     events::{
         ACTIVITY_TOPIC, CONSUMER_NAME, CONTENT_REMOVED, ContentRemoved, FETCH_JOB, FRIEND_REMOVED, FetchSourceJob,
-        USER_BLOCKED, USER_CREATED, USER_DELETED, consumed_topics,
+        NOTE_EDITED, NoteEdited, USER_BLOCKED, USER_CREATED, USER_DELETED, consumed_topics,
     },
     news::ranking::AFFINITY_EPSILON,
     withdrawals,
@@ -169,11 +169,37 @@ impl Feed {
                 let removed: ContentRemoved = event.data()?;
                 self.handle_content_removed(&removed).await
             }
+            NOTE_EDITED => {
+                let edited: NoteEdited = event.data()?;
+                self.handle_note_edited(&edited).await
+            }
             topic if withdrawals::RULES.iter().any(|rule| rule.topic == topic) => {
                 self.handle_subject_change(&event).await
             }
             _ => Ok(()),
         }
+    }
+
+    /// `notes.note.edited`: the author's entries about the note show its new
+    /// excerpt. Idempotent and order-proof: an entry keeps the newest
+    /// version it was given (`data.edit_version`).
+    pub async fn handle_note_edited(&self, edited: &NoteEdited) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE activities
+             SET data = data || jsonb_build_object('text', $3::text, 'content_warning', $4, 'edit_version', $5)
+             WHERE subject_type = $6 AND subject_id = $1 AND user_id = $2
+               AND kind IN ('note.posted', 'note.replied') AND jsonb_typeof(data) = 'object'
+               AND COALESCE((data ->> 'edit_version')::int, 0) < $5",
+        )
+        .bind(edited.note_id)
+        .bind(edited.author_id)
+        .bind(&edited.text)
+        .bind(edited.content_warning)
+        .bind(edited.version)
+        .bind(tokuly_proto::common::SubjectType::SUBJECT_TYPE_NOTE as i32)
+        .execute(&self.core.db)
+        .await?;
+        Ok(())
     }
 
     /// Two people stopped being friends (or one blocked the other): what one

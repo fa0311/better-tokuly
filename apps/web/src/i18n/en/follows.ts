@@ -94,7 +94,7 @@ export default {
     title: "Follows & private account",
     lockGroup: "Private account",
     lockLead:
-      "When on, people need your approval before they can follow you, and your followers and following lists are shown to your followers and friends only.",
+      "When on, people need your approval before they can follow you, and your notes shared with everyone, your followers and your following lists are shown to your followers and friends only.",
     lock: "Private account",
     lockOnHint: "You approve new followers",
     lockOffHint: "Anyone can follow you right away",

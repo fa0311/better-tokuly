@@ -548,5 +548,5 @@ async fn the_simulator_posts_notes_without_the_api() {
     assert!(rules.agreed);
     // Content rules still apply.
     assert_eq!(ctx.notes.post_note(seeded.id, "   ").await.unwrap_err().reason, "NOTE_EMPTY");
-    assert_eq!(ctx.notes.post_note(seeded.id, &"あ".repeat(301)).await.unwrap_err().reason, "NOTE_TOO_LONG");
+    assert_eq!(ctx.notes.post_note(seeded.id, &"あ".repeat(3001)).await.unwrap_err().reason, "NOTE_TOO_LONG");
 }

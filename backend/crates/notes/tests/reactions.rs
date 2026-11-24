@@ -135,9 +135,9 @@ async fn renotes_are_one_per_user_undoable_and_only_for_public_notes() {
     assert_eq!(again.counters.renote_count, 0);
     assert!(!ctx.get_note(Some(&bob), &note.id).await.unwrap().viewer.renoted);
 
-    // A renote shows a note to the renoter's friends: only public notes allow that.
+    // Other people pass on only notes everyone may see.
     let for_friends = ctx.post_visible_to(&alice, "friends only", Visibility::VISIBILITY_FRIENDS).await;
-    assert_eq!(ctx.note_reason("RenoteNote", Some(&bob), &renote_of(&for_friends.id)).await, "NOTE_NOT_PUBLIC");
+    assert_eq!(ctx.note_reason("RenoteNote", Some(&bob), &renote_of(&for_friends.id)).await, "NOTE_NOT_RENOTABLE");
     let private = ctx.post_visible_to(&alice, "mine", Visibility::VISIBILITY_PRIVATE).await;
     assert_eq!(ctx.note_reason("RenoteNote", Some(&bob), &renote_of(&private.id)).await, "NOTE_NOT_FOUND");
     assert_eq!(ctx.note_reason("RenoteNote", None, &renote_of(&note.id)).await, "SIGN_IN_REQUIRED");

@@ -26,6 +26,23 @@ impl Notes {
     /// they answered as unavailable.
     pub(crate) async fn on_user_deleted(&self, user_id: Uuid) -> AppResult<()> {
         let db = &self.core.db;
+        // Drafts first: their uploads are let go of with them.
+        loop {
+            let mut tx = db.begin().await?;
+            let ids: Vec<Uuid> =
+                sqlx::query_scalar("DELETE FROM note_drafts WHERE id IN (SELECT id FROM note_drafts WHERE author_id = $1 LIMIT $2) RETURNING id")
+                    .bind(user_id)
+                    .bind(ERASE_BATCH)
+                    .fetch_all(&mut *tx)
+                    .await?;
+            for id in &ids {
+                tokuly_media::assets::detach_holder(&mut *tx, &crate::model::draft_holder(*id)).await?;
+            }
+            tx.commit().await?;
+            if (ids.len() as i64) < ERASE_BATCH {
+                break;
+            }
+        }
         loop {
             let mut tx = db.begin().await?;
             let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM notes WHERE author_id = $1 ORDER BY id LIMIT $2")
@@ -54,6 +71,9 @@ impl Notes {
             self.delete_stories(&mut tx, &ids, RemovalReason::AccountDeleted, Some(user_id)).await?;
             tx.commit().await?;
         }
+
+        self.erase_channels_of(user_id).await?;
+        self.erase_clips_of(user_id).await?;
 
         let mut tx = db.begin().await?;
         // What the user did to other people's content. A user has at most
@@ -92,7 +112,19 @@ impl Notes {
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
+        // A direct note to the user is addressed to the others it names.
+        sqlx::query("UPDATE notes SET direct_user_ids = array_remove(direct_user_ids, $1) WHERE direct_user_ids @> ARRAY[$1]::uuid[]")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        // Their votes stay counted: a count that moves when an account goes
+        // away would say who voted. Who voted for what goes.
         for sql in [
+            "DELETE FROM note_poll_votes WHERE user_id = $1",
+            "DELETE FROM note_muted_words WHERE user_id = $1",
+            "DELETE FROM note_thread_mutes WHERE user_id = $1",
+            "DELETE FROM note_renote_mutes WHERE user_id = $1 OR target_id = $1",
+            "DELETE FROM note_authors WHERE user_id = $1",
             "DELETE FROM note_mentions WHERE user_id = $1",
             "DELETE FROM note_recipients WHERE user_id = $1",
             "DELETE FROM story_audience WHERE user_id = $1",
@@ -102,6 +134,7 @@ impl Notes {
             sqlx::query(sql).bind(user_id).execute(&mut *tx).await?;
         }
         tx.commit().await?;
+        self.erase_lists_and_antennas(user_id).await?;
         Ok(())
     }
 
@@ -141,6 +174,7 @@ impl Notes {
     pub(crate) async fn on_asset_deleted(&self, asset_id: Uuid) -> AppResult<()> {
         let db = &self.core.db;
         let asset = asset_id.to_string();
+        self.forget_channel_banner(asset_id).await?;
 
         let sql = format!("SELECT {NOTE_COLUMNS} FROM notes n WHERE n.asset_ids @> ARRAY[$1]::uuid[] ORDER BY n.id");
         let notes: Vec<NoteRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql)).bind(asset_id).fetch_all(db).await?;
@@ -165,7 +199,7 @@ impl Notes {
                 .bind(asset_id)
                 .fetch_optional(&mut *tx)
                 .await?;
-            if let Some(updated) = updated.filter(NoteRow::is_public) {
+            if let Some(updated) = updated.filter(NoteRow::is_listed) {
                 // The search result should not keep showing the removed picture.
                 outbound::index(&mut *tx, search_doc(&updated, &author)).await?;
             }
@@ -214,6 +248,8 @@ impl Notes {
         .bind(blocked)
         .execute(&self.core.db)
         .await?;
+        self.sever_list_ties(blocker, blocked).await?;
+        self.drop_channel_moderators_across(blocker, blocked).await?;
         Ok(())
     }
 }

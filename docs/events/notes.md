@@ -1,8 +1,10 @@
 # notes — events, jobs and configuration
 
 Crate `tokuly-notes`, migration `0700_notes.sql`, API `tokuly.notes.v1`
-(`NoteService`, `StoryService`, realtime `NotesEvent`). Depends on `identity`,
-`social`, `stamp` and `media`.
+(`NoteService`, `NoteDraftService`, `NoteMuteService`, `NoteListService`,
+`AntennaService`, `NoteChannelService`, `ClipService`, `StoryService`,
+realtime `NotesEvent`). Depends on `identity`, `social`, `stamp`, `media` and
+`emoji`.
 
 Notes are short posts (「今何してる?」); stories are 「記憶」: a title plus 1–10
 photos or videos that the owner's friends see for a day and that stay in the
@@ -11,21 +13,41 @@ owner's archive afterwards.
 ## Who may see what
 
 Every read goes through two SQL conditions in `tokuly_notes::visibility`
-(`sees_note`, `sees_story`); there is no second implementation.
+(`sees_note`, `sees_story`); there is no second implementation. The
+audiences are the social graph's (`tokuly_social::graph::ContentAudience`,
+loaded once per request as `AudienceViewer`).
 
 | | visible to |
 |---|---|
 | any note | its author, always |
-| PUBLIC note | everyone, signed in or not |
-| FRIENDS note | the author's friends; a FRIENDS reply also the author of the note it answers |
-| PRIVATE note | nobody else |
+| PUBLIC note | everyone, signed in or not — but a **locked** author's public notes only their followers and friends |
+| FOLLOWERS (6) | the author's followers and friends |
+| FRIENDS (4) | the author's friends |
+| CLOSE_FRIENDS (7) | members of the author's close-friends circle (while still a friend or follower) |
+| CIRCLE (8) | members of that custom circle of the author (same); others are shown the note as FOLLOWERS, so members never learn about the circle |
+| direct (PRIVATE naming people) | the people it names (1–20) |
+| PRIVATE | nobody else |
+| a reply narrower than PUBLIC (not PRIVATE) | also the author of the note it answers |
 | story | its owner (the archive); the owner's friends while it is live or for as long as it is in a highlight — a close-friends story only the friends chosen for it |
 
 Nobody sees anything across a block (either direction), and nobody else sees
 content of a suspended or deleted account. A reply is never shown more widely
-than the note it answers (narrowed when posted and when its visibility is
-changed). Friends and blocks are read from `tokuly_social::graph` on every
-request, so an unfriend or a block takes effect at once.
+than the note it answers (narrowed when posted and when its audience is
+changed): an answer to a PUBLIC, FOLLOWERS or FRIENDS note takes the narrower
+of the two; an answer to a close-friends, circle or direct note becomes a
+direct note to its author (and the people it named); an answer to a private
+note is private. Ties and blocks are read from `tokuly_social::graph` on
+every request, so an unfollow, an unfriend or a block takes effect at once.
+
+**Listed notes.** A note is `listed` when everyone may see it: public, and
+its author not locked. Only listed notes are in search, in hashtag counts
+and trends, in the global timeline, quotable, and renotable by people other
+than the author (the author may renote their own followers, friends, close
+friends and circle notes; a renote never shows the note to anyone outside
+its audience). Whether an author is locked is copied from the social domain
+into `note_authors` (on `social.follow.settings_changed`, and when they
+post); reads ask the social domain again about listed rows shown to someone
+not tied to the author, so a lock applies at once.
 
 Web paths used in notifications, activity entries, search documents and
 reports: `/notes/<note_id>`, `/notes/tags/<tag>`, `/stories/<story_id>`.
@@ -39,7 +61,8 @@ transaction that makes the change.
 |---|---|---|
 | `notes.note.created` | `{ note_id, author_id, visibility, reply_to_id, quote_of_id }` | A note, reply or quote note was posted. `visibility` is `tokuly.common.v1.Visibility` as its number (1 public, 4 friends, 5 private). |
 | `notes.note.deleted` | `{ note_id, author_id, reason }` | A note is gone for good. `reason`: `author`, `moderation`, `account_deleted`, `media_deleted`. Actor: the author, the moderator, the erased user, or nobody. |
-| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to }` | The author changed who may see a note (not emitted when nothing changed). `visible_to`: who besides the author may still see it — `null` for a public note (everyone); for a friends note the author's friends and, for a reply, the author of the note answered (people in a block with the author left out); `[]` for a private note. Anyone shown the note before (an inbox entry about it) who is not listed lost access with this change. `changed_at`: when the change was made, taken while the note was locked; consumers (feed, notify) order two changes of one note by it, not by the event's time (the start of its transaction). **Never forward this event to webhooks or other outside parties: `visible_to` is the author's friend list.** |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to, changed_at }` | The author changed who may see a note (not emitted when nothing changed), or locked or unlocked their account (once per public note whose reach changed). `visibility`: the audience now in effect — the note's own, except that a public note of a locked author reads 6 (followers). `visible_to`: who besides the author may still see it — `null` when everyone may; otherwise everyone in the audience as the social graph gives it (followers and friends, friends, close friends or circle members, the people a direct note names) and, for a reply narrower than public, the author of the note answered, people in a block with the author left out; `[]` for a private note. For a change caused by a lock, only the people this domain told about the note or who reacted to it are considered (a full follower list per note would be unbounded). Anyone shown the note before (an inbox entry about it) who is not listed lost access with this change. `changed_at`: when the change was made, taken while the note was locked; consumers (feed, notify) order two changes of one note by it, not by the event's time (the start of its transaction). **Never forward this event to webhooks or other outside parties: `visible_to` is the author's friend list.** |
+| `notes.note.edited` | `{ note_id, author_id, version, text, content_warning }` | The author changed a note's words within the edit window (`version` = its edit count now). Audience and media do not change with an edit. |
 | `notes.story.created` | `{ story_id, owner_id, audience, expires_at }` | A story was posted. `audience` is `tokuly.notes.v1.StoryAudience` as its number (1 friends, 2 close friends). |
 | `notes.story.deleted` | `{ story_id, owner_id, reason }` | A story was deleted (same reasons as notes). Not emitted for an expiry. |
 | `notes.story.expired` | `{ story_id, owner_id }` | A story's day is over: it left the tray and is archive-only. Emitted exactly once per story by the expiry worker, shortly after `expires_at`. |
@@ -58,6 +81,7 @@ is idempotent.
 | `identity.user.deleted` `{ user_id }` | Deletes the user's notes and stories with everything on them (uploads released, search documents removed, hashtag counts put right, `notes.note.deleted` / `notes.story.deleted` with reason `account_deleted`), their likes, renotes, story views and reactions (the counters they added go down again), their highlights and rules agreement, and takes them out of other people's mentions, delivery records (`note_recipients`) and close-friends audiences. Replies other people wrote to the erased notes stay and show what they answered as unavailable. |
 | `admin.content.removed` `{ subject_type, subject_id, reason, moderator_id }` | `SUBJECT_TYPE_NOTE` / `SUBJECT_TYPE_STORY`: the content is deleted like its author would delete it (reason `moderation`, actor = the moderator). Nobody is notified here: the admin domain tells the owner. Unknown or already removed subjects and other subject types are ignored. |
 | `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions (notes and stories hold their uploads, so owners cannot delete those and the janitor leaves them alone). The picture or video is taken out of the notes and stories that show it; a note left with nothing (no text, no stamp, no other media) and a story left without items are deleted (reason `media_deleted`). Public notes get a fresh search document. |
+| `social.follow.settings_changed` `{ user_id, locked }` | Re-reads whether the account is locked (late or repeated events give the same result), stores it in `note_authors` and re-lists the account's public notes in batches of 200: out of (or back into) search, hashtag counts and the global timeline, with one `notes.note.visibility_changed` per note that changed. |
 | `social.user.blocked` `{ user_id, blocked_id }` | Nothing has to be hidden (every read asks the social domain who is blocked). The handler removes the one standing grant between the two: being among the chosen friends of the other's close-friends stories. |
 
 ## Realtime pushes
@@ -72,7 +96,9 @@ it can see at that moment):
 |---|---|
 | `counters_changed` (`NoteCounters`) | Likes, renotes, replies or quotes of the note changed. Views alone do not push; the view count rides along with the next change. |
 | `note_deleted_id` | The note was deleted. |
-| `link_preview_resolved` | The preview of the note's first link was fetched. To the topic only when the note is public; always to the author (user-scoped). |
+| `poll_updated` (`PollTally`) | Someone voted (at most one push per poll every 3 s), or the poll closed. Carries whether it closed and — only when everyone may see results (always visible, or closed) — the number of voters: what a reader may see of the counts differs, so clients read the note again. |
+| `note_edited` (`NoteEdited`) | The note was edited: read it again. |
+| `link_preview_resolved` | The preview of the note's first link was fetched. To the topic only when the note is listed; always to the author (user-scoped). |
 
 User-scoped:
 
@@ -96,6 +122,14 @@ each person at most once per note (reply, then quote, then mention).
 | `notes.reply` | author of the note answered | Body is the reply's text. |
 | `notes.quote` | author of the quoted note | |
 | `notes.mention` | each mentioned user | At most 10 mentions per note are resolved. People in a block with the author are not mentioned at all. |
+| `notes.direct` | each person a direct note names | Not repeated when the audience is changed later. Only people whose `direct_messages_from` setting accepts the author can be named (`DIRECT_NOT_ALLOWED`); people a reply inherits from the note it answers stay. |
+| `notes.post` | followers who set post notifications for the author (social notify level ALL) and may see the note | Top-level notes only, sent by the `notes.post_notify` job, collapsed per note; not to people already told about the note. |
+| `notes.poll_ended` | every voter who may still see the note, and the author | Once per poll, when the closing worker closes it; collapsed per note. |
+| `notes.schedule_failed` | the author of a scheduled draft that could not be posted | `data = { draft_id, reason }`; path `/notes/drafts`. |
+
+Replies and mentions are not announced to someone who muted the
+conversation they are in (`NoteMuteService.MuteThread`); an edit announces
+only people mentioned for the first time.
 | `notes.story_reaction` | story owner | Collapsed per story and person: a changed emoji replaces the earlier notification. `data = { story_id, emoji }`. |
 
 `subject` is `(SUBJECT_TYPE_NOTE, note_id)` or `(SUBJECT_TYPE_STORY, story_id)`;
@@ -105,7 +139,7 @@ each person at most once per note (reply, then quote, then mention).
 
 | Kind | Audience | Notes |
 |---|---|---|
-| `note.posted` | matches the note: public / friends / private | Notes and quote notes. `data = { note_id, text, reply_to_id, quote_of_id, content_warning }`; image = first picture unless the note carries a content warning; location = the place tag. |
+| `note.posted` | public for a listed note; friends for a friends or followers note and for a locked author's public note (friends are in those audiences); private otherwise | Notes and quote notes. `data = { note_id, text, reply_to_id, quote_of_id, content_warning }`; image = first picture unless the note carries a content warning; location = the place tag. |
 | `note.replied` | matches the reply | Same data; `with_user_ids = [author of the note answered]`. |
 | `story.posted` | friends — private for a close-friends story (the feed cannot know who was chosen) | `data = { story_id, title, item_count, expires_at }`; image = the story's cover. |
 
@@ -113,8 +147,8 @@ each person at most once per note (reply, then quote, then mention).
 
 | Kind | ID | Indexed while | Notes |
 |---|---|---|---|
-| `note` | note ID | the note is public (replies included) | `title` = one-line excerpt, `text`, `tags` = hashtags, `owner_id` = author, `score` = likes + 2·renotes + replies + quotes at indexing time, `extra = { author_handle, author_name, reply_to_id, content_warning, attachment_count }`. Removed when the note is deleted or stops being public. |
-| `hashtag` | hashtag ID | at least one public note carries it | `title` = `#tag`, `score` = public note count, `path` = `/notes/tags/<tag>`. The trending worker re-sends documents whose count moved since they were last indexed. |
+| `note` | note ID | the note is listed (public, author not locked; replies included) | `title` = one-line excerpt, `text`, `tags` = hashtags, `owner_id` = author, `score` = likes + 2·renotes + replies + quotes at indexing time, `extra = { author_handle, author_name, reply_to_id, content_warning, attachment_count }`. Removed when the note is deleted or stops being listed. |
+| `hashtag` | hashtag ID | at least one listed note carries it | `title` = `#tag`, `score` = public note count, `path` = `/notes/tags/<tag>`. The trending worker re-sends documents whose count moved since they were last indexed. |
 
 ## Subjects, profiles, export
 
@@ -143,7 +177,8 @@ each person at most once per note (reply, then quote, then mention).
   `NOTE_IMAGE` / `NOTE_VIDEO` (notes) and `STORY` (stories).
 - `tokuly_media::link_preview` for the first link of a note (background job).
 - `tokuly_stamp::{ensure_usable, record_send(.., SendContext::Note), stamp_refs}`.
-- `tokuly_social::graph::{friend_ids, blocked_ids_either, record_interaction}`.
+- `tokuly_social::graph::{AudienceViewer, ContentAudience, audience_member_ids, ensure_circle_of,
+  locked_among, following_ids, muted_followee_ids, friend_ids, blocked_ids_either, record_interaction}`.
   Interactions between friends are reported with weight 1: a reply as
   `InteractionKind::Message`, a like or renote as `InteractionKind::MapReaction`
   (the social domain has no kind of its own for note reactions).
@@ -160,13 +195,18 @@ each person at most once per note (reply, then quote, then mention).
 | event consumer | on events | See "Events consumed". |
 | job `notes.link_preview` | payload `LinkPreviewJob { note_id }`, concurrency 4, 3 attempts | Fetches the preview of a note's first link, stores it and pushes `link_preview_resolved` (`Notes::resolve_link_preview`). A link with nothing to show leaves the note without a preview. |
 | story expiry (`Notes::expire_stories`) | every `TOKULY_NOTES_STORY_EXPIRY_INTERVAL_SECONDS` | Marks stories past `expires_at` as archived and emits `notes.story.expired` once each. Visibility never depends on this pass. |
-| trending hashtags (`Notes::refresh_trends`) | every `TOKULY_NOTES_TREND_INTERVAL_SECONDS` | Recomputes `hashtag_trends` (top 50): hashtags used in public notes by at least `TOKULY_NOTES_TREND_MIN_AUTHORS` different people within the window; each person counts once per hashtag, by their latest use, halved every 6 hours. Also refreshes stale hashtag search documents. Safe to run in several processes (advisory lock). |
+| trends (`Notes::refresh_trends`) | every `TOKULY_NOTES_TREND_INTERVAL_SECONDS` | Recomputes `hashtag_trends` and `note_trends` (top 50, for all notes and per language): hashtags used in listed notes, and listed top-level notes liked, renoted, answered or quoted, by at least `TOKULY_NOTES_TREND_MIN_AUTHORS` different people within the window; each person counts once, by their latest use, halved every 6 hours. Protection against manipulation: accounts younger than `TREND_MIN_ACCOUNT_AGE_HOURS` do not count, accounts younger than `TREND_NEW_ACCOUNT_DAYS` that joined on the same day count as one person, suspended accounts and the author's own reactions do not count. Also refreshes stale hashtag search documents. Safe to run in several processes (advisory lock). |
+| job `notes.post_notify` | payload `PostNotifyJob { note_id }`, concurrency 4, 5 attempts | Post notifications (`Notes::notify_post`), in batches of 500. |
+| job `notes.antenna_match` | payload `AntennaMatchJob { note_id }` | Queued for every new note; see "Antennas". |
+| polls and schedule | every `TOKULY_NOTES_SCHEDULE_INTERVAL_SECONDS` | `Notes::close_polls` (marks ended polls closed with a conditional update and tells voters once) and `Notes::publish_due_drafts` (claims due drafts with `FOR UPDATE SKIP LOCKED`, posts each as its author, once: the note gets its own ID and records the draft in the unique `notes.draft_id`, so a pass cut short, `PublishDraft` or a retry never posts twice — and keeps the reason on the draft when posting fails). |
 
 ## Analytics
 
 `core.analytics.track`: `note.post` (props: visibility, reply, quote,
-attachments), `note.like`, `note.renote` (owner = note author), `story.post`
-(props: items, close_friends), `story.view` (owner = story owner).
+attachments), `note.like`, `note.renote`, `note.view` (each counted view;
+owner = note author — `GetNoteAnalytics` groups them by hour for the last
+48 hours), `story.post` (props: items, close_friends), `story.view`
+(owner = story owner).
 
 ## Valkey keys
 
@@ -195,6 +235,9 @@ hashtag completion 120/min per user or IP.
 | `TOKULY_NOTES_TREND_WINDOW_HOURS` | `24` | Hours of public notes the ranking looks at. |
 | `TOKULY_NOTES_TREND_MIN_AUTHORS` | `2` | Different people needed for a hashtag to trend. |
 | `TOKULY_NOTES_STORY_EXPIRY_INTERVAL_SECONDS` | `60` | Pause between story expiry passes. |
+| `TOKULY_NOTES_TREND_MIN_ACCOUNT_AGE_HOURS` | `72` | Accounts younger than this count for nothing in trends. |
+| `TOKULY_NOTES_TREND_NEW_ACCOUNT_DAYS` | `30` | Accounts younger than this many days that joined on the same day count as one person in trends. |
+| `TOKULY_NOTES_SCHEDULE_INTERVAL_SECONDS` | `30` | Pause between passes of the poll closer and the scheduler of notes. |
 
 The posting rules (`GetNoteRules`) are text in `tokuly_notes::rules`, Japanese
 and English; raising `RULES_VERSION` there asks everyone to agree again before
@@ -202,9 +245,17 @@ their next note.
 
 ## Limits
 
-Note: 300 characters (user-perceived; at most 40 bytes each on average), 4
-images or 1 video, 10 hashtags and 10 mentions resolved per note, place name
-100 characters. Story: title 140, 1–10 items, caption 200, at most 150 chosen
+Note: 3000 characters (user-perceived; at most 40 bytes each on average) —
+long enough for an announcement or a short story in one go, while the
+composer still opens as a one-line field and only shows a count near the
+end; content warning line 100; 10 images or 1 video, alt text 1500 each;
+10 hashtags, 10 mentions and 50 custom emoji resolved per note; place name
+100 characters; a direct note names at most 20 people. Poll: 2–10 different
+choices of 1–50 characters, 5 minutes to 30 days. Edits: within 60 minutes
+of posting, at most 10. Pinned notes: 5. Drafts: 100, of which 30 scheduled
+5 minutes to 90 days ahead. Muted words: 100 of 1–100 characters (patterns
+compiled within 64 KiB, DFA 256 KiB); muted conversations and hidden
+renotes: 1000 each. Story: title 140, 1–10 items, caption 200, at most 150 chosen
 friends. Highlight: title 1–30, 1–100 stories, 50 highlights per profile.
 
 ## Public Rust API
@@ -233,9 +284,244 @@ impl Notes {
   "who liked this" and "what did this user like"; a renote's ID also places it
   among notes in timelines. A note appears once per timeline: where its latest
   renote by someone in the list's scope puts it, or at its own position.
-- `hashtags.note_count` counts public notes only; `note_hashtags` links every
+- `hashtags.note_count` counts listed notes only; `note_hashtags` links every
   note, so friends-only notes still appear in a hashtag timeline for the
   people who may see them.
 - `story_views` holds one row per viewer: when they watched and their
   reaction (`''` = none). `stories.archived_at` only records that the expiry
   was announced.
+
+## Rich text (`markup`)
+
+The text of a note is parsed on the server (`tokuly_notes::markup`, pure)
+into `tokuly.notes.v1.RichText`, stored in `notes.body` and returned as
+`Note.body`; clients render the tree and never parse text. Mention user IDs
+(only those that named someone when the note was written and are not
+hidden from the reader by a block) and custom emoji pictures (from the
+emoji catalogue) are filled in when the note is shown. Hashtags, mentions,
+the first link and the custom emoji used are read off the tree, so markup
+and server always agree (a `#tag` in code is no hashtag).
+
+| syntax | node |
+|---|---|
+| a line ```` ```lang ```` … a line ```` ``` ```` | code block (no closing line: text) |
+| lines starting with `>` | quote |
+| a `<center>` line … a `</center>` line | centred paragraphs |
+| blank line | new paragraph (line breaks inside are kept as `\n`) |
+| `**b**`, `<b>b</b>` / `*i*`, `<i>i</i>` / `~~s~~`, `<s>s</s>` / `<small>s</small>` | span (bold / italic / strike / small); `*` needs text right after the opening and before the closing star, on one line |
+| `` `code` `` | inline code (one line) |
+| `[label](https://…)` / a bare http(s) URL | link (labels hold no links) |
+| `@handle`, `#tag`, `:shortcode:` | mention, hashtag, custom emoji (same rules as before for where they start) |
+| `$[name content]` | effect: `tada jelly jump bounce shake spin rainbow sparkle x2` |
+| `\` before a markup character | that character as text |
+
+Unclosed markup is text. Spans and effects nest up to depth 8. Effects are
+Misskey's animated functions reduced to a safe set that cannot move content
+over the interface, hide it, or imitate the app (no position, rotate, scale
+beyond twice, blur, colour or font functions); clients play them only when
+the reader has not asked for reduced motion.
+
+## Polls, edits, drafts
+
+- **Polls** (`note_polls`, `note_poll_votes`): votes are final and private;
+  `note_poll_votes` exists only so a vote counts once and voters can be told
+  the result, and is never shown to anyone (not even the author: `Poll.my_choices`
+  is the reader's own). Counts show per `results_visibility` (always, after
+  the reader voted — the author always —, after the end). Counts never move
+  when a voter's account is deleted (who voted would show). Votes 60/min.
+- **Edits**: within 60 minutes, 10 times; earlier versions in `note_edits`
+  readable by everyone who may see the note (`ListNoteEdits`). The search
+  document, hashtag links and counts, mentions and link preview follow the
+  new text. Edits 20/min.
+- **Delete and redraft** (`RedraftNote`): the note's content becomes a draft
+  that holds its uploads before the note lets go of them.
+- **Drafts** (`note_drafts`, holder `notes:draft:<id>`): saves 60/min, limits
+  counted under a per-user advisory lock.
+
+## Muting
+
+`NoteMuteService` (`note_muted_words`, `note_thread_mutes`,
+`note_renote_mutes`) plus the social domain's follow mutes
+(`graph::muted_followee_ids`) apply to the home, following, global, hashtag,
+list, antenna and channel timelines and to trending notes — not to profiles,
+threads, mentions or a note opened directly. Patterns run on the `regex`
+crate (linear time). Mute changes 60/min.
+
+## Lists
+
+`NoteListService` (`lists.rs`, `list_svc.rs`): named sets of accounts with a
+timeline of their own (members' notes and renotes plus the replies among
+members, through the same visibility condition as every other timeline,
+leaving out members the viewer blocked or is blocked by and accounts the
+viewer muted as a followee). Channel notes appear only for readers who
+follow the channel, as on the following timeline.
+
+- **Who sees a list**: the owner always; anyone (signed in or not) when it is
+  public and its owner is an account in good standing that no block hides
+  from them. A private list is `LIST_NOT_FOUND` for everyone else.
+  `member_count` and `ListListMembers` count only members the viewer may
+  see (no block either way, account active).
+- **Blocks**: nobody is added across a block (`USER_NOT_FOUND`, as for a
+  missing account). `social.user.blocked` takes the two off each other's
+  lists and list follows (follower counts go down) and out of each other's
+  USERS antennas. Adding re-checks the block after commit, so a block that
+  lands while members are added is still applied.
+- **Locked accounts**: on a public list only when the owner follows them
+  (an approved follower) or is their friend (`MEMBER_NOT_ALLOWED`); on a
+  private list, anyone. A private list made public drops the locked members
+  that would not be allowed and tells the others they are on it.
+- A list made private loses its followers (`follower_count` = 0).
+- **Account deletion**: the account's lists (members, follows) and antennas
+  are deleted, it leaves every list, its list follows are removed (counts
+  go down) and other people's antennas stop naming it.
+- **Export**: `notes.lists` (with member IDs), `notes.list_follows`.
+
+| Notification kind | Recipient | Notes |
+|---|---|---|
+| `notes.list_added` | the person added to a **public** list (not the owner themself) | Collapsed per list (`notes.list_added:<list_id>`), path `/notes/lists/<id>`, `data = { list_id, list_name }`. Once per person and list a day; at most 100 per owner and hour (people are still added beyond that, just not told). |
+
+Limits: 50 lists per owner, 500 members per list, 50 accounts per
+add/remove call, 200 followed lists per person; name 1–50 characters,
+description 200. The list and member limits hold under concurrent calls
+(per-owner advisory lock; the list row is locked while members are added).
+
+Rate limits: `notes:list-create:<user>` 30/hour; `notes:list-change:<user>`
+(updates and member adds) 60/min; `notes:list-follow:<user>` 60/min;
+`notes:list-notices:<owner>` 100/hour (silently stops notifying).
+
+Valkey keys: `notes:notified:list:<list>:<user>` (24 h) — the person was told
+about this list.
+
+## Antennas
+
+`AntennaService` (`antennas.rs`, `antenna_svc.rs`): saved searches that
+collect new notes into a timeline only their owner sees.
+
+- **Matching** happens in the job `notes.antenna_match`
+  (`posting::JOB_ANTENNA_MATCH`, payload `{ note_id }`, queued once per new
+  note; concurrency 4, lease 60 s, 5 deliveries) through
+  `Notes::match_antennas(note_id) -> AppResult<usize>`. Its cost does not
+  grow with the number of antennas: one in-process Aho-Corasick automaton
+  over the folded words of all antennas (NFKC + lowercase, blank runs as one
+  space) finds every word in the note's text and content warning in one
+  pass; EVERYONE antennas become candidates only through a word hit;
+  FOLLOWING ones from the author's followers and friends, LIST ones from the
+  lists the author is on (`note_list_members_user` index), USERS ones from an
+  in-memory index of the accounts they name. Who may see the note is then
+  worked out once, from the author's side (its audience, blocks both ways,
+  a lock the social domain knows now, active accounts), for at most 2000
+  matching owners together — one batch of queries however many antennas
+  matched. Keywords are 2–50 characters in every script: a single kana,
+  letter or kanji is in a large share of all notes and would put nearly
+  every note in front of the owner check; excluded words may be one
+  character (they only filter).
+- A note matches when every word of one keyword group appears and no
+  excluded word does; replies only with `with_replies`, media only with
+  `media_only`; notes older than the antenna are not collected late. LIST
+  and USERS antennas may have no keywords (everything of those accounts).
+- Collected notes go into `antenna_notes`; the latest 1000 per antenna are
+  kept. The job is idempotent (`ON CONFLICT DO NOTHING`; nothing is
+  announced twice). The timeline shows only collected notes the owner may
+  still see.
+- The automaton is rebuilt when `notes:antennas:version` (Valkey counter,
+  `INCR` on every antenna change, list deletion, block or account erasure
+  touching antennas) moves, at least every 5 minutes, and every 30 s while
+  Valkey cannot be read.
+- Deleting a list deletes the LIST antennas built on it (foreign key).
+- **Export**: `notes.antennas`.
+
+| Notification kind | Recipient | Notes |
+|---|---|---|
+| `notes.antenna` | antenna owner, when `notify` is on | Collapsed per antenna (`notes.antenna:<antenna_id>`), at most one per antenna every 10 minutes; actor = the note's author; path `/notes/antennas/<id>`; `data = { antenna_id, note_id }`. |
+
+Limits: 5 antennas per person (holds under concurrent creation), name 1–30
+characters, 10 keyword groups of 5 words, 10 excluded words, words of at
+most 50 characters, 1–50 accounts for USERS.
+
+Errors beyond the proto's list: `INVALID_USERS` (USERS antenna with no or
+more than 50 accounts) and `INVALID_SOURCE` (an unknown source value).
+
+Rate limits: `notes:antenna-change:<user>` 60/hour (creates and updates).
+
+Valkey keys: `notes:antennas:version` (no TTL) — the antenna version
+counter; `notes:notified:antenna:<antenna>` (10 min) — the owner was just
+told about this antenna.
+## Channels
+
+`NoteChannelService` (`channels.rs`, handlers in `channel_svc.rs`). A channel
+is a topic timeline anyone can post into (`CreateNote.channel_id`; a reply
+stays in the channel of the note it answers; channel notes are public). Its
+notes stay out of the home, following and global timelines unless the reader
+follows the channel (then they come home: top-level notes only). A channel of
+a suspended or deleted owner is gone for everyone; one whose owner is in a
+block with the caller is gone for them (`CHANNEL_NOT_FOUND`, also when
+posting). Archived channels take no new notes and no edits, stay readable,
+and leave search.
+
+Roles: the owner edits, archives, names and removes moderators; moderators
+edit, pin notes and take notes out of the channel (`channel_removed_at`: the
+note stays on its author's profile, leaves the channel's count and pins);
+a moderator may step down. A block between the owner and a moderator ends the
+seat (`social.user.blocked`), and nobody in a block with the owner can be
+named. Moderators act only on notes they can see themselves.
+
+Notification kinds (category `notes`):
+
+| kind | to | when |
+|---|---|---|
+| `notes.channel_removed` | the note's author | a moderator took their note out of a channel (not sent for one's own note) |
+| `notes.channel_moderator` | the new moderator | the owner named them (collapses per channel) |
+
+Search documents: kind `note_channel` (title = name, text = description,
+image = banner, path `/notes/channels/<id>`, score = followers, extra
+`{ color, follower_count }`), public while the channel is not archived;
+re-indexed on every edit and archive change, removed with the channel.
+
+Account deletion: the user's follows go (follower counts put right), their
+moderator seats go, and their channels are deleted — notes other people
+posted there stay, outside any channel (`channel_id` becomes NULL). A
+`media.asset.deleted` banner leaves the channel without one. The data export
+has `channels` (owned, with moderators and pins) and `channel_follows`.
+
+Limits: name 1–50, description 500, colour `#rrggbb` or empty; 10 channels
+per owner (no deleting: archive), 500 followed channels per user, 20
+moderators and 5 pinned notes per channel; channel lists 50 per page, the
+featured list 1000 deep (active channels — a note in the last 7 days — first,
+then by followers).
+
+Rate limits per user: creating 10/hour; editing and archiving 60/hour
+together; following and unfollowing 60/min; naming and removing moderators
+60/hour; pinning and unpinning 30/min; taking notes out 60/min.
+
+Locks: the note row before the channel row (as posting and deleting notes
+take them); the channel row serializes moderators and pins; advisory locks
+`notes:channels:<owner>` and `notes:channel-follows:<user>` keep the limits.
+
+## Clips
+
+`ClipService` (`clips.rs`, handlers in `clip_svc.rs`). A clip is a named
+collection of notes, public or private. It exists for its owner, and for
+everyone else while it is public and its owner is in good standing and not
+in a block with them (`CLIP_NOT_FOUND` otherwise). Everything a reader gets
+from a clip — its notes, `note_count`, `contains_note` — is computed from the
+notes that reader may see, so a clip never confirms a note hidden from them.
+A note goes into a clip only if the clipper may see it; adding twice changes
+nothing.
+
+`notes.clip_count` (`NoteCounters.clip_count`) is the number of public clips
+holding the note, kept exact when notes are added or removed, when a clip
+turns public or private, and when a public clip is deleted; each change
+pushes fresh counters (`counters_changed`) on the note's topic. Lock order:
+the clip row, then the note rows in ID order, then the items.
+
+`ListClips` lists a user's clips (all for the owner, public ones for others)
+latest changed first; with `note_id` each says whether it holds that note.
+`ListNoteClips` lists the public clips holding a note plus the caller's own.
+
+No notifications, no search documents. Account deletion deletes the user's
+clips (counts put right); their notes leave other people's clips with them.
+The data export has `clips` with their note IDs.
+
+Limits: name 1–50, description 500; 100 clips per user, 1000 notes per clip;
+lists 50 per page. Rate limits per user: creating 30/hour; editing and
+deleting 60/min; adding and removing notes 120/min.

@@ -1,9 +1,11 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { TrendingUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
-import { useTrendingHashtags } from "./api";
+import { noteClient, notesKeys, useTrendingHashtags } from "./api";
+import { NoteCard } from "./note-card";
 
 const RANK_TINT = ["bg-sun", "bg-lime", "bg-sky"];
 
@@ -91,6 +93,37 @@ export function TrendingHashtags({ layout }: { layout: "panel" | "strip" }) {
           ))}
         </ol>
       )}
+    </section>
+  );
+}
+
+/** The language of the trends this reader sees: their app language when it has its own ranking. */
+function trendLanguage(language: string): string {
+  return language.startsWith("ja") ? "ja" : language.startsWith("en") ? "en" : "";
+}
+
+/** Notes getting attention right now, in the reader's language. Renders nothing when there are none. */
+export function TrendingNotes() {
+  const { t, i18n } = useTranslation("notes");
+  const language = trendLanguage(i18n.language);
+  const query = useQuery({
+    queryKey: notesKeys.trendingNotes(language),
+    queryFn: () => noteClient().listTrendingNotes({ language, limit: 5 }),
+    staleTime: 60_000,
+  });
+  const trending = query.data?.notes ?? [];
+  if (trending.length === 0) return null;
+  return (
+    <section aria-label={t("trending.notes")} className="mb-3" data-testid="trending-notes">
+      <h2 className="mb-2 flex items-center gap-2 text-sm font-black text-coral">
+        <TrendingUp className="size-4" />
+        {t("trending.notes")}
+      </h2>
+      <div className="flex flex-col gap-2.5">
+        {trending.map((note) => (
+          <NoteCard key={note.id} note={note} />
+        ))}
+      </div>
     </section>
   );
 }

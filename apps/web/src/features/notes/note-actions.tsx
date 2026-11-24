@@ -3,16 +3,21 @@ import { Link } from "@tanstack/react-router";
 import { common, engagement, type notes } from "@tokuly/api";
 import {
   BarChart3,
+  BellOff,
   Ellipsis,
   Flag,
   Globe,
   Heart,
+  History,
   Link2,
   MessageCircle,
+  Paperclip,
+  Pencil,
   Pin,
   PinOff,
   Quote,
   Repeat2,
+  RotateCcw,
   Trash2,
   UsersRound,
 } from "lucide-react";
@@ -42,8 +47,17 @@ import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { useDeleteNote, useLike, usePin, useRenote, useSetVisibility } from "./actions";
 import { noteClient, notesKeys } from "./api";
+import { AddToClipSheet } from "./clips-sheet";
 import { openCompose } from "./compose-store";
-import { VisibilityChoices } from "./visibility";
+import {
+  EditDialog,
+  HistoryDialog,
+  NoteAnalyticsPanel,
+  useHideRenotes,
+  useMuteThread,
+  useRedraft,
+} from "./note-extras";
+import { type Audience, noteAudience, sameAudience, VisibilityChoices } from "./visibility";
 
 export const noteSubject = (noteId: string): Subject => ({
   type: common.SubjectType.NOTE,
@@ -72,7 +86,9 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
   const subject = noteSubject(note.id);
   const liked = note.viewer?.liked ?? false;
   const renoted = note.viewer?.renoted ?? false;
-  const isPublic = note.visibility === common.Visibility.PUBLIC;
+  // What the viewer may do is the server's call (locked accounts, audiences).
+  const canRenote = note.viewer?.canRenote ?? false;
+  const canQuote = note.viewer?.canQuote ?? false;
   const author = note.author?.handle ?? "";
 
   return (
@@ -94,8 +110,8 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
             type="button"
             aria-label={t("actions.renote")}
             aria-pressed={renoted}
-            disabled={!isPublic}
-            title={isPublic ? undefined : t("actions.renotePublicOnly")}
+            disabled={!canRenote && !canQuote}
+            title={canRenote || canQuote ? undefined : t("actions.renotePublicOnly")}
             className={cn(
               ACTION,
               renoted ? "text-success" : "hover:bg-surface-2 hover:text-success",
@@ -109,11 +125,13 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
           {
             label: renoted ? t("actions.undoRenote") : t("actions.renoteNow"),
             icon: <Repeat2 />,
+            disabled: !canRenote && !renoted,
             onSelect: () => void renote(note),
           },
           {
             label: t("actions.quote"),
             icon: <Quote />,
+            disabled: !canQuote,
             onSelect: () => openCompose({ quote: note }),
           },
         ]}
@@ -146,20 +164,41 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
   );
 }
 
-type Sheet = "delete" | "visibility" | "likers" | "renoters" | "report" | "stats";
+type Sheet =
+  | "delete"
+  | "visibility"
+  | "likers"
+  | "renoters"
+  | "report"
+  | "stats"
+  | "edit"
+  | "history"
+  | "clip";
 
 /**
  * The "more" menu of a note: copy its link, see who liked and renoted it,
  * and — on the viewer's own notes — pin it, change who sees it, look at its
  * numbers or delete it; on other people's notes, report it.
  */
-export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): void }) {
+export function NoteMenu({
+  note,
+  renoter,
+  onDeleted,
+}: {
+  note: notes.Note;
+  /** Set on a renote row: who renoted it, whose renotes can be hidden from here. */
+  renoter?: common.UserSummary;
+  onDeleted?(): void;
+}) {
   const { t } = useTranslation("notes");
   const me = useMe();
   const [sheet, setSheet] = useState<Sheet>();
   const copyLink = useCopySubjectLink(noteSubject(note.id));
   const pin = usePin();
   const remove = useDeleteNote();
+  const redraft = useRedraft();
+  const muteThread = useMuteThread();
+  const hideRenotes = useHideRenotes();
   const [deleting, setDeleting] = useState(false);
   const mine = Boolean(me?.user && note.author?.id === me.user.id);
   const close = () => setSheet(undefined);
@@ -175,7 +214,34 @@ export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): 
       icon: <Repeat2 />,
       onSelect: () => setSheet("renoters"),
     });
+  if (note.editCount > 0)
+    actions.push({
+      label: t("edit.history"),
+      icon: <History />,
+      onSelect: () => setSheet("history"),
+    });
+  if (me?.user && renoter && renoter.id !== me.user.id)
+    actions.push({
+      label: t("mutes.hideRenotes", { name: renoter.displayName || renoter.handle }),
+      icon: <Repeat2 />,
+      onSelect: () => void hideRenotes(renoter.id),
+    });
+  if (me?.user)
+    actions.push({
+      label: note.viewer?.threadMuted ? t("mutes.unmuteThread") : t("mutes.muteThread"),
+      icon: <BellOff />,
+      onSelect: () => void muteThread(note, !note.viewer?.threadMuted),
+    });
+  if (me?.user)
+    actions.push({ label: t("clips:menu"), icon: <Paperclip />, onSelect: () => setSheet("clip") });
   if (mine) {
+    if (note.viewer?.canEdit)
+      actions.push({ label: t("edit.title"), icon: <Pencil />, onSelect: () => setSheet("edit") });
+    actions.push({
+      label: t("edit.redraft"),
+      icon: <RotateCcw />,
+      onSelect: () => void redraft(note),
+    });
     actions.push(
       note.pinned
         ? { label: t("menu.unpin"), icon: <PinOff />, onSelect: () => void pin(note, false) }
@@ -232,6 +298,9 @@ export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): 
       {sheet === "likers" && <PeopleDialog kind="likers" noteId={note.id} onClose={close} />}
       {sheet === "renoters" && <PeopleDialog kind="renoters" noteId={note.id} onClose={close} />}
       {sheet === "stats" && <StatsDialog note={note} onClose={close} />}
+      {sheet === "edit" && <EditDialog note={note} onClose={close} />}
+      {sheet === "history" && <HistoryDialog note={note} onClose={close} />}
+      {sheet === "clip" && <AddToClipSheet note={note} onClose={close} />}
       <ReportDialog
         subject={noteSubject(note.id)}
         open={sheet === "report"}
@@ -245,7 +314,7 @@ export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): 
 function VisibilityDialog({ note, onClose }: { note: notes.Note; onClose(): void }) {
   const { t } = useTranslation("notes");
   const setVisibility = useSetVisibility();
-  const [value, setValue] = useState(note.visibility);
+  const [value, setValue] = useState<Audience>(() => noteAudience(note));
   const [saving, setSaving] = useState(false);
   return (
     <Dialog
@@ -259,7 +328,7 @@ function VisibilityDialog({ note, onClose }: { note: notes.Note; onClose(): void
             {t("visibility.cancel")}
           </Button>
           <Button
-            disabled={value === note.visibility}
+            disabled={sameAudience(value, noteAudience(note))}
             loading={saving}
             onClick={async () => {
               setSaving(true);
@@ -364,6 +433,7 @@ function StatsDialog({ note, onClose }: { note: notes.Note; onClose(): void }) {
         <Stat label={t("stats.renotes")} value={number(counters?.renoteCount)} />
         <Stat label={t("stats.quotes")} value={number(counters?.quoteCount)} />
         <Stat label={t("stats.replies")} value={number(counters?.replyCount)} />
+        <Stat label={t("clips:stat")} value={number(counters?.clipCount)} />
         <Stat label={t("stats.reactions")} value={number(data?.emojiTotal)} />
         <Stat label={t("stats.saves")} value={number(data?.bookmarkCount)} />
         <Stat
@@ -371,6 +441,7 @@ function StatsDialog({ note, onClose }: { note: notes.Note; onClose(): void }) {
           value={number(shares.data?.shareCount ?? data?.shareCount)}
         />
       </dl>
+      <NoteAnalyticsPanel noteId={note.id} />
       {shares.data && shares.data.targets.length > 0 && (
         <div className="mt-4">
           <h3 className="flex items-center gap-1.5 text-sm font-black text-ink-soft">

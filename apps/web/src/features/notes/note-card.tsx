@@ -11,9 +11,11 @@ import { cn } from "#/lib/cn";
 import { linkPreviewImage } from "#/lib/link-preview-image";
 import { useMe } from "#/stores/session";
 import { useIsDeleted } from "./api";
+import { ChannelChip } from "./channels-chip";
 import { attachmentImage, ImageGrid, imageUrl, isVideo, NoteVideo } from "./media";
 import { NoteActions, NoteMenu, noteSubject } from "./note-actions";
-import { NoteText } from "./rich-text";
+import { NotePoll } from "./poll";
+import { NoteRichText } from "./rich-text";
 import { noteAge, noteDateTime, useClock } from "./time";
 import { useRecordView } from "./views";
 import { VisibilityMark } from "./visibility";
@@ -150,6 +152,7 @@ export function NoteCard({
           {t("card.pinned")}
         </p>
       )}
+      <ChannelChip channel={note.channel} />
 
       <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3">
         {author && (
@@ -173,9 +176,17 @@ export function NoteCard({
                 {time}
               </>
             )}
-            {!focus && <VisibilityMark visibility={note.visibility} />}
+            {!focus && (
+              <VisibilityMark
+                visibility={note.visibility}
+                direct={note.directRecipients.length > 0}
+              />
+            )}
+            {note.editCount > 0 && (
+              <span className="shrink-0 text-xs font-bold text-ink-faint">{t("card.edited")}</span>
+            )}
             <span className="flex-1" />
-            <NoteMenu note={note} onDeleted={onDeleted} />
+            <NoteMenu note={note} renoter={renote?.user} onDeleted={onDeleted} />
           </header>
           {!focus && !hideReplyContext && <ReplyContext note={note} />}
           {!focus && <NoteBody note={note} className="mt-1" />}
@@ -187,7 +198,10 @@ export function NoteCard({
             <NoteBody note={note} large />
             <p className="mt-3 flex items-center gap-2 text-sm text-ink-faint">
               {time}
-              <VisibilityMark visibility={note.visibility} />
+              <VisibilityMark
+                visibility={note.visibility}
+                direct={note.directRecipients.length > 0}
+              />
             </p>
           </div>
         )}
@@ -255,7 +269,13 @@ export function NoteBody({
         )}
       >
         <EyeOff className="size-5 shrink-0 text-ink-soft" />
-        <p className="min-w-0 flex-1 text-sm font-bold text-ink-soft">{t("card.sensitive")}</p>
+        <p className="min-w-0 flex-1 text-sm font-bold text-ink-soft">
+          {note.contentWarningText ? (
+            <EmojiText text={note.contentWarningText} />
+          ) : (
+            t("card.sensitive")
+          )}
+        </p>
         <button
           type="button"
           onClick={() => setRevealed(true)}
@@ -271,7 +291,7 @@ export function NoteBody({
   const images = note.attachments.filter((attachment) => !isVideo(attachment));
   return (
     <div className={cn("flex flex-col gap-2.5", className)}>
-      <NoteText
+      <NoteRichText
         note={note}
         className={cn(
           large ? "text-[1.15rem] leading-relaxed" : "text-[15px] leading-relaxed",
@@ -283,8 +303,9 @@ export function NoteBody({
       ) : video ? (
         <NoteVideo attachment={video} />
       ) : (
-        <ImageGrid attachments={images} />
+        <ImageGrid attachments={images} details={note.attachmentDetails} />
       )}
+      {note.poll && <NotePoll note={note} poll={note.poll} disabled={embedded} />}
       {note.stamp && (
         <button
           type="button"

@@ -15,6 +15,7 @@
 //! | module | what lives there |
 //! |---|---|
 //! | [`visibility`] | who may see a note or a story — the one place that decides it |
+//! | `authors` | locked accounts: this domain's copy, and listing their public notes |
 //! | [`text`] | what is read out of note text: length, hashtags, mentions, links |
 //! | [`rules`] | the posting rules and who agreed to them |
 //! | [`model`] | database rows, paths, topics, holder names |
@@ -24,7 +25,12 @@
 //! | [`hashtags`] | the hashtag directory, trending, completion |
 //! | `hydrate` | note rows → the `Note` messages one viewer gets |
 //! | [`stories`], [`highlights`] | stories, their viewers and reactions, the archive, highlights |
+//! | [`channels`] | channels: posting into them, followers, moderators, pins, the channel timeline |
+//! | [`clips`] | clips: collections of notes and the public clip count of notes |
 //! | `note_svc`, `story_svc` | the two Connect services: thin handlers over the modules above |
+//! | [`lists`], `list_svc` | lists of accounts, their members, followers and timeline |
+//! | [`antennas`], `antenna_svc` | antennas: saved searches matched against every new note in the background |
+//! | `channel_svc`, `clip_svc` | `NoteChannelService` and `ClipService`, likewise |
 //! | `copy` | notification and activity texts |
 //! | `subjects` | subject resolvers, data export, note count on profiles |
 //! | `cleanup`, `workers` | reactions to other domains' events; background workers |
@@ -34,15 +40,33 @@ use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
 use tokuly_proto::notes::{NotesEvent, notes_event::Event as Push};
 
+mod antenna_svc;
+pub mod antennas;
+mod authors;
+mod channel_svc;
+pub mod channels;
 mod cleanup;
+mod clip_svc;
+pub mod clips;
 pub mod config;
+mod content;
 mod copy;
+mod draft_svc;
+pub mod drafts;
+pub mod editing;
 pub mod events;
+mod fanout;
 pub mod hashtags;
 pub mod highlights;
 mod hydrate;
+mod insights;
+mod list_svc;
+pub mod lists;
+pub mod markup;
 pub mod model;
+pub mod mutes;
 mod note_svc;
+mod polls;
 pub mod posting;
 pub mod reactions;
 pub mod rules;
@@ -62,6 +86,8 @@ pub struct NotesInner {
     pub core: Core,
     pub identity: Identity,
     pub cfg: NotesConfig,
+    /// The antenna matcher of this process (see [`antennas`]).
+    pub(crate) antenna_index: antennas::AntennaIndex,
 }
 
 /// The notes domain. Cheap to clone.
@@ -82,16 +108,25 @@ impl Notes {
     /// data export, and the note count on profiles.
     pub fn new(core: Core, identity: Identity, cfg: NotesConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
-        let notes = Self(Arc::new(NotesInner { core, identity, cfg }));
+        let notes = Self(Arc::new(NotesInner { core, identity, cfg, antenna_index: Default::default() }));
         subjects::register(&notes);
         Ok(notes)
     }
 
-    /// Registers `NoteService` and `StoryService` on the Connect router.
+    /// Registers every notes service on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::notes::{NoteServiceExt, StoryServiceExt};
+        use tokuly_proto::notes::{
+            AntennaServiceExt, ClipServiceExt, NoteChannelServiceExt, NoteDraftServiceExt, NoteListServiceExt,
+            NoteMuteServiceExt, NoteServiceExt, StoryServiceExt,
+        };
         let me = Arc::new(self.clone());
         let router = NoteServiceExt::register(me.clone(), router);
+        let router = NoteDraftServiceExt::register(me.clone(), router);
+        let router = NoteMuteServiceExt::register(me.clone(), router);
+        let router = NoteListServiceExt::register(me.clone(), router);
+        let router = AntennaServiceExt::register(me.clone(), router);
+        let router = NoteChannelServiceExt::register(me.clone(), router);
+        let router = ClipServiceExt::register(me.clone(), router);
         StoryServiceExt::register(me, router)
     }
 

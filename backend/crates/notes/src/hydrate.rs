@@ -10,15 +10,29 @@ use chrono::{DateTime, Utc};
 use tokuly_core::prelude::*;
 use tokuly_identity::users::pick;
 use tokuly_proto::{
-    common::{StampRef, UserSummary},
-    notes::{Note, NoteViewerState, QuotedNote, RenoteInfo, ReplyTarget, TimelineEntry},
+    common::{Image, StampRef, UserSummary},
+    notes::{
+        ChannelRef, Note, NoteViewerState, Poll, QuotedNote, RenoteInfo, ReplyTarget, RichText, TimelineEntry,
+        text_inline::Inline,
+    },
 };
 
 use crate::{
-    Notes,
+    Notes, channels, editing, markup,
     model::{NOTE_COLUMNS, NoteRow},
-    visibility::{Viewer, sees_note},
+    visibility::{CIRCLE, FOLLOWERS, PRIVATE, Viewer, sees_note},
 };
+
+/// Whether `viewer` may renote `note` (which they can see): anyone a note
+/// everyone may see; its author a note shared with a narrower group (a
+/// renote never shows a note to anyone outside its audience); nobody a
+/// private or direct note.
+pub(crate) fn may_renote(viewer: &Viewer, note: &NoteRow) -> bool {
+    if note.visibility == PRIVATE {
+        return false;
+    }
+    note.is_listed() || viewer.is(note.author_id)
+}
 
 /// One row of a timeline before hydration: a note, possibly there because
 /// someone renoted it.
@@ -38,6 +52,10 @@ struct Context<'a> {
     viewer: &'a Viewer,
     users: HashMap<Uuid, UserSummary>,
     stamps: HashMap<Uuid, StampRef>,
+    channels: HashMap<Uuid, ChannelRef>,
+    polls: HashMap<Uuid, Poll>,
+    emoji: HashMap<String, Image>,
+    muted_threads: HashSet<Uuid>,
     /// Referenced notes (quoted, or replied to) the viewer may see.
     referenced: HashMap<Uuid, NoteRow>,
     liked: HashSet<Uuid>,
@@ -45,6 +63,29 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
+    /// The note's tree with what is looked up when shown: the users behind
+    /// mentions (those that named someone when the note was written, and
+    /// still do) and the pictures of custom emoji.
+    fn body(&self, row: &NoteRow) -> RichText {
+        let mut body = row.body();
+        let mentions = row.mentions();
+        markup::for_each_inline(&mut body, &mut |node| match &mut node.inline {
+            Some(Inline::Mention(mention)) => {
+                mention.user_id = mentions
+                    .iter()
+                    .find(|known| known.handle == mention.handle)
+                    .map(|known| known.user_id.clone())
+                    .filter(|id| Uuid::parse_str(id).is_ok_and(|id| !self.viewer.hides(id)))
+                    .unwrap_or_default();
+            }
+            Some(Inline::Emoji(emoji)) => {
+                emoji.image = self.emoji.get(&emoji.name).cloned().into();
+            }
+            _ => {}
+        });
+        body
+    }
+
     /// `row` as a `Note`. `with_quote` is false for a note shown inside
     /// another one: a quote is rendered one level deep.
     fn note(&self, row: &NoteRow, with_quote: bool) -> Note {
@@ -77,7 +118,23 @@ impl Context<'_> {
             attachments: row.attachments(),
             stamp: row.stamp_id.and_then(|id| self.stamps.get(&id).cloned()).into(),
             place: row.place().into(),
-            visibility: row.visibility.into(),
+            // Members of a custom circle are never told about it.
+            visibility: if row.visibility == CIRCLE && !self.viewer.is(row.author_id) {
+                FOLLOWERS.into()
+            } else {
+                row.visibility.into()
+            },
+            circle_id: row
+                .circle_id
+                .filter(|_| self.viewer.is(row.author_id))
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
+            direct_recipients: row
+                .direct_user_ids
+                .iter()
+                .filter(|user_id| !self.viewer.hides(**user_id))
+                .map(|user_id| pick(&self.users, *user_id))
+                .collect(),
             content_warning: row.content_warning,
             reply_to: reply_to.into(),
             quote: quote.into(),
@@ -91,11 +148,23 @@ impl Context<'_> {
                 .map(|_| NoteViewerState {
                     liked: self.liked.contains(&row.id),
                     renoted: self.renoted.contains(&row.id),
+                    can_renote: may_renote(self.viewer, row),
+                    can_quote: row.is_listed(),
+                    can_edit: self.viewer.is(row.author_id) && editing::may_still_edit(row),
+                    thread_muted: self.muted_threads.contains(&row.thread_root()),
                     ..Default::default()
                 })
                 .into(),
             pinned: row.pinned_at.is_some(),
             created_at: ts(row.created_at),
+            content_warning_text: row.content_warning_text.clone(),
+            attachment_details: row.attachment_details(),
+            body: self.body(row).into(),
+            poll: self.polls.get(&row.id).cloned().into(),
+            channel: row.shown_channel().and_then(|id| self.channels.get(&id).cloned()).into(),
+            edited_at: opt_ts(row.edited_at),
+            edit_count: row.edit_count,
+            language: row.language.clone(),
             ..Default::default()
         }
     }
@@ -107,8 +176,9 @@ impl Notes {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let sql = format!("SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id = ANY($4) AND {}", sees_note("n"));
-        let rows: Vec<NoteRow> = viewer.query_as(sql).bind(ids).fetch_all(&self.core.db).await?;
+        let sql = format!("SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id = ANY($7) AND {}", sees_note("n"));
+        let mut rows: Vec<NoteRow> = viewer.query_as(sql).bind(ids).fetch_all(&self.core.db).await?;
+        viewer.drop_newly_locked(&self.core, &mut rows, |row| row).await?;
         Ok(rows.into_iter().map(|row| (row.id, row)).collect())
     }
 
@@ -151,6 +221,7 @@ impl Notes {
             .iter()
             .flat_map(|row| [Some(row.author_id), row.reply_to_author_id])
             .flatten()
+            .chain(shown.iter().flat_map(|row| row.direct_user_ids.iter().copied()))
             .chain(extra_users.iter().copied())
             .collect();
         user_ids.sort();
@@ -162,8 +233,25 @@ impl Notes {
         note_ids.sort();
         note_ids.dedup();
 
-        let (users, stamps) =
-            tokio::try_join!(tokuly_identity::summaries(core, &user_ids), tokuly_stamp::stamp_refs(core, &stamp_ids))?;
+        let mut channel_ids: Vec<Uuid> = shown.iter().filter_map(|row| row.shown_channel()).collect();
+        channel_ids.sort();
+        channel_ids.dedup();
+        let mut emoji_names: Vec<String> = shown.iter().flat_map(|row| markup::facts(&row.body()).emoji).collect();
+        emoji_names.sort();
+        emoji_names.dedup();
+        let (users, stamps, channels, polls, emoji, muted_threads) = tokio::try_join!(
+            tokuly_identity::summaries(core, &user_ids),
+            tokuly_stamp::stamp_refs(core, &stamp_ids),
+            channels::refs(core, &channel_ids),
+            self.poll_views(viewer, &shown),
+            async {
+                if emoji_names.is_empty() {
+                    return Ok(HashMap::new());
+                }
+                tokuly_emoji::catalog::resolve(core, &emoji_names).await
+            },
+            self.muted_thread_roots(viewer, &shown),
+        )?;
         let (liked, renoted) = match viewer.id {
             Some(user_id) => {
                 let reactions: Vec<(Uuid, bool)> = sqlx::query_as(
@@ -181,7 +269,7 @@ impl Notes {
             }
             None => (HashSet::new(), HashSet::new()),
         };
-        Ok(Context { viewer, users, stamps, referenced, liked, renoted })
+        Ok(Context { viewer, users, stamps, channels, polls, emoji, muted_threads, referenced, liked, renoted })
     }
 
     /// Notes as `viewer` gets them, in the order of `rows`. The rows must

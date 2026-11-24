@@ -67,7 +67,9 @@ fn gone(_: &Event) -> Option<Change> {
 fn note_audience(event: &Event) -> Option<Change> {
     match event.data.get("visibility").and_then(serde_json::Value::as_i64)? {
         1 => Some(Change::Audience(AUDIENCE_PUBLIC)),
-        4 => Some(Change::Audience(AUDIENCE_FRIENDS)),
+        // Friends, or followers (and friends): the feed's friends audience
+        // is inside both.
+        4 | 6 => Some(Change::Audience(AUDIENCE_FRIENDS)),
         // Private, or anything this build does not know: the narrowest.
         _ => Some(Change::Audience(AUDIENCE_PRIVATE)),
     }

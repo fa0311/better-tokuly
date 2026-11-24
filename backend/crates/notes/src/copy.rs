@@ -3,7 +3,7 @@
 //!
 //! Notification kinds (all in the `notes` preference category):
 //! `notes.like`, `notes.renote`, `notes.reply`, `notes.mention`,
-//! `notes.quote`, `notes.story_reaction`.
+//! `notes.quote`, `notes.direct`, `notes.story_reaction`.
 use tokuly_core::{
     outbound::{ActivityAudience, ActivityEntry, Localized, NotificationRequest},
     prelude::*,
@@ -93,6 +93,14 @@ pub fn mention(actor: &UserSummary, recipient: Uuid, note: &NoteRow) -> Notifica
     about_note(recipient, "notes.mention", actor, note.author_id, title, note, note.id)
 }
 
+/// `notes.direct`: `note` is addressed to `recipient` (a direct note).
+pub fn direct(actor: &UserSummary, recipient: Uuid, note: &NoteRow) -> NotificationRequest {
+    let name = display_name(actor);
+    let title =
+        Localized::new(format!("{name}さんからあなた宛てのノートが届いたよ!"), format!("{name} sent you a note"));
+    about_note(recipient, "notes.direct", actor, note.author_id, title, note, note.id)
+}
+
 /// `notes.story_reaction`: someone reacted to the recipient's story. A
 /// changed emoji replaces the earlier notification of the same person.
 pub fn story_reaction(actor: &UserSummary, actor_id: Uuid, story: &StoryRow, emoji: &str) -> NotificationRequest {
@@ -119,11 +127,15 @@ pub fn story_reaction(actor: &UserSummary, actor_id: Uuid, story: &StoryRow, emo
 }
 
 /// The activity entry of a new note (`note.posted`) or reply
-/// (`note.replied`), shown to the people who may see the note itself.
+/// (`note.replied`), shown to people who may see the note itself. The feed
+/// knows three audiences (everyone, friends, the author): a note everyone
+/// may see is public there; a note for followers (or a locked author's
+/// public note) goes to the friends, who are in its audience too; close
+/// friends, circles and direct notes stay in the author's own log.
 pub fn note_activity(note: &NoteRow) -> ActivityEntry {
     let audience = match note.visibility {
-        visibility::PUBLIC => ActivityAudience::Public,
-        visibility::FRIENDS => ActivityAudience::Friends,
+        _ if note.is_listed() => ActivityAudience::Public,
+        visibility::PUBLIC | visibility::FOLLOWERS | visibility::FRIENDS => ActivityAudience::Friends,
         _ => ActivityAudience::Private,
     };
     let (kind, summary) = if note.is_reply() {

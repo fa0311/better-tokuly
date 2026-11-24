@@ -166,11 +166,21 @@ bundled: purchases go through a pluggable provider interface, with a built-in
 
 ## notes — ノート・ストーリー（記憶）
 
-- Notes: short posts (≤ 300 chars, "今何してる?"), up to 4 images or one
-  video, optional stamp, optional place tag, visibility public / friends /
-  private, replies (threads), likes, renotes and quote notes, delete, hashtags
-  and mentions, pin to profile. Timelines: friends, global, per user, per
-  hashtag, replies thread. First-use rules agreement.
+- Notes: posts that start as a quick "今何してる?" and may grow to 3000
+  characters with a small server-parsed markup (bold, italic, strike, code,
+  quotes, links, mentions, hashtags, custom emoji, a safe set of animated
+  effects), up to ten images with alt text and sensitive marks or one
+  video, optional stamp, place tag, poll (2–10 choices, private votes) and
+  content warning. Audiences: public, followers, friends, close friends, a
+  circle, named people, private; locked accounts' public notes reach their
+  followers only. Replies (threads), likes, renotes and quote notes (by
+  audience), emoji reactions through engagement, edits within an hour with
+  history, delete and redraft, server drafts and scheduled notes, up to five
+  pinned notes, note analytics for the author. Timelines: friends,
+  following, global, per user (media grid), per hashtag, mentions, lists,
+  antennas, channels, clips; muted words, conversations and renotes; trends
+  (hashtags and notes, per language, resistant to fresh-account crowds);
+  post notifications for followers who ask. First-use rules agreement.
 - Stories ("記憶"): title (≤ 140) plus 1–10 images/videos, visible to friends
   for 24 h, then kept in the owner's archive (browsable by day); viewers list,
   reactions, replies go to DM; story highlights on the profile.
@@ -429,11 +439,6 @@ The whole API is open to the people who use it.
 
 Collected here so the next pass over each domain has its list:
 
-- **notes**: polls, content warnings, longer text with markup (MFM-like)
-  and custom emoji, up to ten media with alt text, drafts and scheduled
-  notes, edit history, lists, antennas (saved keyword timelines), channels
-  (topic timelines), clips (curated public collections), muted words,
-  trends, a following timeline, circle audiences, a profile media grid.
 - **federation** (new, after notes): ActivityPub, so accounts and notes
   interoperate with Misskey and Mastodon.
 - **web**: deck layout, command palette, theme editor, API explorer.

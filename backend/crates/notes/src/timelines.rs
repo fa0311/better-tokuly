@@ -5,10 +5,15 @@
 //! the visibility condition, so a page never contains a note its viewer may
 //! not see — whatever list it came from.
 //!
-//! Parameters of the queries here: `$1`–`$3` the viewer (see
+//! Parameters of the queries here: `$1`–`$6` the viewer (see
 //! [`crate::visibility`]), then, for a list about something (a user, a
-//! hashtag, a note), `$4` that something, `$5` the cursor and `$6` the
+//! hashtag, a note), `$7` that something, `$8` the cursor and `$9` the
 //! number of rows to fetch.
+//!
+//! On top of what SQL decides, every page passes
+//! [`Viewer::drop_newly_locked`]: an account locked a moment ago keeps its
+//! public notes from people who do not follow it even before this domain's
+//! copy of the lock is updated.
 use sqlx::Postgres;
 use tokuly_core::prelude::*;
 use tokuly_proto::{
@@ -17,11 +22,12 @@ use tokuly_proto::{
 };
 
 use crate::{
-    Notes, hashtags,
+    Notes, channels, hashtags,
     hydrate::EntryRow,
     model::{NOTE_COLUMNS, NoteRow},
+    mutes::TimelineFilter,
     text,
-    visibility::{PUBLIC, Viewer, sees_note},
+    visibility::{Viewer, listed, sees_note},
 };
 
 /// Largest page of any note list.
@@ -36,37 +42,38 @@ fn plain() -> String {
 
 /// A timeline made of notes selected by `filter` plus the notes renoted by
 /// the users in `renoters` (a comparison completing `user_id …`, e.g.
-/// `= ANY($4)`), merged newest first.
+/// `= ANY($7)`), merged newest first.
 ///
 /// Each note appears once: where its latest renote by one of those users
 /// puts it, or at its own position when none of them renoted it. Without
 /// that, a note posted by one friend and renoted by another would show up
 /// twice, pages apart.
-fn with_renotes(filter: &str, renoters: &str) -> String {
+pub(crate) fn with_renotes(filter: &str, renoters: &str) -> String {
     let visible = sees_note("n");
     format!(
         "SELECT e.entry_id, e.renoter_id, e.renoted_at, {NOTE_COLUMNS}
          FROM (
              (SELECT n.id AS entry_id, n.id AS note_id, NULL::uuid AS renoter_id, NULL::timestamptz AS renoted_at
               FROM notes n
-              WHERE {filter} AND ($5::uuid IS NULL OR n.id < $5) AND {visible}
+              WHERE {filter} AND ($8::uuid IS NULL OR n.id < $8) AND {visible}
                 AND NOT EXISTS (SELECT 1 FROM note_renotes later WHERE later.note_id = n.id AND later.user_id {renoters})
-              ORDER BY n.id DESC LIMIT $6)
+              ORDER BY n.id DESC LIMIT $9)
              UNION ALL
              (SELECT r.id, r.note_id, r.user_id, r.created_at
               FROM note_renotes r JOIN notes n ON n.id = r.note_id
-              WHERE r.user_id {renoters} AND ($5::uuid IS NULL OR r.id < $5) AND {visible}
+              WHERE r.user_id {renoters} AND ($8::uuid IS NULL OR r.id < $8) AND {visible}
                 AND NOT EXISTS (SELECT 1 FROM note_renotes later WHERE later.note_id = r.note_id AND later.user_id {renoters} AND later.id > r.id)
-              ORDER BY r.id DESC LIMIT $6)
+              ORDER BY r.id DESC LIMIT $9)
          ) e
          JOIN notes n ON n.id = e.note_id
-         ORDER BY e.entry_id DESC LIMIT $6"
+         ORDER BY e.entry_id DESC LIMIT $9"
     )
 }
 
 impl Notes {
-    /// Runs a timeline query and hydrates its page.
-    async fn entries<P>(
+    /// Runs a timeline query and hydrates its page, without what the
+    /// viewer muted (see [`crate::mutes`]).
+    pub(crate) async fn entries<P>(
         &self,
         viewer: &Viewer,
         page: &Page,
@@ -76,20 +83,48 @@ impl Notes {
     where
         P: 'static + Send + for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
     {
-        let cursor: Option<Uuid> = page.decode()?;
-        let rows: Vec<EntryRow> =
-            viewer.query_as(sql).bind(about).bind(cursor).bind(page.fetch()).fetch_all(&self.core.db).await?;
+        let rows = self.fetch_entries(viewer, page, sql, about).await?;
         self.page_of(viewer, page, rows).await
     }
 
-    /// Trims fetched timeline rows to the page asked for and hydrates them.
-    async fn page_of(
+    /// [`Self::entries`] for a list the viewer chose to look at (a profile,
+    /// their mentions): mutes do not apply.
+    async fn entries_unfiltered<P>(
+        &self,
+        viewer: &Viewer,
+        page: &Page,
+        sql: String,
+        about: P,
+    ) -> AppResult<(Vec<TimelineEntry>, PageInfo)>
+    where
+        P: 'static + Send + for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
+    {
+        let mut rows = self.fetch_entries(viewer, page, sql, about).await?;
+        let info = page.finish(&mut rows, |row| row.entry_id);
+        viewer.drop_newly_locked(&self.core, &mut rows, |row| &row.note).await?;
+        Ok((self.hydrate_entries(viewer, rows).await?, info))
+    }
+
+    async fn fetch_entries<P>(&self, viewer: &Viewer, page: &Page, sql: String, about: P) -> AppResult<Vec<EntryRow>>
+    where
+        P: 'static + Send + for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres>,
+    {
+        let cursor: Option<Uuid> = page.decode()?;
+        Ok(viewer.query_as(sql).bind(about).bind(cursor).bind(page.fetch()).fetch_all(&self.core.db).await?)
+    }
+
+    /// Trims fetched timeline rows to the page asked for, leaves out what
+    /// the viewer muted, and hydrates them.
+    pub(crate) async fn page_of(
         &self,
         viewer: &Viewer,
         page: &Page,
         mut rows: Vec<EntryRow>,
     ) -> AppResult<(Vec<TimelineEntry>, PageInfo)> {
         let info = page.finish(&mut rows, |row| row.entry_id);
+        // After the page is cut, so the cursor stays where SQL left it.
+        viewer.drop_newly_locked(&self.core, &mut rows, |row| &row.note).await?;
+        TimelineFilter::load(&self.core, viewer).await?.apply(&mut rows);
         Ok((self.hydrate_entries(viewer, rows).await?, info))
     }
 
@@ -100,81 +135,107 @@ impl Notes {
         viewer: &Viewer,
         page: &Page,
     ) -> AppResult<(Vec<TimelineEntry>, PageInfo)> {
-        let sql = with_renotes(
-            "n.author_id = ANY($4) AND (n.reply_to_id IS NULL OR n.reply_to_author_id = ANY($4))",
-            "= ANY($4)",
+        let filter = format!(
+            "((n.author_id = ANY($7) AND (n.reply_to_id IS NULL OR n.reply_to_author_id = ANY($7))) OR {followed}) AND {outside}",
+            followed = channels::in_followed_channel("n"),
+            outside = channels::outside_unfollowed_channels("n"),
         );
-        self.entries(viewer, page, sql, viewer.circle()).await
+        let sql = with_renotes(&filter, "= ANY($7)");
+        self.entries(viewer, page, sql, viewer.me_and_friends()).await
     }
 
-    /// Every public note that is not a reply.
+    /// Notes, quotes and renotes by the viewer and the accounts they follow
+    /// (leaving out those they muted), plus the replies those people wrote
+    /// to each other.
+    pub(crate) async fn following_timeline(
+        &self,
+        viewer: &Viewer,
+        user_id: Uuid,
+        page: &Page,
+    ) -> AppResult<(Vec<TimelineEntry>, PageInfo)> {
+        let (following, muted) = tokio::try_join!(
+            tokuly_social::graph::following_ids(&self.core, user_id),
+            tokuly_social::graph::muted_followee_ids(&self.core, user_id),
+        )?;
+        let people: Vec<Uuid> =
+            std::iter::once(user_id).chain(following.into_iter().filter(|id| !muted.contains(id))).collect();
+        let filter = format!(
+            "n.author_id = ANY($7) AND (n.reply_to_id IS NULL OR n.reply_to_author_id = ANY($7)) AND {}",
+            channels::outside_unfollowed_channels("n"),
+        );
+        let sql = with_renotes(&filter, "= ANY($7)");
+        self.entries(viewer, page, sql, people).await
+    }
+
+    /// Every note that is not a reply and that everyone may see.
     pub(crate) async fn global_timeline(
         &self,
         viewer: &Viewer,
         page: &Page,
     ) -> AppResult<(Vec<TimelineEntry>, PageInfo)> {
-        // A list about nothing in particular: `$4` is the cursor, `$5` the
+        // A list about nothing in particular: `$7` is the cursor, `$8` the
         // number of rows. (The visibility is spelled out, not a parameter,
         // so the partial index on public top-level notes applies.)
         let cursor: Option<Uuid> = page.decode()?;
         let sql = format!(
             "SELECT {columns} FROM notes n
-             WHERE n.visibility = {PUBLIC} AND n.reply_to_id IS NULL
-               AND ($4::uuid IS NULL OR n.id < $4) AND {visible}
-             ORDER BY n.id DESC LIMIT $5",
+             WHERE {listed} AND n.reply_to_id IS NULL
+               AND ($7::uuid IS NULL OR n.id < $7) AND {visible} AND {outside}
+             ORDER BY n.id DESC LIMIT $8",
             columns = plain(),
+            listed = listed("n"),
             visible = sees_note("n"),
+            outside = channels::outside_unfollowed_channels("n"),
         );
         let rows: Vec<EntryRow> = viewer.query_as(sql).bind(cursor).bind(page.fetch()).fetch_all(&self.core.db).await?;
         self.page_of(viewer, page, rows).await
     }
 
     /// One user's notes as the viewer may see them, and — on the first page
-    /// of the notes tab — the user's pinned note.
+    /// of the notes tab — the user's pinned notes, latest pinned first.
     pub(crate) async fn user_timeline(
         &self,
         viewer: &Viewer,
         user_id: Uuid,
         filter: UserTimelineFilter,
         page: &Page,
-    ) -> AppResult<(Vec<TimelineEntry>, PageInfo, Option<Note>)> {
+    ) -> AppResult<(Vec<TimelineEntry>, PageInfo, Vec<Note>)> {
         self.require_user(viewer, user_id).await?;
         let visible = sees_note("n");
         let sql = match filter {
             UserTimelineFilter::USER_TIMELINE_FILTER_UNSPECIFIED | UserTimelineFilter::USER_TIMELINE_FILTER_NOTES => {
-                with_renotes("n.author_id = $4 AND n.reply_to_id IS NULL", "= $4")
+                with_renotes("n.author_id = $7 AND n.reply_to_id IS NULL", "= $7")
             }
-            UserTimelineFilter::USER_TIMELINE_FILTER_WITH_REPLIES => with_renotes("n.author_id = $4", "= $4"),
+            UserTimelineFilter::USER_TIMELINE_FILTER_WITH_REPLIES => with_renotes("n.author_id = $7", "= $7"),
             UserTimelineFilter::USER_TIMELINE_FILTER_MEDIA => format!(
                 "SELECT {columns} FROM notes n
-                 WHERE n.author_id = $4 AND n.asset_ids <> '{{}}' AND ($5::uuid IS NULL OR n.id < $5) AND {visible}
-                 ORDER BY n.id DESC LIMIT $6",
+                 WHERE n.author_id = $7 AND n.asset_ids <> '{{}}' AND ($8::uuid IS NULL OR n.id < $8) AND {visible}
+                 ORDER BY n.id DESC LIMIT $9",
                 columns = plain(),
             ),
             UserTimelineFilter::USER_TIMELINE_FILTER_LIKES => format!(
                 "SELECT l.id AS entry_id, NULL::uuid AS renoter_id, NULL::timestamptz AS renoted_at, {NOTE_COLUMNS}
                  FROM note_likes l JOIN notes n ON n.id = l.note_id
-                 WHERE l.user_id = $4 AND ($5::uuid IS NULL OR l.id < $5) AND {visible}
-                 ORDER BY l.id DESC LIMIT $6"
+                 WHERE l.user_id = $7 AND ($8::uuid IS NULL OR l.id < $8) AND {visible}
+                 ORDER BY l.id DESC LIMIT $9"
             ),
         };
         let first_page = page.cursor.is_none();
-        let (entries, info) = self.entries(viewer, page, sql, user_id).await?;
+        let (entries, info) = self.entries_unfiltered(viewer, page, sql, user_id).await?;
         let notes_tab = matches!(
             filter,
             UserTimelineFilter::USER_TIMELINE_FILTER_UNSPECIFIED | UserTimelineFilter::USER_TIMELINE_FILTER_NOTES
         );
         let pinned = if first_page && notes_tab {
             let sql = format!(
-                "SELECT {NOTE_COLUMNS} FROM notes n WHERE n.author_id = $4 AND n.pinned_at IS NOT NULL AND {visible}"
+                "SELECT {NOTE_COLUMNS} FROM notes n WHERE n.author_id = $7 AND n.pinned_at IS NOT NULL AND {visible}
+                 ORDER BY n.pinned_at DESC"
             );
-            let row: Option<NoteRow> = viewer.query_as(sql).bind(user_id).fetch_optional(&self.core.db).await?;
-            match row {
-                Some(row) => Some(self.hydrate_one(viewer, &row).await?),
-                None => None,
-            }
+            let mut rows: Vec<NoteRow> = viewer.query_as(sql).bind(user_id).fetch_all(&self.core.db).await?;
+            viewer.drop_newly_locked(&self.core, &mut rows, |row| row).await?;
+            self.hydrate(viewer, &rows).await?
         } else {
-            None
+            Vec::new()
         };
         Ok((entries, info, pinned))
     }
@@ -212,8 +273,8 @@ impl Notes {
         };
         let sql = format!(
             "SELECT {columns} FROM note_hashtags nh JOIN notes n ON n.id = nh.note_id
-             WHERE nh.hashtag_id = $4 AND ($5::uuid IS NULL OR nh.note_id < $5) AND {visible}
-             ORDER BY nh.note_id DESC LIMIT $6",
+             WHERE nh.hashtag_id = $7 AND ($8::uuid IS NULL OR nh.note_id < $8) AND {visible}
+             ORDER BY nh.note_id DESC LIMIT $9",
             columns = plain(),
             visible = sees_note("n"),
         );
@@ -221,7 +282,8 @@ impl Notes {
         Ok((hashtag.to_proto(), entries, info))
     }
 
-    /// Notes by other people that mention `user_id` or answer one of their notes.
+    /// Notes by other people that mention `user_id`, answer one of their
+    /// notes or are addressed to them.
     pub(crate) async fn mentions_timeline(
         &self,
         viewer: &Viewer,
@@ -229,23 +291,28 @@ impl Notes {
         page: &Page,
     ) -> AppResult<(Vec<TimelineEntry>, PageInfo)> {
         let visible = sees_note("n");
-        // Two index scans merged, rather than one scan over an OR.
+        // Three index scans merged, rather than one scan over an OR.
         let sql = format!(
             "SELECT {columns}
              FROM (
                  (SELECT n.id FROM notes n
-                  WHERE n.reply_to_author_id = $4 AND n.author_id <> $4 AND ($5::uuid IS NULL OR n.id < $5) AND {visible}
-                  ORDER BY n.id DESC LIMIT $6)
+                  WHERE n.reply_to_author_id = $7 AND n.author_id <> $7 AND ($8::uuid IS NULL OR n.id < $8) AND {visible}
+                  ORDER BY n.id DESC LIMIT $9)
                  UNION
                  (SELECT m.note_id FROM note_mentions m JOIN notes n ON n.id = m.note_id
-                  WHERE m.user_id = $4 AND n.author_id <> $4 AND ($5::uuid IS NULL OR m.note_id < $5) AND {visible}
-                  ORDER BY m.note_id DESC LIMIT $6)
+                  WHERE m.user_id = $7 AND n.author_id <> $7 AND ($8::uuid IS NULL OR m.note_id < $8) AND {visible}
+                  ORDER BY m.note_id DESC LIMIT $9)
+                 UNION
+                 (SELECT n.id FROM notes n
+                  WHERE n.direct_user_ids @> ARRAY[$7::uuid] AND n.direct_user_ids <> '{{}}' AND n.author_id <> $7
+                    AND ($8::uuid IS NULL OR n.id < $8) AND {visible}
+                  ORDER BY n.id DESC LIMIT $9)
              ) found
              JOIN notes n ON n.id = found.id
-             ORDER BY n.id DESC LIMIT $6",
+             ORDER BY n.id DESC LIMIT $9",
             columns = plain(),
         );
-        self.entries(viewer, page, sql, user_id).await
+        self.entries_unfiltered(viewer, page, sql, user_id).await
     }
 
     /// Quote notes of a note, newest first.
@@ -254,13 +321,14 @@ impl Notes {
         let cursor: Option<Uuid> = page.decode()?;
         let sql = format!(
             "SELECT {NOTE_COLUMNS} FROM notes n
-             WHERE n.quote_of_id = $4 AND ($5::uuid IS NULL OR n.id < $5) AND {}
-             ORDER BY n.id DESC LIMIT $6",
+             WHERE n.quote_of_id = $7 AND ($8::uuid IS NULL OR n.id < $8) AND {}
+             ORDER BY n.id DESC LIMIT $9",
             sees_note("n")
         );
         let mut rows: Vec<NoteRow> =
             viewer.query_as(sql).bind(note_id).bind(cursor).bind(page.fetch()).fetch_all(&self.core.db).await?;
         let info = page.finish(&mut rows, |row| row.id);
+        viewer.drop_newly_locked(&self.core, &mut rows, |row| row).await?;
         Ok((self.hydrate(viewer, &rows).await?, info))
     }
 
@@ -282,7 +350,7 @@ impl Notes {
                 // The chain stops at the first note that is gone or hidden.
                 let sql = format!(
                     "WITH RECURSIVE chain AS (
-                         SELECT n.id, n.reply_to_id, 1 AS depth FROM notes n WHERE n.id = $4 AND {visible}
+                         SELECT n.id, n.reply_to_id, 1 AS depth FROM notes n WHERE n.id = $7 AND {visible}
                          UNION ALL
                          SELECT n.id, n.reply_to_id, chain.depth + 1
                          FROM chain JOIN notes n ON n.id = chain.reply_to_id
@@ -296,12 +364,24 @@ impl Notes {
         };
         let sql = format!(
             "SELECT {NOTE_COLUMNS} FROM notes n
-             WHERE n.reply_to_id = $4 AND ($5::uuid IS NULL OR n.id > $5) AND {visible}
-             ORDER BY n.id LIMIT $6"
+             WHERE n.reply_to_id = $7 AND ($8::uuid IS NULL OR n.id > $8) AND {visible}
+             ORDER BY n.id LIMIT $9"
         );
         let mut replies: Vec<NoteRow> =
             viewer.query_as(sql).bind(note.id).bind(cursor).bind(page.fetch()).fetch_all(&self.core.db).await?;
         let info = page.finish(&mut replies, |row| row.id);
+        viewer.drop_newly_locked(&self.core, &mut replies, |row| row).await?;
+        // The chain above the note stops at a newly locked author too.
+        let mut kept = Vec::with_capacity(ancestors.len());
+        let locked = viewer.newly_locked(&self.core, &ancestors.iter().collect::<Vec<_>>()).await?;
+        for row in ancestors.into_iter().rev() {
+            if row.listed && locked.contains(&row.author_id) && !viewer.is_tied_to(row.author_id) {
+                break;
+            }
+            kept.push(row);
+        }
+        kept.reverse();
+        let ancestors = kept;
 
         // One hydration for the whole thread: its notes share authors.
         let mut all = ancestors;
@@ -329,8 +409,8 @@ mod tests {
 
     #[test]
     fn timeline_queries_number_their_parameters_consistently() {
-        for sql in [with_renotes("n.author_id = $4", "= $4"), plain()] {
-            assert!(!sql.contains("$7"), "{sql}");
+        for sql in [with_renotes("n.author_id = $7", "= $7"), plain()] {
+            assert!(!sql.contains("$10"), "{sql}");
             assert_eq!(sql.matches('(').count(), sql.matches(')').count(), "{sql}");
         }
     }

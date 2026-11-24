@@ -1,5 +1,5 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
-import { common, type MessageInitShape, notes } from "@tokuly/api";
+import { type MessageInitShape, notes } from "@tokuly/api";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
@@ -7,7 +7,6 @@ import { useMe } from "#/stores/session";
 import {
   bumpCounter,
   findCachedNote,
-  mapNotes,
   markNoteDeleted,
   noteClient,
   notesKeys,
@@ -17,6 +16,7 @@ import {
   withCounters,
   withViewer,
 } from "./api";
+import type { Audience } from "./visibility";
 
 const say = (key: string) => i18n.t(key, { ns: "notes" });
 
@@ -143,48 +143,48 @@ export function useDeleteNote(): (note: notes.Note) => Promise<boolean> {
   };
 }
 
-/** Pins a note to the viewer's profile (replacing the one pinned before) or removes the pin. */
+/** Pins a note to the viewer's profile (up to five) or takes it off. */
 export function usePin(): (note: notes.Note, pinned: boolean) => Promise<void> {
   const queryClient = useQueryClient();
   const me = useMe();
   return async (note, pinned) => {
     try {
       if (pinned) await noteClient().pinNote({ noteId: note.id });
-      else await noteClient().unpinNote({});
+      else await noteClient().unpinNote({ noteId: note.id });
     } catch (error) {
       toast.error(errorMessage(error));
       return;
     }
-    // One pin per profile: every other note of the viewer loses the flag.
-    for (const query of queryClient.getQueryCache().findAll({ queryKey: notesKeys.all })) {
-      const data = query.state.data;
-      if (data === undefined) continue;
-      const next = mapNotes(data, (current) => {
-        const shouldBePinned = pinned && current.id === note.id;
-        return current.author?.id === note.author?.id && current.pinned !== shouldBePinned
-          ? { ...current, pinned: shouldBePinned }
-          : current;
-      });
-      if (next !== data)
-        queryClient.setQueryData(query.queryKey, next, { updatedAt: query.state.dataUpdatedAt });
-    }
+    patchNote(queryClient, note.id, (current) => ({ ...current, pinned }));
     if (me?.user)
       void queryClient.invalidateQueries({ queryKey: notesKeys.userTimelines(me.user.id) });
     toast.success(say(pinned ? "toast.pinned" : "toast.unpinned"));
   };
 }
 
-/** Changes who may see one of the viewer's notes. The visibility the server applied is what the card then shows. */
-export function useSetVisibility(): (
-  note: notes.Note,
-  visibility: common.Visibility,
-) => Promise<boolean> {
+/** Changes who may see one of the viewer's notes. The audience the server applied is what the card then shows. */
+export function useSetVisibility(): (note: notes.Note, audience: Audience) => Promise<boolean> {
   const queryClient = useQueryClient();
-  return async (note, visibility) => {
+  return async (note, audience) => {
     try {
-      const response = await noteClient().setNoteVisibility({ noteId: note.id, visibility });
-      const applied = response.note?.visibility ?? visibility;
-      patchNote(queryClient, note.id, (current) => ({ ...current, visibility: applied }));
+      const response = await noteClient().setNoteVisibility({
+        noteId: note.id,
+        visibility: audience.visibility,
+        circleId: audience.circleId ?? "",
+        directUserIds: audience.directUserIds ?? [],
+      });
+      const applied = response.note;
+      patchNote(queryClient, note.id, (current) =>
+        applied
+          ? {
+              ...current,
+              visibility: applied.visibility,
+              circleId: applied.circleId,
+              directRecipients: applied.directRecipients,
+              viewer: applied.viewer,
+            }
+          : current,
+      );
       toast.success(say("toast.visibilityChanged"));
       return true;
     } catch (error) {
@@ -206,8 +206,10 @@ function addPostedNote(
 ): void {
   const authorId = note.author?.id;
   const isReply = Boolean(note.replyTo?.noteId);
-  prependNote(queryClient, { kind: "home" }, note);
-  if (!isReply && note.visibility === common.Visibility.PUBLIC)
+  // A channel note reaches home only through a followed channel, and never the global timeline.
+  const inChannel = Boolean(note.channel?.id);
+  if (!inChannel) prependNote(queryClient, { kind: "home" }, note);
+  if (!isReply && !inChannel && note.viewer?.canQuote)
     prependNote(queryClient, { kind: "global" }, note);
   for (const tag of note.hashtags) prependNote(queryClient, { kind: "hashtag", tag }, note);
   if (authorId) {

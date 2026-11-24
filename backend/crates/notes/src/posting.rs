@@ -23,33 +23,35 @@ use tokuly_identity::settings;
 use tokuly_media::assets;
 use tokuly_proto::{
     common::{UserSummary, Visibility},
+    identity::Audience as PrivacyAudience,
     media::{AssetKind, AssetPurpose, Attachment},
-    notes::{Mention, NoteCounters, PlaceTag, notes_event::Event as Push},
+    notes::{AttachmentDetailsInput, Mention, NoteCounters, PlaceTag, PollInput, notes_event::Event as Push},
 };
 use tokuly_social::{InteractionKind, graph};
 use tokuly_stamp::SendContext;
 
 use crate::{
-    Notes, copy,
+    Notes, authors, channels, content, copy,
     events::{
         NOTE_CREATED, NOTE_DELETED, NOTE_VISIBILITY_CHANGED, NoteCreated, NoteDeleted, NoteVisibilityChanged,
         RemovalReason,
     },
     hashtags,
     model::{NOTE_COLUMNS, NoteRow, note_holder, note_path, note_topic, to_json},
-    rules, text,
+    polls, rules, text,
     visibility::{self, Viewer},
 };
 
-/// Longest note, in characters.
-pub const MAX_NOTE_CHARS: usize = 300;
-/// A note carries up to four images, or one video.
-pub const MAX_ATTACHMENTS: usize = 4;
+pub use crate::content::MAX_NOTE_CHARS;
+/// A note carries up to ten images, or one video.
+pub const MAX_ATTACHMENTS: usize = 10;
 pub const MAX_PLACE_NAME_CHARS: usize = 100;
 /// Notes one user may post per day, whatever the pace.
 const MAX_POSTS_PER_DAY: u32 = 1000;
 /// Visibility changes one user may make per minute.
 const VISIBILITY_CHANGES_PER_MINUTE: u32 = 30;
+/// Notes one profile shows pinned.
+pub const MAX_PINNED: i64 = 5;
 /// Longest idempotency key accepted.
 pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 64;
 /// How long a retried request finds the note it created the first time.
@@ -57,6 +59,24 @@ const IDEMPOTENCY_WINDOW: Duration = Duration::from_secs(600);
 
 /// Name of the background job that fetches a note's link preview.
 pub const JOB_LINK_PREVIEW: &str = "notes.link_preview";
+/// Name of the background job that puts a new note into the antennas it matches.
+pub const JOB_ANTENNA_MATCH: &str = "notes.antenna_match";
+
+/// Name of the background job that tells followers who turned on post
+/// notifications (tokuly.social.v1 notify level ALL) about a new note.
+pub const JOB_POST_NOTIFY: &str = "notes.post_notify";
+
+/// Payload of [`JOB_POST_NOTIFY`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostNotifyJob {
+    pub note_id: Uuid,
+}
+
+/// Payload of [`JOB_ANTENNA_MATCH`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AntennaMatchJob {
+    pub note_id: Uuid,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkPreviewJob {
@@ -71,10 +91,17 @@ pub(crate) struct NewNote {
     pub stamp_id: Option<Uuid>,
     pub place: Option<PlaceTag>,
     /// `None` = the author's default.
-    pub visibility: Option<i32>,
+    pub audience: Option<Audience>,
     pub reply_to_id: Option<Uuid>,
     pub quote_of_id: Option<Uuid>,
     pub content_warning: bool,
+    pub content_warning_text: String,
+    pub attachment_details: Vec<AttachmentDetailsInput>,
+    pub poll: Option<PollInput>,
+    /// Posts into this channel (a reply goes into the channel of the note it answers).
+    pub channel_id: Option<Uuid>,
+    /// Posted from this draft: at most one note per draft (`DRAFT_ALREADY_POSTED`).
+    pub draft_id: Option<Uuid>,
 }
 
 /// A place tag as stored.
@@ -117,25 +144,148 @@ impl From<CounterRow> for NoteCounters {
     }
 }
 
-/// The visibility a client asked for: `None` when left unspecified.
-pub(crate) fn requested_visibility(value: buffa::EnumValue<Visibility>) -> AppResult<Option<i32>> {
-    match value.as_known() {
-        Some(Visibility::VISIBILITY_UNSPECIFIED) => Ok(None),
-        Some(Visibility::VISIBILITY_PUBLIC) => Ok(Some(visibility::PUBLIC)),
-        Some(Visibility::VISIBILITY_FRIENDS) => Ok(Some(visibility::FRIENDS)),
-        Some(Visibility::VISIBILITY_PRIVATE) => Ok(Some(visibility::PRIVATE)),
-        _ => Err(AppError::invalid("INVALID_VISIBILITY", "a note is public, for friends, or private")),
+/// Most people one direct note is addressed to.
+pub const MAX_DIRECT_RECIPIENTS: usize = 20;
+
+/// Who a note is shared with, as stored: a visibility, the circle of a
+/// CIRCLE note, the people a direct note (PRIVATE) is addressed to.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Audience {
+    pub visibility: i32,
+    pub circle_id: Option<Uuid>,
+    pub direct: Vec<Uuid>,
+}
+
+impl Audience {
+    pub fn of(visibility: i32) -> Self {
+        Self { visibility, ..Default::default() }
+    }
+
+    pub fn of_note(note: &NoteRow) -> Self {
+        Self { visibility: note.visibility, circle_id: note.circle_id, direct: note.direct_user_ids.clone() }
+    }
+
+    /// How narrow the audience is, widest first. Close friends, a circle and
+    /// named people are not subsets of one another: they share a rank.
+    fn rank(&self) -> u8 {
+        match self.visibility {
+            visibility::PUBLIC => 0,
+            visibility::FOLLOWERS => 1,
+            visibility::FRIENDS => 2,
+            visibility::CLOSE_FRIENDS | visibility::CIRCLE => 3,
+            visibility::PRIVATE if !self.direct.is_empty() => 3,
+            _ => 4,
+        }
     }
 }
 
-/// The narrower of two visibilities (public ⊃ friends ⊃ private).
-pub(crate) fn narrower(a: i32, b: i32) -> i32 {
-    let rank = |visibility: i32| match visibility {
-        visibility::PUBLIC => 0,
-        visibility::FRIENDS => 1,
-        _ => 2,
+/// The audience a client asked for: `None` when left unspecified. Checks
+/// its shape only; whether the circle and the people exist is checked when
+/// the note is stored.
+pub(crate) fn requested_audience(
+    value: buffa::EnumValue<Visibility>,
+    circle_id: &str,
+    direct_user_ids: &[String],
+) -> AppResult<Option<Audience>> {
+    let invalid = |message: &'static str| AppError::invalid("INVALID_VISIBILITY", message);
+    let visibility = match value.as_known() {
+        Some(Visibility::VISIBILITY_UNSPECIFIED) if circle_id.is_empty() && direct_user_ids.is_empty() => {
+            return Ok(None);
+        }
+        Some(Visibility::VISIBILITY_PUBLIC) => visibility::PUBLIC,
+        Some(Visibility::VISIBILITY_FOLLOWERS) => visibility::FOLLOWERS,
+        Some(Visibility::VISIBILITY_FRIENDS) => visibility::FRIENDS,
+        Some(Visibility::VISIBILITY_CLOSE_FRIENDS) => visibility::CLOSE_FRIENDS,
+        Some(Visibility::VISIBILITY_CIRCLE) => visibility::CIRCLE,
+        Some(Visibility::VISIBILITY_PRIVATE) => visibility::PRIVATE,
+        Some(Visibility::VISIBILITY_UNSPECIFIED) => return Err(invalid("say who may see the note")),
+        _ => {
+            return Err(invalid(
+                "a note is public, for followers, friends, close friends, a circle, named people or private",
+            ));
+        }
     };
-    if rank(a) >= rank(b) { a } else { b }
+    let circle_id = match (visibility == visibility::CIRCLE, circle_id.is_empty()) {
+        (true, false) => {
+            Some(Uuid::parse_str(circle_id).map_err(|_| AppError::not_found("CIRCLE_NOT_FOUND", "circle not found"))?)
+        }
+        (true, true) => return Err(invalid("a circle note names its circle")),
+        (false, false) => return Err(invalid("only a circle note names a circle")),
+        (false, true) => None,
+    };
+    if visibility != visibility::PRIVATE && !direct_user_ids.is_empty() {
+        return Err(invalid("only a private note is addressed to people"));
+    }
+    let mut direct = Vec::with_capacity(direct_user_ids.len());
+    for id in direct_user_ids {
+        let id = Uuid::parse_str(id).map_err(|_| AppError::not_found("RECIPIENT_NOT_FOUND", "user not found"))?;
+        if !direct.contains(&id) {
+            direct.push(id);
+        }
+    }
+    ensure!(
+        direct.len() <= MAX_DIRECT_RECIPIENTS,
+        invalid,
+        "TOO_MANY_RECIPIENTS",
+        "a direct note names at most {MAX_DIRECT_RECIPIENTS} people"
+    );
+    Ok(Some(Audience { visibility, circle_id, direct }))
+}
+
+/// The author's default audience (privacy setting `default_note_visibility`):
+/// one that names no circle and nobody; anything else reads as public, the
+/// default of defaults.
+fn default_audience(setting: buffa::EnumValue<Visibility>) -> Audience {
+    match requested_audience(setting, "", &[]) {
+        Ok(Some(audience)) if audience.visibility != visibility::CIRCLE => audience,
+        _ => Audience::of(visibility::PUBLIC),
+    }
+}
+
+/// The audience of a reply: never wider than the note it answers.
+///
+/// - an answer to a PUBLIC, FOLLOWERS or FRIENDS note takes the narrower of
+///   the two (a close-friends, circle or direct reply stays as it is);
+/// - an answer to a circle note is limited like one to a FOLLOWERS note
+///   (that is what it looks like to the replier);
+/// - an answer to a close-friends or direct note becomes a direct note to
+///   that note's author and the people it named (plus whoever the replier
+///   named), unless the replier made it private;
+/// - the author answering their own close-friends or circle note keeps it
+///   in the same group;
+/// - an answer to a private note is private.
+pub(crate) fn narrow_reply(wanted: Audience, parent: &NoteRow, replier: Uuid) -> Audience {
+    if replier == parent.author_id
+        && matches!(parent.visibility, visibility::CLOSE_FRIENDS | visibility::CIRCLE)
+        && !(wanted.visibility == visibility::PRIVATE)
+    {
+        // The author answering their own note keeps it in the same group.
+        return Audience::of_note(parent);
+    }
+    // To everyone but its author a circle note is a followers note (they
+    // are never told about the circle), so it limits a reply like one:
+    // narrowing it to the author directly would show it was something else.
+    let limit = if parent.visibility == visibility::CIRCLE {
+        Audience::of(visibility::FOLLOWERS)
+    } else {
+        Audience::of_note(parent)
+    };
+    match limit.rank() {
+        0..=2 if wanted.rank() >= limit.rank() => wanted,
+        0..=2 => Audience::of(limit.visibility),
+        3 if wanted.visibility == visibility::PRIVATE && wanted.direct.is_empty() => wanted,
+        3 => {
+            let mut direct = if wanted.visibility == visibility::PRIVATE { wanted.direct } else { Vec::new() };
+            for person in std::iter::once(parent.author_id).chain(parent.direct_user_ids.iter().copied()) {
+                if person != replier && !direct.contains(&person) {
+                    direct.push(person);
+                }
+            }
+            direct.truncate(MAX_DIRECT_RECIPIENTS);
+            Audience { visibility: visibility::PRIVATE, circle_id: None, direct }
+        }
+        _ => Audience::of(visibility::PRIVATE),
+    }
 }
 
 fn validate_place(place: &PlaceTag) -> AppResult<Place> {
@@ -167,7 +317,7 @@ pub(crate) fn search_doc(note: &NoteRow, author: &UserSummary) -> SearchDoc {
         text: note.text.clone(),
         tags: note.hashtags.clone(),
         owner_id: Some(note.author_id),
-        public: note.is_public(),
+        public: note.is_listed(),
         image_url: note.image_url().filter(|_| !note.content_warning),
         path: note_path(note.id),
         created_at: note.created_at.timestamp(),
@@ -222,7 +372,7 @@ impl Notes {
     /// The users behind the `@handles` of a note, in order of appearance.
     /// Handles that name nobody, a suspended account, or someone in a block
     /// with the author stay plain text.
-    async fn resolve_mentions(&self, viewer: &Viewer, handles: &[String]) -> AppResult<Vec<(Uuid, String)>> {
+    pub(crate) async fn resolve_mentions(&self, viewer: &Viewer, handles: &[String]) -> AppResult<Vec<(Uuid, String)>> {
         if handles.is_empty() {
             return Ok(Vec::new());
         }
@@ -238,6 +388,80 @@ impl Notes {
             .filter_map(|handle| by_handle.get(handle).map(|id| (*id, handle.clone())))
             .filter(|(id, _)| !viewer.hides(*id))
             .collect())
+    }
+
+    /// Checks the people a direct note is addressed to: `named` must be
+    /// active accounts no block hides from the author (all of them, or
+    /// `RECIPIENT_NOT_FOUND`); `inherited` (from the note answered) are kept
+    /// when they are. The author is never a recipient of their own note.
+    async fn resolve_recipients(&self, viewer: &Viewer, named: &[Uuid], inherited: &[Uuid]) -> AppResult<Vec<Uuid>> {
+        let wanted: Vec<Uuid> = named.iter().chain(inherited).copied().filter(|id| !viewer.is(*id)).collect();
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+        let found: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM users WHERE id = ANY($1) AND deleted_at IS NULL AND banned_at IS NULL")
+                .bind(&wanted)
+                .fetch_all(&self.core.db)
+                .await?;
+        let usable = |id: &Uuid| found.contains(id) && !viewer.hides(*id);
+        ensure!(
+            named.iter().filter(|id| !viewer.is(**id)).all(usable),
+            not_found,
+            "RECIPIENT_NOT_FOUND",
+            "user not found"
+        );
+        // A direct note reaches people like a message does: the people the
+        // author names must accept messages from them (privacy setting
+        // `direct_messages_from`). Those a reply inherits are answering
+        // the author's own conversation and stay.
+        if let Some(author) = viewer.id {
+            for person in named.iter().filter(|id| !viewer.is(**id)) {
+                let privacy = settings::privacy_of(&self.core, *person).await?;
+                let audience = privacy.direct_messages_from.as_known().unwrap_or(PrivacyAudience::AUDIENCE_UNSPECIFIED);
+                ensure!(
+                    graph::allows(&self.core, *person, Some(author), audience).await?,
+                    denied,
+                    "DIRECT_NOT_ALLOWED",
+                    "someone you named does not accept messages from you"
+                );
+            }
+        }
+        let mut people = Vec::with_capacity(wanted.len());
+        for id in wanted.into_iter().filter(usable) {
+            if !people.contains(&id) {
+                people.push(id);
+            }
+        }
+        Ok(people)
+    }
+
+    /// The audience a note gets: what was asked (or the author's default),
+    /// narrowed for a reply, with its circle and people checked.
+    async fn settle_audience(
+        &self,
+        viewer: &Viewer,
+        author: Uuid,
+        wanted: Option<Audience>,
+        parent: Option<&NoteRow>,
+    ) -> AppResult<Audience> {
+        let named = wanted.as_ref().map(|wanted| wanted.direct.clone()).unwrap_or_default();
+        let wanted = match wanted {
+            Some(audience) => audience,
+            None => default_audience(settings::privacy_of(&self.core, author).await?.default_note_visibility),
+        };
+        if let Some(circle_id) = wanted.circle_id {
+            graph::ensure_circle_of(&self.core, author, circle_id).await?;
+        }
+        let mut applied = match parent {
+            Some(parent) => narrow_reply(wanted, parent, author),
+            None => wanted,
+        };
+        if applied.visibility == visibility::PRIVATE {
+            let inherited: Vec<Uuid> = applied.direct.iter().copied().filter(|id| !named.contains(id)).collect();
+            applied.direct = self.resolve_recipients(viewer, &named, &inherited).await?;
+        }
+        Ok(applied)
     }
 
     /// What stands between a user and the post button: the rules must be
@@ -256,8 +480,13 @@ impl Notes {
 
     /// Posts a note for `author` as asked through the API.
     pub(crate) async fn create_note(&self, author: Uuid, input: NewNote) -> AppResult<NoteRow> {
+        self.create_note_with_id(author, new_id(), input).await
+    }
+
+    /// [`Self::create_note`] with the note's ID chosen by the caller.
+    pub(crate) async fn create_note_with_id(&self, author: Uuid, note_id: Uuid, input: NewNote) -> AppResult<NoteRow> {
         self.admit_post(author).await?;
-        self.store_note(author, new_id(), input).await
+        self.store_note(author, note_id, input).await
     }
 
     /// [`Self::create_note`] made safe to retry: a request repeating
@@ -310,13 +539,8 @@ impl Notes {
     /// Validates and stores a note with everything that follows from it.
     pub(crate) async fn store_note(&self, author: Uuid, note_id: Uuid, input: NewNote) -> AppResult<NoteRow> {
         let core = &self.core;
-        let body = text::clean(&input.text);
-        ensure!(
-            text::fits(&body, MAX_NOTE_CHARS),
-            invalid,
-            "NOTE_TOO_LONG",
-            "a note has at most {MAX_NOTE_CHARS} characters"
-        );
+        let said = content::prepare(&input.text, input.content_warning, &input.content_warning_text)?;
+        let poll = content::poll(input.poll.as_ref())?;
         let viewer = Viewer::load(core, Some(author)).await?;
 
         // What the note answers and what it quotes must be notes the author can see.
@@ -327,7 +551,12 @@ impl Notes {
         let quoted = match input.quote_of_id {
             Some(id) => {
                 let quoted = self.require_note(&viewer, id).await?;
-                ensure!(quoted.is_public(), precondition, "NOTE_NOT_PUBLIC", "only public notes can be quoted");
+                ensure!(
+                    quoted.is_listed(),
+                    precondition,
+                    "NOTE_NOT_PUBLIC",
+                    "only notes everyone may see can be quoted"
+                );
                 Some(quoted)
             }
             None => None,
@@ -336,29 +565,39 @@ impl Notes {
         let attachments = self.resolve_attachments(author, &input.asset_ids).await?;
         let asset_ids: Vec<Uuid> =
             attachments.iter().filter_map(|attachment| Uuid::parse_str(&attachment.asset_id).ok()).collect();
+        let details = content::attachment_details(&attachments, &input.attachment_details)?;
         if let Some(stamp_id) = input.stamp_id {
             tokuly_stamp::ensure_usable(core, author, stamp_id).await?;
         }
         ensure!(
-            !body.is_empty() || !attachments.is_empty() || input.stamp_id.is_some(),
+            !said.text.is_empty() || !attachments.is_empty() || input.stamp_id.is_some() || poll.is_some(),
             invalid,
             "NOTE_EMPTY",
-            "a note needs text, media or a stamp"
+            "a note needs text, media, a stamp or a poll"
         );
         let place = input.place.as_ref().map(validate_place).transpose()?;
 
-        let wanted = match input.visibility {
-            Some(visibility) => visibility,
-            // The author's default; a setting this build does not know reads as public, the default of defaults.
-            None => requested_visibility(settings::privacy_of(core, author).await?.default_note_visibility)
-                .ok()
-                .flatten()
-                .unwrap_or(visibility::PUBLIC),
+        // A reply stays in the channel of the note it answers; channel notes are public.
+        let channel_id = match parent.as_ref() {
+            Some(parent) => parent.shown_channel(),
+            None => input.channel_id,
         };
+        if let Some(channel_id) = channel_id {
+            channels::require_open(core, channel_id, author).await?;
+            ensure!(
+                input.audience.as_ref().is_none_or(|audience| audience.visibility == visibility::PUBLIC),
+                invalid,
+                "INVALID_VISIBILITY",
+                "notes in a channel are public"
+            );
+        }
+        let wanted = if channel_id.is_some() { Some(Audience::of(visibility::PUBLIC)) } else { input.audience };
         // A reply is never shown more widely than the note it answers.
-        let applied = parent.as_ref().map_or(wanted, |parent| narrower(wanted, parent.visibility));
+        let shared = self.settle_audience(&viewer, author, wanted, parent.as_ref()).await?;
+        // Whether the author's account is locked, as the social domain says now.
+        let locked_now = self.is_locked_now(author).await?;
 
-        let parsed = text::parse(&body);
+        let parsed = &said.facts;
         let mentioned = self.resolve_mentions(&viewer, &parsed.handles).await?;
         let mentions: Vec<Mention> = mentioned
             .iter()
@@ -382,24 +621,42 @@ impl Notes {
             .iter()
             .chain(&quoted)
             .map(|note| note.author_id)
-            .chain(mentioned.iter().map(|(user_id, _)| *user_id));
+            .chain(mentioned.iter().map(|(user_id, _)| *user_id))
+            .chain(shared.direct.iter().copied());
         for user_id in candidates.filter(|user_id| *user_id != author) {
             if let Entry::Vacant(slot) = audience.entry(user_id) {
                 slot.insert(Viewer::load(core, Some(user_id)).await?);
             }
         }
+        // Whoever muted the conversation a reply joins hears nothing of it.
+        if let Some(parent) = parent.as_ref() {
+            let people: Vec<Uuid> = audience.keys().copied().collect();
+            for muted in self.thread_muters(parent, &people).await? {
+                audience.remove(&muted);
+            }
+        }
 
         let mut tx = core.db.begin().await?;
+        // Listed or not is decided under the author's lock, from the copy no
+        // re-listing pass is halfway through — and from the social domain's
+        // answer above, for a lock this domain has not heard of yet.
+        authors::lock_author(&mut tx, author, false).await?;
+        authors::record_first(&mut tx, author, locked_now).await?;
+        let copy_locked = authors::copy_says_locked(&mut tx, author).await?.unwrap_or(locked_now);
+        let listed = shared.visibility == visibility::PUBLIC && !(locked_now || copy_locked);
         let sql = format!(
             "INSERT INTO notes AS n (id, author_id, text, attachments, asset_ids, stamp_id, place_name, place_lat, place_lng, place_id,
-                                     visibility, content_warning, reply_to_id, reply_to_author_id, quote_of_id, hashtags, mentions, link_url)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                                     visibility, content_warning, reply_to_id, reply_to_author_id, quote_of_id, hashtags, mentions, link_url,
+                                     circle_id, direct_user_ids, listed, channel_id, thread_root_id,
+                                     content_warning_text, attachment_details, body, language, draft_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                     $24, $25, $26, $27, $28)
              RETURNING {NOTE_COLUMNS}"
         );
         let note: NoteRow = sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(note_id)
             .bind(author)
-            .bind(&body)
+            .bind(&said.text)
             .bind(to_json(&attachments)?)
             .bind(&asset_ids)
             .bind(input.stamp_id)
@@ -407,16 +664,38 @@ impl Notes {
             .bind(place.as_ref().map(|place| place.lat))
             .bind(place.as_ref().map(|place| place.lng))
             .bind(place.as_ref().and_then(|place| place.place_id))
-            .bind(applied)
-            .bind(input.content_warning)
+            .bind(shared.visibility)
+            .bind(said.content_warning)
             .bind(parent.as_ref().map(|parent| parent.id))
             .bind(parent.as_ref().map(|parent| parent.author_id))
             .bind(quoted.as_ref().map(|quoted| quoted.id))
             .bind(&parsed.hashtags)
             .bind(to_json(&mentions)?)
             .bind(&link_url)
+            .bind(shared.circle_id)
+            .bind(&shared.direct)
+            .bind(listed)
+            .bind(channel_id)
+            .bind(parent.as_ref().map(NoteRow::thread_root))
+            .bind(&said.content_warning_text)
+            .bind(to_json(&details)?)
+            .bind(to_json(&said.body)?)
+            .bind(said.language)
+            .bind(input.draft_id)
             .fetch_one(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| match &e {
+                sqlx::Error::Database(db) if db.constraint() == Some("notes_draft_id_key") => {
+                    AppError::already_exists("DRAFT_ALREADY_POSTED", "this draft was posted already")
+                }
+                _ => AppError::from(e),
+            })?;
+        if let Some(poll) = &poll {
+            polls::insert(&mut tx, note.id, poll).await?;
+        }
+        if let Some(channel_id) = channel_id {
+            channels::count_new_note(&mut tx, channel_id).await?;
+        }
         for asset_id in &asset_ids {
             assets::attach(&mut *tx, *asset_id, &note_holder(note.id)).await?;
         }
@@ -435,7 +714,7 @@ impl Notes {
         let touched =
             bump_counters(&mut tx, parent.as_ref().map(|parent| parent.id), quoted.as_ref().map(|quoted| quoted.id))
                 .await?;
-        hashtags::link(&mut tx, note.id, &note.hashtags, note.is_public()).await?;
+        hashtags::link(&mut tx, note.id, &note.hashtags, note.is_listed()).await?;
 
         events::emit(
             &mut *tx,
@@ -450,14 +729,15 @@ impl Notes {
             },
         )
         .await?;
-        if note.is_public() {
+        if note.is_listed() {
             outbound::index(&mut *tx, search_doc(&note, &actor)).await?;
         }
         outbound::activity(&mut *tx, &copy::note_activity(&note)).await?;
 
         // Notifications: the author of the note answered, then of the note
-        // quoted, then everyone mentioned — each person once, and only
-        // people who may see the new note.
+        // quoted, then everyone mentioned, then the people a direct note is
+        // addressed to — each person once, and only people who may see the
+        // new note.
         // (A private reply, say, is a note to oneself: the person answered
         // is not told about something they cannot open.)
         let mut readers: Vec<Uuid> = Vec::new();
@@ -492,10 +772,27 @@ impl Notes {
                 outbound::notify(&mut *tx, &copy::mention(&actor, recipient, &note)).await?;
             }
         }
+        for user_id in &note.direct_user_ids {
+            if let Some(recipient) = tell(*user_id) {
+                outbound::notify(&mut *tx, &copy::direct(&actor, recipient, &note)).await?;
+            }
+        }
         tx.commit().await?;
+        if locked_now != copy_locked {
+            // This domain's copy is behind (an event still on its way, or
+            // missed): bring the author's notes in line now.
+            if let Err(e) = self.sync_author(author).await {
+                tracing::warn!(error = %e, %author, "re-listing an author's notes failed");
+            }
+        }
 
         // From here on nothing can fail the post.
         self.push_counters(touched).await;
+        if !said.facts.emoji.is_empty()
+            && let Err(e) = tokuly_emoji::catalog::record_use(core, author, &said.facts.emoji).await
+        {
+            tracing::warn!(error = %e, "recording custom emoji used in a note failed");
+        }
         if let Some(stamp_id) = note.stamp_id
             && let Err(e) = tokuly_stamp::record_send(core, author, stamp_id, SendContext::Note).await
         {
@@ -511,6 +808,24 @@ impl Notes {
                 .await
         {
             tracing::warn!(error = %e, note_id = %note.id, "queueing the link preview failed");
+        }
+        // Followers who asked to hear of every post are told in the background.
+        if note.reply_to_id.is_none()
+            && note.visibility != visibility::PRIVATE
+            && let Err(e) = core
+                .jobs
+                .enqueue_unique(JOB_POST_NOTIFY, &note.id.to_string(), &PostNotifyJob { note_id: note.id })
+                .await
+        {
+            tracing::warn!(error = %e, note_id = %note.id, "queueing post notifications failed");
+        }
+        // Antennas are matched in the background: a post never waits for them.
+        if let Err(e) = core
+            .jobs
+            .enqueue_unique(JOB_ANTENNA_MATCH, &note.id.to_string(), &AntennaMatchJob { note_id: note.id })
+            .await
+        {
+            tracing::warn!(error = %e, note_id = %note.id, "queueing the antenna match failed");
         }
         core.analytics
             .track(AnalyticsEvent::new("note.post").user(Some(author)).subject("note", note.id).props(
@@ -567,7 +882,8 @@ impl Notes {
         struct Gone {
             id: Uuid,
             author_id: Uuid,
-            visibility: i32,
+            listed: bool,
+            channel_id: Option<Uuid>,
             reply_to_id: Option<Uuid>,
             quote_of_id: Option<Uuid>,
             hashtags: Vec<String>,
@@ -582,7 +898,8 @@ impl Notes {
                  SELECT id FROM notes WHERE id = ANY($1) ORDER BY id FOR UPDATE
              )
              DELETE FROM notes WHERE id IN (SELECT id FROM doomed)
-             RETURNING id, author_id, visibility, reply_to_id, quote_of_id, hashtags, (asset_ids <> '{}') AS has_assets",
+             RETURNING id, author_id, listed, CASE WHEN channel_removed_at IS NULL THEN channel_id END AS channel_id,
+                       reply_to_id, quote_of_id, hashtags, (asset_ids <> '{}') AS has_assets",
         )
         .bind(note_ids)
         .fetch_all(&mut **tx)
@@ -590,14 +907,18 @@ impl Notes {
 
         let mut deltas: HashMap<Uuid, (i32, i32)> = HashMap::new();
         let mut public_tags = Vec::new();
+        let mut channel_counts: HashMap<Uuid, i64> = HashMap::new();
         for note in &gone {
+            if let Some(channel_id) = note.channel_id {
+                *channel_counts.entry(channel_id).or_default() += 1;
+            }
             if let Some(parent) = note.reply_to_id {
                 deltas.entry(parent).or_default().0 -= 1;
             }
             if let Some(quoted) = note.quote_of_id {
                 deltas.entry(quoted).or_default().1 -= 1;
             }
-            if note.visibility == visibility::PUBLIC {
+            if note.listed {
                 public_tags.extend(note.hashtags.iter().cloned());
                 outbound::unindex(&mut **tx, "note", note.id).await?;
             }
@@ -614,6 +935,7 @@ impl Notes {
         }
         hashtags::adjust(tx, &public_tags, -1).await?;
         let touched = apply_counter_deltas(tx, &deltas).await?;
+        channels::uncount_notes(tx, &channel_counts).await?;
         Ok(Removed { note_ids: gone.into_iter().map(|note| note.id).collect(), touched })
     }
 
@@ -640,7 +962,7 @@ impl Notes {
 
     /// Changes who may see one of `user_id`'s notes and returns the note as
     /// it is now. A reply stays within the audience of the note it answers.
-    pub(crate) async fn set_visibility(&self, user_id: Uuid, note_id: Uuid, wanted: i32) -> AppResult<NoteRow> {
+    pub(crate) async fn set_visibility(&self, user_id: Uuid, note_id: Uuid, wanted: Audience) -> AppResult<NoteRow> {
         // Every change rewrites counts, the search index and other domains'
         // copies (feed entries, inboxes): not something to repeat in a loop.
         self.core
@@ -649,9 +971,18 @@ impl Notes {
             .await?;
         let note = self.own_note(user_id, note_id).await?;
         let actor = tokuly_identity::summary(&self.core, user_id).await?;
-        // The author's friends and blocks, for who may still see the note.
+        // The author's ties and blocks, for who may still see the note.
         let author = Viewer::load(&self.core, Some(user_id)).await?;
+        // The note it answers limits a reply (as the author can see it now;
+        // gone or hidden, it limits nothing).
+        let parent = match note.reply_to_id {
+            Some(parent) => self.find_note(&author, parent).await?,
+            None => None,
+        };
+        let applied = self.settle_audience(&author, user_id, Some(wanted), parent.as_ref()).await?;
+        let members = self.audience_members(&author, &note, &applied).await?;
         let mut tx = self.core.db.begin().await?;
+        authors::lock_author(&mut tx, user_id, false).await?;
         // Changes of one note apply one after the other, each starting from
         // what the previous one left: two narrowings at once must not both
         // take the note's hashtags out of the public counts.
@@ -661,30 +992,31 @@ impl Notes {
             .fetch_optional(&mut *tx)
             .await?
             .or_not_found("NOTE_NOT_FOUND", "note not found")?;
+        if Audience::of_note(&note) == applied {
+            return Ok(note);
+        }
         // Taken with the lock held, so consumers can order racing changes
         // (the event's own time is when the transaction began).
         let changed_at: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()").fetch_one(&mut *tx).await?;
-        let limit: Option<i32> = match note.reply_to_id {
-            Some(parent) => {
-                sqlx::query_scalar("SELECT visibility FROM notes WHERE id = $1")
-                    .bind(parent)
-                    .fetch_optional(&mut *tx)
-                    .await?
-            }
-            None => None,
-        };
-        let applied = limit.map_or(wanted, |limit| narrower(wanted, limit));
-        if applied == note.visibility {
-            return Ok(note);
-        }
-        let sql = format!("UPDATE notes AS n SET visibility = $2 WHERE n.id = $1 RETURNING {NOTE_COLUMNS}");
-        let updated: NoteRow =
-            sqlx::query_as(sqlx::AssertSqlSafe(sql)).bind(note.id).bind(applied).fetch_one(&mut *tx).await?;
-        // Hashtag counts and the search index only know public notes.
-        if note.is_public() != updated.is_public() {
-            hashtags::adjust(&mut tx, &updated.hashtags, if updated.is_public() { 1 } else { -1 }).await?;
-            outbound::index(&mut *tx, search_doc(&updated, &actor)).await?;
-        }
+        let locked = authors::copy_says_locked(&mut tx, user_id).await?.unwrap_or(false);
+        let sql = format!(
+            "UPDATE notes AS n SET visibility = $2, circle_id = $3, direct_user_ids = $4, listed = n.listed AND $2 = {public}
+             WHERE n.id = $1 RETURNING {NOTE_COLUMNS}",
+            public = visibility::PUBLIC,
+        );
+        let updated: NoteRow = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(note.id)
+            .bind(applied.visibility)
+            .bind(applied.circle_id)
+            .bind(&applied.direct)
+            .fetch_one(&mut *tx)
+            .await?;
+        // Hashtag counts and the search index only know listed notes. (Only
+        // a public note may carry the mark, so the update dropped it from a
+        // note that left PUBLIC; `relist` puts what followed from it right.)
+        let updated = NoteRow { listed: note.listed, ..updated };
+        let listed = updated.is_public() && !locked;
+        let updated = authors::relist(&mut tx, updated, listed, &actor).await?;
         events::emit(
             &mut *tx,
             NOTE_VISIBILITY_CHANGED,
@@ -692,48 +1024,87 @@ impl Notes {
             &NoteVisibilityChanged {
                 note_id: updated.id,
                 author_id: user_id,
-                visibility: updated.visibility,
-                visible_to: still_visible_to(&updated, &author),
+                // The audience in effect: a locked author's public note is for followers.
+                visibility: if updated.is_public() && !updated.is_listed() {
+                    visibility::FOLLOWERS
+                } else {
+                    updated.visibility
+                },
+                visible_to: (!updated.is_listed()).then_some(members),
                 changed_at,
             },
         )
         .await?;
         tx.commit().await?;
-        if narrower(updated.visibility, note.visibility) == updated.visibility {
-            // A smaller audience: whoever follows the note's counters and
-            // comments without being in it stops.
-            self.core.rt.recheck_topic(&note_topic(updated.id)).await;
-        }
+        // Whoever follows the note's counters and comments without being in
+        // its audience any more stops (the gateways ask every follower again).
+        self.core.rt.recheck_topic(&note_topic(updated.id)).await;
         Ok(updated)
     }
 
-    /// Pins one of `user_id`'s notes to their profile, replacing the note
-    /// pinned before.
+    /// Who besides its author may see `note` once it is shared with
+    /// `audience` (see [`NoteVisibilityChanged::visible_to`]), as
+    /// `sees_note` decides it: `author` is the note's author as a viewer
+    /// (their ties and blocks). Unused for a note everyone may see.
+    async fn audience_members(&self, author: &Viewer, note: &NoteRow, audience: &Audience) -> AppResult<Vec<Uuid>> {
+        let mut people: Vec<Uuid> = if audience.visibility == visibility::PRIVATE {
+            // Already checked (active, no block) when the audience was settled.
+            audience.direct.clone()
+        } else {
+            let shared = visibility::audience_of(audience.visibility, audience.circle_id);
+            let mut people = graph::audience_member_ids(&self.core, note.author_id, shared).await?;
+            // A narrower reply also reaches the author of the note it answers.
+            if audience.visibility != visibility::PUBLIC
+                && let Some(answered) = note.reply_to_author_id
+                && answered != note.author_id
+                && !author.hides(answered)
+                && !people.contains(&answered)
+            {
+                people.push(answered);
+            }
+            people
+        };
+        people.sort_unstable();
+        people.dedup();
+        Ok(people)
+    }
+
+    /// Pins one of `user_id`'s notes to their profile (up to
+    /// [`MAX_PINNED`], the latest first). Pinning a pinned note changes nothing.
     pub(crate) async fn pin_note(&self, user_id: Uuid, note_id: Uuid) -> AppResult<()> {
         let note = self.own_note(user_id, note_id).await?;
         let mut tx = self.core.db.begin().await?;
-        // One pin per profile: concurrent pins of the same user take turns.
+        // Concurrent pins of the same user take turns, so the limit holds.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
             .bind(format!("notes:pin:{user_id}"))
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE notes SET pinned_at = NULL WHERE author_id = $1 AND pinned_at IS NOT NULL AND id <> $2")
-            .bind(user_id)
-            .bind(note.id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("UPDATE notes SET pinned_at = now() WHERE id = $1 AND author_id = $2 AND pinned_at IS NULL")
-            .bind(note.id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        let (pinned, this_one): (i64, bool) = sqlx::query_as(
+            "SELECT count(*), coalesce(bool_or(id = $2), false) FROM notes WHERE author_id = $1 AND pinned_at IS NOT NULL",
+        )
+        .bind(user_id)
+        .bind(note.id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if this_one {
+            return Ok(());
+        }
+        ensure!(pinned < MAX_PINNED, precondition, "TOO_MANY_PINNED", "at most {MAX_PINNED} notes can be pinned");
+        sqlx::query(
+            "UPDATE notes SET pinned_at = clock_timestamp() WHERE id = $1 AND author_id = $2 AND pinned_at IS NULL",
+        )
+        .bind(note.id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(())
     }
 
-    /// Removes `user_id`'s pinned note from their profile, if there is one.
-    pub(crate) async fn unpin_note(&self, user_id: Uuid) -> AppResult<()> {
-        sqlx::query("UPDATE notes SET pinned_at = NULL WHERE author_id = $1 AND pinned_at IS NOT NULL")
+    /// Takes one of `user_id`'s notes off their profile, if it was pinned.
+    pub(crate) async fn unpin_note(&self, user_id: Uuid, note_id: Uuid) -> AppResult<()> {
+        sqlx::query("UPDATE notes SET pinned_at = NULL WHERE id = $1 AND author_id = $2 AND pinned_at IS NOT NULL")
+            .bind(note_id)
             .bind(user_id)
             .execute(&self.core.db)
             .await?;
@@ -743,12 +1114,12 @@ impl Notes {
     /// Fetches the preview of a note's first link, stores it and tells the
     /// clients showing the note (the `notes.link_preview` job).
     pub async fn resolve_link_preview(&self, note_id: Uuid) -> AppResult<()> {
-        let pending: Option<(Uuid, String, i32)> =
-            sqlx::query_as("SELECT author_id, link_url, visibility FROM notes WHERE id = $1 AND link_url IS NOT NULL AND link_preview IS NULL")
+        let pending: Option<(Uuid, String, bool)> =
+            sqlx::query_as("SELECT author_id, link_url, listed FROM notes WHERE id = $1 AND link_url IS NOT NULL AND link_preview IS NULL")
                 .bind(note_id)
                 .fetch_optional(&self.core.db)
                 .await?;
-        let Some((author_id, url, note_visibility)) = pending else { return Ok(()) };
+        let Some((author_id, url, listed)) = pending else { return Ok(()) };
         let Some(preview) = tokuly_media::link_preview(&self.core, &url).await? else { return Ok(()) };
         let stored = sqlx::query("UPDATE notes SET link_preview = $2 WHERE id = $1 AND link_preview IS NULL")
             .bind(note_id)
@@ -765,37 +1136,16 @@ impl Notes {
                 ..Default::default()
             }))
         };
-        // Only a public note's preview goes to the topic: the guard admits
+        // Only the preview of a note everyone may see goes to the topic: the guard admits
         // more than the note's audience for a moment after the audience
         // narrows (the gateways ask every follower again within their
         // re-check budget), and a preview is content. The author gets it
         // either way.
         self.push_user(author_id, event()).await;
-        if note_visibility == visibility::PUBLIC {
+        if listed {
             self.push_topic(&note_topic(note_id), event()).await;
         }
         Ok(())
-    }
-}
-
-/// Who besides its author may see `note` (see
-/// [`NoteVisibilityChanged::visible_to`]), as `sees_note` decides it:
-/// `author` is the note's author as a viewer (their friends and blocks).
-fn still_visible_to(note: &NoteRow, author: &Viewer) -> Option<Vec<Uuid>> {
-    match note.visibility {
-        visibility::PUBLIC => None,
-        visibility::FRIENDS => {
-            let mut people: Vec<Uuid> = author.friends().iter().copied().filter(|id| !author.hides(*id)).collect();
-            if let Some(answered) = note.reply_to_author_id
-                && answered != note.author_id
-                && !author.hides(answered)
-                && !people.contains(&answered)
-            {
-                people.push(answered);
-            }
-            Some(people)
-        }
-        _ => Some(Vec::new()),
     }
 }
 
@@ -854,26 +1204,113 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn replies_take_the_narrower_visibility() {
-        use visibility::{FRIENDS, PRIVATE, PUBLIC};
-        assert_eq!(narrower(PUBLIC, PUBLIC), PUBLIC);
-        assert_eq!(narrower(PUBLIC, FRIENDS), FRIENDS);
-        assert_eq!(narrower(FRIENDS, PUBLIC), FRIENDS);
-        assert_eq!(narrower(PRIVATE, PUBLIC), PRIVATE);
-        assert_eq!(narrower(FRIENDS, PRIVATE), PRIVATE);
+    fn note(author: Uuid, visibility: i32, direct: Vec<Uuid>) -> NoteRow {
+        NoteRow {
+            id: Uuid::now_v7(),
+            author_id: author,
+            text: String::new(),
+            attachments: serde_json::json!([]),
+            asset_ids: vec![],
+            stamp_id: None,
+            place_name: None,
+            place_lat: None,
+            place_lng: None,
+            place_id: None,
+            visibility,
+            circle_id: (visibility == visibility::CIRCLE).then(Uuid::now_v7),
+            direct_user_ids: direct,
+            listed: visibility == visibility::PUBLIC,
+            content_warning: false,
+            content_warning_text: String::new(),
+            attachment_details: serde_json::json!([]),
+            body: serde_json::json!({}),
+            language: String::new(),
+            channel_id: None,
+            channel_removed_at: None,
+            reply_to_id: None,
+            reply_to_author_id: None,
+            thread_root_id: None,
+            quote_of_id: None,
+            hashtags: vec![],
+            mentions: serde_json::json!([]),
+            link_url: None,
+            link_preview: None,
+            reply_count: 0,
+            renote_count: 0,
+            quote_count: 0,
+            like_count: 0,
+            view_count: 0,
+            clip_count: 0,
+            pinned_at: None,
+            edited_at: None,
+            edit_count: 0,
+            created_at: Utc::now(),
+        }
     }
 
     #[test]
-    fn only_three_visibilities_are_accepted() {
-        assert_eq!(requested_visibility(Visibility::VISIBILITY_UNSPECIFIED.into()).unwrap(), None);
-        assert_eq!(requested_visibility(Visibility::VISIBILITY_PUBLIC.into()).unwrap(), Some(visibility::PUBLIC));
-        assert_eq!(requested_visibility(Visibility::VISIBILITY_FRIENDS.into()).unwrap(), Some(visibility::FRIENDS));
-        assert_eq!(requested_visibility(Visibility::VISIBILITY_PRIVATE.into()).unwrap(), Some(visibility::PRIVATE));
-        for other in [Visibility::VISIBILITY_UNLISTED, Visibility::VISIBILITY_NO_FEED] {
-            assert_eq!(requested_visibility(other.into()).unwrap_err().reason, "INVALID_VISIBILITY");
+    fn replies_take_the_narrower_audience() {
+        use visibility::{CIRCLE, CLOSE_FRIENDS, FOLLOWERS, FRIENDS, PRIVATE, PUBLIC};
+        let (author, replier, other) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let reply = |wanted: Audience, parent: &NoteRow| narrow_reply(wanted, parent, replier);
+        assert_eq!(reply(Audience::of(PUBLIC), &note(author, PUBLIC, vec![])), Audience::of(PUBLIC));
+        assert_eq!(reply(Audience::of(PUBLIC), &note(author, FOLLOWERS, vec![])), Audience::of(FOLLOWERS));
+        assert_eq!(reply(Audience::of(FOLLOWERS), &note(author, FRIENDS, vec![])), Audience::of(FRIENDS));
+        assert_eq!(reply(Audience::of(FRIENDS), &note(author, PUBLIC, vec![])), Audience::of(FRIENDS));
+        assert_eq!(
+            reply(Audience::of(CLOSE_FRIENDS), &note(author, FOLLOWERS, vec![])),
+            Audience::of(CLOSE_FRIENDS),
+            "a narrower choice stays"
+        );
+        assert_eq!(reply(Audience::of(PRIVATE), &note(author, PUBLIC, vec![])), Audience::of(PRIVATE));
+        // Close friends and direct notes are answered directly.
+        let applied = reply(Audience::of(PUBLIC), &note(author, CLOSE_FRIENDS, vec![]));
+        assert_eq!((applied.visibility, applied.direct), (PRIVATE, vec![author]));
+        // A circle note looks like a followers note to the replier, and limits like one.
+        let circle = note(author, CIRCLE, vec![]);
+        assert_eq!(reply(Audience::of(PUBLIC), &circle), Audience::of(FOLLOWERS));
+        assert_eq!(reply(Audience::of(FRIENDS), &circle), Audience::of(FRIENDS));
+        // Its author answering keeps the circle.
+        assert_eq!(narrow_reply(Audience::of(PUBLIC), &circle, author), Audience::of_note(&circle));
+        let direct = note(author, PRIVATE, vec![replier, other]);
+        let applied = reply(Audience::of(FRIENDS), &direct);
+        assert_eq!(
+            (applied.visibility, applied.direct),
+            (PRIVATE, vec![author, other]),
+            "the replier is not their own recipient"
+        );
+        assert_eq!(reply(Audience::of(PRIVATE), &direct), Audience::of(PRIVATE), "a reply made private stays private");
+        assert_eq!(reply(Audience::of(PUBLIC), &note(author, PRIVATE, vec![])), Audience::of(PRIVATE));
+    }
+
+    #[test]
+    fn requested_audiences_are_checked_for_their_shape() {
+        use Visibility::*;
+        let ask = |visibility: Visibility, circle: &str, direct: &[&str]| {
+            let direct: Vec<String> = direct.iter().map(|id| id.to_string()).collect();
+            requested_audience(visibility.into(), circle, &direct)
+        };
+        let reason = |result: AppResult<Option<Audience>>| result.unwrap_err().reason.into_owned();
+        let (circle, person) = (Uuid::now_v7().to_string(), Uuid::now_v7().to_string());
+        assert_eq!(ask(VISIBILITY_UNSPECIFIED, "", &[]).unwrap(), None);
+        assert_eq!(ask(VISIBILITY_FOLLOWERS, "", &[]).unwrap(), Some(Audience::of(visibility::FOLLOWERS)));
+        assert_eq!(ask(VISIBILITY_CIRCLE, &circle, &[]).unwrap().unwrap().circle_id, Some(circle.parse().unwrap()));
+        assert_eq!(ask(VISIBILITY_PRIVATE, "", &[&person, &person]).unwrap().unwrap().direct.len(), 1);
+        assert_eq!(reason(ask(VISIBILITY_CIRCLE, "", &[])), "INVALID_VISIBILITY");
+        assert_eq!(reason(ask(VISIBILITY_PUBLIC, &circle, &[])), "INVALID_VISIBILITY");
+        assert_eq!(reason(ask(VISIBILITY_FRIENDS, "", &[&person])), "INVALID_VISIBILITY");
+        assert_eq!(reason(ask(VISIBILITY_UNSPECIFIED, &circle, &[])), "INVALID_VISIBILITY");
+        assert_eq!(reason(ask(VISIBILITY_CIRCLE, "nope", &[])), "CIRCLE_NOT_FOUND");
+        assert_eq!(reason(ask(VISIBILITY_PRIVATE, "", &["nope"])), "RECIPIENT_NOT_FOUND");
+        let crowd: Vec<String> = (0..=MAX_DIRECT_RECIPIENTS).map(|_| Uuid::now_v7().to_string()).collect();
+        let crowd: Vec<&str> = crowd.iter().map(String::as_str).collect();
+        assert_eq!(reason(ask(VISIBILITY_PRIVATE, "", &crowd)), "TOO_MANY_RECIPIENTS");
+        for other in [VISIBILITY_UNLISTED, VISIBILITY_NO_FEED] {
+            assert_eq!(reason(ask(other, "", &[])), "INVALID_VISIBILITY");
         }
-        assert_eq!(requested_visibility(buffa::EnumValue::from(99)).unwrap_err().reason, "INVALID_VISIBILITY");
+        assert_eq!(reason(requested_audience(buffa::EnumValue::from(99), "", &[])), "INVALID_VISIBILITY");
+        assert_eq!(default_audience(VISIBILITY_CIRCLE.into()), Audience::of(visibility::PUBLIC));
+        assert_eq!(default_audience(VISIBILITY_CLOSE_FRIENDS.into()), Audience::of(visibility::CLOSE_FRIENDS));
     }
 
     #[test]

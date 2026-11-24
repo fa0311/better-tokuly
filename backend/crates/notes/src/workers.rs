@@ -12,8 +12,11 @@ use tokuly_social::events::BlockChanged;
 
 use crate::{
     Notes,
-    events::{ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, STORY_EXPIRED, StoryExpired, USER_BLOCKED, USER_DELETED},
-    posting::{JOB_LINK_PREVIEW, LinkPreviewJob},
+    events::{
+        ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, FOLLOW_SETTINGS_CHANGED, STORY_EXPIRED, StoryExpired,
+        USER_BLOCKED, USER_DELETED,
+    },
+    posting::{AntennaMatchJob, JOB_ANTENNA_MATCH, JOB_LINK_PREVIEW, JOB_POST_NOTIFY, LinkPreviewJob, PostNotifyJob},
 };
 
 /// Stories archived per pass of the expiry worker.
@@ -23,7 +26,7 @@ impl Notes {
     /// Starts the notes workers (worker processes only):
     /// - the consumer of `identity.user.deleted`, `social.user.blocked`,
     ///   `media.asset.deleted` and `admin.content.removed`;
-    /// - the `notes.link_preview` job;
+    /// - the `notes.link_preview` and `notes.antenna_match` jobs;
     /// - the story expiry pass, every `story_expiry_interval_seconds`;
     /// - the trending hashtags refresh, every `trend_interval_seconds`.
     pub fn spawn_workers(&self) {
@@ -33,7 +36,7 @@ impl Notes {
             events::consume(
                 notes.core.bus.clone(),
                 "notes",
-                &[USER_DELETED, USER_BLOCKED, ASSET_DELETED, CONTENT_REMOVED],
+                &[USER_DELETED, USER_BLOCKED, FOLLOW_SETTINGS_CHANGED, ASSET_DELETED, CONTENT_REMOVED],
                 // Erasing a prolific account takes a while.
                 ConsumeOptions { ack_wait: Duration::from_secs(300), ..Default::default() },
                 notes.core.shutdown.clone(),
@@ -64,6 +67,54 @@ impl Notes {
                 .await;
         });
 
+        let notes = self.clone();
+        tokio::spawn(async move {
+            let handler = notes.clone();
+            notes
+                .core
+                .jobs
+                .run(
+                    JOB_POST_NOTIFY,
+                    JobOptions { concurrency: 4, lease: Duration::from_secs(120), max_deliver: 5 },
+                    notes.core.shutdown.clone(),
+                    move |job: PostNotifyJob| {
+                        let notes = handler.clone();
+                        async move { notes.notify_post(job.note_id).await.map(|_| ()) }
+                    },
+                )
+                .await;
+        });
+
+        let notes = self.clone();
+        tokio::spawn(async move {
+            let handler = notes.clone();
+            notes
+                .core
+                .jobs
+                .run(
+                    JOB_ANTENNA_MATCH,
+                    JobOptions { concurrency: 4, lease: Duration::from_secs(60), max_deliver: 5 },
+                    notes.core.shutdown.clone(),
+                    move |job: AntennaMatchJob| {
+                        let notes = handler.clone();
+                        async move { notes.match_antennas(job.note_id).await.map(|_| ()) }
+                    },
+                )
+                .await;
+        });
+
+        self.spawn_periodic(
+            "polls and scheduled notes",
+            Duration::from_secs(self.cfg.schedule_interval_seconds),
+            |notes| async move {
+                let closed = notes.close_polls().await?;
+                let posted = notes.publish_due_drafts().await?;
+                if closed + posted > 0 {
+                    tracing::info!(closed, posted, "polls closed and scheduled notes posted");
+                }
+                Ok(())
+            },
+        );
         self.spawn_periodic(
             "story expiry",
             Duration::from_secs(self.cfg.story_expiry_interval_seconds),
@@ -114,6 +165,9 @@ impl Notes {
                 let block: BlockChanged = event.data()?;
                 self.on_user_blocked(block.user_id, block.blocked_id).await
             }
+            // Which way the setting went is read again from the social
+            // domain: events may arrive late or twice.
+            FOLLOW_SETTINGS_CHANGED => self.sync_author(event.data::<UserRef>()?.user_id).await.map(|_| ()),
             ASSET_DELETED => self.on_asset_deleted(event.data::<AssetDeleted>()?.asset_id).await,
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
             _ => Ok(()),

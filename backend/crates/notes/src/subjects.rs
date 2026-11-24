@@ -16,7 +16,7 @@ use tokuly_proto::{common::SubjectType, identity::Profile};
 use crate::{
     Notes,
     model::{NOTE_COLUMNS, NoteRow, STORY_COLUMNS, StoryRow, note_path, story_path},
-    visibility::{PUBLIC, Viewer, sees_note},
+    visibility::{Viewer, sees_note},
 };
 
 /// Registers the resolvers, the exporter and the profile extension. Called
@@ -46,8 +46,8 @@ impl SubjectResolver for NoteSubjects {
     /// A note stays reportable by someone it reached after it was hidden
     /// from them — made private, or behind a block — so withdrawing what
     /// was already delivered does not take away the report. It reached
-    /// them when it is public and its author's account is in good standing
-    /// (anyone can read it signed out), when they
+    /// them when everyone may see it and its author's account is in good
+    /// standing (anyone can read it signed out), when they
     /// were told about it (a reply, quote or mention notification), or when
     /// they liked or renoted it.
     async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
@@ -57,7 +57,7 @@ impl SubjectResolver for NoteSubjects {
         let (Ok(note_id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
         let sql = format!(
             "SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id = $1 AND n.author_id <> $2 AND (
-                 (n.visibility = {PUBLIC}
+                 (n.listed
                   AND EXISTS (SELECT 1 FROM users u WHERE u.id = n.author_id AND u.banned_at IS NULL AND u.deleted_at IS NULL))
                  OR EXISTS (SELECT 1 FROM note_recipients r WHERE r.note_id = n.id AND r.user_id = $2)
                  OR EXISTS (SELECT 1 FROM note_likes l WHERE l.note_id = n.id AND l.user_id = $2)
@@ -141,7 +141,7 @@ impl ProfileExtension for NoteCount {
     async fn enrich_profile(&self, viewer: Option<Uuid>, owner: Uuid, profile: &mut Profile) -> AppResult<()> {
         let viewer = Viewer::load(&self.0.core, viewer).await?;
         let sql = format!(
-            "SELECT count(*) FROM notes n WHERE n.author_id = $4 AND n.reply_to_id IS NULL AND {}",
+            "SELECT count(*) FROM notes n WHERE n.author_id = $7 AND n.reply_to_id IS NULL AND {}",
             sees_note("n")
         );
         let count: i64 = viewer.query_scalar(sql).bind(owner).fetch_one(&self.0.core.db).await?;
@@ -151,7 +151,7 @@ impl ProfileExtension for NoteCount {
 }
 
 /// The `notes` section of a personal data export: everything the user
-/// wrote, liked, renoted and posted as stories.
+/// wrote, liked, renoted and posted as stories, and the lists and antennas they made.
 struct NotesExporter {
     core: Core,
 }
@@ -173,17 +173,45 @@ impl DataExporter for NotesExporter {
                 .bind(user_id)
                 .fetch_optional(db)
                 .await?;
+        let (channels, channel_follows) = crate::channels::export(db, user_id).await?;
         Ok(serde_json::json!({
+            "channels": channels,
+            "channel_follows": channel_follows,
+            "clips": crate::clips::export(db, user_id).await?,
             "rules_agreement": rules,
             "notes": section(
                 "SELECT jsonb_build_object('id', id, 'text', text, 'attachments', attachments, 'stamp_id', stamp_id,
                         'place', CASE WHEN place_name IS NULL THEN NULL
                                       ELSE jsonb_build_object('name', place_name, 'lat', place_lat, 'lng', place_lng, 'place_id', place_id) END,
-                        'visibility', visibility, 'content_warning', content_warning, 'reply_to_id', reply_to_id,
+                        'visibility', visibility, 'circle_id', circle_id, 'direct_user_ids', direct_user_ids,
+                        'content_warning_text', content_warning_text, 'attachment_details', attachment_details,
+                        'channel_id', channel_id, 'edited_at', edited_at,
+                        'content_warning', content_warning, 'reply_to_id', reply_to_id,
                         'quote_of_id', quote_of_id, 'hashtags', hashtags, 'mentions', mentions, 'link_url', link_url,
                         'reply_count', reply_count, 'renote_count', renote_count, 'quote_count', quote_count,
                         'like_count', like_count, 'view_count', view_count, 'pinned', pinned_at IS NOT NULL, 'created_at', created_at)
                  FROM notes WHERE author_id = $1 ORDER BY id"
+            ).await?,
+            "drafts": section(
+                "SELECT jsonb_build_object('id', id, 'content', content, 'scheduled_at', scheduled_at,
+                        'failure_reason', failure_reason, 'created_at', created_at, 'updated_at', updated_at)
+                 FROM note_drafts WHERE author_id = $1 ORDER BY id"
+            ).await?,
+            "note_edits": section(
+                "SELECT jsonb_build_object('note_id', e.note_id, 'version', e.version, 'text', e.text,
+                        'content_warning_text', e.content_warning_text, 'replaced_at', e.replaced_at)
+                 FROM note_edits e JOIN notes n ON n.id = e.note_id WHERE n.author_id = $1 ORDER BY e.note_id, e.version"
+            ).await?,
+            "poll_votes": section(
+                "SELECT jsonb_build_object('note_id', note_id, 'choices', choices, 'voted_at', voted_at)
+                 FROM note_poll_votes WHERE user_id = $1 ORDER BY voted_at"
+            ).await?,
+            "muted_words": section("SELECT words FROM note_muted_words WHERE user_id = $1").await?,
+            "muted_threads": section(
+                "SELECT jsonb_build_object('root_note_id', root_note_id, 'muted_at', muted_at) FROM note_thread_mutes WHERE user_id = $1 ORDER BY muted_at"
+            ).await?,
+            "renotes_hidden_from": section(
+                "SELECT jsonb_build_object('user_id', target_id, 'muted_at', muted_at) FROM note_renote_mutes WHERE user_id = $1 ORDER BY muted_at"
             ).await?,
             "likes": section("SELECT jsonb_build_object('note_id', note_id, 'liked_at', created_at) FROM note_likes WHERE user_id = $1 ORDER BY id").await?,
             "renotes": section("SELECT jsonb_build_object('note_id', note_id, 'renoted_at', created_at) FROM note_renotes WHERE user_id = $1 ORDER BY id").await?,
@@ -204,6 +232,22 @@ impl DataExporter for NotesExporter {
                 "SELECT jsonb_build_object('id', h.id, 'title', h.title, 'created_at', h.created_at,
                         'story_ids', (SELECT COALESCE(jsonb_agg(i.story_id ORDER BY i.position), '[]') FROM story_highlight_items i WHERE i.highlight_id = h.id))
                  FROM story_highlights h WHERE h.owner_id = $1 ORDER BY h.position, h.id"
+            ).await?,
+            "lists": section(
+                "SELECT jsonb_build_object('id', l.id, 'name', l.name, 'description', l.description, 'public', l.public,
+                        'created_at', l.created_at,
+                        'members', (SELECT COALESCE(jsonb_agg(jsonb_build_object('user_id', m.user_id, 'added_at', m.added_at) ORDER BY m.id), '[]')
+                                    FROM note_list_members m WHERE m.list_id = l.id))
+                 FROM note_lists l WHERE l.owner_id = $1 ORDER BY l.id"
+            ).await?,
+            "list_follows": section(
+                "SELECT jsonb_build_object('list_id', list_id, 'followed_at', followed_at) FROM note_list_follows WHERE user_id = $1 ORDER BY id"
+            ).await?,
+            "antennas": section(
+                "SELECT jsonb_build_object('id', id, 'name', name, 'keywords', keywords, 'exclude_words', exclude_words,
+                        'source', source, 'list_id', list_id, 'user_ids', user_ids, 'with_replies', with_replies,
+                        'media_only', media_only, 'notify', notify, 'created_at', created_at)
+                 FROM antennas WHERE owner_id = $1 ORDER BY id"
             ).await?,
         }))
     }

@@ -17,6 +17,9 @@ tokuly-identity.workspace = true
 tokuly-social.workspace = true
 tokuly-stamp.workspace = true
 tokuly-media.workspace = true
+tokuly-emoji.workspace = true
+clickhouse.workspace = true
+regex.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
 connectrpc.workspace = true
@@ -34,6 +37,7 @@ anyhow.workspace = true
 url.workspace = true
 unicode-segmentation.workspace = true
 unicode-normalization.workspace = true
+aho-corasick = "1.1.5"
 
 [dev-dependencies]
 # API packages only the tests name.

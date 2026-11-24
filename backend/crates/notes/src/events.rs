@@ -12,6 +12,7 @@ use uuid::Uuid;
 pub const NOTE_CREATED: &str = "notes.note.created";
 pub const NOTE_DELETED: &str = "notes.note.deleted";
 pub const NOTE_VISIBILITY_CHANGED: &str = "notes.note.visibility_changed";
+pub const NOTE_EDITED: &str = "notes.note.edited";
 pub const STORY_CREATED: &str = "notes.story.created";
 pub const STORY_DELETED: &str = "notes.story.deleted";
 pub const STORY_EXPIRED: &str = "notes.story.expired";
@@ -21,7 +22,8 @@ pub const STORY_EXPIRED: &str = "notes.story.expired";
 pub struct NoteCreated {
     pub note_id: Uuid,
     pub author_id: Uuid,
-    /// `tokuly.common.v1.Visibility` as its number (1 public, 4 friends, 5 private).
+    /// `tokuly.common.v1.Visibility` as its number (1 public, 4 friends, 5
+    /// private or direct, 6 followers, 7 close friends, 8 circle).
     pub visibility: i32,
     pub reply_to_id: Option<Uuid>,
     pub quote_of_id: Option<Uuid>,
@@ -54,19 +56,37 @@ pub struct NoteDeleted {
 pub struct NoteVisibilityChanged {
     pub note_id: Uuid,
     pub author_id: Uuid,
-    /// The new `tokuly.common.v1.Visibility`.
+    /// The `tokuly.common.v1.Visibility` now in effect: the note's own, except
+    /// that a public note of a locked account reads 6 (followers).
     pub visibility: i32,
-    /// Who besides the author may still see the note: `None` for a public
-    /// note (everyone); otherwise every one of them (the author's friends,
-    /// and for a reply the author of the note answered, minus anyone in a
-    /// block with the author; empty for a private note). Whoever was shown
-    /// the note before (notifications, inboxes) and is not listed lost
-    /// access with this change.
+    /// Who besides the author may still see the note: `None` when everyone
+    /// may (public, author not locked); otherwise every one of them, as the
+    /// social graph's audience gives them (followers and friends, friends,
+    /// close friends, circle members, the people a direct note names), plus
+    /// for a reply the author of the note answered, minus anyone in a block
+    /// with the author; empty for a private note. When the change comes
+    /// from the author locking their account, only the people this domain
+    /// told about the note (or who reacted to it) are considered, since a
+    /// follower list per note would be unbounded. Whoever was shown the note
+    /// before (notifications, inboxes) and is not listed lost access with
+    /// this change.
     pub visible_to: Option<Vec<Uuid>>,
     /// When the change was made, taken while the note was locked: two
     /// changes of one note are ordered by this (the event's own time is when
     /// its transaction began, which can put racing changes the wrong way round).
     pub changed_at: DateTime<Utc>,
+}
+
+/// `notes.note.edited`: the author changed a note's words (`version` = its
+/// edit count now). Audience and media do not change with an edit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteEditedEvent {
+    pub note_id: Uuid,
+    pub author_id: Uuid,
+    pub version: i32,
+    /// The excerpt activity entries show (as on `note.posted`, 140 characters).
+    pub text: String,
+    pub content_warning: bool,
 }
 
 /// `notes.story.created`: a story was posted.
@@ -98,6 +118,7 @@ pub struct StoryExpired {
 
 pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BLOCKED: &str = "social.user.blocked";
+pub const FOLLOW_SETTINGS_CHANGED: &str = "social.follow.settings_changed";
 pub const ASSET_DELETED: &str = "media.asset.deleted";
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
 

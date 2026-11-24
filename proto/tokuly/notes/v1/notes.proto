@@ -3,14 +3,24 @@ syntax = "proto3";
 // Notes (ノート: short posts, "今何してる?") and stories (記憶: a titled set of
 // photos and videos that friends can see for a day).
 //
-// Who may see a note is decided in one place for every RPC here:
+// Who may see a note is decided in one place for every RPC here, with the
+// audiences of the social graph (tokuly.social.v1: friends, follows,
+// circles, locked accounts):
 // - the author always sees their own notes;
 // - nobody sees the notes of someone they blocked or who blocked them, nor
 //   those of a suspended account;
-// - PUBLIC notes are visible to everyone, signed in or not;
-// - FRIENDS notes are visible to the author's friends, and a FRIENDS reply
-//   also to the author of the note it answers;
-// - PRIVATE notes are visible to nobody else.
+// - PUBLIC notes are visible to everyone, signed in or not — except that the
+//   public notes of a LOCKED account reach only its followers and friends;
+// - FOLLOWERS notes: the author's followers and friends;
+// - FRIENDS notes: the author's friends;
+// - CLOSE_FRIENDS notes: the members of the author's close-friends circle;
+// - CIRCLE notes: the members of one of the author's custom circles;
+//   (circle members count while they are still a friend or follower)
+// - a reply shared with anything narrower than PUBLIC is also visible to the
+//   author of the note it answers (unless it is PRIVATE);
+// - DIRECT notes (PRIVATE plus named people, `direct_recipients`): the
+//   people named;
+// - PRIVATE notes: nobody else.
 // A note the caller may not see is indistinguishable from one that does not
 // exist (NOTE_NOT_FOUND, or it is simply absent from lists).
 //
@@ -39,32 +49,65 @@ service NoteService {
   // Errors: RULES_VERSION_MISMATCH.
   rpc AgreeToNoteRules(AgreeToNoteRulesRequest) returns (AgreeToNoteRulesResponse);
 
-  // Posts a note, a reply (`reply_to_id`) or a quote note (`quote_of_id`).
-  // A note needs text, media or a stamp. Notes cannot be edited afterwards:
-  // delete and post again.
-  // Errors: RULES_NOT_ACCEPTED, NOTE_EMPTY, NOTE_TOO_LONG,
-  // TOO_MANY_ATTACHMENTS (more than 4), ATTACHMENTS_MIXED (a video comes
-  // alone), ATTACHMENT_UNSUPPORTED (not an image or a video), ASSET_NOT_FOUND,
+  // Posts a note, a reply (`reply_to_id`) or a quote note (`quote_of_id`),
+  // optionally with a poll or into a channel. A note needs text, media, a
+  // stamp or a poll. Its author may edit it for an hour (EditNote).
+  // Errors: RULES_NOT_ACCEPTED, NOTE_EMPTY, NOTE_TOO_LONG, CW_TOO_LONG,
+  // ALT_TEXT_TOO_LONG, TOO_MANY_ATTACHMENTS (more than 10), ATTACHMENTS_MIXED
+  // (a video comes alone), ATTACHMENT_UNSUPPORTED (not an image or a video),
+  // INVALID_POLL, CHANNEL_NOT_FOUND, CHANNEL_ARCHIVED, ASSET_NOT_FOUND,
   // ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_FAILED, STAMP_NOT_USABLE,
-  // INVALID_PLACE, INVALID_VISIBILITY, INVALID_IDEMPOTENCY_KEY,
-  // REQUEST_IN_PROGRESS, NOTE_NOT_FOUND (the note replied to or quoted),
-  // NOTE_NOT_PUBLIC (only public notes can be quoted), RATE_LIMITED.
+  // INVALID_PLACE, INVALID_VISIBILITY, CIRCLE_NOT_FOUND (not a circle of the
+  // caller), TOO_MANY_RECIPIENTS (a direct note names at most 20 people),
+  // RECIPIENT_NOT_FOUND, DIRECT_NOT_ALLOWED (someone named does not accept
+  // messages from the caller: their `direct_messages_from` setting), INVALID_IDEMPOTENCY_KEY, REQUEST_IN_PROGRESS,
+  // NOTE_NOT_FOUND (the note replied to or quoted), NOTE_NOT_PUBLIC (only
+  // notes everyone may see can be quoted), RATE_LIMITED.
   rpc CreateNote(CreateNoteRequest) returns (CreateNoteResponse);
   // Deletes one of the caller's notes. Replies to it stay (they show the
   // note they answered as unavailable); renotes of it disappear.
   // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR.
   rpc DeleteNote(DeleteNoteRequest) returns (DeleteNoteResponse);
-  // Changes who may see one of the caller's notes. A reply is never shown
-  // more widely than the note it answers; the visibility actually applied is
-  // in the returned note.
-  // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR, INVALID_VISIBILITY, RATE_LIMITED
+  // Changes who may see one of the caller's notes (the same audiences as
+  // CreateNote). A reply is never shown more widely than the note it
+  // answers; the audience actually applied is in the returned note.
+  // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR, INVALID_VISIBILITY,
+  // CIRCLE_NOT_FOUND, TOO_MANY_RECIPIENTS, RECIPIENT_NOT_FOUND, RATE_LIMITED
   // (more than 30 changes per minute).
   rpc SetNoteVisibility(SetNoteVisibilityRequest) returns (SetNoteVisibilityResponse);
-  // Pins one of the caller's notes to the top of their profile, replacing
-  // the note pinned before. Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR.
+  // Pins one of the caller's notes to the top of their profile (up to five,
+  // the latest pinned first). Pinning a pinned note changes nothing.
+  // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR, TOO_MANY_PINNED.
   rpc PinNote(PinNoteRequest) returns (PinNoteResponse);
-  // Removes the caller's pinned note from their profile, if there is one.
+  // Takes one of the caller's notes off their profile. Succeeds when it was
+  // not pinned.
   rpc UnpinNote(UnpinNoteRequest) returns (UnpinNoteResponse);
+  // Changes the text, content warning and the alt text / sensitive marks of
+  // the attachments of one of the caller's notes, within an hour of posting
+  // and at most 10 times. The earlier versions stay readable by everyone
+  // who may see the note (ListNoteEdits). People newly mentioned are told;
+  // a poll, the media themselves and the audience do not change here.
+  // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR, EDIT_WINDOW_CLOSED,
+  // TOO_MANY_EDITS, NOTE_EMPTY, NOTE_TOO_LONG, CW_TOO_LONG, ALT_TEXT_TOO_LONG,
+  // RATE_LIMITED.
+  rpc EditNote(EditNoteRequest) returns (EditNoteResponse);
+  // The earlier versions of an edited note, newest first.
+  // Errors: NOTE_NOT_FOUND.
+  rpc ListNoteEdits(ListNoteEditsRequest) returns (ListNoteEditsResponse);
+  // Deletes one of the caller's notes and returns a draft
+  // (NoteDraftService) with its content, uploads included, to post again
+  // ("削除して再編集"). Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR,
+  // TOO_MANY_DRAFTS.
+  rpc RedraftNote(RedraftNoteRequest) returns (RedraftNoteResponse);
+  // Votes in a note's poll: one choice, or several when the poll allows it.
+  // A vote is final, and who voted for what is never shown to anyone.
+  // Errors: NOTE_NOT_FOUND, POLL_NOT_FOUND, POLL_CLOSED, ALREADY_VOTED,
+  // INVALID_CHOICE, RATE_LIMITED.
+  rpc VotePoll(VotePollRequest) returns (VotePollResponse);
+  // Numbers of one of the caller's notes: impressions per hour over the
+  // last two days and the engagement it got. Author only.
+  // Errors: NOTE_NOT_FOUND, NOT_NOTE_AUTHOR.
+  rpc GetNoteAnalytics(GetNoteAnalyticsRequest) returns (GetNoteAnalyticsResponse);
 
   // One note. Errors: NOTE_NOT_FOUND.
   rpc GetNote(GetNoteRequest) returns (GetNoteResponse);
@@ -89,9 +132,15 @@ service NoteService {
   // Takes a like back. Succeeds when the note was not liked.
   // Errors: NOTE_NOT_FOUND.
   rpc UnlikeNote(UnlikeNoteRequest) returns (UnlikeNoteResponse);
-  // Renotes (Reノート) a public note to the caller's friends: once per note,
-  // undoable. Renoting twice changes nothing.
-  // Errors: NOTE_NOT_FOUND, NOTE_NOT_PUBLIC, RATE_LIMITED.
+  // Renotes (Reノート) a note into the timelines of the caller's friends and
+  // followers: once per note, undoable. Renoting twice changes nothing.
+  // Who may renote (`NoteViewerState.can_renote`): anyone who sees a note
+  // that everyone may see (PUBLIC, author not locked); only its author for
+  // FOLLOWERS, FRIENDS, CLOSE_FRIENDS and CIRCLE notes and for the public
+  // notes of a locked account; nobody for DIRECT and PRIVATE notes. A
+  // renote never widens the note's audience: timelines show it only to
+  // people who may see the note itself.
+  // Errors: NOTE_NOT_FOUND, NOTE_NOT_RENOTABLE, RATE_LIMITED.
   rpc RenoteNote(RenoteNoteRequest) returns (RenoteNoteResponse);
   // Takes a renote back. Succeeds when the note was not renoted.
   // Errors: NOTE_NOT_FOUND.
@@ -101,10 +150,21 @@ service NoteService {
   // Who renoted a note, most recent first. Errors: NOTE_NOT_FOUND.
   rpc ListNoteRenoters(ListNoteRenotersRequest) returns (ListNoteRenotersResponse);
 
-  // The caller's home timeline: notes, quotes and renotes by the caller and
-  // their friends, plus replies exchanged between those people.
+  // The caller's home (friends) timeline: notes, quotes and renotes by the
+  // caller and their friends, plus replies exchanged between those people,
+  // and the notes of channels the caller follows.
+  //
+  // Every timeline leaves out what the caller muted (NoteMuteService: muted
+  // words, renotes hidden from someone; tokuly.social.v1 follow mutes), and
+  // the notes posted into a channel stay out of the home, following and
+  // global timelines unless the caller follows the channel.
   rpc GetHomeTimeline(GetHomeTimelineRequest) returns (GetHomeTimelineResponse);
-  // Every public note that is not a reply. Works anonymously.
+  // The caller's following timeline: the same for the caller and the
+  // accounts they follow, leaving out the ones they muted
+  // (tokuly.social.v1 follow mutes).
+  rpc GetFollowingTimeline(GetFollowingTimelineRequest) returns (GetFollowingTimelineResponse);
+  // Every note that is not a reply and that everyone may see (PUBLIC, author
+  // not locked). Works anonymously.
   rpc GetGlobalTimeline(GetGlobalTimelineRequest) returns (GetGlobalTimelineResponse);
   // One user's notes as the caller may see them. Works anonymously.
   // Errors: USER_NOT_FOUND (also when either side blocked the other).
@@ -112,11 +172,20 @@ service NoteService {
   // Notes carrying a hashtag. Works anonymously. An unused hashtag gives an
   // empty timeline. Errors: INVALID_HASHTAG.
   rpc GetHashtagTimeline(GetHashtagTimelineRequest) returns (GetHashtagTimelineResponse);
-  // Notes that mention the caller or answer one of the caller's notes.
+  // Notes that mention the caller, answer one of the caller's notes or are
+  // addressed to the caller (direct notes).
   rpc GetMentionsTimeline(GetMentionsTimelineRequest) returns (GetMentionsTimelineResponse);
-  // Hashtags that many different people are using in public notes right
-  // now, best first. Recomputed every few minutes. Works anonymously.
+  // Hashtags that many different people are using in listed notes right
+  // now, best first, optionally in one language. Recomputed every few
+  // minutes. One account counts once per hashtag; new accounts count for
+  // little, and a group of accounts created around the same day counts as
+  // one person. Works anonymously.
   rpc ListTrendingHashtags(ListTrendingHashtagsRequest) returns (ListTrendingHashtagsResponse);
+  // Notes everyone may see that are getting attention right now (likes,
+  // renotes, replies and quotes by different, established people, decayed
+  // over hours), best first, optionally in one language. Muted words and
+  // accounts of the caller apply. Works anonymously.
+  rpc ListTrendingNotes(ListTrendingNotesRequest) returns (ListTrendingNotesResponse);
   // Hashtags starting with what the user typed, most used first: completion
   // while writing a note. Works anonymously. Errors: RATE_LIMITED.
   rpc SearchHashtags(SearchHashtagsRequest) returns (SearchHashtagsResponse);
@@ -126,16 +195,21 @@ service NoteService {
 message Note {
   string id = 1;
   tokuly.common.v1.UserSummary author = 2;
-  // At most 300 characters. May be empty when the note has media or a stamp.
+  // The text as written (at most 3000 characters), markup included. May be
+  // empty when the note has media, a stamp or a poll. Clients render `body`.
   string text = 3;
-  // Up to 4 images, or exactly one video.
+  // Up to 10 images, or exactly one video.
   repeated tokuly.media.v1.Attachment attachments = 4;
   // Unset when the note has no stamp or the stamp is no longer available.
   tokuly.common.v1.StampRef stamp = 5;
   PlaceTag place = 6;
-  // PUBLIC, FRIENDS or PRIVATE.
+  // PUBLIC, FOLLOWERS, FRIENDS, CLOSE_FRIENDS, CIRCLE or PRIVATE (with
+  // `direct_recipients`: a direct note). To anyone but the author a CIRCLE
+  // note reads as FOLLOWERS: members of custom circles are never told
+  // about them (the close-friends mark is shown).
   tokuly.common.v1.Visibility visibility = 7;
-  // The author marked the note as sensitive: clients hide text and media
+  // The note is folded behind a content warning: clients show
+  // `content_warning_text` (or a generic 「センシティブな内容」) and the rest
   // behind a tap.
   bool content_warning = 8;
   // Set when the note is a reply.
@@ -156,6 +230,224 @@ message Note {
   // The author pinned this note to their profile.
   bool pinned = 16;
   google.protobuf.Timestamp created_at = 17;
+  // The author only: the circle (tokuly.social.v1.Circle.id) a CIRCLE note
+  // is shared with.
+  string circle_id = 18;
+  // A direct note: the people it is addressed to (people hidden from the
+  // caller by a block left out).
+  repeated tokuly.common.v1.UserSummary direct_recipients = 19;
+  // The content warning line (at most 100 characters); empty for a generic
+  // one or none.
+  string content_warning_text = 20;
+  // Alt text and sensitive mark of each attachment, in the order of
+  // `attachments`.
+  repeated AttachmentDetails attachment_details = 21;
+  // `text` parsed into its markup (see RichText): what clients render.
+  RichText body = 22;
+  Poll poll = 23;
+  // The channel the note was posted into.
+  ChannelRef channel = 24;
+  // When the note was last edited; unset if never.
+  google.protobuf.Timestamp edited_at = 25;
+  int32 edit_count = 26;
+  // Language of the text when it can be told (`ja`, `en`), else empty.
+  string language = 27;
+}
+
+// The alt text and sensitive mark of one attachment of a note.
+message AttachmentDetails {
+  string asset_id = 1;
+  // At most 1500 characters.
+  string alt_text = 2;
+  // Shown blurred until tapped (also when the note has no content warning).
+  bool sensitive = 3;
+}
+
+// The channel a note belongs to, as shown on the note.
+message ChannelRef {
+  string id = 1;
+  string name = 2;
+  // Theme colour, `#rrggbb`; empty for the default.
+  string color = 3;
+}
+
+// ── Rich text ──
+//
+// A note's text parsed on the server into a typed tree, stored with the
+// note and returned in `Note.body`: clients render it and never parse the
+// text themselves, and nothing outside this tree can be expressed (no HTML,
+// no styles). The grammar (docs/events/notes.md has the full rules):
+//
+//   blocks:  `> ` at the start of lines → quote; a line of ``` (optionally
+//            followed by a language) up to the next line of ``` → code
+//            block; `<center>` … `</center>` → centred; anything else →
+//            paragraphs (one per run of lines; line breaks are kept as
+//            "\n" in text).
+//   inline:  **bold**, <b>…</b>, *italic*, <i>…</i>, ~~strike~~, <s>…</s>,
+//            <small>…</small>, `code`, [label](https://…), bare http(s)
+//            links, @handle, #hashtag, :emoji:, $[effect …], and a
+//            backslash before any of those characters to write it plainly.
+//   effects: tada, jelly, jump, bounce, shake, spin, rainbow, sparkle, x2 —
+//            clients play them only when the reader has not asked for
+//            reduced motion. Nesting stops at depth 8.
+message RichText {
+  repeated TextBlock blocks = 1;
+}
+
+message TextBlock {
+  oneof block {
+    TextParagraph paragraph = 1;
+    // Quoted lines (another note's words, a reply in a reply).
+    TextParagraphs quote = 2;
+    TextCodeBlock code = 3;
+    TextParagraphs center = 4;
+  }
+}
+
+message TextParagraph {
+  repeated TextInline inlines = 1;
+}
+
+message TextParagraphs {
+  repeated TextParagraph paragraphs = 1;
+}
+
+message TextCodeBlock {
+  // As written after the opening ```, e.g. `rust`; may be empty.
+  string language = 1;
+  string code = 2;
+}
+
+message TextInline {
+  oneof inline {
+    // Plain text; "\n" is a line break.
+    string text = 1;
+    TextSpan span = 2;
+    // Inline code, shown in a monospace font.
+    string code = 3;
+    TextLink link = 4;
+    TextMention mention = 5;
+    TextHashtag hashtag = 6;
+    TextEmoji emoji = 7;
+    TextEffect effect = 8;
+  }
+}
+
+enum TextStyle {
+  TEXT_STYLE_UNSPECIFIED = 0;
+  TEXT_STYLE_BOLD = 1;
+  TEXT_STYLE_ITALIC = 2;
+  TEXT_STYLE_STRIKE = 3;
+  TEXT_STYLE_SMALL = 4;
+}
+
+message TextSpan {
+  TextStyle style = 1;
+  repeated TextInline children = 2;
+}
+
+message TextLink {
+  // An http(s) URL.
+  string url = 1;
+  // `[label](url)`: the label (no links inside); empty for a bare link,
+  // which shows the URL.
+  repeated TextInline label = 2;
+}
+
+message TextMention {
+  // Lowercase, without '@'.
+  string handle = 1;
+  // The user when the handle names one the reader may know of; empty
+  // otherwise (render as plain text).
+  string user_id = 2;
+}
+
+message TextHashtag {
+  // Normalized (the hashtag timeline's key).
+  string tag = 1;
+  // As written, without '#'.
+  string text = 2;
+}
+
+message TextEmoji {
+  // The shortcode without colons.
+  string name = 1;
+  // Unset when no such custom emoji exists (render `:name:`).
+  tokuly.common.v1.Image image = 2;
+}
+
+enum TextEffectKind {
+  TEXT_EFFECT_KIND_UNSPECIFIED = 0;
+  TEXT_EFFECT_KIND_TADA = 1;
+  TEXT_EFFECT_KIND_JELLY = 2;
+  TEXT_EFFECT_KIND_JUMP = 3;
+  TEXT_EFFECT_KIND_BOUNCE = 4;
+  TEXT_EFFECT_KIND_SHAKE = 5;
+  TEXT_EFFECT_KIND_SPIN = 6;
+  TEXT_EFFECT_KIND_RAINBOW = 7;
+  TEXT_EFFECT_KIND_SPARKLE = 8;
+  // Twice the size (no larger sizes exist).
+  TEXT_EFFECT_KIND_X2 = 9;
+}
+
+message TextEffect {
+  TextEffectKind kind = 1;
+  repeated TextInline children = 2;
+}
+
+// ── Polls ──
+
+// Who sees how many votes each choice got.
+enum PollResultsVisibility {
+  // Same as ALWAYS.
+  POLL_RESULTS_VISIBILITY_UNSPECIFIED = 0;
+  POLL_RESULTS_VISIBILITY_ALWAYS = 1;
+  // Once the reader voted (and for everyone once the poll ended).
+  POLL_RESULTS_VISIBILITY_AFTER_VOTING = 2;
+  // Only once the poll ended (the author too).
+  POLL_RESULTS_VISIBILITY_AFTER_END = 3;
+}
+
+// A poll as one reader sees it. Votes are private: nobody, the author
+// included, learns who voted for what.
+message Poll {
+  repeated PollChoice choices = 1;
+  // Several choices may be picked.
+  bool multiple = 2;
+  google.protobuf.Timestamp ends_at = 3;
+  PollResultsVisibility results_visibility = 4;
+  // The poll is over (`ends_at` passed).
+  bool closed = 5;
+  // The counts are shown to this reader (see results_visibility); when
+  // false every `votes` and `voter_count` is 0.
+  bool results_visible = 6;
+  // People who voted.
+  int64 voter_count = 7;
+  // The reader's own choices (indexes into `choices`); empty if they have
+  // not voted.
+  repeated int32 my_choices = 8;
+}
+
+message PollChoice {
+  // 1–50 characters.
+  string text = 1;
+  int64 votes = 2;
+}
+
+message PollInput {
+  // 2–10 choices of 1–50 characters, all different.
+  repeated string choices = 1;
+  bool multiple = 2;
+  // How long the poll runs: 5 minutes to 30 days.
+  int64 duration_seconds = 3;
+  PollResultsVisibility results_visibility = 4;
+}
+
+// What the author says about one attachment when posting or editing.
+message AttachmentDetailsInput {
+  string asset_id = 1;
+  string alt_text = 2;
+  bool sensitive = 3;
 }
 
 // A place a note is tagged with. The client supplies it (from the map or a
@@ -177,11 +469,21 @@ message NoteCounters {
   int64 quote_count = 4;
   int64 like_count = 5;
   int64 view_count = 6;
+  // Public clips (ClipService) that hold the note.
+  int64 clip_count = 7;
 }
 
 message NoteViewerState {
   bool liked = 1;
   bool renoted = 2;
+  // The caller may renote the note (see RenoteNote).
+  bool can_renote = 3;
+  // The caller may quote the note: everyone may see it.
+  bool can_quote = 4;
+  // The caller wrote the note and may still edit it.
+  bool can_edit = 5;
+  // The caller muted the conversation this note is in.
+  bool thread_muted = 6;
 }
 
 // An `@handle` in a note's text that names a user.
@@ -254,14 +556,21 @@ message AgreeToNoteRulesResponse {
 
 message CreateNoteRequest {
   string text = 1;
-  // Uploads made for notes (NOTE_IMAGE / NOTE_VIDEO), in display order.
+  // Uploads made for notes (NOTE_IMAGE / NOTE_VIDEO), in display order: up
+  // to 10 images, or one video.
   repeated string asset_ids = 2;
   // A stamp the caller may send. Optional.
   string stamp_id = 3;
   PlaceTag place = 4;
-  // PUBLIC, FRIENDS or PRIVATE. UNSPECIFIED uses the caller's default
-  // (privacy setting `default_note_visibility`). A reply is narrowed to the
-  // visibility of the note it answers.
+  // PUBLIC, FOLLOWERS, FRIENDS, CLOSE_FRIENDS, CIRCLE (with `circle_id`) or
+  // PRIVATE (with `direct_user_ids`: a direct note). UNSPECIFIED uses the
+  // caller's default (privacy setting `default_note_visibility`). A reply is
+  // never shown more widely than the note it answers: a reply to a PUBLIC,
+  // FOLLOWERS, FRIENDS or CIRCLE note (the last looks like FOLLOWERS to the
+  // replier) takes the narrower of the two; a reply to a CLOSE_FRIENDS or
+  // direct note becomes a direct note to that note's author (and the people
+  // it was addressed to); a reply to a PRIVATE note is private. The author
+  // answering their own close-friends or circle note keeps it there.
   tokuly.common.v1.Visibility visibility = 5;
   // Makes the note a reply to this note.
   string reply_to_id = 6;
@@ -274,6 +583,21 @@ message CreateNoteRequest {
   // while the first request is still running fails with REQUEST_IN_PROGRESS
   // (unavailable): try again shortly.
   string idempotency_key = 9;
+  // For CIRCLE: one of the caller's circles.
+  string circle_id = 10;
+  // For PRIVATE: the people a direct note is addressed to (1–20 user IDs;
+  // empty = a note to oneself). They are told about it.
+  repeated string direct_user_ids = 11;
+  // The content warning line (at most 100 characters). Setting it folds
+  // the note like `content_warning`.
+  string content_warning_text = 12;
+  // Alt text and sensitive marks, by asset ID (assets not named here have
+  // neither).
+  repeated AttachmentDetailsInput attachment_details = 13;
+  PollInput poll = 14;
+  // Posts the note into this channel (NoteChannelService). Channel notes are
+  // PUBLIC; a reply to a channel note stays in its channel.
+  string channel_id = 15;
 }
 
 message CreateNoteResponse {
@@ -289,6 +613,10 @@ message DeleteNoteResponse {}
 message SetNoteVisibilityRequest {
   string note_id = 1;
   tokuly.common.v1.Visibility visibility = 2;
+  // As in CreateNoteRequest.
+  string circle_id = 3;
+  // As in CreateNoteRequest. People added are not told again.
+  repeated string direct_user_ids = 4;
 }
 
 message SetNoteVisibilityResponse {
@@ -301,7 +629,9 @@ message PinNoteRequest {
 
 message PinNoteResponse {}
 
-message UnpinNoteRequest {}
+message UnpinNoteRequest {
+  string note_id = 1;
+}
 
 message UnpinNoteResponse {}
 
@@ -415,6 +745,15 @@ message GetHomeTimelineResponse {
   tokuly.common.v1.PageInfo page = 2;
 }
 
+message GetFollowingTimelineRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message GetFollowingTimelineResponse {
+  repeated TimelineEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
 message GetGlobalTimelineRequest {
   tokuly.common.v1.PageRequest page = 1;
 }
@@ -447,9 +786,10 @@ message GetUserTimelineRequest {
 message GetUserTimelineResponse {
   repeated TimelineEntry entries = 1;
   tokuly.common.v1.PageInfo page = 2;
-  // The user's pinned note, when the caller may see it. Only on the first
-  // page of the NOTES tab; the note may appear again in `entries`.
-  Note pinned_note = 3;
+  reserved 3;
+  // The user's pinned notes the caller may see, latest pinned first. Only on
+  // the first page of the NOTES tab; they may appear again in `entries`.
+  repeated Note pinned_notes = 4;
 }
 
 // A hashtag and how much it is used.
@@ -492,12 +832,101 @@ message TrendingHashtag {
 message ListTrendingHashtagsRequest {
   // 0 = 10; at most 50.
   int32 limit = 1;
+  // `ja` or `en` for that language's ranking; empty for all notes.
+  string language = 2;
 }
 
 message ListTrendingHashtagsResponse {
   repeated TrendingHashtag hashtags = 1;
   // When the ranking was computed.
   google.protobuf.Timestamp computed_at = 2;
+}
+
+message ListTrendingNotesRequest {
+  // 0 = 10; at most 50.
+  int32 limit = 1;
+  // `ja` or `en`; empty for all.
+  string language = 2;
+}
+
+message ListTrendingNotesResponse {
+  repeated Note notes = 1;
+  google.protobuf.Timestamp computed_at = 2;
+}
+
+message EditNoteRequest {
+  string note_id = 1;
+  string text = 2;
+  bool content_warning = 3;
+  string content_warning_text = 4;
+  // The alt text and sensitive marks of the note's attachments (assets not
+  // named lose theirs).
+  repeated AttachmentDetailsInput attachment_details = 5;
+}
+
+message EditNoteResponse {
+  Note note = 1;
+}
+
+// An earlier version of an edited note.
+message NoteEdit {
+  // 1 = as first posted.
+  int32 version = 1;
+  string text = 2;
+  RichText body = 3;
+  bool content_warning = 4;
+  string content_warning_text = 5;
+  // When this version was replaced.
+  google.protobuf.Timestamp replaced_at = 6;
+}
+
+message ListNoteEditsRequest {
+  string note_id = 1;
+}
+
+message ListNoteEditsResponse {
+  // Newest first, at most 10.
+  repeated NoteEdit edits = 1;
+}
+
+message RedraftNoteRequest {
+  string note_id = 1;
+}
+
+message RedraftNoteResponse {
+  Draft draft = 1;
+}
+
+message VotePollRequest {
+  string note_id = 1;
+  // Indexes into the poll's choices: one, or several for a multiple-choice poll.
+  repeated int32 choices = 2;
+}
+
+message VotePollResponse {
+  Poll poll = 1;
+}
+
+message GetNoteAnalyticsRequest {
+  string note_id = 1;
+}
+
+// Impressions of one hour.
+message HourlyCount {
+  google.protobuf.Timestamp hour = 1;
+  int64 count = 2;
+}
+
+message GetNoteAnalyticsResponse {
+  NoteCounters counters = 1;
+  // Times the note was shown to someone (each viewer once every few hours).
+  int64 impressions = 2;
+  // Likes, renotes, replies, quotes and clips together.
+  int64 engagements = 3;
+  // `engagements / impressions` (0 without impressions).
+  double engagement_rate = 4;
+  // The last 48 hours, oldest first; hours without impressions are left out.
+  repeated HourlyCount impressions_by_hour = 5;
 }
 
 message SearchHashtagsRequest {
@@ -510,6 +939,831 @@ message SearchHashtagsRequest {
 message SearchHashtagsResponse {
   repeated Hashtag hashtags = 1;
 }
+
+// ───────────────────────────── Drafts ─────────────────────────────
+
+// Notes started and not posted yet, kept on the server so they follow the
+// person to every device, and notes scheduled for later. A draft holds its
+// uploads (they are not cleaned up while it exists). At most 100 drafts,
+// 30 of them scheduled. Every RPC needs a signed-in caller and works on the
+// caller's own drafts only.
+service NoteDraftService {
+  // Creates a draft (`draft_id` empty) or replaces one, optionally scheduled.
+  // Nothing about the content is checked until it is posted, except its
+  // size. Errors: DRAFT_NOT_FOUND, TOO_MANY_DRAFTS, TOO_MANY_SCHEDULED,
+  // INVALID_SCHEDULE (less than 5 minutes or more than 90 days ahead),
+  // NOTE_TOO_LONG, ASSET_NOT_FOUND, RATE_LIMITED.
+  rpc SaveDraft(SaveDraftRequest) returns (SaveDraftResponse);
+  // Errors: DRAFT_NOT_FOUND.
+  rpc GetDraft(GetDraftRequest) returns (GetDraftResponse);
+  // Most recently changed first; optionally only the scheduled ones (soonest first).
+  rpc ListDrafts(ListDraftsRequest) returns (ListDraftsResponse);
+  // Errors: DRAFT_NOT_FOUND.
+  rpc DeleteDraft(DeleteDraftRequest) returns (DeleteDraftResponse);
+  // Posts a draft now (as CreateNote would, with its errors) and deletes it.
+  // Errors: DRAFT_NOT_FOUND and CreateNote's.
+  rpc PublishDraft(PublishDraftRequest) returns (PublishDraftResponse);
+}
+
+// What a draft would post: CreateNoteRequest's fields.
+message DraftContent {
+  string text = 1;
+  repeated string asset_ids = 2;
+  string stamp_id = 3;
+  PlaceTag place = 4;
+  tokuly.common.v1.Visibility visibility = 5;
+  string reply_to_id = 6;
+  string quote_of_id = 7;
+  bool content_warning = 8;
+  string circle_id = 10;
+  repeated string direct_user_ids = 11;
+  string content_warning_text = 12;
+  repeated AttachmentDetailsInput attachment_details = 13;
+  PollInput poll = 14;
+  string channel_id = 15;
+}
+
+message Draft {
+  string id = 1;
+  DraftContent content = 2;
+  // The uploads of `content.asset_ids` that still exist, for previews.
+  repeated tokuly.media.v1.Attachment attachments = 3;
+  // When it will be posted; unset for a plain draft.
+  google.protobuf.Timestamp scheduled_at = 4;
+  // Why posting it at `scheduled_at` failed (an error reason such as
+  // NOTE_NOT_FOUND); empty otherwise. A failed draft is no longer scheduled.
+  string failure_reason = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message SaveDraftRequest {
+  // Empty creates a draft.
+  string draft_id = 1;
+  DraftContent content = 2;
+  // Unset = not scheduled.
+  google.protobuf.Timestamp scheduled_at = 3;
+}
+
+message SaveDraftResponse {
+  Draft draft = 1;
+}
+
+message GetDraftRequest {
+  string draft_id = 1;
+}
+
+message GetDraftResponse {
+  Draft draft = 1;
+}
+
+message ListDraftsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  bool scheduled_only = 2;
+}
+
+message ListDraftsResponse {
+  repeated Draft drafts = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message DeleteDraftRequest {
+  string draft_id = 1;
+}
+
+message DeleteDraftResponse {}
+
+message PublishDraftRequest {
+  string draft_id = 1;
+}
+
+message PublishDraftResponse {
+  Note note = 1;
+}
+
+// ───────────────────────────── Lists ─────────────────────────────
+
+// Lists (リスト): named sets of accounts with a timeline of their own.
+// Members can be added without following them. A public list shows on its
+// owner's profile, can be followed by others, and tells the people added to
+// it (who can take themselves off it); a private list is only its owner's.
+// Nobody can be added across a block, a locked account only to a list of
+// someone it approved as a follower (or a private one), and a block takes
+// the two off each other's lists. At most 50 lists of 500 members each.
+service NoteListService {
+  // Errors: INVALID_NAME (1–50 characters), DESCRIPTION_TOO_LONG (200),
+  // TOO_MANY_LISTS, RATE_LIMITED.
+  rpc CreateList(CreateListRequest) returns (CreateListResponse);
+  // Errors: LIST_NOT_FOUND, INVALID_NAME, DESCRIPTION_TOO_LONG.
+  rpc UpdateList(UpdateListRequest) returns (UpdateListResponse);
+  // Errors: LIST_NOT_FOUND.
+  rpc DeleteList(DeleteListRequest) returns (DeleteListResponse);
+  // A list the caller owns, or a public one. Works anonymously.
+  // Errors: LIST_NOT_FOUND.
+  rpc GetList(GetListRequest) returns (GetListResponse);
+  // The lists of a user (all of them for the owner, public ones for
+  // others), in the owner's order. Works anonymously. Errors: USER_NOT_FOUND.
+  rpc ListLists(ListListsRequest) returns (ListListsResponse);
+  // Public lists the caller follows, most recently followed first.
+  rpc ListFollowedLists(ListFollowedListsRequest) returns (ListFollowedListsResponse);
+  // Public lists the caller is a member of.
+  rpc ListListsContainingMe(ListListsContainingMeRequest) returns (ListListsContainingMeResponse);
+  // Adds accounts to one of the caller's lists (at most 50 per call).
+  // Errors: LIST_NOT_FOUND, USER_NOT_FOUND (also across a block),
+  // MEMBER_NOT_ALLOWED (a locked account that does not let the caller
+  // follow it, on a public list), TOO_MANY_MEMBERS, RATE_LIMITED.
+  rpc AddListMembers(AddListMembersRequest) returns (AddListMembersResponse);
+  // Errors: LIST_NOT_FOUND.
+  rpc RemoveListMembers(RemoveListMembersRequest) returns (RemoveListMembersResponse);
+  // Members, most recently added first (people hidden from the caller by a
+  // block left out). Works anonymously for public lists. Errors: LIST_NOT_FOUND.
+  rpc ListListMembers(ListListMembersRequest) returns (ListListMembersResponse);
+  // Takes the caller off someone's public list. Errors: LIST_NOT_FOUND.
+  rpc LeaveList(LeaveListRequest) returns (LeaveListResponse);
+  // Follows a public list of someone else. Errors: LIST_NOT_FOUND,
+  // CANNOT_FOLLOW_OWN_LIST, TOO_MANY_FOLLOWED_LISTS (200).
+  rpc FollowList(FollowListRequest) returns (FollowListResponse);
+  rpc UnfollowList(UnfollowListRequest) returns (UnfollowListResponse);
+  // Notes and renotes of the members as the caller may see them, newest
+  // first, plus replies among members. Works anonymously for public lists.
+  // Errors: LIST_NOT_FOUND.
+  rpc GetListTimeline(GetListTimelineRequest) returns (GetListTimelineResponse);
+}
+
+message NoteList {
+  string id = 1;
+  tokuly.common.v1.UserSummary owner = 2;
+  string name = 3;
+  string description = 4;
+  bool public = 5;
+  // Members the caller may see.
+  int32 member_count = 6;
+  int32 follower_count = 7;
+  // The caller follows it.
+  bool following = 8;
+  // The caller is a member.
+  bool is_member = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message CreateListRequest {
+  string name = 1;
+  string description = 2;
+  bool public = 3;
+}
+
+message CreateListResponse {
+  NoteList list = 1;
+}
+
+message UpdateListRequest {
+  string list_id = 1;
+  string name = 2;
+  string description = 3;
+  bool public = 4;
+}
+
+message UpdateListResponse {
+  NoteList list = 1;
+}
+
+message DeleteListRequest {
+  string list_id = 1;
+}
+
+message DeleteListResponse {}
+
+message GetListRequest {
+  string list_id = 1;
+}
+
+message GetListResponse {
+  NoteList list = 1;
+}
+
+message ListListsRequest {
+  // Empty = the caller.
+  string user_id = 1;
+}
+
+message ListListsResponse {
+  repeated NoteList lists = 1;
+}
+
+message ListFollowedListsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListFollowedListsResponse {
+  repeated NoteList lists = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListListsContainingMeRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListListsContainingMeResponse {
+  repeated NoteList lists = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message AddListMembersRequest {
+  string list_id = 1;
+  repeated string user_ids = 2;
+}
+
+message AddListMembersResponse {
+  NoteList list = 1;
+}
+
+message RemoveListMembersRequest {
+  string list_id = 1;
+  repeated string user_ids = 2;
+}
+
+message RemoveListMembersResponse {
+  NoteList list = 1;
+}
+
+message ListListMembersRequest {
+  string list_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListListMembersResponse {
+  repeated tokuly.common.v1.UserSummary members = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message LeaveListRequest {
+  string list_id = 1;
+}
+
+message LeaveListResponse {}
+
+message FollowListRequest {
+  string list_id = 1;
+}
+
+message FollowListResponse {
+  NoteList list = 1;
+}
+
+message UnfollowListRequest {
+  string list_id = 1;
+}
+
+message UnfollowListResponse {}
+
+message GetListTimelineRequest {
+  string list_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message GetListTimelineResponse {
+  repeated TimelineEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Antennas ─────────────────────────────
+
+// Antennas (アンテナ): saved searches that collect matching new notes into a
+// timeline of their own, as notes are posted (never by polling). A note
+// matches when its text contains every word of at least one keyword group
+// and none of the excluded words (case and width folded), it comes from the
+// chosen source, and the owner may see it. At most 5 antennas per person,
+// 10 groups of 5 words each (2–50 characters a word), 10 excluded words, 50
+// accounts; matching costs the same however many antennas exist (one pass
+// over the text), and one note is checked for at most 2000 owners. Each
+// antenna keeps its latest 1000 notes. Only the owner sees an antenna.
+service AntennaService {
+  // Errors: INVALID_NAME (1–30), INVALID_KEYWORDS, LIST_NOT_FOUND,
+  // USER_NOT_FOUND, TOO_MANY_ANTENNAS, RATE_LIMITED.
+  rpc CreateAntenna(CreateAntennaRequest) returns (CreateAntennaResponse);
+  // Changes what the antenna collects from now on; what it collected stays.
+  // Errors: ANTENNA_NOT_FOUND and CreateAntenna's.
+  rpc UpdateAntenna(UpdateAntennaRequest) returns (UpdateAntennaResponse);
+  // Errors: ANTENNA_NOT_FOUND.
+  rpc DeleteAntenna(DeleteAntennaRequest) returns (DeleteAntennaResponse);
+  // Errors: ANTENNA_NOT_FOUND.
+  rpc GetAntenna(GetAntennaRequest) returns (GetAntennaResponse);
+  rpc ListAntennas(ListAntennasRequest) returns (ListAntennasResponse);
+  // Collected notes the caller may still see, newest first.
+  // Errors: ANTENNA_NOT_FOUND.
+  rpc GetAntennaTimeline(GetAntennaTimelineRequest) returns (GetAntennaTimelineResponse);
+}
+
+// Where an antenna looks.
+enum AntennaSource {
+  // Same as EVERYONE.
+  ANTENNA_SOURCE_UNSPECIFIED = 0;
+  // Every note the owner may see.
+  ANTENNA_SOURCE_EVERYONE = 1;
+  // Notes of the accounts the owner follows and of their friends.
+  ANTENNA_SOURCE_FOLLOWING = 2;
+  // Notes of the members of one of the owner's lists.
+  ANTENNA_SOURCE_LIST = 3;
+  // Notes of the accounts named in `user_ids`.
+  ANTENNA_SOURCE_USERS = 4;
+}
+
+// All words of a group must appear (AND); any group may match (OR).
+message KeywordGroup {
+  repeated string words = 1;
+}
+
+message AntennaInput {
+  string name = 1;
+  // At least one group, unless the source is LIST or USERS (then empty =
+  // every note of those accounts).
+  repeated KeywordGroup keywords = 2;
+  repeated string exclude_words = 3;
+  AntennaSource source = 4;
+  // For LIST.
+  string list_id = 5;
+  // For USERS: 1–50 accounts.
+  repeated string user_ids = 6;
+  // Replies are collected too.
+  bool with_replies = 7;
+  // Only notes with pictures or a video.
+  bool media_only = 8;
+  // Tell the owner about new matches (notes.antenna, collapsed per antenna).
+  bool notify = 9;
+}
+
+message Antenna {
+  string id = 1;
+  string name = 2;
+  repeated KeywordGroup keywords = 3;
+  repeated string exclude_words = 4;
+  AntennaSource source = 5;
+  string list_id = 6;
+  repeated tokuly.common.v1.UserSummary users = 7;
+  bool with_replies = 8;
+  bool media_only = 9;
+  bool notify = 10;
+  // When the latest note was collected.
+  google.protobuf.Timestamp last_matched_at = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+message CreateAntennaRequest {
+  AntennaInput antenna = 1;
+}
+
+message CreateAntennaResponse {
+  Antenna antenna = 1;
+}
+
+message UpdateAntennaRequest {
+  string antenna_id = 1;
+  AntennaInput antenna = 2;
+}
+
+message UpdateAntennaResponse {
+  Antenna antenna = 1;
+}
+
+message DeleteAntennaRequest {
+  string antenna_id = 1;
+}
+
+message DeleteAntennaResponse {}
+
+message GetAntennaRequest {
+  string antenna_id = 1;
+}
+
+message GetAntennaResponse {
+  Antenna antenna = 1;
+}
+
+message ListAntennasRequest {}
+
+message ListAntennasResponse {
+  repeated Antenna antennas = 1;
+}
+
+message GetAntennaTimelineRequest {
+  string antenna_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message GetAntennaTimelineResponse {
+  repeated TimelineEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Channels ─────────────────────────────
+
+// Channels (チャンネル): topic timelines anyone can post into, with a name,
+// description, banner and colour, pinned notes, followers, an owner and
+// moderators. A note belongs to at most one channel and is PUBLIC; channel
+// notes stay out of the home, following and global timelines unless the
+// reader follows the channel. Moderators (and the owner) pin notes and take
+// notes out of the channel; the owner names moderators and archives the
+// channel (read-only from then on). Reading works anonymously. At most 10
+// channels per owner.
+service NoteChannelService {
+  // Errors: INVALID_NAME (1–50), DESCRIPTION_TOO_LONG (500), INVALID_COLOR,
+  // ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE (banner: a NOTE_IMAGE upload),
+  // ASSET_NOT_READY, TOO_MANY_CHANNELS, RATE_LIMITED.
+  rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+  // Owner and moderators. Errors: CHANNEL_NOT_FOUND, NOT_CHANNEL_MODERATOR,
+  // CHANNEL_ARCHIVED and CreateChannel's.
+  rpc UpdateChannel(UpdateChannelRequest) returns (UpdateChannelResponse);
+  // Owner only; `archived = false` opens it again.
+  // Errors: CHANNEL_NOT_FOUND, NOT_CHANNEL_OWNER.
+  rpc ArchiveChannel(ArchiveChannelRequest) returns (ArchiveChannelResponse);
+  // Errors: CHANNEL_NOT_FOUND.
+  rpc GetChannel(GetChannelRequest) returns (GetChannelResponse);
+  // Channels by filter, optionally matching a name.
+  rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+  // Errors: CHANNEL_NOT_FOUND, TOO_MANY_FOLLOWED_CHANNELS (500).
+  rpc FollowChannel(FollowChannelRequest) returns (FollowChannelResponse);
+  rpc UnfollowChannel(UnfollowChannelRequest) returns (UnfollowChannelResponse);
+  // Owner only, at most 20 moderators. Errors: CHANNEL_NOT_FOUND,
+  // NOT_CHANNEL_OWNER, USER_NOT_FOUND, TOO_MANY_MODERATORS.
+  rpc AddChannelModerator(AddChannelModeratorRequest) returns (AddChannelModeratorResponse);
+  // The owner removes anyone; a moderator removes themself.
+  // Errors: CHANNEL_NOT_FOUND, NOT_CHANNEL_OWNER.
+  rpc RemoveChannelModerator(RemoveChannelModeratorRequest) returns (RemoveChannelModeratorResponse);
+  rpc ListChannelModerators(ListChannelModeratorsRequest) returns (ListChannelModeratorsResponse);
+  // Up to 5 pinned notes, latest first. Errors: CHANNEL_NOT_FOUND,
+  // NOT_CHANNEL_MODERATOR, NOTE_NOT_FOUND (also a note of another channel),
+  // TOO_MANY_PINNED.
+  rpc PinChannelNote(PinChannelNoteRequest) returns (PinChannelNoteResponse);
+  rpc UnpinChannelNote(UnpinChannelNoteRequest) returns (UnpinChannelNoteResponse);
+  // Takes a note out of the channel (it stays on its author's profile).
+  // The author is told. Errors: CHANNEL_NOT_FOUND, NOT_CHANNEL_MODERATOR,
+  // NOTE_NOT_FOUND.
+  rpc RemoveChannelNote(RemoveChannelNoteRequest) returns (RemoveChannelNoteResponse);
+  // The channel's notes the caller may see, newest first; its pinned notes
+  // on the first page. Errors: CHANNEL_NOT_FOUND.
+  rpc GetChannelTimeline(GetChannelTimelineRequest) returns (GetChannelTimelineResponse);
+}
+
+message NoteChannel {
+  string id = 1;
+  tokuly.common.v1.UserSummary owner = 2;
+  string name = 3;
+  string description = 4;
+  tokuly.common.v1.Image banner = 5;
+  // `#rrggbb`; empty for the default.
+  string color = 6;
+  int64 follower_count = 7;
+  int64 note_count = 8;
+  bool archived = 9;
+  // When the latest note was posted into it.
+  google.protobuf.Timestamp last_note_at = 10;
+  google.protobuf.Timestamp created_at = 11;
+  // The caller's relationship to it.
+  bool following = 12;
+  bool is_owner = 13;
+  bool is_moderator = 14;
+  repeated string pinned_note_ids = 15;
+}
+
+message CreateChannelRequest {
+  string name = 1;
+  string description = 2;
+  // A NOTE_IMAGE upload; optional.
+  string banner_asset_id = 3;
+  string color = 4;
+}
+
+message CreateChannelResponse {
+  NoteChannel channel = 1;
+}
+
+message UpdateChannelRequest {
+  string channel_id = 1;
+  string name = 2;
+  string description = 3;
+  // Empty removes the banner.
+  string banner_asset_id = 4;
+  string color = 5;
+}
+
+message UpdateChannelResponse {
+  NoteChannel channel = 1;
+}
+
+message ArchiveChannelRequest {
+  string channel_id = 1;
+  bool archived = 2;
+}
+
+message ArchiveChannelResponse {
+  NoteChannel channel = 1;
+}
+
+message GetChannelRequest {
+  string channel_id = 1;
+}
+
+message GetChannelResponse {
+  NoteChannel channel = 1;
+}
+
+enum ChannelFilter {
+  // Same as FEATURED.
+  CHANNEL_FILTER_UNSPECIFIED = 0;
+  // Active channels with the most followers and recent notes.
+  CHANNEL_FILTER_FEATURED = 1;
+  CHANNEL_FILTER_FOLLOWED = 2;
+  // Channels the caller owns or moderates.
+  CHANNEL_FILTER_MANAGED = 3;
+}
+
+message ListChannelsRequest {
+  ChannelFilter filter = 1;
+  // Part of the name; empty for all.
+  string query = 2;
+  tokuly.common.v1.PageRequest page = 3;
+}
+
+message ListChannelsResponse {
+  repeated NoteChannel channels = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message FollowChannelRequest {
+  string channel_id = 1;
+}
+
+message FollowChannelResponse {
+  NoteChannel channel = 1;
+}
+
+message UnfollowChannelRequest {
+  string channel_id = 1;
+}
+
+message UnfollowChannelResponse {}
+
+message AddChannelModeratorRequest {
+  string channel_id = 1;
+  string user_id = 2;
+}
+
+message AddChannelModeratorResponse {}
+
+message RemoveChannelModeratorRequest {
+  string channel_id = 1;
+  string user_id = 2;
+}
+
+message RemoveChannelModeratorResponse {}
+
+message ListChannelModeratorsRequest {
+  string channel_id = 1;
+}
+
+message ListChannelModeratorsResponse {
+  repeated tokuly.common.v1.UserSummary moderators = 1;
+}
+
+message PinChannelNoteRequest {
+  string channel_id = 1;
+  string note_id = 2;
+}
+
+message PinChannelNoteResponse {}
+
+message UnpinChannelNoteRequest {
+  string channel_id = 1;
+  string note_id = 2;
+}
+
+message UnpinChannelNoteResponse {}
+
+message RemoveChannelNoteRequest {
+  string channel_id = 1;
+  string note_id = 2;
+}
+
+message RemoveChannelNoteResponse {}
+
+message GetChannelTimelineRequest {
+  string channel_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message GetChannelTimelineResponse {
+  repeated TimelineEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  repeated Note pinned_notes = 3;
+}
+
+// ───────────────────────────── Clips ─────────────────────────────
+
+// Clips (クリップ): curated collections of notes, public or private, with a
+// description. A public clip shows on its owner's profile and counts
+// towards the clip count of every note in it. A clip only ever shows each
+// reader the notes they may see (its counts too). At most 100 clips of
+// 1000 notes each.
+service ClipService {
+  // Errors: INVALID_NAME (1–50), DESCRIPTION_TOO_LONG (500), TOO_MANY_CLIPS,
+  // RATE_LIMITED.
+  rpc CreateClip(CreateClipRequest) returns (CreateClipResponse);
+  // Errors: CLIP_NOT_FOUND, INVALID_NAME, DESCRIPTION_TOO_LONG.
+  rpc UpdateClip(UpdateClipRequest) returns (UpdateClipResponse);
+  // Errors: CLIP_NOT_FOUND.
+  rpc DeleteClip(DeleteClipRequest) returns (DeleteClipResponse);
+  // The caller's own clip, or a public one. Works anonymously.
+  // Errors: CLIP_NOT_FOUND.
+  rpc GetClip(GetClipRequest) returns (GetClipResponse);
+  // A user's clips (all for the owner, public ones for others), latest
+  // changed first. Works anonymously. Errors: USER_NOT_FOUND.
+  rpc ListClips(ListClipsRequest) returns (ListClipsResponse);
+  // Errors: CLIP_NOT_FOUND, NOTE_NOT_FOUND, TOO_MANY_CLIPPED_NOTES,
+  // RATE_LIMITED. Adding twice changes nothing.
+  rpc AddNoteToClip(AddNoteToClipRequest) returns (AddNoteToClipResponse);
+  // Errors: CLIP_NOT_FOUND.
+  rpc RemoveNoteFromClip(RemoveNoteFromClipRequest) returns (RemoveNoteFromClipResponse);
+  // The notes of a clip the caller may see, most recently added first.
+  // Errors: CLIP_NOT_FOUND.
+  rpc GetClipNotes(GetClipNotesRequest) returns (GetClipNotesResponse);
+  // Public clips that hold a note (and the caller's own ones), latest first.
+  // Errors: NOTE_NOT_FOUND.
+  rpc ListNoteClips(ListNoteClipsRequest) returns (ListNoteClipsResponse);
+}
+
+message Clip {
+  string id = 1;
+  tokuly.common.v1.UserSummary owner = 2;
+  string name = 3;
+  string description = 4;
+  bool public = 5;
+  // Notes in it the caller may see.
+  int32 note_count = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  // The note asked about is in it (ListNoteClips, AddNoteToClip).
+  bool contains_note = 9;
+}
+
+message CreateClipRequest {
+  string name = 1;
+  string description = 2;
+  bool public = 3;
+}
+
+message CreateClipResponse {
+  Clip clip = 1;
+}
+
+message UpdateClipRequest {
+  string clip_id = 1;
+  string name = 2;
+  string description = 3;
+  bool public = 4;
+}
+
+message UpdateClipResponse {
+  Clip clip = 1;
+}
+
+message DeleteClipRequest {
+  string clip_id = 1;
+}
+
+message DeleteClipResponse {}
+
+message GetClipRequest {
+  string clip_id = 1;
+}
+
+message GetClipResponse {
+  Clip clip = 1;
+}
+
+message ListClipsRequest {
+  // Empty = the caller.
+  string user_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+  // When set, each clip says whether it holds this note (for the "add to
+  // clip" sheet).
+  string note_id = 3;
+}
+
+message ListClipsResponse {
+  repeated Clip clips = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message AddNoteToClipRequest {
+  string clip_id = 1;
+  string note_id = 2;
+}
+
+message AddNoteToClipResponse {
+  Clip clip = 1;
+}
+
+message RemoveNoteFromClipRequest {
+  string clip_id = 1;
+  string note_id = 2;
+}
+
+message RemoveNoteFromClipResponse {
+  Clip clip = 1;
+}
+
+message GetClipNotesRequest {
+  string clip_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message GetClipNotesResponse {
+  repeated Note notes = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListNoteClipsRequest {
+  string note_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListNoteClipsResponse {
+  repeated Clip clips = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Muting ─────────────────────────────
+
+// What the caller does not want to see in timelines: muted words (plain, or
+// regular expressions run by a linear-time engine), conversations they
+// muted (no notifications from replies and mentions in them), and people
+// whose renotes they hide. Muting accounts themselves is the social domain's
+// (tokuly.social.v1 follow mutes), which timelines apply too. Only the caller
+// ever sees their mutes. Every RPC needs a signed-in caller.
+service NoteMuteService {
+  rpc GetMuteSettings(GetMuteSettingsRequest) returns (GetMuteSettingsResponse);
+  // Replaces the muted words. At most 100, each 1–100 characters; a regular
+  // expression must compile within the engine's size limit.
+  // Errors: TOO_MANY_MUTED_WORDS, INVALID_MUTED_WORD.
+  rpc UpdateMutedWords(UpdateMutedWordsRequest) returns (UpdateMutedWordsResponse);
+  // Mutes the conversation a note is in. Errors: NOTE_NOT_FOUND,
+  // TOO_MANY_MUTED_THREADS (1000).
+  rpc MuteThread(MuteThreadRequest) returns (MuteThreadResponse);
+  rpc UnmuteThread(UnmuteThreadRequest) returns (UnmuteThreadResponse);
+  // Errors: USER_NOT_FOUND, TOO_MANY_RENOTE_MUTES (1000).
+  rpc HideRenotesFrom(HideRenotesFromRequest) returns (HideRenotesFromResponse);
+  rpc ShowRenotesFrom(ShowRenotesFromRequest) returns (ShowRenotesFromResponse);
+}
+
+message MutedWord {
+  string text = 1;
+  // `text` is a regular expression (case-insensitive), not a plain word.
+  bool regex = 2;
+}
+
+message GetMuteSettingsRequest {}
+
+message GetMuteSettingsResponse {
+  repeated MutedWord words = 1;
+  // People whose renotes are hidden.
+  repeated tokuly.common.v1.UserSummary renotes_hidden_from = 2;
+  // Root notes of muted conversations (newest first, at most 100).
+  repeated string muted_thread_ids = 3;
+}
+
+message UpdateMutedWordsRequest {
+  repeated MutedWord words = 1;
+}
+
+message UpdateMutedWordsResponse {
+  repeated MutedWord words = 1;
+}
+
+message MuteThreadRequest {
+  string note_id = 1;
+}
+
+message MuteThreadResponse {}
+
+message UnmuteThreadRequest {
+  string note_id = 1;
+}
+
+message UnmuteThreadResponse {}
+
+message HideRenotesFromRequest {
+  string user_id = 1;
+}
+
+message HideRenotesFromResponse {}
+
+message ShowRenotesFromRequest {
+  string user_id = 1;
+}
+
+message ShowRenotesFromResponse {}
 
 // ───────────────────────────── Stories ─────────────────────────────
 
@@ -868,7 +2122,26 @@ message NotesEvent {
     StoryReaction story_reaction = 6;
     // To the owner: someone new watched their story.
     StoryViewCount story_viewed = 7;
+    // Topic: someone voted in the note's poll (at most one push every few
+    // seconds per poll), or it closed. What a reader may see of the counts
+    // differs: read the note again.
+    PollTally poll_updated = 8;
+    // Topic: the note was edited. Read it again.
+    NoteEdited note_edited = 9;
   }
+}
+
+message PollTally {
+  string note_id = 1;
+  // People who voted, only when everyone may see it (results always
+  // visible, or the poll closed); 0 otherwise.
+  int64 voter_count = 2;
+  bool closed = 3;
+}
+
+message NoteEdited {
+  string note_id = 1;
+  google.protobuf.Timestamp edited_at = 2;
 }
 
 message NoteLinkPreview {

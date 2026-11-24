@@ -1,7 +1,28 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { notes } from "@tokuly/api";
 import type { ServerFrame } from "@tokuly/realtime";
-import { markNoteDeleted, notesKeys, patchNote, type TimelineData, withCounters } from "./api";
+import {
+  markNoteDeleted,
+  noteClient,
+  notesKeys,
+  patchNote,
+  type TimelineData,
+  withCounters,
+} from "./api";
+
+/** Puts a note as the server shows it now into every cached list (keeping its counters, which move on their own). */
+export async function refreshNote(queryClient: QueryClient, noteId: string): Promise<void> {
+  try {
+    const fresh = (await noteClient().getNote({ noteId })).note;
+    if (fresh)
+      patchNote(queryClient, noteId, (note) => ({
+        ...fresh,
+        counters: note.counters ?? fresh.counters,
+      }));
+  } catch {
+    // Gone or hidden meanwhile: the other pushes say so.
+  }
+}
 
 /**
  * "Something new may belong on top of a timeline": timelines on screen
@@ -65,6 +86,11 @@ export function applyNotesFrame(queryClient: QueryClient, frame: ServerFrame): v
     }
     case "noteDeletedId":
       markNoteDeleted(event.value);
+      break;
+    case "pollUpdated":
+    case "noteEdited":
+      // What a reader may see of a poll, or the new words: read the note again.
+      void refreshNote(queryClient, event.value.noteId);
       break;
     case "linkPreviewResolved": {
       const { noteId, linkPreview } = event.value;

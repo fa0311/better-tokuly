@@ -111,7 +111,8 @@ Durable consumer `feed`.
 | `shorts.short.deleted` | `{ id, … }` | the same for the short (`SUBJECT_TYPE_SHORT`) |
 | `live.stream.deleted` | `{ stream_id, … }` | the same for the stream (`SUBJECT_TYPE_LIVE_STREAM`) |
 | `stamp.pack.deleted` | `{ pack_id, … }` | the same for the pack (`SUBJECT_TYPE_STAMP_PACK`) |
-| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, changed_at, … }` | the author's entries about the note get the note's audience: public 1 → public, friends 4 → friends, anything else → private. Ordered by `changed_at` (taken while the note was locked), not by the event's time |
+| `notes.note.edited` | `{ note_id, author_id, version, text, content_warning }` | the author's `note.posted` / `note.replied` entries about the note get the new excerpt; an entry keeps the newest `version` it was given (`data.edit_version`), so late or repeated events change nothing |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, changed_at, … }` | the author's entries about the note get the note's audience: public 1 → public, friends 4 and followers 6 → friends (friends are in both), anything else → private. Ordered by `changed_at` (taken while the note was locked), not by the event's time |
 | `notes.story.expired` | `{ story_id, owner_id }` | the owner's entries about the story become private |
 | `video.video.unpublished` | `VideoEvent` `{ video_id, owner_id, … }` | back to draft: the owner's entries about the video become private |
 | `video.video.published`, `video.video.visibility_changed` | `VideoEvent` `{ video_id, owner_id, visibility, … }` | the owner's entries are for friends again while the video is public (1) or for friends (4), private otherwise (the video domain announces every video to friends only) |

@@ -8,7 +8,7 @@
  */
 
 /** The longest note, in user-perceived characters. */
-export const NOTE_MAX_CHARS = 300;
+export const NOTE_MAX_CHARS = 3000;
 const MAX_HASHTAG_CHARS = 50;
 
 const segmenter =

@@ -103,7 +103,7 @@ async fn set_stories(
 }
 
 impl Notes {
-    /// Highlights matching `scope` (a condition on `h` using `$4`) that hold
+    /// Highlights matching `scope` (a condition on `h` using `$7`) that hold
     /// at least one story the viewer may see, in profile order.
     async fn highlight_views(&self, viewer: &Viewer, scope: &str, about: Uuid) -> AppResult<Vec<Highlight>> {
         let sql = format!(
@@ -140,7 +140,7 @@ impl Notes {
     /// The highlight as the viewer sees it, or `HIGHLIGHT_NOT_FOUND` when
     /// it does not exist or shows them nothing.
     async fn require_highlight(&self, viewer: &Viewer, highlight_id: Uuid) -> AppResult<Highlight> {
-        self.highlight_views(viewer, "h.id = $4", highlight_id)
+        self.highlight_views(viewer, "h.id = $7", highlight_id)
             .await?
             .pop()
             .or_not_found("HIGHLIGHT_NOT_FOUND", "highlight not found")
@@ -148,7 +148,7 @@ impl Notes {
 
     /// The highlights on a user's profile that the viewer can see into.
     pub(crate) async fn list_highlights(&self, viewer: &Viewer, user_id: Uuid) -> AppResult<Vec<Highlight>> {
-        self.highlight_views(viewer, "h.owner_id = $4", user_id).await
+        self.highlight_views(viewer, "h.owner_id = $7", user_id).await
     }
 
     /// One highlight and the stories in it that the viewer may see, in playing order.
@@ -160,7 +160,7 @@ impl Notes {
         let highlight = self.require_highlight(viewer, highlight_id).await?;
         let sql = format!(
             "SELECT {STORY_COLUMNS} FROM story_highlight_items i JOIN stories s ON s.id = i.story_id
-             WHERE i.highlight_id = $4 AND {}
+             WHERE i.highlight_id = $7 AND {}
              ORDER BY i.position, s.id",
             sees_story("s")
         );

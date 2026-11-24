@@ -8,8 +8,10 @@ use tokuly_proto::notes::*;
 use unicode_normalization::UnicodeNormalization as _;
 
 use crate::{
-    Notes, hashtags,
-    posting::{NewNote, requested_visibility},
+    Notes,
+    editing::Edit,
+    hashtags,
+    posting::{NewNote, requested_audience},
     reactions::{MAX_NOTES_PER_CALL, Reaction},
     rules::{self, RULES_VERSION},
     timelines::MAX_PAGE,
@@ -22,6 +24,16 @@ const HASHTAG_SEARCHES_PER_MINUTE: u32 = 120;
 /// `(default, maximum)` sizes of the hashtag lists.
 const TRENDING_LIMITS: (i32, i32) = (10, 50);
 const COMPLETION_LIMITS: (i32, i32) = (10, 30);
+
+/// The language of a trend ranking: all notes, `ja` or `en`.
+fn trend_language(language: &str) -> AppResult<&'static str> {
+    match language {
+        "" => Ok(""),
+        "ja" => Ok("ja"),
+        "en" => Ok("en"),
+        _ => Err(AppError::invalid("INVALID_LANGUAGE", "trends exist for ja and en")),
+    }
+}
 
 fn clamp_limit(requested: i32, (default, max): (i32, i32)) -> i64 {
     i64::from(if requested <= 0 { default } else { requested.min(max) })
@@ -104,10 +116,15 @@ impl NoteService for Notes {
                 asset_ids: parse_ids(&request.asset_ids)?,
                 stamp_id: parse_opt_id(&request.stamp_id)?,
                 place: request.place.as_option().cloned(),
-                visibility: requested_visibility(request.visibility)?,
+                audience: requested_audience(request.visibility, &request.circle_id, &request.direct_user_ids)?,
                 reply_to_id: parse_opt_id(&request.reply_to_id)?,
                 quote_of_id: parse_opt_id(&request.quote_of_id)?,
                 content_warning: request.content_warning,
+                channel_id: parse_opt_id(&request.channel_id)?,
+                content_warning_text: request.content_warning_text,
+                attachment_details: request.attachment_details,
+                poll: request.poll.into_option(),
+                draft_id: None,
             };
             let note = self.create_note_once(user_id, &request.idempotency_key, input).await?;
             ok(CreateNoteResponse { note: self.hydrate_one(&viewer, &note).await?.into(), ..Default::default() })
@@ -134,9 +151,10 @@ impl NoteService for Notes {
     ) -> ServiceResult<SetNoteVisibilityResponse> {
         handle(async {
             let (viewer, user_id) = self.signed_in(&ctx).await?;
-            let wanted = requested_visibility(request.visibility)?
+            let request = request.to_owned_message();
+            let wanted = requested_audience(request.visibility, &request.circle_id, &request.direct_user_ids)?
                 .ok_or_else(|| AppError::invalid("INVALID_VISIBILITY", "say who may see the note"))?;
-            let note = self.set_visibility(user_id, parse_id(request.note_id)?, wanted).await?;
+            let note = self.set_visibility(user_id, parse_id(&request.note_id)?, wanted).await?;
             ok(SetNoteVisibilityResponse { note: self.hydrate_one(&viewer, &note).await?.into(), ..Default::default() })
         })
         .await
@@ -157,10 +175,10 @@ impl NoteService for Notes {
     async fn unpin_note(
         &self,
         ctx: RequestContext,
-        _request: ServiceRequest<'_, UnpinNoteRequest>,
+        request: ServiceRequest<'_, UnpinNoteRequest>,
     ) -> ServiceResult<UnpinNoteResponse> {
         handle(async {
-            self.unpin_note(ctx.user_id()?).await?;
+            self.unpin_note(ctx.user_id()?, parse_id(request.note_id)?).await?;
             ok(UnpinNoteResponse::default())
         })
         .await
@@ -331,6 +349,20 @@ impl NoteService for Notes {
         .await
     }
 
+    async fn get_following_timeline(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetFollowingTimelineRequest>,
+    ) -> ServiceResult<GetFollowingTimelineResponse> {
+        handle(async {
+            let (viewer, user_id) = self.signed_in(&ctx).await?;
+            let page = Page::from_view(request.page.as_option(), MAX_PAGE);
+            let (entries, info) = self.following_timeline(&viewer, user_id, &page).await?;
+            ok(GetFollowingTimelineResponse { entries, page: info.into(), ..Default::default() })
+        })
+        .await
+    }
+
     async fn get_global_timeline(
         &self,
         ctx: RequestContext,
@@ -356,7 +388,7 @@ impl NoteService for Notes {
             let filter = request.filter.as_known().unwrap_or_default();
             let (entries, info, pinned) =
                 self.user_timeline(&viewer, parse_id(request.user_id)?, filter, &page).await?;
-            ok(GetUserTimelineResponse { entries, page: info.into(), pinned_note: pinned.into(), ..Default::default() })
+            ok(GetUserTimelineResponse { entries, page: info.into(), pinned_notes: pinned, ..Default::default() })
         })
         .await
     }
@@ -396,8 +428,12 @@ impl NoteService for Notes {
     ) -> ServiceResult<ListTrendingHashtagsResponse> {
         handle(async {
             ctx.maybe_user_id()?;
-            let (hashtags, computed_at) =
-                hashtags::trending(&self.core, clamp_limit(request.limit, TRENDING_LIMITS)).await?;
+            let (hashtags, computed_at) = hashtags::trending(
+                &self.core,
+                trend_language(request.language)?,
+                clamp_limit(request.limit, TRENDING_LIMITS),
+            )
+            .await?;
             ok(ListTrendingHashtagsResponse { hashtags, computed_at: opt_ts(computed_at), ..Default::default() })
         })
         .await
@@ -433,6 +469,88 @@ impl NoteService for Notes {
                 Vec::new()
             };
             ok(SearchHashtagsResponse { hashtags, ..Default::default() })
+        })
+        .await
+    }
+
+    async fn edit_note(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, EditNoteRequest>,
+    ) -> ServiceResult<EditNoteResponse> {
+        handle(async {
+            let (viewer, user_id) = self.signed_in(&ctx).await?;
+            let request = request.to_owned_message();
+            let edit = Edit {
+                text: request.text,
+                content_warning: request.content_warning,
+                content_warning_text: request.content_warning_text,
+                attachment_details: request.attachment_details,
+            };
+            let note = self.edit_note(user_id, parse_id(&request.note_id)?, edit).await?;
+            ok(EditNoteResponse { note: self.hydrate_one(&viewer, &note).await?.into(), ..Default::default() })
+        })
+        .await
+    }
+
+    async fn list_note_edits(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListNoteEditsRequest>,
+    ) -> ServiceResult<ListNoteEditsResponse> {
+        handle(async {
+            let viewer = self.viewer(&ctx).await?;
+            let edits = self.note_edits(&viewer, parse_id(request.note_id)?).await?;
+            ok(ListNoteEditsResponse { edits, ..Default::default() })
+        })
+        .await
+    }
+
+    async fn redraft_note(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, RedraftNoteRequest>,
+    ) -> ServiceResult<RedraftNoteResponse> {
+        handle(async {
+            let row = self.redraft(ctx.user_id()?, parse_id(request.note_id)?).await?;
+            let draft = self.drafts_to_proto(std::slice::from_ref(&row)).await?.pop();
+            ok(RedraftNoteResponse { draft: draft.into(), ..Default::default() })
+        })
+        .await
+    }
+
+    async fn vote_poll(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, VotePollRequest>,
+    ) -> ServiceResult<VotePollResponse> {
+        handle(async {
+            let request = request.to_owned_message();
+            let poll = self.vote(ctx.user_id()?, parse_id(&request.note_id)?, &request.choices).await?;
+            ok(VotePollResponse { poll: poll.into(), ..Default::default() })
+        })
+        .await
+    }
+
+    async fn get_note_analytics(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, GetNoteAnalyticsRequest>,
+    ) -> ServiceResult<GetNoteAnalyticsResponse> {
+        handle(async { ok(self.note_analytics(ctx.user_id()?, parse_id(request.note_id)?).await?) }).await
+    }
+
+    async fn list_trending_notes(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListTrendingNotesRequest>,
+    ) -> ServiceResult<ListTrendingNotesResponse> {
+        handle(async {
+            let viewer = self.viewer(&ctx).await?;
+            let language = trend_language(request.language)?;
+            let (notes, computed_at) =
+                self.trending_notes(&viewer, language, clamp_limit(request.limit, TRENDING_LIMITS)).await?;
+            ok(ListTrendingNotesResponse { notes, computed_at: opt_ts(computed_at), ..Default::default() })
         })
         .await
     }
