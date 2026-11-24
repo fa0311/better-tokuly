@@ -312,7 +312,10 @@ impl<'g> Session<'g> {
     }
 
     /// Answers a client frame: `Ack` or `Error` echoing its ID. Frames sent
-    /// with ID 0 asked for no answer and get none.
+    /// with ID 0 asked for no answer and get none. A `Subscribe` is answered
+    /// only once it is in effect (its routes joined, the bus subscriptions
+    /// in place) or refused as a whole: a client that reads a snapshot after
+    /// the `Ack` misses no frame of those topics.
     fn answer(&self, id: u64, result: Result<(), Rejection>) {
         if result.is_err() {
             self.gateway.counters.frames_rejected.incr();
@@ -390,14 +393,16 @@ impl<'g> Session<'g> {
             Err(rejection) => return Some(self.fatal(id, rejection)),
         };
         refused.extend(forbidden.into_iter().map(|topic| (topic, REVOKED_FORBIDDEN)));
-        self.welcomed = true;
-        self.set_foreground(hello.foreground);
-        self.client.reply(frames::welcome(id, self.welcome()));
-        // Access to these ended while the Hello was being handled.
+        // The refused topics are told before `Welcome`, so that `Welcome`
+        // answers the rest: every topic of the Hello that was not refused
+        // first is subscribed when it arrives.
         for (topic, reason) in refused {
             self.gateway.counters.topics_revoked.incr();
             self.client.reply(frames::unsubscribed(&topic, reason));
         }
+        self.welcomed = true;
+        self.set_foreground(hello.foreground);
+        self.client.reply(frames::welcome(id, self.welcome()));
         tracing::debug!(
             connection = %self.client.id,
             user = subscriber.map(|user_id| user_id.to_string()),

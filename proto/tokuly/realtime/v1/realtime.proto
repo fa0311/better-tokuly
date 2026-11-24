@@ -76,7 +76,10 @@ message Hello {
   string device_id = 4;
   // App is visible to the user right now.
   bool foreground = 5;
-  // Topics to subscribe to right away.
+  // Topics to subscribe to right away. A topic the guard refuses does not
+  // refuse the Hello: it is announced with `Unsubscribed` before `Welcome`,
+  // so every topic not announced that way is subscribed once `Welcome`
+  // arrives (a snapshot read after it misses no frame of those topics).
   repeated string topics = 6;
 }
 
@@ -95,6 +98,18 @@ message Ping {
 //   community:{community_id}    new threads and replies of a community
 //   study:{room_id}             the shared timer and presence of a study room
 //   emoji:catalog               the custom emoji catalogue changed
+//
+// Sent with a non-zero `ClientFrame.id`, a Subscribe is answered once it is
+// in effect: `Ack` when every topic is subscribed (frames published from then
+// on reach the connection, so a client that reads a snapshot after the `Ack`
+// misses nothing), or `Error` when the request was refused as a whole and
+// nothing of it was subscribed. The refusal says why in `Error.message`:
+// `TOPIC_FORBIDDEN` (`permission_denied`) when a topic's guard refused,
+// the same reason `Unsubscribed` gives when access ends later;
+// `TOPIC_CHECK_FAILED` or `BUS_UNAVAILABLE` (`unavailable`) when it could
+// not be decided right now; `TOPIC_INVALID`, `TOO_MANY_TOPICS`,
+// `RATE_LIMITED` for a request that cannot be served. Subscribing to a topic
+// the connection already follows is answered with `Ack` right away.
 message Subscribe {
   repeated string topics = 1;
 }
@@ -203,6 +218,8 @@ message Pong {
   google.protobuf.Timestamp server_time = 2;
 }
 
+// The frame named in `reply_to` was carried out (for a `Subscribe`: its
+// topics are subscribed).
 message Ack {}
 
 message Error {
