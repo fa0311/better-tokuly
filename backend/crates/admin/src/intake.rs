@@ -85,6 +85,8 @@ impl Admin {
             // the transaction undoes our increment of the report count.
             return Ok(());
         }
+        // From now on an unsend or an edit does not take the uploads with it.
+        self.hold_evidence(&mut tx, case_id, report.subject_type, report.subject_id).await?;
         tx.commit().await?;
         Ok(())
     }

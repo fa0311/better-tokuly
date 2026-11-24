@@ -11,13 +11,16 @@ use sqlx::{PgConnection, Postgres, QueryBuilder};
 use tokuly_core::prelude::*;
 use tokuly_proto::{
     admin::{AssigneeFilter, CaseNote, CaseReport, CaseSort, CaseStatus, ModerationCase, ReportCategory, UserModerationSummary},
-    common::{SubjectRef, UserSummary},
+    common::{SubjectRef, SubjectType, UserSummary},
 };
 
 use crate::{Admin, audit::Audit, staff::Staff};
 
 pub(crate) const STATUS_OPEN: &str = "open";
 pub(crate) const STATUS_RESOLVED: &str = "resolved";
+
+/// Window of the limit on anonymous authors shown (`moderator_reveals_per_hour`).
+const REVEAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(3600);
 
 macro_rules! case_columns {
     () => {
@@ -40,6 +43,7 @@ pub(crate) struct CaseRow {
     pub subject_title: String,
     pub subject_path: String,
     /// What the reporters received, as kept for moderation (see `intake.rs`).
+    /// Shown like the reports: in an opened case only ([`Admin::opened_case`]).
     pub reported_content: String,
     pub status: String,
     pub report_count: i32,
@@ -60,6 +64,11 @@ impl CaseRow {
         self.status == STATUS_OPEN
     }
 
+    /// Whether the case is about `user_id`: their content, or their account.
+    pub fn is_about(&self, user_id: Uuid) -> bool {
+        self.subject_owner_id == Some(user_id) || (self.subject_type == SubjectType::SUBJECT_TYPE_USER as i32 && self.subject_id == user_id)
+    }
+
     /// The owner as far as a view may name them: a hidden owner only when
     /// the view was asked to (`reveal_hidden`).
     fn shown_owner(&self, reveal_hidden: bool) -> Option<Uuid> {
@@ -72,12 +81,14 @@ impl CaseRow {
 
     pub fn to_proto(&self, people: &HashMap<Uuid, UserSummary>, reveal_hidden: bool) -> ModerationCase {
         let person = |id: Option<Uuid>| id.and_then(|id| people.get(&id).cloned());
+        // Without its author, nothing about the outcome may line up with the
+        // one account sanctioned for it: the day, not the moment, and no reason.
+        let opaque = self.owner_hidden && !reveal_hidden;
         ModerationCase {
             id: self.id.to_string(),
             subject: SubjectRef { r#type: self.subject_type.into(), id: self.subject_id.to_string(), ..Default::default() }.into(),
             subject_title: self.subject_title.clone(),
             subject_path: self.subject_path.clone(),
-            reported_content: self.reported_content.clone(),
             subject_owner: person(self.shown_owner(reveal_hidden)).into(),
             owner_withheld: self.owner_hidden && !reveal_hidden,
             status: if self.is_open() { CaseStatus::CASE_STATUS_OPEN } else { CaseStatus::CASE_STATUS_RESOLVED }.into(),
@@ -89,9 +100,9 @@ impl CaseRow {
             last_reported_at: ts(self.last_reported_at),
             resolution: self.resolution.unwrap_or_default().into(),
             content_removed: self.content_removed,
-            resolution_reason: self.resolution_reason.clone(),
+            resolution_reason: if opaque { String::new() } else { self.resolution_reason.clone() },
             resolved_by: person(self.resolved_by).into(),
-            resolved_at: opt_ts(self.resolved_at),
+            resolved_at: opt_ts(self.resolved_at.map(|at| if opaque { crate::day_of(at) } else { at })),
             ..Default::default()
         }
     }
@@ -256,13 +267,30 @@ impl Admin {
         let involved = row.owner_hidden && self.is_party_to_hidden(staff.id, row.subject_type, row.subject_id).await?;
         let reveal = !involved;
         if row.owner_hidden && reveal && row.subject_owner_id.is_some() {
-            Audit::by(staff, "case.author_revealed").case(row.id, row.subject_owner_id).record(&self.core.db).await?;
+            self.limit_reveals(staff, row.id).await?;
+            Audit::by(staff, "case.author_revealed").case(row).record(&self.core.db).await?;
         }
         let ids: Vec<Uuid> = row.people(reveal).collect();
         let people = tokuly_identity::summaries(&self.core, &ids).await?;
         let mut case = row.to_proto(&people, reveal);
         case.conflict_of_interest = involved;
+        // What the reporters received travels with the reports: only here,
+        // never in lists, and never in a case about the caller (`GetCase`
+        // does not open those through this).
+        case.reported_content = row.reported_content.clone();
         Ok((case, reveal && row.subject_owner_id.is_some()))
+    }
+
+    /// Caps how many anonymous authors one staff member is shown per hour.
+    /// A case counts once an hour, however often it is opened.
+    async fn limit_reveals(&self, staff: &Staff, case_id: Uuid) -> AppResult<()> {
+        let seen = format!("admin-revealed:{}:{case_id}", staff.id);
+        if self.core.cache.exists(&seen).await? {
+            return Ok(());
+        }
+        self.core.cache.rate_limit(&format!("admin-reveals:{}", staff.id), self.cfg.moderator_reveals_per_hour, REVEAL_WINDOW).await?;
+        self.core.cache.set_nx(&seen, "1", REVEAL_WINDOW).await?;
+        Ok(())
     }
 
     /// One page of a case's reports, newest first.
@@ -307,18 +335,32 @@ impl Admin {
         Ok(rows.into_iter().map(|row| note_to_proto(row, &people)).collect())
     }
 
-    /// An account's moderation record in numbers.
-    pub(crate) async fn moderation_summary(&self, user_id: Uuid) -> AppResult<UserModerationSummary> {
+    /// An account's moderation record in numbers, without the cases and log
+    /// entries about the account's anonymous posts: counted in, the record
+    /// would move the moment such a post is reported or acted on, and say
+    /// whose it is to anyone watching. `revealed` is the one anonymous post a
+    /// `GetCase` has just named the author of, which is counted.
+    pub(crate) async fn moderation_summary(&self, user_id: Uuid, revealed: Option<(i32, Uuid)>) -> AppResult<UserModerationSummary> {
         let (reports_received, reports_filed, open_cases, warnings, content_removals, suspensions): (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
-            "SELECT
-                    (SELECT COALESCE(sum(report_count), 0) FROM moderation_cases WHERE subject_owner_id = $1),
+            "WITH cases AS (
+                      SELECT report_count, status FROM moderation_cases
+                      WHERE subject_owner_id = $1 AND (NOT owner_hidden OR (subject_type = $2 AND subject_id = $3))
+                  ),
+                  actions AS (
+                      SELECT kind FROM moderation_actions
+                      WHERE target_user_id = $1 AND (NOT target_hidden OR (subject_type = $2 AND subject_id = $3))
+                  )
+             SELECT
+                    (SELECT COALESCE(sum(report_count), 0) FROM cases),
                     (SELECT count(*) FROM moderation_reports WHERE reporter_id = $1),
-                    (SELECT count(*) FROM moderation_cases WHERE subject_owner_id = $1 AND status = 'open'),
-                    (SELECT count(*) FROM moderation_actions WHERE target_user_id = $1 AND kind = 3),
-                    (SELECT count(*) FROM moderation_actions WHERE target_user_id = $1 AND kind = 2),
-                    (SELECT count(*) FROM moderation_actions WHERE target_user_id = $1 AND kind IN (4, 5))",
+                    (SELECT count(*) FROM cases WHERE status = 'open'),
+                    (SELECT count(*) FROM actions WHERE kind = 3),
+                    (SELECT count(*) FROM actions WHERE kind = 2),
+                    (SELECT count(*) FROM actions WHERE kind IN (4, 5))",
         )
         .bind(user_id)
+        .bind(revealed.map(|r| r.0))
+        .bind(revealed.map(|r| r.1))
         .fetch_one(&self.core.db)
         .await?;
         Ok(UserModerationSummary {

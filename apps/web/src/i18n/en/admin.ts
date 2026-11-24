@@ -143,6 +143,9 @@ export default {
       ownerHidden: "Not shown to you",
       cannotResolve:
         "You are involved in this post, so you cannot resolve the case. Another moderator will.",
+      ownBody:
+        "This case is about you or something you posted. Who reported it and the internal notes are not shown to you, and you cannot act on the case.",
+      ownCannotResolve: "This case is about you, so you cannot resolve it. Another moderator will.",
     },
     autoClosed: "Closed automatically",
     reportCount: "Reports: {{count}}",

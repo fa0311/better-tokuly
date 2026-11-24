@@ -55,19 +55,66 @@ community: wrote in that thread, is mentioned or answered by its author
 there, reported it to the community's staff, or wrote the post). A case
 marked hidden on a server without a lookup is withheld from everyone.
 
-The moderation log follows the same rule. An entry about an anonymous post
-is marked (`moderation_actions.target_hidden`). `ListModerationActions` and
-the actions in `GetCase` show it to an involved moderator without the account
-it hit (`target_withheld`); in the history of one account
-(`ListModerationActions` by `user_id`, the staff view `GetUser`) such a
-moderator does not get the entry at all, because there the entry itself would
-say whose post it was. A moderator who is not involved reads the log as it
-is. The answers to `ResolveCase` and `TakedownContent` never name the target
-of such an entry.
+`GetCase` is the one place a hidden author is named; everywhere else an
+account and an anonymous post meet, for every reader:
 
-What this does not cover: the numbers in an account's moderation record
-(`UserModerationSummary`) count these cases and sanctions for every reader,
-and the audit log (admins only) names the owner of every case it mentions.
+- The moderation log marks entries about such a post
+  (`moderation_actions.target_hidden`). `ListModerationActions`, the actions
+  in `GetCase` (unless that view named the author) and the answers to
+  changes show them with `target_withheld`, without the account, and without
+  anything that could be matched against the account's own record: no
+  `expires_at`, `reason` or `note`, and `created_at` cut to the day (UTC).
+  In the history of one account (`ListModerationActions` by `user_id`, the
+  staff view `GetUser`) they do not come at all. A dismissal records no
+  target.
+- A case shown without its author has no `resolution_reason`, and
+  `resolved_at` cut to the day.
+- The moderation record (`UserModerationSummary`) leaves the account's
+  anonymous posts out, except, in `GetCase`, the one whose author it names.
+- A suspension imposed for such a post shows no `case_id`, like a direct
+  one; its reason stays, so it does not stand out among the others.
+- The audit log marks entries about such a post
+  (`admin_audit_log.target_hidden`, with the post's subject) and shows them
+  with `target_withheld`, without the account, without a reason, cut to the
+  day, and with snapshots lacking `suspension_id`, `replaced_suspension_id`,
+  `expires_at` and `note`; filtered by that account, it leaves them out.
+
+What stays visible: that an account is suspended, and since when. On a
+quiet day, the day a case about an anonymous post was resolved with a
+suspension can still be compared with the accounts suspended that day.
+
+**Unmasking is limited.** `GetCase` names at most
+`TOKULY_MODERATOR_REVEALS_PER_HOUR` hidden authors per staff member and hour
+(admins included; a case opened again within the hour counts once); past
+that, such a case answers `RATE_LIMITED`.
+
+## Cases about staff
+
+A case about a moderator's own content or about their account is not
+theirs: `GetCase` gives them the case with `conflict_of_interest` and the
+actions taken, but no reports (who reported them, what they wrote), notes or
+owner record; `ListCaseReports`, `AssignCase`, `AddCaseNote`, `ReopenCase`
+and `ResolveCase` answer `CONFLICT_OF_INTEREST`. Moderators cannot sanction
+staff or change a staff account's verified badge (their own included):
+admins do (`TARGET_IS_STAFF`).
+
+## Evidence
+
+The uploads of reported content belong to the domain that keeps it, and
+media collects an upload nothing holds. So that an unsend, an edit or a
+deletion by the owner does not take the evidence with it, every case holds
+its subject's uploads under the media holder `admin:case:<case id>` from the
+moment a report files into it (on the transaction that files the report)
+until `TOKULY_MODERATION_EVIDENCE_DAYS` after it is resolved; a reopened
+case keeps them. The holding is done by a lookup the server hands in
+(`Admin::set_report_evidence`, trait `tokuly_admin::ReportEvidence`), since
+admin may not depend on media or the content domains. The server's bridge
+holds the uploads of chat messages (`tokuly_chat::hold_message_media`), the
+content whose sender can take its uploads back; other domains keep theirs
+until they delete the content. What a message no longer shows when the
+report is filed (unsent before the report reached the queue) cannot be held
+any more. A takedown still deletes the uploads (media drops the holds of what it
+deletes on a domain's authority).
 
 Everything a resolution does (case update, events, notifications, both logs)
 commits in one transaction. The account lock itself is committed by identity
@@ -98,9 +145,9 @@ Durable consumer `admin` (`tokuly_admin::Admin::handle_event`).
 
 | Topic | Payload | Effect |
 |---|---|---|
-| `engagement.report.created` | `{ report_id, reporter_id, subject_type, subject_id, subject_owner_id, category, text, subject_title, subject_path, reported_content }` (`tokuly_admin::events::ReportCreated`) | Files the report into the subject's open case, opening one if needed. `reported_content` (every version of content edited or withdrawn since; `subject_title` is only what the reporter could still see) is kept on the case from the latest report that carried it, up to 4000 characters, and cleared with the title when the owner's account is erased. Idempotent on `report_id`. `category` is one of `SPAM`, `HARASSMENT`, `HATE`, `SEXUAL`, `VIOLENCE`, `SELF_HARM`, `ILLEGAL`, `IMPERSONATION`, `COPYRIGHT`, `OTHER`; anything else is stored as `OTHER`. Reporter or owner IDs that match no live account are stored as unknown. |
+| `engagement.report.created` | `{ report_id, reporter_id, subject_type, subject_id, subject_owner_id, category, text, subject_title, subject_path, reported_content }` (`tokuly_admin::events::ReportCreated`) | Files the report into the subject's open case, opening one if needed. `reported_content` (every version of content edited or withdrawn since; `subject_title` is only what the reporter could still see) is kept on the case from the latest report that carried it, up to 4000 characters, and cleared with the title when the owner's account is erased. It is shown like the reports: in `GetCase` only, and not in a case about the caller. Idempotent on `report_id`. `category` is one of `SPAM`, `HARASSMENT`, `HATE`, `SEXUAL`, `VIOLENCE`, `SELF_HARM`, `ILLEGAL`, `IMPERSONATION`, `COPYRIGHT`, `OTHER`; anything else is stored as `OTHER`. Reporter or owner IDs that match no live account are stored as unknown. |
 | `identity.user.created`, `identity.user.email_verified` | not read | Grants `admin` to the account whose verified address is `TOKULY_ADMIN_USER`, if it now exists and the bootstrap has not happened yet. |
-| `identity.user.deleted` | `{ user_id }` | Reports they filed lose reporter and text; cases about them or their content lose owner, title and path, and open ones are closed ("account deleted"); the moderation log and the audit log keep their rows with the user reference nulled (as target, moderator or actor); their suspension rows are deleted; they are removed from feature-flag allow-lists. |
+| `identity.user.deleted` | `{ user_id }` | Reports they filed lose reporter and text; cases about them or their content lose owner, title and path, and open ones are closed ("account deleted"); the moderation log keeps its rows with the user reference nulled (as target or moderator); the audit log nulls them as the affected account but keeps them as the actor (see "Privacy"); their suspension rows are deleted; they are removed from feature-flag allow-lists. |
 
 ## Notification kinds
 
@@ -136,16 +183,30 @@ by mail (`core.mail`, in the account's locale; sent after commit, best effort):
 |---|---|---|
 | Event consumer | durable `admin` | topics above |
 | Announcement broadcast | job `admin.announcement.broadcast` (`tokuly_admin::announcements::BroadcastJob { announcement_id }`) | Notifies active users in chunks of `TOKULY_ANNOUNCEMENT_NOTIFY_CHUNK`, one transaction per chunk; the cursor is stored on the announcement in that transaction, so retries and duplicate jobs resume instead of repeating. One at a time per process, lease 120 s, 5 attempts. A broadcast still unfinished an hour after it was queued is queued again. |
-| Maintenance timer | every 60 s (first pass at start) | Lifts suspensions whose `expires_at` has passed (`Admin::expire_due_suspensions`); queues the broadcast of announcements that became visible (`Admin::queue_due_broadcasts`) — this is what fires scheduled announcements. Safe with several workers. |
+| Maintenance timer | every 60 s (first pass at start) | Lifts suspensions whose `expires_at` has passed (`Admin::expire_due_suspensions`); lets go of the evidence of cases resolved more than `TOKULY_MODERATION_EVIDENCE_DAYS` ago (`Admin::release_due_evidence`); queues the broadcast of announcements that became visible (`Admin::queue_due_broadcasts`) — this is what fires scheduled announcements. Safe with several workers. |
 
 `PublishAnnouncement` also queues the broadcast directly when the
 announcement is visible at once, so API-only processes need no timer.
+
+## Privacy
+
+The audit log is the record of what staff did with their powers, kept as a
+legitimate interest of the service: when a staff account is erased, its
+entries keep their actor (the account is anonymized, not removed, so the
+reference holds and shows the erased placeholder) and their before/after
+snapshots as they are. Only references to the erased person as the affected
+account are cut. Entries about anonymous posts never name their author to
+readers (see above).
 
 ## Audit log
 
 Every state change made through this API writes one `admin_audit_log` row in
 the same transaction (identity-owned changes — roles, badge, sessions — right
-after identity committed). `SystemService.ListAuditLog` filters by an exact
+after identity committed). Nothing in the API changes or deletes a row; only
+the erasure of an account nulls its references. Entries about an anonymous
+post are shown to an involved admin without its author (see above).
+Role changes take turns and need the caller to still be an admin at that
+moment, so two admins demoting each other leave one of them. `SystemService.ListAuditLog` filters by an exact
 action or by a prefix ending in a dot (`user.`).
 
 | Action | Target | before / after |
@@ -175,6 +236,8 @@ action or by a prefix ending in a dot (`user.`).
 | `TOKULY_ANNOUNCEMENT_NOTIFY_ACTIVE_DAYS` | `30` | A broadcast reaches accounts with a signed-in device active within this many days. |
 | `TOKULY_ANNOUNCEMENT_NOTIFY_CHUNK` | `500` | Users notified per transaction during a broadcast (1–5000). |
 | `TOKULY_MODERATOR_SANCTIONS_PER_HOUR` | `120` | Warnings, suspensions, bans and takedowns one moderator may issue per hour (admins are not limited). |
+| `TOKULY_MODERATOR_REVEALS_PER_HOUR` | `30` | Hidden authors of anonymous posts one staff member (admins included) may be shown per hour, counted once per case. |
+| `TOKULY_MODERATION_EVIDENCE_DAYS` | `90` | Days the uploads of reported content stay held for a case after it is resolved. |
 
 Other rate limits (fixed): the public announcement RPCs allow 240 requests a
 minute per client address; `GetServerStats` 30 a minute per admin.
@@ -206,6 +269,7 @@ let router = admin.register(router);
 admin.spawn_workers();                                                 // worker processes
 admin.grant_bootstrap_admin().await?;                                  // at startup: `TOKULY_ADMIN_USER`, if that verified address exists already
 admin.set_hidden_owners(Arc<dyn tokuly_admin::HiddenOwners>);          // bridge: owners of content that is reported without one, and who is involved in it
+admin.set_report_evidence(Arc<dyn tokuly_admin::ReportEvidence>);      // bridge: hold / release the uploads of reported content (holder admin:case:<id>)
 ```
 
 `grant_bootstrap_admin` returns `true` when it granted the role, `false`

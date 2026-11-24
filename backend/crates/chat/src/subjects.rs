@@ -19,6 +19,26 @@ use crate::{
 /// Owner reported for messages nobody sent (system messages).
 const NO_OWNER: Uuid = Uuid::nil();
 
+/// Holds the uploads a message shows under `holder`, on the caller's
+/// transaction, so they outlive the message being unsent or deleted by its
+/// sender: the moderation queue keeps what was reported
+/// (`tokuly_admin::ReportEvidence`). Returns how many were held. A message
+/// that shows none, is gone already, or whose uploads were taken down holds
+/// nothing.
+pub async fn hold_message_media(conn: &mut sqlx::PgConnection, message_id: Uuid, holder: &str) -> AppResult<usize> {
+    let assets: Vec<Uuid> =
+        sqlx::query_scalar("SELECT asset_id FROM chat_message_assets WHERE message_id = $1").bind(message_id).fetch_all(&mut *conn).await?;
+    let mut held = 0;
+    for asset_id in assets {
+        match tokuly_media::assets::attach(&mut *conn, asset_id, holder).await {
+            Ok(()) => held += 1,
+            Err(e) if e.is_not_found() => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(held)
+}
+
 /// Registers the chat subject resolver and data exporter.
 pub(crate) fn register(core: &Core) {
     core.subjects.register(SubjectType::SUBJECT_TYPE_CHAT_MESSAGE, Arc::new(MessageSubjects { core: core.clone() }));

@@ -930,3 +930,35 @@ async fn deleting_a_video_removes_everything_that_hangs_off_it() {
         ctx.call(PLAYLISTS, "ListMyPlaylists", Some(&bob), &ListMyPlaylistsRequest::default()).await.unwrap();
     assert!(lists.playlists.iter().all(|playlist| playlist.item_count == 0));
 }
+
+#[tokio::test]
+async fn a_published_video_that_changes_visibility_says_so() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let channel = ctx.channel(&alice, "ch").await;
+    let video = ctx.published(&alice, &channel, "みんなへ", Visibility::VISIBILITY_FRIENDS).await;
+    let video_id = card(&video).id.clone();
+    let change = |visibility: Visibility| UpdateVideoRequest {
+        video_id: video_id.clone(),
+        visibility: Some(visibility.into()),
+        ..Default::default()
+    };
+    update(&ctx, &alice, &change(Visibility::VISIBILITY_PRIVATE)).await;
+    update(&ctx, &alice, &change(Visibility::VISIBILITY_PRIVATE)).await; // no change
+    update(
+        &ctx,
+        &alice,
+        &UpdateVideoRequest { video_id: video_id.clone(), title: Some("t".into()), ..Default::default() },
+    )
+    .await;
+    let request = PublishVideoRequest {
+        video_id: video_id.clone(),
+        visibility: Some(Visibility::VISIBILITY_PUBLIC.into()),
+        ..Default::default()
+    };
+    let _: PublishVideoResponse = ctx.call(VIDEOS, "PublishVideo", Some(&alice), &request).await.unwrap();
+    let events = ctx.app.events_by("video.video.visibility_changed", alice.id).await;
+    let visibilities: Vec<i64> = events.iter().map(|event| event.data["visibility"].as_i64().unwrap()).collect();
+    assert_eq!(visibilities, vec![5, 1], "once per change of a published video's visibility");
+    assert_eq!(events[0].data["video_id"], serde_json::json!(video_id));
+}

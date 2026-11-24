@@ -274,6 +274,63 @@ async fn moderators_cannot_judge_themselves_or_sanction_staff() {
 }
 
 #[tokio::test]
+async fn a_moderator_is_never_shown_who_reported_them() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let colleague = app.user_with_roles("colleague", &["moderator"]).await;
+    let reporter = app.user("rep").await;
+    let conflict = |result: Result<serde_json::Value, tokuly_testkit::RpcError>, what: &str| {
+        let error = result.expect_err(what);
+        assert_eq!((error.code.as_str(), error.reason.as_str()), ("permission_denied", "CONFLICT_OF_INTEREST"), "{what}");
+    };
+
+    // A report about the moderator's note, and one about the account itself.
+    let about_note = open_case(&app, &admin, &colleague, &reporter, &moderator).await;
+    let account = (SubjectType::SUBJECT_TYPE_USER, moderator.id);
+    admin.handle_event(report_event(reporter.id, account, moderator.id, "HARASSMENT", "しつこく絡まれています")).await.unwrap();
+    let about_account =
+        case_of_owner(&app, &colleague, moderator.id).await.into_iter().find(|c| c.subject.id == moderator.id.to_string()).expect("account case");
+    for case in [&about_note, &about_account] {
+        let _: AddCaseNoteResponse = app
+            .call(&format!("{MODERATION}/AddCaseNote"), Some(&colleague), &AddCaseNoteRequest { case_id: case.id.clone(), body: "要確認".into(), ..Default::default() })
+            .await
+            .unwrap();
+
+        // The colleague sees the reports and notes...
+        let seen = get_case(&app, &colleague, &case.id).await;
+        assert!(!seen.moderation_case.conflict_of_interest && !seen.moderation_case.about_you);
+        assert_eq!((seen.reports.len(), seen.notes.len()), (1, 1));
+        assert_eq!(seen.reports[0].reporter.id, reporter.id.to_string());
+
+        // ...the moderator the case is about sees that it exists, not who reported it or what staff noted.
+        let own = get_case(&app, &moderator, &case.id).await;
+        assert!(own.moderation_case.conflict_of_interest && own.moderation_case.about_you);
+        assert!(own.reports.is_empty() && own.notes.is_empty() && own.owner_record.is_unset());
+        let case_id = case.id.clone();
+        conflict(
+            app.call(&format!("{MODERATION}/ListCaseReports"), Some(&moderator), &ListCaseReportsRequest { case_id: case_id.clone(), ..Default::default() }).await,
+            "ListCaseReports",
+        );
+        conflict(
+            app.call(&format!("{MODERATION}/AddCaseNote"), Some(&moderator), &AddCaseNoteRequest { case_id: case_id.clone(), body: "誤解です".into(), ..Default::default() })
+                .await,
+            "AddCaseNote",
+        );
+        conflict(
+            app.call(&format!("{MODERATION}/AssignCase"), Some(&moderator), &AssignCaseRequest { case_id: case_id.clone(), ..Default::default() }).await,
+            "AssignCase",
+        );
+
+        // Nor can they reopen it once someone else decided.
+        resolve(&app, &colleague, resolution(case, DISMISS, "")).await.unwrap();
+        conflict(
+            app.call(&format!("{MODERATION}/ReopenCase"), Some(&moderator), &ReopenCaseRequest { case_id, ..Default::default() }).await,
+            "ReopenCase",
+        );
+    }
+}
+
+#[tokio::test]
 async fn account_cases_cannot_remove_content_and_ownerless_cases_cannot_sanction() {
     let (app, admin) = start().await;
     let moderator = app.user_with_roles("mod", &["moderator"]).await;
@@ -459,7 +516,7 @@ async fn the_author_of_an_anonymous_post_is_withheld_from_moderators_who_are_inv
     for staff in [&reporting, &answered] {
         let opened = get_case(&app, staff, &case_id).await;
         let case = opened.moderation_case.as_option().unwrap();
-        assert!(case.owner_withheld && case.conflict_of_interest && case.subject_owner.is_unset(), "{}", staff.handle);
+        assert!(case.owner_withheld && case.conflict_of_interest && !case.about_you && case.subject_owner.is_unset(), "{}", staff.handle);
         assert!(opened.owner_record.is_unset(), "{}", staff.handle);
         for request in [resolution(case, DISMISS, ""), resolution(case, WARN, "x"), resolution(case, REMOVE_CONTENT, "x")] {
             let refused = resolve(&app, staff, request).await.unwrap_err();
@@ -517,11 +574,15 @@ async fn the_author_of_an_anonymous_post_is_withheld_from_moderators_who_are_inv
         assert!(log(staff, of_author.clone()).await.is_empty(), "{}", staff.handle);
         assert!(staff_view(staff).await.is_empty(), "{}", staff.handle);
     }
-    // The moderator who is not involved reads the log as it is.
-    for entries in [log(&neutral, of_case.clone()).await, log(&neutral, of_author.clone()).await, staff_view(&neutral).await] {
-        assert_eq!(entries.len(), 2);
-        assert!(entries.iter().all(|action| action.target_user.id == author.id.to_string() && !action.target_withheld));
-    }
+    // The moderator who is not involved sees whom they hit in the case itself, which is counted and on
+    // record; the log and the account's history do not name the author to them either.
+    let opened = get_case(&app, &neutral, &case_id).await;
+    assert!(opened.actions.iter().all(|action| action.target_user.id == author.id.to_string() && !action.target_withheld));
+    let entries = log(&neutral, of_case.clone()).await;
+    assert_eq!(entries.len(), 2);
+    assert!(entries.iter().all(|action| action.target_user.is_unset() && action.target_withheld));
+    assert!(log(&neutral, of_author.clone()).await.is_empty());
+    assert!(staff_view(&neutral).await.is_empty());
 
     // A sanction that has nothing to do with the anonymous post is in everyone's view of the account.
     let _: WarnUserResponse = app
@@ -533,7 +594,61 @@ async fn the_author_of_an_anonymous_post_is_withheld_from_moderators_who_are_inv
         assert_eq!(seen.len(), 1, "{}", staff.handle);
         assert_eq!((seen[0].reason.as_str(), seen[0].target_user.id.as_str()), ("別件", author.id.to_string().as_str()));
     }
-    assert_eq!(staff_view(&neutral).await.len(), 3);
+    assert_eq!(staff_view(&neutral).await.len(), 1);
+}
+
+#[tokio::test]
+async fn lists_never_name_a_hidden_author_and_a_dismissal_does_not_record_one() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    let neutral = app.user_with_roles("neutral", &["moderator"]).await;
+    let boss = app.user_with_roles("boss", &["admin"]).await;
+    admin.set_hidden_owners(Arc::new(EveryThreadBy { author: author.id }));
+    let reporter = app.user("rep").await;
+    // Three anonymous posts, dismissed without anyone opening them.
+    let mut cases = Vec::new();
+    for _ in 0..3 {
+        let thread = Uuid::now_v7();
+        admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "SPAM", "")).await.unwrap();
+        let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+        let _: ResolveCaseResponse =
+            resolve(&app, &neutral, ResolveCaseRequest { case_id: case_id.to_string(), action: DISMISS.into(), ..Default::default() }).await.unwrap();
+        cases.push(case_id);
+    }
+    // Nothing happened to the author, so nothing names them.
+    let named: i64 = sqlx::query_scalar("SELECT count(*) FROM moderation_actions WHERE case_id = ANY($1) AND target_user_id IS NOT NULL")
+        .bind(&cases)
+        .fetch_one(&app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(named, 0);
+
+    // A warning by case names the author in no list, whoever reads it, and in no history.
+    let thread = Uuid::now_v7();
+    admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "HARASSMENT", "")).await.unwrap();
+    let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+    let case = get_case(&app, &neutral, &case_id.to_string()).await.moderation_case.into_option().unwrap();
+    resolve(&app, &neutral, resolution(&case, WARN, "嫌がらせ")).await.unwrap();
+    for staff in [&neutral, &boss] {
+        let listed: ListModerationActionsResponse =
+            app.call(&format!("{MODERATION}/ListModerationActions"), Some(staff), &ListModerationActionsRequest::default()).await.unwrap();
+        let ours: Vec<&ModerationAction> = listed.actions.iter().filter(|a| a.target_withheld || a.target_user.id == author.id.to_string()).collect();
+        assert!(!ours.is_empty() && ours.iter().all(|a| a.target_user.is_unset()), "{}", staff.handle);
+        let view: GetUserResponse =
+            app.call(&format!("{USERS}/GetUser"), Some(staff), &GetUserRequest { user_id: author.id.to_string(), ..Default::default() }).await.unwrap();
+        assert!(view.recent_actions.is_empty());
+        let record = view.moderation.into_option().unwrap();
+        assert_eq!((record.reports_received, record.warnings), (0, 0));
+    }
+    let audit: ListAuditLogResponse = app.call(&format!("{SYSTEM}/ListAuditLog"), Some(&boss), &ListAuditLogRequest::default()).await.unwrap();
+    assert!(audit.entries.iter().all(|entry| entry.target_user.id != author.id.to_string()));
+    // The one look at the case is the one record of the author being named.
+    let reveals: i64 = sqlx::query_scalar("SELECT count(*) FROM admin_audit_log WHERE action = 'case.author_revealed' AND target_user_id = $1")
+        .bind(author.id)
+        .fetch_one(&app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(reveals, 1);
 }
 
 #[tokio::test]
@@ -666,4 +781,249 @@ async fn takedown_resolves_the_open_case_about_the_subject() {
         .unwrap();
     assert!(again.resolved_case.is_unset());
     assert_eq!(again.action.target_user.id, owner.id.to_string());
+}
+
+#[tokio::test]
+async fn a_moderator_does_not_read_staff_notes_about_themselves() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let colleague = app.user_with_roles("colleague", &["moderator"]).await;
+    let boss = app.user_with_roles("boss", &["admin"]).await;
+    let reporter = app.user("rep").await;
+    let case = open_case(&app, &admin, &colleague, &reporter, &moderator).await;
+    resolve(&app, &boss, ResolveCaseRequest { note: "前にも同じ苦情あり".into(), ..resolution(&case, WARN, "言葉づかい") }).await.unwrap();
+
+    let notes = |actions: &[ModerationAction]| actions.iter().map(|a| a.note.clone()).collect::<Vec<_>>();
+    let by_case = ListModerationActionsRequest { case_id: case.id.clone(), ..Default::default() };
+    let history = GetUserRequest { user_id: moderator.id.to_string(), ..Default::default() };
+    let seen = |staff: &tokuly_testkit::TestUser| {
+        let (app, staff, by_case, history, case_id) = (&app, staff.clone(), by_case.clone(), history.clone(), case.id.clone());
+        async move {
+            let opened = get_case(app, &staff, &case_id).await;
+            let listed: ListModerationActionsResponse = app.call(&format!("{MODERATION}/ListModerationActions"), Some(&staff), &by_case).await.unwrap();
+            let view: GetUserResponse = app.call(&format!("{USERS}/GetUser"), Some(&staff), &history).await.unwrap();
+            [opened.actions, listed.actions, view.recent_actions]
+        }
+    };
+    for actions in seen(&colleague).await {
+        assert_eq!(notes(&actions), vec!["前にも同じ苦情あり".to_owned()]);
+    }
+    for actions in seen(&moderator).await {
+        assert_eq!(actions.len(), 1);
+        assert_eq!((actions[0].reason.as_str(), actions[0].note.as_str()), ("言葉づかい", ""), "the reason is theirs, the note is not");
+    }
+}
+
+/// An anonymous thread by `author` in which `involved` took part, reported by
+/// someone else; returns the case's ID.
+async fn anonymous_case(app: &tokuly_testkit::TestApp, admin: &tokuly_admin::Admin, author: Uuid, involved: Vec<Uuid>) -> String {
+    let thread = Uuid::now_v7();
+    admin.set_hidden_owners(Arc::new(FakeAnonymousPosts { thread_id: thread, author_id: author, involved }));
+    let reporter = app.user("rep").await;
+    admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "HARASSMENT", "ひどい")).await.unwrap();
+    let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+    case_id.to_string()
+}
+
+async fn staff_view_of(app: &tokuly_testkit::TestApp, staff: &tokuly_testkit::TestUser, user_id: Uuid) -> GetUserResponse {
+    app.call(&format!("{USERS}/GetUser"), Some(staff), &GetUserRequest { user_id: user_id.to_string(), ..Default::default() }).await.unwrap()
+}
+
+#[tokio::test]
+async fn an_involved_moderator_cannot_read_a_hidden_author_off_their_moderation_record() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    let involved = app.user_with_roles("involved", &["moderator"]).await;
+    let neutral = app.user_with_roles("neutral", &["moderator"]).await;
+    let reporter = app.user("rep").await;
+    // An ordinary case about the author, so their record is on screen anyway.
+    let ordinary = open_case(&app, &admin, &neutral, &reporter, &author).await;
+    let record = |view: GetUserResponse| view.moderation.into_option().unwrap();
+    let before = record(staff_view_of(&app, &involved, author.id).await);
+    assert_eq!((before.reports_received, before.open_cases, before.warnings), (1, 1, 0));
+
+    // The anonymous post is reported, then the author is warned and the post removed for it.
+    let case_id = anonymous_case(&app, &admin, author.id, vec![involved.id]).await;
+    let case = get_case(&app, &neutral, &case_id).await.moderation_case.into_option().unwrap();
+    resolve(&app, &neutral, ResolveCaseRequest { remove_content: true, ..resolution(&case, WARN, "嫌がらせ") }).await.unwrap();
+
+    // To the moderator involved in the post nothing about the author moved: not in the
+    // staff view of the account, not in the owner record of the ordinary case.
+    let after = record(staff_view_of(&app, &involved, author.id).await);
+    assert_eq!(after, before);
+    assert_eq!(get_case(&app, &involved, &ordinary.id).await.owner_record.into_option().unwrap(), before);
+    // Nor to one who is not: the record moves only in the case that named the author.
+    assert_eq!(record(staff_view_of(&app, &neutral, author.id).await), before);
+    let named = get_case(&app, &neutral, &case_id).await.owner_record.into_option().unwrap();
+    assert_eq!((named.reports_received, named.open_cases, named.warnings, named.content_removals), (2, 1, 1, 1));
+}
+
+#[tokio::test]
+async fn an_involved_moderator_is_not_told_which_case_suspended_a_hidden_author() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    let involved = app.user_with_roles("involved", &["moderator"]).await;
+    let neutral = app.user_with_roles("neutral", &["moderator"]).await;
+    let case_id = anonymous_case(&app, &admin, author.id, vec![involved.id]).await;
+    let case = get_case(&app, &neutral, &case_id).await.moderation_case.into_option().unwrap();
+    resolve(&app, &neutral, resolution(&case, BAN, "匿名スレッドでの嫌がらせ")).await.unwrap();
+
+    let suspension = |user: Option<&AdminUser>| user.unwrap().suspension.clone().into_option().expect("suspended");
+    // The account is suspended for everyone to see, like any direct suspension: not for which post.
+    for staff in [&neutral, &involved] {
+        let shown = suspension(staff_view_of(&app, staff, author.id).await.user.as_option());
+        assert!(shown.case_id.is_empty() && shown.reason == "匿名スレッドでの嫌がらせ", "{shown:?}");
+        let searched: SearchUsersResponse =
+            app.call(&format!("{USERS}/SearchUsers"), Some(staff), &SearchUsersRequest { query: author.id.to_string(), ..Default::default() }).await.unwrap();
+        assert!(suspension(searched.users.first()).case_id.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn the_audit_log_does_not_name_a_hidden_author_to_an_involved_admin() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    let involved = app.user_with_roles("involved", &["admin"]).await;
+    let neutral = app.user_with_roles("neutral", &["admin"]).await;
+    let case_id = anonymous_case(&app, &admin, author.id, vec![involved.id]).await;
+    let case = get_case(&app, &neutral, &case_id).await.moderation_case.into_option().unwrap();
+    resolve(&app, &neutral, ResolveCaseRequest { remove_content: true, suspension_seconds: 86_400, ..resolution(&case, SUSPEND, "嫌がらせ") }).await.unwrap();
+
+    let audit = |staff: &tokuly_testkit::TestUser, request: ListAuditLogRequest| {
+        let (app, staff) = (&app, staff.clone());
+        async move {
+            let listed: ListAuditLogResponse = app.call(&format!("{SYSTEM}/ListAuditLog"), Some(&staff), &request).await.unwrap();
+            listed.entries
+        }
+    };
+    let by_neutral = ListAuditLogRequest { actor_id: neutral.id.to_string(), ..Default::default() };
+    // The reveal, the suspension, the takedown and the resolution, each naming the author.
+    let full = audit(&neutral, by_neutral.clone()).await;
+    let actions: Vec<&str> = full.iter().map(|entry| entry.action.as_str()).collect();
+    for action in ["case.author_revealed", "user.suspended", "content.removed", "case.resolved"] {
+        assert!(actions.contains(&action), "{actions:?}");
+    }
+    // Neither the admin who acted nor one who took part in the thread is named the author here.
+    for staff in [&neutral, &involved] {
+        let withheld = audit(staff, by_neutral.clone()).await;
+        assert_eq!(withheld.len(), full.len());
+        for entry in &withheld {
+            assert!(entry.target_user.is_unset() && entry.target_withheld, "{entry:?}");
+            assert!(!entry.target_id.contains(&author.id.to_string()), "{entry:?}");
+        }
+    }
+    // And the author's own history has none of them.
+    for request in [
+        ListAuditLogRequest { target_user_id: author.id.to_string(), ..Default::default() },
+        ListAuditLogRequest { target_type: "user".into(), target_id: author.id.to_string(), ..Default::default() },
+    ] {
+        assert!(audit(&involved, request.clone()).await.is_empty(), "{request:?}");
+        assert!(audit(&neutral, request).await.is_empty());
+    }
+}
+
+/// Every community thread is an anonymous post by `author`, and nobody is involved.
+struct EveryThreadBy {
+    author: Uuid,
+}
+
+#[async_trait]
+impl HiddenOwners for EveryThreadBy {
+    async fn owner_for_moderation(&self, subject_type: SubjectType, _subject_id: Uuid) -> AppResult<Option<Uuid>> {
+        Ok((subject_type == THREAD).then_some(self.author))
+    }
+
+    async fn is_party(&self, _subject_type: SubjectType, _subject_id: Uuid, _user_id: Uuid) -> AppResult<bool> {
+        Ok(false)
+    }
+}
+
+#[tokio::test]
+async fn a_moderator_can_unmask_only_so_many_anonymous_authors_an_hour() {
+    let (app, admin) = start_with(tokuly_admin::AdminConfig { moderator_reveals_per_hour: 2, ..Default::default() }).await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (author, reporter) = (app.user("author").await, app.user("rep").await);
+    admin.set_hidden_owners(Arc::new(EveryThreadBy { author: author.id }));
+    let mut cases = Vec::new();
+    for _ in 0..3 {
+        let thread = Uuid::now_v7();
+        admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "SPAM", "")).await.unwrap();
+        let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+        cases.push(case_id.to_string());
+    }
+    let open = |case_id: &str| {
+        let (app, moderator, request) = (&app, moderator.clone(), GetCaseRequest { case_id: case_id.to_owned(), ..Default::default() });
+        async move { app.call::<_, GetCaseResponse>(&format!("{MODERATION}/GetCase"), Some(&moderator), &request).await }
+    };
+
+    // Opening the same case again does not count twice.
+    for case_id in [&cases[0], &cases[0], &cases[1]] {
+        let opened = open(case_id).await.unwrap();
+        assert_eq!(opened.moderation_case.subject_owner.id, author.id.to_string());
+    }
+    let refused = open(&cases[2]).await.unwrap_err();
+    assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("resource_exhausted", "RATE_LIMITED"));
+    assert!(audit_of_case(&app, &cases[2], "case.author_revealed").await.is_empty());
+    // Cases already opened, and cases that hide nobody, still open.
+    assert!(open(&cases[1]).await.is_ok());
+    let ordinary = open_case(&app, &admin, &moderator, &reporter, &author).await;
+    assert!(open(&ordinary.id).await.is_ok());
+}
+
+#[tokio::test]
+async fn nothing_shown_about_an_anonymous_post_lines_up_with_its_authors_suspension() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    let involved = app.user_with_roles("involved", &["admin"]).await;
+    let neutral = app.user_with_roles("neutral", &["admin"]).await;
+    let case_id = anonymous_case(&app, &admin, author.id, vec![involved.id]).await;
+    let case = get_case(&app, &neutral, &case_id).await.moderation_case.into_option().unwrap();
+    resolve(&app, &neutral, ResolveCaseRequest { suspension_seconds: 86_400, ..resolution(&case, SUSPEND, "匿名スレッドでの嫌がらせ") }).await.unwrap();
+
+    // The author's suspension, as anyone listing suspended accounts finds it among the others.
+    let suspended: SearchUsersResponse = app
+        .call(&format!("{USERS}/SearchUsers"), Some(&involved), &SearchUsersRequest { query: author.id.to_string(), ..Default::default() })
+        .await
+        .unwrap();
+    let suspensions: Vec<Suspension> = suspended.users.iter().filter_map(|user| user.suspension.clone().into_option()).collect();
+    assert_eq!(suspensions.len(), 1);
+
+    // 1. The moderation log's entry: no expiry, only the day, no reason to match.
+    let opened = get_case(&app, &involved, &case_id).await;
+    let listed: ListModerationActionsResponse = app
+        .call(&format!("{MODERATION}/ListModerationActions"), Some(&involved), &ListModerationActionsRequest { case_id: case_id.clone(), ..Default::default() })
+        .await
+        .unwrap();
+    for action in listed.actions.iter().chain(&opened.actions) {
+        assert!(action.target_withheld && action.expires_at.is_unset() && action.reason.is_empty() && action.note.is_empty(), "{action:?}");
+        for suspension in &suspensions {
+            assert_ne!(action.created_at.as_option(), suspension.started_at.as_option());
+        }
+    }
+    // 2. The case: resolved on a day, for no reason it shows.
+    let case = opened.moderation_case.into_option().unwrap();
+    assert!(case.resolution_reason.is_empty());
+    let listed: ListCasesResponse =
+        app.call(&format!("{MODERATION}/ListCases"), Some(&neutral), &ListCasesRequest { status: CaseStatus::CASE_STATUS_RESOLVED.into(), ..Default::default() }).await.unwrap();
+    let in_list = listed.cases.iter().find(|c| c.id == case_id).expect("listed");
+    assert!(in_list.resolution_reason.is_empty());
+    for shown in [&case, in_list] {
+        for suspension in &suspensions {
+            assert_ne!(shown.resolved_at.as_option(), suspension.started_at.as_option());
+        }
+    }
+    // 3. The audit log: no suspension ID or expiry to look up, no exact time.
+    let audit: ListAuditLogResponse = app
+        .call(&format!("{SYSTEM}/ListAuditLog"), Some(&involved), &ListAuditLogRequest { actor_id: neutral.id.to_string(), ..Default::default() })
+        .await
+        .unwrap();
+    let suspended_entry = audit.entries.iter().find(|entry| entry.action == "user.suspended").expect("logged");
+    for entry in &audit.entries {
+        assert!(entry.target_withheld && entry.reason.is_empty(), "{entry:?}");
+        for suspension in &suspensions {
+            assert!(!entry.after_json.contains(&suspension.id) && !entry.before_json.contains(&suspension.id), "{entry:?}");
+            assert_ne!(entry.created_at.as_option(), suspension.started_at.as_option());
+        }
+    }
+    assert!(!suspended_entry.after_json.contains("expires_at"), "{}", suspended_entry.after_json);
 }

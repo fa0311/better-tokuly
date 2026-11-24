@@ -23,7 +23,11 @@ service MediaService {
   // Errors: PURPOSE_INVALID, PURPOSE_NOT_ALLOWED (purposes only the server
   // creates, e.g. live archives), FILE_EMPTY, FILE_TOO_LARGE,
   // UNSUPPORTED_CONTENT_TYPE, SHA256_INVALID, TOO_MANY_UPLOADS (too many
-  // unfinished uploads), RATE_LIMITED.
+  // unfinished uploads), UNUSED_QUOTA_EXCEEDED (the caller's uploads that
+  // nothing uses yet, this one included, would exceed the per-account
+  // allowance: attach or delete some first), DAILY_UPLOAD_LIMIT_EXCEEDED
+  // (the caller uploaded as many bytes as one account may in 24 hours,
+  // used or not), RATE_LIMITED.
   rpc CreateUpload(CreateUploadRequest) returns (CreateUploadResponse);
   // Signs part URLs of a multipart upload and reports which parts the store
   // already holds, so an interrupted upload resumes where it stopped.
@@ -37,7 +41,8 @@ service MediaService {
   // Errors: UPLOAD_NOT_FOUND, UPLOAD_INCOMPLETE (bytes or parts missing),
   // PART_ETAG_MISMATCH, SIZE_MISMATCH, CHECKSUM_MISMATCH and
   // UNSUPPORTED_CONTENT (the bytes are not what the purpose accepts). The
-  // last three also mark the asset FAILED.
+  // last three also mark the asset FAILED. RATE_LIMITED when one unfinished
+  // upload is completed too often (more than 10 attempts a minute).
   rpc CompleteUpload(CompleteUploadRequest) returns (CompleteUploadResponse);
   // Cancels an unfinished upload and discards its bytes. Idempotent.
   //
@@ -111,7 +116,10 @@ enum AssetKind {
   // Audio (voice messages); served as AAC and Opus with waveform peaks.
   ASSET_KIND_AUDIO = 3;
   // Stored untouched: chat files and subtitles (private, presigned URL) and
-  // dotLottie stamps (public URL).
+  // dotLottie stamps (public URL). Byte for byte, metadata included: a
+  // photo sent as a chat file keeps its EXIF and GPS position, so clients
+  // send photos as images (re-encoded, metadata stripped), converting
+  // formats the server cannot decode (HEIC, AVIF) to JPEG first.
   ASSET_KIND_FILE = 4;
   // Animated GIF / WebP / APNG; served as an animated WebP plus a still poster.
   ASSET_KIND_ANIMATION = 5;

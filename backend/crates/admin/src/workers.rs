@@ -4,8 +4,9 @@
 //!   personal data of deleted accounts and promoting the configured
 //!   first-deployment admin when that address is verified;
 //! - the `admin.announcement.broadcast` job;
-//! - a once-a-minute timer that lifts expired suspensions and queues the
-//!   broadcast of announcements whose publish time has come.
+//! - a once-a-minute timer that lifts expired suspensions, lets go of the
+//!   evidence of cases resolved long ago and queues the broadcast of
+//!   announcements whose publish time has come.
 use std::time::Duration;
 
 use tokuly_core::{
@@ -44,6 +45,11 @@ impl Admin {
             Ok(0) => {}
             Ok(lifted) => tracing::info!(lifted, "expired suspensions lifted"),
             Err(e) => tracing::error!(error = %e, "lifting expired suspensions failed"),
+        }
+        match self.release_due_evidence().await {
+            Ok(0) => {}
+            Ok(released) => tracing::info!(released, "evidence of old cases released"),
+            Err(e) => tracing::error!(error = %e, "releasing the evidence of old cases failed"),
         }
         match self.queue_due_broadcasts().await {
             Ok(0) => {}

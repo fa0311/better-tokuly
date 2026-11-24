@@ -408,6 +408,27 @@ async fn verified_badge_is_granted_and_removed() {
 }
 
 #[tokio::test]
+async fn moderators_cannot_verify_themselves_or_other_staff() {
+    let (app, _admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let colleague = app.user_with_roles("colleague", &["moderator"]).await;
+    let boss = app.user_with_roles("boss", &["admin"]).await;
+    let set = |by: &TestUser, whom: &TestUser| {
+        let (app, by) = (&app, by.clone());
+        let request = SetUserVerifiedRequest { user_id: whom.id.to_string(), verified: true, ..Default::default() };
+        async move { app.call::<_, SetUserVerifiedResponse>(&format!("{USERS}/SetUserVerified"), Some(&by), &request).await }
+    };
+    for whom in [&moderator, &colleague, &boss] {
+        let refused = set(&moderator, whom).await.unwrap_err();
+        assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("permission_denied", "TARGET_IS_STAFF"), "{}", whom.handle);
+    }
+    let verified: bool = sqlx::query_scalar("SELECT verified FROM users WHERE id = $1").bind(moderator.id).fetch_one(&app.core.db).await.unwrap();
+    assert!(!verified);
+    // An admin decides about staff badges.
+    assert!(set(&boss, &moderator).await.unwrap().user.user.verified);
+}
+
+#[tokio::test]
 async fn admins_grant_and_remove_roles() {
     let (app, _admin) = start().await;
     let boss = app.user_with_roles("boss", &["admin"]).await;

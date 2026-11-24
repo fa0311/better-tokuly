@@ -20,7 +20,9 @@
 //! the audit log in the transaction that makes it.
 //!
 //! Content that is reported without an owner (posts in anonymous channels)
-//! gets one from a lookup the server hands in (`owners.rs`).
+//! gets one from a lookup the server hands in (`owners.rs`), and the uploads
+//! of reported content are held for the case through another
+//! ([`evidence`]).
 //!
 //! Other domains never call into this crate. They hear about takedowns
 //! through the `admin.content.removed` event ([`events::ContentRemoved`]) and
@@ -41,6 +43,7 @@ mod announcements_svc;
 mod audit;
 mod cases;
 mod cleanup;
+pub mod evidence;
 pub mod config;
 pub mod events;
 mod flags_svc;
@@ -57,7 +60,16 @@ mod users_svc;
 mod workers;
 
 pub use config::AdminConfig;
+pub use evidence::ReportEvidence;
 pub use owners::HiddenOwners;
+
+/// The day (UTC) of a moment, for what is shown about an anonymous post
+/// without its author: an exact time would line up with the one account
+/// suspended or warned at that moment.
+pub(crate) fn day_of(at: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+    use chrono::DurationRound as _;
+    at.duration_trunc(chrono::TimeDelta::days(1)).unwrap_or(at)
+}
 
 /// The first `limit` rows of a listing, for previews embedded in other responses.
 pub(crate) fn first_page(limit: i64) -> Page {
@@ -70,6 +82,10 @@ pub struct AdminInner {
     pub cfg: AdminConfig,
     /// Asked about content that is reported without an owner.
     hidden_owners: OnceLock<Arc<dyn HiddenOwners>>,
+    /// Holds the uploads of reported content.
+    evidence: OnceLock<Arc<dyn ReportEvidence>>,
+    /// See [`Admin::identity_slot`].
+    identity_slot: tokio::sync::Semaphore,
 }
 
 /// The admin domain. Cheap to clone.
@@ -88,7 +104,17 @@ impl Admin {
     pub fn new(core: Core, identity: Identity, cfg: AdminConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
         core.exporters.register(Arc::new(cleanup::ModerationExporter { core: core.clone() }));
-        Ok(Self(Arc::new(AdminInner { core, identity, cfg, hidden_owners: OnceLock::new() })))
+        Ok(Self(Arc::new(AdminInner { core, identity, cfg, hidden_owners: OnceLock::new(), evidence: OnceLock::new(), identity_slot: tokio::sync::Semaphore::new(1) })))
+    }
+
+    /// Taken before opening a transaction that will hold a lock (a case row,
+    /// an account's sanction lock) while identity changes the account in a
+    /// transaction of its own: such a section needs two connections at once.
+    /// One section per process at a time, so a burst of them waits here
+    /// instead of holding every connection of the pool while each waits for
+    /// a second one. Hold the permit until the transaction has ended.
+    pub(crate) async fn identity_slot(&self) -> AppResult<tokio::sync::SemaphorePermit<'_>> {
+        self.identity_slot.acquire().await.map_err(|_| AppError::unavailable("SHUTTING_DOWN", "the server is shutting down"))
     }
 
     /// Registers this domain's RPC services on the Connect router.

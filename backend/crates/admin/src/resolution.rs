@@ -117,6 +117,11 @@ impl Admin {
         if resolution.action != DISMISS {
             self.limit_sanctions(staff).await?;
         }
+        // Suspending the owner has identity lock the account while the case row is locked.
+        let slot = match resolution.action {
+            SUSPEND | BAN => Some(self.identity_slot().await?),
+            _ => None,
+        };
 
         let mut tx = self.core.db.begin().await?;
         let case = self.lock_case(&mut tx, case_id).await?;
@@ -135,8 +140,9 @@ impl Admin {
                 suspended_until = Some(expires_at);
             }
             (DISMISS, _) => {
+                // Nothing happened to the owner: a hidden author is not even recorded.
                 let dismissal = NewAction::new(DISMISS, Some(staff.id))
-                    .target(case.subject_owner_id)
+                    .target(case.subject_owner_id.filter(|_| !case.owner_hidden))
                     .hidden_target(case.owner_hidden)
                     .case(Some(case.id))
                     .subject(case.subject_type, case.subject_id, &case.subject_title)
@@ -175,7 +181,7 @@ impl Admin {
         .fetch_one(&mut *tx)
         .await?;
         Audit::by(staff, "case.resolved")
-            .case(case.id, case.subject_owner_id)
+            .case(&case)
             .reason(resolution.reason.clone())
             .before(serde_json::json!({ "status": case.status, "report_count": case.report_count, "assignee_id": case.assignee_id }))
             .after(serde_json::json!({
@@ -187,6 +193,7 @@ impl Admin {
             .record(&mut *tx)
             .await?;
         tx.commit().await?;
+        drop(slot);
 
         if let (Some(expires_at), Some(owner)) = (suspended_until, &owner) {
             self.mail_suspension(owner, &resolution.reason, expires_at);
@@ -256,7 +263,7 @@ impl Admin {
     /// owner when the resolution sanctions them.
     async fn check_resolution(&self, staff: &Staff, case: &CaseRow, resolution: &Resolution) -> AppResult<Option<Target>> {
         ensure!(case.is_open(), precondition, "CASE_ALREADY_RESOLVED", "this case has already been resolved");
-        ensure!(case.subject_owner_id != Some(staff.id), denied, "CONFLICT_OF_INTEREST", "you cannot resolve a case about your own content");
+        ensure!(!case.is_about(staff.id), denied, "CONFLICT_OF_INTEREST", "you cannot resolve a case about yourself or your own content");
         // An anonymous post: whoever is involved in it leaves the case to
         // another moderator, as they would inside the community.
         ensure!(
@@ -299,7 +306,7 @@ impl Admin {
             .insert(&mut *conn)
             .await?;
         Audit::by(staff, "content.removed")
-            .subject(removal.subject_type, removal.subject_id, removal.owner_id)
+            .subject(removal.subject_type, removal.subject_id, removal.owner_id, removal.owner_hidden)
             .reason(removal.reason)
             .after(serde_json::json!({ "title": removal.title, "case_id": removal.case_id, "note": removal.note }))
             .record(&mut *conn)

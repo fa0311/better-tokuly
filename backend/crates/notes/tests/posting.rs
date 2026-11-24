@@ -665,3 +665,110 @@ async fn one_note_is_pinned_to_a_profile() {
     let _: UnpinNoteResponse = ctx.note("UnpinNote", Some(&alice), &UnpinNoteRequest::default()).await.unwrap();
     assert!(timeline(Some(alice.clone())).await.pinned_note.as_option().is_none());
 }
+
+#[tokio::test]
+async fn concurrent_visibility_changes_count_a_note_once() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.member("alice").await, ctx.member("bob").await);
+    let tag = unique("tag");
+    let note = ctx.post(&alice, &format!("mine #{tag}")).await;
+    ctx.post(&bob, &format!("someone else's #{tag}")).await;
+    let count = || {
+        let (db, tag) = (ctx.app.core.db.clone(), tag.clone());
+        async move {
+            sqlx::query_scalar::<_, i64>("SELECT note_count FROM hashtags WHERE tag = $1")
+                .bind(tag)
+                .fetch_one(&db)
+                .await
+                .unwrap()
+        }
+    };
+    let change = |visibility: Visibility| {
+        let request =
+            SetNoteVisibilityRequest { note_id: note.id.clone(), visibility: visibility.into(), ..Default::default() };
+        let (ctx, alice) = (&ctx, alice.clone());
+        async move {
+            let _: SetNoteVisibilityResponse = ctx.note("SetNoteVisibility", Some(&alice), &request).await.unwrap();
+        }
+    };
+    assert_eq!(count().await, 2);
+    // Two rounds of twelve: within the per-minute limit of visibility changes.
+    for _ in 0..2 {
+        // Several narrowings of the same public note at once take it out of the count once.
+        futures::future::join_all(
+            [Visibility::VISIBILITY_FRIENDS, Visibility::VISIBILITY_PRIVATE].into_iter().cycle().take(6).map(change),
+        )
+        .await;
+        assert_eq!(count().await, 1, "only bob's note is public");
+        futures::future::join_all(std::iter::repeat_n(Visibility::VISIBILITY_PUBLIC, 6).map(change)).await;
+        assert_eq!(count().await, 2, "and making it public again counts it once");
+    }
+}
+
+#[tokio::test]
+async fn a_narrowed_note_says_who_can_still_see_it() {
+    let ctx = start().await;
+    let (alice, friend, parent_author, stranger) = (
+        ctx.member("alice").await,
+        ctx.member("friend").await,
+        ctx.member("parent").await,
+        ctx.member("stranger").await,
+    );
+    ctx.befriend(&alice, &friend).await;
+    let parent = ctx.post(&parent_author, "a public question").await;
+    let reply = ctx
+        .post_with(&alice, &format!("@{} @{} answer", stranger.handle, friend.handle), |r| {
+            r.reply_to_id = parent.id.clone();
+        })
+        .await;
+    assert_eq!(ctx.notifications_for(stranger.id, "notes.mention").await.len(), 1, "the stranger was told");
+
+    let change = |visibility: Visibility| SetNoteVisibilityRequest {
+        note_id: reply.id.clone(),
+        visibility: visibility.into(),
+        ..Default::default()
+    };
+    let _: SetNoteVisibilityResponse =
+        ctx.note("SetNoteVisibility", Some(&alice), &change(Visibility::VISIBILITY_FRIENDS)).await.unwrap();
+    let _: SetNoteVisibilityResponse =
+        ctx.note("SetNoteVisibility", Some(&alice), &change(Visibility::VISIBILITY_PRIVATE)).await.unwrap();
+    let _: SetNoteVisibilityResponse =
+        ctx.note("SetNoteVisibility", Some(&alice), &change(Visibility::VISIBILITY_PUBLIC)).await.unwrap();
+    let events = ctx.app.events_by("notes.note.visibility_changed", alice.id).await;
+    assert_eq!(events.len(), 3);
+    // Friends only: the author's friends and the person answered may still
+    // see it, so the notification domain can withdraw what reached anyone else.
+    let mut visible_to: Vec<String> = serde_json::from_value(events[0].data["visible_to"].clone()).unwrap();
+    visible_to.sort();
+    let mut expected = vec![friend.id.to_string(), parent_author.id.to_string()];
+    expected.sort();
+    assert_eq!(visible_to, expected);
+    assert_eq!(events[1].data["visible_to"], serde_json::json!([]), "private: nobody else");
+    assert!(events[2].data["visible_to"].is_null(), "public: everyone");
+}
+
+#[tokio::test]
+async fn visibility_changes_are_rate_limited_and_carry_when_they_were_made() {
+    let ctx = start().await;
+    let alice = ctx.member("alice").await;
+    let note = ctx.post(&alice, "flip").await;
+    let before = chrono::Utc::now();
+    for round in 0..30 {
+        let visibility = if round % 2 == 0 { Visibility::VISIBILITY_FRIENDS } else { Visibility::VISIBILITY_PUBLIC };
+        let request =
+            SetNoteVisibilityRequest { note_id: note.id.clone(), visibility: visibility.into(), ..Default::default() };
+        let _: SetNoteVisibilityResponse = ctx.note("SetNoteVisibility", Some(&alice), &request).await.unwrap();
+    }
+    let request = SetNoteVisibilityRequest {
+        note_id: note.id.clone(),
+        visibility: Visibility::VISIBILITY_PRIVATE.into(),
+        ..Default::default()
+    };
+    assert_eq!(ctx.note_reason("SetNoteVisibility", Some(&alice), &request).await, "RATE_LIMITED");
+
+    let events = ctx.app.events_by("notes.note.visibility_changed", alice.id).await;
+    assert_eq!(events.len(), 30);
+    let times: Vec<chrono::DateTime<chrono::Utc>> =
+        events.iter().map(|event| serde_json::from_value(event.data["changed_at"].clone()).unwrap()).collect();
+    assert!(times[0] >= before && times.windows(2).all(|pair| pair[0] < pair[1]), "in the order they were made");
+}

@@ -120,6 +120,8 @@ read it.
 | `TOKULY_MEDIA_PART_SIZE_MB` | 16 | multipart part size (≥ 5; grows automatically past 10 000 parts) |
 | `TOKULY_MEDIA_UPLOAD_TTL_HOURS` | 24 | unfinished uploads are discarded after this |
 | `TOKULY_MEDIA_UNATTACHED_TTL_HOURS` | 48 | finished uploads nothing holds are deleted after this (0 = never) |
+| `TOKULY_MEDIA_MAX_UNUSED_GB` | 100 | per account: bytes of uploads nothing holds yet (unfinished, processing, ready but unattached); `CreateUpload` beyond it fails with `UNUSED_QUOTA_EXCEEDED` |
+| `TOKULY_MEDIA_DAILY_UPLOAD_GB` | 50 | per account: bytes uploaded in any 24 hours, used or not (uploads aborted before completion do not count); beyond it `DAILY_UPLOAD_LIMIT_EXCEEDED` |
 | `TOKULY_MEDIA_IMAGE_CONCURRENCY` | 4 | parallel `media.process` jobs per worker process |
 | `TOKULY_MEDIA_VIDEO_CONCURRENCY` | 1 | parallel `media.transcode` jobs per worker process |
 | `TOKULY_MEDIA_FFMPEG_THREADS` | 0 | threads per ffmpeg process (0 = ffmpeg decides) |
@@ -129,10 +131,27 @@ read it.
 | `TOKULY_MEDIA_FFMPEG_PATH` / `TOKULY_MEDIA_FFPROBE_PATH` | `ffmpeg` / `ffprobe` | binaries |
 | `TOKULY_MEDIA_WORK_DIR` | system temp | scratch space for transcodes |
 
+## Files are kept as they are
+
+Images, animations, video and audio are decoded and re-encoded, so nothing
+of the uploaded file survives but the picture and sound: EXIF, GPS
+positions, device names and container metadata are gone. Files
+(`ASSET_KIND_FILE`: chat files, subtitles, dotLottie stamps) are the
+opposite: stored and served byte for byte, **metadata included**. A photo
+sent as a chat file keeps its location. Clients therefore send photos as
+images, and convert the formats the image pipeline does not decode (HEIC,
+HEIF, AVIF, BMP: only JPEG, PNG, WebP and GIF are) to JPEG before upload
+instead of falling back to a file; the web app re-encodes them through a
+canvas, which drops the metadata too.
+
 ## Object layout
 
-Private bucket: `originals/{asset_id}/source[.ext]` (the uploaded bytes;
-presigned access only).
+Private bucket (presigned access only): `originals/{asset_id}/source[.ext]`
+is what the upload URLs write; a completed single-PUT upload is copied to
+`originals/{asset_id}/stored-{n}[.ext]` before its bytes are checked, so the
+upload URL (valid for an hour) cannot replace a finished file. What a late
+PUT leaves under the upload key is removed by the janitor once the URL has
+expired.
 
 Media bucket (public, `Cache-Control: public, max-age=31536000, immutable`):
 

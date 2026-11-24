@@ -39,7 +39,7 @@ impl SystemService for Admin {
             let page = Page::from_request(request.page.as_option(), 200);
             let mut rows = self.list_audit(&filter, &page).await?;
             let info = page.finish(&mut rows, |r| r.id);
-            ok(ListAuditLogResponse { entries: self.audit_entries(rows).await?, page: info.into(), ..Default::default() })
+            ok(ListAuditLogResponse { entries: self.audit_entries(&filter, rows).await?, page: info.into(), ..Default::default() })
         })
         .await
     }

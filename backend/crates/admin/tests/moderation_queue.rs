@@ -385,7 +385,8 @@ async fn deleted_accounts_are_scrubbed_from_the_moderation_record() {
     assert!(!audit.is_empty(), "audit rows survive");
     assert!(audit.iter().all(|entry| entry.target_user.is_unset()));
 
-    // A departing moderator is nulled out of the log too, and the rows stay.
+    // A departing moderator is nulled out of the moderation log, and the rows stay.
+    let before = audit_by(&app, &boss, moderator.id).await.len();
     admin.handle_event(deleted(moderator.id)).await.unwrap();
     let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM moderation_actions WHERE case_id = $1 AND moderator_id IS NULL")
         .bind(handled.id.parse::<Uuid>().unwrap())
@@ -393,5 +394,63 @@ async fn deleted_accounts_are_scrubbed_from_the_moderation_record() {
         .await
         .unwrap();
     assert_eq!(rows, 1);
-    assert!(audit_by(&app, &boss, moderator.id).await.is_empty(), "no audit row names the deleted moderator any more");
+    // The audit trail of what they did as staff keeps naming them (the account is anonymized, not gone).
+    assert_eq!(audit_by(&app, &boss, moderator.id).await.len(), before, "the audit trail keeps its actor");
+}
+
+/// Records what it was asked to hold and release, on the caller's transaction.
+#[derive(Default)]
+struct FakeEvidence {
+    calls: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl tokuly_admin::ReportEvidence for FakeEvidence {
+    async fn hold(&self, conn: &mut sqlx::PgConnection, _subject_type: SubjectType, subject_id: Uuid, holder: &str) -> tokuly_core::AppResult<()> {
+        // On the transaction filing the report: the case it names already exists there.
+        let case_id = holder.strip_prefix("admin:case:").unwrap().parse::<Uuid>().unwrap();
+        let subject: Uuid = sqlx::query_scalar("SELECT subject_id FROM moderation_cases WHERE id = $1").bind(case_id).fetch_one(&mut *conn).await?;
+        assert_eq!(subject, subject_id);
+        self.calls.lock().unwrap().push(format!("hold {holder}"));
+        Ok(())
+    }
+
+    async fn release(&self, _conn: &mut sqlx::PgConnection, holder: &str) -> tokuly_core::AppResult<()> {
+        self.calls.lock().unwrap().push(format!("release {holder}"));
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn reported_uploads_are_held_until_long_after_the_case_is_resolved() {
+    let (app, admin) = start().await;
+    let evidence = std::sync::Arc::new(FakeEvidence::default());
+    admin.set_report_evidence(evidence.clone());
+    let (moderator, owner) = (app.user_with_roles("mod", &["moderator"]).await, app.user("owner").await);
+    let (first, second) = (app.user("rep1").await, app.user("rep2").await);
+    let message = (SubjectType::SUBJECT_TYPE_CHAT_MESSAGE, Uuid::now_v7());
+    let report = report_event(first.id, message, owner.id, "HARASSMENT", "写真で脅されています");
+    admin.handle_event(report.clone()).await.unwrap();
+    admin.handle_event(report).await.unwrap();
+    admin.handle_event(report_event(second.id, message, owner.id, "HARASSMENT", "")).await.unwrap();
+    let case = case_of_owner(&app, &moderator, owner.id).await.remove(0);
+    let holder = format!("admin:case:{}", case.id);
+    // Held by every report as it is filed (a redelivery files nothing).
+    assert_eq!(*evidence.calls.lock().unwrap(), vec![format!("hold {holder}"), format!("hold {holder}")]);
+
+    // Resolving does not let go: the evidence stays for the retention period.
+    resolve(&app, &moderator, resolution(&case, WARN, "脅迫")).await.unwrap();
+    admin.release_due_evidence().await.unwrap();
+    assert_eq!(evidence.calls.lock().unwrap().len(), 2);
+
+    sqlx::query("UPDATE moderation_cases SET resolved_at = now() - interval '91 days' WHERE id = $1::uuid")
+        .bind(&case.id)
+        .execute(&app.core.db)
+        .await
+        .unwrap();
+    let (a, b) = tokio::join!(admin.release_due_evidence(), admin.release_due_evidence());
+    assert!(a.unwrap() + b.unwrap() >= 1);
+    admin.release_due_evidence().await.unwrap();
+    let released: Vec<String> = evidence.calls.lock().unwrap().iter().filter(|call| call.starts_with("release")).cloned().collect();
+    assert_eq!(released, vec![format!("release {holder}")], "released once");
 }

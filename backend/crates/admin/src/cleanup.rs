@@ -2,7 +2,8 @@
 //!
 //! When identity erases an account (`identity.user.deleted`) the moderation
 //! record and the audit trail are kept — they document what staff did — but
-//! every reference to the person is cut and the text they wrote is removed.
+//! every reference to the person is cut and the text they wrote is removed,
+//! except the actor of audit entries: a staff member's actions stay theirs.
 use async_trait::async_trait;
 use tokuly_core::{events::Event, export::DataExporter, prelude::*};
 use tokuly_proto::common::SubjectType;
@@ -49,8 +50,10 @@ impl Admin {
 
         sqlx::query("UPDATE announcements SET author_id = NULL WHERE author_id = $1").bind(user_id).execute(&mut *tx).await?;
 
-        // Audit rows stay, with the person nulled out on either side.
-        sqlx::query("UPDATE admin_audit_log SET actor_id = NULL WHERE actor_id = $1").bind(user_id).execute(&mut *tx).await?;
+        // Audit rows stay. What staff did stays theirs: the account is anonymized,
+        // not removed, so the actor still resolves to the (erased) account and
+        // the trail keeps saying who acted. As the affected account, the person
+        // is nulled out.
         sqlx::query(
             "UPDATE admin_audit_log
              SET target_user_id = NULL, target_id = CASE WHEN target_type = 'user' THEN '' ELSE target_id END

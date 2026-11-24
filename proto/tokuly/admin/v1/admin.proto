@@ -28,19 +28,28 @@ service ModerationService {
   // Errors: INVALID_CURSOR (a cursor from a different sort order).
   rpc ListCases(ListCasesRequest) returns (ListCasesResponse);
   // One case with its latest reports, internal notes, the actions taken on it
-  // and the moderation record of the content owner. Role: `moderator`.
-  // Errors: CASE_NOT_FOUND.
+  // and the moderation record of the content owner. A case about the
+  // caller's own content or account comes with `conflict_of_interest` and
+  // without reports, notes or owner record: nobody learns who reported them.
+  // Role: `moderator`.
+  // Errors: CASE_NOT_FOUND, RATE_LIMITED (the case would name the hidden
+  // author of an anonymous post, and the caller was shown
+  // TOKULY_MODERATOR_REVEALS_PER_HOUR of them in the last hour).
   rpc GetCase(GetCaseRequest) returns (GetCaseResponse);
   // All reports grouped into a case, newest first. Role: `moderator`.
-  // Errors: CASE_NOT_FOUND.
+  // Errors: CASE_NOT_FOUND, CONFLICT_OF_INTEREST (the case is about the
+  // caller's own content or account).
   rpc ListCaseReports(ListCaseReportsRequest) returns (ListCaseReportsResponse);
   // Assigns an open case to a moderator (default: the caller) or clears the
   // assignment. Assignment is advisory: any moderator may still resolve it.
   // Role: `moderator`.
-  // Errors: CASE_NOT_FOUND, CASE_ALREADY_RESOLVED, ASSIGNEE_NOT_MODERATOR.
+  // Errors: CASE_NOT_FOUND, CASE_ALREADY_RESOLVED, ASSIGNEE_NOT_MODERATOR,
+  // CONFLICT_OF_INTEREST (the case is about the caller's own content or
+  // account).
   rpc AssignCase(AssignCaseRequest) returns (AssignCaseResponse);
   // Adds an internal note to a case (never shown to users). Role: `moderator`.
-  // Errors: CASE_NOT_FOUND, NOTE_INVALID.
+  // Errors: CASE_NOT_FOUND, NOTE_INVALID, CONFLICT_OF_INTEREST (the case is
+  // about the caller's own content or account).
   rpc AddCaseNote(AddCaseNoteRequest) returns (AddCaseNoteResponse);
   // Closes an open case with an action. Depending on the action the content
   // is taken down, the owner is warned, suspended or banned, and every
@@ -49,13 +58,15 @@ service ModerationService {
   // ACTION_NOT_APPLICABLE (content removal of an account, or an owner action
   // when the owner is gone), REASON_REQUIRED, REASON_TOO_LONG, NOTE_INVALID,
   // SUSPENSION_DURATION_INVALID, CONFLICT_OF_INTEREST (the case is about the
-  // caller's own content), TARGET_IS_STAFF (only admins sanction staff),
-  // RATE_LIMITED.
+  // caller's own content or account, or the caller is involved in an
+  // anonymous post), TARGET_IS_STAFF (only admins sanction staff),
+  // RATE_LIMITED, FORBIDDEN and LAST_ADMIN (as SuspendUser).
   rpc ResolveCase(ResolveCaseRequest) returns (ResolveCaseResponse);
   // Puts a resolved case back into the queue (e.g. after a mistaken
   // dismissal). Actions already taken are not undone. Role: `moderator`.
   // Errors: CASE_NOT_FOUND, CASE_NOT_RESOLVED, CASE_SUPERSEDED (a newer open
-  // case exists for the same subject).
+  // case exists for the same subject), CONFLICT_OF_INTEREST (the case is
+  // about the caller's own content or account).
   rpc ReopenCase(ReopenCaseRequest) returns (ReopenCaseResponse);
   // Takes content down by reference, without a report. The owning domain
   // removes it and the owner is notified. An open case about the same subject
@@ -161,20 +172,29 @@ message ModerationCase {
   // The content hides its author (a post in an anonymous channel) and this
   // message does not name them. Lists never do; `GetCase` names the author
   // to a moderator who is not involved, and records that in the audit log.
+  // While it is set, `resolution_reason` is empty and `resolved_at` is cut
+  // to the day (UTC), so neither lines up with the account sanctioned.
   bool owner_withheld = 18;
-  // Only in `GetCase`, with `owner_withheld`: the caller is involved in the
-  // reported post (reported it, wrote in its thread, is mentioned or answered
-  // by its author there), so the author stays hidden from them and another
-  // moderator has to handle the case. Resolving it answers
-  // CONFLICT_OF_INTEREST.
+  // Only in `GetCase`: another moderator has to handle the case, and
+  // resolving it answers CONFLICT_OF_INTEREST. Either the case is about the
+  // caller's own content or account (then `GetCase` has no reports, notes or
+  // owner record), or, with `owner_withheld`, the caller is involved in the
+  // reported post (reported it, wrote in its thread, is mentioned or
+  // answered by its author there), so the author stays hidden from them.
   bool conflict_of_interest = 19;
+  // Only in `GetCase`, with `conflict_of_interest`: the case is about the
+  // caller's own content or account (rather than an anonymous post they are
+  // involved in).
+  bool about_you = 20;
   // What the reporters received, as the domain that keeps the content kept
   // it for moderation, captured with the latest report that carried it: for
   // content edited or withdrawn since (a comment, a chat message), every
   // version (`[2版] before → after`). `subject_title` is what the reporter
   // could still see then, e.g. only 「コメント」 for a deleted comment. Empty
-  // when the report carried nothing; cleared with `subject_title`.
-  string reported_content = 20;
+  // when the report carried nothing; cleared with `subject_title`. Shown like
+  // the reports: only in `GetCase`, and not in a case about the caller
+  // (`about_you`).
+  string reported_content = 21;
 }
 
 // One user's report inside a case.
@@ -214,19 +234,25 @@ message ModerationAction {
   string case_id = 7;
   // Reason shown to the affected user.
   string reason = 8;
-  // Internal note, only visible to staff.
+  // Internal note, only visible to staff, and empty to the staff member the
+  // action was taken against.
   string note = 9;
   // SUSPEND only: when the suspension ends on its own.
   google.protobuf.Timestamp expires_at = 10;
   google.protobuf.Timestamp created_at = 11;
   // The action is about an anonymous post and this message does not name
-  // its author: always in the answer to the change that made it, and in the
-  // moderation log for a moderator who is involved in the post. (Such a
-  // moderator does not find the action in an account's history at all.)
+  // its author. Only `GetCase` names one (to a moderator who is not involved,
+  // counted and on record); the answers to changes and the moderation log
+  // never do, and an account's history leaves such actions out. Such an
+  // action also comes without `expires_at`, `reason` and `note`, and with
+  // `created_at` cut to the day (UTC): an exact value would line up with the
+  // one account sanctioned for it. A dismissal of such a post records no
+  // target at all.
   bool target_withheld = 12;
 }
 
-// An account's moderation record in numbers.
+// An account's moderation record in numbers. The account's anonymous posts
+// are not counted, except, in `GetCase`, the one whose author it names.
 message UserModerationSummary {
   // Reports filed against this account or its content.
   int32 reports_received = 1;
@@ -395,22 +421,30 @@ service UserAdminService {
   // Suspends the account for a period or bans it permanently. The user is
   // signed out everywhere and cannot sign in; a timed suspension is lifted
   // automatically. Suspending an already suspended account replaces the
-  // current suspension. Role: `moderator`.
+  // current suspension. Suspending staff (admins only) takes turns with role
+  // changes and needs the caller to still be an active admin at that
+  // moment, so two admins suspending each other leave one of them in.
+  // Role: `moderator`.
   // Errors: USER_NOT_FOUND, REASON_REQUIRED, REASON_TOO_LONG, NOTE_INVALID,
   // SUSPENSION_DURATION_INVALID, CANNOT_SANCTION_SELF, TARGET_IS_STAFF,
-  // RATE_LIMITED.
+  // RATE_LIMITED, FORBIDDEN (the caller's admin role or account was taken a
+  // moment ago), LAST_ADMIN (the target is the last active admin).
   rpc SuspendUser(SuspendUserRequest) returns (SuspendUserResponse);
   // Lifts a suspension or ban. Role: `moderator`.
   // Errors: USER_NOT_FOUND, USER_NOT_SUSPENDED, NOTE_INVALID, TARGET_IS_STAFF.
   rpc UnsuspendUser(UnsuspendUserRequest) returns (UnsuspendUserResponse);
-  // Grants or removes the verified badge. Role: `moderator`.
-  // Errors: USER_NOT_FOUND, NOTE_INVALID.
+  // Grants or removes the verified badge. Role: `moderator`; the badge of a
+  // staff account (the caller's own included) only an admin changes.
+  // Errors: USER_NOT_FOUND, NOTE_INVALID, TARGET_IS_STAFF.
   rpc SetUserVerified(SetUserVerifiedRequest) returns (SetUserVerifiedResponse);
   // Replaces the account's roles. Granted roles apply when the user's access
   // token is next refreshed; when a role is removed the user is signed out so
-  // it stops applying at once. Role: `admin`.
+  // it stops applying at once. Changes take turns, and each needs the caller
+  // to still hold `admin` at that moment, so two admins demoting each other
+  // at once leave one of them admin. Role: `admin`.
   // Errors: USER_NOT_FOUND, ROLE_INVALID, CANNOT_DEMOTE_SELF (an admin cannot
-  // drop their own admin role), NOTE_INVALID.
+  // drop their own admin role), NOTE_INVALID, FORBIDDEN (also when the
+  // caller's own admin role was removed a moment ago).
   rpc SetUserRoles(SetUserRolesRequest) returns (SetUserRolesResponse);
   // Signs the account out of every device (e.g. after a compromise).
   // Role: `moderator`.
@@ -441,7 +475,8 @@ message Suspension {
   // When it is lifted automatically. Unset for a permanent ban.
   google.protobuf.Timestamp expires_at = 5;
   bool permanent = 6;
-  // The case that led to it; empty for direct suspensions.
+  // The case that led to it; empty for direct suspensions, and for a case
+  // about an anonymous post (it would say who wrote it).
   string case_id = 7;
 }
 
@@ -1017,8 +1052,16 @@ message AuditEntry {
   string target_type = 4;
   // Its ID (a flag's name; `<subject type number>:<id>` for subjects).
   string target_id = 5;
-  // The account affected, when there is one.
+  // The account affected, when there is one. Unset while `target_withheld`
+  // is set.
   tokuly.common.v1.UserSummary target_user = 6;
+  // The entry is about an anonymous post and leaves out its author, for
+  // every reader (`GetCase` is the one place that names one):
+  // `target_user` is unset and so is `target_id` when it names that account;
+  // `reason` is empty, `created_at` is cut to the day (UTC) and the snapshots
+  // lack the suspension's ID, expiry and note. Such entries are left out
+  // altogether when the log is filtered by an account.
+  bool target_withheld = 12;
   // The reason or note the staff member gave.
   string reason = 7;
   // JSON snapshots of the relevant state before and after; empty when not applicable.

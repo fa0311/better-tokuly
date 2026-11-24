@@ -231,6 +231,8 @@ export default {
     attachments: "Attachments",
     removeFile: "Remove {{name}}",
     tooManyFiles: "You can send up to {{count}} at a time",
+    photoUnreadable:
+      "This browser can't open one of the photos. Convert it to JPEG or PNG and try again",
     replyingTo: "Replying to {{name}}",
     editing: "Editing message",
     mentions: "Mention suggestions",
@@ -566,5 +568,9 @@ export default {
     UNSUPPORTED_CONTENT_TYPE: "That file type isn't supported",
     UNSUPPORTED_CONTENT: "That file couldn't be sent",
     TOO_MANY_UPLOADS: "Too many uploads in progress. Give it a moment",
+    UNUSED_QUOTA_EXCEEDED:
+      "Too many files waiting to be sent. Wait a bit or discard drafts you don't need",
+    DAILY_UPLOAD_LIMIT_EXCEEDED:
+      "You've reached today's limit for sending files. Send again tomorrow!",
   },
 } as const;

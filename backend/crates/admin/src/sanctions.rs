@@ -22,7 +22,7 @@ use crate::{
     audit::Audit,
     cases::CaseRow,
     notices::{self, Mail},
-    staff::Staff,
+    staff::{self, Staff},
 };
 
 /// Why a suspension stopped applying (`user_suspensions.end_cause`).
@@ -42,6 +42,17 @@ pub(crate) struct Target {
     pub locale: String,
     pub time_zone: String,
     pub banned_at: Option<DateTime<Utc>>,
+}
+
+impl Target {
+    /// An existing (not deleted) account, or `USER_NOT_FOUND`.
+    pub async fn load<'e, E: sqlx::PgExecutor<'e>>(executor: E, user_id: Uuid) -> AppResult<Self> {
+        sqlx::query_as("SELECT id, roles, email::text AS email, locale, time_zone, banned_at FROM users WHERE id = $1 AND deleted_at IS NULL")
+            .bind(user_id)
+            .fetch_optional(executor)
+            .await?
+            .or_not_found("USER_NOT_FOUND", "user not found")
+    }
 }
 
 /// What a sanction says and where it comes from.
@@ -77,14 +88,42 @@ async fn lock_sanctions(conn: &mut PgConnection, user_id: Uuid) -> AppResult<()>
     Ok(())
 }
 
+/// Locks staff out of the deployment only one change at a time, on the lock
+/// role changes take (`SetUserRoles`): the caller must still be an active
+/// admin at that moment, and the target must not be the last one. Without
+/// it two admins suspending each other at once would both succeed.
+async fn guard_staff_sanction(conn: &mut PgConnection, staff: &Staff, target: &Target) -> AppResult<()> {
+    lock_admin_roles(conn).await?;
+    let (caller_active, others_active): (bool, bool) = sqlx::query_as(
+        "SELECT
+             EXISTS(SELECT 1 FROM users WHERE id = $1 AND 'admin' = ANY(roles) AND deleted_at IS NULL AND banned_at IS NULL),
+             EXISTS(SELECT 1 FROM users WHERE id <> $2 AND 'admin' = ANY(roles) AND deleted_at IS NULL AND banned_at IS NULL)",
+    )
+    .bind(staff.id)
+    .bind(target.id)
+    .fetch_one(&mut *conn)
+    .await?;
+    ensure!(caller_active, denied, "FORBIDDEN", "requires role admin");
+    ensure!(
+        others_active || !target.roles.iter().any(|r| r == "admin"),
+        precondition,
+        "LAST_ADMIN",
+        "this is the last active admin of the deployment"
+    );
+    Ok(())
+}
+
+/// Serializes changes that could leave the deployment without an admin
+/// (role changes, sanctions on staff) for the rest of the transaction.
+pub(crate) async fn lock_admin_roles(conn: &mut PgConnection) -> AppResult<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(1600, hashtext('admin.roles'))").execute(conn).await?;
+    Ok(())
+}
+
 impl Admin {
     /// An existing (not deleted) account, or `USER_NOT_FOUND`.
     pub(crate) async fn target(&self, user_id: Uuid) -> AppResult<Target> {
-        sqlx::query_as("SELECT id, roles, email::text AS email, locale, time_zone, banned_at FROM users WHERE id = $1 AND deleted_at IS NULL")
-            .bind(user_id)
-            .fetch_optional(&self.core.db)
-            .await?
-            .or_not_found("USER_NOT_FOUND", "user not found")
+        Target::load(&self.core.db, user_id).await
     }
 
     /// Rejects sanctions a staff member may not impose: on themselves, and —
@@ -110,6 +149,7 @@ impl Admin {
         let action = sanction.action(ModerationActionKind::MODERATION_ACTION_KIND_WARN, staff, target).insert(conn).await?;
         Audit::by(staff, "user.warned")
             .user(target.id)
+            .for_case(sanction.case)
             .reason(sanction.reason)
             .after(serde_json::json!({ "note": sanction.note, "case_id": sanction.case.map(|c| c.id) }))
             .record(&mut *conn)
@@ -118,8 +158,9 @@ impl Admin {
     }
 
     /// Suspends an account until `expires_at`, or bans it when `None`, inside
-    /// the caller's transaction. An existing suspension is replaced. Call
-    /// [`Self::mail_suspension`] once the transaction has committed.
+    /// the caller's transaction. An existing suspension is replaced. The
+    /// caller holds [`Admin::identity_slot`] from before it opened the
+    /// transaction. Call [`Self::mail_suspension`] once it has committed.
     pub(crate) async fn suspend(
         &self,
         conn: &mut PgConnection,
@@ -128,6 +169,9 @@ impl Admin {
         sanction: Sanction<'_>,
         expires_at: Option<DateTime<Utc>>,
     ) -> AppResult<ActionRow> {
+        if staff::is_staff(&target.roles) {
+            guard_staff_sanction(conn, staff, target).await?;
+        }
         lock_sanctions(conn, target.id).await?;
         self.identity.set_banned(target.id, Some(sanction.reason)).await?;
 
@@ -156,6 +200,7 @@ impl Admin {
         let action = sanction.action(kind, staff, target).expires(expires_at).insert(conn).await?;
         Audit::by(staff, "user.suspended")
             .user(target.id)
+            .for_case(sanction.case)
             .reason(sanction.reason)
             .before(serde_json::json!({ "suspended": target.banned_at.is_some(), "replaced_suspension_id": replaced }))
             .after(serde_json::json!({
@@ -172,6 +217,7 @@ impl Admin {
 
     /// Lifts an account's suspension or ban on a staff member's request.
     pub(crate) async fn lift_suspension(&self, staff: &Staff, target: &Target, note: &str) -> AppResult<()> {
+        let slot = self.identity_slot().await?;
         let mut tx = self.core.db.begin().await?;
         lock_sanctions(&mut tx, target.id).await?;
         // Re-read under the lock: the expiry worker may have lifted it already.
@@ -195,6 +241,7 @@ impl Admin {
             .record(&mut *tx)
             .await?;
         tx.commit().await?;
+        drop(slot);
         self.send_mail(target.email.clone(), notices::suspension_lifted_mail(&target.locale));
         Ok(())
     }
@@ -222,6 +269,7 @@ impl Admin {
 
     /// Lifts one expired suspension unless it ended or was replaced meanwhile.
     async fn expire_suspension(&self, suspension_id: Uuid, user_id: Uuid) -> AppResult<bool> {
+        let slot = self.identity_slot().await?;
         let mut tx = self.core.db.begin().await?;
         lock_sanctions(&mut tx, user_id).await?;
         let still_due: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM user_suspensions WHERE id = $1 AND ended_at IS NULL AND expires_at <= now())")
@@ -254,6 +302,7 @@ impl Admin {
             .record(&mut *tx)
             .await?;
         tx.commit().await?;
+        drop(slot);
         if let Ok(target) = self.target(user_id).await {
             self.send_mail(target.email, notices::suspension_lifted_mail(&target.locale));
         }

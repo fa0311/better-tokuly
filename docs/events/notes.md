@@ -39,7 +39,7 @@ transaction that makes the change.
 |---|---|---|
 | `notes.note.created` | `{ note_id, author_id, visibility, reply_to_id, quote_of_id }` | A note, reply or quote note was posted. `visibility` is `tokuly.common.v1.Visibility` as its number (1 public, 4 friends, 5 private). |
 | `notes.note.deleted` | `{ note_id, author_id, reason }` | A note is gone for good. `reason`: `author`, `moderation`, `account_deleted`, `media_deleted`. Actor: the author, the moderator, the erased user, or nobody. |
-| `notes.note.visibility_changed` | `{ note_id, author_id, visibility }` | The author changed who may see a note (not emitted when nothing changed). |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to }` | The author changed who may see a note (not emitted when nothing changed). `visible_to`: who besides the author may still see it — `null` for a public note (everyone); for a friends note the author's friends and, for a reply, the author of the note answered (people in a block with the author left out); `[]` for a private note. Anyone shown the note before (an inbox entry about it) who is not listed lost access with this change. `changed_at`: when the change was made, taken while the note was locked; consumers (feed, notify) order two changes of one note by it, not by the event's time (the start of its transaction). **Never forward this event to webhooks or other outside parties: `visible_to` is the author's friend list.** |
 | `notes.story.created` | `{ story_id, owner_id, audience, expires_at }` | A story was posted. `audience` is `tokuly.notes.v1.StoryAudience` as its number (1 friends, 2 close friends). |
 | `notes.story.deleted` | `{ story_id, owner_id, reason }` | A story was deleted (same reasons as notes). Not emitted for an expiry. |
 | `notes.story.expired` | `{ story_id, owner_id }` | A story's day is over: it left the tray and is archive-only. Emitted exactly once per story by the expiry worker, shortly after `expires_at`. |
@@ -55,7 +55,7 @@ is idempotent.
 
 | Topic | Reaction |
 |---|---|
-| `identity.user.deleted` `{ user_id }` | Deletes the user's notes and stories with everything on them (uploads released, search documents removed, hashtag counts put right, `notes.note.deleted` / `notes.story.deleted` with reason `account_deleted`), their likes, renotes, story views and reactions (the counters they added go down again), their highlights and rules agreement, and takes them out of other people's mentions and close-friends audiences. Replies other people wrote to the erased notes stay and show what they answered as unavailable. |
+| `identity.user.deleted` `{ user_id }` | Deletes the user's notes and stories with everything on them (uploads released, search documents removed, hashtag counts put right, `notes.note.deleted` / `notes.story.deleted` with reason `account_deleted`), their likes, renotes, story views and reactions (the counters they added go down again), their highlights and rules agreement, and takes them out of other people's mentions, delivery records (`note_recipients`) and close-friends audiences. Replies other people wrote to the erased notes stay and show what they answered as unavailable. |
 | `admin.content.removed` `{ subject_type, subject_id, reason, moderator_id }` | `SUBJECT_TYPE_NOTE` / `SUBJECT_TYPE_STORY`: the content is deleted like its author would delete it (reason `moderation`, actor = the moderator). Nobody is notified here: the admin domain tells the owner. Unknown or already removed subjects and other subject types are ignored. |
 | `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions (notes and stories hold their uploads, so owners cannot delete those and the janitor leaves them alone). The picture or video is taken out of the notes and stories that show it; a note left with nothing (no text, no stamp, no other media) and a story left without items are deleted (reason `media_deleted`). Public notes get a fresh search document. |
 | `social.user.blocked` `{ user_id, blocked_id }` | Nothing has to be hidden (every read asks the social domain who is blocked). The handler removes the one standing grant between the two: being among the chosen friends of the other's close-friends stories. |
@@ -119,6 +119,12 @@ each person at most once per note (reply, then quote, then mention).
 ## Subjects, profiles, export
 
 - `SUBJECT_TYPE_NOTE` and `SUBJECT_TYPE_STORY` resolvers, visibility-aware.
+  For reports (`resolve_for_report`) they also resolve what reached the
+  reporter before it was hidden from them (made private, a block, an
+  expired story), so withdrawing does not take away the report: a public
+  note, a note they were told about (reply, quote or mention notification,
+  kept in `note_recipients`), a note they liked or renoted, a story they
+  watched.
   Notes: `interactions_enabled = true` (likes and replies are native; the
   generic domains add emoji reactions, bookmarks, shares and reports).
   Stories: `false` (own reactions; replies are DMs), still reportable.
@@ -127,7 +133,8 @@ each person at most once per note (reply, then quote, then mention).
 - `ProfileExtension`: fills `ProfileStats.note_count` with the owner's notes
   (replies aside) that the viewer may see.
 - `DataExporter` named `notes`: rules agreement, notes, likes, renotes,
-  stories, story views, highlights.
+  notes announced to the user (`received_notes`), stories, story views,
+  highlights.
 
 ## Other domains' APIs used
 
@@ -169,7 +176,8 @@ attachments), `note.like`, `note.renote` (owner = note author), `story.post`
 | `notes:view:<note>:<viewer>` | `TOKULY_NOTES_VIEW_WINDOW_HOURS` | One view per viewer (user ID, or `ip:<address>` for anonymous viewers) and note within the window. |
 | `notes:notified:<like\|renote>:<note>:<user>` | 24 h | Keeps repeated likes/renotes of one person from being announced again. |
 
-Rate limits (`rl:` keys): posting `TOKULY_NOTES_POSTS_PER_MINUTE` per minute
+Rate limits (`rl:` keys): visibility changes 30/min per user;
+posting `TOKULY_NOTES_POSTS_PER_MINUTE` per minute
 and 1000 per day per user; likes and renotes 120/min (taking one back is never refused);
 view reports 120/min per viewer (excess reports are ignored, not refused);
 stories `TOKULY_NOTES_STORIES_PER_HOUR` per hour; story reactions 60/min;

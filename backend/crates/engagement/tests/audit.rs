@@ -278,6 +278,7 @@ async fn the_moderation_case_carries_the_versions_of_a_withdrawn_comment() {
         .await
         .unwrap();
     let case = listed.cases.iter().find(|case| case.subject.id == comment.id).expect("a case about the comment");
+    assert_eq!(case.reported_content, "", "lists carry no reported content; it travels with the reports");
     let opened: tokuly_proto::admin::GetCaseResponse = ctx
         .app
         .call(

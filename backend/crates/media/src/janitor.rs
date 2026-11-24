@@ -7,6 +7,8 @@
 //!   deleted (uploads that were never used, media of deleted content);
 //! - deleted assets whose objects could not be removed at once are purged,
 //!   and those purged while an upload URL was still valid are purged again;
+//! - what a late PUT stored under the upload key of a completed upload is
+//!   removed once the URL has expired;
 //! - assets stuck in PROCESSING without a live worker are queued again;
 //! - stale link preview cache rows are dropped;
 //! - when an account is deleted, its assets that nothing holds go at once;
@@ -86,6 +88,12 @@ impl Media {
             match lifecycle::purge(core, &asset).await {
                 Ok(()) => sweep.purged_assets += 1,
                 Err(e) => tracing::warn!(asset_id = %asset.id, error = %e, "asset re-purge failed; will retry"),
+            }
+        }
+
+        for asset in lifecycle::due_for_upload_cleanup(core, BATCH).await? {
+            if let Err(e) = lifecycle::remove_upload_object(core, &asset).await {
+                tracing::warn!(asset_id = %asset.id, error = %e, "late upload cleanup failed; will retry");
             }
         }
 

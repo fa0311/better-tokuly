@@ -61,7 +61,7 @@ pub async fn create_asset_from_file(core: &Core, owner_id: Uuid, purpose: AssetP
         lifecycle::delete(core, asset_id, None).await?;
         return Err(error);
     }
-    let row = lifecycle::mark_uploaded(core, asset_id, kind, &sniffed.content_type).await?.or_not_found("ASSET_NOT_FOUND", "asset not found")?;
+    let row = lifecycle::mark_uploaded(core, asset_id, kind, &sniffed.content_type, None).await?.or_not_found("ASSET_NOT_FOUND", "asset not found")?;
     lifecycle::enqueue(core, &row).await?;
     Ok(row)
 }
