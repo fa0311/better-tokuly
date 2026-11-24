@@ -100,6 +100,12 @@ impl ClipRow {
         self.status == READY
     }
 
+    /// Whether the channel's owner cut it from their own channel: such a
+    /// clip is the channel's, and does not name its creator to others.
+    pub fn is_channel_clip(&self) -> bool {
+        self.creator_id == self.owner_id
+    }
+
     /// Path of the clip page in the web app.
     pub fn path(&self) -> String {
         format!("/clip/{}", self.short_id)
@@ -304,7 +310,10 @@ pub async fn to_protos(core: &Core, viewer: &Viewer, rows: &[ClipRow]) -> AppRes
             id: row.id.to_string(),
             short_id: row.short_id.clone(),
             title: row.title.clone(),
-            creator: Some(tokuly_identity::users::pick(&creators, row.creator_id)).into(),
+            // A channel owner cutting their own channel speaks as the channel.
+            creator: (!row.is_channel_clip() || viewer.is(row.creator_id))
+                .then(|| tokuly_identity::users::pick(&creators, row.creator_id))
+                .into(),
             channel: channels.get(&row.channel_id).cloned().into(),
             stream_id: source.stream_short_id.unwrap_or_default(),
             video_id: source.video_short_id.unwrap_or_default(),
@@ -340,24 +349,34 @@ pub enum Filter {
     Stream(Uuid),
     Video(Uuid),
     Channel(Uuid),
-    Creator(Uuid),
+    /// The clips someone cut. Those they cut from their own channel
+    /// ([`ClipRow::is_channel_clip`]) only with `with_channel_clips` (the
+    /// creator asking): to everyone else they are the channel's, and listing
+    /// them by person would name the channel's owner.
+    Creator {
+        id: Uuid,
+        with_channel_clips: bool,
+    },
 }
 
 /// Clips matching `filter` before `before`, newest first.
 pub async fn list(core: &Core, filter: Filter, before: Option<Uuid>, limit: i64) -> AppResult<Vec<ClipRow>> {
-    let (column, id) = match filter {
-        Filter::Stream(id) => ("c.stream_id", id),
-        Filter::Video(id) => ("c.video_id", id),
-        Filter::Channel(id) => ("c.channel_id", id),
-        Filter::Creator(id) => ("c.creator_id", id),
+    let (column, id, channel_clips) = match filter {
+        Filter::Stream(id) => ("c.stream_id", id, true),
+        Filter::Video(id) => ("c.video_id", id, true),
+        Filter::Channel(id) => ("c.channel_id", id, true),
+        Filter::Creator { id, with_channel_clips } => ("c.creator_id", id, with_channel_clips),
     };
     Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT {} FROM live_clips c WHERE {column} = $1 AND ($2::uuid IS NULL OR c.id < $2) ORDER BY c.id DESC LIMIT $3",
+        "SELECT {} FROM live_clips c WHERE {column} = $1 AND ($2::uuid IS NULL OR c.id < $2)
+           AND ($4 OR c.creator_id <> c.owner_id)
+         ORDER BY c.id DESC LIMIT $3",
         clip_columns!()
     )))
     .bind(id)
     .bind(before)
     .bind(limit)
+    .bind(channel_clips)
     .fetch_all(&core.db)
     .await?)
 }

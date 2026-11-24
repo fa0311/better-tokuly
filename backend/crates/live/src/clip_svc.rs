@@ -168,7 +168,10 @@ impl ClipService for Live {
                 Some(RequestFilter::ChannelId(reference)) => {
                     Filter::Channel(channels::find_visible(core, &viewer, reference).await?.id)
                 }
-                Some(RequestFilter::CreatorId(user_id)) => Filter::Creator(parse_id(user_id)?),
+                Some(RequestFilter::CreatorId(user_id)) => {
+                    let id = parse_id(user_id)?;
+                    Filter::Creator { id, with_channel_clips: viewer.is(id) }
+                }
                 None => bail!(
                     invalid,
                     "CLIP_FILTER_REQUIRED",

@@ -73,6 +73,9 @@ pub async fn sync_clip(tx: &mut Tx<'_>, clip: &ClipRow, source_public: bool) -> 
             "short_id": clip.short_id,
             "channel_id": clip.channel_id,
             "duration_seconds": clip.duration_seconds,
+            // Cut by the channel's owner from their own channel: the channel's
+            // content, which a hit must not name the owner of.
+            "channel_clip": clip.is_channel_clip(),
         }),
     };
     outbound::index(&mut **tx, doc).await
