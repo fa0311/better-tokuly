@@ -24,9 +24,17 @@ use bytes::Bytes;
 use sha2::{Digest as _, Sha256};
 use tokuly_core::{config::Config, prelude::*, storage::Bucket};
 
-/// `Cache-Control` of everything written to the media bucket: keys are
-/// content-addressed or scoped to an asset that never changes once READY.
-pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+/// `Cache-Control` of everything written to the media bucket, and what the
+/// edge sends for it (`infra/caddy/Caddyfile`; a test keeps them equal).
+///
+/// Keys are content-addressed or scoped to an asset that never changes once
+/// READY, but every object can be *removed* (deleted by its owner, taken
+/// down by a moderator) and must stop being served at once. So no shared
+/// cache may answer without asking the edge (`s-maxage=0`, revalidated: an
+/// unchanged object costs a `304` and no body), and browsers keep a copy
+/// for five minutes. A CDN that wants to cache longer purges on
+/// `media.asset.deleted` (`docs/events/media.md`, "Caches and CDNs").
+pub const PUBLIC_CACHE: &str = "public, max-age=300, s-maxage=0, must-revalidate";
 
 /// `Cache-Control` of every download of a private file.
 pub const PRIVATE_NO_STORE: &str = "private, no-store";
@@ -318,6 +326,20 @@ pub fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The edge serves the media bucket with the same `Cache-Control` the
+    /// objects are stored with, whatever an object was stored with earlier:
+    /// nothing removable may be cached as immutable.
+    #[test]
+    fn the_edge_never_lets_caches_keep_removed_media() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../infra/caddy/Caddyfile");
+        let caddyfile = std::fs::read_to_string(path).expect("infra/caddy/Caddyfile");
+        let start = caddyfile.find("handle_path /media/* {").expect("the /media/* block");
+        let block = &caddyfile[start..start + caddyfile[start..].find("\n\t}").expect("end of the block")];
+        assert!(block.contains(&format!("header_down Cache-Control \"{PUBLIC_CACHE}\"")), "{block}");
+        assert!(!block.contains("immutable") && !block.contains("max-age=31536000"), "{block}");
+        assert!(PUBLIC_CACHE.contains("s-maxage=0") && PUBLIC_CACHE.contains("must-revalidate"));
+    }
 
     #[test]
     fn dispositions_survive_hostile_file_names() {

@@ -13,7 +13,7 @@
 //!                      process::{image, animation, video, audio, file}
 //!                              │ renditions
 //!                              ▼
-//!                      object store (media bucket, public, immutable)
+//!                      object store (media bucket, public, revalidated)
 //! ```
 //!
 //! What other domains use:

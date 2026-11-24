@@ -187,7 +187,7 @@ upload URL (valid for an hour) cannot replace a finished file. What a late
 PUT leaves under the upload key is removed by the janitor once the URL has
 expired.
 
-Media bucket (public, `Cache-Control: public, max-age=31536000, immutable`):
+Media bucket (public, `Cache-Control: public, max-age=300, s-maxage=0, must-revalidate`; see "Caches and CDNs"):
 
 ```
 img/{asset_id}/{size}-{hash}.webp          image variants (2048/1024/512/256/96 px longest edge, never upscaled)
@@ -222,3 +222,53 @@ nothing to do client-side). Presigned URLs are signed for
 bucket is served through the edge at `TOKULY_MEDIA_URL`; players need CORS
 `GET` there too when the app and media origins differ (HLS via MSE, WebVTT
 tracks).
+
+## Caches and CDNs
+
+Keys in the media bucket never change their content, but any of them can
+be **removed**: the owner deletes the asset, a moderator takes it down, the
+janitor collects it. A removed object must stop being served at once, so
+nothing may be cached as immutable:
+
+- `assets::delete` commits the deletion, then purges the objects straight
+  away, public renditions first (the janitor retries within five minutes if
+  the object store fails). From then on the bucket answers `404`.
+- The edge (`infra/caddy/Caddyfile`) serves `/media/*` with
+  `Cache-Control: public, max-age=300, s-maxage=0, must-revalidate`,
+  replacing what an object was stored with (objects are stored with the same
+  value, `store::PUBLIC_CACHE`; a test keeps the two equal). Shared caches
+  must ask the edge on every request; for an unchanged object that is a
+  conditional request answered `304` without a body. Browsers keep their
+  copy for at most five minutes. So with the stack as shipped, a deleted
+  object is gone for everyone who has not already loaded it, at once.
+- The edge also tags every object of an asset with
+  `Cache-Tag: asset-<asset_id>` and `Surrogate-Key: asset-<asset_id>`.
+
+### A CDN in front of a self-hosted instance
+
+A CDN that honours the headers above needs nothing else (it revalidates
+every request, which still saves the transfer). A CDN configured to cache
+`/media/*` for longer than that — an "edge TTL" override, "cache
+everything", ignoring `s-maxage` — keeps serving removed media, which turns
+every takedown into a no-op. Such a deployment **must purge on deletion**:
+
+1. Consume `media.asset.deleted` from the `EVENTS` JetStream stream (NATS
+   subject `evt.media.asset.deleted`, prefixed with `TOKULY_NATS_PREFIX.`
+   when that is set) with a durable consumer of its own, so no deletion is
+   missed while the hook is down. The payload's `asset_id` is all it needs.
+2. Purge everything of that asset: by tag `asset-<asset_id>` where the CDN
+   supports tags, otherwise by prefix (or every URL) under
+   `{TOKULY_MEDIA_URL}/img/<asset_id>/`, `/anim/<asset_id>/`,
+   `/video/<asset_id>/`, `/audio/<asset_id>/` and `/file/<asset_id>/`.
+3. Acknowledge the event only after the CDN confirmed the purge; events
+   arrive at least once, and purging twice is harmless.
+
+The same holds when `TOKULY_MEDIA_URL` points at a CDN that pulls straight
+from the bucket instead of through the edge: that CDN must apply the
+`Cache-Control` above (objects stored before this change carry the old
+one-year `immutable` value) or purge as described.
+
+Other domains write a few objects of their own to the media bucket
+(subtitles under `subtitles/<video_id>/`, official stamp art under
+`stamps/official/`). They get the same edge headers; their removal is
+announced by those domains' own events, not by `media.asset.deleted`.

@@ -449,8 +449,11 @@ pub(crate) async fn remove_objects(core: &Core, row: &AssetRow) -> AppResult<()>
             tracing::debug!(asset_id = %row.id, error = %e, "multipart abort skipped");
         }
     }
+    // What the public can fetch goes first: it stops being served the
+    // moment it is gone from the bucket.
+    remove_renditions(core, row.id).await?;
     core.storage.delete_prefix(Bucket::Private, &store::original_prefix(row.id)).await?;
-    remove_renditions(core, row.id).await
+    Ok(())
 }
 
 /// Deletes every rendition of an asset from the media bucket.
