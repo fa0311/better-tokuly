@@ -36,7 +36,8 @@ export default {
     start: "Find people nearby",
     stop: "Stop",
     needLocation: "Location is required",
-    distance: "{{meters}} m",
+    // The server reports a band (10 / 25 / 50 / 75 m), never the exact distance.
+    distance: "within {{meters}} m",
   },
   invite: {
     title: "Add by QR code",
