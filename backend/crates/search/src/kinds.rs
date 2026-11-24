@@ -137,6 +137,26 @@ pub const KINDS: &[Kind] = &[
 /// The kind users are indexed under (by this crate, see [`crate::users`]).
 pub const USER: &str = "user";
 
+/// Kinds published on a channel. A channel does not reveal the account
+/// behind it (`tokuly.video.v1`), so their documents keep `owner_id` only for
+/// blocks, suspensions and deletion: a hit never names the owner, and
+/// searching one account's content leaves them out.
+const CHANNEL_KINDS: &[&str] = &["channel", "video", "short", "live"];
+
+/// Whether a hit of `kind` must not name its owner: channel content, and a
+/// playlist published on a channel (`extra.channel_id` set).
+pub fn hides_owner(kind: &str, extra: &serde_json::Value) -> bool {
+    CHANNEL_KINDS.contains(&kind) || (kind == "playlist" && extra.get("channel_id").is_some_and(|id| id.is_string()))
+}
+
+/// Whether someone other than the owner may search one account's documents
+/// of `kind` ("search this profile"). Not for channel content, which would
+/// list the channels of an account; nor for playlists, whose channel is not
+/// something the engine can filter on.
+pub fn searchable_by_owner(kind: &str) -> bool {
+    !CHANNEL_KINDS.contains(&kind) && kind != "playlist"
+}
+
 pub fn by_name(name: &str) -> Option<&'static Kind> {
     KINDS.iter().find(|kind| kind.name == name)
 }
@@ -192,6 +212,20 @@ mod tests {
         }
         assert!(by_proto(SearchKind::SEARCH_KIND_UNSPECIFIED).is_none());
         assert!(by_name("comment").is_none());
+    }
+
+    #[test]
+    fn channel_content_hides_its_owner() {
+        let none = serde_json::json!({});
+        for kind in ["channel", "video", "short", "live"] {
+            assert!(hides_owner(kind, &none) && !searchable_by_owner(kind), "{kind}");
+        }
+        assert!(hides_owner("playlist", &serde_json::json!({ "channel_id": "c" })));
+        assert!(!hides_owner("playlist", &serde_json::json!({ "channel_id": null })));
+        assert!(!searchable_by_owner("playlist"));
+        for kind in ["user", "note", "answer", "clip", "stamp_pack", "thread"] {
+            assert!(!hides_owner(kind, &none) && searchable_by_owner(kind), "{kind}");
+        }
     }
 
     #[test]

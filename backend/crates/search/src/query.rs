@@ -80,6 +80,17 @@ pub(crate) struct EngineQuery {
     pub counts: bool,
     /// Favour names (users, channels, places, hashtags) when merging kinds.
     pub typeahead: bool,
+    /// Leave out the kinds whose owner nobody else may search by
+    /// ([`kinds::searchable_by_owner`]): set when `filter` pins an owner
+    /// other than the caller.
+    pub owner_kinds_only: bool,
+}
+
+impl EngineQuery {
+    /// Whether this query searches `kind` at all.
+    fn searches(&self, kind: &Kind) -> bool {
+        !self.owner_kinds_only || kinds::searchable_by_owner(kind.name)
+    }
 }
 
 /// A hit as the engine returned it.
@@ -242,7 +253,8 @@ impl Search {
 
     /// Every kind in one federated request.
     async fn ask_all_kinds(&self, query: &EngineQuery) -> Result<EngineAnswer, EngineError> {
-        let indexes: Vec<(&'static Kind, Index)> = KINDS.iter().map(|kind| (kind, self.index(kind))).collect();
+        let indexes: Vec<(&'static Kind, Index)> =
+            KINDS.iter().filter(|kind| query.searches(kind)).map(|kind| (kind, self.index(kind))).collect();
         let mut request = self.core.search.multi_search();
         for (kind, index) in &indexes {
             let weight = if query.typeahead { kind.typeahead_weight } else { kind.weight };
@@ -272,9 +284,16 @@ impl Search {
 
     /// One kind, plus zero-hit queries on the other indexes for their counts.
     async fn ask_one_kind(&self, kind: &'static Kind, query: &EngineQuery) -> Result<EngineAnswer, EngineError> {
+        if !query.searches(kind) {
+            return Ok(EngineAnswer { hits: Vec::new(), has_more: false, total: 0, counts: Vec::new() });
+        }
         let index = self.index(kind);
         let others: Vec<(&'static Kind, Index)> = if query.counts {
-            KINDS.iter().filter(|other| other.name != kind.name).map(|other| (other, self.index(other))).collect()
+            KINDS
+                .iter()
+                .filter(|other| other.name != kind.name && query.searches(other))
+                .map(|other| (other, self.index(other)))
+                .collect()
         } else {
             Vec::new()
         };
@@ -306,8 +325,14 @@ impl Search {
     }
 
     /// Turns engine hits into API hits: drops what the caller must not see
-    /// and attaches owner summaries.
-    pub(crate) async fn present_hits(&self, hidden: &[Uuid], hits: Vec<RawHit>) -> AppResult<Vec<SearchHit>> {
+    /// and attaches owner summaries — except to channel content, which does
+    /// not name the account behind it to anyone but that account.
+    pub(crate) async fn present_hits(
+        &self,
+        caller: Option<Uuid>,
+        hidden: &[Uuid],
+        hits: Vec<RawHit>,
+    ) -> AppResult<Vec<SearchHit>> {
         let hidden: HashSet<Uuid> = hidden.iter().copied().collect();
         let owner_ids: Vec<Uuid> =
             hits.iter().filter_map(|hit| hit.doc.owner_id).collect::<HashSet<_>>().into_iter().collect();
@@ -323,6 +348,7 @@ impl Search {
             let owner = match hit.doc.owner_id {
                 Some(owner_id) if hidden.contains(&owner_id) => continue,
                 Some(owner_id) if known.contains_key(&owner_id) && !active.contains(&owner_id) => continue,
+                Some(owner_id) if caller != Some(owner_id) && kinds::hides_owner(kind.name, &hit.doc.extra) => None,
                 Some(owner_id) => known.get(&owner_id).cloned(),
                 None => None,
             };
@@ -366,6 +392,7 @@ mod tests {
             snippets: true,
             counts: false,
             typeahead: false,
+            owner_kinds_only: false,
         }
     }
 

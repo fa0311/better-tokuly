@@ -67,6 +67,11 @@ admin      ── admin.content.removed             ─────────�
   hits), and documents of suspended or deleted owners (kept out of the index
   by the indexer, and filtered on the hits for the moments before it catches
   up).
+- **Channel content does not name its owner**: hits of `channel`, `video`,
+  `short`, `live` and of a `playlist` whose `extra.channel_id` is set have no
+  `owner` (except for the owner), and an `owner_id` search by anyone else
+  leaves those kinds (and playlists) out. `owner_id` stays in the index for
+  blocks, suspensions and deletion.
 - **Highlights** are returned as `TextSegment`s of plain text, never markup.
   The engine marks matches with two private-use characters that are removed
   (with control characters) from every document before it is indexed, so

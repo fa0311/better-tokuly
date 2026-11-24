@@ -165,3 +165,56 @@ async fn a_query_cannot_inject_a_filter_or_markers() {
         assert!(blocker.hits.is_empty(), "query {query:?} must not reveal blocked content");
     }
 }
+
+#[tokio::test]
+async fn channel_content_never_names_the_account_behind_it() {
+    let ctx = start().await;
+    let (owner, stranger) = (ctx.app.user("creator").await, ctx.app.user("stranger").await);
+    let word = unique("channelowner");
+    let channel = doc("channel", Some(owner.id), &format!("{word} channel"));
+    let video = doc("video", Some(owner.id), &format!("{word} video"));
+    let short = doc("short", Some(owner.id), &format!("{word} short"));
+    let live = doc("live", Some(owner.id), &format!("{word} live"));
+    let mut on_channel = doc("playlist", Some(owner.id), &format!("{word} channel list"));
+    on_channel.extra = serde_json::json!({ "channel_id": Uuid::now_v7() });
+    let mut personal = doc("playlist", Some(owner.id), &format!("{word} personal list"));
+    personal.extra = serde_json::json!({ "channel_id": null });
+    let note = doc("note", Some(owner.id), &format!("{word} note"));
+    let all = [channel, video.clone(), short, live, on_channel, personal.clone(), note.clone()];
+    ctx.index(&all).await;
+    let named = [personal.id.to_string(), note.id.to_string()];
+
+    // Found, but only a personal playlist and the note name the account.
+    let found = ctx.find(Some(&stranger), &word).await;
+    assert_eq!(found.hits.len(), all.len());
+    for hit in found.hits.iter().chain(ctx.suggest(Some(&stranger), &word).await.hits.iter()) {
+        assert_eq!(hit.owner.as_option().is_some(), named.contains(&hit.id), "{}", hit.title);
+    }
+
+    // "Search this profile" does not list the account's channel content...
+    let profile = ctx.find_owned(Some(&stranger), owner.id, &word).await;
+    assert_eq!(hit_ids(&profile.hits), vec![note.id.to_string()]);
+    assert_eq!((profile.total, count_of(&profile, SearchKind::SEARCH_KIND_VIDEO)), (1, 0));
+    let tab = ctx
+        .search(
+            None,
+            &SearchRequest {
+                query: word.clone(),
+                kind: SearchKind::SEARCH_KIND_VIDEO.into(),
+                owner_id: owner.id.to_string(),
+                ..Default::default()
+            },
+        )
+        .await;
+    assert!(
+        tab.hits.is_empty()
+            && tab.total == 0
+            && tab.counts.iter().all(|c| c.count == 0 || c.kind.as_known() == Some(SearchKind::SEARCH_KIND_NOTE))
+    );
+
+    // ...while the owner finds all of it, with themselves as the owner.
+    let mine = ctx.find_owned(Some(&owner), owner.id, &word).await;
+    assert_eq!(mine.hits.len(), all.len());
+    assert!(mine.hits.iter().all(|hit| hit.owner.as_option().is_some_and(|o| o.id == owner.id.to_string())));
+    assert!(hit_ids(&mine.hits).contains(&video.id.to_string()));
+}
