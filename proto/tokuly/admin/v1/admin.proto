@@ -172,6 +172,8 @@ message ModerationCase {
   // The content hides its author (a post in an anonymous channel) and this
   // message does not name them. Lists never do; `GetCase` names the author
   // to a moderator who is not involved, and records that in the audit log.
+  // While it is set, `resolution_reason` is empty and `resolved_at` is cut
+  // to the day (UTC), so neither lines up with the account sanctioned.
   bool owner_withheld = 18;
   // Only in `GetCase`: another moderator has to handle the case, and
   // resolving it answers CONFLICT_OF_INTEREST. Either the case is about the
@@ -227,8 +229,11 @@ message ModerationAction {
   // The action is about an anonymous post and this message does not name
   // its author. Only `GetCase` names one (to a moderator who is not involved,
   // counted and on record); the answers to changes and the moderation log
-  // never do, and an account's history leaves such actions out. A dismissal
-  // of such a post records no target at all.
+  // never do, and an account's history leaves such actions out. Such an
+  // action also comes without `expires_at`, `reason` and `note`, and with
+  // `created_at` cut to the day (UTC): an exact value would line up with the
+  // one account sanctioned for it. A dismissal of such a post records no
+  // target at all.
   bool target_withheld = 12;
 }
 
@@ -1034,9 +1039,10 @@ message AuditEntry {
   tokuly.common.v1.UserSummary target_user = 6;
   // The entry is about an anonymous post and leaves out its author, for
   // every reader (`GetCase` is the one place that names one):
-  // `target_user` is unset and so is `target_id` when it names that account.
-  // Such entries are left out altogether when the log is filtered by an
-  // account.
+  // `target_user` is unset and so is `target_id` when it names that account;
+  // `reason` is empty, `created_at` is cut to the day (UTC) and the snapshots
+  // lack the suspension's ID, expiry and note. Such entries are left out
+  // altogether when the log is filtered by an account.
   bool target_withheld = 12;
   // The reason or note the staff member gave.
   string reason = 7;

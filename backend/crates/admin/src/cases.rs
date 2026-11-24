@@ -78,6 +78,9 @@ impl CaseRow {
 
     pub fn to_proto(&self, people: &HashMap<Uuid, UserSummary>, reveal_hidden: bool) -> ModerationCase {
         let person = |id: Option<Uuid>| id.and_then(|id| people.get(&id).cloned());
+        // Without its author, nothing about the outcome may line up with the
+        // one account sanctioned for it: the day, not the moment, and no reason.
+        let opaque = self.owner_hidden && !reveal_hidden;
         ModerationCase {
             id: self.id.to_string(),
             subject: SubjectRef { r#type: self.subject_type.into(), id: self.subject_id.to_string(), ..Default::default() }.into(),
@@ -94,9 +97,9 @@ impl CaseRow {
             last_reported_at: ts(self.last_reported_at),
             resolution: self.resolution.unwrap_or_default().into(),
             content_removed: self.content_removed,
-            resolution_reason: self.resolution_reason.clone(),
+            resolution_reason: if opaque { String::new() } else { self.resolution_reason.clone() },
             resolved_by: person(self.resolved_by).into(),
-            resolved_at: opt_ts(self.resolved_at),
+            resolved_at: opt_ts(self.resolved_at.map(|at| if opaque { crate::day_of(at) } else { at })),
             ..Default::default()
         }
     }

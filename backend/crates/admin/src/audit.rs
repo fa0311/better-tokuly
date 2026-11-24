@@ -188,6 +188,18 @@ impl AuditFilter {
     }
 }
 
+/// The snapshot of an entry about an anonymous post, without what could be
+/// matched against its author's account (the suspension's ID and expiry)
+/// or say more than the entry shows (the note).
+fn scrubbed(mut value: Value) -> Value {
+    if let Some(object) = value.as_object_mut() {
+        for key in ["suspension_id", "replaced_suspension_id", "expires_at", "note"] {
+            object.remove(key);
+        }
+    }
+    value
+}
+
 /// Escapes `%`, `_` and `\` so user input matches literally inside LIKE.
 pub(crate) fn escape_like(input: &str) -> String {
     input.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
@@ -247,7 +259,7 @@ impl Admin {
         let ids: Vec<Uuid> =
             shown.iter().flat_map(|(r, withheld)| [r.actor_id, r.target_user_id.filter(|_| !withheld)]).flatten().collect();
         let people = tokuly_identity::summaries(&self.core, &ids).await?;
-        let json = |value: Option<Value>| value.map(|v| v.to_string()).unwrap_or_default();
+        let json = |value: Option<Value>, withheld: bool| value.map(|v| if withheld { scrubbed(v) } else { v }.to_string()).unwrap_or_default();
         Ok(shown
             .into_iter()
             .map(|(row, withheld)| AuditEntry {
@@ -258,11 +270,11 @@ impl Admin {
                 target_type: row.target_type,
                 target_user: row.target_user_id.filter(|_| !withheld).and_then(|id| people.get(&id).cloned()).into(),
                 target_withheld: withheld,
-                reason: row.reason,
-                before_json: json(row.before),
-                after_json: json(row.after),
+                reason: if withheld { String::new() } else { row.reason },
+                before_json: json(row.before, withheld),
+                after_json: json(row.after, withheld),
                 ip: row.ip,
-                created_at: ts(row.created_at),
+                created_at: ts(if withheld { crate::day_of(row.created_at) } else { row.created_at }),
                 ..Default::default()
             })
             .collect())

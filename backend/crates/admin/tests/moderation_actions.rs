@@ -938,3 +938,65 @@ async fn a_moderator_can_unmask_only_so_many_anonymous_authors_an_hour() {
     let ordinary = open_case(&app, &admin, &moderator, &reporter, &author).await;
     assert!(open(&ordinary.id).await.is_ok());
 }
+
+#[tokio::test]
+async fn nothing_shown_about_an_anonymous_post_lines_up_with_its_authors_suspension() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    let involved = app.user_with_roles("involved", &["admin"]).await;
+    let neutral = app.user_with_roles("neutral", &["admin"]).await;
+    let case_id = anonymous_case(&app, &admin, author.id, vec![involved.id]).await;
+    let case = get_case(&app, &neutral, &case_id).await.moderation_case.into_option().unwrap();
+    resolve(&app, &neutral, ResolveCaseRequest { suspension_seconds: 86_400, ..resolution(&case, SUSPEND, "匿名スレッドでの嫌がらせ") }).await.unwrap();
+
+    // Every suspended account, as the involved admin can list them.
+    let suspended: SearchUsersResponse = app
+        .call(
+            &format!("{USERS}/SearchUsers"),
+            Some(&involved),
+            &SearchUsersRequest { state: AccountState::ACCOUNT_STATE_SUSPENDED.into(), page: tokuly_proto::common::PageRequest { limit: 100, ..Default::default() }.into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let suspensions: Vec<Suspension> = suspended.users.iter().filter_map(|user| user.suspension.clone().into_option()).collect();
+    assert!(suspensions.iter().any(|s| s.reason == "匿名スレッドでの嫌がらせ"), "the author is among them");
+
+    // 1. The moderation log's entry: no expiry, only the day, no reason to match.
+    let opened = get_case(&app, &involved, &case_id).await;
+    let listed: ListModerationActionsResponse = app
+        .call(&format!("{MODERATION}/ListModerationActions"), Some(&involved), &ListModerationActionsRequest { case_id: case_id.clone(), ..Default::default() })
+        .await
+        .unwrap();
+    for action in listed.actions.iter().chain(&opened.actions) {
+        assert!(action.target_withheld && action.expires_at.is_unset() && action.reason.is_empty() && action.note.is_empty(), "{action:?}");
+        for suspension in &suspensions {
+            assert_ne!(action.created_at.as_option(), suspension.started_at.as_option());
+        }
+    }
+    // 2. The case: resolved on a day, for no reason it shows.
+    let case = opened.moderation_case.into_option().unwrap();
+    assert!(case.resolution_reason.is_empty());
+    let listed: ListCasesResponse =
+        app.call(&format!("{MODERATION}/ListCases"), Some(&neutral), &ListCasesRequest { status: CaseStatus::CASE_STATUS_RESOLVED.into(), ..Default::default() }).await.unwrap();
+    let in_list = listed.cases.iter().find(|c| c.id == case_id).expect("listed");
+    assert!(in_list.resolution_reason.is_empty());
+    for shown in [&case, in_list] {
+        for suspension in &suspensions {
+            assert_ne!(shown.resolved_at.as_option(), suspension.started_at.as_option());
+        }
+    }
+    // 3. The audit log: no suspension ID or expiry to look up, no exact time.
+    let audit: ListAuditLogResponse = app
+        .call(&format!("{SYSTEM}/ListAuditLog"), Some(&involved), &ListAuditLogRequest { actor_id: neutral.id.to_string(), ..Default::default() })
+        .await
+        .unwrap();
+    let suspended_entry = audit.entries.iter().find(|entry| entry.action == "user.suspended").expect("logged");
+    for entry in &audit.entries {
+        assert!(entry.target_withheld && entry.reason.is_empty(), "{entry:?}");
+        for suspension in &suspensions {
+            assert!(!entry.after_json.contains(&suspension.id) && !entry.before_json.contains(&suspension.id), "{entry:?}");
+            assert_ne!(entry.created_at.as_option(), suspension.started_at.as_option());
+        }
+    }
+    assert!(!suspended_entry.after_json.contains("expires_at"), "{}", suspended_entry.after_json);
+}

@@ -41,7 +41,9 @@ pub(crate) struct ActionRow {
 pub(crate) enum Shown {
     /// Everything, the sanctioned account included.
     All,
-    /// The entry without the account it was taken against.
+    /// The entry without the account it was taken against, and without
+    /// anything that could be matched against that account's own record:
+    /// no expiry, no reason or note, only the day.
     WithoutTarget,
 }
 
@@ -56,6 +58,8 @@ impl ActionRow {
             (Some(subject_type), Some(id)) => Some(SubjectRef { r#type: subject_type.into(), id: id.to_string(), ..Default::default() }),
             _ => None,
         };
+        let opaque = shown == Shown::WithoutTarget;
+        let text = |text: &str| if opaque { String::new() } else { text.to_owned() };
         ModerationAction {
             id: self.id.to_string(),
             kind: self.kind.into(),
@@ -65,10 +69,10 @@ impl ActionRow {
             subject: subject.into(),
             subject_title: self.subject_title.clone(),
             case_id: self.case_id.map(|id| id.to_string()).unwrap_or_default(),
-            reason: self.reason.clone(),
-            note: self.note.clone(),
-            expires_at: opt_ts(self.expires_at),
-            created_at: ts(self.created_at),
+            reason: text(&self.reason),
+            note: text(&self.note),
+            expires_at: opt_ts(self.expires_at.filter(|_| !opaque)),
+            created_at: ts(if opaque { crate::day_of(self.created_at) } else { self.created_at }),
             ..Default::default()
         }
     }

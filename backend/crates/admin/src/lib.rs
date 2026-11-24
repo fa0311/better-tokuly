@@ -63,6 +63,14 @@ pub use config::AdminConfig;
 pub use evidence::ReportEvidence;
 pub use owners::HiddenOwners;
 
+/// The day (UTC) of a moment, for what is shown about an anonymous post
+/// without its author: an exact time would line up with the one account
+/// suspended or warned at that moment.
+pub(crate) fn day_of(at: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+    use chrono::DurationRound as _;
+    at.duration_trunc(chrono::TimeDelta::days(1)).unwrap_or(at)
+}
+
 /// The first `limit` rows of a listing, for previews embedded in other responses.
 pub(crate) fn first_page(limit: i64) -> Page {
     Page { limit, cursor: None }
