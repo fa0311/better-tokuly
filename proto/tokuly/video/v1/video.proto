@@ -935,9 +935,10 @@ service PlaylistService {
   rpc ListPlaylistItems(ListPlaylistItemsRequest) returns (ListPlaylistItemsResponse);
   // Appends a video the caller may watch. Adding a video twice is a no-op.
   // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_FULL, VIDEO_NOT_FOUND,
-  // PLAYLIST_READ_ONLY (`LL` changes only through RateVideo).
+  // PLAYLIST_READ_ONLY (`LL` changes only through RateVideo), RATE_LIMITED
+  // (adding and removing together, 120 a minute).
   rpc AddPlaylistItem(AddPlaylistItemRequest) returns (AddPlaylistItemResponse);
-  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_READ_ONLY.
+  // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_READ_ONLY, RATE_LIMITED.
   rpc RemovePlaylistItem(RemovePlaylistItemRequest) returns (RemovePlaylistItemResponse);
   // Moves a video to a new place in the list.
   // Errors: PLAYLIST_NOT_FOUND, PLAYLIST_ITEM_NOT_FOUND, PLAYLIST_READ_ONLY

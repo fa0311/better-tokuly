@@ -580,3 +580,40 @@ async fn a_channel_playlist_in_search_names_its_channel() {
     assert_eq!(doc["extra"]["channel_handle"], channel.summary.handle);
     assert_eq!(doc["owner_id"], alice.id.to_string(), "kept for blocks; search does not show it");
 }
+
+#[tokio::test]
+async fn adding_and_removing_items_in_a_loop_is_rate_limited() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let channel = ctx.channel(&alice, "ch").await;
+    let video = ctx.public_video(&alice, &channel, "loop").await;
+    let list = create(&ctx, &alice, "loop", Visibility::VISIBILITY_PUBLIC).await;
+    let add = AddPlaylistItemRequest {
+        playlist_id: list.id.clone(),
+        video_id: card(&video).id.clone(),
+        ..Default::default()
+    };
+    let remove = RemovePlaylistItemRequest {
+        playlist_id: list.id.clone(),
+        video_id: card(&video).id.clone(),
+        ..Default::default()
+    };
+    let mut limited = None;
+    for round in 0..150 {
+        let added = ctx.call::<_, AddPlaylistItemResponse>(PLAYLISTS, "AddPlaylistItem", Some(&alice), &add).await;
+        let removed = match added {
+            Ok(_) => ctx
+                .call::<_, RemovePlaylistItemResponse>(PLAYLISTS, "RemovePlaylistItem", Some(&alice), &remove)
+                .await
+                .map(|_| ()),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = removed {
+            limited = Some((round, e.reason));
+            break;
+        }
+    }
+    let (round, reason) = limited.expect("an endless add/remove loop is refused at some point");
+    assert_eq!(reason, "RATE_LIMITED");
+    assert!(round >= 30, "normal use is not limited (stopped at round {round})");
+}

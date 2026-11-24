@@ -252,6 +252,7 @@ days ahead.
 | `video-report:<session>` | 120 / minute (`ReportPlayback`) |
 | `video-home:<user or ip>` | 120 / minute (`GetHomeFeed`) |
 | `video-playlist-create:<user>` | 30 / hour |
+| `video-playlist-items:<user>` | 120 / minute (`AddPlaylistItem` and `RemovePlaylistItem` together) |
 | `video-party-create:<user>` | 20 / hour |
 | `video-party-preview:<user or ip>`, `video-party-join:<user or ip>` | 60 / minute, 30 / minute |
 | `video-party-control:<seat>` | 240 / minute (`SetPartyPlayback`) |
