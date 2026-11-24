@@ -87,10 +87,7 @@ impl Resolve for PublicOnly {
     fn resolve(&self, name: Name) -> Resolving {
         Box::pin(async move {
             let resolved: Vec<SocketAddr> = tokio::net::lookup_host((name.as_str(), 0)).await?.collect();
-            let public: Vec<SocketAddr> = resolved
-                .into_iter()
-                .filter(|address| is_public(address.ip()))
-                .collect();
+            let public: Vec<SocketAddr> = resolved.into_iter().filter(|address| is_public(address.ip())).collect();
             if public.is_empty() {
                 return Err(format!("{} has no public address", name.as_str()).into());
             }
@@ -108,10 +105,28 @@ mod tests {
     #[test]
     fn internal_addresses_are_not_public() {
         for ip in [
-            "0.0.0.0", "10.1.2.3", "100.64.0.1", "127.0.0.1", "169.254.169.254", "172.16.0.1",
-            "192.168.1.1", "192.0.2.1", "198.18.0.1", "224.0.0.1", "255.255.255.255", "::",
-            "::1", "fc00::1", "fd12::1", "fe80::1", "ff02::1", "2001:db8::1",
-            "::ffff:127.0.0.1", "::ffff:10.0.0.1", "64:ff9b::a9fe:a9fe", "2002:7f00:1::1",
+            "0.0.0.0",
+            "10.1.2.3",
+            "100.64.0.1",
+            "127.0.0.1",
+            "169.254.169.254",
+            "172.16.0.1",
+            "192.168.1.1",
+            "192.0.2.1",
+            "198.18.0.1",
+            "224.0.0.1",
+            "255.255.255.255",
+            "::",
+            "::1",
+            "fc00::1",
+            "fd12::1",
+            "fe80::1",
+            "ff02::1",
+            "2001:db8::1",
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+            "64:ff9b::a9fe:a9fe",
+            "2002:7f00:1::1",
             "::127.0.0.1",
         ] {
             assert!(!is_public(ip.parse().unwrap()), "{ip}");

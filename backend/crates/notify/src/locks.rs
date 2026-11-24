@@ -29,18 +29,12 @@ pub(crate) fn pair_key(a: Uuid, b: Uuid) -> i64 {
 
 /// Takes `key` exclusively for the rest of the transaction.
 pub(crate) async fn lock(tx: &mut Transaction<'_, Postgres>, key: i64) -> AppResult<()> {
-    sqlx::query("SELECT pg_advisory_xact_lock($1)")
-        .bind(key)
-        .execute(&mut **tx)
-        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(key).execute(&mut **tx).await?;
     Ok(())
 }
 
 /// Takes `keys` shared for the rest of the transaction.
-pub(crate) async fn lock_shared(
-    tx: &mut Transaction<'_, Postgres>,
-    mut keys: Vec<i64>,
-) -> AppResult<()> {
+pub(crate) async fn lock_shared(tx: &mut Transaction<'_, Postgres>, mut keys: Vec<i64>) -> AppResult<()> {
     if keys.is_empty() {
         return Ok(());
     }

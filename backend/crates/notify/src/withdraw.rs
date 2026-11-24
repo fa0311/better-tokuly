@@ -52,17 +52,10 @@ pub fn withdrawn_by(event: &Event) -> AppResult<Option<Uuid>> {
         }
         return Ok(Some(removed.subject_id));
     }
-    let Some((_, field)) = DELETION_TOPICS
-        .iter()
-        .find(|(topic, _)| *topic == event.topic)
-    else {
+    let Some((_, field)) = DELETION_TOPICS.iter().find(|(topic, _)| *topic == event.topic) else {
         return Ok(None);
     };
-    Ok(event
-        .data
-        .get(*field)
-        .and_then(|id| id.as_str())
-        .and_then(|id| Uuid::parse_str(id).ok()))
+    Ok(event.data.get(*field).and_then(|id| id.as_str()).and_then(|id| Uuid::parse_str(id).ok()))
 }
 
 /// The IDs a notification refers to: its subject and the `*_id` values at
@@ -83,19 +76,14 @@ pub fn refs_of(request: &NotificationRequest) -> Vec<Uuid> {
 }
 
 /// Whether any of `refs` was withdrawn.
-pub(crate) async fn any_withdrawn<'e, E: sqlx::PgExecutor<'e>>(
-    executor: E,
-    refs: &[Uuid],
-) -> AppResult<bool> {
+pub(crate) async fn any_withdrawn<'e, E: sqlx::PgExecutor<'e>>(executor: E, refs: &[Uuid]) -> AppResult<bool> {
     if refs.is_empty() {
         return Ok(false);
     }
-    Ok(sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM notify_withdrawn WHERE ref_id = ANY($1))",
-    )
-    .bind(refs)
-    .fetch_one(executor)
-    .await?)
+    Ok(sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM notify_withdrawn WHERE ref_id = ANY($1))")
+        .bind(refs)
+        .fetch_one(executor)
+        .await?)
 }
 
 impl Notify {
@@ -140,13 +128,7 @@ mod tests {
     use super::*;
 
     fn event(topic: &str, data: serde_json::Value) -> Event {
-        Event {
-            id: Uuid::now_v7(),
-            topic: topic.to_owned(),
-            actor_id: None,
-            occurred_at: now(),
-            data,
-        }
+        Event { id: Uuid::now_v7(), topic: topic.to_owned(), actor_id: None, occurred_at: now(), data }
     }
 
     #[test]
@@ -177,10 +159,7 @@ mod tests {
     fn deletion_events_name_what_they_withdraw() {
         let id = Uuid::now_v7();
         let withdrawn = |topic: &str, data| withdrawn_by(&event(topic, data)).unwrap();
-        assert_eq!(
-            withdrawn("chat.message.deleted", serde_json::json!({ "message_id": id })),
-            Some(id)
-        );
+        assert_eq!(withdrawn("chat.message.deleted", serde_json::json!({ "message_id": id })), Some(id));
         assert_eq!(
             withdrawn(
                 CONTENT_REMOVED_TOPIC,
@@ -189,10 +168,7 @@ mod tests {
             Some(id)
         );
         assert_eq!(
-            withdrawn(
-                CONTENT_REMOVED_TOPIC,
-                serde_json::json!({ "subject_type": 1, "subject_id": id })
-            ),
+            withdrawn(CONTENT_REMOVED_TOPIC, serde_json::json!({ "subject_type": 1, "subject_id": id })),
             None,
             "a profile takedown withdraws nothing"
         );

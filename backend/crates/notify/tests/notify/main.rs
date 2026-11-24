@@ -1,5 +1,6 @@
 //! Integration tests of the notify domain against real PostgreSQL, Valkey
 //! and NATS (one test binary, so the modules share a database).
+mod blocks;
 mod channels;
 mod common;
 mod concurrency;
@@ -11,7 +12,6 @@ mod devices;
 mod inbox;
 mod inbox_changes;
 mod maintenance;
-mod blocks;
 mod mutes;
-mod withdrawals;
 mod preferences;
+mod withdrawals;

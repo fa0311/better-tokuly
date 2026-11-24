@@ -29,30 +29,18 @@ fn comment_on(to: &TestUser, from: &TestUser, note_id: Uuid, comment_id: Uuid) -
 }
 
 async fn kinds(ctx: &Ctx, user: &TestUser) -> Vec<String> {
-    ctx.inbox(user)
-        .await
-        .notifications
-        .into_iter()
-        .map(|n| n.kind)
-        .collect()
+    ctx.inbox(user).await.notifications.into_iter().map(|n| n.kind).collect()
 }
 
 #[tokio::test]
 async fn a_taken_down_subject_leaves_every_inbox_but_the_owners_notice() {
     let ctx = start().await;
-    let (alice, bob, carol) = (
-        ctx.app.user("alice").await,
-        ctx.app.user("bob").await,
-        ctx.app.user("carol").await,
-    );
+    let (alice, bob, carol) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("carol").await);
     let note_id = Uuid::now_v7();
     let other_note = Uuid::now_v7();
-    ctx.deliver_to_inbox(&comment_on(&alice, &bob, note_id, Uuid::now_v7()))
-        .await;
-    ctx.deliver_to_inbox(&comment_on(&carol, &bob, note_id, Uuid::now_v7()))
-        .await;
-    ctx.deliver_to_inbox(&comment_on(&carol, &bob, other_note, Uuid::now_v7()))
-        .await;
+    ctx.deliver_to_inbox(&comment_on(&alice, &bob, note_id, Uuid::now_v7())).await;
+    ctx.deliver_to_inbox(&comment_on(&carol, &bob, note_id, Uuid::now_v7())).await;
+    ctx.deliver_to_inbox(&comment_on(&carol, &bob, other_note, Uuid::now_v7())).await;
     // What the admin domain tells the owner about the takedown names the subject too.
     let notice = NotificationRequest::new(
         bob.id,
@@ -79,20 +67,14 @@ async fn a_taken_down_subject_leaves_every_inbox_but_the_owners_notice() {
 
     assert!(kinds(&ctx, &alice).await.is_empty());
     assert_eq!(unread_of(&ctx.inbox(&alice).await), 0);
-    assert_eq!(
-        ctx.inbox(&carol).await.notifications.len(),
-        1,
-        "the comment on the other note stays"
-    );
+    assert_eq!(ctx.inbox(&carol).await.notifications.len(), 1, "the comment on the other note stays");
     assert_eq!(kinds(&ctx, &bob).await, ["system.content_removed"]);
 
     // Alice's open apps take the entry away.
     let removed = loop {
         let frame = frames.next(WAIT).await.expect("a realtime frame");
-        if let Some(NotifyEvent {
-            event: Some(notify_event::Event::Removed(removed)),
-            ..
-        }) = frame.event::<NotifyEvent>()
+        if let Some(NotifyEvent { event: Some(notify_event::Event::Removed(removed)), .. }) =
+            frame.event::<NotifyEvent>()
         {
             break removed;
         }
@@ -107,10 +89,7 @@ async fn a_taken_down_subject_leaves_every_inbox_but_the_owners_notice() {
         comment_on(&alice, &bob, note_id, Uuid::now_v7()),
         Utc::now() - chrono::Duration::seconds(5),
     );
-    assert!(matches!(
-        ctx.notify.handle_request(&late).await.unwrap(),
-        RequestOutcome::Dropped(_)
-    ));
+    assert!(matches!(ctx.notify.handle_request(&late).await.unwrap(), RequestOutcome::Dropped(_)));
     assert!(kinds(&ctx, &alice).await.is_empty());
 }
 
@@ -120,10 +99,8 @@ async fn deleted_messages_and_comments_are_withdrawn() {
     let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
     let note_id = Uuid::now_v7();
     let (deleted_comment, kept_comment) = (Uuid::now_v7(), Uuid::now_v7());
-    ctx.deliver_to_inbox(&comment_on(&alice, &bob, note_id, deleted_comment))
-        .await;
-    ctx.deliver_to_inbox(&comment_on(&alice, &bob, note_id, kept_comment))
-        .await;
+    ctx.deliver_to_inbox(&comment_on(&alice, &bob, note_id, deleted_comment)).await;
+    ctx.deliver_to_inbox(&comment_on(&alice, &bob, note_id, kept_comment)).await;
     let message_id = Uuid::now_v7();
     ctx.deliver_to_inbox(
         &chat_message(&alice, &bob)
@@ -178,9 +155,7 @@ async fn a_push_still_queued_for_withdrawn_content_is_not_sent() {
     // Chat messages are push-only: there is no inbox entry to delete.
     let job = ctx
         .deliver_for_push(
-            &chat_message(&alice, &bob)
-                .push_only()
-                .subject(SubjectType::SUBJECT_TYPE_CHAT_MESSAGE, message_id),
+            &chat_message(&alice, &bob).push_only().subject(SubjectType::SUBJECT_TYPE_CHAT_MESSAGE, message_id),
         )
         .await;
 
@@ -209,18 +184,10 @@ async fn an_unsend_handled_at_the_same_time_as_the_message_leaves_nothing() {
     let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
     for _ in 0..30 {
         let message_id = Uuid::now_v7();
-        let request = request_event(
-            &chat_message(&alice, &bob)
-                .subject(SubjectType::SUBJECT_TYPE_CHAT_MESSAGE, message_id),
-        );
-        let unsent = event(
-            "chat.message.deleted",
-            serde_json::json!({ "message_id": message_id }),
-        );
-        let (stored, withdrawn) = tokio::join!(
-            ctx.notify.handle_request(&request),
-            ctx.notify.handle_event(unsent)
-        );
+        let request =
+            request_event(&chat_message(&alice, &bob).subject(SubjectType::SUBJECT_TYPE_CHAT_MESSAGE, message_id));
+        let unsent = event("chat.message.deleted", serde_json::json!({ "message_id": message_id }));
+        let (stored, withdrawn) = tokio::join!(ctx.notify.handle_request(&request), ctx.notify.handle_event(unsent));
         stored.unwrap();
         withdrawn.unwrap();
     }

@@ -14,11 +14,7 @@ use tokuly_core::{events::Event, prelude::*};
 use crate::{Notify, events::UserBlocked, locks, withdraw::UNWITHDRAWABLE_CATEGORY};
 
 /// Whether the two users are in a block, whoever blocked whom.
-pub(crate) async fn either_blocked<'e, E: PgExecutor<'e>>(
-    executor: E,
-    a: Uuid,
-    b: Uuid,
-) -> AppResult<bool> {
+pub(crate) async fn either_blocked<'e, E: PgExecutor<'e>>(executor: E, a: Uuid, b: Uuid) -> AppResult<bool> {
     Ok(sqlx::query_scalar(
         "SELECT EXISTS (
              SELECT 1 FROM notify_blocks
