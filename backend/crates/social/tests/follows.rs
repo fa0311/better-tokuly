@@ -583,6 +583,8 @@ async fn profiles_carry_a_follow_card() {
     let profile = response.profile.into_option().unwrap();
     let card = profile.cards.iter().find(|c| c.kind == "social.follow").expect("follow card");
     assert_eq!(card.data["follower_count"], "1");
+    let stats = profile.stats.as_option().unwrap();
+    assert_eq!((stats.follower_count, stats.following_count), (1, 0));
     assert_eq!(card.data["following"], "FOLLOWING");
     assert_eq!(card.path, format!("/u/{}/followers", bob.handle));
     // A suspended account's profile still loads (as far as identity shows it), without the card.

@@ -44,7 +44,12 @@ impl ProfileExtension for Social {
             // (suspended, or hidden by a block): the rest of the profile is
             // identity's to show or not.
             match self.follow_card(viewer, owner, profile).await {
-                Ok(card) => profile.cards.push(card),
+                Ok((card, followers, following)) => {
+                    let stats = profile.stats.get_or_insert_default();
+                    stats.follower_count = followers;
+                    stats.following_count = following;
+                    profile.cards.push(card);
+                }
                 Err(e) if e.is_not_found() => {}
                 Err(e) => return Err(e),
             }
@@ -107,7 +112,8 @@ impl Social {
     /// viewers only, like the friend count) and the viewer's follow state.
     /// `data`: `follower_count`, `following_count`, `following` (NONE /
     /// FOLLOWING / REQUESTED), `follows_you`, `locked`, `known_follower_count`.
-    async fn follow_card(&self, viewer: Uuid, owner: Uuid, profile: &Profile) -> AppResult<ProfileCard> {
+    /// Returns the card and the two counts (also put on `ProfileStats`).
+    async fn follow_card(&self, viewer: Uuid, owner: Uuid, profile: &Profile) -> AppResult<(ProfileCard, i32, i32)> {
         let summary = self.follow_summary(viewer, owner).await?;
         let relation = summary.relation.as_option().cloned().unwrap_or_default();
         let following = match relation.following.as_known() {
@@ -117,7 +123,7 @@ impl Social {
         };
         let handle = profile.user.as_option().map(|user| user.handle.clone()).unwrap_or_default();
         let (followers, following_count) = (summary.follower_count, summary.following_count);
-        Ok(ProfileCard {
+        let card = ProfileCard {
             kind: "social.follow".into(),
             title: LocalizedText { ja: "フォロー".into(), en: "Follows".into(), ..Default::default() }.into(),
             text: LocalizedText {
@@ -140,6 +146,7 @@ impl Social {
             .collect(),
             order: FOLLOW_CARD_ORDER,
             ..Default::default()
-        })
+        };
+        Ok((card, followers, following_count))
     }
 }

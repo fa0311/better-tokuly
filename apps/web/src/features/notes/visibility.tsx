@@ -19,7 +19,10 @@ export const VISIBILITY_OPTIONS: VisibilityOption[] = [
 ];
 
 export function visibilityOption(visibility: common.Visibility): VisibilityOption {
-  return VISIBILITY_OPTIONS.find((option) => option.value === visibility) ?? VISIBILITY_OPTIONS[0]!;
+  // A value this screen does not know reads as the narrowest, never as public.
+  return (
+    VISIBILITY_OPTIONS.find((option) => option.value === visibility) ?? VISIBILITY_OPTIONS.at(-1)!
+  );
 }
 
 /** A small marker on notes that are not public: an icon with the audience as its label. */

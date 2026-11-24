@@ -64,18 +64,31 @@ pub enum ContentAudience {
 }
 
 impl ContentAudience {
-    /// The audience of content stored with the shared `Visibility` enum.
+    /// The audience of content stored with the shared `Visibility` enum
+    /// (`circle_id`: `AudienceRef.circle_id`, for `VISIBILITY_CIRCLE`).
     /// `NO_FEED` and `UNLISTED` are as visible as `PUBLIC` to someone who has
-    /// the item (where it is listed is the content domain's business); an
-    /// unset value reads as `Private`, the cautious reading.
-    pub fn from_visibility(visibility: Visibility) -> Self {
+    /// the item (where it is listed is the content domain's business). An
+    /// unset value, or a circle without its ID, reads as `Private`: the
+    /// cautious reading.
+    pub fn from_visibility(visibility: Visibility, circle_id: Option<Uuid>) -> Self {
         match visibility {
             Visibility::VISIBILITY_PUBLIC | Visibility::VISIBILITY_NO_FEED | Visibility::VISIBILITY_UNLISTED => {
                 Self::Public
             }
+            Visibility::VISIBILITY_FOLLOWERS => Self::Followers,
             Visibility::VISIBILITY_FRIENDS => Self::Friends,
+            Visibility::VISIBILITY_CLOSE_FRIENDS => Self::CloseFriends,
+            Visibility::VISIBILITY_CIRCLE => circle_id.map_or(Self::Private, Self::Circle),
             Visibility::VISIBILITY_PRIVATE | Visibility::VISIBILITY_UNSPECIFIED => Self::Private,
         }
+    }
+
+    /// [`Self::from_visibility`] for a stored number; a number this build
+    /// does not know reads as `Private`, never as public.
+    pub fn from_stored(visibility: i32, circle_id: Option<Uuid>) -> Self {
+        buffa::EnumValue::<Visibility>::from(visibility)
+            .as_known()
+            .map_or(Self::Private, |visibility| Self::from_visibility(visibility, circle_id))
     }
 }
 
@@ -444,9 +457,16 @@ mod tests {
 
     #[test]
     fn shared_visibility_values_map_cautiously() {
-        assert_eq!(ContentAudience::from_visibility(Visibility::VISIBILITY_UNLISTED), ContentAudience::Public);
-        assert_eq!(ContentAudience::from_visibility(Visibility::VISIBILITY_FRIENDS), ContentAudience::Friends);
-        assert_eq!(ContentAudience::from_visibility(Visibility::VISIBILITY_UNSPECIFIED), ContentAudience::Private);
+        let circle = Uuid::now_v7();
+        let map = ContentAudience::from_visibility;
+        assert_eq!(map(Visibility::VISIBILITY_UNLISTED, None), ContentAudience::Public);
+        assert_eq!(map(Visibility::VISIBILITY_FRIENDS, None), ContentAudience::Friends);
+        assert_eq!(map(Visibility::VISIBILITY_FOLLOWERS, None), ContentAudience::Followers);
+        assert_eq!(map(Visibility::VISIBILITY_CLOSE_FRIENDS, None), ContentAudience::CloseFriends);
+        assert_eq!(map(Visibility::VISIBILITY_CIRCLE, Some(circle)), ContentAudience::Circle(circle));
+        assert_eq!(map(Visibility::VISIBILITY_CIRCLE, None), ContentAudience::Private);
+        assert_eq!(map(Visibility::VISIBILITY_UNSPECIFIED, None), ContentAudience::Private);
+        assert_eq!(ContentAudience::from_stored(99, None), ContentAudience::Private, "an unknown number is never public");
     }
 
     #[test]

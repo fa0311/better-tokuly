@@ -107,6 +107,26 @@ enum Visibility {
   VISIBILITY_FRIENDS = 4;
   // Only the owner.
   VISIBILITY_PRIVATE = 5;
+  // The owner's followers and friends (tokuly.social.v1: friends are inside
+  // "followers"). Honoured by no content domain yet: each one accepts it once
+  // it decides visibility through tokuly_social::graph (the audience API);
+  // until then it is refused on input and, if ever stored, shown to the
+  // owner only.
+  VISIBILITY_FOLLOWERS = 6;
+  // The owner's close-friends circle. Honoured by no content domain yet
+  // (see VISIBILITY_FOLLOWERS).
+  VISIBILITY_CLOSE_FRIENDS = 7;
+  // One of the owner's custom circles, named by AudienceRef.circle_id.
+  // Honoured by no content domain yet (see VISIBILITY_FOLLOWERS).
+  VISIBILITY_CIRCLE = 8;
+}
+
+// An audience as a visibility plus, for VISIBILITY_CIRCLE, which circle of
+// the owner (tokuly.social.v1.Circle.id). A circle that is not the owner's,
+// or a missing one, reaches nobody but the owner.
+message AudienceRef {
+  Visibility visibility = 1;
+  string circle_id = 2;
 }
 
 // Server-written text in both languages of the app; clients show the one

@@ -205,9 +205,12 @@ pub async fn is_close_friend(core: &Core, owner: Uuid, viewer: Uuid) -> AppResul
 | `Private` | nobody |
 
 The owner's account state (suspended, deleted), link-only access and age
-limits stay with the content domain. `tokuly.common.v1.Visibility` has no
-values for followers or circles yet; until it does, content domains map
-their own fields onto `ContentAudience`.
+limits stay with the content domain. `tokuly.common.v1.Visibility` has
+`VISIBILITY_FOLLOWERS`, `VISIBILITY_CLOSE_FRIENDS` and `VISIBILITY_CIRCLE`
+(with `AudienceRef.circle_id`); `ContentAudience::from_visibility(v, circle_id)`
+/ `from_stored(i32, circle_id)` map them (unknown → `Private`). No content
+domain honours them yet: live, video and shorts refuse them with
+`VISIBILITY_INVALID` until they decide visibility through this API.
 
 Follow suggestions take more signals through
 `Social::add_follow_signal(Arc<dyn tokuly_social::follow_suggestions::FollowSignal>)`:
@@ -265,7 +268,8 @@ where the claimer really is: `docs/events/geo.md` ("Claimed positions") and
 `Social::new` registers a `tokuly_identity::ProfileExtension` (relationship,
 mutual friends, friendship details, friend/intro/bump counters, relationships
 in user search, profiles hidden by blocks, and for signed-in viewers a
-`social.follow` card: `data = { follower_count, following_count, following:
+`social.follow` card: also `ProfileStats.follower_count` / `following_count`, and
+`data = { follower_count, following_count, following:
 NONE|FOLLOWING|REQUESTED, follows_you, locked, known_follower_count }`, path
 `/u/<handle>/followers`) and a `DataExporter` named `social` (which also
 holds follows both ways, follow requests, follow settings, dismissed follow
