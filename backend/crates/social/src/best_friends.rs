@@ -17,6 +17,7 @@ use crate::{
     Social,
     friends::{Detail, FriendRow, friend_columns},
     graph::{self, Pair},
+    idcache,
     ranking::{self, Bucket, DayBucket},
 };
 
@@ -84,7 +85,12 @@ impl Social {
         let mut days: HashMap<Pair, Vec<DayBucket>> = HashMap::new();
         for (lo, hi, day, kind, lo_weight, hi_weight) in day_rows {
             let Some(bucket) = Bucket::from_code(kind) else { continue };
-            days.entry(Pair { lo, hi }).or_default().push(DayBucket { age_days: ranking::age_days(day, today), bucket, lo: lo_weight, hi: hi_weight });
+            days.entry(Pair { lo, hi }).or_default().push(DayBucket {
+                age_days: ranking::age_days(day, today),
+                bucket,
+                lo: lo_weight,
+                hi: hi_weight,
+            });
         }
 
         let users: Vec<Uuid> = pairs.iter().flat_map(|p| [p.lo, p.hi]).collect::<HashSet<_>>().into_iter().collect();
@@ -150,7 +156,7 @@ impl Social {
         if user_ids.is_empty() {
             return Ok(());
         }
-        sqlx::query(
+        let changed: Vec<Uuid> = sqlx::query_scalar(
             "WITH ranked AS (
                  SELECT f.user_id, f.friend_id,
                         row_number() OVER (PARTITION BY f.user_id ORDER BY p.score DESC, f.created_at, f.friend_id) AS position
@@ -166,13 +172,19 @@ impl Social {
              )
              UPDATE friendships f SET best_friend_rank = target.rank
              FROM target
-             WHERE f.user_id = target.user_id AND f.friend_id = target.friend_id AND f.best_friend_rank <> target.rank",
+             WHERE f.user_id = target.user_id AND f.friend_id = target.friend_id AND f.best_friend_rank <> target.rank
+             RETURNING f.user_id",
         )
         .bind(user_ids)
         .bind(ranking::MIN_BEST_FRIEND_SCORE)
         .bind(self.cfg.best_friend_count)
-        .execute(&self.core.db)
+        .fetch_all(&self.core.db)
         .await?;
+        let mut changed = changed;
+        changed.sort_unstable();
+        changed.dedup();
+        // Other domains read ranks through `graph::best_friend_ids`.
+        idcache::FRIEND_LINKS.invalidate(&self.core, &changed).await;
         Ok(())
     }
 

@@ -127,10 +127,6 @@ impl Ask {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM ask_friend_links WHERE user_id = $1 OR friend_id = $1")
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
         sqlx::query("DELETE FROM ask_settings WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
         // Staff records keep their rows without the name.
         sqlx::query("UPDATE ask_poll_questions SET created_by = NULL WHERE created_by = $1")

@@ -27,6 +27,8 @@ pub const MIGRATIONS: &[&str] = &["0001", "0100", "0200", "0400"];
 
 pub const FRIENDS: &str = "tokuly.social.v1.FriendService";
 pub const INTERACTIONS: &str = "tokuly.social.v1.InteractionService";
+pub const FOLLOWS: &str = "tokuly.social.v1.FollowService";
+pub const CIRCLES: &str = "tokuly.social.v1.CircleService";
 
 /// How long to wait for a realtime frame that should arrive (generous: the
 /// machine may be busy compiling something else).
@@ -128,6 +130,73 @@ impl Ctx {
         self.app.call(&format!("{INTERACTIONS}/{method}"), Some(user), request).await
     }
 
+    /// Calls a `FollowService` RPC.
+    pub async fn follows<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        user: &TestUser,
+        request: &Req,
+    ) -> Result<Resp, tokuly_testkit::RpcError> {
+        self.app.call(&format!("{FOLLOWS}/{method}"), Some(user), request).await
+    }
+
+    /// Calls a `CircleService` RPC.
+    pub async fn circles<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        user: &TestUser,
+        request: &Req,
+    ) -> Result<Resp, tokuly_testkit::RpcError> {
+        self.app.call(&format!("{CIRCLES}/{method}"), Some(user), request).await
+    }
+
+    /// `follower` follows `followee` (or asks to); returns the resulting state.
+    pub async fn follow(&self, follower: &TestUser, followee: &TestUser) -> FollowResponse {
+        self.follows("Follow", follower, &follow_request(followee.id)).await.expect("follow")
+    }
+
+    /// Locks or unlocks a user's account.
+    pub async fn set_locked(&self, user: &TestUser, locked: bool) -> UpdateFollowSettingsResponse {
+        let request = UpdateFollowSettingsRequest {
+            settings: FollowSettings { locked, ..Default::default() }.into(),
+            ..Default::default()
+        };
+        self.follows("UpdateFollowSettings", user, &request).await.expect("update follow settings")
+    }
+
+    /// Blocks `target` for `user`.
+    pub async fn block(&self, user: &TestUser, target: &TestUser) {
+        let _: BlockUserResponse = self
+            .friends("BlockUser", user, &BlockUserRequest { user_id: target.id.to_string(), ..Default::default() })
+            .await
+            .expect("block");
+    }
+
+    /// The close-friends circle of `user`.
+    pub async fn close_friends(&self, user: &TestUser) -> Circle {
+        let list: ListCirclesResponse =
+            self.circles("ListCircles", user, &ListCirclesRequest::default()).await.expect("list circles");
+        list.circles
+            .into_iter()
+            .find(|c| c.kind == CircleKind::CIRCLE_KIND_CLOSE_FRIENDS)
+            .expect("close friends circle")
+    }
+
+    /// Adds people to one of `owner`'s circles.
+    pub async fn add_to_circle(
+        &self,
+        owner: &TestUser,
+        circle_id: &str,
+        members: &[&TestUser],
+    ) -> Result<AddCircleMembersResponse, tokuly_testkit::RpcError> {
+        let request = AddCircleMembersRequest {
+            circle_id: circle_id.to_owned(),
+            user_ids: members.iter().map(|m| m.id.to_string()).collect(),
+            ..Default::default()
+        };
+        self.circles("AddCircleMembers", owner, &request).await
+    }
+
     /// Sends a friend request from `from` to `to`.
     pub async fn request(&self, from: &TestUser, to: &TestUser) -> SendFriendRequestResponse {
         self.friends("SendFriendRequest", from, &request_to(to.id)).await.expect("send friend request")
@@ -142,7 +211,11 @@ impl Ctx {
             return;
         };
         let _: RespondFriendRequestResponse = self
-            .friends("RespondFriendRequest", b, &RespondFriendRequestRequest { request_id: request.id.clone(), accept: true, ..Default::default() })
+            .friends(
+                "RespondFriendRequest",
+                b,
+                &RespondFriendRequestRequest { request_id: request.id.clone(), accept: true, ..Default::default() },
+            )
             .await
             .expect("accept");
     }
@@ -153,14 +226,22 @@ impl Ctx {
         change(&mut privacy);
         let _: UpdateSettingsResponse = self
             .app
-            .call("tokuly.identity.v1.AccountService/UpdateSettings", Some(user), &UpdateSettingsRequest { privacy: privacy.into(), ..Default::default() })
+            .call(
+                "tokuly.identity.v1.AccountService/UpdateSettings",
+                Some(user),
+                &UpdateSettingsRequest { privacy: privacy.into(), ..Default::default() },
+            )
             .await
             .expect("update settings");
     }
 
     /// Makes a user 15 years old.
     pub async fn make_minor(&self, user: &TestUser) {
-        sqlx::query("UPDATE users SET birthdate = current_date - interval '15 years' WHERE id = $1").bind(user.id).execute(&self.app.core.db).await.expect("set birthdate");
+        sqlx::query("UPDATE users SET birthdate = current_date - interval '15 years' WHERE id = $1")
+            .bind(user.id)
+            .execute(&self.app.core.db)
+            .await
+            .expect("set birthdate");
     }
 
     /// Creates `count` bare accounts straight in the database, for tests
@@ -187,13 +268,58 @@ impl Ctx {
 
     /// Activity entries (`activity.recorded`) of `user`, by kind.
     pub async fn activities_of(&self, user: Uuid, kind: &str) -> Vec<Event> {
-        self.app.events_by("activity.recorded", user).await.into_iter().filter(|e| e.data["kind"] == serde_json::json!(kind)).collect()
+        self.app
+            .events_by("activity.recorded", user)
+            .await
+            .into_iter()
+            .filter(|e| e.data["kind"] == serde_json::json!(kind))
+            .collect()
     }
 }
 
 /// The pending requests to (or, for `OUTGOING`, from) a user.
-pub async fn list_requests(ctx: &Ctx, user: &TestUser, direction: FriendRequestDirection) -> ListFriendRequestsResponse {
-    ctx.friends("ListFriendRequests", user, &ListFriendRequestsRequest { direction: direction.into(), ..Default::default() }).await.unwrap()
+pub async fn list_requests(
+    ctx: &Ctx,
+    user: &TestUser,
+    direction: FriendRequestDirection,
+) -> ListFriendRequestsResponse {
+    ctx.friends(
+        "ListFriendRequests",
+        user,
+        &ListFriendRequestsRequest { direction: direction.into(), ..Default::default() },
+    )
+    .await
+    .unwrap()
+}
+
+pub fn follow_request(user_id: Uuid) -> FollowRequest {
+    FollowRequest { target: Some(follow_request::Target::UserId(user_id.to_string())), ..Default::default() }
+}
+
+/// One of a user's follow lists, as `viewer` sees it.
+pub async fn follow_list(
+    ctx: &Ctx,
+    viewer: &TestUser,
+    owner: Uuid,
+    list: FollowList,
+) -> Result<ListFollowsResponse, tokuly_testkit::RpcError> {
+    ctx.follows(
+        "ListFollows",
+        viewer,
+        &ListFollowsRequest { user_id: owner.to_string(), list: list.into(), ..Default::default() },
+    )
+    .await
+}
+
+/// The IDs in one of a user's follow lists, as `viewer` sees it.
+pub async fn follow_list_ids(ctx: &Ctx, viewer: &TestUser, owner: Uuid, list: FollowList) -> Vec<Uuid> {
+    follow_list(ctx, viewer, owner, list)
+        .await
+        .expect("list follows")
+        .entries
+        .iter()
+        .map(|e| id_of(e.user.as_option().unwrap()))
+        .collect()
 }
 
 pub fn request_to(user_id: Uuid) -> SendFriendRequestRequest {

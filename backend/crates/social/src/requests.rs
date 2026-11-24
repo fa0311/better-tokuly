@@ -327,7 +327,7 @@ impl Social {
     /// After a new friendship committed: refresh cached friend lists and tell
     /// the requester's devices that they were accepted.
     async fn after_befriended(&self, accepter: Uuid, requester: Uuid) {
-        idcache::FRIENDS.invalidate(&self.core, &[accepter, requester]).await;
+        idcache::friendships_changed(&self.core, &[accepter, requester]).await;
         match self.friend_as_seen_by(requester, accepter).await {
             Ok(friend) => self.push(requester, Push::FriendRequestAccepted(Box::new(friend))).await,
             Err(e) => tracing::warn!(error = %e, "could not push the accepted friendship; clients catch up on their next refresh"),

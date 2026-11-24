@@ -154,13 +154,14 @@ impl Ask {
             "SELECT u.display_name, u.handle::text AS handle, u.school_name,
                     COALESCE((SELECT s.allow_hints FROM ask_settings s WHERE s.user_id = u.id), true) AS allow_hints,
                     COALESCE(
-                        (SELECT l.since FROM ask_friend_links l WHERE l.user_id = $2 AND l.friend_id = u.id),
+                        $3::timestamptz,
                         (SELECT e.created_at FROM ask_poll_exposure e WHERE e.user_id = u.id AND e.friend_id = $2)
                     ) AS friends_since
              FROM users u WHERE u.id = $1",
         )
         .bind(voter)
         .bind(receiver)
+        .bind(tokuly_social::graph::friends_since(&self.core, receiver, voter).await?)
         .fetch_optional(&self.core.db)
         .await?;
         let now = Utc::now();

@@ -139,7 +139,7 @@ impl Domains {
         let search = Search::new(core.clone(), identity.clone(), cfg.search)?;
         let emoji = Emoji::new(core.clone(), identity.clone(), cfg.emoji)?;
         let ask = Ask::new(core.clone(), identity.clone(), cfg.ask)?;
-        let plans = Plans::new(core.clone(), identity.clone(), cfg.plans, social.clone())?;
+        let plans = Plans::new(core.clone(), identity.clone(), cfg.plans)?;
         let school = School::new(core.clone(), identity.clone(), cfg.school)?;
         let quest = Quest::new(core.clone(), identity.clone(), cfg.quest)?;
         let live = Live::new(core.clone(), identity.clone(), cfg.live, wallet.clone())?;

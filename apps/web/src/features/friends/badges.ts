@@ -4,10 +4,19 @@ import { useEffect } from "react";
 import { api } from "#/lib/api";
 import { realtime } from "#/lib/realtime";
 import type { BadgeSources } from "#/seams/badges";
+import { refreshFollows, useFollowRequestCount } from "./follow-data";
 
 const INCOMING = ["social", "requests", "incoming"];
 
-/** Friend requests waiting for an answer. */
+/** The social pushes about follows: a request came or went, one was approved, a new follower. */
+const FOLLOW_EVENTS = new Set([
+  "followRequestReceived",
+  "followRequestCancelledId",
+  "followRequestApproved",
+  "newFollower",
+]);
+
+/** Friend requests and follow requests waiting for an answer. */
 function useFriendRequestsBadge(): number {
   const queryClient = useQueryClient();
   const requests = useQuery({
@@ -17,20 +26,26 @@ function useFriendRequestsBadge(): number {
         .service(social.FriendService)
         .listFriendRequests({ direction: social.FriendRequestDirection.INCOMING }),
   });
+  const followRequests = useFollowRequestCount();
 
-  // A new request (or its answer) is announced as a notification of the social domain.
   useEffect(
     () =>
       realtime().onFrame((frame) => {
-        if (frame.body.case !== "notify") return;
-        const event = frame.body.value.event;
-        if (event.case === "received" && event.value.notification?.kind.startsWith("social."))
-          void queryClient.invalidateQueries({ queryKey: INCOMING });
+        // A new friend request (or its answer) is announced as a notification of the social domain.
+        if (frame.body.case === "notify") {
+          const event = frame.body.value.event;
+          if (event.case === "received" && event.value.notification?.kind.startsWith("social."))
+            void queryClient.invalidateQueries({ queryKey: INCOMING });
+          return;
+        }
+        // Follows have their own pushes: counts, requests and relations re-read.
+        if (frame.body.case === "social" && FOLLOW_EVENTS.has(frame.body.value.event.case ?? ""))
+          void refreshFollows(queryClient);
       }),
     [queryClient],
   );
-  return requests.data?.incomingCount ?? 0;
+  return (requests.data?.incomingCount ?? 0) + followRequests;
 }
 
-/** `friends`: incoming friend requests. */
+/** `friends`: incoming friend requests and follow requests. */
 export default { friends: useFriendRequestsBadge } satisfies BadgeSources;

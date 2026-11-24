@@ -1,29 +1,42 @@
-//! Friend graph, invites, nearby discovery, bumps, buzzes and map reactions.
+//! Friend graph, follows, circles, invites, nearby discovery, bumps, buzzes
+//! and map reactions.
 //!
 //! Layout:
 //! - [`graph`] is the API other domains call (who is friends with whom, who
-//!   is blocked, audience checks, interaction reporting).
-//! - `friend_svc` / `interaction_svc` hold the two RPC services as thin
-//!   handlers; the behaviour lives in one module per feature (`requests`,
-//!   `friends`, `blocks`, `best_friends`, `suggestions`, `invites`, `nearby`,
-//!   `bumps`, `signals`, `map_reactions`, `map_views`).
+//!   follows whom, who is blocked, interaction reporting), with
+//!   [`audience`] for "may this viewer see that content" over every audience
+//!   (public, followers, friends, close friends, circles).
+//! - `friend_svc`, `interaction_svc` and `follow_svc` (follows and circles)
+//!   hold the RPC services as thin handlers; the behaviour lives in one
+//!   module per feature (`requests`, `friends`, `blocks`, `best_friends`,
+//!   `suggestions`, `invites`, `nearby`, `bumps`, `signals`, `map_reactions`,
+//!   `map_views`, `follows`, [`follow_suggestions`], `circles`).
 //! - [`claims`] checks positions the client claims (nearby, bumps) through
 //!   a [`claims::PositionCheck`] the geo domain plugs in.
 //! - `profile` plugs relationship data into identity's profiles.
 //! - `presence`, `best_friends` and `maintenance` run the background work.
-use std::{ops::Deref, sync::Arc, time::Duration};
+use std::{
+    ops::Deref,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
 use tokuly_proto::social::{SocialEvent, social_event::Event as Push};
 
+pub mod audience;
 mod best_friends;
 mod blocks;
 pub mod bumps;
+mod circles;
 pub mod claims;
 pub mod config;
 mod copy;
 pub mod events;
+pub mod follow_suggestions;
+mod follow_svc;
+mod follows;
 mod friend_svc;
 mod friends;
 pub mod graph;
@@ -51,6 +64,8 @@ pub struct SocialInner {
     pub cfg: SocialConfig,
     /// Checks positions claimed for nearby discovery and bumps (see [`claims`]).
     position_check: claims::Slot,
+    /// Where follow suggestions come from (see [`follow_suggestions`]).
+    follow_signals: RwLock<Vec<Arc<dyn follow_suggestions::FollowSignal>>>,
 }
 
 /// The social domain. Cheap to clone.
@@ -71,6 +86,7 @@ impl Social {
     /// `social` section.
     pub fn new(core: Core, identity: Identity, cfg: SocialConfig) -> anyhow::Result<Self> {
         anyhow::ensure!(cfg.max_friends > 0, "TOKULY_SOCIAL_MAX_FRIENDS must be positive");
+        anyhow::ensure!(cfg.max_following > 0, "TOKULY_SOCIAL_MAX_FOLLOWING must be positive");
         anyhow::ensure!(cfg.best_friend_count > 0, "TOKULY_SOCIAL_BEST_FRIEND_COUNT must be positive");
         anyhow::ensure!(cfg.ranking_interval_seconds > 0, "TOKULY_SOCIAL_RANKING_INTERVAL_SECONDS must be positive");
         anyhow::ensure!(cfg.bump_window_ms > 0, "TOKULY_SOCIAL_BUMP_WINDOW_MS must be positive");
@@ -81,7 +97,12 @@ impl Social {
         ] {
             anyhow::ensure!(meters.is_finite() && meters > 0.0, "{name} must be a positive number of meters");
         }
-        let social = Self(Arc::new(SocialInner { core: core.clone(), cfg, position_check: claims::Slot::new() }));
+        let social = Self(Arc::new(SocialInner {
+            core: core.clone(),
+            cfg,
+            position_check: claims::Slot::new(),
+            follow_signals: RwLock::new(follow_suggestions::built_in()),
+        }));
         identity.add_profile_extension(Arc::new(social.clone()));
         core.exporters.register(Arc::new(maintenance::SocialExporter::new(core.clone())));
         Ok(social)
@@ -89,10 +110,22 @@ impl Social {
 
     /// Registers this domain's RPC services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::social::{FriendServiceExt, InteractionServiceExt};
+        use tokuly_proto::social::{CircleServiceExt, FollowServiceExt, FriendServiceExt, InteractionServiceExt};
         let me = Arc::new(self.clone());
         let router = FriendServiceExt::register(me.clone(), router);
-        InteractionServiceExt::register(me, router)
+        let router = InteractionServiceExt::register(me.clone(), router);
+        let router = FollowServiceExt::register(me.clone(), router);
+        CircleServiceExt::register(me, router)
+    }
+
+    /// Adds a source of follow suggestions (another domain's signal, such as
+    /// "popular in your communities"; see [`follow_suggestions`]).
+    pub fn add_follow_signal(&self, signal: Arc<dyn follow_suggestions::FollowSignal>) {
+        self.follow_signals.write().unwrap_or_else(|poisoned| poisoned.into_inner()).push(signal);
+    }
+
+    fn follow_signals(&self) -> Vec<Arc<dyn follow_suggestions::FollowSignal>> {
+        self.follow_signals.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
     }
 
     /// Starts the background work: presence fan-out to friends, the
@@ -109,13 +142,19 @@ impl Social {
         let every = Duration::from_secs(self.cfg.ranking_interval_seconds);
         tokio::spawn(async move {
             social
-                .run_periodically("best-friend ranking", every, |social| async move { social.rescore_pending().await.map(|_| ()) })
+                .run_periodically("best-friend ranking", every, |social| async move {
+                    social.rescore_pending().await.map(|_| ())
+                })
                 .await
         });
 
         let social = self.clone();
         tokio::spawn(async move {
-            social.run_periodically("social maintenance", maintenance::PRUNE_INTERVAL, |social| async move { social.prune().await }).await
+            social
+                .run_periodically("social maintenance", maintenance::PRUNE_INTERVAL, |social| async move {
+                    social.prune().await
+                })
+                .await
         });
     }
 

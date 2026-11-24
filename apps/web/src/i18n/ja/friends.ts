@@ -8,6 +8,7 @@ export default {
     count: "{{count}}人",
   },
   requests: {
+    followTitle: "フォローリクエスト",
     incoming: "リクエスト",
     outgoing: "保留中",
     emptyIncoming: "届いているリクエストはありません",

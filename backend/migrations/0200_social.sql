@@ -1,5 +1,6 @@
 -- Social: the friend graph, requests, blocks, best-friend ranking,
--- suggestions, invites, bumps, map reactions and map views.
+-- suggestions, invites, bumps, map reactions and map views; follows, follow
+-- requests and circles.
 
 -- ───────────────────────────── friend graph ─────────────────────────────
 
@@ -218,3 +219,123 @@ CREATE TABLE map_views (
 CREATE INDEX map_views_viewed ON map_views (viewed_id, viewed_at DESC);
 CREATE INDEX map_views_viewer ON map_views (viewer_id);
 CREATE INDEX map_views_at ON map_views (viewed_at);
+
+-- ───────────────────────────── follows ─────────────────────────────
+
+-- Follow settings. Without a row an account is unlocked. Accounts of minors
+-- (by birthdate) get `locked = true` when they are created, and keep it until
+-- their owner unlocks them: the lock is never derived from today's date, so
+-- turning 18 changes nothing anybody can see.
+CREATE TABLE follow_settings (
+    user_id    uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    locked     boolean     NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TRIGGER follow_settings_updated_at
+    BEFORE UPDATE ON follow_settings
+    FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- Accounts of minors that exist already start locked too.
+INSERT INTO follow_settings (user_id, locked)
+SELECT id, true FROM users
+WHERE birthdate > current_date - interval '18 years' AND deleted_at IS NULL
+ON CONFLICT (user_id) DO NOTHING;
+
+-- `follower_id` follows `followee_id`. The follower's preferences about the
+-- followee (mute, notifications) live on the row and are private to them.
+CREATE TABLE follows (
+    follower_id  uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    followee_id  uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    -- Muted: left out of the follower's timelines. `muted_until` NULL with
+    -- `muted` = until unmuted; a past `muted_until` reads as not muted.
+    muted        boolean     NOT NULL DEFAULT false,
+    muted_until  timestamptz,
+    -- tokuly.social.v1.FollowNotifyLevel (1 none, 2 all posts).
+    notify_level smallint    NOT NULL DEFAULT 1,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (follower_id, followee_id),
+    CHECK (follower_id <> followee_id)
+);
+
+CREATE INDEX follows_followers ON follows (followee_id, created_at DESC, follower_id DESC);
+CREATE INDEX follows_following ON follows (follower_id, created_at DESC, followee_id DESC);
+CREATE INDEX follows_notify ON follows (followee_id) WHERE notify_level = 2;
+
+CREATE TRIGGER follows_updated_at
+    BEFORE UPDATE ON follows
+    FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- Requests to follow a locked account. An approved request becomes a
+-- `follows` row and is deleted. A declined one stays, hidden from the
+-- recipient, so the sender keeps seeing it as pending (and cannot ask again).
+CREATE TABLE follow_requests (
+    id          uuid PRIMARY KEY DEFAULT uuidv7(),
+    follower_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    followee_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    declined_at timestamptz,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (follower_id, followee_id),
+    CHECK (follower_id <> followee_id)
+);
+
+CREATE INDEX follow_requests_incoming ON follow_requests (followee_id, id DESC) WHERE declined_at IS NULL;
+CREATE INDEX follow_requests_outgoing ON follow_requests (follower_id, id DESC);
+CREATE INDEX follow_requests_declined ON follow_requests (declined_at) WHERE declined_at IS NOT NULL;
+
+CREATE TABLE follow_suggestion_dismissals (
+    user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    dismissed_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, dismissed_id)
+);
+
+CREATE INDEX follow_suggestion_dismissals_dismissed ON follow_suggestion_dismissals (dismissed_id);
+
+-- ───────────────────────────── circles ─────────────────────────────
+
+-- Lists of people to share with: one "close friends" circle per user
+-- (kind 1, created on first use) and custom ones (kind 2).
+CREATE TABLE circles (
+    id         uuid PRIMARY KEY DEFAULT uuidv7(),
+    owner_id   uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    -- tokuly.social.v1.CircleKind
+    kind       smallint    NOT NULL,
+    name       text        NOT NULL DEFAULT '',
+    emoji      text        NOT NULL DEFAULT '',
+    -- tokuly.social.v1.CircleColor
+    color      smallint    NOT NULL DEFAULT 0,
+    -- Order of the custom circles (close friends always comes first).
+    position   integer     NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (kind IN (1, 2))
+);
+
+CREATE INDEX circles_owner ON circles (owner_id, position, id);
+CREATE UNIQUE INDEX circles_one_close_friends ON circles (owner_id) WHERE kind = 1;
+
+CREATE TRIGGER circles_updated_at
+    BEFORE UPDATE ON circles
+    FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- Members of a circle: friends or followers of its owner (`owner_id` is
+-- repeated here so a relationship that ends can take its member out of all
+-- of the owner's circles in one statement).
+CREATE TABLE circle_members (
+    circle_id uuid        NOT NULL REFERENCES circles (id) ON DELETE CASCADE,
+    owner_id  uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    member_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    added_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (circle_id, member_id),
+    CHECK (owner_id <> member_id)
+);
+
+CREATE INDEX circle_members_newest ON circle_members (circle_id, added_at DESC, member_id DESC);
+CREATE INDEX circle_members_member ON circle_members (member_id);
+CREATE INDEX circle_members_owner ON circle_members (owner_id, member_id);

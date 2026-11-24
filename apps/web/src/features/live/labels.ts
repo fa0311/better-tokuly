@@ -44,7 +44,8 @@ export const VISIBILITIES: VisibilityOption[] = [
 ];
 
 export function visibilityOf(visibility: common.Visibility): VisibilityOption {
-  return VISIBILITIES.find((option) => option.value === visibility) ?? VISIBILITIES[0]!;
+  // A value this screen does not know reads as the narrowest, never as public.
+  return VISIBILITIES.find((option) => option.value === visibility) ?? VISIBILITIES.at(-1)!;
 }
 
 /** Whether anyone with the link may watch (what a clip can be cut from). */

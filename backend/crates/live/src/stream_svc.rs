@@ -47,6 +47,9 @@ fn explicit_visibility(value: buffa::EnumValue<Visibility>) -> AppResult<i32> {
         Some(Visibility::VISIBILITY_UNSPECIFIED) | None => {
             Err(AppError::invalid("VISIBILITY_INVALID", "unknown visibility"))
         }
+        Some(Visibility::VISIBILITY_FOLLOWERS | Visibility::VISIBILITY_CLOSE_FRIENDS | Visibility::VISIBILITY_CIRCLE) => {
+            Err(AppError::invalid("VISIBILITY_INVALID", "this audience is not available here yet"))
+        }
         Some(known) => Ok(known as i32),
     }
 }

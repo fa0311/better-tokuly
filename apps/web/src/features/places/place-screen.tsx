@@ -69,7 +69,8 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
   const place = data?.place;
   const center = toLatLng(place?.center);
   const mine = Boolean(place && place.ownerId === me?.user?.id);
-  const shared = Boolean(place && place.visibility !== common.Visibility.PRIVATE);
+  // Only the audiences this client knows count as shared; anything else reads as private.
+  const shared = Boolean(place && visibilityKey(place.visibility) !== "private");
 
   const area = useQuery({
     queryKey: center ? placeKeys.reverse(center, i18n.language) : ["geo", "reverse", "none"],
