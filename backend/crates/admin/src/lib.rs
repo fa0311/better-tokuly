@@ -20,7 +20,9 @@
 //! the audit log in the transaction that makes it.
 //!
 //! Content that is reported without an owner (posts in anonymous channels)
-//! gets one from a lookup the server hands in (`owners.rs`).
+//! gets one from a lookup the server hands in (`owners.rs`), and the uploads
+//! of reported content are held for the case through another
+//! ([`evidence`]).
 //!
 //! Other domains never call into this crate. They hear about takedowns
 //! through the `admin.content.removed` event ([`events::ContentRemoved`]) and
@@ -41,6 +43,7 @@ mod announcements_svc;
 mod audit;
 mod cases;
 mod cleanup;
+pub mod evidence;
 pub mod config;
 pub mod events;
 mod flags_svc;
@@ -57,6 +60,7 @@ mod users_svc;
 mod workers;
 
 pub use config::AdminConfig;
+pub use evidence::ReportEvidence;
 pub use owners::HiddenOwners;
 
 /// The first `limit` rows of a listing, for previews embedded in other responses.
@@ -70,6 +74,8 @@ pub struct AdminInner {
     pub cfg: AdminConfig,
     /// Asked about content that is reported without an owner.
     hidden_owners: OnceLock<Arc<dyn HiddenOwners>>,
+    /// Holds the uploads of reported content.
+    evidence: OnceLock<Arc<dyn ReportEvidence>>,
     /// See [`Admin::identity_slot`].
     identity_slot: tokio::sync::Semaphore,
 }
@@ -90,7 +96,7 @@ impl Admin {
     pub fn new(core: Core, identity: Identity, cfg: AdminConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
         core.exporters.register(Arc::new(cleanup::ModerationExporter { core: core.clone() }));
-        Ok(Self(Arc::new(AdminInner { core, identity, cfg, hidden_owners: OnceLock::new(), identity_slot: tokio::sync::Semaphore::new(1) })))
+        Ok(Self(Arc::new(AdminInner { core, identity, cfg, hidden_owners: OnceLock::new(), evidence: OnceLock::new(), identity_slot: tokio::sync::Semaphore::new(1) })))
     }
 
     /// Taken before opening a transaction that will hold a lock (a case row,

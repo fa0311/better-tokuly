@@ -37,6 +37,11 @@ pub struct AdminConfig {
     /// such post against a compromised or curious staff account.
     #[arg(long, env = "TOKULY_MODERATOR_REVEALS_PER_HOUR", default_value_t = 30)]
     pub moderator_reveals_per_hour: u32,
+
+    /// Days the uploads of reported content stay held for a case after it
+    /// is resolved (see `evidence.rs`).
+    #[arg(long, env = "TOKULY_MODERATION_EVIDENCE_DAYS", default_value_t = 90)]
+    pub moderation_evidence_days: i32,
 }
 
 impl Default for AdminConfig {
@@ -48,6 +53,7 @@ impl Default for AdminConfig {
             announcement_notify_chunk: 500,
             moderator_sanctions_per_hour: 120,
             moderator_reveals_per_hour: 30,
+            moderation_evidence_days: 90,
         }
     }
 }
@@ -61,6 +67,7 @@ impl AdminConfig {
         );
         anyhow::ensure!(self.announcement_notify_active_days >= 1, "TOKULY_ANNOUNCEMENT_NOTIFY_ACTIVE_DAYS must be at least 1");
         anyhow::ensure!((1..=5000).contains(&self.announcement_notify_chunk), "TOKULY_ANNOUNCEMENT_NOTIFY_CHUNK must be between 1 and 5000");
+        anyhow::ensure!(self.moderation_evidence_days >= 1, "TOKULY_MODERATION_EVIDENCE_DAYS must be at least 1");
         Ok(())
     }
 }
