@@ -1,6 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, live } from "@tokuly/api";
 import { useEffect, useRef, useState } from "react";
+import { pushesDuringReadByKey } from "#/lib/pushes-during-read";
 import { deviceId, realtime } from "#/lib/realtime";
 import {
   chatClient,
@@ -14,14 +15,30 @@ import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from ".
 
 const { ChatMessageKind, StreamStatus } = live;
 
+/**
+ * What pushes did to a stream's chat while it was being read (lines added,
+ * deleted, cleared): the answer may predate them, so they are applied to it
+ * again (see `pushesDuringRead`).
+ */
+const chatPushesDuringRead = pushesDuringReadByKey<live.ChatMessage[]>();
+
+/** Reads the latest page of a stream's chat, with what was pushed while it was read. */
+export async function readChat(streamId: string): Promise<live.ChatMessage[]> {
+  const read = chatPushesDuringRead.begin(streamId);
+  try {
+    const { messages } = await chatClient().listChatMessages({ streamId });
+    return read.finish(addChatMessages([], messages));
+  } catch (error) {
+    read.cancel();
+    throw error;
+  }
+}
+
 /** The chat of a stream, oldest first: the latest page, then whatever is pushed. */
 export function useChatMessages(streamId: string) {
   return useQuery({
     queryKey: liveKeys.chat(streamId),
-    queryFn: async () => {
-      const { messages } = await chatClient().listChatMessages({ streamId });
-      return addChatMessages([], messages);
-    },
+    queryFn: () => readChat(streamId),
     // Pushes keep it current; reading it again would only drop what the page did not hold.
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 0,
@@ -33,6 +50,7 @@ function updateChat(
   streamId: string,
   update: (messages: live.ChatMessage[]) => live.ChatMessage[],
 ): void {
+  chatPushesDuringRead.record(streamId, update);
   queryClient.setQueryData<live.ChatMessage[]>(liveKeys.chat(streamId), (messages) =>
     messages ? update(messages) : messages,
   );

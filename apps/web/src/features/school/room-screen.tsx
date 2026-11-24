@@ -31,6 +31,7 @@ import { ShareToChat } from "#/features/chat";
 import { EmojiText } from "#/features/emoji";
 import { ReportDialog } from "#/features/engagement";
 import { cn } from "#/lib/cn";
+import { pushesDuringReadByKey } from "#/lib/pushes-during-read";
 import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
 import { keys, refresh, roomClient, toastError } from "./api";
@@ -58,6 +59,9 @@ interface Burst {
 
 let burstId = 0;
 
+/** Timer changes pushed while a room is being read (see `pushesDuringRead`). */
+const timerPushesDuringRead = pushesDuringReadByKey<school.StudyRoom>();
+
 /**
  * A study room: the shared timer everyone follows, who is here and what
  * they study, the fixed reactions. The host runs the timer, invites and
@@ -79,9 +83,18 @@ export function RoomScreen({ roomId }: { roomId: string }) {
   } = useQuery({
     queryKey: key,
     queryFn: async () => {
-      const response = await roomClient().getStudyRoom({ roomId });
-      syncClock(response.room?.timer);
-      return response.room;
+      const read = timerPushesDuringRead.begin(roomId);
+      try {
+        const response = await roomClient().getStudyRoom({ roomId });
+        // A timer change pushed while the room was read is newer than the answer.
+        const room = response.room && read.finish(response.room);
+        read.cancel();
+        syncClock(room?.timer);
+        return room;
+      } catch (error) {
+        read.cancel();
+        throw error;
+      }
     },
     staleTime: 0,
   });
@@ -110,8 +123,11 @@ export function RoomScreen({ roomId }: { roomId: string }) {
       const event = frame.body.value.event;
       if (event.case === "roomTimer") {
         syncClock(event.value);
+        const timer = event.value;
+        const update = (current: school.StudyRoom) => ({ ...current, timer });
+        timerPushesDuringRead.record(roomId, update);
         queryClient.setQueryData<school.StudyRoom>(keys.room(roomId), (current) =>
-          current ? { ...current, timer: event.value } : current,
+          current ? update(current) : current,
         );
       }
       if (event.case === "roomReaction") {
