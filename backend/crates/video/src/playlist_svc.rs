@@ -7,8 +7,8 @@ use tokuly_proto::video::*;
 
 use crate::{
     Video,
-    access::{Viewer, watchable},
-    channels,
+    access::{self, Viewer, watchable},
+    channels, locks,
     playlists::{self, KIND_CUSTOM, KIND_LIKED, KIND_WATCH_LATER, PlaylistRow, playlist_columns},
     validate,
     videos::{self, VideoRow, video_columns},
@@ -66,6 +66,7 @@ impl PlaylistService for Video {
                 reference => Some(videos::find_watchable(core, &viewer, reference).await?.id),
             };
             core.cache.rate_limit(&format!("video-playlist-create:{user_id}"), 30, Duration::from_secs(3600)).await?;
+            let owner_locked = access::is_locked_now(core, user_id).await?;
 
             let mut tx = core.db.begin().await?;
             // One at a time per account, so the limit holds.
@@ -81,8 +82,8 @@ impl PlaylistService for Video {
             ensure!(owned < max, precondition, "PLAYLIST_LIMIT_REACHED", "an account can have at most {max} playlists");
             let playlist_id = new_id();
             sqlx::query(
-                "INSERT INTO playlists (id, short_id, owner_id, channel_id, kind, title, description, visibility)
-                 VALUES ($1, $2, $3, $4, 1, $5, $6, $7)",
+                "INSERT INTO playlists (id, short_id, owner_id, channel_id, kind, title, description, visibility, owner_locked)
+                 VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8)",
             )
             .bind(playlist_id)
             .bind(tokuly_core::ids::new_short_id())
@@ -91,6 +92,7 @@ impl PlaylistService for Video {
             .bind(&title)
             .bind(&description)
             .bind(visibility)
+            .bind(owner_locked)
             .execute(&mut *tx)
             .await?;
             if let Some(video_id) = first_video {
@@ -98,6 +100,10 @@ impl PlaylistService for Video {
             }
             playlists::sync_search_in(&mut tx, false, playlist_id).await?;
             tx.commit().await?;
+            // Locked or unlocked meanwhile: see `videos::create_from_asset`.
+            if access::is_locked_now(core, user_id).await? != owner_locked {
+                locks::sync_owner(core, user_id).await?;
+            }
             ok(CreatePlaylistResponse {
                 playlist: self.playlist_response(&viewer, playlist_id).await?.into(),
                 ..Default::default()
@@ -245,6 +251,9 @@ impl PlaylistService for Video {
             let viewer = Viewer::load(core, ctx.maybe_user_id()?).await?;
             let channel = channels::find_visible(core, &viewer, request.channel_id).await?;
             let page = Page::from_view(request.page.as_option(), 100);
+            if channels::shut_for(core, &viewer, channel.owner_id).await? {
+                return ok(ListChannelPlaylistsResponse::default());
+            }
             let before: Option<(Time, Uuid)> = page.decode()?;
             let mut rows: Vec<PlaylistRow> = sqlx::query_as(concat!(
                 "SELECT ",
@@ -282,27 +291,26 @@ impl PlaylistService for Video {
             let playlist = playlists::resolve(core, &viewer, request.playlist_id).await?;
             let page = Page::from_view(request.page.as_option(), 100);
             let after: Option<(i64, Uuid)> = page.decode()?;
-            let mut rows: Vec<ItemRow> = sqlx::query_as(concat!(
-                "SELECT ",
-                video_columns!(),
-                ", i.position, i.created_at AS added_at
-                 FROM playlist_items i JOIN videos v ON v.id = i.video_id
-                 WHERE i.playlist_id = $1 AND ",
-                watchable!(2, 3, 4),
-                "  AND ($6::uuid IS NULL OR (i.position, i.video_id) > ($5, $6))
-                 ORDER BY i.position, i.video_id
-                 LIMIT $7"
-            ))
-            .bind(playlist.id)
-            .bind(viewer.user_id)
-            .bind(&viewer.friends)
-            .bind(&viewer.blocked)
-            .bind(after.map(|(position, _)| position))
-            .bind(after.map(|(_, id)| id))
-            .bind(page.fetch())
-            .fetch_all(&core.db)
-            .await?;
+            let mut rows: Vec<ItemRow> = viewer
+                .query_as(concat!(
+                    "SELECT ",
+                    video_columns!(),
+                    ", i.position, i.created_at AS added_at
+                     FROM playlist_items i JOIN videos v ON v.id = i.video_id
+                     WHERE i.playlist_id = $7 AND ",
+                    watchable!(),
+                    "  AND ($9::uuid IS NULL OR (i.position, i.video_id) > ($8, $9))
+                     ORDER BY i.position, i.video_id
+                     LIMIT $10"
+                ))
+                .bind(playlist.id)
+                .bind(after.map(|(position, _)| position))
+                .bind(after.map(|(_, id)| id))
+                .bind(page.fetch())
+                .fetch_all(&core.db)
+                .await?;
             let info = page.finish(&mut rows, |row| (row.position, row.video.id));
+            viewer.drop_newly_locked(core, &mut rows, |row| row.video.lock_facts()).await?;
             let videos: Vec<VideoRow> = rows.iter().map(|row| row.video.clone()).collect();
             let summaries = videos::summaries(core, &viewer, &videos).await?;
             let items = rows

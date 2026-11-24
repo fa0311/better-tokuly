@@ -88,8 +88,11 @@ CREATE TABLE videos (
     thumbnail           jsonb,
     thumbnail_asset_id  uuid,
 
-    -- tokuly.common.v1.Visibility.
-    visibility          integer          NOT NULL DEFAULT 5 CHECK (visibility BETWEEN 1 AND 5),
+    -- tokuly.common.v1.Visibility: 1 public, 2 no feed, 3 unlisted, 4 friends,
+    -- 5 private, 6 followers, 7 close friends, 8 circle (`circle_id`).
+    visibility          integer          NOT NULL DEFAULT 5 CHECK (visibility BETWEEN 1 AND 8),
+    -- VISIBILITY_CIRCLE only: one of the owner's circles (tokuly.social.v1.Circle).
+    circle_id           uuid,
     -- FRIENDS visibility only: anyone with the link may watch as well.
     allow_link          boolean          NOT NULL DEFAULT false,
     age_restricted      boolean          NOT NULL DEFAULT false,
@@ -119,13 +122,18 @@ CREATE TABLE videos (
     trending_score      double precision NOT NULL DEFAULT 0,
     -- Copy of channels.suspended, so listings need no join.
     suspended           boolean          NOT NULL DEFAULT false,
+    -- The owner's account is locked (copy of the social domain's follow
+    -- settings, kept by social.follow.settings_changed): open videos reach
+    -- only the owner's followers and friends.
+    owner_locked        boolean          NOT NULL DEFAULT false,
 
     attrs               jsonb            NOT NULL DEFAULT '{}',
     created_at          timestamptz      NOT NULL DEFAULT now(),
     updated_at          timestamptz      NOT NULL DEFAULT now(),
 
     -- A published video is always playable.
-    CONSTRAINT videos_published_is_ready CHECK (status <> 3 OR (processing = 2 AND published_at IS NOT NULL))
+    CONSTRAINT videos_published_is_ready CHECK (status <> 3 OR (processing = 2 AND published_at IS NOT NULL)),
+    CONSTRAINT videos_circle_audience CHECK ((visibility = 8) = (circle_id IS NOT NULL))
 );
 
 ALTER TABLE channels
@@ -152,7 +160,7 @@ CREATE INDEX videos_thumbnail_asset ON videos (thumbnail_asset_id) WHERE thumbna
 
 -- `updated_at` means "the creator's content changed": counters and scores do not touch it.
 CREATE TRIGGER videos_updated_at
-    BEFORE UPDATE OF title, description, tags, category, game, chapters, thumbnail, visibility, allow_link,
+    BEFORE UPDATE OF title, description, tags, category, game, chapters, thumbnail, visibility, circle_id, allow_link,
         age_restricted, comments_enabled, status, processing, scheduled_at ON videos
     FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
@@ -283,6 +291,9 @@ CREATE TABLE playlists (
     visibility  integer     NOT NULL DEFAULT 5 CHECK (visibility IN (1, 3, 5)),
     item_count  integer     NOT NULL DEFAULT 0,
     like_count  bigint      NOT NULL DEFAULT 0,
+    -- The owner's account is locked (as videos.owner_locked): a public or
+    -- unlisted playlist reaches only the owner's followers and friends.
+    owner_locked boolean    NOT NULL DEFAULT false,
     attrs       jsonb       NOT NULL DEFAULT '{}',
     created_at  timestamptz NOT NULL DEFAULT now(),
     -- Also moves when videos are added, removed or reordered.

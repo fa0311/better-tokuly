@@ -77,7 +77,7 @@ impl SubjectResolver for VideoSubjects {
     async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let Some(video) = videos::find_ref(&self.core, id).await? else { return Ok(None) };
         let viewer = Viewer::load(&self.core, viewer).await?;
-        if !viewer.can_watch(&video.facts()) {
+        if !viewer.can_watch_now(&self.core, &video.facts()).await? {
             return Ok(None);
         }
         Ok(Some(SubjectInfo {
@@ -139,7 +139,7 @@ impl SubjectResolver for PlaylistSubjects {
         let Some(playlist) = playlists::find(&self.core, &reference).await? else { return Ok(None) };
         let viewer = Viewer::load(&self.core, viewer).await?;
         // Watch later and liked videos are private tools, not content.
-        if playlist.is_builtin() || !playlist.visible_to(&viewer) {
+        if playlist.is_builtin() || !playlist.visible_now(&self.core, &viewer).await? {
             return Ok(None);
         }
         Ok(Some(SubjectInfo {

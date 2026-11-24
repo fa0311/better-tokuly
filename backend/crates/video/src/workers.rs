@@ -24,9 +24,10 @@ use crate::{
     Video, access,
     channels::{self, ChannelRow, channel_columns},
     events::{
-        ASSET_DELETED, ASSET_FAILED, ASSET_READY, AnnounceJob, CONTENT_REMOVED, ContentRemoved, JOB_ANNOUNCE,
-        JOB_PLAYLIST_SEARCH, PLAYLISTS_STALE, PlaylistSearchJob, PlaylistsStale, USER_BANNED, USER_BLOCKED,
-        USER_DELETED, USER_UNBANNED, UserBlocked, UserRef, VIDEO_PUBLISHED, VideoEvent,
+        ASSET_DELETED, ASSET_FAILED, ASSET_READY, AnnounceJob, CONTENT_REMOVED, ContentRemoved,
+        FOLLOW_SETTINGS_CHANGED, FollowSettingsChanged, JOB_ANNOUNCE, JOB_PLAYLIST_SEARCH, PLAYLISTS_STALE,
+        PlaylistSearchJob, PlaylistsStale, USER_BANNED, USER_BLOCKED, USER_DELETED, USER_UNBANNED, UserBlocked,
+        UserRef, VIDEO_PUBLISHED, VideoEvent,
     },
     feeds, party, playlists, search,
     videos::{self, VideoRow, video_columns},
@@ -57,6 +58,7 @@ impl Video {
                     USER_BANNED,
                     USER_UNBANNED,
                     USER_BLOCKED,
+                    FOLLOW_SETTINGS_CHANGED,
                     CONTENT_REMOVED,
                     VIDEO_PUBLISHED,
                     PLAYLISTS_STALE,
@@ -186,6 +188,9 @@ impl Video {
             USER_BLOCKED => {
                 let blocked: UserBlocked = event.data()?;
                 self.on_user_blocked(blocked.user_id, blocked.blocked_id).await
+            }
+            FOLLOW_SETTINGS_CHANGED => {
+                self.sync_owner_lock(event.data::<FollowSettingsChanged>()?.user_id).await.map(drop)
             }
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
             VIDEO_PUBLISHED => self.on_video_published(event.data()?).await,
@@ -434,15 +439,15 @@ impl Video {
     ///
     /// Who hears what: level ALL gets inbox and push; PERSONALIZED gets the
     /// inbox entry, and the push only if they watched the channel recently;
-    /// NONE gets nothing. A friends-only video is announced to subscribers
-    /// who are friends of the owner. Notifications of one video share a
-    /// collapse key, so a batch that is retried does not double up.
+    /// NONE gets nothing. A video shared with an audience (friends,
+    /// followers, close friends, a circle — or a public video of a locked
+    /// account, which reaches followers) is announced to the subscribers in
+    /// that audience only. Notifications of one video share a collapse key,
+    /// so a batch that is retried does not double up.
     pub async fn announce(&self, job: AnnounceJob) -> AppResult<u64> {
         let core = &self.core;
         let Some(video) = videos::find_by_id(core, job.video_id).await? else { return Ok(0) };
-        let audience_exists =
-            video.is_published() && !video.suspended && matches!(video.visibility, access::PUBLIC | access::FRIENDS);
-        if !audience_exists || !video.notify_subscribers {
+        if !video.is_announceable() || !video.notify_subscribers {
             return Ok(0);
         }
         let Some(channel) = channels::find_by_id(core, video.channel_id).await? else { return Ok(0) };
@@ -465,15 +470,17 @@ impl Video {
         let Some(last) = batch.last().map(|(user_id, _, _)| *user_id) else { return Ok(0) };
 
         let hidden = graph::blocked_ids_either(core, video.owner_id).await?;
-        let friends = if video.visibility == access::FRIENDS {
-            Some(graph::friend_ids(core, video.owner_id).await?)
-        } else {
-            None
+        // The lock as the social domain knows it now, not the copy.
+        let locked = access::is_locked_now(core, video.owner_id).await?;
+        let audience = VideoRow { owner_locked: locked, ..video.clone() }.effective_audience();
+        let members: Option<std::collections::HashSet<Uuid>> = match audience {
+            graph::ContentAudience::Public => None,
+            audience => Some(graph::audience_member_ids(core, video.owner_id, audience).await?.into_iter().collect()),
         };
         let mut tx = core.db.begin().await?;
         let mut notified = 0;
         for (user_id, level, engaged) in &batch {
-            if hidden.contains(user_id) || friends.as_ref().is_some_and(|friends| !friends.contains(user_id)) {
+            if hidden.contains(user_id) || members.as_ref().is_some_and(|members| !members.contains(user_id)) {
                 continue;
             }
             // No actor: the notification is from the channel, which does not

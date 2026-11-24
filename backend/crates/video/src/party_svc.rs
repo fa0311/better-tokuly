@@ -61,10 +61,13 @@ impl Video {
     /// must be able to watch the video and to play it.
     async fn party_admission(&self, viewer: &Viewer, video_id: Uuid) -> AppResult<()> {
         let missing = || AppError::not_found("VIDEO_NOT_FOUND", "video not found");
-        let video = videos::find_by_id(&self.core, video_id)
-            .await?
-            .filter(|video| viewer.can_watch(&video.facts()))
-            .ok_or_else(missing)?;
+        let video = videos::find_by_id(&self.core, video_id).await?.ok_or_else(missing)?;
+        ensure!(
+            viewer.can_watch_now(&self.core, &video.facts()).await?,
+            not_found,
+            "VIDEO_NOT_FOUND",
+            "video not found"
+        );
         self.ensure_playable(viewer, &video).await
     }
 
@@ -73,7 +76,9 @@ impl Video {
     async fn party_proto(&self, viewer: &Viewer, row: &PartyRow) -> AppResult<Party> {
         let core = &self.core;
         let video = match videos::find_by_id(core, row.video_id).await? {
-            Some(video) if viewer.can_watch(&video.facts()) => Some(videos::summary(core, viewer, &video).await?),
+            Some(video) if viewer.can_watch_now(core, &video.facts()).await? => {
+                Some(videos::summary(core, viewer, &video).await?)
+            }
             _ => None,
         };
         let playlist_id: Option<String> = match row.playlist_id {
@@ -783,10 +788,12 @@ impl WatchPartyService for Video {
             let me = tokuly_identity::summary(core, user_id).await?;
             let video = videos::find_by_id(core, row.video_id).await?;
             // The title is shared only when it is no secret.
-            let title = video
-                .as_ref()
-                .filter(|video| Viewer::anonymous().can_watch(&video.facts()))
-                .map(|video| video.title.clone());
+            let title = match &video {
+                Some(video) if Viewer::anonymous().can_watch_now(core, &video.facts()).await? => {
+                    Some(video.title.clone())
+                }
+                _ => None,
+            };
             let (ja, en) = match &title {
                 Some(title) => (format!("「{title}」を一緒に見よう!"), format!("Let's watch \"{title}\" together!")),
                 None => ("動画を一緒に見よう!".to_owned(), "Let's watch a video together!".to_owned()),

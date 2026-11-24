@@ -26,9 +26,13 @@ impl Video {
         let core = &self.core;
         match (video, channel) {
             (Some(reference), _) => {
-                let found = videos::find_ref(core, reference)
-                    .await?
-                    .filter(|video| !must_exist || viewer.can_watch(&video.facts()));
+                let mut found = videos::find_ref(core, reference).await?;
+                if must_exist
+                    && let Some(video) = &found
+                    && !viewer.can_watch_now(core, &video.facts()).await?
+                {
+                    found = None;
+                }
                 match found {
                     Some(video) => Ok(Some(Target::Video(video.id))),
                     None if must_exist => Err(AppError::not_found("VIDEO_NOT_FOUND", "video not found")),

@@ -9,7 +9,7 @@
 //! | `video.video.created` | [`VideoEvent`] | a draft was created |
 //! | `video.video.published` | [`VideoEvent`] | a video went live (first time or again) |
 //! | `video.video.unpublished` | [`VideoEvent`] | a published video went back to draft |
-//! | `video.video.visibility_changed` | [`VideoEvent`] | a published video got another visibility (it stays published) |
+//! | `video.video.visibility_changed` | [`VideoVisibilityChanged`] | a published video got another audience (it stays published), or its owner locked or unlocked their account |
 //! | `video.video.deleted` | [`VideoEvent`] | a video is gone (owner, channel deletion, takedown, account deletion) |
 //! | `video.playlist.deleted` | [`PlaylistEvent`] | a playlist is gone |
 use serde::{Deserialize, Serialize};
@@ -35,10 +35,18 @@ pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BANNED: &str = "identity.user.banned";
 pub const USER_UNBANNED: &str = "identity.user.unbanned";
 pub const USER_BLOCKED: &str = "social.user.blocked";
+pub const FOLLOW_SETTINGS_CHANGED: &str = "social.follow.settings_changed";
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
 pub const ASSET_READY: &str = tokuly_media::events::ASSET_READY;
 pub const ASSET_FAILED: &str = tokuly_media::events::ASSET_FAILED;
 pub const ASSET_DELETED: &str = tokuly_media::events::ASSET_DELETED;
+
+/// Payload of `social.follow.settings_changed` (only a hint: the social
+/// domain is asked again).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowSettingsChanged {
+    pub user_id: Uuid,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelEvent {
@@ -73,6 +81,23 @@ pub struct VideoEvent {
     /// audience (subscribers are told once).
     #[serde(default)]
     pub first_publication: bool,
+}
+
+/// Payload of `video.video.visibility_changed`: the video, with `visibility`
+/// the audience now in effect (an open video of a locked owner reads as
+/// FOLLOWERS), and who besides the owner may still watch it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoVisibilityChanged {
+    #[serde(flatten)]
+    pub video: VideoEvent,
+    /// `None` (JSON `null`): everyone may. Otherwise the people in the
+    /// audience as the social graph gives them (for a lock: only the ones
+    /// this domain may have told about the video). **Never forward to
+    /// outside parties: it is the owner's friend and follower list.**
+    pub visible_to: Option<Vec<Uuid>>,
+    /// When the change was made, taken while the video row was locked:
+    /// consumers order two changes of one video by it.
+    pub changed_at: Time,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

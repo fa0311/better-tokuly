@@ -51,6 +51,52 @@ the owning account.
 - engagement's `ChannelDirectory` can be backed by `channels::require_owned`
   and `channels::summaries`.
 
+## Audiences and locked accounts
+
+Who may watch is decided by `tokuly_video::access` (shared with the shorts
+and live domains), on top of the social graph's audiences
+(`tokuly_social::graph::AudienceViewer`, loaded once per request; the SQL
+predicates refer to the viewer as `$1`–`$6`, see the module docs):
+
+| visibility | who besides the owner may watch (never across a block, never content of a suspended account) |
+|---|---|
+| PUBLIC (1), NO_FEED (2), UNLISTED (3) | everyone with the link — for a **locked** owner only followers and friends |
+| FOLLOWERS (6) | followers and friends |
+| FRIENDS (4) | friends; with `allow_link` also anyone with the link (a locked owner's: followers and friends) |
+| CLOSE_FRIENDS (7) | the owner's close friends who still are a friend or follower; the visibility itself is their mark |
+| CIRCLE (8, `circle_id`) | members of that circle of the owner (same); to everyone but the owner it reads as FOLLOWERS, so members never learn about the circle |
+| PRIVATE (5) | nobody |
+
+A circle must be one of the owner's when the content is saved
+(`CIRCLE_NOT_FOUND`, `CIRCLE_REQUIRED`). A deleted circle reaches nobody.
+
+**Locked accounts.** Whether an account is locked is copied onto this
+domain's rows (`owner_locked`), kept by the handler of
+`social.follow.settings_changed` and set from the social domain when the
+row is created (re-checked after the commit). Only content of unlocked
+owners is in search, trending, recommendations and other lists for
+everyone. Reads do not wait for the event: rows that reach a viewer only
+because the copy says "unlocked" (open content, viewer neither owner nor
+tied) are checked against the social domain on the same request
+(`Viewer::drop_newly_locked`, `can_watch_now`), so a lock applies at the
+next read. An unlock applies when its event is handled.
+
+**Channels of a locked account** stay visible as channels: a channel
+never reveals which account owns it, and hiding it would tell everyone
+who knows the account's state which channel is theirs. To anyone who is
+neither the owner nor a follower or friend it looks like a channel
+without content: no videos, shorts or streams on its pages, no video
+count, no views, no trailer, no playlists, not among recommended channels
+(which need a public video of an unlocked owner). Followers and friends
+see it as before. A stranger who subscribed keeps the subscription and
+hears about nothing until the account is unlocked.
+
+Playlists keep their own three visibilities (PUBLIC, UNLISTED, PRIVATE);
+the public and unlisted playlists of a locked owner reach only followers
+and friends and leave search. Watch parties of a video end when its
+audience narrows (another audience that may leave members out, or a lock),
+since their members are strangers to the owner as often as not.
+
 ## Events emitted
 
 Payload structs live in `tokuly_video::events`. All are written in the
@@ -63,7 +109,7 @@ transaction of the change they describe.
 | `video.video.created` | `VideoEvent` | A draft was created. |
 | `video.video.published` | `VideoEvent` | A video went live, or a live video became visible to an audience for the first time. `first_publication` is true exactly once per video: when it is first both PUBLISHED and PUBLIC or FRIENDS. |
 | `video.video.unpublished` | `VideoEvent` | A published video went back to draft. |
-| `video.video.visibility_changed` | `VideoEvent` | A published video got another visibility and stays published (`visibility` is the new one). Not emitted when the visibility stayed the same, nor with a publication (that is `video.video.published`). |
+| `video.video.visibility_changed` | `VideoEvent` + `{ visible_to, changed_at }` | A published video got another audience and stays published, or (once per published open video) its owner locked or unlocked their account. `visibility` is the audience now in effect (an open video of a locked owner reads as 6, followers). `visible_to`: who besides the owner may still watch it — `null` when everyone may; otherwise everyone in the audience as the social graph gives it, people in a block with the owner left out; for a lock only the channel's subscribers and the video's raters among the owner's followers and friends (who may have something about it in their inbox). A concurrent change in between names nobody. `changed_at`: when the change was made, taken while the row was locked. Not emitted when nothing changed, nor with a publication (that is `video.video.published`). **Never forward to outside parties: `visible_to` is the owner's follower list.** |
 | `video.video.deleted` | `VideoEvent` | A video is gone: deleted by the owner, with its channel or account, by a takedown, or because its upload was deleted. Consumers drop what they keep about it (comments, clips). |
 | `video.playlist.deleted` | `{ playlist_id, owner_id }` | A custom playlist is gone. |
 
@@ -82,6 +128,7 @@ Durable consumer `video`. Every handler is idempotent.
 | `identity.user.deleted` | The user's channels with all content, their playlists, subscriptions, ratings (counters are corrected), watch history, settings, "not interested" marks and party seats (hosting is handed over or the party ends) are deleted. |
 | `identity.user.banned` / `.unbanned` | `channels.suspended` and `videos.suspended` follow the account: while suspended, its channels, videos and playlists read as not found for everyone else and leave the search index. |
 | `social.user.blocked` | Subscriptions between the two users are removed in both directions. (Lists, feeds and lookups hide the other's content immediately, without waiting for the event.) |
+| `social.follow.settings_changed` `{ user_id }` | Re-reads whether the account is locked (the event is only a hint; late or repeated events give the same result) and copies it onto the account's videos and playlists in batches of 200: search documents (videos, playlists, the pictures of playlists listing them) follow, one `video.video.visibility_changed` per published open video, and for a lock the watch parties of those videos end. |
 | `admin.content.removed` | `SUBJECT_TYPE_VIDEO`: the video is deleted and its upload removed by force. `SUBJECT_TYPE_CHANNEL`: the channel is deleted with its content. `SUBJECT_TYPE_PLAYLIST`: the playlist is deleted. Unknown IDs and other subject types are ignored. |
 | `video.video.published` (own) | With `first_publication`: queues the first `video.announce` job. |
 | `video.playlists.stale` (own, internal) `{ video_id?, playlist_ids }` | Emitted in the transaction that changed a video's public state or thumbnail (or deleted it, naming its public playlists); queues a `video.playlists.search` job. |
@@ -143,7 +190,7 @@ published to).
 
 | Kind | Recipient | Channels | Notes |
 |---|---|---|---|
-| `video.published` | subscribers | level ALL: inbox + push; PERSONALIZED: inbox, plus push if they watched the channel in the last 30 days; NONE: nothing | No actor (the channel speaks, not the account). Title = channel name. Collapse key `video.published:<video_id>`. `data = { video_id, short_id, channel_id, channel_handle, channel_name, channel_icon_url }`. Friends-only videos go to subscribers who are friends of the owner. Not sent when the video has `notify_subscribers` off. |
+| `video.published` | subscribers | level ALL: inbox + push; PERSONALIZED: inbox, plus push if they watched the channel in the last 30 days; NONE: nothing | No actor (the channel speaks, not the account). Title = channel name. Collapse key `video.published:<video_id>`. `data = { video_id, short_id, channel_id, channel_handle, channel_name, channel_icon_url }`. Sent for PUBLIC videos and those shared with an audience; a video shared with an audience (or a public video of a locked owner, as the social domain says when the batch is sent) goes to the subscribers in it. Not sent when the video has `notify_subscribers` off. |
 | `video.processing_done` | owner | inbox + push | Collapse key `video.processing:<video_id>`; `data.published` says whether it also went live. Path `/studio/videos/<short_id>`. |
 | `video.processing_failed` | owner | inbox + push | `data.error` is the media failure reason. |
 | `video.subscribed` | channel owner | inbox + push | Actor: the subscriber. Collapsed per channel (`video.subscribed:<channel_id>`). |
@@ -153,15 +200,15 @@ published to).
 
 | Kind | Audience | When |
 |---|---|---|
-| `video.published` | friends of the owner | Once per video, when it is first PUBLISHED and PUBLIC or FRIENDS. Subject `(SUBJECT_TYPE_VIDEO, id)`, path `/watch/<short_id>`, image = thumbnail, `data = { video_id, short_id, channel_id, channel_handle, channel_name, duration_seconds }`. The audience is friends also for public videos: a channel does not reveal its owner to everyone. |
+| `video.published` | friends of the owner; the owner alone for close friends and circle videos | Once per video, when it is first PUBLISHED and PUBLIC or shared with an audience (followers, friends, close friends, a circle). Subject `(SUBJECT_TYPE_VIDEO, id)`, path `/watch/<short_id>`, image = thumbnail, `data = { video_id, short_id, channel_id, channel_handle, channel_name, duration_seconds }`. The audience is friends also for public videos: a channel does not reveal its owner to everyone. |
 
 ## Search documents
 
 | Kind | Indexed while | Fields |
 |---|---|---|
 | `channel` | the owner is not suspended | `title` = name, `text` = description, `tags` = [handle], `path` = `/channel/<handle>`, `score` = subscribers (as of the last edit), `extra = { handle, verified, subscriber_count }` |
-| `video` | PUBLISHED, PUBLIC and not suspended | `title`, `text` = description, `tags` = tags + game, `path` = `/watch/<short_id>`, `created_at` = publication time, `score` = views (as of the last edit), `extra = { short_id, channel_id, channel_handle, channel_name, duration_seconds, category, game, age_restricted, origin }` |
-| `playlist` | custom, PUBLIC and not suspended | `title`, `text` = description, `path` = `/playlist/<short_id>`, `image_url` = first public video's thumbnail, `extra = { short_id, item_count, channel_id, channel_handle, channel_name }` (the channel's, for a playlist on a channel) |
+| `video` | PUBLISHED, PUBLIC, not suspended, owner not locked | `title`, `text` = description, `tags` = tags + game, `path` = `/watch/<short_id>`, `created_at` = publication time, `score` = views (as of the last edit), `extra = { short_id, channel_id, channel_handle, channel_name, duration_seconds, category, game, age_restricted, origin }` |
+| `playlist` | custom, PUBLIC, not suspended, owner not locked | `title`, `text` = description, `path` = `/playlist/<short_id>`, `image_url` = first public video's thumbnail, `extra = { short_id, item_count, channel_id, channel_handle, channel_name }` (the channel's, for a playlist on a channel) |
 
 ## Subjects
 

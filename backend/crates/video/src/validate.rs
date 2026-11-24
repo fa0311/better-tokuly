@@ -168,9 +168,6 @@ pub fn category(value: buffa::EnumValue<VideoCategory>) -> AppResult<i32> {
 pub fn visibility(value: buffa::EnumValue<Visibility>, default: Visibility) -> AppResult<i32> {
     match value.as_known() {
         Some(Visibility::VISIBILITY_UNSPECIFIED) => Ok(default as i32),
-        Some(Visibility::VISIBILITY_FOLLOWERS | Visibility::VISIBILITY_CLOSE_FRIENDS | Visibility::VISIBILITY_CIRCLE) => {
-            Err(AppError::invalid("VISIBILITY_INVALID", "this audience is not available here yet"))
-        }
         Some(known) => Ok(known as i32),
         None => Err(AppError::invalid("VISIBILITY_INVALID", "unknown visibility")),
     }
@@ -410,6 +407,7 @@ mod tests {
         use buffa::EnumValue;
         assert_eq!(visibility(Visibility::VISIBILITY_UNSPECIFIED.into(), Visibility::VISIBILITY_PRIVATE).unwrap(), 5);
         assert_eq!(visibility(Visibility::VISIBILITY_FRIENDS.into(), Visibility::VISIBILITY_PRIVATE).unwrap(), 4);
+        assert_eq!(visibility(Visibility::VISIBILITY_CIRCLE.into(), Visibility::VISIBILITY_PRIVATE).unwrap(), 8);
         assert_eq!(
             visibility(EnumValue::from(42), Visibility::VISIBILITY_PRIVATE).unwrap_err().reason,
             "VISIBILITY_INVALID"

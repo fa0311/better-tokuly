@@ -22,7 +22,7 @@ use tokuly_proto::{
 };
 
 use crate::{
-    access::Viewer,
+    access::{self, Viewer},
     events::{
         CHANNEL_CREATED, CHANNEL_DELETED, CHANNEL_SUBSCRIBED, CHANNEL_UNSUBSCRIBED, CHANNEL_UPDATED, ChannelEvent,
         SubscriptionEvent,
@@ -277,7 +277,27 @@ struct SubscriptionState {
 }
 
 /// The channel header and about tab as `viewer` sees them.
+///
+/// A channel of a locked account stays visible as a channel (it never
+/// reveals its owner), but to anyone who is neither the owner nor one of
+/// their followers or friends it looks like a channel without videos: no
+/// video count, no views, no trailer.
 pub async fn to_proto(core: &Core, viewer: &Viewer, channel: &ChannelRow) -> AppResult<Channel> {
+    if shut_for(core, viewer, channel.owner_id).await? {
+        let page = page(core, viewer, channel).await?;
+        return Ok(Channel { video_count: 0, view_count: 0, trailer_video_id: String::new(), ..page });
+    }
+    page(core, viewer, channel).await
+}
+
+/// Whether the channels of `owner_id` show `viewer` nothing of what is on
+/// them: the owner's account is locked (right now) and the viewer is
+/// neither the owner nor one of their followers or friends.
+pub async fn shut_for(core: &Core, viewer: &Viewer, owner_id: Uuid) -> AppResult<bool> {
+    Ok(!viewer.is(owner_id) && !viewer.is_tied_to(owner_id) && access::is_locked_now(core, owner_id).await?)
+}
+
+async fn page(core: &Core, viewer: &Viewer, channel: &ChannelRow) -> AppResult<Channel> {
     let video_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM videos WHERE channel_id = $1 AND status = 3 AND visibility IN (1, 2) AND NOT suspended",
     )
