@@ -61,5 +61,5 @@ sqlx.workspace = true
 
 [dev-dependencies]
 tokuly-testkit.workspace = true
-tokuly-proto = { workspace = true, features = ["common", "geo", "social"] }
+tokuly-proto = { workspace = true, features = ["common", "dev", "geo", "social"] }
 chrono.workspace = true

@@ -30,8 +30,12 @@ Chat::post_text(&self, conversation_id: Uuid, sender: Uuid, text: &str) -> AppRe
 // false when it was there already or dropped by that limit. Fails with
 // CONVERSATION_NOT_FOUND, NOTICE_KEY_INVALID (empty, > 100 characters),
 // NOTICE_INVALID (no Japanese text, > 300 characters per language).
-// Used by the developer platform when a bot changes hands.
+// The rate limit is counted under the conversation lock, after the key was
+// found new. Used by the developer platform when a bot changes hands.
 Chat::post_notice(&self, conversation_id: Uuid, key: &str, notice: Localized) -> AppResult<bool>
+// The same for many conversations, queued as jobs `chat.notices` of 50
+// conversations each and posted in the background (returns at once).
+Chat::queue_notices(&self, conversation_ids: &[Uuid], key: &str, notice: &Localized) -> AppResult<()>
 tokuly_chat::direct_conversations_of(core, user_id) -> AppResult<Vec<Uuid>>    // where they are a member, any state
 
 // The two people of a direct conversation (still members or not); None for
@@ -135,6 +139,7 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 | event consumer `chat` | — | See "Events consumed". |
 | typing / co-presence fan-out | — | See "Bus subjects". |
 | job `chat.link_preview` (`LinkPreviewJob { message_id }`) | — | Fetches the preview of a message's first link through `tokuly_media::link_preview` (at most 30 per sender and minute; more links simply get none), stores it and pushes `message_updated` (`LINK_PREVIEW`). Queued when a message with a link is sent or edited. 8 in parallel, 3 attempts. |
+| job `chat.notices` (`NoticeBatch { conversation_ids, key, notice }`) | — | Posts a notice of `Chat::queue_notices` into up to 50 conversations (`Chat::post_notice` each; conversations that are gone are skipped, a retry posts only what is missing). 4 in parallel, 5 attempts. |
 | co-presence sweep | 10 s | Announces members whose presence ran out without a goodbye. |
 | call ringing time-out | 5 s | After `TOKULY_CHAT_RING_SECONDS`: an unanswered direct call ends as `MISSED`; in a group the members who did not answer are marked missed (and notified) while the call stays open. |
 | call reconciliation | 30 s | Lists the participants of each live call's LiveKit room (calls older than a minute); someone marked as joined but not connected 60 s after joining (`CONNECT_GRACE_SECONDS`) has left, which may end the call, a participant still marked as joined who is no longer an accepted member has left, and anyone connected who is not a joined participant (hung up, removed from the group, back with an old token) is put out of the room. Skipped while LiveKit is unreachable. LiveKit webhooks are not used. |

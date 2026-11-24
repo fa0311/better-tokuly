@@ -219,7 +219,8 @@ the tokens they make with `*:read` scopes. The offer screen and the accept
 screen say so. Every direct conversation of the bot is told as well, with a
 notice from the server between the bubbles: 「このボットの持ち主が変わったよ」 /
 "This bot has a new owner" (posted by this domain's `dev-accounts` consumer
-on `dev.bot.transferred`, through the chat bridge; once per hand-over, and
+on `dev.bot.transferred`, through the chat bridge, which queues them as chat
+jobs so the consumer is not held up; once per hand-over, and
 at most `tokuly_chat::NOTICES_PER_CONVERSATION_PER_DAY` notices a day per
 conversation, so handing a bot back and forth does not flood anybody).
 

@@ -70,7 +70,7 @@ pub use calls::{CONNECT_GRACE_SECONDS, MAX_RINGING_GROUP_MEMBERS};
 pub use config::ChatConfig;
 pub use conversations::direct_members;
 pub use send::{JOB_LINK_PREVIEW, LinkPreviewJob};
-pub use server_notices::{NOTICES_PER_CONVERSATION_PER_DAY, direct_conversations_of};
+pub use server_notices::{JOB_NOTICES, NOTICE_BATCH, NOTICES_PER_CONVERSATION_PER_DAY, NoticeBatch, direct_conversations_of};
 pub use subjects::hold_message_media;
 pub use signals::PRESENCE_TTL_SECONDS;
 

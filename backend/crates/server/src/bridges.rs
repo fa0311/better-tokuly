@@ -127,16 +127,10 @@ struct NoticesForBots {
 #[async_trait]
 impl ConversationNotices for NoticesForBots {
     async fn post_to_direct_conversations(&self, account: Uuid, key: &str, notice: Localized) -> AppResult<()> {
-        for conversation_id in tokuly_chat::direct_conversations_of(&self.core, account).await? {
-            match self.chat.post_notice(conversation_id, key, notice.clone()).await {
-                // Gone in the meantime (a group cannot be one of them).
-                Err(e) if e.is_not_found() => {}
-                result => {
-                    result?;
-                }
-            }
-        }
-        Ok(())
+        // Queued in batches (chat's job posts them): the event consumer that
+        // asks is not held up by a bot with thousands of conversations.
+        let conversations = tokuly_chat::direct_conversations_of(&self.core, account).await?;
+        self.chat.queue_notices(&conversations, key, &notice).await
     }
 }
 

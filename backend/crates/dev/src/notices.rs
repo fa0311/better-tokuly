@@ -10,9 +10,10 @@ use crate::{Dev, events::BotTransferEvent};
 
 #[async_trait]
 pub trait ConversationNotices: Send + Sync + 'static {
-    /// Posts `notice` into every direct conversation of `account`, as a
-    /// notice from the server (no sender). Posts each one once per `key`,
-    /// so a repeated call is harmless.
+    /// Has `notice` posted into every direct conversation of `account`, as
+    /// a notice from the server (no sender): queued, posted in the
+    /// background. Each one is posted once per `key`, so a repeated call is
+    /// harmless.
     async fn post_to_direct_conversations(&self, account: Uuid, key: &str, notice: Localized) -> AppResult<()>;
 }
 

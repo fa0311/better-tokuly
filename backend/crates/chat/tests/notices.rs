@@ -73,6 +73,10 @@ async fn the_same_notice_posted_at_once_is_stored_once() {
     let posted = join_all((0..5).map(|_| chat.post_notice(conversation_id, "test:race", new_owner()))).await;
     assert_eq!(posted.into_iter().map(|posted| posted.unwrap()).filter(|posted| *posted).count(), 1);
     assert_eq!(notices(&ctx.latest(&taro, &direct.id).await).len(), 1);
+    // The copies that found it there used up nothing of the day's share.
+    for i in 1..NOTICES_PER_CONVERSATION_PER_DAY {
+        assert!(chat.post_notice(conversation_id, &format!("test:after-{i}"), new_owner()).await.unwrap());
+    }
 }
 
 #[tokio::test]

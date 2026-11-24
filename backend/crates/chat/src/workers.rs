@@ -26,6 +26,7 @@ use crate::{
         USER_UNBLOCKED,
     },
     send::{JOB_LINK_PREVIEW, LinkPreviewJob},
+    server_notices::{JOB_NOTICES, NoticeBatch},
 };
 
 const PRESENCE_SWEEP_INTERVAL: Duration = Duration::from_secs(10);
@@ -82,6 +83,23 @@ impl Chat {
                     move |job: LinkPreviewJob| {
                         let chat = handler.clone();
                         async move { chat.resolve_link_preview(job.message_id).await }
+                    },
+                )
+                .await;
+        });
+
+        let chat = self.clone();
+        tokio::spawn(async move {
+            let handler = chat.clone();
+            chat.core
+                .jobs
+                .run(
+                    JOB_NOTICES,
+                    JobOptions { concurrency: 4, lease: Duration::from_secs(120), max_deliver: 5 },
+                    chat.core.shutdown.clone(),
+                    move |batch: NoticeBatch| {
+                        let chat = handler.clone();
+                        async move { chat.post_notice_batch(batch).await }
                     },
                 )
                 .await;
