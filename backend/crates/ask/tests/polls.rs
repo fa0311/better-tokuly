@@ -569,7 +569,8 @@ async fn the_second_hint_is_the_school_or_the_months_of_friendship() {
         .execute(&ctx.app.core.db)
         .await
         .unwrap();
-    sqlx::query("UPDATE ask_friend_links SET since = now() - interval '95 days' WHERE user_id = $1 AND friend_id = $2")
+    // (the social domain's friendship, in both directions; nothing has cached it yet)
+    sqlx::query("UPDATE friendships SET created_at = now() - interval '95 days' WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)")
         .bind(receiver.id)
         .bind(old_friend.id)
         .execute(&ctx.app.core.db)
@@ -733,13 +734,12 @@ async fn only_friends_with_three_friends_of_their_own_are_picked() {
     let round = ctx.round(&voter).await;
     let shown = choices(&round);
     let target = if shown.contains(&picked.id.to_string()) { picked } else { &friends[1] };
-    let bystanders: Vec<Uuid> =
-        sqlx::query_scalar("SELECT friend_id FROM ask_friend_links WHERE user_id = $1 AND friend_id <> $2")
-            .bind(target.id)
-            .bind(voter.id)
-            .fetch_all(&ctx.app.core.db)
-            .await
-            .unwrap();
+    let bystanders: Vec<Uuid> = tokuly_social::graph::friend_ids(&ctx.app.core, target.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|id| *id != voter.id)
+        .collect();
     for bystander in bystanders {
         let _: tokuly_proto::social::RemoveFriendResponse = ctx
             .call(

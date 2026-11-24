@@ -14,6 +14,7 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { playlistClient, useMyChannels, videoKeys } from "./api";
 import { formatAge, formatClock, formatCount } from "./format";
+import { visibilityOption } from "./labels";
 import { announceTrafficSource } from "./playback-session";
 import { openSaveDialog } from "./save-dialog";
 
@@ -381,7 +382,7 @@ export function VideoGrid({ children, className }: { children: ReactNode; classN
   );
 }
 
-/** A chip saying who can see a video; shown wherever it is not simply public. */
+/** A chip saying who can see a video. An audience this client does not know reads as private. */
 export function VisibilityChip({
   visibility,
   className,
@@ -390,14 +391,7 @@ export function VisibilityChip({
   className?: string;
 }) {
   const { t } = useTranslation("video");
-  const key = {
-    [common.Visibility.NO_FEED]: "noFeed",
-    [common.Visibility.UNLISTED]: "unlisted",
-    [common.Visibility.FRIENDS]: "friends",
-    [common.Visibility.PRIVATE]: "private",
-    [common.Visibility.PUBLIC]: "public",
-  }[visibility as number];
-  if (!key) return null;
+  const { key } = visibilityOption(visibility);
   return (
     <span
       className={cn(

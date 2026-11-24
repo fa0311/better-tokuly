@@ -152,7 +152,14 @@ export function PrivacySection() {
           className="px-3 py-3"
           label={t("privacy.defaultNoteVisibility.label")}
           hint={t("privacy.defaultNoteVisibility.hint")}
-          value={NOTE_VISIBILITIES.includes(noteVisibility) ? noteVisibility : "PUBLIC"}
+          value={
+            NOTE_VISIBILITIES.includes(noteVisibility)
+              ? noteVisibility
+              : // Unset is the server's default (public); an audience this client does not know reads as private.
+                privacy.defaultNoteVisibility === common.Visibility.UNSPECIFIED
+                ? "PUBLIC"
+                : "PRIVATE"
+          }
           onChange={(next) => set("defaultNoteVisibility", common.Visibility[next])}
           options={NOTE_VISIBILITIES.map((name) => ({
             value: name,

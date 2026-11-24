@@ -50,6 +50,21 @@ See their proto files. Summary of behaviour that is not obvious from the API:
   in the same age group. Buzz needs the two to be within 200 m. Map reactions
   ("supersends": hearts, eyes, drinks, emoji, stamps) play live or are queued
   until the recipient opens the app.
+  Follows sit next to friendships for public content: one way, with locked
+  accounts (followers need approval, declining is silent; minors start
+  locked), removable followers, follower / following / mutual lists and
+  "followed by people you follow", counts on profiles, a per-followee mute
+  (optionally timed) and post notifications (all / none), and follow
+  suggestions scored from pluggable signals (follows you, friends of
+  friends, followed by people you follow, popular at your school). A
+  friendship does not imply a follow nor the reverse; both are audiences,
+  with friends inside "followers". Circles — the built-in close friends and
+  custom lists with a name, emoji and colour — take friends and followers
+  only, lose members whose tie ends, and never tell members; content shared
+  with close friends may carry a mark. Blocks end follows and circle
+  memberships both ways. Other domains decide visibility through one
+  audience API (public, followers, friends, close friends, a circle,
+  private) with batched checks and fan-out lists.
 - **geo**: location samples arrive over the realtime gateway or
   `ReportLocations`. Latest state per user is kept in Valkey and fanned out to
   the friends allowed to see it, honouring ghost mode (precise / blurred /
@@ -391,9 +406,6 @@ The whole API is open to the people who use it.
 
 Collected here so the next pass over each domain has its list:
 
-- **social**: follows (asymmetric, with locked accounts and follow
-  requests) next to friendships; circles (close friends and custom lists)
-  usable as audiences everywhere.
 - **notes**: polls, content warnings, longer text with markup (MFM-like)
   and custom emoji, up to ten media with alt text, drafts and scheduled
   notes, edit history, lists, antennas (saved keyword timelines), channels

@@ -214,12 +214,12 @@ impl Ask {
         if friends.is_empty() {
             return Ok(Vec::new());
         }
-        let hidden = graph::blocked_ids_either(&self.core, user).await?;
+        let mut hidden = graph::blocked_ids_either(&self.core, user).await?;
+        hidden.extend(graph::muted_friend_ids(&self.core, user).await?);
         Ok(sqlx::query_scalar(
             "SELECT u.id FROM users u
              WHERE u.id = ANY($1) AND u.id <> $3 AND NOT (u.id = ANY($2)) AND u.deleted_at IS NULL AND u.banned_at IS NULL
-               AND NOT EXISTS (SELECT 1 FROM ask_settings s WHERE s.user_id = u.id AND NOT s.in_polls)
-               AND NOT EXISTS (SELECT 1 FROM ask_friend_links l WHERE l.user_id = $3 AND l.friend_id = u.id AND l.muted)",
+               AND NOT EXISTS (SELECT 1 FROM ask_settings s WHERE s.user_id = u.id AND NOT s.in_polls)",
         )
         .bind(friends)
         .bind(hidden)

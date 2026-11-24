@@ -14,8 +14,7 @@ use tokuly_identity::maintenance::UserRef;
 use crate::{
     Ask,
     events::{
-        ANSWER_PUBLISHED, ASSET_DELETED, AssetDeleted, CONSUMED, CONTENT_REMOVED, FLAME_STORED, FRIEND_ACCEPTED,
-        FRIEND_PREFS_CHANGED, FRIEND_REMOVED, PROMPT_OPENED, QUESTION_STORED, RESPONSE_STORED, Stored, USER_BANNED,
+        ANSWER_PUBLISHED, ASSET_DELETED, AssetDeleted, CONSUMED, CONTENT_REMOVED, FLAME_STORED, FRIEND_REMOVED, PROMPT_OPENED, QUESTION_STORED, RESPONSE_STORED, Stored, USER_BANNED,
         USER_BLOCKED, USER_DELETED, USER_UNBANNED,
     },
 };
@@ -83,9 +82,7 @@ impl Ask {
             USER_BANNED => self.on_ban_changed(event.data::<UserRef>()?.user_id, true).await,
             USER_UNBANNED => self.on_ban_changed(event.data::<UserRef>()?.user_id, false).await,
             USER_BLOCKED => self.on_user_blocked(event.data()?).await,
-            FRIEND_ACCEPTED => self.on_friend_accepted(event.data()?, event.occurred_at).await,
             FRIEND_REMOVED => self.on_friend_removed(event.data()?).await,
-            FRIEND_PREFS_CHANGED => self.on_friend_prefs_changed(event.data()?).await,
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
             ASSET_DELETED => self.on_asset_deleted(event.data::<AssetDeleted>()?.asset_id).await,
             _ => Ok(()),

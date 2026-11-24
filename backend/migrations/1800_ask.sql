@@ -252,8 +252,8 @@ CREATE TABLE ask_poll_exposure (
     friend_id     uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     shown_count   integer     NOT NULL DEFAULT 0,
     last_shown_at timestamptz NOT NULL DEFAULT now(),
-    -- First time this friend could come up: a lower bound for how long the
-    -- two have been friends when the friendship predates `ask_friend_links`.
+    -- First time this friend could come up: what the "friends for N months"
+    -- hint falls back to when the social domain does not know since when.
     created_at    timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, friend_id)
 );
@@ -301,22 +301,6 @@ CREATE TABLE ask_flame_hints (
     created_at   timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (flame_id, position)
 );
-
--- ───────────────────────────── friends, as this domain knows them ─────────────────────────────
-
--- What the social domain announced about a friendship: when it began and
--- whether `user_id` muted `friend_id`. One row per direction. Friendships
--- older than this table have no row until something about them changes.
-CREATE TABLE ask_friend_links (
-    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    friend_id  uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    since      timestamptz,
-    muted      boolean     NOT NULL DEFAULT false,
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, friend_id)
-);
-
-CREATE INDEX ask_friend_links_friend ON ask_friend_links (friend_id);
 
 -- ───────────────────────────── moderation ─────────────────────────────
 

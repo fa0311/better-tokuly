@@ -715,6 +715,10 @@ message ProfileStats {
   int32 visited_country_count = 7;
   int32 stamp_pack_count = 8;
   int32 days_since_joined = 9;
+  // Filled by the social domain for signed-in viewers, counted like its
+  // follow lists (active accounts, without people in a block with the viewer).
+  int32 follower_count = 10;
+  int32 following_count = 11;
 }
 
 message NowPlaying {

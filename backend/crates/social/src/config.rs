@@ -8,12 +8,21 @@ pub struct SocialConfig {
     #[arg(long = "social-max-friends", env = "TOKULY_SOCIAL_MAX_FRIENDS", default_value_t = 1000)]
     pub max_friends: i64,
 
+    /// Most accounts one user can follow (pending follow requests included).
+    #[arg(long = "social-max-following", env = "TOKULY_SOCIAL_MAX_FOLLOWING", default_value_t = 5000)]
+    pub max_following: i64,
+
     /// How many friends the automatic best-friend ranking keeps per user.
     #[arg(long = "social-best-friend-count", env = "TOKULY_SOCIAL_BEST_FRIEND_COUNT", default_value_t = 8)]
     pub best_friend_count: i32,
 
     /// Seconds between runs of the best-friend ranking worker.
-    #[arg(id = "social_ranking_interval_seconds", long = "social-ranking-interval-seconds", env = "TOKULY_SOCIAL_RANKING_INTERVAL_SECONDS", default_value_t = 300)]
+    #[arg(
+        id = "social_ranking_interval_seconds",
+        long = "social-ranking-interval-seconds",
+        env = "TOKULY_SOCIAL_RANKING_INTERVAL_SECONDS",
+        default_value_t = 300
+    )]
     pub ranking_interval_seconds: u64,
 
     /// Radius of nearby discovery, in meters.
@@ -42,6 +51,7 @@ impl Default for SocialConfig {
     fn default() -> Self {
         Self {
             max_friends: 1000,
+            max_following: 5000,
             best_friend_count: 8,
             ranking_interval_seconds: 300,
             nearby_radius_meters: 50.0,

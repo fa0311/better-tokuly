@@ -1,5 +1,7 @@
-//! Per-user ID lists cached in Valkey: a user's friends, and everyone hidden
-//! from a user by a block.
+//! Per-user lists cached in Valkey: a user's friends (as IDs and with the
+//! details other domains ask about), everyone hidden from a user by a block,
+//! followers and followees, and circles (their members, and the circles a
+//! user is in).
 //!
 //! Other domains read these lists on their hot paths (location fan-out,
 //! feed and search filtering), so they are served from Valkey and only fall
@@ -38,20 +40,65 @@ if (redis.call('GET', KEYS[2]) or '') == ARGV[3] then
 end
 return 0";
 
-/// One kind of cached per-user ID list.
+/// A fixed-size entry of a cached list.
+pub(crate) trait Record: Sized {
+    const SIZE: usize;
+    fn write(&self, out: &mut Vec<u8>);
+    /// Reads one entry from exactly [`Self::SIZE`] bytes.
+    fn read(bytes: &[u8]) -> Option<Self>;
+}
+
+impl Record for Uuid {
+    const SIZE: usize = 16;
+
+    fn write(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(self.as_bytes());
+    }
+
+    fn read(bytes: &[u8]) -> Option<Self> {
+        Uuid::from_slice(bytes).ok()
+    }
+}
+
+/// A pair of IDs, e.g. (circle, owner).
+impl Record for (Uuid, Uuid) {
+    const SIZE: usize = 32;
+
+    fn write(&self, out: &mut Vec<u8>) {
+        self.0.write(out);
+        self.1.write(out);
+    }
+
+    fn read(bytes: &[u8]) -> Option<Self> {
+        Some((Uuid::read(&bytes[..16])?, Uuid::read(&bytes[16..])?))
+    }
+}
+
+/// One kind of cached per-user (or per-circle) list.
 pub(crate) struct IdList {
     prefix: &'static str,
 }
 
 /// IDs of a user's friends.
 pub(crate) const FRIENDS: IdList = IdList { prefix: "social:friends" };
+/// A user's friendships with the details other domains ask about
+/// ([`crate::graph::FriendLink`]): since when, best-friend rank, star, mute.
+pub(crate) const FRIEND_LINKS: IdList = IdList { prefix: "social:friend-links" };
 /// IDs of everyone a user blocked or was blocked by.
 pub(crate) const HIDDEN: IdList = IdList { prefix: "social:hidden" };
+/// IDs of a user's followers.
+pub(crate) const FOLLOWERS: IdList = IdList { prefix: "social:followers" };
+/// IDs of the accounts a user follows.
+pub(crate) const FOLLOWING: IdList = IdList { prefix: "social:following" };
+/// IDs of the members of a circle (keyed by the circle's ID).
+pub(crate) const CIRCLE_MEMBERS: IdList = IdList { prefix: "social:circle-members" };
+/// The circles a user is a member of, as (circle, owner) pairs.
+pub(crate) const MEMBER_OF: IdList = IdList { prefix: "social:member-of" };
 
-/// What a cache read found: the list (on a hit) and the generation it was
-/// read at (empty when there is none yet).
+/// What a cache read found: the encoded list (on a hit) and the generation
+/// it was read at (empty when there is none yet).
 struct Cached {
-    ids: Option<Vec<Uuid>>,
+    bytes: Option<Vec<u8>>,
     generation: String,
 }
 
@@ -65,14 +112,18 @@ impl IdList {
     }
 
     /// The cached list, or the result of `load` (which is then cached).
-    pub(crate) async fn get_or_load<F, Fut>(&self, core: &Core, user_id: Uuid, load: F) -> AppResult<Vec<Uuid>>
+    pub(crate) async fn get_or_load<R, F, Fut>(&self, core: &Core, user_id: Uuid, load: F) -> AppResult<Vec<R>>
     where
+        R: Record,
         F: FnOnce() -> Fut,
-        Fut: Future<Output = AppResult<Vec<Uuid>>>,
+        Fut: Future<Output = AppResult<Vec<R>>>,
     {
         let generation = match self.read(core, user_id).await {
-            Ok(Cached { ids: Some(ids), .. }) => return Ok(ids),
-            Ok(Cached { ids: None, generation }) => Some(generation),
+            Ok(Cached { bytes: Some(bytes), generation }) => match decode(&bytes) {
+                Some(ids) => return Ok(ids),
+                None => Some(generation),
+            },
+            Ok(Cached { bytes: None, generation }) => Some(generation),
             Err(e) => {
                 tracing::warn!(list = self.prefix, error = %e, "id list cache read failed; using the database");
                 None
@@ -90,12 +141,15 @@ impl IdList {
     }
 
     async fn read(&self, core: &Core, user_id: Uuid) -> AppResult<Cached> {
-        let (raw, generation): (Option<Vec<u8>>, Option<String>) =
-            redis::cmd("MGET").arg(self.key(user_id)).arg(self.generation_key(user_id)).query_async(&mut core.cache.conn()).await?;
-        Ok(Cached { ids: raw.and_then(|bytes| decode(&bytes)), generation: generation.unwrap_or_default() })
+        let (raw, generation): (Option<Vec<u8>>, Option<String>) = redis::cmd("MGET")
+            .arg(self.key(user_id))
+            .arg(self.generation_key(user_id))
+            .query_async(&mut core.cache.conn())
+            .await?;
+        Ok(Cached { bytes: raw, generation: generation.unwrap_or_default() })
     }
 
-    async fn store(&self, core: &Core, user_id: Uuid, ids: &[Uuid], generation: &str) -> AppResult<()> {
+    async fn store<R: Record>(&self, core: &Core, user_id: Uuid, ids: &[R], generation: &str) -> AppResult<()> {
         redis::Script::new(STORE_IF_UNCHANGED)
             .key(self.key(user_id))
             .key(self.generation_key(user_id))
@@ -126,15 +180,34 @@ impl IdList {
     }
 }
 
-/// IDs as their 16 raw bytes back to back: compact and trivially parsed.
-fn encode(ids: &[Uuid]) -> Vec<u8> {
-    ids.iter().flat_map(|id| *id.as_bytes()).collect()
+/// Drops what is cached about `user_ids`' friendships (the ID lists and the
+/// details). Call after the transaction that changed them has committed.
+pub(crate) async fn friendships_changed(core: &Core, user_ids: &[Uuid]) {
+    FRIENDS.invalidate(core, user_ids).await;
+    FRIEND_LINKS.invalidate(core, user_ids).await;
 }
 
-/// `None` for anything that is not a whole number of IDs (treated as a miss).
-fn decode(bytes: &[u8]) -> Option<Vec<Uuid>> {
-    let (ids, leftover) = bytes.as_chunks::<16>();
-    leftover.is_empty().then(|| ids.iter().map(|id| Uuid::from_bytes(*id)).collect())
+/// Drops what is cached about follows between followers and followees.
+pub(crate) async fn follows_changed(core: &Core, followers: &[Uuid], followees: &[Uuid]) {
+    FOLLOWING.invalidate(core, followers).await;
+    FOLLOWERS.invalidate(core, followees).await;
+}
+
+/// Entries back to back in their fixed-size form: compact and trivially parsed.
+fn encode<R: Record>(entries: &[R]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(entries.len() * R::SIZE);
+    for entry in entries {
+        entry.write(&mut out);
+    }
+    out
+}
+
+/// `None` for anything that is not a whole number of entries (treated as a miss).
+fn decode<R: Record>(bytes: &[u8]) -> Option<Vec<R>> {
+    if !bytes.len().is_multiple_of(R::SIZE) {
+        return None;
+    }
+    bytes.chunks_exact(R::SIZE).map(R::read).collect()
 }
 
 #[cfg(test)]
@@ -145,8 +218,11 @@ mod tests {
     fn id_lists_roundtrip_through_bytes() {
         let ids = vec![Uuid::now_v7(), Uuid::now_v7(), Uuid::nil()];
         assert_eq!(decode(&encode(&ids)), Some(ids));
-        assert_eq!(decode(&[]), Some(Vec::new()), "an empty list is a hit, not a miss");
-        assert_eq!(decode(&[1, 2, 3]), None);
+        assert_eq!(decode::<Uuid>(&[]), Some(Vec::new()), "an empty list is a hit, not a miss");
+        assert_eq!(decode::<Uuid>(&[1, 2, 3]), None);
+        let pairs = vec![(Uuid::now_v7(), Uuid::now_v7())];
+        assert_eq!(decode(&encode(&pairs)), Some(pairs));
+        assert_eq!(decode::<(Uuid, Uuid)>(&[0; 16]), None, "half a pair is a miss");
     }
 
     /// A reader that loaded the list before a change committed must not put
@@ -167,6 +243,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(loaded, before_the_change, "the caller still gets what it read");
-        assert_eq!(FRIENDS.read(core, user).await.unwrap().ids, None, "but the stale list is not cached");
+        assert_eq!(FRIENDS.read(core, user).await.unwrap().bytes, None, "but the stale list is not cached");
     }
 }

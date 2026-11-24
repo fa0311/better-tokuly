@@ -22,6 +22,7 @@ import { errorMessage } from "#/lib/errors";
 import { feedClient, playlistClient, useVideo, videoClient, videoKeys } from "./api";
 import { audienceNote, Description } from "./description";
 import { formatCount, parseTimeParam } from "./format";
+import { visibilityOption } from "./labels";
 import { StartPartyDialog } from "./party/start-party";
 import { takeTrafficSource, usePlaybackSession } from "./playback-session";
 import { type PlayerHandle, VideoPlayer } from "./player/player";
@@ -418,7 +419,7 @@ function OwnerNotice({ item }: { item: video.Video }) {
               minute: "2-digit",
             }),
           })
-        : summary.visibility === common.Visibility.PRIVATE
+        : visibilityOption(summary.visibility).value === common.Visibility.PRIVATE
           ? t("watch.owner.private")
           : "";
   if (!text) return null;

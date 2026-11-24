@@ -8,6 +8,7 @@ export default {
     count: "{{count}} friends",
   },
   requests: {
+    followTitle: "Follow requests",
     incoming: "Requests",
     outgoing: "Pending",
     emptyIncoming: "No requests waiting",

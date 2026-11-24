@@ -1,7 +1,7 @@
 //! Other people as this domain needs them: who is a friend, how someone is
 //! named in a notification, how often one person may
-//! invite another, and the two facts about a friendship that only the social
-//! domain knows.
+//! invite another, and the two facts about a friendship that the social
+//! domain keeps (since when, best friend).
 //!
 //! Everything here that asks the social or identity domain goes through the
 //! connection pool, so it is called before a transaction is opened, never
@@ -16,8 +16,7 @@ use std::{
 use chrono_tz::Tz;
 use sqlx::PgConnection;
 use tokuly_core::prelude::*;
-use tokuly_identity::ProfileExtension;
-use tokuly_proto::{common::UserSummary, identity::Profile};
+use tokuly_proto::common::UserSummary;
 use tokuly_social::graph;
 
 use crate::{Plans, dates};
@@ -128,52 +127,22 @@ pub(crate) struct Friendship {
     pub best_friend: bool,
 }
 
-/// How long an answer to "is X one of Y's best friends" is reused.
-const BEST_FRIEND_MEMORY: Duration = Duration::from_secs(300);
-
-fn best_friend_key(owner: Uuid, friend: Uuid) -> String {
-    format!("plans:best-friend:{}:{}", owner.simple(), friend.simple())
-}
-
 impl Plans {
     /// `user`'s friendship with `friend`: since when, and whether `friend` is
-    /// one of `user`'s best friends.
-    ///
-    /// `tokuly_social::graph` has no function for either fact. What the
-    /// social domain does offer is its part of a profile: shown `friend`'s
-    /// profile, `user` gets `friends_since` and `best_friend` filled in. So
-    /// that part is asked for, on an empty profile. It takes a handful of
-    /// queries per question, which is why callers ask about one pair at a
-    /// time and [`Self::is_best_friend`] remembers the answer for a while.
+    /// one of `user`'s best friends (`tokuly_social::graph::friend_link`,
+    /// served from the social domain's cache).
     pub(crate) async fn friendship(&self, user: Uuid, friend: Uuid) -> AppResult<Friendship> {
-        let mut profile = Profile::default();
-        ProfileExtension::enrich_profile(&self.social, Some(user), friend, &mut profile).await?;
-        Ok(Friendship { since: profile.friends_since.as_option().map(from_ts), best_friend: profile.best_friend })
+        let link = graph::friend_link(&self.core, user, friend).await?;
+        Ok(Friendship { since: link.map(|link| link.since), best_friend: link.is_some_and(|link| link.is_best_friend()) })
     }
 
     /// Whether `friend` is one of `owner`'s best friends. The two must be
-    /// friends right now (checked every time); the ranking itself is
-    /// remembered for a few minutes.
+    /// friends right now (asked of the database every time); the ranking
+    /// comes from the social domain's cached friendship details.
     pub(crate) async fn is_best_friend(&self, owner: Uuid, friend: Uuid) -> AppResult<bool> {
         if !graph::are_friends(&self.core, owner, friend).await? {
             return Ok(false);
         }
-        let key = best_friend_key(owner, friend);
-        if let Some(known) = self.core.cache.get_string(&key).await? {
-            return Ok(known == "1");
-        }
-        let best_friend = self.friendship(owner, friend).await?.best_friend;
-        self.core.cache.set_string(&key, if best_friend { "1" } else { "0" }, Some(BEST_FRIEND_MEMORY)).await?;
-        Ok(best_friend)
-    }
-
-    /// Forgets what was remembered about two people's best-friend ranking
-    /// (when their friendship ends).
-    pub(crate) async fn forget_best_friend(&self, a: Uuid, b: Uuid) {
-        for key in [best_friend_key(a, b), best_friend_key(b, a)] {
-            if let Err(e) = self.core.cache.del(&key).await {
-                tracing::warn!(error = %e, "could not drop a remembered best-friend answer");
-            }
-        }
+        Ok(self.friendship(owner, friend).await?.best_friend)
     }
 }

@@ -10,7 +10,6 @@ use tokuly_proto::{
     common::SubjectType,
     identity::{GetProfileRequest, GetProfileResponse, get_profile_request::By},
     media::AssetPurpose,
-    social::{RemoveFriendRequest, RemoveFriendResponse},
 };
 use tokuly_testkit::TestUser;
 use uuid::Uuid;
@@ -94,10 +93,6 @@ async fn a_deleted_account_takes_its_box_along_and_leaves_what_it_sent_anonymous
         (
             "anything that still names them as a sender",
             "SELECT (SELECT count(*) FROM ask_questions WHERE sender_id = $1) + (SELECT count(*) FROM ask_prompt_responses WHERE sender_id = $1) + (SELECT count(*) FROM ask_flames WHERE sender_id = $1)",
-        ),
-        (
-            "what was known of their friendships",
-            "SELECT count(*) FROM ask_friend_links WHERE user_id = $1 OR friend_id = $1",
         ),
     ] {
         assert_eq!(count(&ctx, sql, leaver.id).await, 0, "{what}");
@@ -397,47 +392,6 @@ async fn the_purge_counts_from_the_day_something_was_removed() {
         .unwrap();
     ctx.ask.purge().await.unwrap();
     assert!(!exists("ask_prompts", &prompt.id).await && !exists("ask_prompt_responses", &kept.id).await);
-}
-
-#[tokio::test]
-async fn friendships_are_remembered_as_the_social_domain_announces_them() {
-    let ctx = start().await;
-    let (a, b) = (ctx.user("A").await, ctx.user("B").await);
-    let links = |ctx: &Ctx| {
-        let (db, a, b) = (ctx.app.core.db.clone(), a.id, b.id);
-        async move {
-            let rows: Vec<(Uuid, bool, bool)> =
-                sqlx::query_as("SELECT user_id, since IS NOT NULL, muted FROM ask_friend_links WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1) ORDER BY user_id = $1 DESC")
-                    .bind(a)
-                    .bind(b)
-                    .fetch_all(&db)
-                    .await
-                    .unwrap();
-            rows
-        }
-    };
-    assert!(links(&ctx).await.is_empty());
-
-    ctx.befriend(&a, &b).await;
-    assert_eq!(
-        links(&ctx).await,
-        vec![(a.id, true, false), (b.id, true, false)],
-        "both directions, with the day it began"
-    );
-    ctx.mute(&a, &b).await;
-    assert_eq!(links(&ctx).await, vec![(a.id, true, true), (b.id, true, false)], "a mute is one-sided");
-
-    let _: RemoveFriendResponse = ctx
-        .call(
-            "tokuly.social.v1.FriendService",
-            "RemoveFriend",
-            &a,
-            &RemoveFriendRequest { user_id: b.id.to_string(), ..Default::default() },
-        )
-        .await
-        .unwrap();
-    ctx.deliver().await;
-    assert!(links(&ctx).await.is_empty(), "nothing is remembered of a friendship that ended");
 }
 
 #[tokio::test]

@@ -29,7 +29,6 @@ use tokuly_proto::{
     common::SubjectType,
     plans::{PlansEvent, plans_event::Event as Push},
 };
-use tokuly_social::Social;
 
 mod anniversaries;
 mod anniversary_svc;
@@ -63,8 +62,6 @@ pub use maintenance::WorkDone;
 pub struct PlansInner {
     pub core: Core,
     pub cfg: PlansConfig,
-    /// Asked about friendships (see `people`).
-    pub(crate) social: Social,
 }
 
 /// The plans domain. Cheap to clone.
@@ -85,12 +82,11 @@ impl Plans {
     /// comments and reports can attach to (`SUBJECT_TYPE_PLAN`), and the
     /// personal data export gains a `plans` section.
     ///
-    /// `social` is the social domain: besides its `graph` functions, this
-    /// domain asks it who someone's best friends are and since when two
-    /// people are friends.
-    pub fn new(core: Core, identity: Identity, cfg: PlansConfig, social: Social) -> anyhow::Result<Self> {
+    /// Who someone's best friends are and since when two people are friends
+    /// are asked of `tokuly_social::graph`.
+    pub fn new(core: Core, identity: Identity, cfg: PlansConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
-        let plans = Self(Arc::new(PlansInner { core: core.clone(), cfg, social }));
+        let plans = Self(Arc::new(PlansInner { core: core.clone(), cfg }));
         identity.add_profile_extension(Arc::new(plans.clone()));
         core.subjects.register(SubjectType::SUBJECT_TYPE_PLAN, Arc::new(plans.clone()));
         core.exporters.register(Arc::new(maintenance::PlansExporter::new(core.clone())));
