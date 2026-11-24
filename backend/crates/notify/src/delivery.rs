@@ -129,8 +129,10 @@ impl Notify {
             tracing::warn!(job = %job.id, kind = %job.kind, "push job expired before delivery");
             return Ok(report);
         }
-        if withdraw::any_withdrawn(&self.core.db, &job.refs).await? {
-            // Deleted or taken down while the push waited.
+        if withdraw::any_withdrawn(&self.core.db, &job.refs).await?
+            || withdraw::hidden_since(&self.core.db, &job.refs, job.user_id, job.created_at).await?
+        {
+            // Deleted, taken down or hidden from the recipient while the push waited.
             return Ok(report);
         }
         if let Some(actor_id) = job.actor_id

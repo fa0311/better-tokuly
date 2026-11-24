@@ -391,3 +391,98 @@ async fn content_with_thousands_of_recipients_is_withdrawn_in_batches() {
     }
     assert_eq!(batches, 3);
 }
+
+fn comment_hidden(
+    comment: Uuid,
+    author: &TestUser,
+    visible_to: &[Uuid],
+    changed_at: chrono::DateTime<Utc>,
+) -> tokuly_core::events::Event {
+    event(
+        "engagement.comment.hidden",
+        serde_json::json!({
+            "comment_id": comment,
+            "subject_type": SubjectType::SUBJECT_TYPE_NOTE as i32,
+            "subject_id": Uuid::now_v7(),
+            "subject_owner_id": visible_to.first(),
+            "author_id": author.id,
+            "channel_id": null,
+            "parent_id": null,
+            "status": 3,
+            "hold_reason": 4,
+            "visible_to": visible_to,
+            "changed_at": changed_at,
+        }),
+    )
+}
+
+#[tokio::test]
+async fn a_hidden_comment_leaves_everyone_who_can_no_longer_see_it() {
+    let ctx = start().await;
+    let (owner, alice, carol, dave) = (
+        ctx.app.user("owner").await,
+        ctx.app.user("alice").await,
+        ctx.app.user("carol").await,
+        ctx.app.user("dave").await,
+    );
+    let note_id = Uuid::now_v7();
+    let (comment, kept) = (Uuid::now_v7(), Uuid::now_v7());
+    let before = Utc::now() - chrono::Duration::seconds(30);
+    let at = |seconds: i64| before + chrono::Duration::seconds(seconds);
+    // Alice wrote the comment; the owner of the note, Carol (answered by a
+    // reply in the thread) and Alice herself (a heart) heard about it.
+    for (to, from) in [(&owner, &alice), (&carol, &dave), (&alice, &owner)] {
+        let request = comment_on(to, from, note_id, comment);
+        ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, request, at(0))).await.unwrap();
+    }
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, comment_on(&carol, &dave, note_id, kept), at(0))).await.unwrap();
+    // A reply below it names it as its thread.
+    let reply = comment_on(&dave, &carol, note_id, Uuid::now_v7())
+        .data(serde_json::json!({ "comment_id": Uuid::now_v7(), "parent_id": comment }));
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, reply, at(0))).await.unwrap();
+
+    // The owner hides it: only the owner and its author still see it.
+    let hidden = comment_hidden(comment, &alice, &[owner.id], at(10));
+    ctx.notify.handle_event(hidden.clone()).await.unwrap();
+    ctx.notify.handle_event(hidden).await.unwrap(); // at-least-once
+    assert_eq!(ctx.inbox(&owner).await.notifications.len(), 1, "the owner still sees it");
+    assert_eq!(ctx.inbox(&alice).await.notifications.len(), 1, "so does its author");
+    assert_eq!(ctx.inbox(&carol).await.notifications.len(), 1, "only the entry about the other comment is left");
+    assert!(ctx.inbox(&carol).await.notifications[0].data_json.contains(&kept.to_string()));
+    assert!(ctx.inbox(&dave).await.notifications.is_empty(), "the reply went with its thread");
+
+    // A request from before the hiding, handled after it, reaches nobody
+    // who lost the comment; one made after it (approved again) does.
+    let late = event_at(NOTIFY_TOPIC, comment_on(&carol, &dave, note_id, comment), at(5));
+    assert!(matches!(ctx.notify.handle_request(&late).await.unwrap(), RequestOutcome::Dropped(_)));
+    let late_to_owner = event_at(NOTIFY_TOPIC, comment_on(&owner, &dave, note_id, comment), at(5));
+    assert!(matches!(ctx.notify.handle_request(&late_to_owner).await.unwrap(), RequestOutcome::Handled { .. }));
+    let after = event_at(NOTIFY_TOPIC, comment_on(&dave, &carol, note_id, comment), at(20));
+    assert!(matches!(ctx.notify.handle_request(&after).await.unwrap(), RequestOutcome::Handled { .. }));
+
+    // An older change handled late takes nothing that came after.
+    ctx.notify.handle_event(comment_hidden(comment, &alice, &[], at(8))).await.unwrap();
+    assert_eq!(ctx.inbox(&dave).await.notifications.len(), 1);
+    assert_eq!(ctx.inbox(&owner).await.notifications.len(), 2);
+    // A newer one (a block) takes what came before it, but not the author's.
+    ctx.notify.handle_event(comment_hidden(comment, &alice, &[], at(25))).await.unwrap();
+    assert!(ctx.inbox(&dave).await.notifications.is_empty());
+    assert!(ctx.inbox(&owner).await.notifications.is_empty());
+    assert_eq!(ctx.inbox(&alice).await.notifications.len(), 1);
+}
+
+#[tokio::test]
+async fn a_push_still_queued_for_a_hidden_comment_reaches_only_who_still_sees_it() {
+    let ctx = start_insecure().await;
+    let (owner, alice, carol) = (ctx.app.user("owner").await, ctx.app.user("alice").await, ctx.app.user("carol").await);
+    let stub = Stub::accepting().await;
+    ctx.register(&owner, &Subscription::new(&format!("{}/push/owner", stub.url)).request()).await;
+    ctx.register(&carol, &Subscription::new(&format!("{}/push/carol", stub.url)).request()).await;
+    let (note_id, comment) = (Uuid::now_v7(), Uuid::now_v7());
+    let to_owner = ctx.deliver_for_push(&comment_on(&owner, &alice, note_id, comment)).await;
+    let to_carol = ctx.deliver_for_push(&comment_on(&carol, &alice, note_id, comment)).await;
+    ctx.notify.handle_event(comment_hidden(comment, &alice, &[owner.id], Utc::now())).await.unwrap();
+    assert_eq!(ctx.notify.deliver_push(&to_carol).await.unwrap().delivered, 0);
+    assert_eq!(ctx.notify.deliver_push(&to_owner).await.unwrap().delivered, 1);
+    assert!(stub.requests_to("/push/carol").is_empty());
+}

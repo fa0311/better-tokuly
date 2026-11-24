@@ -381,8 +381,16 @@ impl Engagement {
         if row.is_published() && !verdict.is_published() {
             // The new text trips one of the owner's rules. The other way
             // round never happens: an edit does not publish a comment.
-            lifecycle::set_status(&mut tx, &mut effects, &mut row, parent.as_mut(), verdict.status, verdict.reason)
-                .await?;
+            lifecycle::set_status(
+                &mut tx,
+                &mut effects,
+                &mut row,
+                parent.as_mut(),
+                verdict.status,
+                verdict.reason,
+                Some(user_id),
+            )
+            .await?;
             if row.is_held() {
                 self.announce_held(&mut tx, &row, &found.subject).await?;
             }

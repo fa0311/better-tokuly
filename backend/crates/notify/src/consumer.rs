@@ -62,6 +62,8 @@ pub const TOPICS: &[&str] = &[
     "ask.answer.deleted",
     "video.video.unpublished",
     "notes.note.visibility_changed",
+    // `withdraw::AUDIENCE_RULES`
+    "engagement.comment.hidden",
 ];
 
 /// Why a notification was not pushed.
@@ -274,7 +276,9 @@ impl Notify {
         let mut keys: Vec<i64> = withdrawable_refs.iter().map(|id| locks::key(*id)).collect();
         keys.extend(blockable_actor.map(|actor_id| locks::pair_key(request.user_id, actor_id)));
         locks::lock_shared(&mut tx, keys).await?;
-        if withdraw::any_withdrawn(&mut *tx, withdrawable_refs).await? {
+        if withdraw::any_withdrawn(&mut *tx, withdrawable_refs).await?
+            || withdraw::hidden_since(&mut *tx, withdrawable_refs, request.user_id, event.occurred_at).await?
+        {
             tx.commit().await?;
             return Ok(RequestOutcome::Dropped(DropReason::Withdrawn));
         }
@@ -399,6 +403,9 @@ mod tests {
     #[test]
     fn every_deletion_topic_is_consumed() {
         for rule in withdraw::RULES {
+            assert!(TOPICS.contains(&rule.topic), "{}", rule.topic);
+        }
+        for rule in withdraw::AUDIENCE_RULES {
             assert!(TOPICS.contains(&rule.topic), "{}", rule.topic);
         }
     }

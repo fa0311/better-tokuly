@@ -58,7 +58,13 @@ read; no event is sent for it). Content that is gone is remembered for
 8 days: a request about it that arrives late, or a push job still queued for
 it, is dropped. Content that is only hidden (unpublished, made private) is
 withdrawn from everyone but its owner and not remembered, since it can come
-back. A note narrowed to friends is not withdrawn: this domain does not know
+back. Content whose audience narrowed (a comment hidden by its subject's
+owner, by a block or held again; see the events below) is withdrawn from
+everyone but its owner and those the event names as still seeing it
+(`visible_to`), but only entries about what happened up to the change
+(`changed_at`). The latest change per ID is remembered for 8 days
+(`notify_audiences`): a change older than it does nothing, and a request
+or a push job from before it is dropped for everyone it left out. A note narrowed to friends is not withdrawn: this domain does not know
 who is a friend. Entries of
 the `system` category are never withdrawn: the notice telling an owner that
 their content was taken down refers to that content. A withdrawal and a
@@ -96,6 +102,7 @@ account's) for push.
 | `admin.content.removed` | `{ subject_type, subject_id, … }` | withdraws `subject_id` (any subject type but `SUBJECT_TYPE_USER`: a profile takedown keeps what the person did in other inboxes) |
 | `chat.message.deleted` | `{ message_id, … }` | withdraws `message_id` |
 | `engagement.comment.deleted` | `{ comment_id, … }` | withdraws `comment_id` |
+| `engagement.comment.hidden` | `{ comment_id, author_id, visible_to, changed_at, … }` | withdraws `comment_id` (and so the replies below it, whose entries name it as `parent_id`) from everyone but `author_id` and `visible_to`, as far as the entries are not newer than `changed_at` |
 | `engagement.comment.edited` | `{ comment_id, author_id, body, mentioned, edited_at, … }` | entries quoting an older version of the comment show `body`; mentions of people not in `mentioned` are withdrawn (see "Edited comments") |
 | `notes.note.deleted` / `notes.story.deleted` | `{ note_id, … }` / `{ story_id, … }` | withdraws the note / story |
 | `community.thread.deleted` | `{ community_id, thread_id }` | withdraws `thread_id` |
@@ -106,7 +113,7 @@ account's) for push.
 | `ask.answer.deleted` | `{ question_id, owner_id }` | withdraws the asker's `ask.answered` entries for `question_id` (the question itself stays; not remembered, it can be answered again) |
 | `video.video.unpublished` | `VideoEvent` | hides `video_id` from everyone but `owner_id` |
 | `notes.note.visibility_changed` | `{ note_id, author_id, visibility }` | `visibility` = 5 (private): hides `note_id` from everyone but `author_id`. Other values change nothing |
-| `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, mutes on them, the remembered edits of their comments, and their name in the remembered mentions of others' |
+| `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, mutes on them, the remembered edits of their comments and audience changes of their content, and their name in the remembered mentions and audiences of others' |
 
 ## Events emitted
 
@@ -179,7 +186,7 @@ Sent to every connection of the user:
 |---|---|---|
 | Event consumer | durable `notify` | topics above |
 | Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; sends the current text of a comment edited while it waited (nothing for a mention the edit took out); dropped at delivery when its content was withdrawn, or when the recipient blocked, was blocked by or muted its actor in the meantime (not for `system` notices); up to 5 attempts with the job queue's backoff; devices already reached are remembered in Valkey (`notify:push:delivered:{job}`) so a retry only reaches the rest |
-| Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers, withdrawn-content markers and remembered comment edits older than 8 days; push registrations of revoked or expired sessions |
+| Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers, withdrawn-content markers, remembered comment edits and audience changes older than 8 days; push registrations of revoked or expired sessions |
 
 Push outcomes: accepted → `last_delivered_at`; token gone (Web Push 404/410,
 FCM `UNREGISTERED` / `SENDER_ID_MISMATCH`, APNs 410 / `BadDeviceToken` /

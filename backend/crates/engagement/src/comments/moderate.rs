@@ -61,6 +61,7 @@ impl Engagement {
                 parent.as_mut(),
                 status::PUBLISHED,
                 HoldReason::HOLD_REASON_UNSPECIFIED,
+                Some(user_id),
             )
             .await?;
             if row.in_public_view(parent.as_ref()) {
@@ -92,6 +93,7 @@ impl Engagement {
                 parent.as_mut(),
                 status::HIDDEN,
                 HoldReason::HOLD_REASON_HIDDEN_BY_OWNER,
+                Some(user_id),
             )
             .await?;
         }

@@ -79,6 +79,23 @@ CREATE INDEX notify_edits_age ON notify_edits (recorded_at);
 CREATE INDEX notify_edits_author ON notify_edits (author_id);
 CREATE INDEX notify_edits_mentioned ON notify_edits USING gin (mentioned);
 
+-- The latest change of who may see a piece of content (a hidden comment, a
+-- narrowed note; `withdraw.rs`): its owner, who else (`visible_to`, NULL =
+-- everyone) and when it changed (the producer's time, which orders two
+-- changes). A request or push about it from before the change that is handled
+-- after it reaches nobody else. Swept with the handled-event markers.
+CREATE TABLE notify_audiences (
+    ref_id      uuid PRIMARY KEY,
+    owner_id    uuid        NOT NULL,
+    visible_to  uuid[],
+    changed_at  timestamptz NOT NULL,
+    recorded_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX notify_audiences_age ON notify_audiences (recorded_at);
+CREATE INDEX notify_audiences_owner ON notify_audiences (owner_id);
+CREATE INDEX notify_audiences_visible_to ON notify_audiences USING gin (visible_to);
+
 -- IDs of `notify.requested` events that were already handled. Event delivery
 -- is at-least-once; a row here makes a redelivery a no-op. Rows outlive the
 -- event stream's retention (7 days) and are then swept.

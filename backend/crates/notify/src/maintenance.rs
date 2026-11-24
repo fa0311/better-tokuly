@@ -32,6 +32,8 @@ pub struct RetentionReport {
     pub withdrawn: u64,
     /// The latest edits of comments (`notify_edits`).
     pub edits: u64,
+    /// The latest audience changes of content (`notify_audiences`).
+    pub audiences: u64,
     pub devices: u64,
 }
 
@@ -156,6 +158,22 @@ impl Notify {
                 break;
             }
         }
+        // And the latest change of who may see something.
+        loop {
+            let done = sqlx::query(
+                "DELETE FROM notify_audiences WHERE ref_id IN (
+                     SELECT ref_id FROM notify_audiences WHERE recorded_at < now() - make_interval(days => $1) LIMIT $2
+                 )",
+            )
+            .bind(PROCESSED_EVENT_DAYS)
+            .bind(SWEEP_BATCH)
+            .execute(db)
+            .await?;
+            report.audiences += done.rows_affected();
+            if done.rows_affected() < SWEEP_BATCH as u64 {
+                break;
+            }
+        }
         report.devices = devices::sweep_ended_sessions(&self.core).await?;
         Ok(report)
     }
@@ -173,6 +191,14 @@ impl Notify {
         sqlx::query("DELETE FROM notify_edits WHERE author_id = $1").bind(user_id).execute(&mut *tx).await?;
         sqlx::query(
             "UPDATE notify_edits SET mentioned = array_remove(mentioned, $1) WHERE mentioned @> ARRAY[$1]::uuid[]",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        // Who may see their content, and their name among who may see others'.
+        sqlx::query("DELETE FROM notify_audiences WHERE owner_id = $1").bind(user_id).execute(&mut *tx).await?;
+        sqlx::query(
+            "UPDATE notify_audiences SET visible_to = array_remove(visible_to, $1) WHERE visible_to @> ARRAY[$1]::uuid[]",
         )
         .bind(user_id)
         .execute(&mut *tx)

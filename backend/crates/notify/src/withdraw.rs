@@ -16,6 +16,16 @@
 //! queue. Both are dropped. Content that is only hidden (it can come back) is
 //! not remembered.
 //!
+//! Content whose audience narrowed (a comment hidden, a note narrowed to
+//! friends) is withdrawn from everyone but its owner and those who may still
+//! see it ([`AUDIENCE_RULES`]). Who that is, and when it changed, is
+//! remembered (`notify_audiences`) for as long as events can arrive late:
+//! a request about it from before the change that is handled after it, and
+//! a push still queued from before it, are dropped for everyone else. Two
+//! changes of one subject are ordered by the producer's `changed_at`: an
+//! older change handled after a newer one does nothing, and a change only
+//! removes entries about what happened before it.
+//!
 //! Notices of the `system` category are never withdrawn: the one telling an
 //! owner that their content was taken down refers to that content.
 use std::collections::HashMap;
@@ -77,6 +87,24 @@ pub const RULES: &[Rule] = &[
     },
 ];
 
+/// How an event that changes who may see content withdraws notifications.
+/// The payload names the content, its owner, `visible_to` (who besides the
+/// owner may still see it, `null` = everyone) and `changed_at` (when the
+/// change was made, taken while the content was locked).
+pub struct AudienceRule {
+    pub topic: &'static str,
+    /// The payload field naming the content.
+    pub id_field: &'static str,
+    /// The payload field naming its owner, who keeps their entries.
+    pub owner_field: &'static str,
+}
+
+/// The events that narrow (or widen) who may see content.
+pub const AUDIENCE_RULES: &[AudienceRule] = &[
+    // Hidden by the subject owner, by a block, or held for review again.
+    AudienceRule { topic: "engagement.comment.hidden", id_field: "comment_id", owner_field: "author_id" },
+];
+
 /// The category whose entries are never withdrawn.
 pub(crate) const UNWITHDRAWABLE_CATEGORY: &str = "system";
 
@@ -90,11 +118,23 @@ pub struct Withdrawal {
     pub ref_id: Uuid,
     /// Only entries of these kinds; empty = every kind.
     pub kinds: &'static [&'static str],
-    /// This user keeps their entries (the owner of hidden content).
-    pub except_user: Option<Uuid>,
+    /// These users keep their entries: the owner of hidden content, and
+    /// whoever may still see it.
+    pub except_users: Vec<Uuid>,
     /// Gone for good: remembered, so late requests and queued pushes about
     /// it are dropped.
     pub remember: bool,
+    /// The content's audience changed: remembered and ordered by its time.
+    pub audience: Option<Audience>,
+}
+
+/// Who may see content from a moment on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Audience {
+    pub owner_id: Uuid,
+    /// Who besides the owner; `None` = everyone.
+    pub visible_to: Option<Vec<Uuid>>,
+    pub changed_at: Time,
 }
 
 #[derive(Deserialize)]
@@ -116,7 +156,16 @@ pub fn withdrawal_of(event: &Event) -> AppResult<Option<Withdrawal>> {
         if removed.subject_type == SubjectType::SUBJECT_TYPE_USER as i32 {
             return Ok(None);
         }
-        return Ok(Some(Withdrawal { ref_id: removed.subject_id, kinds: &[], except_user: None, remember: true }));
+        return Ok(Some(Withdrawal {
+            ref_id: removed.subject_id,
+            kinds: &[],
+            except_users: Vec::new(),
+            remember: true,
+            audience: None,
+        }));
+    }
+    if let Some(rule) = AUDIENCE_RULES.iter().find(|rule| rule.topic == event.topic) {
+        return Ok(audience_change(event, rule));
     }
     let Some(rule) = RULES.iter().find(|rule| rule.topic == event.topic) else {
         return Ok(None);
@@ -132,9 +181,71 @@ pub fn withdrawal_of(event: &Event) -> AppResult<Option<Withdrawal>> {
     Ok(Some(Withdrawal {
         ref_id,
         kinds: rule.kinds,
-        except_user: rule.hidden_except.and_then(|field| uuid_field(event, field)),
+        except_users: rule.hidden_except.and_then(|field| uuid_field(event, field)).into_iter().collect(),
         remember: rule.hidden_except.is_none() && rule.kinds.is_empty(),
+        audience: None,
     }))
+}
+
+/// The withdrawal of an audience change: everyone but the owner and
+/// `visible_to` loses what happened up to `changed_at`.
+fn audience_change(event: &Event, rule: &AudienceRule) -> Option<Withdrawal> {
+    let (Some(ref_id), Some(owner_id)) = (uuid_field(event, rule.id_field), uuid_field(event, rule.owner_field)) else {
+        return None;
+    };
+    let visible_to: Option<Vec<Uuid>> = match event.data.get("visible_to") {
+        // An event from before producers named the audience: only "nobody
+        // else" is known for certain.
+        None if is_private(event) => Some(Vec::new()),
+        None => return None,
+        Some(value) => serde_json::from_value(value.clone()).ok()?,
+    };
+    let changed_at = event
+        .data
+        .get("changed_at")
+        .and_then(|value| serde_json::from_value::<Time>(value.clone()).ok())
+        .unwrap_or(event.occurred_at);
+    let mut except_users = visible_to.clone().unwrap_or_default();
+    except_users.push(owner_id);
+    except_users.sort_unstable();
+    except_users.dedup();
+    Some(Withdrawal {
+        ref_id,
+        kinds: &[],
+        except_users,
+        remember: false,
+        audience: Some(Audience { owner_id, visible_to, changed_at }),
+    })
+}
+
+/// Whether a note event says the note is private.
+fn is_private(event: &Event) -> bool {
+    event.data.get("visibility").and_then(|v| v.as_i64()) == Some(i64::from(Visibility::VISIBILITY_PRIVATE as i32))
+}
+
+/// Whether, for `user_id`, any of `refs` was hidden after `occurred_at`: a
+/// request or push from before an audience change that left them out.
+pub(crate) async fn hidden_since<'e, E: sqlx::PgExecutor<'e>>(
+    executor: E,
+    refs: &[Uuid],
+    user_id: Uuid,
+    occurred_at: Time,
+) -> AppResult<bool> {
+    if refs.is_empty() {
+        return Ok(false);
+    }
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM notify_audiences
+             WHERE ref_id = ANY($1) AND visible_to IS NOT NULL AND changed_at >= $3
+               AND owner_id <> $2 AND NOT $2 = ANY(visible_to)
+         )",
+    )
+    .bind(refs)
+    .bind(user_id)
+    .bind(occurred_at)
+    .fetch_one(executor)
+    .await?)
 }
 
 /// The IDs a notification refers to: its subject and the `*_id` values at
@@ -171,6 +282,7 @@ impl Notify {
     /// batches, and content that is gone is remembered. Idempotent.
     pub async fn withdraw(&self, withdrawal: &Withdrawal) -> AppResult<()> {
         let mut first = true;
+        let until = withdrawal.audience.as_ref().map(|audience| audience.changed_at);
         loop {
             let mut tx = self.core.db.begin().await?;
             locks::lock(&mut tx, locks::key(withdrawal.ref_id)).await?;
@@ -179,6 +291,31 @@ impl Notify {
                     .bind(withdrawal.ref_id)
                     .execute(&mut *tx)
                     .await?;
+            }
+            if first && let Some(audience) = &withdrawal.audience {
+                // Only the latest change counts. The same one again (a
+                // redelivery, or a retry after a batch failed) carries on.
+                let latest: bool = sqlx::query_scalar(
+                    "INSERT INTO notify_audiences AS a (ref_id, owner_id, visible_to, changed_at)
+                     VALUES ($1, $2, $3, $4)
+                     ON CONFLICT (ref_id) DO UPDATE SET
+                         owner_id = EXCLUDED.owner_id, visible_to = EXCLUDED.visible_to,
+                         changed_at = EXCLUDED.changed_at, recorded_at = now()
+                     WHERE a.changed_at <= EXCLUDED.changed_at
+                     RETURNING true",
+                )
+                .bind(withdrawal.ref_id)
+                .bind(audience.owner_id)
+                .bind(&audience.visible_to)
+                .bind(audience.changed_at)
+                .fetch_optional(&mut *tx)
+                .await?
+                .unwrap_or(false);
+                if !latest || audience.visible_to.is_none() {
+                    // Older than what is known, or open to everyone: nothing to take away.
+                    tx.commit().await?;
+                    return Ok(());
+                }
             }
             first = false;
             // A grouped entry folded in other events too: it loses this one
@@ -198,8 +335,9 @@ impl Notify {
                      ) AS shows
                      FROM notifications
                      WHERE refs @> ARRAY[$1]::uuid[] AND category <> $2
-                       AND ($3::uuid IS NULL OR user_id <> $3)
+                       AND NOT user_id = ANY($3)
                        AND (cardinality($4::text[]) = 0 OR kind = ANY($4))
+                       AND ($6::timestamptz IS NULL OR occurred_at <= $6)
                        AND group_count > 1 AND subject_id IS DISTINCT FROM $1
                      LIMIT $5
                  ) t
@@ -207,9 +345,10 @@ impl Notify {
             )
             .bind(withdrawal.ref_id)
             .bind(UNWITHDRAWABLE_CATEGORY)
-            .bind(withdrawal.except_user)
+            .bind(&withdrawal.except_users)
             .bind(withdrawal.kinds)
             .bind(BATCH)
+            .bind(until)
             .execute(&mut *tx)
             .await?
             .rows_affected();
@@ -217,8 +356,9 @@ impl Notify {
                 "DELETE FROM notifications WHERE id IN (
                      SELECT id FROM notifications
                      WHERE refs @> ARRAY[$1]::uuid[] AND category <> $2
-                       AND ($3::uuid IS NULL OR user_id <> $3)
+                       AND NOT user_id = ANY($3)
                        AND (cardinality($4::text[]) = 0 OR kind = ANY($4))
+                       AND ($6::timestamptz IS NULL OR occurred_at <= $6)
                        AND (group_count <= 1 OR subject_id = $1)
                      LIMIT $5
                  )
@@ -226,9 +366,10 @@ impl Notify {
             )
             .bind(withdrawal.ref_id)
             .bind(UNWITHDRAWABLE_CATEGORY)
-            .bind(withdrawal.except_user)
+            .bind(&withdrawal.except_users)
             .bind(withdrawal.kinds)
             .bind(BATCH)
+            .bind(until)
             .fetch_all(&mut *tx)
             .await?;
             tx.commit().await?;
@@ -337,7 +478,7 @@ mod tests {
         ))
         .unwrap()
         .unwrap();
-        assert_eq!((private.ref_id, private.except_user, private.remember), (id, Some(owner), false));
+        assert_eq!((private.ref_id, private.except_users, private.remember), (id, vec![owner], false));
         let friends = withdrawal_of(&event(
             "notes.note.visibility_changed",
             serde_json::json!({ "note_id": id, "author_id": owner, "visibility": 4 }),
@@ -348,11 +489,34 @@ mod tests {
             withdrawal_of(&event("video.video.deleted", serde_json::json!({ "video_id": id, "owner_id": owner })))
                 .unwrap()
                 .unwrap();
-        assert_eq!((deleted.except_user, deleted.remember), (None, true));
+        assert_eq!((deleted.except_users, deleted.remember), (vec![], true));
         let answer =
             withdrawal_of(&event("ask.answer.deleted", serde_json::json!({ "question_id": id, "owner_id": owner })))
                 .unwrap()
                 .unwrap();
         assert_eq!((answer.kinds, answer.remember), (&["ask.answered"][..], false));
+    }
+
+    #[test]
+    fn a_hidden_comment_stays_with_its_author_and_whoever_still_sees_it() {
+        let (comment, author, owner) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let at = now() - chrono::Duration::seconds(3);
+        let hidden = withdrawal_of(&event(
+            "engagement.comment.hidden",
+            serde_json::json!({ "comment_id": comment, "author_id": author, "visible_to": [owner], "changed_at": at }),
+        ))
+        .unwrap()
+        .unwrap();
+        let mut keep = vec![author, owner];
+        keep.sort_unstable();
+        assert_eq!((hidden.ref_id, hidden.except_users, hidden.remember), (comment, keep, false));
+        assert_eq!(hidden.audience, Some(Audience { owner_id: author, visible_to: Some(vec![owner]), changed_at: at }));
+        // Without its author it cannot be applied to the right entries.
+        let ownerless = withdrawal_of(&event(
+            "engagement.comment.hidden",
+            serde_json::json!({ "comment_id": comment, "visible_to": [] }),
+        ))
+        .unwrap();
+        assert_eq!(ownerless, None);
     }
 }

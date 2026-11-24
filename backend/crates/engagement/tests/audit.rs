@@ -612,3 +612,49 @@ async fn one_account_cannot_starve_the_pool() {
     }
     assert!(started.elapsed() < Duration::from_secs(8), "took {:?}", started.elapsed());
 }
+
+/// Notify asked for it: a comment that leaves public view without being
+/// deleted keeps its text in the inboxes of people who can no longer see
+/// it, unless they hear of it.
+#[tokio::test]
+async fn hiding_a_comment_is_an_event_naming_who_still_sees_it() {
+    let ctx = start().await;
+    let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);
+    let video = ctx.video(&owner, "v");
+    let hidden_events = || async { ctx.events_about("engagement.comment.hidden", video.id).await };
+
+    // The owner hides one: the owner still sees it.
+    let comment = ctx.comment(&alice, &video, "はじめまして").await;
+    let hide = HideCommentRequest { comment_id: comment.id.clone(), ..Default::default() };
+    let _: HideCommentResponse =
+        ctx.call("CommentModerationService", "HideComment", Some(&owner), &hide).await.unwrap();
+    let hidden = hidden_events().await;
+    assert_eq!(hidden.len(), 1);
+    assert_eq!(hidden[0]["comment_id"], serde_json::json!(comment.id));
+    assert_eq!(hidden[0]["author_id"], serde_json::json!(alice.id));
+    assert_eq!(hidden[0]["visible_to"], serde_json::json!([owner.id]));
+    assert_eq!(hidden[0]["status"], CommentStatus::COMMENT_STATUS_HIDDEN as i32);
+    let hidden_at: DateTime<Utc> = serde_json::from_value(hidden[0]["changed_at"].clone()).unwrap();
+    assert_eq!(ctx.app.events_by("engagement.comment.hidden", owner.id).await.len(), 1, "actor: the owner");
+
+    // An edit that trips the owner's rules holds it for the owner's review.
+    let held = ctx.comment(&bob, &video, "こんにちは").await;
+    ctx.set_rules(&owner, false, false, &["ばか"]).await;
+    ctx.edit(&bob, &held.id, "ばか").await.unwrap();
+    let hidden = hidden_events().await;
+    assert_eq!(hidden.len(), 2);
+    assert_eq!(hidden[1]["comment_id"], serde_json::json!(held.id));
+    assert_eq!(hidden[1]["status"], CommentStatus::COMMENT_STATUS_HELD as i32);
+    assert_eq!(hidden[1]["visible_to"], serde_json::json!([owner.id]));
+    let held_at: DateTime<Utc> = serde_json::from_value(hidden[1]["changed_at"].clone()).unwrap();
+    assert!(hidden_at < held_at);
+
+    // A block hides the rest of what Alice wrote there from everyone.
+    let other = ctx.comment(&alice, &video, "またね").await;
+    ctx.block(&owner, &alice).await;
+    let hidden = hidden_events().await;
+    let blocked: Vec<_> = hidden.iter().filter(|event| event["comment_id"] == serde_json::json!(other.id)).collect();
+    assert_eq!(blocked.len(), 1);
+    assert_eq!(blocked[0]["visible_to"], serde_json::json!([]));
+    assert_eq!(blocked[0]["hold_reason"], HoldReason::HOLD_REASON_BLOCKED_COMMENTER as i32);
+}
