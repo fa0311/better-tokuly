@@ -52,7 +52,7 @@ Durable consumer `social`. Every handler is idempotent.
 | `friend_request_cancelled_id` | recipient | The sender withdrew a request the recipient could still see. |
 | `friend_request_accepted` | the user who had asked | They are friends now (accept, crossed request, bump or invite completing a request). |
 | `friend_removed_user_id` | both sides | Unfriend, block of a friend, or the friend's account was deleted. A block between non-friends pushes nothing (blocks are silent). |
-| `bump` | both participants | A bump was recorded. |
+| `bump` | both participants | A bump was recorded. Between strangers each gets their own shake's position as `location`. |
 | `friends_bumped` | mutual friends of two friends who bumped | At most once per pair every 10 minutes, to at most 200 friends. Without `location`: either of the two may hide their position from the recipient (ghost mode). |
 | `buzz`, `knock` | the friend | Buzz / knock. |
 | `map_reaction` | each recipient | A map reaction was sent. Also stored until acknowledged. |

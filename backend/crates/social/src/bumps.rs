@@ -42,7 +42,8 @@ const MAX_SHAKE_AGE_MS: i64 = 5000;
 const MAX_SHAKE_AHEAD_MS: i64 = 1000;
 /// Attempts outlive the match window by this much, covering request latency.
 const ATTEMPT_SLACK: Duration = Duration::from_secs(2);
-/// Bumps one shake can produce (a group shaking together).
+/// Bumps one shake can produce (a group of friends shaking together). At
+/// most one of them can be with a stranger.
 const MAX_BUMPS_PER_SHAKE: usize = 4;
 /// Candidates examined around one shake.
 const MAX_CANDIDATES: usize = 12;
@@ -128,6 +129,16 @@ struct BumpRow {
     friend_request_created: bool,
     created_at: DateTime<Utc>,
     pair_count: i32,
+    attrs: serde_json::Value,
+}
+
+/// Another person's shake that matches the caller's.
+#[derive(Debug, Clone, Copy)]
+struct Candidate {
+    user_id: Uuid,
+    attempt: Attempt,
+    /// Already friends with the caller.
+    friend: bool,
 }
 
 /// A bump about to be stored.
@@ -141,22 +152,46 @@ struct BumpRecord {
     /// The two are friends (possibly since a moment ago).
     friends: bool,
     friend_request_created: bool,
+    /// Where each of the two shook, for a bump between people who were not
+    /// friends when they shook. Each of them only ever gets their own
+    /// position back: the point between the two phones, together with
+    /// one's own, would give away the other's.
+    own_positions: Option<[(Uuid, f64, f64); 2]>,
 }
 
 /// Columns of [`BumpRow`], for queries over `bumps b` left-joined with `friend_pairs p`.
 macro_rules! bump_columns {
     () => {
         "b.id, b.user_lo, b.user_hi, b.lat, b.lng, b.place_name, b.friend_request_created, b.created_at, \
-         COALESCE(p.bump_count, 0) AS pair_count"
+         COALESCE(p.bump_count, 0) AS pair_count, b.attrs"
     };
 }
 
+/// `attrs` of a bump between people who were not friends: where each shook.
+fn own_positions_attrs(positions: &[(Uuid, f64, f64); 2]) -> serde_json::Value {
+    let positions: serde_json::Map<String, serde_json::Value> =
+        positions.iter().map(|(user_id, lat, lng)| (user_id.to_string(), serde_json::json!({ "lat": lat, "lng": lng }))).collect();
+    serde_json::json!({ "own_positions": positions })
+}
+
 impl BumpRow {
-    fn into_proto(self, summaries: &std::collections::HashMap<Uuid, UserSummary>) -> Bump {
+    /// Where `viewer` is told the bump happened: the point between the two
+    /// phones for friends, the viewer's own shake for anyone else.
+    fn location_for(&self, viewer: Uuid) -> LatLng {
+        let own = &self.attrs["own_positions"];
+        if own.is_object() {
+            let mine = &own[viewer.to_string()];
+            return LatLng { lat: mine["lat"].as_f64().unwrap_or_default(), lng: mine["lng"].as_f64().unwrap_or_default(), ..Default::default() };
+        }
+        LatLng { lat: self.lat, lng: self.lng, ..Default::default() }
+    }
+
+    /// The bump as `viewer` (one of the two) sees it.
+    fn into_proto(self, viewer: Uuid, summaries: &std::collections::HashMap<Uuid, UserSummary>) -> Bump {
         Bump {
             id: self.id.to_string(),
             participants: vec![users::pick(summaries, self.user_lo), users::pick(summaries, self.user_hi)],
-            location: LatLng { lat: self.lat, lng: self.lng, ..Default::default() }.into(),
+            location: self.location_for(viewer).into(),
             place_name: self.place_name,
             created_at: ts(self.created_at),
             pair_count: self.pair_count,
@@ -211,18 +246,33 @@ impl Social {
         self.bump_attempts().check_in(&core.cache, user_id, lat, lng).await?;
 
         let mut bumps = Vec::new();
-        for (other, theirs) in self.matching_attempts(user_id, &mine).await?.into_iter().take(MAX_BUMPS_PER_SHAKE) {
-            if let Some(bump) = self.bump_pair(user_id, mine, other, theirs).await? {
+        for (rank, candidate) in self.matching_attempts(user_id, &mine).await?.into_iter().enumerate() {
+            if bumps.len() == MAX_BUMPS_PER_SHAKE {
+                break;
+            }
+            // Friends shaking together all bump each other. A stranger only
+            // when the two are each other's best match: someone lurking
+            // nearby with a made-up position does not get to join in.
+            if !candidate.friend && (rank > 0 || !self.is_best_match_of(candidate, user_id).await?) {
+                continue;
+            }
+            if let Some(bump) = self.bump_pair(user_id, mine, candidate).await? {
                 bumps.push(bump);
             }
         }
         Ok(bumps)
     }
 
+    /// Whether `user_id`'s shake is the best match `candidate` has.
+    async fn is_best_match_of(&self, candidate: Candidate, user_id: Uuid) -> AppResult<bool> {
+        let theirs = self.matching_attempts(candidate.user_id, &candidate.attempt).await?;
+        Ok(theirs.first().is_some_and(|best| best.user_id == user_id))
+    }
+
     /// Other people's attempts that match `mine`, best partner first. People
     /// in a block with the user never match, and strangers only match when
     /// both are open to being found nearby.
-    async fn matching_attempts(&self, user_id: Uuid, mine: &Attempt) -> AppResult<Vec<(Uuid, Attempt)>> {
+    async fn matching_attempts(&self, user_id: Uuid, mine: &Attempt) -> AppResult<Vec<Candidate>> {
         let core = &self.core;
         let rules = self.bump_rules();
         let nearby: Vec<Uuid> = self
@@ -246,10 +296,10 @@ impl Social {
             .filter(|(id, theirs)| !hidden.contains(id) && rules.is_match(mine, theirs))
             .collect();
         let candidates: Vec<Uuid> = matches.iter().map(|(id, _)| *id).collect();
-        let allowed = self.may_bump(user_id, &candidates).await?;
-        matches.retain(|(id, _)| allowed.contains(id));
+        let (friends, strangers) = self.may_bump(user_id, &candidates).await?;
+        matches.retain(|(id, _)| friends.contains(id) || strangers.contains(id));
         rank_matches(mine, &mut matches);
-        Ok(matches)
+        Ok(matches.into_iter().map(|(id, attempt)| Candidate { user_id: id, attempt, friend: friends.contains(&id) }).collect())
     }
 
     /// Who among `candidates` `user_id` may bump: friends always; strangers
@@ -257,10 +307,11 @@ impl Social {
     /// or both adults. A bump with a stranger tells each who the other is
     /// and sends a friend request, so it is a way of being found nearby, and
     /// the position it is matched on is the client's word.
-    async fn may_bump(&self, user_id: Uuid, candidates: &[Uuid]) -> AppResult<HashSet<Uuid>> {
+    /// Returns `(friends, strangers)` among the candidates who may.
+    async fn may_bump(&self, user_id: Uuid, candidates: &[Uuid]) -> AppResult<(HashSet<Uuid>, HashSet<Uuid>)> {
         let core = &self.core;
         if candidates.is_empty() {
-            return Ok(HashSet::new());
+            return Ok(Default::default());
         }
         let friends: HashSet<Uuid> = sqlx::query_scalar::<_, Uuid>("SELECT friend_id FROM friendships WHERE user_id = $1 AND friend_id = ANY($2)")
             .bind(user_id)
@@ -271,29 +322,27 @@ impl Social {
             .collect();
         let strangers: Vec<Uuid> = candidates.iter().copied().filter(|id| !friends.contains(id)).collect();
         if strangers.is_empty() {
-            return Ok(friends);
+            return Ok((friends, HashSet::new()));
         }
         let involved = [strangers.as_slice(), &[user_id]].concat();
         let privacy = settings::privacy_of_many(core, &involved).await?;
         let minors = people::minors_among(core, &involved).await?;
         let discoverable = |id: &Uuid| privacy.get(id).is_some_and(|p| p.nearby_discoverable);
         let same_age_group = |id: &Uuid| minors.contains(id) == minors.contains(&user_id);
-        let mut allowed = friends;
-        if discoverable(&user_id) {
-            allowed.extend(strangers.into_iter().filter(|id| discoverable(id) && same_age_group(id)));
-        }
-        Ok(allowed)
+        let allowed = if discoverable(&user_id) { strangers.into_iter().filter(|id| discoverable(id) && same_age_group(id)).collect() } else { HashSet::new() };
+        Ok((friends, allowed))
     }
 
     /// Turns one matched pair of attempts into a bump, exactly once however
     /// many requests race for it.
-    async fn bump_pair(&self, caller: Uuid, mine: Attempt, other: Uuid, theirs: Attempt) -> AppResult<Option<Bump>> {
+    async fn bump_pair(&self, caller: Uuid, mine: Attempt, candidate: Candidate) -> AppResult<Option<Bump>> {
+        let other = candidate.user_id;
         let cache = &self.core.cache;
         let claim = pair_key("pair", Pair::of(caller, other));
         let bump_id = new_id();
         let cooldown = Duration::from_secs(self.cfg.bump_cooldown_seconds.max(1));
         if cache.set_nx(&claim, &bump_id.to_string(), cooldown).await? {
-            return match self.create_bump(bump_id, caller, mine, other, theirs).await {
+            return match self.create_bump(bump_id, caller, mine, candidate).await {
                 Ok(bump) => Ok(Some(bump)),
                 Err(e) => {
                     // Let the next shake try again instead of waiting out the cool-down.
@@ -306,7 +355,7 @@ impl Social {
         // ago: return that bump rather than counting a second one.
         let claimed = cache.get_string(&claim).await?.and_then(|id| Uuid::parse_str(&id).ok());
         match claimed {
-            Some(bump_id) => self.await_bump(bump_id).await,
+            Some(bump_id) => self.await_bump(bump_id, caller).await,
             None => Ok(None),
         }
     }
@@ -314,9 +363,9 @@ impl Social {
     /// Loads a bump another request is creating right now, waiting briefly
     /// for its transaction. `None` if it does not show up; the caller's
     /// client still gets it as a realtime event.
-    async fn await_bump(&self, bump_id: Uuid) -> AppResult<Option<Bump>> {
+    async fn await_bump(&self, bump_id: Uuid, viewer: Uuid) -> AppResult<Option<Bump>> {
         for _ in 0..10 {
-            if let Some(bump) = self.find_bump(bump_id).await? {
+            if let Some(bump) = self.find_bump(bump_id, viewer).await? {
                 return Ok(Some(bump));
             }
             tokio::time::sleep(Duration::from_millis(60)).await;
@@ -324,7 +373,8 @@ impl Social {
         Ok(None)
     }
 
-    async fn find_bump(&self, bump_id: Uuid) -> AppResult<Option<Bump>> {
+    /// A bump as `viewer` (one of the two) sees it.
+    async fn find_bump(&self, bump_id: Uuid, viewer: Uuid) -> AppResult<Option<Bump>> {
         let row: Option<BumpRow> = sqlx::query_as(concat!(
             "SELECT ",
             bump_columns!(),
@@ -335,13 +385,14 @@ impl Social {
         .await?;
         let Some(row) = row else { return Ok(None) };
         let summaries = tokuly_identity::summaries(&self.core, &[row.user_lo, row.user_hi]).await?;
-        Ok(Some(row.into_proto(&summaries)))
+        Ok(Some(row.into_proto(viewer, &summaries)))
     }
 
     /// Records the bump between `caller` and `other` and tells everyone
     /// concerned: both participants, and for two friends their mutual friends.
-    async fn create_bump(&self, bump_id: Uuid, caller: Uuid, mine: Attempt, other: Uuid, theirs: Attempt) -> AppResult<Bump> {
+    async fn create_bump(&self, bump_id: Uuid, caller: Uuid, mine: Attempt, candidate: Candidate) -> AppResult<Bump> {
         let core = &self.core;
+        let (other, theirs) = (candidate.user_id, candidate.attempt);
         // Who shook first. On a tie (same millisecond) it is the one whose
         // attempt was already waiting when the caller's request arrived.
         let (first, second) = if mine.at_ms < theirs.at_ms { (caller, other) } else { (other, caller) };
@@ -356,14 +407,18 @@ impl Social {
             lng: (mine.lng + theirs.lng) / 2.0,
             friends,
             friend_request_created,
+            own_positions: (!candidate.friend).then_some([(caller, mine.lat, mine.lng), (other, theirs.lat, theirs.lng)]),
         };
         self.store_bump(&record, &audience).await?;
 
         if friends && let Err(e) = graph::record_interaction(core, first, second, InteractionKind::Bump, 1).await {
             tracing::warn!(error = %e, "bump not counted towards the best-friend ranking");
         }
-        let bump = self.find_bump(bump_id).await?.ok_or_else(|| AppError::internal(anyhow::anyhow!("bump {bump_id} vanished after commit")))?;
-        self.push_many([first, second], Push::Bump(Box::new(bump.clone()))).await;
+        let vanished = || AppError::internal(anyhow::anyhow!("bump {bump_id} vanished after commit"));
+        let bump = self.find_bump(bump_id, caller).await?.ok_or_else(vanished)?;
+        let for_other = self.find_bump(bump_id, other).await?.ok_or_else(vanished)?;
+        self.push(caller, Push::Bump(Box::new(bump.clone()))).await;
+        self.push(other, Push::Bump(Box::new(for_other))).await;
         // Mutual friends hear that the two met, not where: each of the two
         // may be hiding their position from some of them (ghost mode), which
         // only the geo domain knows about.
@@ -404,13 +459,14 @@ impl Social {
         let (first_user, second_user) = (users::pick(&people, bump.first), users::pick(&people, bump.second));
 
         let mut tx = core.db.begin().await?;
-        sqlx::query("INSERT INTO bumps (id, user_lo, user_hi, lat, lng, friend_request_created) VALUES ($1, $2, $3, $4, $5, $6)")
+        sqlx::query("INSERT INTO bumps (id, user_lo, user_hi, lat, lng, friend_request_created, attrs) VALUES ($1, $2, $3, $4, $5, $6, $7)")
             .bind(bump.id)
             .bind(pair.lo)
             .bind(pair.hi)
             .bind(bump.lat)
             .bind(bump.lng)
             .bind(bump.friend_request_created)
+            .bind(bump.own_positions.as_ref().map(own_positions_attrs).unwrap_or_else(|| serde_json::json!({})))
             .execute(&mut *tx)
             .await?;
         sqlx::query(
@@ -504,7 +560,7 @@ impl Social {
         user_ids.sort_unstable();
         user_ids.dedup();
         let summaries = tokuly_identity::summaries(core, &user_ids).await?;
-        Ok((rows.into_iter().map(|row| row.into_proto(&summaries)).collect(), info))
+        Ok((rows.into_iter().map(|row| row.into_proto(user_id, &summaries)).collect(), info))
     }
 
     pub(crate) fn bumps_page(page: Option<&tokuly_proto::common::PageRequestView<'_>>) -> Page {

@@ -139,10 +139,12 @@ async fn strangers_who_bump_get_a_friend_request_and_blocked_users_never_match()
     let spot = somewhere();
     let mut first_devices = ctx.app.listen_user(first.id).await;
 
-    assert!(shake(&ctx, &first, spot).await.unwrap().is_empty());
-    assert!(shake(&ctx, &blocked, north_of(spot, 2.0)).await.unwrap().is_empty(), "people in a block never bump");
+    assert!(shake(&ctx, &blocked, north_of(spot, 2.0)).await.unwrap().is_empty());
+    assert!(shake(&ctx, &first, spot).await.unwrap().is_empty(), "people in a block never bump");
     let bumps = shake(&ctx, &second, north_of(spot, 4.0)).await.unwrap();
-    // `second` matches `first` (and `blocked`, a stranger to them, who also shook).
+    // `second` and `first` are each other's best match; `blocked`, who shook
+    // earlier, is not (one stranger per shake).
+    assert_eq!(bumps.len(), 1);
     let with_first = bumps.iter().find(|b| participants(b) == sorted(vec![first.id, second.id])).expect("a bump with the first shaker");
     assert!(with_first.friend_request_created);
     assert_eq!(with_first.pair_count, 1);
@@ -156,6 +158,38 @@ async fn strangers_who_bump_get_a_friend_request_and_blocked_users_never_match()
     // Not friends: no activity entries, no "friends bumped".
     assert!(ctx.activities_of(first.id, "social.bumped").await.is_empty());
     assert!(ctx.notifications_for(first.id, "social.bump").await.is_empty());
+}
+
+#[tokio::test]
+async fn a_stranger_who_bumps_you_learns_nothing_of_where_you_are() {
+    let ctx = start().await;
+    let (alice, bob, lurker, stranger) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("lurker").await, ctx.app.user("stranger").await);
+    ctx.befriend(&alice, &bob).await;
+
+    // Two friends bump; someone shaking at a made-up point next to them a
+    // moment later is nobody's best match and bumps no one.
+    let spot = somewhere();
+    assert!(shake(&ctx, &alice, spot).await.unwrap().is_empty());
+    assert_eq!(shake(&ctx, &bob, north_of(spot, 4.0)).await.unwrap().len(), 1);
+    assert!(shake(&ctx, &lurker, north_of(spot, 20.0)).await.unwrap().is_empty());
+
+    // Strangers who do bump each get their own position back, never the
+    // point between the phones (which, with one's own, gives away the other's).
+    let (stranger_at, lurker_at) = { let spot = somewhere(); (spot, north_of(spot, 12.0)) };
+    let mut stranger_devices = ctx.app.listen_user(stranger.id).await;
+    assert!(shake(&ctx, &stranger, stranger_at).await.unwrap().is_empty());
+    let bumps = shake(&ctx, &lurker, lurker_at).await.unwrap();
+    assert_eq!(bumps.len(), 1);
+    let at = |bump: &Bump| { let l = bump.location.as_option().unwrap(); (l.lat, l.lng) };
+    assert_eq!(at(&bumps[0]), lurker_at, "the response");
+    match next_push(&mut stranger_devices).await {
+        Some(Push::Bump(pushed)) => assert_eq!(at(&pushed), stranger_at, "the push"),
+        other => panic!("expected a bump, got {other:?}"),
+    }
+    for (user, own) in [(&lurker, lurker_at), (&stranger, stranger_at)] {
+        let listed: ListBumpsResponse = ctx.interact("ListBumps", user, &ListBumpsRequest::default()).await.unwrap();
+        assert_eq!(at(&listed.bumps[0]), own, "the list");
+    }
 }
 
 #[tokio::test]

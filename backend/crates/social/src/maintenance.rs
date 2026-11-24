@@ -215,7 +215,10 @@ impl DataExporter for SocialExporter {
                  FROM friend_pairs WHERE user_lo = $1 OR user_hi = $1", user_id).await?,
             "bumps": self.list(
                 "SELECT COALESCE(jsonb_agg(jsonb_build_object(
-                     'id', id, 'with_user_id', CASE WHEN user_lo = $1 THEN user_hi ELSE user_lo END, 'lat', lat, 'lng', lng,
+                     'id', id, 'with_user_id', CASE WHEN user_lo = $1 THEN user_hi ELSE user_lo END,
+                     -- A bump with a stranger keeps each one's own position (see bumps.rs).
+                     'lat', COALESCE((attrs->'own_positions'->($1::text)->>'lat')::float8, lat),
+                     'lng', COALESCE((attrs->'own_positions'->($1::text)->>'lng')::float8, lng),
                      'place_name', place_name, 'at', created_at) ORDER BY id), '[]'::jsonb)
                  FROM bumps WHERE user_lo = $1 OR user_hi = $1", user_id).await?,
             "map_reactions_sent": self.list(
