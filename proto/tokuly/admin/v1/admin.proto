@@ -406,8 +406,9 @@ service UserAdminService {
   // Lifts a suspension or ban. Role: `moderator`.
   // Errors: USER_NOT_FOUND, USER_NOT_SUSPENDED, NOTE_INVALID, TARGET_IS_STAFF.
   rpc UnsuspendUser(UnsuspendUserRequest) returns (UnsuspendUserResponse);
-  // Grants or removes the verified badge. Role: `moderator`.
-  // Errors: USER_NOT_FOUND, NOTE_INVALID.
+  // Grants or removes the verified badge. Role: `moderator`; the badge of a
+  // staff account (the caller's own included) only an admin changes.
+  // Errors: USER_NOT_FOUND, NOTE_INVALID, TARGET_IS_STAFF.
   rpc SetUserVerified(SetUserVerifiedRequest) returns (SetUserVerifiedResponse);
   // Replaces the account's roles. Granted roles apply when the user's access
   // token is next refreshed; when a role is removed the user is signed out so

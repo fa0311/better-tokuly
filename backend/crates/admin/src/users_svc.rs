@@ -121,6 +121,9 @@ impl UserAdminService for Admin {
             let staff = Staff::moderator(&ctx)?;
             let note = note_text(request.note)?;
             let target = self.target(parse_id(request.user_id)?).await?;
+            // The badge says Tokuly vouches for the account: a moderator does not
+            // hand it to themselves or a colleague, nor take it from an admin.
+            ensure!(staff.may_sanction(&target.roles), denied, "TARGET_IS_STAFF", "only admins can change the badge of staff accounts");
             let was_verified: bool = sqlx::query_scalar("SELECT verified FROM users WHERE id = $1").bind(target.id).fetch_one(&self.core.db).await?;
             self.identity.set_verified(target.id, request.verified).await?;
             Audit::by(&staff, "user.verified_changed")
