@@ -64,6 +64,9 @@ pub const TOPICS: &[&str] = &[
     // `withdraw::AUDIENCE_RULES`
     "engagement.comment.hidden",
     "notes.note.visibility_changed",
+    "video.video.visibility_changed",
+    "shorts.short.visibility_changed",
+    "live.stream.visibility_changed",
 ];
 
 /// Why a notification was not pushed.

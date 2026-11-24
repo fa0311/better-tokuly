@@ -137,24 +137,23 @@ impl Shorts {
     /// may still see them.
     pub async fn saved_page(&self, viewer: &Viewer, page: &Page) -> AppResult<(Vec<ShortRow>, PageInfo)> {
         let before: Option<(Time, Uuid)> = page.decode()?;
-        let mut rows: Vec<Kept> = sqlx::query_as(concat!(
-            "SELECT ",
-            short_columns!(),
-            ", v.created_at AS kept_at FROM short_saves v JOIN shorts s ON s.id = v.short_id
+        let mut rows: Vec<Kept> = viewer
+            .query_as(concat!(
+                "SELECT ",
+                short_columns!(),
+                ", v.created_at AS kept_at FROM short_saves v JOIN shorts s ON s.id = v.short_id
               WHERE v.user_id = $1 AND ",
-            access::watchable!(1, 2, 3),
-            " AND ($4::timestamptz IS NULL OR (v.created_at, v.short_id) < ($4, $5))
-              ORDER BY v.created_at DESC, v.short_id DESC LIMIT $6"
-        ))
-        .bind(viewer.user_id)
-        .bind(&viewer.friends)
-        .bind(&viewer.blocked)
-        .bind(before.map(|(at, _)| at))
-        .bind(before.map(|(_, id)| id))
-        .bind(page.fetch())
-        .fetch_all(&self.core.db)
-        .await?;
+                access::watchable!(),
+                " AND ($7::timestamptz IS NULL OR (v.created_at, v.short_id) < ($7, $8))
+              ORDER BY v.created_at DESC, v.short_id DESC LIMIT $9"
+            ))
+            .bind(before.map(|(at, _)| at))
+            .bind(before.map(|(_, id)| id))
+            .bind(page.fetch())
+            .fetch_all(&self.core.db)
+            .await?;
         let info = page.finish(&mut rows, |kept| (kept.kept_at, kept.short.id));
+        viewer.drop_newly_locked(&self.core, &mut rows, |kept| kept.short.lock_facts()).await?;
         Ok((rows.into_iter().map(|kept| kept.short).collect(), info))
     }
 
@@ -162,24 +161,23 @@ impl Shorts {
     /// they may still see them.
     pub async fn liked_page(&self, viewer: &Viewer, page: &Page) -> AppResult<(Vec<ShortRow>, PageInfo)> {
         let before: Option<(Time, Uuid)> = page.decode()?;
-        let mut rows: Vec<Kept> = sqlx::query_as(concat!(
-            "SELECT ",
-            short_columns!(),
-            ", l.created_at AS kept_at FROM short_likes l JOIN shorts s ON s.id = l.short_id
+        let mut rows: Vec<Kept> = viewer
+            .query_as(concat!(
+                "SELECT ",
+                short_columns!(),
+                ", l.created_at AS kept_at FROM short_likes l JOIN shorts s ON s.id = l.short_id
               WHERE l.user_id = $1 AND l.liked AND ",
-            access::watchable!(1, 2, 3),
-            " AND ($4::timestamptz IS NULL OR (l.created_at, l.short_id) < ($4, $5))
-              ORDER BY l.created_at DESC, l.short_id DESC LIMIT $6"
-        ))
-        .bind(viewer.user_id)
-        .bind(&viewer.friends)
-        .bind(&viewer.blocked)
-        .bind(before.map(|(at, _)| at))
-        .bind(before.map(|(_, id)| id))
-        .bind(page.fetch())
-        .fetch_all(&self.core.db)
-        .await?;
+                access::watchable!(),
+                " AND ($7::timestamptz IS NULL OR (l.created_at, l.short_id) < ($7, $8))
+              ORDER BY l.created_at DESC, l.short_id DESC LIMIT $9"
+            ))
+            .bind(before.map(|(at, _)| at))
+            .bind(before.map(|(_, id)| id))
+            .bind(page.fetch())
+            .fetch_all(&self.core.db)
+            .await?;
         let info = page.finish(&mut rows, |kept| (kept.kept_at, kept.short.id));
+        viewer.drop_newly_locked(&self.core, &mut rows, |kept| kept.short.lock_facts()).await?;
         Ok((rows.into_iter().map(|kept| kept.short).collect(), info))
     }
 

@@ -67,50 +67,48 @@ pub fn diversify(ranked: Vec<(Uuid, Uuid)>) -> Vec<Uuid> {
 
 /// Ranks the home feed for `viewer`: video IDs, best first.
 async fn rank_home(core: &Core, viewer: &Viewer) -> AppResult<Vec<Uuid>> {
-    let candidates: Vec<Candidate> = sqlx::query_as(concat!(
-        "WITH candidates AS (
+    let candidates: Vec<Candidate> = viewer
+        .query_as(concat!(
+            "WITH candidates AS (
              (SELECT v.id, 3.0::float8 AS boost
               FROM channel_subscriptions s JOIN videos v ON v.channel_id = s.channel_id
               WHERE s.user_id = $1 AND v.published_at > now() - interval '30 days' AND ",
-        in_feed!(2, 3),
-        "     ORDER BY v.published_at DESC LIMIT 120)
+            in_feed!(),
+            "     ORDER BY v.published_at DESC LIMIT 120)
              UNION ALL
              (SELECT v.id, 2.0::float8
               FROM videos v
               WHERE v.owner_id = ANY($2) AND v.published_at > now() - interval '30 days' AND ",
-        in_feed!(2, 3),
-        "     ORDER BY v.published_at DESC LIMIT 60)
+            in_feed!(),
+            "     ORDER BY v.published_at DESC LIMIT 60)
              UNION ALL
              (SELECT v.id, 1.5::float8
               FROM video_reactions r JOIN videos v ON v.id = r.video_id
               WHERE r.user_id = ANY($2) AND r.rating = 2 AND r.created_at > now() - interval '30 days' AND ",
-        public_video!(3),
-        "     ORDER BY r.created_at DESC LIMIT 60)
+            public_video!(),
+            "     ORDER BY r.created_at DESC LIMIT 60)
              UNION ALL
              (SELECT v.id, 0.0::float8 FROM videos v
               WHERE v.trending_score > 0 AND ",
-        public_video!(3),
-        "     ORDER BY v.trending_score DESC, v.id DESC LIMIT 150)
+            public_video!(),
+            "     ORDER BY v.trending_score DESC, v.id DESC LIMIT 150)
              UNION ALL
              (SELECT v.id, 0.5::float8 FROM videos v
               WHERE ",
-        public_video!(3),
-        "     ORDER BY v.published_at DESC, v.id DESC LIMIT 80)
+            public_video!(),
+            "     ORDER BY v.published_at DESC, v.id DESC LIMIT 80)
          )
          SELECT ",
-        video_columns!(),
-        ", c.boost
+            video_columns!(),
+            ", c.boost
          FROM (SELECT id, max(boost) AS boost FROM candidates GROUP BY id) c JOIN videos v ON v.id = c.id
          WHERE ($1::uuid IS NULL OR v.owner_id <> $1)
            AND NOT EXISTS (SELECT 1 FROM watch_history h WHERE h.user_id = $1 AND h.video_id = v.id AND h.completed)
            AND NOT EXISTS (SELECT 1 FROM video_feed_hidden f
                            WHERE f.user_id = $1 AND (f.video_id = v.id OR f.channel_id = v.channel_id))"
-    ))
-    .bind(viewer.user_id)
-    .bind(&viewer.friends)
-    .bind(&viewer.blocked)
-    .fetch_all(&core.db)
-    .await?;
+        ))
+        .fetch_all(&core.db)
+        .await?;
 
     let current = now();
     let mut scored: Vec<(f64, Uuid, Uuid)> = candidates
@@ -164,17 +162,12 @@ pub async fn home_page(core: &Core, viewer: &Viewer, page: &Page) -> AppResult<(
     let end = (offset + page.limit as usize).min(ids.len());
     let slice = ids.get(offset..end).unwrap_or_default();
     // Visibility may have changed since the list was ranked: check again.
-    let mut rows: Vec<VideoRow> = sqlx::query_as(concat!(
-        "SELECT ",
-        video_columns!(),
-        " FROM videos v WHERE v.id = ANY($1) AND ",
-        in_feed!(2, 3)
-    ))
-    .bind(slice)
-    .bind(&viewer.friends)
-    .bind(&viewer.blocked)
-    .fetch_all(&core.db)
-    .await?;
+    let mut rows: Vec<VideoRow> = viewer
+        .query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.id = ANY($7) AND ", in_feed!()))
+        .bind(slice)
+        .fetch_all(&core.db)
+        .await?;
+    viewer.drop_newly_locked(core, &mut rows, VideoRow::lock_facts).await?;
     rows.sort_by_key(|row| slice.iter().position(|id| *id == row.id).unwrap_or(usize::MAX));
     let next = (end < ids.len()).then(|| tokuly_core::page::encode_cursor(&HomeCursor { token, offset: end }));
     Ok((rows, next))
@@ -189,24 +182,25 @@ pub async fn subscriptions_page(
     before: Option<(Time, Uuid)>,
     limit: i64,
 ) -> AppResult<Vec<VideoRow>> {
-    Ok(sqlx::query_as(concat!(
-        "SELECT ",
-        video_columns!(),
-        " FROM channel_subscriptions s JOIN videos v ON v.channel_id = s.channel_id
-          WHERE s.user_id = $1 AND ",
-        in_feed!(2, 3),
-        "   AND ($4::timestamptz IS NULL OR (v.published_at, v.id) < ($4, $5))
-          ORDER BY v.published_at DESC, v.id DESC
-          LIMIT $6"
-    ))
-    .bind(user_id)
-    .bind(&viewer.friends)
-    .bind(&viewer.blocked)
-    .bind(before.map(|(at, _)| at))
-    .bind(before.map(|(_, id)| id))
-    .bind(limit)
-    .fetch_all(&core.db)
-    .await?)
+    let mut rows: Vec<VideoRow> = viewer
+        .query_as(concat!(
+            "SELECT ",
+            video_columns!(),
+            " FROM channel_subscriptions s JOIN videos v ON v.channel_id = s.channel_id
+              WHERE s.user_id = $7 AND ",
+            in_feed!(),
+            "   AND ($8::timestamptz IS NULL OR (v.published_at, v.id) < ($8, $9))
+              ORDER BY v.published_at DESC, v.id DESC
+              LIMIT $10"
+        ))
+        .bind(user_id)
+        .bind(before.map(|(at, _)| at))
+        .bind(before.map(|(_, id)| id))
+        .bind(limit)
+        .fetch_all(&core.db)
+        .await?;
+    viewer.drop_newly_locked(core, &mut rows, VideoRow::lock_facts).await?;
+    Ok(rows)
 }
 
 /// Public videos by trending score. `category` 0 = all.
@@ -217,76 +211,77 @@ pub async fn trending_page(
     offset: i64,
     limit: i64,
 ) -> AppResult<Vec<VideoRow>> {
-    Ok(sqlx::query_as(concat!(
-        "SELECT ",
-        video_columns!(),
-        " FROM videos v
-          WHERE v.trending_score > 0 AND ($2 = 0 OR v.category = $2) AND ",
-        public_video!(1),
-        " ORDER BY v.trending_score DESC, v.id DESC
-          LIMIT $3 OFFSET $4"
-    ))
-    .bind(&viewer.blocked)
-    .bind(category)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&core.db)
-    .await?)
+    let mut rows: Vec<VideoRow> = viewer
+        .query_as(concat!(
+            "SELECT ",
+            video_columns!(),
+            " FROM videos v
+              WHERE v.trending_score > 0 AND ($7 = 0 OR v.category = $7) AND ",
+            public_video!(),
+            " ORDER BY v.trending_score DESC, v.id DESC
+              LIMIT $8 OFFSET $9"
+        ))
+        .bind(category)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&core.db)
+        .await?;
+    viewer.drop_newly_locked(core, &mut rows, VideoRow::lock_facts).await?;
+    Ok(rows)
 }
 
 /// Public videos to watch after `video`: from the same channel, sharing
 /// tags, the game or the category — the more in common the higher — topped
 /// up with what is trending when there are too few.
 pub async fn related(core: &Core, viewer: &Viewer, video: &VideoRow, limit: i64) -> AppResult<Vec<VideoRow>> {
-    let mut rows: Vec<VideoRow> = sqlx::query_as(concat!(
-        "SELECT ",
-        video_columns!(),
-        " FROM videos v
-          WHERE v.id <> $1 AND ",
-        public_video!(6),
-        "   AND (v.channel_id = $2 OR v.tags && $3 OR (v.game <> '' AND v.game = $4) OR (v.category <> 0 AND v.category = $5))
-            AND NOT EXISTS (SELECT 1 FROM video_feed_hidden f
-                            WHERE f.user_id = $8 AND (f.video_id = v.id OR f.channel_id = v.channel_id))
-          ORDER BY (v.channel_id = $2)::int * 3
-                   + (SELECT count(*) FROM unnest(v.tags) tag WHERE tag = ANY($3)) * 2
-                   + (v.game <> '' AND v.game = $4)::int * 2
-                   + (v.category <> 0 AND v.category = $5)::int DESC,
-                   v.trending_score DESC, v.published_at DESC, v.id DESC
-          LIMIT $7"
-    ))
-    .bind(video.id)
-    .bind(video.channel_id)
-    .bind(&video.tags)
-    .bind(&video.game)
-    .bind(video.category)
-    .bind(&viewer.blocked)
-    .bind(limit)
-    .bind(viewer.user_id)
-    .fetch_all(&core.db)
-    .await?;
+    let mut rows: Vec<VideoRow> = viewer
+        .query_as(concat!(
+            "SELECT ",
+            video_columns!(),
+            " FROM videos v
+              WHERE v.id <> $7 AND ",
+            public_video!(),
+            "   AND (v.channel_id = $8 OR v.tags && $9 OR (v.game <> '' AND v.game = $10) OR (v.category <> 0 AND v.category = $11))
+                AND NOT EXISTS (SELECT 1 FROM video_feed_hidden f
+                                WHERE f.user_id = $1 AND (f.video_id = v.id OR f.channel_id = v.channel_id))
+              ORDER BY (v.channel_id = $8)::int * 3
+                       + (SELECT count(*) FROM unnest(v.tags) tag WHERE tag = ANY($9)) * 2
+                       + (v.game <> '' AND v.game = $10)::int * 2
+                       + (v.category <> 0 AND v.category = $11)::int DESC,
+                       v.trending_score DESC, v.published_at DESC, v.id DESC
+              LIMIT $12"
+        ))
+        .bind(video.id)
+        .bind(video.channel_id)
+        .bind(&video.tags)
+        .bind(&video.game)
+        .bind(video.category)
+        .bind(limit)
+        .fetch_all(&core.db)
+        .await?;
     let missing = limit - rows.len() as i64;
     if missing > 0 {
         let mut exclude: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
         exclude.push(video.id);
-        let more: Vec<VideoRow> = sqlx::query_as(concat!(
-            "SELECT ",
-            video_columns!(),
-            " FROM videos v
-              WHERE v.id <> ALL($1) AND ",
-            public_video!(2),
-            "   AND NOT EXISTS (SELECT 1 FROM video_feed_hidden f
-                                WHERE f.user_id = $4 AND (f.video_id = v.id OR f.channel_id = v.channel_id))
-              ORDER BY v.trending_score DESC, v.published_at DESC, v.id DESC
-              LIMIT $3"
-        ))
-        .bind(&exclude)
-        .bind(&viewer.blocked)
-        .bind(missing)
-        .bind(viewer.user_id)
-        .fetch_all(&core.db)
-        .await?;
+        let more: Vec<VideoRow> = viewer
+            .query_as(concat!(
+                "SELECT ",
+                video_columns!(),
+                " FROM videos v
+                  WHERE v.id <> ALL($7) AND ",
+                public_video!(),
+                "   AND NOT EXISTS (SELECT 1 FROM video_feed_hidden f
+                                    WHERE f.user_id = $1 AND (f.video_id = v.id OR f.channel_id = v.channel_id))
+                  ORDER BY v.trending_score DESC, v.published_at DESC, v.id DESC
+                  LIMIT $8"
+            ))
+            .bind(&exclude)
+            .bind(missing)
+            .fetch_all(&core.db)
+            .await?;
         rows.extend(more);
     }
+    viewer.drop_newly_locked(core, &mut rows, VideoRow::lock_facts).await?;
     Ok(rows)
 }
 
@@ -295,18 +290,12 @@ pub async fn watchable_in_order(core: &Core, viewer: &Viewer, ids: &[Uuid]) -> A
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut rows: Vec<VideoRow> = sqlx::query_as(concat!(
-        "SELECT ",
-        video_columns!(),
-        " FROM videos v WHERE v.id = ANY($1) AND ",
-        watchable!(2, 3, 4)
-    ))
-    .bind(ids)
-    .bind(viewer.user_id)
-    .bind(&viewer.friends)
-    .bind(&viewer.blocked)
-    .fetch_all(&core.db)
-    .await?;
+    let mut rows: Vec<VideoRow> = viewer
+        .query_as(concat!("SELECT ", video_columns!(), " FROM videos v WHERE v.id = ANY($7) AND ", watchable!()))
+        .bind(ids)
+        .fetch_all(&core.db)
+        .await?;
+    viewer.drop_newly_locked(core, &mut rows, VideoRow::lock_facts).await?;
     rows.sort_by_key(|row| ids.iter().position(|id| *id == row.id).unwrap_or(usize::MAX));
     Ok(rows)
 }

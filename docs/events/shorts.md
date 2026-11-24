@@ -39,6 +39,24 @@ tokuly_shorts::Shorts::set_clip_directory(Arc<dyn ClipDirectory>)              /
   directory (tests, tools) "create a short from a clip" only accepts media
   the caller owns.
 
+## Audiences and locked accounts
+
+Shorts take the audiences of videos (see `docs/events/video.md`,
+"Audiences and locked accounts", and `tokuly_video::access`): PUBLIC,
+NO_FEED, UNLISTED, FOLLOWERS, FRIENDS, CLOSE_FRIENDS, CIRCLE (shown to its
+members as FOLLOWERS; `circle_id` is the owner's only, in
+`ShortStudioInfo`) and PRIVATE. `shorts.owner_locked` copies whether the
+owner is locked (`social.follow.settings_changed`, and when the short is
+created); `listed` is "PUBLISHED, PUBLIC, not suspended, owner not
+locked", so a locked account's shorts leave hashtag pages, sound pages,
+remix lists, the for-you candidates and search, and their counts
+(`use_count` of hashtags and sounds, `remix_count`). Reads check the
+social domain for rows that reach a viewer only through the copy, so a
+lock applies at the next read. The channel of a locked account looks like
+a channel without shorts to everyone but the owner's followers and
+friends. Mentioned accounts are told only while they are in the short's
+audience.
+
 ## Events emitted
 
 Payload `tokuly_shorts::events::ShortEvent`:
@@ -49,7 +67,8 @@ transaction of the change.
 | Topic | When |
 |---|---|
 | `shorts.short.created` | A draft was created. |
-| `shorts.short.published` | A short went live, or first reached an audience. `first_publication` is true exactly once per short: when it is first PUBLISHED and PUBLIC or FRIENDS. |
+| `shorts.short.published` | A short went live, or first reached an audience. `first_publication` is true exactly once per short: when it is first PUBLISHED and PUBLIC or shared with an audience (followers, friends, close friends, a circle). |
+| `shorts.short.visibility_changed` | `ShortEvent` + `{ visible_to, changed_at }`: a published short got another audience, or (once per published open short) its owner locked or unlocked their account. `visibility` is the audience now in effect (6 for a PUBLIC short of a locked owner; NO_FEED and UNLISTED keep their number); `visible_to` who besides the owner may still watch it (`null`: everyone; otherwise the audience as the social graph gives it, people in a block with the owner left out); `changed_at` taken while the short was locked. At most 5 000 people are named (`tokuly_core::events::MAX_VISIBLE_TO`): a longer list is narrowed to nobody (`[]`), which withdraws too much, never too little. **Never forward to outside parties.** |
 | `shorts.short.deleted` | A short is gone for everyone. `reason`: `owner`, `channel_deleted`, `account_deleted`, `moderation`, `asset_deleted`. Emitted once, also for a short that is only withdrawn (below). |
 
 ## Events consumed
@@ -65,6 +84,7 @@ reordered event, or one about a row that is gone.
 | `identity.user.deleted` | The user's shorts are deleted; their saves (counts corrected), copied likes and follows, "not interested" marks, seen list and mentions of them go. |
 | `identity.user.banned` / `.unbanned` | Reads `users.banned_at` (the event is only a hint) and sets `shorts.suspended`: the shorts leave or rejoin hashtag and sound counts and the search index. |
 | `social.user.blocked` | If the block is still in place: the two lose each other's shorts from their saved and liked lists. Reads hide the other's shorts at once, without the event. |
+| `social.follow.settings_changed` `{ user_id }` | Re-reads whether the account is locked and applies it short by short (100 per pass): the copy, `listed` and the counts, hashtag pages and the search document, and one `shorts.short.visibility_changed` per published open short. Idempotent. |
 | `admin.content.removed` | `SUBJECT_TYPE_SHORT`: deleted for good, withdrawn or not; its own upload is deleted whatever holds it. |
 | `video.channel.deleted` | The channel's shorts are deleted; follows and marks against it go. |
 | `video.channel.subscribed` / `.unsubscribed` | Sets the copy in `short_follows` to what `channels::is_subscribed` says now. A new subscription within an hour of watching one of the channel's shorts credits that short (`short.follow`). |
@@ -157,22 +177,23 @@ channel_handle, channel_name, channel_icon_url, duration_seconds }`.
 
 | Kind | Recipient | Notes |
 |---|---|---|
-| `shorts.published` | subscribers | ALL: inbox + push; PERSONALIZED: inbox, plus push if they liked or saved a short of the channel in the last 30 days; NONE: nothing. Friends-only shorts go to subscribers who are friends. Collapse key `shorts.published:<id>`. At most `announcements_per_day` shorts per channel and 24 h. Each subscriber once: progress is stored in `shorts.announce_cursor`. |
+| `shorts.published` | subscribers | ALL: inbox + push; PERSONALIZED: inbox, plus push if they liked or saved a short of the channel in the last 30 days; NONE: nothing. A short shared with an audience (or a public short of a locked owner, as the social domain says when the batch is sent) goes to the subscribers in it. Collapse key `shorts.published:<id>`. At most `announcements_per_day` shorts per channel and 24 h. Each subscriber once: progress is stored in `shorts.announce_cursor`. |
 | `shorts.mention` | mentioned accounts | Once per account and short, when it can first open the short; never across a block. A creator may newly mention 100 accounts an hour. |
 | `shorts.processing_failed` | owner | `data.error`: media reason, `SHORT_TOO_LONG`, `SHORT_NOT_VERTICAL`. Path `/studio/shorts/<short_id>`. |
 | `shorts.milestone` | owner | 1 000 / 10 000 / 100 000 views; collapse key `shorts.milestone:<id>`; `data.milestone`. |
 
 ## Activity entries
 
-`short.published`, audience friends of the owner, once per short when first
-PUBLISHED and PUBLIC or FRIENDS. Subject `(SUBJECT_TYPE_SHORT, id)`, path
+`short.published`, audience friends of the owner (the owner alone for close
+friends and circle shorts), once per short when first PUBLISHED and PUBLIC
+or shared with an audience. Subject `(SUBJECT_TYPE_SHORT, id)`, path
 `/shorts/<short_id>`.
 
 ## Search documents
 
 | Kind | Indexed while | Fields |
 |---|---|---|
-| `short` | PUBLISHED, PUBLIC, not suspended | `title` = caption excerpt (channel name if none), `text` = caption, `tags` = hashtags, `path` = `/shorts/<short_id>`, `score` = views at last change, `extra = { short_id, channel_id, channel_handle, channel_name, duration_seconds }` |
+| `short` | `listed`: PUBLISHED, PUBLIC, not suspended, owner not locked | `title` = caption excerpt (channel name if none), `text` = caption, `tags` = hashtags, `path` = `/shorts/<short_id>`, `score` = views at last change, `extra = { short_id, channel_id, channel_handle, channel_name, duration_seconds }` |
 | `hashtag` | a public short carries it | `title` = `#tag`, `score` = short count, `path` = `/shorts/tags/<tag>`, `extra.source = "shorts"`; rewritten by the ranking worker when the count moved |
 
 ## Subject

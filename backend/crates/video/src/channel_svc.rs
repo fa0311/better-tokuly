@@ -69,10 +69,10 @@ impl Video {
                     "SELECT ",
                     video_columns!(),
                     " FROM videos v
-                      WHERE v.channel_id = $1 AND ($2 = 0 OR v.origin = $2) AND ",
-                    listed!(3, 4, 5),
-                    "   AND ($7::uuid IS NULL OR (v.view_count, v.id) < ($6, $7))
-                      ORDER BY v.view_count DESC, v.id DESC LIMIT $8"
+                      WHERE v.channel_id = $7 AND ($8 = 0 OR v.origin = $8) AND ",
+                    listed!(),
+                    "   AND ($10::uuid IS NULL OR (v.view_count, v.id) < ($9, $10))
+                      ORDER BY v.view_count DESC, v.id DESC LIMIT $11"
                 ),
                 true,
             ),
@@ -81,10 +81,10 @@ impl Video {
                     "SELECT ",
                     video_columns!(),
                     " FROM videos v
-                      WHERE v.channel_id = $1 AND ($2 = 0 OR v.origin = $2) AND ",
-                    listed!(3, 4, 5),
-                    "   AND ($7::uuid IS NULL OR (v.published_at, v.id) > ($6, $7))
-                      ORDER BY v.published_at, v.id LIMIT $8"
+                      WHERE v.channel_id = $7 AND ($8 = 0 OR v.origin = $8) AND ",
+                    listed!(),
+                    "   AND ($10::uuid IS NULL OR (v.published_at, v.id) > ($9, $10))
+                      ORDER BY v.published_at, v.id LIMIT $11"
                 ),
                 false,
             ),
@@ -93,26 +93,23 @@ impl Video {
                     "SELECT ",
                     video_columns!(),
                     " FROM videos v
-                      WHERE v.channel_id = $1 AND ($2 = 0 OR v.origin = $2) AND ",
-                    listed!(3, 4, 5),
-                    "   AND ($7::uuid IS NULL OR (v.published_at, v.id) < ($6, $7))
-                      ORDER BY v.published_at DESC, v.id DESC LIMIT $8"
+                      WHERE v.channel_id = $7 AND ($8 = 0 OR v.origin = $8) AND ",
+                    listed!(),
+                    "   AND ($10::uuid IS NULL OR (v.published_at, v.id) < ($9, $10))
+                      ORDER BY v.published_at DESC, v.id DESC LIMIT $11"
                 ),
                 false,
             ),
         };
-        let query = sqlx::query_as::<_, VideoRow>(sql)
-            .bind(channel_id)
-            .bind(origin)
-            .bind(viewer.user_id)
-            .bind(&viewer.friends)
-            .bind(&viewer.blocked);
+        let query = viewer.query_as::<VideoRow>(sql).bind(channel_id).bind(origin);
         let query = if by_views {
             query.bind(after.map(|cursor| cursor.views))
         } else {
             query.bind(after.and_then(|cursor| cursor.at))
         };
-        Ok(query.bind(after.map(|cursor| cursor.id)).bind(limit).fetch_all(&self.core.db).await?)
+        let mut rows = query.bind(after.map(|cursor| cursor.id)).bind(limit).fetch_all(&self.core.db).await?;
+        viewer.drop_newly_locked(&self.core, &mut rows, VideoRow::lock_facts).await?;
+        Ok(rows)
     }
 
     async fn channel_response(&self, viewer: &Viewer, channel_id: Uuid) -> AppResult<Channel> {
@@ -551,7 +548,7 @@ impl ChannelService for Video {
                 channel_columns!(),
                 " FROM channels c
                   WHERE NOT c.suspended AND NOT (c.owner_id = ANY($2)) AND ($1::uuid IS NULL OR c.owner_id <> $1)
-                    AND EXISTS (SELECT 1 FROM videos v WHERE v.channel_id = c.id AND v.status = 3 AND v.visibility = 1)
+                    AND EXISTS (SELECT 1 FROM videos v WHERE v.channel_id = c.id AND v.status = 3 AND v.visibility = 1 AND NOT v.owner_locked)
                     AND NOT EXISTS (SELECT 1 FROM channel_subscriptions s WHERE s.channel_id = c.id AND s.user_id = $1)
                     AND NOT EXISTS (SELECT 1 FROM video_feed_hidden f WHERE f.channel_id = c.id AND f.user_id = $1)
                   ORDER BY c.subscriber_count DESC, c.id DESC

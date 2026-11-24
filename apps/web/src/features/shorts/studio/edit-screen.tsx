@@ -23,7 +23,7 @@ import { CaptionField } from "./caption-field";
 import { type CoverChoice, CoverPicker } from "./cover-picker";
 import { FormSection } from "./form-section";
 import { useProcessingWatch } from "./my-shorts-screen";
-import { SettingsFields, type ShortSettings } from "./settings-fields";
+import { circleOf, SettingsFields, type ShortSettings } from "./settings-fields";
 
 const { ShortStatus, CoverKind } = shorts;
 
@@ -54,6 +54,7 @@ function EditForm({ short }: { short: shorts.Short }) {
   const [caption, setCaption] = useState(short.caption);
   const [settings, setSettings] = useState<ShortSettings>({
     visibility: short.visibility,
+    circleId: short.studio?.circleId ?? "",
     commentsEnabled: short.commentsEnabled,
     allowRemix: short.allowRemix,
     allowDuet: short.allowDuet,
@@ -72,6 +73,7 @@ function EditForm({ short }: { short: shorts.Short }) {
     caption !== short.caption ||
     cover !== undefined ||
     settings.visibility !== short.visibility ||
+    circleOf(settings) !== (short.studio?.circleId ?? "") ||
     settings.commentsEnabled !== short.commentsEnabled ||
     settings.allowRemix !== short.allowRemix ||
     settings.allowDuet !== short.allowDuet;
@@ -97,6 +99,7 @@ function EditForm({ short }: { short: shorts.Short }) {
         shortId: short.id,
         caption: caption.trim(),
         visibility: settings.visibility,
+        circleId: circleOf(settings),
         commentsEnabled: settings.commentsEnabled,
         allowRemix: settings.allowRemix,
         allowDuet: settings.allowDuet,

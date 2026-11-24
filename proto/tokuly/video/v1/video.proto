@@ -23,7 +23,19 @@ syntax = "proto3";
 //             page and in their subscriptions feed. With `allow_link` anyone
 //             who has the link may watch too (the original Tokuly's
 //             「フレンド/リンク限定」); the listing stays friends-only
+//   FOLLOWERS the owner's followers and friends (tokuly.social.v1); listed
+//             for them like FRIENDS
+//   CLOSE_FRIENDS  the owner's close-friends circle (members still a friend
+//             or follower); CIRCLE (with `circle_id`) one custom circle of
+//             the owner, shown to its members as FOLLOWERS
 //   PRIVATE   the owner
+// Locked accounts (tokuly.social.v1 FollowSettings.locked): the PUBLIC,
+// NO_FEED and UNLISTED videos (and FRIENDS ones with `allow_link`) of a
+// locked account reach only its followers and friends, from the next read
+// after the lock; they leave search, trending and recommendations. Its
+// channels stay visible as channels (a channel never reveals its owner):
+// to anyone else they look like a channel without videos (no views, no
+// trailer), and its playlists follow the same rule.
 // Every `video_id` field accepts the UUID or the 11-character `short_id`.
 // A `?t=` deep link is resolved by the client (seek after loading).
 //
@@ -354,13 +366,15 @@ service VideoService {
   // Changes a video of the caller. Unset fields stay as they are.
   // Errors: VIDEO_NOT_FOUND, TITLE_INVALID, DESCRIPTION_TOO_LONG,
   // TAGS_INVALID, GAME_INVALID, CATEGORY_INVALID, CHAPTERS_INVALID,
-  // VISIBILITY_INVALID,
+  // VISIBILITY_INVALID, CIRCLE_REQUIRED (VISIBILITY_CIRCLE without
+  // `circle_id`), CIRCLE_NOT_FOUND (not one of the caller's circles),
   // ASSET_NOT_FOUND, ASSET_WRONG_PURPOSE, ASSET_NOT_READY, ASSET_NOT_IMAGE.
   rpc UpdateVideo(UpdateVideoRequest) returns (UpdateVideoResponse);
   // Publishes a video now or at `publish_at`. A video still processing is
   // published as soon as it is ready (or at `publish_at`, whichever is
   // later). Errors: VIDEO_NOT_FOUND, VIDEO_PROCESSING_FAILED,
-  // SCHEDULE_INVALID (in the past or more than a year ahead).
+  // SCHEDULE_INVALID (in the past or more than a year ahead), and the
+  // visibility errors of UpdateVideo.
   rpc PublishVideo(PublishVideoRequest) returns (PublishVideoResponse);
   // Takes a video back to DRAFT (also cancels a schedule).
   // Errors: VIDEO_NOT_FOUND.
@@ -491,6 +505,12 @@ message VideoSummary {
   int64 comment_count = 9;
   // When it (first) went public. Unset for drafts.
   google.protobuf.Timestamp published_at = 10;
+  // Who may watch it: PUBLIC, NO_FEED, UNLISTED, FOLLOWERS, FRIENDS,
+  // CLOSE_FRIENDS, CIRCLE or PRIVATE (tokuly.social.v1 audiences). To
+  // anyone but the owner a CIRCLE video reads as FOLLOWERS: members of a
+  // custom circle never learn about it (CLOSE_FRIENDS is shown, the
+  // close-friends mark). The open ones of a locked account reach only its
+  // followers and friends.
   tokuly.common.v1.Visibility visibility = 11;
   VideoStatus status = 12;
   ProcessingState processing = 13;
@@ -531,6 +551,8 @@ message VideoStudioInfo {
   int64 dislike_count = 5;
   // The live stream this video is the archive of; empty for uploads.
   string origin_id = 6;
+  // VISIBILITY_CIRCLE: the caller's circle the video is shared with.
+  string circle_id = 7;
 }
 
 // A video with everything the watch page (or the studio editor) shows.
@@ -583,7 +605,7 @@ message CreateVideoRequest {
   repeated string tags = 5;
   VideoCategory category = 6;
   string game = 7;
-  // Unspecified = PRIVATE.
+  // Unspecified = PRIVATE. See `VideoSummary.visibility`.
   tokuly.common.v1.Visibility visibility = 8;
   bool age_restricted = 9;
   // Unset = comments enabled.
@@ -595,6 +617,8 @@ message CreateVideoRequest {
   repeated Chapter chapters = 13;
   // See `Video.allow_link`.
   bool allow_link = 14;
+  // For VISIBILITY_CIRCLE: one of the caller's circles.
+  string circle_id = 15;
 }
 
 message CreateVideoResponse {
@@ -616,6 +640,8 @@ message UpdateVideoRequest {
   optional string thumbnail_asset_id = 11;
   ChapterList chapters = 12;
   optional bool allow_link = 13;
+  // With `visibility` = VISIBILITY_CIRCLE: one of the caller's circles.
+  string circle_id = 14;
 }
 
 message UpdateVideoResponse {
@@ -628,6 +654,8 @@ message PublishVideoRequest {
   google.protobuf.Timestamp publish_at = 2;
   // Applied before publishing when set.
   optional tokuly.common.v1.Visibility visibility = 3;
+  // With `visibility` = VISIBILITY_CIRCLE: one of the caller's circles.
+  string circle_id = 4;
 }
 
 message PublishVideoResponse {

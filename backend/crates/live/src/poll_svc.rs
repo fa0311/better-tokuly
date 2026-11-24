@@ -22,7 +22,12 @@ impl Live {
         let Ok(poll_id) = Uuid::parse_str(poll_id.trim()) else { return Err(poll_not_found()) };
         let poll = polls::find(&self.core, poll_id).await?.ok_or_else(poll_not_found)?;
         let stream = streams::find_by_id(&self.core, poll.stream_id).await?.ok_or_else(poll_not_found)?;
-        ensure!(access::can_watch(viewer, &stream.facts()), not_found, "POLL_NOT_FOUND", "poll not found");
+        ensure!(
+            access::can_watch_now(&self.core, viewer, &stream.facts()).await?,
+            not_found,
+            "POLL_NOT_FOUND",
+            "poll not found"
+        );
         Ok((poll, stream))
     }
 }

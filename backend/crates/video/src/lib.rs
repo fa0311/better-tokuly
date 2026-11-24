@@ -33,7 +33,10 @@
 use std::{ops::Deref, sync::Arc};
 
 use parking_lot::RwLock;
-use tokuly_core::Core;
+use tokuly_core::{
+    Core,
+    prelude::{AppResult, Uuid},
+};
 use tokuly_identity::Identity;
 
 pub mod access;
@@ -43,6 +46,7 @@ pub mod config;
 pub mod events;
 pub mod feeds;
 pub mod games;
+pub mod locks;
 pub mod party;
 pub mod playback;
 pub mod playlists;
@@ -119,5 +123,12 @@ impl Video {
 
     pub(crate) fn party_stamps(&self) -> Option<Arc<dyn PartyStamps>> {
         self.party_stamps.read().clone()
+    }
+
+    /// Applies whether `owner_id`'s account is locked to their videos and
+    /// playlists ([`locks::sync_owner`]); the handler of
+    /// `social.follow.settings_changed`. Returns how many videos changed.
+    pub async fn sync_owner_lock(&self, owner_id: Uuid) -> AppResult<u64> {
+        locks::sync_owner(&self.core, owner_id).await
     }
 }

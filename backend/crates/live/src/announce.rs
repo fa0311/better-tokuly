@@ -27,7 +27,7 @@ use tokuly_video::channels::{self, ChannelRow, NotifyLevel};
 
 use crate::{
     Live,
-    access::{FRIENDS, PRIVATE, PUBLIC},
+    access::{CIRCLE, CLOSE_FRIENDS, FOLLOWERS, FRIENDS, PUBLIC},
     events::{AnnounceJob, AnnouncePhase, JOB_ANNOUNCE},
     streams::{self, StreamRow},
 };
@@ -43,7 +43,9 @@ fn phase_name(phase: AnnouncePhase) -> &'static str {
 /// The phase after `phase` for a stream of this visibility, if any.
 fn next_phase(phase: AnnouncePhase, visibility: i32) -> Option<AnnouncePhase> {
     match (phase, visibility) {
-        (AnnouncePhase::Reminders, PUBLIC | FRIENDS) => Some(AnnouncePhase::Subscribers),
+        (AnnouncePhase::Reminders, PUBLIC | FRIENDS | FOLLOWERS | CLOSE_FRIENDS | CIRCLE) => {
+            Some(AnnouncePhase::Subscribers)
+        }
         (AnnouncePhase::Subscribers, FRIENDS) => Some(AnnouncePhase::Friends),
         _ => None,
     }
@@ -118,15 +120,16 @@ impl Live {
         } else {
             HashSet::new()
         };
+        // Who is in the stream's audience (the lock as the social domain knows it now).
+        let locked = tokuly_video::access::is_locked_now(core, stream.owner_id).await?;
+        let members: Option<HashSet<Uuid>> = streams::audience_members(core, stream.owner_id, stream.audience(locked))
+            .await?
+            .map(|members| members.into_iter().collect());
         // Who of a batch may be told at all.
         let allowed = |user_id: &Uuid| {
             *user_id != stream.owner_id
                 && !hidden.contains(user_id)
-                && match stream.visibility {
-                    FRIENDS => friends.contains(user_id),
-                    PRIVATE => false,
-                    _ => true,
-                }
+                && members.as_ref().is_none_or(|members| members.contains(user_id))
         };
         let after = job.after;
         let later = |user_id: &Uuid| after.is_none_or(|after| *user_id > after);
@@ -228,7 +231,7 @@ impl Live {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::access::{NO_FEED, UNLISTED};
+    use crate::access::{NO_FEED, PRIVATE, UNLISTED};
 
     #[test]
     fn who_hears_about_a_stream_depends_on_its_visibility() {

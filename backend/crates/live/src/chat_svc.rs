@@ -51,7 +51,12 @@ impl Live {
         let Ok(message_id) = Uuid::parse_str(message_id.trim()) else { return Err(message_not_found()) };
         let message = chat::find(&self.core, message_id).await?.ok_or_else(message_not_found)?;
         let stream = streams::find_by_id(&self.core, message.stream_id).await?.ok_or_else(message_not_found)?;
-        ensure!(access::can_watch(viewer, &stream.facts()), not_found, "MESSAGE_NOT_FOUND", "message not found");
+        ensure!(
+            access::can_watch_now(&self.core, viewer, &stream.facts()).await?,
+            not_found,
+            "MESSAGE_NOT_FOUND",
+            "message not found"
+        );
         Ok((message, stream))
     }
 }
@@ -111,8 +116,10 @@ impl LiveChatService for Live {
                 streams::find_watchable(core, &viewer, request.stream_id).await?
             } else {
                 // Whoever may watch the archive may read the chat that went with it.
-                let video =
-                    videos::find_ref(core, request.video_id).await?.filter(|video| viewer.can_watch(&video.facts()));
+                let video = match videos::find_ref(core, request.video_id).await? {
+                    Some(video) if viewer.can_watch_now(core, &video.facts()).await? => Some(video),
+                    _ => None,
+                };
                 let stream_id = video.and_then(|video| video.origin_id).ok_or_else(streams::not_found)?;
                 streams::find_by_id(core, stream_id).await?.ok_or_else(streams::not_found)?
             };

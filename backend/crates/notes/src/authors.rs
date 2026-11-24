@@ -159,7 +159,7 @@ impl Notes {
                     let mut people: Vec<Uuid> =
                         told.get(&row.id).into_iter().flatten().copied().filter(|id| tied.contains(id)).collect();
                     people.sort_unstable();
-                    people
+                    events::bounded_audience(people, None)
                 });
                 events::emit(
                     &mut *tx,

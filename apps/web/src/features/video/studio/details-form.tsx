@@ -9,6 +9,7 @@ import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { videoClient, videoKeys } from "../api";
+import { CircleField, LockedNote } from "../audience";
 import { CATEGORIES, VIDEO_VISIBILITIES } from "../labels";
 import {
   type ChapterDraft,
@@ -32,6 +33,8 @@ export interface DetailsDraft {
   game: string;
   chapters: ChapterDraft[];
   visibility: common.Visibility;
+  /** For CIRCLE: one of the caller's circles. */
+  circleId: string;
   allowLink: boolean;
   ageRestricted: boolean;
   commentsEnabled: boolean;
@@ -47,6 +50,7 @@ export function draftFrom(item: video.Video): DetailsDraft {
     game: item.game,
     chapters: toDrafts(item.chapters),
     visibility: item.summary?.visibility || common.Visibility.PRIVATE,
+    circleId: item.studio?.circleId ?? "",
     allowLink: item.allowLink,
     ageRestricted: item.summary?.ageRestricted ?? false,
     commentsEnabled: item.commentsEnabled,
@@ -179,6 +183,15 @@ export function DetailsForm({
             );
           })}
         </div>
+        {draft.visibility === common.Visibility.CIRCLE && (
+          <CircleField
+            label={t("visibility.circlePick")}
+            emptyText={t("visibility.circleNone")}
+            missingText={t("visibility.circleMissing")}
+            value={draft.circleId}
+            onChange={(circleId) => set("circleId", circleId)}
+          />
+        )}
         {draft.visibility === common.Visibility.FRIENDS && (
           <SwitchRow
             label={t("studio.editor.allowLink")}
@@ -187,6 +200,7 @@ export function DetailsForm({
             onChange={(value) => set("allowLink", value)}
           />
         )}
+        <LockedNote text={t("visibility.lockedNote")} />
       </FormSection>
 
       <FormSection title={t("studio.editor.options")}>

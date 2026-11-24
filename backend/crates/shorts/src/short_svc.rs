@@ -23,14 +23,11 @@ const MAX_BATCH: usize = 50;
 /// Largest page of the lists in this service.
 const MAX_PAGE: i64 = 50;
 
-/// A visibility named in an update: it must be one of the five values.
+/// A visibility named in an update: it must be a known value.
 fn explicit_visibility(value: buffa::EnumValue<Visibility>) -> AppResult<i32> {
     match value.as_known() {
         Some(Visibility::VISIBILITY_UNSPECIFIED) | None => {
             Err(AppError::invalid("VISIBILITY_INVALID", "unknown visibility"))
-        }
-        Some(Visibility::VISIBILITY_FOLLOWERS | Visibility::VISIBILITY_CLOSE_FRIENDS | Visibility::VISIBILITY_CIRCLE) => {
-            Err(AppError::invalid("VISIBILITY_INVALID", "this audience is not available here yet"))
         }
         Some(known) => Ok(known as i32),
     }
@@ -119,6 +116,7 @@ impl ShortService for Shorts {
                 asset_id: parse_id(&req.asset_id)?,
                 caption: req.caption,
                 visibility: shorts::validate_visibility(req.visibility, FRIENDS)?,
+                circle_id: parse_opt_id(&req.circle_id)?,
                 comments_enabled: req.comments_enabled.unwrap_or(true),
                 allow_remix: req.allow_remix.unwrap_or(true),
                 allow_duet: req.allow_duet.unwrap_or(true),
@@ -155,6 +153,7 @@ impl ShortService for Shorts {
             let edit = ShortEdit {
                 caption: req.caption,
                 visibility: req.visibility.map(explicit_visibility).transpose()?,
+                circle_id: parse_opt_id(&req.circle_id)?,
                 comments_enabled: req.comments_enabled,
                 allow_remix: req.allow_remix,
                 allow_duet: req.allow_duet,
@@ -189,14 +188,14 @@ impl ShortService for Shorts {
             let core = &self.core;
             let viewer = self.viewer(&ctx).await?;
             let row = shorts::find_ref(core, request.short_id).await?.ok_or_else(shorts::not_found)?;
-            let facts = row.facts();
+            let watchable = shorts::can_watch_now(core, &viewer, &row).await?;
             // Moderators review what was reported, also after its owner
             // deleted it; never their own shorts.
-            let reviewing = !access::can_watch(&viewer, &facts)
+            let reviewing = !watchable
                 && ctx
                     .maybe_auth()?
                     .is_some_and(|auth| auth.has_role("moderator") && access::moderator_sees(auth.user_id, &row));
-            ensure!(access::can_watch(&viewer, &facts) || reviewing, not_found, "SHORT_NOT_FOUND", "short not found");
+            ensure!(watchable || reviewing, not_found, "SHORT_NOT_FOUND", "short not found");
             let mut short = hydrate::short(core, &viewer, &row).await?;
             if reviewing {
                 // What they review is the video, whatever state it is in.
@@ -230,6 +229,7 @@ impl ShortService for Shorts {
                     rows.push(row);
                 }
             }
+            viewer.drop_newly_locked(core, &mut rows, ShortRow::lock_facts).await?;
             ok(BatchGetShortsResponse { shorts: hydrate::shorts(core, &viewer, &rows).await?, ..Default::default() })
         })
         .await
@@ -419,22 +419,23 @@ impl ShortService for Shorts {
             let original = shorts::find_watchable(core, &viewer, request.short_id).await?;
             let page = Page::from_view(request.page.as_option(), MAX_PAGE);
             let before: Option<(Time, Uuid)> = page.decode()?;
-            let mut rows: Vec<ShortRow> = sqlx::query_as(concat!(
-                "SELECT ",
-                short_columns!(),
-                " FROM shorts s WHERE s.remix_of_id = $1 AND ",
-                access::public!(2),
-                " AND ($3::timestamptz IS NULL OR (s.published_at, s.id) < ($3, $4))
-                  ORDER BY s.published_at DESC, s.id DESC LIMIT $5"
-            ))
-            .bind(original.id)
-            .bind(&viewer.blocked)
-            .bind(before.map(|(at, _)| at))
-            .bind(before.map(|(_, id)| id))
-            .bind(page.fetch())
-            .fetch_all(&core.db)
-            .await?;
+            let mut rows: Vec<ShortRow> = viewer
+                .query_as(concat!(
+                    "SELECT ",
+                    short_columns!(),
+                    " FROM shorts s WHERE s.remix_of_id = $7 AND ",
+                    access::public!(),
+                    " AND ($8::timestamptz IS NULL OR (s.published_at, s.id) < ($8, $9))
+                  ORDER BY s.published_at DESC, s.id DESC LIMIT $10"
+                ))
+                .bind(original.id)
+                .bind(before.map(|(at, _)| at))
+                .bind(before.map(|(_, id)| id))
+                .bind(page.fetch())
+                .fetch_all(&core.db)
+                .await?;
             let info = page.finish(&mut rows, |row| (row.published_at.unwrap_or(row.created_at), row.id));
+            viewer.drop_newly_locked(core, &mut rows, ShortRow::lock_facts).await?;
             ok(ListRemixesResponse {
                 shorts: hydrate::shorts(core, &viewer, &rows).await?,
                 page: info.into(),

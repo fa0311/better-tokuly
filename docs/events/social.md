@@ -211,9 +211,10 @@ The owner's account state (suspended, deleted), link-only access and age
 limits stay with the content domain. `tokuly.common.v1.Visibility` has
 `VISIBILITY_FOLLOWERS`, `VISIBILITY_CLOSE_FRIENDS` and `VISIBILITY_CIRCLE`
 (with `AudienceRef.circle_id`); `ContentAudience::from_visibility(v, circle_id)`
-/ `from_stored(i32, circle_id)` map them (unknown → `Private`). No content
-domain honours them yet: live, video and shorts refuse them with
-`VISIBILITY_INVALID` until they decide visibility through this API.
+/ `from_stored(i32, circle_id)` map them (unknown → `Private`). Notes,
+video, shorts and live honour them, and apply locked accounts to their
+public content (see their `docs/events/*.md`); a domain that does not
+refuses them with `VISIBILITY_INVALID`.
 
 Follow suggestions take more signals through
 `Social::add_follow_signal(Arc<dyn tokuly_social::follow_suggestions::FollowSignal>)`:

@@ -25,7 +25,7 @@ import { useSound } from "../sound-screen";
 import { CaptionField } from "./caption-field";
 import { type CoverChoice, CoverPicker } from "./cover-picker";
 import { FormSection } from "./form-section";
-import { DEFAULT_SETTINGS, SettingsFields, type ShortSettings } from "./settings-fields";
+import { circleOf, DEFAULT_SETTINGS, SettingsFields, type ShortSettings } from "./settings-fields";
 import { type SoundChoice, SoundField, soundInput } from "./sound-field";
 import { canTrim, probeVideo, trimVideo } from "./video-tools";
 
@@ -264,6 +264,7 @@ export function CreateScreen({ search }: { search: CreateSearch }) {
         assetId,
         caption: caption.trim(),
         visibility: settings.visibility,
+        circleId: circleOf(settings),
         commentsEnabled: settings.commentsEnabled,
         allowRemix: settings.allowRemix,
         allowDuet: settings.allowDuet,

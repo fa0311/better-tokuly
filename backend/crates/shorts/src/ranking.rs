@@ -253,23 +253,23 @@ pub struct Candidate {
     pub published_at: Option<Time>,
 }
 
-/// One candidate query: shorts the viewer's feeds may carry (`$1` viewer,
-/// `$2` friends, `$3` hidden users), without their own, the ones they
-/// marked "not interested" and the ones in `$4` (seen), narrowed by
-/// `$filter` and cut to `$5` in `$order`.
+/// One candidate query: shorts the viewer's feeds may carry (the viewer as
+/// `$1`–`$6`, see `tokuly_video::access`), without their own, the ones
+/// they marked "not interested" and the ones in `$7` (seen), narrowed by
+/// `$filter` and cut to `$8` in `$order`.
 macro_rules! candidate_query {
     ($filter:literal, $order:literal) => {
         concat!(
             "SELECT s.id, s.channel_id, s.owner_id, s.hashtags, s.score, s.trending, s.published_at FROM shorts s WHERE ",
             $filter,
             " AND ",
-            access::in_feed!(2, 3),
+            access::in_feed!(),
             " AND ($1::uuid IS NULL OR s.owner_id <> $1)
-              AND NOT (s.id = ANY($4))
+              AND NOT (s.id = ANY($7))
               AND NOT EXISTS (SELECT 1 FROM short_hidden x WHERE x.user_id = $1 AND x.short_id = s.id)
               ORDER BY ",
             $order,
-            " LIMIT $5"
+            " LIMIT $8"
         )
     };
 }
@@ -288,54 +288,38 @@ pub async fn candidates(
     let recent: &str = candidate_query!("s.listed", "s.published_at DESC, s.id DESC");
     let top: &str = candidate_query!("s.listed", "s.score DESC, s.id DESC");
     for sql in [recent, top] {
-        let rows: Vec<Candidate> = sqlx::query_as(sql)
-            .bind(viewer.user_id)
-            .bind(&viewer.friends)
-            .bind(&viewer.blocked)
+        let rows: Vec<Candidate> = viewer.query_as(sql).bind(seen).bind(per_source).fetch_all(&core.db).await?;
+        found.extend(rows);
+    }
+    if !taste.followed.is_empty() {
+        let followed: Vec<Uuid> = taste.followed.iter().copied().collect();
+        let rows: Vec<Candidate> = viewer
+            .query_as(candidate_query!("s.channel_id = ANY($9)", "s.published_at DESC, s.id DESC"))
+            .bind(seen)
+            .bind(per_source)
+            .bind(&followed)
+            .fetch_all(&core.db)
+            .await?;
+        found.extend(rows);
+    }
+    if !viewer.friends.is_empty() {
+        let rows: Vec<Candidate> = viewer
+            .query_as(candidate_query!("s.owner_id = ANY($2)", "s.published_at DESC, s.id DESC"))
             .bind(seen)
             .bind(per_source)
             .fetch_all(&core.db)
             .await?;
         found.extend(rows);
     }
-    if !taste.followed.is_empty() {
-        let followed: Vec<Uuid> = taste.followed.iter().copied().collect();
-        let rows: Vec<Candidate> =
-            sqlx::query_as(candidate_query!("s.channel_id = ANY($6)", "s.published_at DESC, s.id DESC"))
-                .bind(viewer.user_id)
-                .bind(&viewer.friends)
-                .bind(&viewer.blocked)
-                .bind(seen)
-                .bind(per_source)
-                .bind(&followed)
-                .fetch_all(&core.db)
-                .await?;
-        found.extend(rows);
-    }
-    if !viewer.friends.is_empty() {
-        let rows: Vec<Candidate> =
-            sqlx::query_as(candidate_query!("s.owner_id = ANY($2)", "s.published_at DESC, s.id DESC"))
-                .bind(viewer.user_id)
-                .bind(&viewer.friends)
-                .bind(&viewer.blocked)
-                .bind(seen)
-                .bind(per_source)
-                .fetch_all(&core.db)
-                .await?;
-        found.extend(rows);
-    }
     if !taste.liked_hashtags.is_empty() {
         let hashtags: Vec<String> = taste.liked_hashtags.keys().cloned().collect();
-        let rows: Vec<Candidate> =
-            sqlx::query_as(candidate_query!("s.listed AND s.hashtags && $6", "s.score DESC, s.id DESC"))
-                .bind(viewer.user_id)
-                .bind(&viewer.friends)
-                .bind(&viewer.blocked)
-                .bind(seen)
-                .bind(per_source)
-                .bind(&hashtags)
-                .fetch_all(&core.db)
-                .await?;
+        let rows: Vec<Candidate> = viewer
+            .query_as(candidate_query!("s.listed AND s.hashtags && $9", "s.score DESC, s.id DESC"))
+            .bind(seen)
+            .bind(per_source)
+            .bind(&hashtags)
+            .fetch_all(&core.db)
+            .await?;
         found.extend(rows);
     }
     let mut known = HashSet::new();

@@ -8,18 +8,21 @@
 //! | `shorts.short.created` | [`ShortEvent`] | a draft was created |
 //! | `shorts.short.published` | [`ShortEvent`] | a short went live, or reached an audience for the first time |
 //! | `shorts.short.deleted` | [`ShortEvent`] | a short is gone (owner, channel or account deletion, takedown, deleted upload) |
+//! | `shorts.short.visibility_changed` | [`ShortVisibilityChanged`] | a published short got another audience, or its owner locked or unlocked their account |
 use serde::{Deserialize, Serialize};
 use tokuly_core::prelude::*;
 
 pub const SHORT_CREATED: &str = "shorts.short.created";
 pub const SHORT_PUBLISHED: &str = "shorts.short.published";
 pub const SHORT_DELETED: &str = "shorts.short.deleted";
+pub const SHORT_VISIBILITY_CHANGED: &str = "shorts.short.visibility_changed";
 
 // Topics of other domains this one consumes.
 pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BANNED: &str = "identity.user.banned";
 pub const USER_UNBANNED: &str = "identity.user.unbanned";
 pub const USER_BLOCKED: &str = "social.user.blocked";
+pub const FOLLOW_SETTINGS_CHANGED: &str = "social.follow.settings_changed";
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
 pub const ASSET_READY: &str = tokuly_media::events::ASSET_READY;
 pub const ASSET_FAILED: &str = tokuly_media::events::ASSET_FAILED;
@@ -50,6 +53,21 @@ pub struct ShortEvent {
     /// `account_deleted`, `moderation` or `asset_deleted`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub reason: String,
+}
+
+/// Payload of `shorts.short.visibility_changed`: the short, with
+/// `visibility` the audience now in effect (an open short of a locked owner
+/// reads as FOLLOWERS), and who besides the owner may still watch it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShortVisibilityChanged {
+    #[serde(flatten)]
+    pub short: ShortEvent,
+    /// `None` (JSON `null`): everyone may. Otherwise the people in the
+    /// audience as the social graph gives them. **Never forward to outside
+    /// parties: it is the owner's friend and follower list.**
+    pub visible_to: Option<Vec<Uuid>>,
+    /// When the change was made, taken while the short was locked.
+    pub changed_at: Time,
 }
 
 /// Payload of the `identity.user.*` events consumed here.

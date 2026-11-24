@@ -14,6 +14,10 @@
 //!   memory (friends no longer see the story, so not its title and cover);
 //! - a video that went back to draft or became private: its owner's entry
 //!   is the owner's own until the video is published to an audience again;
+//! - a video, short or live stream whose audience changed (also because
+//!   its owner locked or unlocked their account): its owner's entries are
+//!   shown to friends while friends are in the new audience, to the owner
+//!   alone otherwise;
 //! - a deleted answer to a question: the "answered" entries go, but the
 //!   question can be answered again under the same ID, so nothing is
 //!   remembered about it.
@@ -79,13 +83,15 @@ fn owner_only(_: &Event) -> Option<Change> {
     Some(Change::Audience(AUDIENCE_PRIVATE))
 }
 
-/// A published video's `tokuly.common.v1.Visibility` as the audience of
-/// its announcement, which the video domain always gives to friends (a
-/// channel does not reveal its owner to everyone): friends while the video
-/// is public or for friends, the owner alone otherwise (private, unlisted).
+/// A published video's, short's or stream's `tokuly.common.v1.Visibility`
+/// as the audience of its announcement, which those domains always give to
+/// friends (a channel does not reveal its owner to everyone): friends while
+/// it is public, for followers (friends are inside) or for friends; the
+/// owner alone otherwise (private, unlisted, close friends, a circle — the
+/// feed cannot tell who is in one).
 fn video_audience(event: &Event) -> Option<Change> {
     match event.data.get("visibility").and_then(serde_json::Value::as_i64)? {
-        1 | 4 => Some(Change::Audience(AUDIENCE_FRIENDS)),
+        1 | 4 | 6 => Some(Change::Audience(AUDIENCE_FRIENDS)),
         _ => Some(Change::Audience(AUDIENCE_PRIVATE)),
     }
 }
@@ -139,7 +145,23 @@ pub const RULES: &[Rule] = &[
     // visibility): as the visibility allows.
     video("video.video.unpublished", owner_only),
     video("video.video.published", video_audience),
-    video("video.video.visibility_changed", video_audience),
+    Rule { time_field: Some("changed_at"), ..video("video.video.visibility_changed", video_audience) },
+    Rule {
+        topic: "shorts.short.visibility_changed",
+        id_field: "id",
+        subject_type: SubjectType::SUBJECT_TYPE_SHORT,
+        owner_field: Some("owner_id"),
+        time_field: Some("changed_at"),
+        change: video_audience,
+    },
+    Rule {
+        topic: "live.stream.visibility_changed",
+        id_field: "stream_id",
+        subject_type: SubjectType::SUBJECT_TYPE_LIVE_STREAM,
+        owner_field: Some("owner_id"),
+        time_field: Some("changed_at"),
+        change: video_audience,
+    },
     Rule {
         topic: "ask.answer.deleted",
         id_field: "question_id",
@@ -335,6 +357,34 @@ mod tests {
         );
         assert_eq!(subject_change(&event("shorts.short.deleted", serde_json::json!({ "id": "nope" }))), None);
         assert_eq!(subject_change(&event("something.else", serde_json::json!({ "id": id }))), None);
+    }
+
+    #[test]
+    fn a_video_short_or_stream_audience_becomes_the_audience_of_its_owners_entries() {
+        let (id, owner) = (Uuid::now_v7(), Uuid::now_v7());
+        let at = now() - chrono::Duration::seconds(5);
+        for (topic, id_field, subject_type) in [
+            ("video.video.visibility_changed", "video_id", SubjectType::SUBJECT_TYPE_VIDEO),
+            ("shorts.short.visibility_changed", "id", SubjectType::SUBJECT_TYPE_SHORT),
+            ("live.stream.visibility_changed", "stream_id", SubjectType::SUBJECT_TYPE_LIVE_STREAM),
+        ] {
+            let change = |visibility: i64| {
+                subject_change(&event(
+                    topic,
+                    serde_json::json!({ id_field: id, "owner_id": owner, "visibility": visibility, "changed_at": at }),
+                ))
+                .unwrap()
+            };
+            let followers = change(6);
+            assert_eq!(
+                (followers.subject_type, followers.subject_id, followers.change, followers.changed_at),
+                (subject_type as i32, id, Change::Audience(AUDIENCE_FRIENDS), at),
+                "{topic}"
+            );
+            assert_eq!(change(7).change, Change::Audience(AUDIENCE_PRIVATE), "{topic}: close friends");
+            assert_eq!(change(8).change, Change::Audience(AUDIENCE_PRIVATE), "{topic}: a circle");
+            assert_eq!(change(1).change, Change::Audience(AUDIENCE_FRIENDS), "{topic}: public, announced to friends");
+        }
     }
 
     #[test]

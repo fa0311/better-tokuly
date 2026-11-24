@@ -151,26 +151,25 @@ impl PlaybackService for Video {
             let before: Option<(Time, Uuid)> = page.decode()?;
             // Videos that were since made private (or whose owner is hidden
             // from the viewer) stay in the table but are not shown.
-            let mut rows: Vec<HistoryRow> = sqlx::query_as(concat!(
-                "SELECT ",
-                video_columns!(),
-                ", h.last_watched_at, h.watched_seconds
-                 FROM watch_history h JOIN videos v ON v.id = h.video_id
-                 WHERE h.user_id = $1 AND ",
-                watchable!(1, 2, 3),
-                "  AND ($4::timestamptz IS NULL OR (h.last_watched_at, h.video_id) < ($4, $5))
-                 ORDER BY h.last_watched_at DESC, h.video_id DESC
-                 LIMIT $6"
-            ))
-            .bind(user_id)
-            .bind(&viewer.friends)
-            .bind(&viewer.blocked)
-            .bind(before.map(|(at, _)| at))
-            .bind(before.map(|(_, id)| id))
-            .bind(page.fetch())
-            .fetch_all(&core.db)
-            .await?;
+            let mut rows: Vec<HistoryRow> = viewer
+                .query_as(concat!(
+                    "SELECT ",
+                    video_columns!(),
+                    ", h.last_watched_at, h.watched_seconds
+                     FROM watch_history h JOIN videos v ON v.id = h.video_id
+                     WHERE h.user_id = $1 AND ",
+                    watchable!(),
+                    "  AND ($7::timestamptz IS NULL OR (h.last_watched_at, h.video_id) < ($7, $8))
+                     ORDER BY h.last_watched_at DESC, h.video_id DESC
+                     LIMIT $9"
+                ))
+                .bind(before.map(|(at, _)| at))
+                .bind(before.map(|(_, id)| id))
+                .bind(page.fetch())
+                .fetch_all(&core.db)
+                .await?;
             let info = page.finish(&mut rows, |row| (row.last_watched_at, row.video.id));
+            viewer.drop_newly_locked(core, &mut rows, |row| row.video.lock_facts()).await?;
             let videos: Vec<VideoRow> = rows.iter().map(|row| row.video.clone()).collect();
             let summaries = videos::summaries(core, &viewer, &videos).await?;
             let items = rows

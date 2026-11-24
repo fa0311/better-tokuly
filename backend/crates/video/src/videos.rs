@@ -34,12 +34,13 @@ use tokuly_proto::{
         VideoStudioInfo, VideoSummary, VideoViewerState, video_event,
     },
 };
+use tokuly_social::graph::ContentAudience;
 
 use crate::{
     access::{self, PUBLIC, PUBLISHED, VideoFacts, Viewer},
     channels::{self, ChannelRow},
     events::{VIDEO_CREATED, VIDEO_DELETED, VIDEO_PUBLISHED, VIDEO_UNPUBLISHED, VIDEO_VISIBILITY_CHANGED, VideoEvent},
-    games, party, playlists, search, subtitles, validate,
+    games, locks, party, playlists, search, subtitles, validate,
 };
 
 pub const DRAFT: i32 = VideoStatus::VIDEO_STATUS_DRAFT as i32;
@@ -77,6 +78,8 @@ pub struct VideoRow {
     pub thumbnail: Option<serde_json::Value>,
     pub thumbnail_asset_id: Option<Uuid>,
     pub visibility: i32,
+    /// VISIBILITY_CIRCLE only: the owner's circle.
+    pub circle_id: Option<Uuid>,
     pub allow_link: bool,
     pub age_restricted: bool,
     pub comments_enabled: bool,
@@ -96,6 +99,8 @@ pub struct VideoRow {
     pub comment_count: i64,
     pub trending_score: f64,
     pub suspended: bool,
+    /// The owner's account is locked, as this domain's copy knows it.
+    pub owner_locked: bool,
     pub created_at: Time,
     pub updated_at: Time,
 }
@@ -103,10 +108,10 @@ pub struct VideoRow {
 macro_rules! video_columns {
     () => {
         "v.id, v.short_id, v.channel_id, v.owner_id, v.asset_id, v.origin, v.origin_id, v.title, v.description, v.tags, \
-         v.category, v.game, v.chapters, v.thumbnail, v.thumbnail_asset_id, v.visibility, v.allow_link, v.age_restricted, \
+         v.category, v.game, v.chapters, v.thumbnail, v.thumbnail_asset_id, v.visibility, v.circle_id, v.allow_link, v.age_restricted, \
          v.comments_enabled, v.notify_subscribers, v.status, v.processing, v.processing_error, v.scheduled_at, \
          v.published_at, v.announced_at, v.playback, v.duration_seconds, v.view_count, v.like_count, v.dislike_count, \
-         v.comment_count, v.trending_score, v.suspended, v.created_at, v.updated_at"
+         v.comment_count, v.trending_score, v.suspended, v.owner_locked, v.created_at, v.updated_at"
     };
 }
 pub(crate) use video_columns;
@@ -117,9 +122,41 @@ impl VideoRow {
             owner_id: self.owner_id,
             status: self.status,
             visibility: self.visibility,
+            circle_id: self.circle_id,
             allow_link: self.allow_link,
             suspended: self.suspended,
+            owner_locked: self.owner_locked,
         }
+    }
+
+    /// Whether anyone with the link may watch it, were the owner not locked.
+    pub fn is_open(&self) -> bool {
+        access::is_open(self.visibility) || (self.visibility == access::FRIENDS && self.allow_link)
+    }
+
+    /// The owner, whether the video is open to everyone, and the copy of the
+    /// owner's lock: what [`Viewer::drop_newly_locked`] needs.
+    pub fn lock_facts(&self) -> (Uuid, bool, bool) {
+        (self.owner_id, self.is_open(), self.owner_locked)
+    }
+
+    /// The audience the video is shared with, as the social graph names it:
+    /// open videos of a locked owner reach followers (and friends) only.
+    pub fn effective_audience(&self) -> ContentAudience {
+        if self.is_open() {
+            if self.owner_locked { ContentAudience::Followers } else { ContentAudience::Public }
+        } else {
+            access::audience_of(self.visibility, self.circle_id)
+        }
+    }
+
+    /// The visibility in effect, as `video.video.visibility_changed` names it:
+    /// a PUBLIC video (or a FRIENDS one with a link) of a locked owner reads
+    /// as FOLLOWERS. NO_FEED and UNLISTED keep their number: they were never
+    /// announced to friends, and a lock must not widen what the feed shows.
+    pub fn effective_visibility(&self) -> i32 {
+        let widest = self.visibility == PUBLIC || (self.visibility == access::FRIENDS && self.allow_link);
+        if widest && self.owner_locked { access::FOLLOWERS } else { self.visibility }
     }
 
     pub fn is_published(&self) -> bool {
@@ -130,9 +167,21 @@ impl VideoRow {
         self.processing == READY
     }
 
-    /// Published for everyone and listed everywhere (search, feeds).
+    /// Published for everyone and listed everywhere (search, feeds): public,
+    /// and its owner neither suspended nor locked.
     pub fn is_public(&self) -> bool {
-        self.status == PUBLISHED && self.visibility == PUBLIC && !self.suspended
+        self.status == PUBLISHED && self.visibility == PUBLIC && !self.suspended && !self.owner_locked
+    }
+
+    /// Published to an audience that subscribers and friends are told about
+    /// (once, [`after_visible_change_in`]): PUBLIC or one of the social audiences.
+    pub fn is_announceable(&self) -> bool {
+        self.status == PUBLISHED
+            && !self.suspended
+            && matches!(
+                self.visibility,
+                PUBLIC | access::FRIENDS | access::FOLLOWERS | access::CLOSE_FRIENDS | access::CIRCLE
+            )
     }
 
     /// Path of the watch page in the web app.
@@ -216,7 +265,9 @@ pub async fn find_ref(core: &Core, reference: &str) -> AppResult<Option<VideoRow
 /// The video a client named, if `viewer` may watch it (`VIDEO_NOT_FOUND`
 /// otherwise, whatever the reason).
 pub async fn find_watchable(core: &Core, viewer: &Viewer, reference: &str) -> AppResult<VideoRow> {
-    find_ref(core, reference).await?.filter(|video| viewer.can_watch(&video.facts())).ok_or_else(not_found)
+    let video = find_ref(core, reference).await?.ok_or_else(not_found)?;
+    ensure!(viewer.can_watch_now(core, &video.facts()).await?, not_found, "VIDEO_NOT_FOUND", "video not found");
+    Ok(video)
 }
 
 /// The video a client named, which must belong to `owner_id`.
@@ -288,7 +339,7 @@ pub async fn summaries(core: &Core, viewer: &Viewer, rows: &[VideoRow]) -> AppRe
                 like_count: row.like_count,
                 comment_count: row.comment_count,
                 published_at: opt_ts(row.published_at),
-                visibility: row.visibility.into(),
+                visibility: access::shown_visibility(row.visibility, viewer.is(row.owner_id)).into(),
                 status: row.status.into(),
                 processing: row.processing.into(),
                 preview_url: row.playback().map(|info| info.preview_url).unwrap_or_default(),
@@ -349,6 +400,7 @@ pub async fn to_proto(core: &Core, viewer: &Viewer, row: &VideoRow) -> AppResult
         notify_subscribers: row.notify_subscribers,
         dislike_count: row.dislike_count,
         origin_id: row.origin_id.map(|id| id.to_string()).unwrap_or_default(),
+        circle_id: row.circle_id.map(|id| id.to_string()).unwrap_or_default(),
         ..Default::default()
     });
     Ok(Video {
@@ -398,6 +450,8 @@ pub struct NewVideo {
     pub category: i32,
     pub game: String,
     pub visibility: Visibility,
+    /// For VISIBILITY_CIRCLE: one of the owner's circles.
+    pub circle_id: Option<Uuid>,
     pub allow_link: bool,
     pub age_restricted: bool,
     pub comments_enabled: bool,
@@ -424,6 +478,7 @@ impl NewVideo {
             category: 0,
             game: String::new(),
             visibility: Visibility::VISIBILITY_PRIVATE,
+            circle_id: None,
             allow_link: false,
             age_restricted: false,
             comments_enabled: true,
@@ -475,6 +530,8 @@ pub async fn create_from_asset(core: &Core, new: NewVideo) -> AppResult<Uuid> {
     let game = validate::game(&new.game)?;
     let category = validate::category(new.category.into())?;
     let visibility = validate::visibility(new.visibility.into(), Visibility::VISIBILITY_PRIVATE)?;
+    let circle_id = access::chosen_circle(core, channel.owner_id, visibility, new.circle_id).await?;
+    let owner_locked = access::is_locked_now(core, channel.owner_id).await?;
     let ready = asset.is_ready();
     let duration = asset.video().map(|info| info.duration_seconds).unwrap_or(0.0);
     let chapters = validate::chapters(&new.chapters, ready.then_some(duration))?;
@@ -496,8 +553,10 @@ pub async fn create_from_asset(core: &Core, new: NewVideo) -> AppResult<Uuid> {
     sqlx::query(
         "INSERT INTO videos (id, short_id, channel_id, owner_id, asset_id, origin, origin_id, title, description, tags, category,
                              game, chapters, thumbnail, thumbnail_asset_id, visibility, allow_link, age_restricted,
-                             comments_enabled, notify_subscribers, processing, playback, duration_seconds, suspended)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)",
+                             comments_enabled, notify_subscribers, processing, playback, duration_seconds, suspended,
+                             circle_id, owner_locked)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+                 $25, $26)",
     )
     .bind(video_id)
     .bind(tokuly_core::ids::new_short_id())
@@ -523,6 +582,8 @@ pub async fn create_from_asset(core: &Core, new: NewVideo) -> AppResult<Uuid> {
     .bind(if ready { asset.video.clone() } else { None })
     .bind(if ready { duration } else { 0.0 })
     .bind(channel.suspended)
+    .bind(circle_id)
+    .bind(owner_locked)
     .execute(&mut *tx)
     .await
     .map_err(|e| {
@@ -539,6 +600,12 @@ pub async fn create_from_asset(core: &Core, new: NewVideo) -> AppResult<Uuid> {
         request_publish_in(&mut tx, &row, None).await?;
     }
     tx.commit().await?;
+    // The account may have been locked or unlocked since it was read, and
+    // the pass that applies that to every video may have run before this
+    // one existed: apply it now (see `Video::sync_owner_lock`).
+    if access::is_locked_now(core, channel.owner_id).await? != owner_locked {
+        locks::sync_owner(core, channel.owner_id).await?;
+    }
 
     // The asset may have finished between our read and the insert, in which
     // case its `ready` event found no video to update: catch up now.
@@ -627,10 +694,7 @@ pub(crate) async fn after_visible_change_in(
     if was_public != row.is_public() {
         playlists::sync_search_of_video_in(tx, row.id).await?;
     }
-    let announce = row.is_published()
-        && !row.suspended
-        && row.announced_at.is_none()
-        && matches!(row.visibility, access::PUBLIC | access::FRIENDS);
+    let announce = row.is_announceable() && row.announced_at.is_none();
     if announce {
         let at: Time =
             sqlx::query_scalar("UPDATE videos SET announced_at = now() WHERE id = $1 RETURNING announced_at")
@@ -651,7 +715,9 @@ pub(crate) async fn after_visible_change_in(
 
 /// The activity entry for a newly announced video. It goes to the owner's
 /// friends only, also for public videos: a channel does not reveal which
-/// account is behind it to strangers.
+/// account is behind it to strangers. Friends are inside the public,
+/// followers and friends audiences; a close-friends or circle video's
+/// entry is the owner's own (the feed cannot tell who is in a circle).
 async fn announce_activity_in(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     row: &VideoRow,
@@ -660,7 +726,11 @@ async fn announce_activity_in(
     let mut entry = outbound::ActivityEntry::new(
         row.owner_id,
         "video.published",
-        outbound::ActivityAudience::Friends,
+        if matches!(row.visibility, access::CLOSE_FRIENDS | access::CIRCLE) {
+            outbound::ActivityAudience::Private
+        } else {
+            outbound::ActivityAudience::Friends
+        },
         outbound::Localized::new(
             format!("動画「{}」を公開したよ!", row.title),
             format!("published a video: {}", row.title),
@@ -683,16 +753,106 @@ async fn announce_activity_in(
 }
 
 /// Emits `video.video.visibility_changed` when a video that was and stays
-/// published got another visibility (`before` and `after` the change).
+/// published got another audience (`before` and `after` the change).
+/// `members`: who is in the audience the caller meant to give it, read
+/// before the transaction (`None` for an audience open to everyone); when
+/// the row ended up with another audience (a concurrent change), nobody is
+/// named, which withdraws too much rather than too little.
 pub(crate) async fn announce_visibility_in(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     before: &VideoRow,
     after: &VideoRow,
+    planned: &PlannedAudience,
 ) -> AppResult<()> {
-    if before.is_published() && after.is_published() && before.visibility != after.visibility {
-        core_events::emit(&mut **tx, VIDEO_VISIBILITY_CHANGED, Some(after.owner_id), &after.event(false)).await?;
+    let changed = before.visibility != after.visibility
+        || before.circle_id != after.circle_id
+        || before.is_open() != after.is_open();
+    if !(before.is_published() && after.is_published() && changed) {
+        return Ok(());
     }
-    Ok(())
+    let audience = after.effective_audience();
+    let visible_to = match audience {
+        ContentAudience::Public => None,
+        ContentAudience::Private => Some(Vec::new()),
+        _ if planned.audience == audience => Some(planned.members.clone()),
+        _ => Some(Vec::new()),
+    };
+    emit_visibility_changed_in(tx, after, visible_to).await
+}
+
+/// Emits `video.video.visibility_changed` for `row` as it is now.
+pub(crate) async fn emit_visibility_changed_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    row: &VideoRow,
+    visible_to: Option<Vec<Uuid>>,
+) -> AppResult<()> {
+    let changed_at: Time = sqlx::query_scalar("SELECT clock_timestamp()").fetch_one(&mut **tx).await?;
+    let mut video = row.event(false);
+    video.visibility = row.effective_visibility();
+    let payload = crate::events::VideoVisibilityChanged { video, visible_to, changed_at };
+    core_events::emit(&mut **tx, VIDEO_VISIBILITY_CHANGED, Some(row.owner_id), &payload).await
+}
+
+/// The audience a creator is about to give a video, and who is in it, read
+/// from the social graph before a transaction opens.
+#[derive(Debug, Clone)]
+pub(crate) struct PlannedAudience {
+    pub audience: ContentAudience,
+    pub members: Vec<Uuid>,
+}
+
+impl PlannedAudience {
+    /// For `video` (as read before the change) given the visibility,
+    /// circle and link setting it is about to get.
+    pub async fn read(
+        core: &Core,
+        video: &VideoRow,
+        visibility: i32,
+        circle_id: Option<Uuid>,
+        allow_link: bool,
+    ) -> AppResult<Self> {
+        let planned = VideoRow {
+            visibility,
+            circle_id,
+            allow_link: allow_link && visibility == access::FRIENDS,
+            ..video.clone()
+        };
+        let audience = planned.effective_audience();
+        let members = match audience {
+            ContentAudience::Public | ContentAudience::Private => Vec::new(),
+            audience => {
+                let members = tokuly_social::graph::audience_member_ids(core, video.owner_id, audience).await?;
+                if members.len() > core_events::MAX_VISIBLE_TO {
+                    // Too many to name on the bus: only the ones who may have
+                    // something about the video in their inbox.
+                    let told: Vec<Uuid> = sqlx::query_scalar(
+                        "SELECT user_id FROM channel_subscriptions WHERE channel_id = $1
+                         UNION SELECT user_id FROM video_reactions WHERE video_id = $2",
+                    )
+                    .bind(video.channel_id)
+                    .bind(video.id)
+                    .fetch_all(&core.db)
+                    .await?;
+                    core_events::bounded_audience(members, Some(&told))
+                } else {
+                    core_events::bounded_audience(members, None)
+                }
+            }
+        };
+        Ok(Self { audience, members })
+    }
+}
+
+/// Whether going from `before` to `after` may leave out someone who could
+/// watch the video: it was open to everyone and is not any more, or it
+/// went to a narrower audience. Watch parties end then (their members are
+/// strangers to the owner as often as not).
+pub(crate) fn narrowed(before: &VideoRow, after: &VideoRow) -> bool {
+    let (was, now) = (before.effective_audience(), after.effective_audience());
+    let contains = now == was
+        || now == ContentAudience::Public
+        || (now == ContentAudience::Followers && was != ContentAudience::Public);
+    before.is_published() && (!after.is_published() || !contains)
 }
 
 /// Takes a video back to DRAFT (cancelling a schedule).

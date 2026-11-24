@@ -72,6 +72,8 @@ pub struct SoundRow {
     pub origin_status: Option<i32>,
     pub origin_visibility: Option<i32>,
     pub origin_suspended: Option<bool>,
+    pub origin_circle_id: Option<Uuid>,
+    pub origin_owner_locked: Option<bool>,
     pub origin_allow_remix: Option<bool>,
     pub origin_cover: Option<serde_json::Value>,
 }
@@ -80,7 +82,8 @@ macro_rules! sound_select {
     () => {
         "SELECT d.id, d.kind, d.title, d.artist, d.use_count, d.origin_short_id, o.short_id AS origin_public_id, \
          o.channel_id AS origin_channel_id, o.owner_id AS origin_owner_id, o.status AS origin_status, \
-         o.visibility AS origin_visibility, o.suspended AS origin_suspended, o.allow_remix AS origin_allow_remix, \
+         o.visibility AS origin_visibility, o.suspended AS origin_suspended, o.circle_id AS origin_circle_id, \
+         o.owner_locked AS origin_owner_locked, o.allow_remix AS origin_allow_remix, \
          o.cover AS origin_cover \
          FROM short_sounds d LEFT JOIN shorts o ON o.id = d.origin_short_id"
     };
@@ -92,7 +95,9 @@ impl SoundRow {
             owner_id: self.origin_owner_id?,
             status: self.origin_status?,
             visibility: self.origin_visibility?,
+            circle_id: self.origin_circle_id,
             suspended: self.origin_suspended?,
+            owner_locked: self.origin_owner_locked?,
         })
     }
 
@@ -141,7 +146,32 @@ fn not_found() -> AppError {
 }
 
 pub async fn find(core: &Core, sound_id: Uuid) -> AppResult<Option<SoundRow>> {
-    Ok(sqlx::query_as(concat!(sound_select!(), " WHERE d.id = $1")).bind(sound_id).fetch_optional(&core.db).await?)
+    let rows: Vec<SoundRow> =
+        sqlx::query_as(concat!(sound_select!(), " WHERE d.id = $1")).bind(sound_id).fetch_all(&core.db).await?;
+    Ok(settle_locks(core, rows).await?.pop())
+}
+
+/// Sound rows with the lock of their origin's owner as the social domain
+/// knows it right now: an account locked a moment ago (this domain's copy
+/// may not know yet) does not show its short behind a sound.
+async fn settle_locks(core: &Core, mut rows: Vec<SoundRow>) -> AppResult<Vec<SoundRow>> {
+    let doubtful: Vec<Uuid> = rows
+        .iter()
+        .filter(|row| {
+            row.origin_owner_locked == Some(false) && row.origin_visibility.is_some_and(tokuly_video::access::is_open)
+        })
+        .filter_map(|row| row.origin_owner_id)
+        .collect();
+    if doubtful.is_empty() {
+        return Ok(rows);
+    }
+    let locked = Viewer::anonymous().newly_locked(core, doubtful).await?;
+    for row in &mut rows {
+        if row.origin_owner_id.is_some_and(|owner| locked.contains(&owner)) {
+            row.origin_owner_locked = Some(true);
+        }
+    }
+    Ok(rows)
 }
 
 /// The sound a client named (`SOUND_NOT_FOUND` when there is none).
@@ -175,7 +205,7 @@ pub async fn find_many(core: &Core, ids: &[Uuid]) -> AppResult<HashMap<Uuid, Sou
     }
     let rows: Vec<SoundRow> =
         sqlx::query_as(concat!(sound_select!(), " WHERE d.id = ANY($1)")).bind(ids).fetch_all(&core.db).await?;
-    Ok(rows.into_iter().map(|row| (row.id, row)).collect())
+    Ok(settle_locks(core, rows).await?.into_iter().map(|row| (row.id, row)).collect())
 }
 
 fn title_invalid(message: &'static str) -> AppError {
@@ -310,6 +340,7 @@ pub async fn suggest(core: &Core, viewer: &Viewer, query: &str, limit: i64) -> A
     .bind(limit * 3)
     .fetch_all(&core.db)
     .await?;
+    let rows = settle_locks(core, rows).await?;
     Ok(rows.into_iter().filter(|sound| sound.reusable_by(viewer)).take(limit as usize).collect())
 }
 
@@ -321,22 +352,23 @@ pub async fn shorts_page(
     page: &Page,
 ) -> AppResult<(Vec<ShortRow>, tokuly_proto::common::PageInfo)> {
     let before: Option<(Time, Uuid)> = page.decode()?;
-    let mut rows: Vec<ShortRow> = sqlx::query_as(concat!(
-        "SELECT ",
-        short_columns!(),
-        " FROM shorts s WHERE s.sound_id = $1 AND ",
-        access::public!(2),
-        " AND ($3::timestamptz IS NULL OR (s.published_at, s.id) < ($3, $4))
-          ORDER BY s.published_at DESC, s.id DESC LIMIT $5"
-    ))
-    .bind(sound_id)
-    .bind(&viewer.blocked)
-    .bind(before.map(|(at, _)| at))
-    .bind(before.map(|(_, id)| id))
-    .bind(page.fetch())
-    .fetch_all(&core.db)
-    .await?;
+    let mut rows: Vec<ShortRow> = viewer
+        .query_as(concat!(
+            "SELECT ",
+            short_columns!(),
+            " FROM shorts s WHERE s.sound_id = $7 AND ",
+            access::public!(),
+            " AND ($8::timestamptz IS NULL OR (s.published_at, s.id) < ($8, $9))
+          ORDER BY s.published_at DESC, s.id DESC LIMIT $10"
+        ))
+        .bind(sound_id)
+        .bind(before.map(|(at, _)| at))
+        .bind(before.map(|(_, id)| id))
+        .bind(page.fetch())
+        .fetch_all(&core.db)
+        .await?;
     let info = page.finish(&mut rows, |row| (row.published_at.unwrap_or(row.created_at), row.id));
+    viewer.drop_newly_locked(core, &mut rows, ShortRow::lock_facts).await?;
     Ok((rows, info))
 }
 
@@ -358,6 +390,8 @@ mod tests {
             origin_status: Some(access::PUBLISHED),
             origin_visibility: Some(visibility),
             origin_suspended: Some(false),
+            origin_circle_id: None,
+            origin_owner_locked: Some(false),
             origin_allow_remix: Some(allow_remix),
             origin_cover: None,
         }

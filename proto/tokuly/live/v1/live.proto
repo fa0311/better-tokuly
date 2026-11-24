@@ -17,7 +17,17 @@ syntax = "proto3";
 //   NO_FEED   everyone; listed on the channel page only
 //   UNLISTED  everyone with the link; listed nowhere
 //   FRIENDS   friends of the channel's owner; listed for them only
+//   FOLLOWERS the owner's followers and friends (tokuly.social.v1); listed
+//             for them only; CLOSE_FRIENDS the owner's close friends;
+//             CIRCLE (with `circle_id`) one custom circle of the owner,
+//             shown to everyone but the owner as FOLLOWERS
 //   PRIVATE   the owner
+// Locked accounts (tokuly.social.v1 FollowSettings.locked): the PUBLIC,
+// NO_FEED and UNLISTED streams of a locked account reach only its
+// followers and friends from the next read after the lock: they leave
+// "live now", upcoming and search, need a playback token like FRIENDS
+// streams, and viewers who lost access are cut off. Its channels stay
+// visible (a channel never reveals its owner).
 // Streams of users in a block relation with the caller, and of suspended
 // accounts, read as not found.
 //
@@ -273,6 +283,9 @@ message StreamStudioInfo {
   int64 new_subscribers = 7;
   string archive_error = 8;
   EndReason end_reason = 9;
+  // VISIBILITY_CIRCLE: the caller's circle the stream is shared with (the
+  // summary shows the stream's own visibility to its owner).
+  string circle_id = 10;
 }
 
 // A stream page.
@@ -334,6 +347,9 @@ message CreateStreamRequest {
   optional bool gifts_enabled = 14;
   // Unset = chat open to every member, links allowed, stamps on.
   ChatSettings chat = 15;
+  // For VISIBILITY_CIRCLE: one of the caller's circles (CIRCLE_REQUIRED
+  // without one, CIRCLE_NOT_FOUND for anyone else's).
+  string circle_id = 16;
 }
 
 message CreateStreamResponse {
@@ -358,6 +374,8 @@ message UpdateStreamRequest {
   optional bool auto_archive = 13;
   optional bool auto_start = 14;
   optional bool gifts_enabled = 15;
+  // With `visibility` = VISIBILITY_CIRCLE: one of the caller's circles.
+  string circle_id = 16;
 }
 
 message UpdateStreamResponse {

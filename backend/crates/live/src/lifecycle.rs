@@ -42,7 +42,7 @@ use tokuly_video::channels;
 
 use crate::{
     Live,
-    access::{FRIENDS, PUBLIC},
+    access::{self, FRIENDS, PUBLIC},
     audience,
     events::{STREAM_ENDED, STREAM_STARTED},
     media_server::MediaPath,
@@ -151,13 +151,22 @@ impl Live {
             .await?;
         let stream = streams::lock(&mut tx, stream_id).await?.ok_or_else(streams::not_found)?;
         core_events::emit(&mut *tx, STREAM_STARTED, Some(stream.owner_id), &stream.event()).await?;
-        if matches!(stream.visibility, PUBLIC | FRIENDS) && !stream.suspended {
+        if matches!(stream.visibility, PUBLIC | FRIENDS | access::FOLLOWERS | access::CLOSE_FRIENDS | access::CIRCLE)
+            && !stream.suspended
+        {
             // Friends only, also for public streams: a channel does not
-            // reveal its owner to everyone.
+            // reveal its owner to everyone. Friends are inside the public,
+            // followers and friends audiences; the feed cannot tell who is
+            // in a circle, so those entries are the owner's own.
+            let audience = if matches!(stream.visibility, access::CLOSE_FRIENDS | access::CIRCLE) {
+                ActivityAudience::Private
+            } else {
+                ActivityAudience::Friends
+            };
             let mut entry = ActivityEntry::new(
                 stream.owner_id,
                 "live.started",
-                ActivityAudience::Friends,
+                audience,
                 Localized::new(
                     format!("ライブ配信を始めたよ!「{}」", stream.title),
                     format!("Went live: {}", stream.title),
@@ -180,7 +189,7 @@ impl Live {
         search::sync_stream(&mut tx, &stream, channel.as_ref()).await?;
         tx.commit().await?;
 
-        if stream.visibility == PUBLIC
+        if stream.is_discoverable()
             && !stream.game.is_empty()
             && let Err(error) = tokuly_video::games::record_use(core, &stream.game).await
         {
@@ -330,7 +339,9 @@ impl Live {
                     let restricted: Vec<StreamRow> = sqlx::query_as(concat!(
                         "SELECT ",
                         stream_columns!(),
-                        " FROM live_streams s WHERE (s.status = 2 AND s.visibility IN (4, 5)) OR (s.status = 1 AND s.encoder_connected)"
+                        " FROM live_streams s WHERE (s.status = 2 AND ",
+                        access::restricted!(),
+                        ") OR (s.status = 1 AND s.encoder_connected)"
                     ))
                     .fetch_all(&self.core.db)
                     .await?;

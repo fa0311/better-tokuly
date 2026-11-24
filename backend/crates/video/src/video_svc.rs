@@ -23,17 +23,39 @@ fn video_not_found() -> AppError {
     AppError::not_found("VIDEO_NOT_FOUND", "video not found")
 }
 
-/// A visibility named in an update: it must be one of the five values.
+/// A visibility named in an update: it must be a known value.
 fn explicit_visibility(value: buffa::EnumValue<Visibility>) -> AppResult<i32> {
     match value.as_known() {
         Some(Visibility::VISIBILITY_UNSPECIFIED) | None => {
             Err(AppError::invalid("VISIBILITY_INVALID", "unknown visibility"))
         }
-        Some(Visibility::VISIBILITY_FOLLOWERS | Visibility::VISIBILITY_CLOSE_FRIENDS | Visibility::VISIBILITY_CIRCLE) => {
-            Err(AppError::invalid("VISIBILITY_INVALID", "this audience is not available here yet"))
-        }
         Some(known) => Ok(known as i32),
     }
+}
+
+/// The audience an update asks for (`visibility`, with `circle_id` for a
+/// circle), checked against the owner's circles, and who is in it: `None`
+/// when the audience stays as it is.
+async fn requested_audience(
+    core: &Core,
+    video: &VideoRow,
+    visibility: Option<i32>,
+    circle_id: &str,
+    allow_link: Option<bool>,
+) -> AppResult<Option<(i32, Option<Uuid>, videos::PlannedAudience)>> {
+    let Some(visibility) = visibility else {
+        if allow_link.is_none() {
+            return Ok(None);
+        }
+        let planned =
+            videos::PlannedAudience::read(core, video, video.visibility, video.circle_id, allow_link.unwrap_or(false))
+                .await?;
+        return Ok(Some((video.visibility, video.circle_id, planned)));
+    };
+    let circle_id = access::chosen_circle(core, video.owner_id, visibility, parse_opt_id(circle_id)?).await?;
+    let allow_link = allow_link.unwrap_or(video.allow_link);
+    let planned = videos::PlannedAudience::read(core, video, visibility, circle_id, allow_link).await?;
+    Ok(Some((visibility, circle_id, planned)))
 }
 
 impl Video {
@@ -74,6 +96,7 @@ impl VideoService for Video {
                 category: validate::category(req.category)?,
                 game: req.game,
                 visibility,
+                circle_id: parse_opt_id(&req.circle_id)?,
                 allow_link: req.allow_link,
                 age_restricted: req.age_restricted,
                 comments_enabled: req.comments_enabled.unwrap_or(true),
@@ -109,6 +132,8 @@ impl VideoService for Video {
             let category = req.category.map(validate::category).transpose()?;
             let game = req.game.as_deref().map(validate::game).transpose()?;
             let visibility = req.visibility.map(explicit_visibility).transpose()?;
+            let audience = requested_audience(core, &video, visibility, &req.circle_id, req.allow_link).await?;
+            let circle_id = audience.as_ref().map(|(_, circle_id, _)| *circle_id);
             let duration = video.is_ready().then_some(video.duration_seconds);
             let chapters = req.chapters.into_option().map(|list| validate::chapters(&list.chapters, duration)).transpose()?;
             // `Some(None)`: back to the poster frame.
@@ -133,7 +158,8 @@ impl VideoService for Video {
                      category = COALESCE($5, category), game = COALESCE($6, game), visibility = COALESCE($7, visibility),
                      chapters = COALESCE($8, chapters), age_restricted = COALESCE($9, age_restricted),
                      comments_enabled = COALESCE($10, comments_enabled), notify_subscribers = COALESCE($11, notify_subscribers),
-                     allow_link = COALESCE($12, allow_link) AND COALESCE($7, visibility) = 4
+                     allow_link = COALESCE($12, allow_link) AND COALESCE($7, visibility) = 4,
+                     circle_id = CASE WHEN $13 THEN $14 ELSE circle_id END
                  WHERE id = $1",
             )
             .bind(video.id)
@@ -148,6 +174,8 @@ impl VideoService for Video {
             .bind(req.comments_enabled)
             .bind(req.notify_subscribers)
             .bind(req.allow_link)
+            .bind(visibility.is_some())
+            .bind(circle_id.flatten())
             .execute(&mut *tx)
             .await?;
             let thumbnail_changed = thumbnail.is_some();
@@ -181,10 +209,12 @@ impl VideoService for Video {
             if thumbnail_changed && video.is_public() && row.is_public() {
                 playlists::sync_search_of_video_in(&mut tx, row.id).await?;
             }
-            videos::announce_visibility_in(&mut tx, &video, &row).await?;
+            if let Some((_, _, planned)) = &audience {
+                videos::announce_visibility_in(&mut tx, &video, &row, planned).await?;
+            }
             tx.commit().await?;
-            // Nobody but the owner can follow a video that went private.
-            if row.is_published() && row.visibility == access::PRIVATE && video.visibility != access::PRIVATE {
+            // Parties end when some of their members may no longer watch.
+            if videos::narrowed(&video, &row) {
                 party::end_for_video(core, row.id).await?;
             }
             ok(UpdateVideoResponse { video: self.video_response(user_id, row.id).await?.into(), ..Default::default() })
@@ -203,27 +233,37 @@ impl VideoService for Video {
             let req = request.to_owned_message();
             let video = videos::find_owned(core, user_id, &req.video_id).await?;
             let visibility = req.visibility.map(explicit_visibility).transpose()?;
+            let audience = requested_audience(core, &video, visibility, &req.circle_id, None).await?;
             let publish_at = req.publish_at.as_option().map(from_ts);
 
             let mut tx = core.db.begin().await?;
             // Locked before anything is decided from it (see `update_video`).
             let video = videos::find_in(&mut tx, video.id).await?.ok_or_else(video_not_found)?;
-            if let Some(visibility) = visibility {
-                sqlx::query("UPDATE videos SET visibility = $2, allow_link = allow_link AND $2 = 4 WHERE id = $1")
-                    .bind(video.id)
-                    .bind(visibility)
-                    .execute(&mut *tx)
-                    .await?;
+            if let Some((visibility, circle_id, _)) = &audience {
+                sqlx::query(
+                    "UPDATE videos SET visibility = $2, circle_id = $3, allow_link = allow_link AND $2 = 4 WHERE id = $1",
+                )
+                .bind(video.id)
+                .bind(visibility)
+                .bind(circle_id)
+                .execute(&mut *tx)
+                .await?;
             }
             let row = videos::find_in(&mut tx, video.id).await?.ok_or_else(video_not_found)?;
+            let narrowed = videos::narrowed(&video, &row);
             if row.is_published() {
                 // Already live: only the visibility may have changed.
                 let row = videos::after_visible_change_in(&mut tx, video.is_public(), row, false).await?;
-                videos::announce_visibility_in(&mut tx, &video, &row).await?;
+                if let Some((_, _, planned)) = &audience {
+                    videos::announce_visibility_in(&mut tx, &video, &row, planned).await?;
+                }
             } else {
                 videos::request_publish_in(&mut tx, &row, publish_at).await?;
             }
             tx.commit().await?;
+            if narrowed {
+                party::end_for_video(core, video.id).await?;
+            }
             ok(PublishVideoResponse {
                 video: self.video_response(user_id, video.id).await?.into(),
                 ..Default::default()
@@ -307,19 +347,18 @@ impl VideoService for Video {
                 .iter()
                 .filter_map(|r| if let Ref::Short(id) = r { Some(id.clone()) } else { None })
                 .collect();
-            let mut rows: Vec<VideoRow> = sqlx::query_as(concat!(
-                "SELECT ",
-                video_columns!(),
-                " FROM videos v WHERE (v.id = ANY($1) OR v.short_id = ANY($2)) AND ",
-                watchable!(3, 4, 5)
-            ))
-            .bind(&ids)
-            .bind(&short_ids)
-            .bind(viewer.user_id)
-            .bind(&viewer.friends)
-            .bind(&viewer.blocked)
-            .fetch_all(&self.core.db)
-            .await?;
+            let mut rows: Vec<VideoRow> = viewer
+                .query_as(concat!(
+                    "SELECT ",
+                    video_columns!(),
+                    " FROM videos v WHERE (v.id = ANY($7) OR v.short_id = ANY($8)) AND ",
+                    watchable!()
+                ))
+                .bind(&ids)
+                .bind(&short_ids)
+                .fetch_all(&self.core.db)
+                .await?;
+            viewer.drop_newly_locked(&self.core, &mut rows, VideoRow::lock_facts).await?;
             let order = |row: &VideoRow| {
                 references
                     .iter()

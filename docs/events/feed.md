@@ -115,7 +115,9 @@ Durable consumer `feed`.
 | `notes.note.visibility_changed` | `{ note_id, author_id, visibility, changed_at, … }` | the author's entries about the note get the note's audience: public 1 → public, friends 4 and followers 6 → friends (friends are in both), anything else → private. Ordered by `changed_at` (taken while the note was locked), not by the event's time |
 | `notes.story.expired` | `{ story_id, owner_id }` | the owner's entries about the story become private |
 | `video.video.unpublished` | `VideoEvent` `{ video_id, owner_id, … }` | back to draft: the owner's entries about the video become private |
-| `video.video.published`, `video.video.visibility_changed` | `VideoEvent` `{ video_id, owner_id, visibility, … }` | the owner's entries are for friends again while the video is public (1) or for friends (4), private otherwise (the video domain announces every video to friends only) |
+| `video.video.published`, `video.video.visibility_changed` | `VideoEvent` `{ video_id, owner_id, visibility, … }` (`visibility_changed` also `changed_at`, by which two changes are ordered) | the owner's entries are for friends again while the video is public (1), for followers (6: friends are inside, also a locked owner's open video) or for friends (4), private otherwise (unlisted, close friends, a circle: the feed cannot tell who is in one; the video domain announces every video to friends only) |
+| `shorts.short.visibility_changed` | `{ id, owner_id, visibility, changed_at, … }` | the same for the short (`SUBJECT_TYPE_SHORT`) |
+| `live.stream.visibility_changed` | `{ stream_id, owner_id, visibility, changed_at, … }` | the same for the stream (`SUBJECT_TYPE_LIVE_STREAM`) |
 | `ask.answer.deleted` | `{ question_id, owner_id }` | deletes the `ask.answered` entries about the question (`SUBJECT_TYPE_QUESTION`); not remembered, since the question can be answered again under the same ID |
 
 ## Events emitted

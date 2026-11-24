@@ -45,6 +45,8 @@ pub struct PlaylistRow {
     pub like_count: i64,
     /// The owner's account is suspended.
     pub suspended: bool,
+    /// The owner's account is locked, as this domain's copy knows it.
+    pub owner_locked: bool,
     pub created_at: Time,
     pub updated_at: Time,
 }
@@ -53,7 +55,7 @@ macro_rules! playlist_columns {
     () => {
         "p.id, p.short_id, p.owner_id, p.channel_id, p.kind, p.title, p.description, p.visibility, p.item_count, \
          p.like_count, COALESCE((SELECT u.banned_at IS NOT NULL FROM users u WHERE u.id = p.owner_id), false) AS suspended, \
-         p.created_at, p.updated_at"
+         p.owner_locked, p.created_at, p.updated_at"
     };
 }
 pub(crate) use playlist_columns;
@@ -63,9 +65,15 @@ impl PlaylistRow {
         self.kind != KIND_CUSTOM
     }
 
-    /// Listed for everyone: on the channel page and in search.
+    /// Listed for everyone: on the channel page and in search. A locked
+    /// owner's playlists are not.
     pub fn is_public(&self) -> bool {
-        self.kind == KIND_CUSTOM && self.visibility == access::PUBLIC && !self.suspended
+        self.kind == KIND_CUSTOM && self.visibility == access::PUBLIC && !self.suspended && !self.owner_locked
+    }
+
+    /// Public or unlisted: open to everyone who has the link, were the owner not locked.
+    pub fn is_open(&self) -> bool {
+        self.kind == KIND_CUSTOM && matches!(self.visibility, access::PUBLIC | access::UNLISTED)
     }
 
     /// Path of the playlist page in the web app.
@@ -74,12 +82,24 @@ impl PlaylistRow {
     }
 
     /// Whether `viewer` may open the playlist: the owner always; everyone
-    /// else when it is public or unlisted and its owner is not hidden from them.
+    /// else when it is public or unlisted, its owner is not hidden from them
+    /// and, for a locked owner, they are a follower or friend.
     pub fn visible_to(&self, viewer: &Viewer) -> bool {
         viewer.is(self.owner_id)
-            || (self.kind == KIND_CUSTOM
-                && matches!(self.visibility, access::PUBLIC | access::UNLISTED)
-                && viewer.may_see_owner(self.owner_id, self.suspended))
+            || (self.is_open()
+                && viewer.may_see_owner(self.owner_id, self.suspended)
+                && (!self.owner_locked || viewer.is_tied_to(self.owner_id)))
+    }
+
+    /// [`Self::visible_to`], with the owner's lock as the social domain knows it now.
+    pub async fn visible_now(&self, core: &Core, viewer: &Viewer) -> AppResult<bool> {
+        if !self.visible_to(viewer) {
+            return Ok(false);
+        }
+        if !viewer.doubts_lock(self.owner_id, self.is_open(), self.owner_locked) {
+            return Ok(true);
+        }
+        Ok(!access::is_locked_now(core, self.owner_id).await?)
     }
 }
 
@@ -152,7 +172,9 @@ pub async fn resolve(core: &Core, viewer: &Viewer, reference: &str) -> AppResult
         return builtin(core, user_id, kind).await;
     }
     let Ok(reference) = Ref::parse(reference) else { return Err(not_found()) };
-    find(core, &reference).await?.filter(|playlist| playlist.visible_to(viewer)).ok_or_else(not_found)
+    let playlist = find(core, &reference).await?.ok_or_else(not_found)?;
+    ensure!(playlist.visible_now(core, viewer).await?, not_found, "PLAYLIST_NOT_FOUND", "playlist not found");
+    Ok(playlist)
 }
 
 /// The playlist a client named, which must belong to `user_id`.
@@ -251,7 +273,8 @@ pub(crate) async fn move_item_in(
 pub(crate) async fn public_thumbnail_in(tx: &mut Tx<'_>, playlist_id: Uuid) -> AppResult<Option<String>> {
     let thumbnail: Option<serde_json::Value> = sqlx::query_scalar(
         "SELECT v.thumbnail FROM playlist_items i JOIN videos v ON v.id = i.video_id
-         WHERE i.playlist_id = $1 AND v.status = 3 AND v.visibility = 1 AND NOT v.suspended AND v.thumbnail IS NOT NULL
+         WHERE i.playlist_id = $1 AND v.status = 3 AND v.visibility = 1 AND NOT v.suspended AND NOT v.owner_locked
+           AND v.thumbnail IS NOT NULL
          ORDER BY i.position, i.video_id LIMIT 1",
     )
     .bind(playlist_id)
@@ -363,7 +386,8 @@ pub async fn refresh_search(core: &Core, job: &PlaylistSearchJob) -> AppResult<O
 async fn public_thumbnail(core: &Core, playlist_id: Uuid) -> AppResult<Option<String>> {
     let thumbnail: Option<serde_json::Value> = sqlx::query_scalar(
         "SELECT v.thumbnail FROM playlist_items i JOIN videos v ON v.id = i.video_id
-         WHERE i.playlist_id = $1 AND v.status = 3 AND v.visibility = 1 AND NOT v.suspended AND v.thumbnail IS NOT NULL
+         WHERE i.playlist_id = $1 AND v.status = 3 AND v.visibility = 1 AND NOT v.suspended AND NOT v.owner_locked
+           AND v.thumbnail IS NOT NULL
          ORDER BY i.position, i.video_id LIMIT 1",
     )
     .bind(playlist_id)
@@ -387,6 +411,15 @@ pub(crate) async fn delete_in(
     Ok(())
 }
 
+#[derive(sqlx::FromRow)]
+struct ThumbnailRow {
+    id: Uuid,
+    thumbnail: Option<serde_json::Value>,
+    owner_id: Option<Uuid>,
+    open: Option<bool>,
+    owner_locked: Option<bool>,
+}
+
 /// Playlists as `viewer` sees them, in order. `contains_video` fills
 /// `Playlist.contains_video` for that video.
 pub async fn to_protos(
@@ -400,21 +433,39 @@ pub async fn to_protos(
     }
     let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
     // The thumbnail is that of the first video the viewer may watch.
-    let thumbnails: Vec<(Uuid, Option<serde_json::Value>)> = sqlx::query_as(concat!(
-        "SELECT p.id, t.thumbnail FROM unnest($1::uuid[]) AS p(id)
-         LEFT JOIN LATERAL (
-             SELECT v.thumbnail FROM playlist_items i JOIN videos v ON v.id = i.video_id
-             WHERE i.playlist_id = p.id AND v.thumbnail IS NOT NULL AND ",
-        watchable!(2, 3, 4),
-        " ORDER BY i.position, i.video_id LIMIT 1
-         ) t ON true"
-    ))
-    .bind(&ids)
-    .bind(viewer.user_id)
-    .bind(&viewer.friends)
-    .bind(&viewer.blocked)
-    .fetch_all(&core.db)
-    .await?;
+    // The picture comes from the first video the viewer may watch. Owners
+    // whose lock this domain has not heard of yet are asked about, and their
+    // videos passed over ($8).
+    let mut passed_over: Vec<Uuid> = Vec::new();
+    let thumbnails = loop {
+        let found: Vec<ThumbnailRow> = viewer
+            .query_as(concat!(
+                "SELECT p.id, t.thumbnail, t.owner_id, t.open, t.owner_locked FROM unnest($7::uuid[]) AS p(id)
+                 LEFT JOIN LATERAL (
+                     SELECT v.thumbnail, v.owner_id, v.owner_locked,
+                            (v.visibility IN (1, 2, 3) OR (v.visibility = 4 AND v.allow_link)) AS open
+                     FROM playlist_items i JOIN videos v ON v.id = i.video_id
+                     WHERE i.playlist_id = p.id AND v.thumbnail IS NOT NULL AND NOT (v.owner_id = ANY($8)) AND ",
+                watchable!(),
+                " ORDER BY i.position, i.video_id LIMIT 1
+                 ) t ON true"
+            ))
+            .bind(&ids)
+            .bind(&passed_over)
+            .fetch_all(&core.db)
+            .await?;
+        let doubtful = found.iter().filter_map(|row| {
+            let owner = row.owner_id?;
+            viewer.doubts_lock(owner, row.open.unwrap_or(false), row.owner_locked.unwrap_or(false)).then_some(owner)
+        });
+        let locked = viewer.newly_locked(core, doubtful).await?;
+        if locked.is_empty() {
+            break found;
+        }
+        passed_over.extend(locked);
+    };
+    let thumbnails: Vec<(Uuid, Option<serde_json::Value>)> =
+        thumbnails.into_iter().map(|row| (row.id, row.thumbnail)).collect();
     let thumbnails: HashMap<Uuid, Option<serde_json::Value>> = thumbnails.into_iter().collect();
     let containing: Vec<Uuid> = match contains_video {
         Some(video_id) => {
@@ -480,6 +531,7 @@ mod tests {
             item_count: 0,
             like_count: 0,
             suspended: false,
+            owner_locked: false,
             created_at: now(),
             updated_at: now(),
         }
@@ -506,5 +558,11 @@ mod tests {
         let mut suspended = playlist(owner, KIND_CUSTOM, access::PUBLIC);
         suspended.suspended = true;
         assert!(!suspended.visible_to(&stranger) && suspended.visible_to(&me) && !suspended.is_public());
+        let mut locked = playlist(owner, KIND_CUSTOM, access::UNLISTED);
+        locked.owner_locked = true;
+        let follower = Viewer { user_id: Some(Uuid::now_v7()), following: vec![owner], ..Default::default() };
+        assert!(
+            locked.visible_to(&follower) && !locked.visible_to(&stranger) && !locked.visible_to(&Viewer::anonymous())
+        );
     }
 }

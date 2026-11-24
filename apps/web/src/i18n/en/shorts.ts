@@ -167,7 +167,10 @@ export default {
   },
   visibility: {
     public: { label: "Public", hint: "Shows in For you, tags and search" },
+    followers: { label: "Followers", hint: "Reaches your followers and friends" },
     friends: { label: "Friends only", hint: "Shows in friends' feeds and on the channel" },
+    closeFriends: { label: "Close friends", hint: "Only your close friends list" },
+    circle: { label: "Circle", hint: "Only the circle you pick (they never see its name)" },
     noFeed: { label: "Not in feeds", hint: "Only on the channel page" },
     unlisted: { label: "Unlisted", hint: "Only people with the link" },
     private: { label: "Only me", hint: "Nobody else can see it" },
@@ -185,6 +188,11 @@ export default {
     suggestions: "Suggestions",
     audience: "Audience and permissions",
     visibility: "Who can see it",
+    circle: "Which circle?",
+    circleNone: "No circles yet. Make one on the friends screen!",
+    circleMissing: "The circle you picked is gone. Pick another one",
+    lockedNote:
+      "Your account is locked, so even public shorts reach only your followers and friends",
     comments: "Allow comments and likes",
     commentsHint: "When off, the short takes no new comments or likes",
     remix: "Allow remixes",

@@ -22,6 +22,7 @@ import {
   videoClient,
   videoKeys,
 } from "../api";
+import { CircleField, LockedNote } from "../audience";
 import { toLocalInput } from "../format";
 import { VIDEO_VISIBILITIES } from "../labels";
 import { type PlayerHandle, VideoPlayer } from "../player/player";
@@ -133,6 +134,7 @@ function Editor({
           category: next.category,
           game: next.game.trim(),
           visibility: next.visibility,
+          circleId: next.visibility === common.Visibility.CIRCLE ? next.circleId : "",
           ageRestricted: next.ageRestricted,
           commentsEnabled: next.commentsEnabled,
           notifySubscribers: next.notifySubscribers,
@@ -152,8 +154,9 @@ function Editor({
     store(updated);
     const visibility = updated?.summary?.visibility;
     if (!visibility) return;
-    setDraft((current) => ({ ...current, visibility }));
-    setSaved((current) => ({ ...current, visibility }));
+    const circleId = updated?.studio?.circleId ?? "";
+    setDraft((current) => ({ ...current, visibility, circleId }));
+    setSaved((current) => ({ ...current, visibility, circleId }));
   };
 
   return (
@@ -445,6 +448,7 @@ function StatusCard({
         onOpenChange={setPublishing}
         summary={summary}
         visibility={draft.visibility}
+        circleId={draft.circleId}
         blocked={dirty && problem !== null}
         // What was typed goes with the video: unsaved details are saved before it is published.
         beforePublish={dirty ? saveDraft : undefined}
@@ -470,6 +474,7 @@ function PublishDialog({
   onOpenChange,
   summary,
   visibility,
+  circleId,
   blocked,
   beforePublish,
   onPublished,
@@ -479,6 +484,8 @@ function PublishDialog({
   summary: video.VideoSummary;
   /** The audience chosen in the details form. */
   visibility: common.Visibility;
+  /** Its circle, for CIRCLE. */
+  circleId: string;
   /** The details have a problem that must be fixed first. */
   blocked: boolean;
   beforePublish?(): Promise<unknown>;
@@ -489,6 +496,7 @@ function PublishDialog({
   const [audience, setAudience] = useState<common.Visibility | null>(null);
   const chosen =
     audience ?? (visibility === common.Visibility.PRIVATE ? common.Visibility.PUBLIC : visibility);
+  const [circle, setCircle] = useState(circleId);
   const [when, setWhen] = useState<"now" | "later">(summary.scheduledAt ? "later" : "now");
   const [at, setAt] = useState(() =>
     toLocalInput(
@@ -508,6 +516,7 @@ function PublishDialog({
         await videoClient().publishVideo({
           videoId: summary.id,
           visibility: chosen,
+          circleId: chosen === common.Visibility.CIRCLE ? circle : "",
           publishAt: when === "later" ? fromDate(atDate) : undefined,
         })
       ).video;
@@ -566,6 +575,16 @@ function PublishDialog({
             hint: t(`visibility.${option.key}Hint`),
           }))}
         />
+        {chosen === common.Visibility.CIRCLE && (
+          <CircleField
+            label={t("visibility.circlePick")}
+            emptyText={t("visibility.circleNone")}
+            missingText={t("visibility.circleMissing")}
+            value={circle}
+            onChange={setCircle}
+          />
+        )}
+        <LockedNote text={t("visibility.lockedNote")} />
         <Tabs<"now" | "later">
           value={when}
           onChange={setWhen}

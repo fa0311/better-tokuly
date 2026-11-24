@@ -36,6 +36,7 @@ use tokuly_proto::{
     media::{AssetKind, AssetPurpose, AssetStatus, VideoInfo},
     shorts::{CoverKind, RemixKind},
 };
+use tokuly_social::graph::ContentAudience;
 use tokuly_video::channels::{ChannelRow, NotifyLevel};
 
 use crate::{
@@ -128,6 +129,10 @@ pub struct ShortRow {
     pub milestone: i64,
     pub pinned_at: Option<Time>,
     pub suspended: bool,
+    /// VISIBILITY_CIRCLE only: the owner's circle.
+    pub circle_id: Option<Uuid>,
+    /// The owner's account is locked, as this domain's copy knows it.
+    pub owner_locked: bool,
     /// Counted as a public short right now (see [`listing`]).
     pub listed: bool,
     pub announced_at: Option<Time>,
@@ -146,7 +151,7 @@ macro_rules! short_columns {
          s.remix_kind, s.source_type, s.source_id, s.status, s.reported_at, s.withdrawn_at, s.processing_error, \
          s.playback, s.duration_seconds, s.width, s.height, s.view_count, s.like_count, s.comment_count, s.share_count, \
          s.save_count, s.loop_count, s.remix_count, s.watch_ratio_sum, s.watch_samples, s.score, s.trending, \
-         s.milestone, s.pinned_at, s.suspended, s.listed, s.announced_at, s.announce_cursor, s.published_at, \
+         s.milestone, s.pinned_at, s.suspended, s.circle_id, s.owner_locked, s.listed, s.announced_at, s.announce_cursor, s.published_at, \
          s.created_at, s.updated_at"
     };
 }
@@ -158,8 +163,33 @@ impl ShortRow {
             owner_id: self.owner_id,
             status: self.status,
             visibility: self.visibility,
+            circle_id: self.circle_id,
             suspended: self.suspended,
+            owner_locked: self.owner_locked,
         }
+    }
+
+    /// See [`ShortFacts::lock_facts`].
+    pub fn lock_facts(&self) -> (Uuid, bool, bool) {
+        self.facts().lock_facts()
+    }
+
+    /// The audience the short is shared with, as the social graph names
+    /// it, given whether the owner is `locked`: open shorts of a locked
+    /// owner reach followers (and friends) only.
+    pub fn audience(&self, locked: bool) -> ContentAudience {
+        if tokuly_video::access::is_open(self.visibility) {
+            if locked { ContentAudience::Followers } else { ContentAudience::Public }
+        } else {
+            tokuly_video::access::audience_of(self.visibility, self.circle_id)
+        }
+    }
+
+    /// The visibility in effect (as `shorts.short.visibility_changed` names
+    /// it): an open short of a locked owner reads as FOLLOWERS.
+    pub fn effective_visibility(&self) -> i32 {
+        // NO_FEED and UNLISTED keep their number: a lock never widens them.
+        if self.owner_locked && self.visibility == access::PUBLIC { access::FOLLOWERS } else { self.visibility }
     }
 
     pub fn is_published(&self) -> bool {
@@ -277,7 +307,23 @@ pub async fn find_ref(core: &Core, reference: &str) -> AppResult<Option<ShortRow
 /// The short a client named, if `viewer` may watch it (`SHORT_NOT_FOUND`
 /// otherwise, whatever the reason).
 pub async fn find_watchable(core: &Core, viewer: &Viewer, reference: &str) -> AppResult<ShortRow> {
-    find_ref(core, reference).await?.filter(|short| access::can_watch(viewer, &short.facts())).ok_or_else(not_found)
+    let short = find_ref(core, reference).await?.ok_or_else(not_found)?;
+    ensure!(can_watch_now(core, viewer, &short).await?, not_found, "SHORT_NOT_FOUND", "short not found");
+    Ok(short)
+}
+
+/// Whether `viewer` may watch `short`, with its owner's lock as the social
+/// domain knows it right now ([`access::can_watch`] and
+/// `Viewer::newly_locked`).
+pub async fn can_watch_now(core: &Core, viewer: &Viewer, short: &ShortRow) -> AppResult<bool> {
+    if !access::can_watch(viewer, &short.facts()) {
+        return Ok(false);
+    }
+    let (owner, open, locked) = short.lock_facts();
+    if !viewer.doubts_lock(owner, open, locked) {
+        return Ok(true);
+    }
+    Ok(!tokuly_video::access::is_locked_now(core, owner).await?)
 }
 
 /// The short a client named, which must belong to `owner_id` (and not have
@@ -332,9 +378,6 @@ pub fn validate_visibility(value: buffa::EnumValue<tokuly_proto::common::Visibil
     use tokuly_proto::common::Visibility;
     match value.as_known() {
         Some(Visibility::VISIBILITY_UNSPECIFIED) => Ok(default),
-        Some(Visibility::VISIBILITY_FOLLOWERS | Visibility::VISIBILITY_CLOSE_FRIENDS | Visibility::VISIBILITY_CIRCLE) => {
-            Err(AppError::invalid("VISIBILITY_INVALID", "this audience is not available here yet"))
-        }
         Some(known) => Ok(known as i32),
         None => Err(AppError::invalid("VISIBILITY_INVALID", "unknown visibility")),
     }
@@ -415,6 +458,8 @@ pub struct NewShort {
     pub caption: String,
     /// `tokuly.common.v1.Visibility` as its number.
     pub visibility: i32,
+    /// For VISIBILITY_CIRCLE: one of the owner's circles.
+    pub circle_id: Option<Uuid>,
     pub comments_enabled: bool,
     pub allow_remix: bool,
     pub allow_duet: bool,
@@ -456,6 +501,8 @@ impl Shorts {
             None => None,
         };
         let sound = sounds::plan(core, &owner, &new.sound).await?;
+        let circle_id = tokuly_video::access::chosen_circle(core, owner_id, new.visibility, new.circle_id).await?;
+        let owner_locked = tokuly_video::access::is_locked_now(core, owner_id).await?;
         self.charge_mentions(owner_id, &mentions, &[]).await?;
 
         let short_id = new_id();
@@ -469,8 +516,9 @@ impl Shorts {
             "INSERT INTO shorts (id, short_id, channel_id, owner_id, asset_id, owns_asset, caption, hashtags, mentions,
                                  cover, cover_kind, cover_asset_id, cover_offset_ms, visibility, comments_enabled,
                                  allow_remix, allow_duet, notify_subscribers, remix_of_id, remix_kind, source_type,
-                                 source_id, suspended)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)",
+                                 source_id, suspended, circle_id, owner_locked)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                     $24, $25)",
         )
         .bind(short_id)
         .bind(tokuly_core::ids::new_short_id())
@@ -495,6 +543,8 @@ impl Shorts {
         .bind(media.source.map(|(subject_type, _)| subject_type).unwrap_or(0))
         .bind(media.source.map(|(_, id)| id))
         .bind(new.channel.suspended)
+        .bind(circle_id)
+        .bind(owner_locked)
         .execute(&mut *tx)
         .await
         .map_err(|e| {
@@ -522,6 +572,11 @@ impl Shorts {
 
         if first_on_channel {
             self.adopt_subscribers(new.channel.id).await?;
+        }
+        // Locked or unlocked since it was read, and the pass that applies
+        // that may have run before this short existed: apply it now.
+        if tokuly_video::access::is_locked_now(core, owner_id).await? != owner_locked {
+            self.sync_owner_lock(owner_id).await?;
         }
         // A READY asset publishes the short right away; one that finished
         // between our read and the insert is caught up here too (its `ready`
@@ -712,10 +767,14 @@ async fn resolve_remix(core: &Core, creator: &Viewer, reference: &str, kind: i32
         "REMIX_KIND_INVALID",
         "say whether this is a remix or a duet"
     );
-    let original = find_ref(core, reference)
-        .await?
-        .filter(|short| short.is_published() && access::can_watch(creator, &short.facts()))
-        .ok_or_else(|| AppError::not_found("REMIX_NOT_FOUND", "the short to remix does not exist"))?;
+    let missing = || AppError::not_found("REMIX_NOT_FOUND", "the short to remix does not exist");
+    let original = find_ref(core, reference).await?.filter(|short| short.is_published()).ok_or_else(missing)?;
+    ensure!(
+        can_watch_now(core, creator, &original).await?,
+        not_found,
+        "REMIX_NOT_FOUND",
+        "the short to remix does not exist"
+    );
     let allowed =
         creator.is(original.owner_id) || if kind == duet { original.allow_duet } else { original.allow_remix };
     ensure!(allowed, denied, "REMIX_NOT_ALLOWED", "the creator of that short does not allow this");
@@ -886,6 +945,8 @@ impl Shorts {
 pub struct ShortEdit {
     pub caption: Option<String>,
     pub visibility: Option<i32>,
+    /// With `visibility` = VISIBILITY_CIRCLE: one of the owner's circles.
+    pub circle_id: Option<Uuid>,
     pub comments_enabled: Option<bool>,
     pub allow_remix: Option<bool>,
     pub allow_duet: Option<bool>,
@@ -912,7 +973,13 @@ impl Shorts {
             None => None,
         };
 
-        let context = listing::Context::load(core, short).await?;
+        let circle_id = match edit.visibility {
+            Some(visibility) => {
+                tokuly_video::access::chosen_circle(core, short.owner_id, visibility, edit.circle_id).await?
+            }
+            None => short.circle_id,
+        };
+        let context = listing::Context::of(core, short.channel_id, short.owner_id, circle_id).await?;
         let mut aftermath = Aftermath::default();
         let mut tx = core.db.begin().await?;
         let current =
@@ -921,7 +988,8 @@ impl Shorts {
             "UPDATE shorts SET caption = COALESCE($2, caption), hashtags = COALESCE($3, hashtags),
                     mentions = COALESCE($4, mentions), visibility = COALESCE($5, visibility),
                     comments_enabled = COALESCE($6, comments_enabled), allow_remix = COALESCE($7, allow_remix),
-                    allow_duet = COALESCE($8, allow_duet)
+                    allow_duet = COALESCE($8, allow_duet),
+                    circle_id = CASE WHEN $5 IS NULL THEN circle_id ELSE $9 END
              WHERE id = $1",
         )
         .bind(short.id)
@@ -932,6 +1000,7 @@ impl Shorts {
         .bind(edit.comments_enabled)
         .bind(edit.allow_remix)
         .bind(edit.allow_duet)
+        .bind(circle_id)
         .execute(&mut *tx)
         .await?;
         if let Some(cover) = &cover {
@@ -960,6 +1029,7 @@ impl Shorts {
             .await?;
         }
         let row = listing::after_change_in(&mut tx, short.id, false, &context).await?;
+        listing::announce_audience_in(&mut tx, &current, &row, &context).await?;
         tx.commit().await?;
         aftermath.run(core).await;
         if let (Some(CoverPlan::Frame(offset_ms)), true) = (&cover, row.is_published()) {

@@ -42,7 +42,7 @@ impl SubjectResolver for ShortSubjects {
     async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let Some(short) = shorts::find_ref(&self.core, id).await? else { return Ok(None) };
         let viewer = Viewer::load(&self.core, viewer).await?;
-        let watchable = access::can_watch(&viewer, &short.facts());
+        let watchable = shorts::can_watch_now(&self.core, &viewer, &short).await?;
         // Someone who was notified of a mention in this short can always
         // point at it (to report it), whatever its owner did with it
         // since: made it private, took the mention out, deleted it.
@@ -116,12 +116,7 @@ impl DataExporter for ShortsExporter {
         let kept = |sql: &'static str| {
             let viewer = &viewer;
             async move {
-                let rows: Vec<serde_json::Value> = sqlx::query_scalar(sql)
-                    .bind(user_id)
-                    .bind(&viewer.friends)
-                    .bind(&viewer.blocked)
-                    .fetch_all(db)
-                    .await?;
+                let rows: Vec<serde_json::Value> = viewer.query_scalar(sql).fetch_all(db).await?;
                 AppResult::Ok(serde_json::Value::Array(rows))
             }
         };
@@ -146,12 +141,12 @@ impl DataExporter for ShortsExporter {
             "saved": kept(concat!(
                 "SELECT jsonb_build_object('short_id', v.short_id, 'saved_at', v.created_at)
                  FROM short_saves v JOIN shorts s ON s.id = v.short_id
-                 WHERE v.user_id = $1 AND ", access::watchable!(1, 2, 3), " ORDER BY v.created_at"
+                 WHERE v.user_id = $1 AND ", access::watchable!(), " ORDER BY v.created_at"
             )).await?,
             "liked": kept(concat!(
                 "SELECT jsonb_build_object('short_id', l.short_id, 'liked_at', l.created_at)
                  FROM short_likes l JOIN shorts s ON s.id = l.short_id
-                 WHERE l.user_id = $1 AND l.liked AND ", access::watchable!(1, 2, 3), " ORDER BY l.created_at"
+                 WHERE l.user_id = $1 AND l.liked AND ", access::watchable!(), " ORDER BY l.created_at"
             )).await?,
             "not_interested": section(
                 "SELECT jsonb_build_object('short_id', short_id, 'channel_id', channel_id, 'hashtags', hashtags,

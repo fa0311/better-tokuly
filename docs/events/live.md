@@ -57,7 +57,7 @@ uses the playback server or its control API:
 | `action` | Allowed when |
 |---|---|
 | `publish` | the path is a stream that is not over, deleted or suspended, and the credential (`token`, or `password` for SRT) is its stream key |
-| `read` | the stream is on air and PUBLIC / NO_FEED / UNLISTED; otherwise the request carries a valid playback token (`?t=`, or as bearer token) |
+| `read` | the stream is on air, PUBLIC / NO_FEED / UNLISTED and its owner not locked (the copy, and the social domain asked again); otherwise the request carries a valid playback token (`?t=`, or as bearer token) of a viewer who may watch now |
 | `playback` | as `read`; the stream is on air with DVR on, and `start` lies after `started_at` and within `TOKULY_LIVE_DVR_WINDOW_SECONDS` |
 | `api`, `metrics`, `pprof` | user `tokuly` with `TOKULY_MEDIAMTX_API_SECRET` as password (the worker) |
 
@@ -205,6 +205,24 @@ Recording: MediaMTX writes fMP4 segments to
 (`recordPath: /recordings/%path/%s-%f`); its playback server serves the DVR.
 MediaMTX never deletes them (`recordDeleteAfter: 0s`); the worker does.
 
+## Audiences and locked accounts
+
+Streams take the audiences of videos (see `docs/events/video.md`,
+"Audiences and locked accounts", and `tokuly_video::access`): PUBLIC,
+NO_FEED, UNLISTED, FOLLOWERS, FRIENDS, CLOSE_FRIENDS, CIRCLE (shown to
+everyone but the owner as FOLLOWERS on cards; `circle_id` in
+`StreamStudioInfo`) and PRIVATE. `live_streams.owner_locked` copies
+whether the owner is locked (`social.follow.settings_changed`, and when
+the stream is created). A locked account's open streams leave "live now",
+upcoming and search, need a playback token like FRIENDS streams, and
+reach only followers and friends; reads (and the media hook) check the
+social domain for rows that reach someone only through the copy, so a
+lock applies at the next read. Clips can be cut only from sources open to
+everyone whose owner is not locked. Who may follow a stream's topic or
+keep a media session is re-checked when a follow ends, a circle loses
+members or is deleted, a friendship ends, a block is made, the audience
+narrows or the owner locks the account.
+
 ## Events emitted
 
 Payload structs live in `tokuly_live::events`. All are written in the
@@ -215,6 +233,7 @@ transaction of the change they describe.
 | `live.stream.started` | `StreamEvent` | A stream went on air. Actor: the owner. |
 | `live.stream.ended` | `StreamEvent` | A stream is over (`end_reason`: `EndReason` number; `went_live` false = cancelled before it started). Actor: the owner, or nobody. |
 | `live.stream.deleted` | `StreamEvent` | A stream is gone (always after `ended`). |
+| `live.stream.visibility_changed` | `StreamEvent` + `{ visible_to, changed_at }` | A stream got another audience, or (once per open stream) its owner locked or unlocked their account. `visibility` is the audience now in effect (6 for a PUBLIC stream of a locked owner; NO_FEED and UNLISTED keep their number); `visible_to` who besides the owner may still watch (`null`: everyone; otherwise the audience as the social graph gives it); `changed_at` taken while the stream was locked. At most 5 000 people are named (`tokuly_core::events::MAX_VISIBLE_TO`): a longer list is narrowed to nobody (`[]`), which withdraws too much, never too little. **Never forward to outside parties.** |
 | `live.stream.archived` | `{ stream_id, video_id, channel_id, owner_id }` | The recording became a video. |
 | `live.gift.sent` | `{ gift_id, stream_id?, channel_id, sender_id, recipient_id, coins, net_coins, tier }` | A gift settled (once per gift). Actor: the sender. |
 | `live.clip.ready` | `ClipEvent` | A clip finished processing. Actor: its creator. |
@@ -237,11 +256,13 @@ arrives twice, late, or after what it names is gone.
 | `video.channel.subscribed` | On the channel's stream on air: counted in `new_subscribers` and announced by the alert boxes once per person and stream; subscriber goals are pushed. |
 | `video.channel.deleted` | The channel's streams are ended and deleted, its clips, overlays, moderators, restrictions and banned words removed. |
 | `video.video.deleted` | Clips of the video are deleted; a stream it was the archive of has no archive. |
-| `video.video.published` / `.unpublished` | The search documents of the video's clips are rewritten. |
+| `video.video.published` / `.unpublished` / `.visibility_changed` | The search documents of the video's clips are rewritten (a video that stopped being public, also through its owner's lock, takes its clips out of search). |
 | `admin.content.removed` | `LIVE_STREAM`: ended (no archive) and deleted. `CLIP`: deleted, its upload removed by force. `LIVE_CHAT_MESSAGE`: removed from the chat. |
 | `identity.user.deleted` | The user's streams are erased (not kept), the clips they cut or that were cut from their channels deleted, their chat messages, votes, reminders, moderator seats, restrictions, overlays and banned words removed. Gifts stay as bookkeeping with the user's ID nulled; unpaid ones are dropped. |
 | `identity.user.banned` / `.unbanned` | Only a signal to look: `live_streams.suspended` follows whether the account is banned *now* (the two can arrive in any order). A stream on air ends; streams leave or return to search. |
 | `social.user.blocked` | Moderator appointments and reminders between the two are removed, and the blocked person's media sessions on the blocker's restricted live streams are cut (`enforce_access`). (A blocked user does not see the blocker's streams at all, immediately.) |
+| `social.follow.settings_changed` `{ user_id }` | Re-reads whether the account is locked and copies it onto the account's streams: search follows (the streams' clips too), one `live.stream.visibility_changed` per open stream, and for a lock the stream topics are re-checked and the media sessions of viewers who lost access are cut. Idempotent. |
+| `social.follow.removed`, `social.circle.members_changed`, `social.circle.deleted` | The followee's (circle owner's) restricted streams on air: cached answers are dropped, topic subscriptions re-checked and sessions of viewers who lost access cut. |
 | `social.friend.removed` | The media sessions either of the two holds on the other's restricted (friends-only) live streams are cut. |
 
 ## Deleting, and what stays reportable
@@ -476,7 +497,7 @@ Things this domain relies on the web client (or the edge) to do:
 | Kind | Recipient | Channels | Notes |
 |---|---|---|---|
 | `live.reminder` | people who asked (`SetReminder`) | inbox + push | When the stream goes on air. No actor; title = channel name. Collapse key `live.started:<stream_id>`. `data = { stream_id, short_id, channel_id, channel_handle, channel_name, channel_icon_url }`. |
-| `live.started` | subscribers; friends of the owner for friends-only streams | level ALL: inbox + push; PERSONALIZED: inbox; NONE: nothing; friends: inbox + push | Same shape and collapse key. Only PUBLIC and FRIENDS streams; friends-only streams go to subscribers who are friends, then to the other friends with the owner as actor. Not sent to people who got the reminder. |
+| `live.started` | subscribers; friends of the owner for friends-only streams | level ALL: inbox + push; PERSONALIZED: inbox; NONE: nothing; friends: inbox + push | Same shape and collapse key. Only PUBLIC streams and those shared with an audience; a stream shared with an audience (or a public stream of a locked owner) goes to the subscribers in it, friends-only streams then to the other friends with the owner as actor. Not sent to people who got the reminder. Reminders too reach only people in the audience. |
 | `live.gift` | the streamer | inbox + push | Only while their dashboard is closed. Actor: the sender. Collapsed per stream. `data = { stream_id, short_id, gift_id, coins, tier }`. |
 | `live.moderator` | the appointed user | inbox + push | No actor; collapsed per channel; once per appointment. |
 
@@ -484,13 +505,13 @@ Things this domain relies on the web client (or the edge) to do:
 
 | Kind | Audience | When |
 |---|---|---|
-| `live.started` | friends of the owner | A PUBLIC or FRIENDS stream went on air. Subject `(SUBJECT_TYPE_LIVE_STREAM, id)`, path `/live/<short_id>`, image = thumbnail, `data = { stream_id, short_id, channel_id, channel_handle, channel_name }`. |
+| `live.started` | friends of the owner; the owner alone for close friends and circle streams | A PUBLIC stream or one shared with an audience went on air. Subject `(SUBJECT_TYPE_LIVE_STREAM, id)`, path `/live/<short_id>`, image = thumbnail, `data = { stream_id, short_id, channel_id, channel_handle, channel_name }`. |
 
 ## Search documents
 
 | Kind | Indexed while | Fields |
 |---|---|---|
-| `live` | PUBLIC, upcoming or on air, not suspended | `title`, `text` = description, `tags` = tags + game, `path` = `/live/<short_id>`, `created_at` = start (or schedule), `score` = viewers as of the last edit, `extra = { short_id, channel_id, channel_handle, channel_name, status, category, game, scheduled_at, started_at }` |
+| `live` | PUBLIC, upcoming or on air, not suspended, owner not locked | `title`, `text` = description, `tags` = tags + game, `path` = `/live/<short_id>`, `created_at` = start (or schedule), `score` = viewers as of the last edit, `extra = { short_id, channel_id, channel_handle, channel_name, status, category, game, scheduled_at, started_at }` |
 | `clip` | READY and its source is public | `title`, `path` = `/clip/<short_id>`, `image_url`, `score` = likes, `extra = { short_id, channel_id, duration_seconds }` |
 
 ## Subjects

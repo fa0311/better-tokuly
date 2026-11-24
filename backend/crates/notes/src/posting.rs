@@ -1064,6 +1064,19 @@ impl Notes {
             }
             people
         };
+        if people.len() > events::MAX_VISIBLE_TO {
+            // An event naming everyone would not fit on the bus: name only
+            // the people who may have something about the note in their inbox.
+            let told: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT user_id FROM note_recipients WHERE note_id = $1
+                 UNION SELECT user_id FROM note_likes WHERE note_id = $1
+                 UNION SELECT user_id FROM note_renotes WHERE note_id = $1",
+            )
+            .bind(note.id)
+            .fetch_all(&self.core.db)
+            .await?;
+            return Ok(events::bounded_audience(people, Some(&told)));
+        }
         people.sort_unstable();
         people.dedup();
         Ok(people)

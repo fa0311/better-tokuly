@@ -34,7 +34,6 @@ use tokuly_proto::live::{IngestInfo, Playback};
 
 use crate::{
     Live,
-    access::open_to_everyone,
     streams::{self, StreamRow},
 };
 
@@ -282,7 +281,7 @@ impl Live {
     /// that lost bookkeeping never throws legitimate viewers out again and
     /// again. Returns how many were cut.
     pub async fn enforce_access(&self, stream: &StreamRow, cut_unknown: bool) -> AppResult<u32> {
-        if !self.cfg.media_server_configured() || (stream.is_live() && open_to_everyone(stream.visibility)) {
+        if !self.cfg.media_server_configured() || (stream.is_live() && stream.open_to_everyone()) {
             return Ok(0);
         }
         let Some(path) = self.media_path(&stream.media_path()).await? else { return Ok(0) };
@@ -333,7 +332,7 @@ impl Live {
         let path = stream.media_path();
         // On air and open to everyone: plain URLs that can be shared with
         // any player. Otherwise the URLs carry a token.
-        let restricted = !(stream.is_live() && open_to_everyone(stream.visibility));
+        let restricted = !(stream.is_live() && stream.open_to_everyone());
         let expires = now() + Duration::minutes(PLAYBACK_TOKEN_TTL_MINUTES);
         let token = match viewer.filter(|_| restricted) {
             Some(viewer) => self.playback_token(&stream.short_id, viewer, expires),

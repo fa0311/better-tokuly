@@ -255,18 +255,19 @@ impl Sources {
             let Some(video) = self.video(core, video_id).await? else { return Ok(None) };
             return Ok(Some(Source {
                 title: video.title.clone(),
-                visibility: video.visibility,
+                visibility: tokuly_video::access::shown_visibility(video.visibility, viewer.is(video.owner_id)),
                 stream_short_id: stream.map(|stream| stream.short_id),
                 video_short_id: Some(video.short_id.clone()),
-                watchable: viewer.can_watch(&video.facts()),
+                watchable: viewer.can_watch_now(core, &video.facts()).await?,
                 public: video.is_public(),
             }));
         }
-        Ok(stream.map(|stream| Source {
+        let Some(stream) = stream else { return Ok(None) };
+        Ok(Some(Source {
             title: stream.title.clone(),
-            visibility: stream.visibility,
-            watchable: access::can_watch(viewer, &stream.facts()),
-            public: stream.visibility == access::PUBLIC && !stream.suspended,
+            visibility: tokuly_video::access::shown_visibility(stream.visibility, viewer.is(stream.owner_id)),
+            watchable: access::can_watch_now(core, viewer, &stream.facts()).await?,
+            public: stream.visibility == access::PUBLIC && !stream.suspended && !stream.owner_locked,
             stream_short_id: Some(stream.short_id),
             video_short_id: None,
         }))
@@ -445,13 +446,15 @@ impl Live {
         let out_of_range = || AppError::invalid("CLIP_RANGE_INVALID", "the clip lies outside what can be cut");
         // A clip is a copy that outlives the moment: only what anyone with
         // the link may watch can be clipped. Friends-only and private
-        // streams and videos stay with their audience.
-        let source_visibility = match &source {
-            NewSource::Stream(stream) => stream.visibility,
-            NewSource::Video { video, .. } => video.visibility,
+        // streams and videos stay with their audience, and so do those of
+        // a locked account (as the social domain says right now).
+        let (source_visibility, source_owner) = match &source {
+            NewSource::Stream(stream) => (stream.visibility, stream.owner_id),
+            NewSource::Video { video, .. } => (video.visibility, video.owner_id),
         };
+        let source_locked = tokuly_video::access::is_locked_now(core, source_owner).await?;
         ensure!(
-            access::open_to_everyone(source_visibility),
+            access::open_to_everyone(source_visibility, source_locked),
             precondition,
             "CLIP_SOURCE_NOT_PUBLIC",
             "friends-only and private streams and videos cannot be clipped"
@@ -723,17 +726,38 @@ impl Live {
     }
 
     /// Rewrites the search documents of the clips of a video after its
-    /// visibility changed.
-    pub(crate) async fn reindex_clips_of_video(&self, video_id: Uuid) -> AppResult<()> {
-        let core = &self.core;
+    /// visibility changed (or its owner was locked or unlocked).
+    pub async fn reindex_clips_of_video(&self, video_id: Uuid) -> AppResult<()> {
         let clips: Vec<ClipRow> = sqlx::query_as(concat!(
             "SELECT ",
             clip_columns!(),
             " FROM live_clips c WHERE c.video_id = $1 AND c.status = 2"
         ))
         .bind(video_id)
-        .fetch_all(&core.db)
+        .fetch_all(&self.core.db)
         .await?;
+        self.reindex_clips(clips).await
+    }
+
+    /// The same for the clips cut from a stream (its owner was locked or
+    /// unlocked, or its audience changed).
+    pub async fn reindex_clips_of_stream(&self, stream_id: Uuid) -> AppResult<()> {
+        let clips: Vec<ClipRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            clip_columns!(),
+            " FROM live_clips c WHERE c.stream_id = $1 AND c.status = 2"
+        ))
+        .bind(stream_id)
+        .fetch_all(&self.core.db)
+        .await?;
+        self.reindex_clips(clips).await
+    }
+
+    async fn reindex_clips(&self, clips: Vec<ClipRow>) -> AppResult<()> {
+        let core = &self.core;
+        if clips.is_empty() {
+            return Ok(());
+        }
         // The sources are read first; the transaction only writes.
         let mut sources = Sources::default();
         let mut public = Vec::with_capacity(clips.len());
