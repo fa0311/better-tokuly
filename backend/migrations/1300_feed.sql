@@ -72,6 +72,29 @@ CREATE TABLE feed_processed_events (
 
 CREATE INDEX feed_processed_events_age ON feed_processed_events (processed_at);
 
+-- The latest thing heard about a piece of content that entries point at:
+-- it is gone (`audience` NULL), or its owner's entries about it are shown
+-- to `audience` from now on (a note whose visibility changed, an expired
+-- story). Applied to the stored entries when heard, and remembered for as
+-- long as events can still arrive late or twice (like
+-- `feed_processed_events`), so an `activity.recorded` delivered after the
+-- change cannot bring the old state back.
+CREATE TABLE feed_subject_changes (
+    subject_type integer     NOT NULL,
+    subject_id   uuid        NOT NULL,
+    -- tokuly.feed.v1.ActivityAudience for the owner's entries; NULL = gone.
+    audience     smallint CHECK (audience BETWEEN 1 AND 3),
+    -- Whose entries the audience applies to (the note's author).
+    owner_id     uuid,
+    -- When the change happened (the event's time): an older change
+    -- delivered after a newer one is ignored.
+    changed_at   timestamptz NOT NULL,
+    recorded_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (subject_type, subject_id)
+);
+
+CREATE INDEX feed_subject_changes_age ON feed_subject_changes (recorded_at);
+
 -- ───────────────────────────── Map stories ─────────────────────────────
 
 -- Which map-story items a viewer has watched. Private to the viewer.

@@ -29,7 +29,10 @@ use tokuly_proto::{
     feed::{Activity, ActivityAudience},
 };
 
-use crate::{Feed, kinds};
+use crate::{
+    Feed, kinds,
+    withdrawals::{self, Change},
+};
 
 /// Columns of [`ActivityRow`], read from a table or subquery aliased `a`.
 macro_rules! activity_columns {
@@ -231,7 +234,8 @@ pub enum IngestOutcome {
     Stored(Uuid),
     /// The event had been handled before (a redelivery).
     Duplicate,
-    /// Unusable entry, or its user does not exist (anymore).
+    /// Unusable entry, its user does not exist (anymore), or what it is
+    /// about is gone.
     Dropped,
 }
 
@@ -274,6 +278,17 @@ impl Feed {
             .await?;
         if claimed.rows_affected() == 0 {
             return Ok(IngestOutcome::Duplicate);
+        }
+        // The content may be gone or narrowed already: its events are not
+        // ordered with this one (see `withdrawals`).
+        let mut new = new;
+        match withdrawals::remembered(&mut tx, new.subject, new.user_id).await? {
+            Some(Change::Gone) => {
+                tx.commit().await?;
+                return Ok(IngestOutcome::Dropped);
+            }
+            Some(Change::Audience(audience)) => new.audience = audience,
+            None => {}
         }
         // The SELECT keeps entries of unknown or deleted accounts out without
         // tripping the foreign key (which would abort the transaction).

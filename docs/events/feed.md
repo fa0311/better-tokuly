@@ -34,6 +34,17 @@ Nothing is fanned out. Every list is a read of `activities` that decides
 So a friendship that ends, a block, or a changed preference needs no
 clean-up: the next read is already right.
 
+What the *content* behind an entry became is not known at read time, so
+the events of the producing domains are followed (`tokuly_feed::withdrawals`,
+table below): an entry about content that is gone is deleted (everyone's
+entries about it), a note's entries get the note's new audience when its
+visibility changes, and an expired story's entry becomes its owner's own
+memory (friends can no longer open the story, so its title and cover are
+not shown to them either). The latest change per subject is remembered in
+`feed_subject_changes` for 8 days, as long as events can still arrive late
+or twice: an `activity.recorded` delivered after the change gets the same
+treatment, and an older change delivered after a newer one is ignored.
+
 The consumer is idempotent on the event ID (`feed_processed_events`, written
 in the same transaction as the entry). The marker also keeps an entry its
 owner deleted from coming back on a redelivery.
@@ -92,6 +103,14 @@ Durable consumer `feed`.
 | `social.friend.removed` | `{ user_id, friend_id, blocked }` | forgets what the two watched of each other's map stories (everything else is filtered at read time) |
 | `social.user.blocked` | `{ user_id, blocked_id }` | same |
 | `admin.content.removed` | `{ subject_type, subject_id, reason, moderator_id }` | deletes every entry pointing at that subject; a `SUBJECT_TYPE_NEWS_ARTICLE` is taken down instead; `SUBJECT_TYPE_USER` is ignored (a profile takedown does not erase bumps and friendships) |
+| `notes.note.deleted` | `{ note_id, … }` | deletes every entry about the note (`SUBJECT_TYPE_NOTE`) |
+| `notes.story.deleted` | `{ story_id, … }` | the same for the story (`SUBJECT_TYPE_STORY`) |
+| `video.video.deleted` | `{ video_id, … }` | the same for the video (`SUBJECT_TYPE_VIDEO`) |
+| `shorts.short.deleted` | `{ id, … }` | the same for the short (`SUBJECT_TYPE_SHORT`) |
+| `live.stream.deleted` | `{ stream_id, … }` | the same for the stream (`SUBJECT_TYPE_LIVE_STREAM`) |
+| `stamp.pack.deleted` | `{ pack_id, … }` | the same for the pack (`SUBJECT_TYPE_STAMP_PACK`) |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility }` | the author's entries about the note get the note's audience: public 1 → public, friends 4 → friends, anything else → private |
+| `notes.story.expired` | `{ story_id, owner_id }` | the owner's entries about the story become private |
 
 ## Events emitted
 
@@ -173,7 +192,7 @@ news_sources ──(scheduler / RefreshNewsSources)──▶ feed.news.fetch job
 | Event consumer | durable `feed` | topics above |
 | News fetch job | `feed.news.fetch` (`tokuly_feed::events::FetchSourceJob { source_id }`) | one source per job; a per-source lock in Valkey prevents concurrent fetches; fetch failures are recorded, not retried by the queue |
 | News scheduler | 30 s timer | claims due sources (`FOR UPDATE SKIP LOCKED`), queues their jobs; creates the sources of `TOKULY_NEWS_FEEDS` at start |
-| Retention sweep | hourly timer | activities older than `TOKULY_FEED_ACTIVITY_RETENTION_DAYS`; map-story seen marks older than the story window + 24 h; handled-event markers older than 8 days; news articles (see pruning); interests that faded below 0.05; recap notice markers older than 400 days |
+| Retention sweep | hourly timer | activities older than `TOKULY_FEED_ACTIVITY_RETENTION_DAYS`; map-story seen marks older than the story window + 24 h; handled-event markers and remembered content changes older than 8 days; news articles (see pruning); interests that faded below 0.05; recap notice markers older than 400 days |
 | Recap notices | hourly timer | `feed.recap_ready` (above) |
 
 Recaps are computed on demand and cached in Valkey (`feed:recap:…`):
