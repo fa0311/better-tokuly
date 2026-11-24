@@ -369,6 +369,8 @@ pub fn api_router(core: Core, domains: &Domains, cors_origins: Vec<String>) -> a
         // The OAuth endpoints and the API descriptor; they read the client
         // address the auth middleware works out.
         .merge(domains.dev.http_routes())
+        // The pictures of link previews, fetched on the viewers' behalf.
+        .merge(domains.media.http_routes())
         .fallback_service(connect.into_axum_service())
         .layer(axum::middleware::from_fn_with_state(core.auth_layer.clone(), auth_middleware))
         // Our own infrastructure calling in. Both prove who they are in

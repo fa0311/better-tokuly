@@ -105,6 +105,40 @@ domain with the viewer's own permissions, so a hidden community, a private
 note or a friends-only video previews as a plain link to whoever may not
 read it.
 
+## Pictures of link previews
+
+A preview's picture and site icon (`LinkPreview.image_url`,
+`favicon_url`) are never the other site's addresses: every preview handed
+out (`GetLinkPreview`, `tokuly_media::link_preview`, so also what chat and
+notes store) points them at this instance,
+
+```
+{TOKULY_PUBLIC_URL}{TOKULY_API_PATH_PREFIX}/media/link-image/{image|icon}/{signature}/{base64url of the URL}
+```
+
+and the API fetches them on the viewer's behalf (`Media::http_routes`,
+`link_preview::image_proxy`). Viewing a preview therefore tells the linked
+site nothing about who looked. The route:
+
+- answers only URLs the server signed (an HMAC of kind and URL under
+  `TOKULY_SECRET`): it is not an open proxy; anything else is a 404;
+- fetches through the egress guard of `tokuly_core::egress` (no private or
+  internal addresses, every redirect hop checked), 5 s at most, 8 MB at most,
+  and counts against the same per-site limit as the preview fetches (30 a
+  minute per site); per client address, 120 fetches a minute (cache hits are
+  free);
+- serves only raster images (JPEG, PNG, WebP, GIF's first frame, ICO; never
+  SVG), decoded within 16 megapixels and re-encoded as WebP at most 1200 px
+  (pictures) or 128 px (icons) on the longest edge, so nothing of the file
+  itself reaches the viewer;
+- keeps the result in Valkey for 24 hours (`media:link-image:*`; "nothing to
+  show" for 30 minutes) and sends it with `Cache-Control: public,
+  max-age=86400`.
+
+Clients show a preview picture only when it is such a URL (the web app's
+`linkPreviewImage`); previews stored before the proxy existed show without
+one.
+
 ## Configuration (`MediaConfig`)
 
 | Variable | Default | Meaning |

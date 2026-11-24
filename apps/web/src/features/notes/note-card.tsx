@@ -8,6 +8,7 @@ import { EmojiText } from "#/features/emoji";
 import { ReactionChips, useOpenPath, useSubjectTopic } from "#/features/engagement";
 import { StampImage, StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
+import { linkPreviewImage } from "#/lib/link-preview-image";
 import { useMe } from "#/stores/session";
 import { useIsDeleted } from "./api";
 import { attachmentImage, ImageGrid, imageUrl, isVideo, NoteVideo } from "./media";
@@ -425,12 +426,14 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
   } catch {
     // An unparsable URL keeps whatever name the preview came with.
   }
+  const image = linkPreviewImage(preview.imageUrl);
+  const favicon = linkPreviewImage(preview.faviconUrl);
   const body = (
     <>
-      {preview.imageUrl && (
+      {image && (
         <span className="relative block w-24 shrink-0 self-stretch bg-surface-3 sm:w-32">
           <img
-            src={preview.imageUrl}
+            src={image}
             alt=""
             loading="lazy"
             className="absolute inset-0 size-full object-cover"
@@ -444,9 +447,7 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
       )}
       <span className="min-w-0 flex-1 px-3 py-2.5">
         <span className="flex items-center gap-1.5 text-xs font-bold text-ink-faint">
-          {preview.faviconUrl && (
-            <img src={preview.faviconUrl} alt="" className="size-3.5 rounded-sm" />
-          )}
+          {favicon && <img src={favicon} alt="" className="size-3.5 rounded-sm" />}
           <span className="truncate">{host}</span>
         </span>
         <span className="mt-0.5 line-clamp-2 text-sm font-black leading-snug">

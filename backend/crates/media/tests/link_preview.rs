@@ -14,7 +14,10 @@ use tokio::{
     io::{AsyncReadExt as _, AsyncWriteExt as _},
     net::TcpListener,
 };
-use tokuly_media::MediaConfig;
+use tokuly_media::{
+    MediaConfig,
+    link_preview::image_proxy::{Kind, proxy_url},
+};
 use tokuly_proto::media::*;
 
 const ARTICLE: &str = r#"<!doctype html><html><head>
@@ -116,6 +119,18 @@ fn respond(path: &str) -> Vec<u8> {
             http("200 OK", &[HTML], &body)
         }
         "/photo.png" => http("200 OK", &[("Content-Type", "image/png")], &png(8, 8)),
+        "/images/cover.jpg" => http("200 OK", &[("Content-Type", "image/png")], &png(1600, 800)),
+        "/favicon-32.png" => http("200 OK", &[("Content-Type", "image/png")], &png(32, 32)),
+        "/vector.svg" => http("200 OK", &[("Content-Type", "image/svg+xml")], br#"<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>"#),
+        "/fake.png" => http("200 OK", &[("Content-Type", "image/png")], b"<html><script>alert(1)</script></html>"),
+        "/page.png" => http("200 OK", &[HTML], &png(8, 8)),
+        "/heavy.png" => {
+            // A valid PNG header, then more than the 8 MB a picture may weigh.
+            let mut body = png(8, 8);
+            body.extend(std::iter::repeat_n(0u8, 9 * 1024 * 1024));
+            http("200 OK", &[("Content-Type", "image/png")], &body)
+        }
+        "/to-private.png" => http("302 Found", &[("Location", "http://10.0.0.1/cat.png")], b""),
         "/data.json" => http("200 OK", &[("Content-Type", "application/json")], b"{\"title\":\"not html\"}"),
         _ => http("404 Not Found", &[HTML], b""),
     }
@@ -142,9 +157,12 @@ async fn open_graph_metadata_is_fetched_and_cached() {
     assert_eq!(found.title, "今日のおでかけ & ごはん");
     assert_eq!(found.description, "友達と位置情報共有を楽しもう!");
     assert_eq!(found.site_name, "Example Times");
-    assert_eq!(found.image_url, site.url("/images/cover.jpg"), "relative URLs are resolved");
+    let core = &h.app.core;
+    assert_eq!(found.image_url, proxy_url(core, Kind::Image, &site.url("/images/cover.jpg")), "relative URLs are resolved, and served by us");
+    assert!(found.image_url.starts_with("http://localhost:8080/api/media/link-image/image/"), "{}", found.image_url);
+    assert!(!found.image_url.contains("127.0.0.1"), "the other site's address is not handed out");
     assert_eq!((found.image_width, found.image_height), (1200, 630));
-    assert_eq!(found.favicon_url, site.url("/favicon-32.png"));
+    assert_eq!(found.favicon_url, proxy_url(core, Kind::Icon, &site.url("/favicon-32.png")));
     assert_eq!((found.embed_provider.as_str(), found.embed_id.as_str()), ("", ""));
     assert_eq!(site.hits(), 1);
 
@@ -173,7 +191,7 @@ async fn redirects_charsets_and_size_limits() {
     let moved = preview(&h, &alice, &site.url("/moved")).await.expect("followed redirects");
     assert_eq!(moved.url, site.url("/moved"));
     assert_eq!(moved.title, "今日のおでかけ & ごはん");
-    assert_eq!(moved.image_url, site.url("/images/cover.jpg"), "resolved against the final page");
+    assert_eq!(moved.image_url, proxy_url(&h.app.core, Kind::Image, &site.url("/images/cover.jpg")), "resolved against the final page");
     assert_eq!(site.hits(), 3);
 
     // A redirect loop ends after the hop limit (first request + 3 redirects).
@@ -187,12 +205,12 @@ async fn redirects_charsets_and_size_limits() {
     // Only the first megabyte is read.
     let huge = preview(&h, &alice, &site.url("/huge")).await.expect("title within the cap");
     assert_eq!(huge.title, "Huge page");
-    assert_eq!(huge.favicon_url, site.url("/favicon.ico"), "the conventional icon location is assumed");
+    assert_eq!(huge.favicon_url, proxy_url(&h.app.core, Kind::Icon, &site.url("/favicon.ico")), "the conventional icon location is assumed");
     assert_eq!(preview(&h, &alice, &site.url("/late-title")).await, None);
 
     // A link straight to an image previews as that image.
     let photo = preview(&h, &alice, &site.url("/photo.png")).await.expect("image preview");
-    assert_eq!((photo.title.as_str(), photo.image_url.as_str()), ("photo.png", site.url("/photo.png").as_str()));
+    assert_eq!((photo.title.as_str(), photo.image_url.as_str()), ("photo.png", proxy_url(&h.app.core, Kind::Image, &site.url("/photo.png")).as_str()));
 }
 
 #[tokio::test]
@@ -256,4 +274,77 @@ async fn callers_are_rate_limited() {
     // Limits are per caller.
     let bob = h.app.user("bob").await;
     let _: GetLinkPreviewResponse = h.rpc("GetLinkPreview", Some(&bob), &request).await.unwrap();
+}
+
+/// Serves the media domain's HTTP routes on a local port, the way the API
+/// does (without the auth layer, so without a client address).
+async fn serve_routes(h: &Harness) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let router = h.media.http_routes();
+    tokio::spawn(async move { axum::serve(listener, router).await });
+    origin
+}
+
+/// The proxy URL, pointed at the local server instead of the public URL.
+fn local(origin: &str, proxied: &str) -> String {
+    let at = proxied.find("/media/link-image/").expect("a proxy URL");
+    format!("{origin}{}", &proxied[at..])
+}
+
+#[tokio::test]
+async fn preview_pictures_are_served_by_this_instance() {
+    let h = loopback_harness().await;
+    let site = Site::start().await;
+    let origin = serve_routes(&h).await;
+    let alice = h.app.user("alice").await;
+    let core = &h.app.core;
+
+    let found = preview(&h, &alice, &site.url("/article")).await.expect("preview");
+    let hits = site.hits();
+    let response = h.http.get(local(&origin, &found.image_url)).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["content-type"], "image/webp");
+    assert_eq!(response.headers()["cache-control"], "public, max-age=86400");
+    assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+    let picture = image::load_from_memory(&response.bytes().await.unwrap()).expect("a WebP");
+    assert_eq!((picture.width(), picture.height()), (1200, 600), "re-encoded at a bounded size");
+    assert_eq!(site.hits(), hits + 1);
+
+    // Seen again (by anyone): from our cache, the other site is not asked.
+    let again = h.http.get(local(&origin, &found.image_url)).send().await.unwrap();
+    assert_eq!(again.status(), 200);
+    assert_eq!(site.hits(), hits + 1);
+
+    let icon = h.http.get(local(&origin, &found.favicon_url)).send().await.unwrap();
+    assert_eq!(icon.status(), 200);
+    let icon = image::load_from_memory(&icon.bytes().await.unwrap()).unwrap();
+    assert_eq!((icon.width(), icon.height()), (32, 32), "small icons are not enlarged");
+
+    // Only URLs we signed are served: not a changed signature, not another
+    // kind under the same signature, not another target.
+    let hits = site.hits();
+    let image_path = local(&origin, &found.image_url);
+    let tampered = format!("{}x", &image_path[..image_path.len() - 1]);
+    let other_kind = image_path.replace("/link-image/image/", "/link-image/icon/");
+    let signature = image_path.rsplit('/').nth(1).unwrap();
+    let other_target = format!("{origin}/media/link-image/image/{signature}/{}", tokuly_core::keys::b64url(site.url("/photo.png").as_bytes()));
+    for url in [tampered, other_kind, other_target, format!("{origin}/media/link-image/image/x/y"), format!("{origin}/media/link-image/file/x/y")] {
+        assert_eq!(h.http.get(&url).send().await.unwrap().status(), 404, "{url}");
+    }
+    assert_eq!(site.hits(), hits, "nothing was fetched for them");
+
+    // What is not a raster image, too heavy, or leads inward is not served;
+    // the failure is remembered too.
+    for path in ["/vector.svg", "/fake.png", "/page.png", "/heavy.png", "/to-private.png", "/missing"] {
+        let url = local(&origin, &proxy_url(core, Kind::Image, &site.url(path)));
+        let hits = site.hits();
+        assert_eq!(h.http.get(&url).send().await.unwrap().status(), 404, "{path}");
+        assert_eq!(h.http.get(&url).send().await.unwrap().status(), 404, "{path}");
+        assert_eq!(site.hits(), hits + 1, "{path} is fetched once");
+    }
+
+    // Pictures on addresses the egress guard refuses are never requested.
+    let refused = local(&origin, &proxy_url(core, Kind::Image, "http://169.254.169.254/latest/meta-data/x.png"));
+    assert_eq!(h.http.get(&refused).send().await.unwrap().status(), 404);
 }
