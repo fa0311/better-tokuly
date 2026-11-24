@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use tokuly_core::{
@@ -47,6 +48,8 @@ pub const MAX_ATTACHMENTS: usize = 4;
 pub const MAX_PLACE_NAME_CHARS: usize = 100;
 /// Notes one user may post per day, whatever the pace.
 const MAX_POSTS_PER_DAY: u32 = 1000;
+/// Visibility changes one user may make per minute.
+const VISIBILITY_CHANGES_PER_MINUTE: u32 = 30;
 /// Longest idempotency key accepted.
 pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 64;
 /// How long a retried request finds the note it created the first time.
@@ -638,6 +641,12 @@ impl Notes {
     /// Changes who may see one of `user_id`'s notes and returns the note as
     /// it is now. A reply stays within the audience of the note it answers.
     pub(crate) async fn set_visibility(&self, user_id: Uuid, note_id: Uuid, wanted: i32) -> AppResult<NoteRow> {
+        // Every change rewrites counts, the search index and other domains'
+        // copies (feed entries, inboxes): not something to repeat in a loop.
+        self.core
+            .cache
+            .rate_limit(&format!("notes:visibility:{user_id}"), VISIBILITY_CHANGES_PER_MINUTE, Duration::from_secs(60))
+            .await?;
         let note = self.own_note(user_id, note_id).await?;
         let actor = tokuly_identity::summary(&self.core, user_id).await?;
         // The author's friends and blocks, for who may still see the note.
@@ -652,6 +661,9 @@ impl Notes {
             .fetch_optional(&mut *tx)
             .await?
             .or_not_found("NOTE_NOT_FOUND", "note not found")?;
+        // Taken with the lock held, so consumers can order racing changes
+        // (the event's own time is when the transaction began).
+        let changed_at: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()").fetch_one(&mut *tx).await?;
         let limit: Option<i32> = match note.reply_to_id {
             Some(parent) => {
                 sqlx::query_scalar("SELECT visibility FROM notes WHERE id = $1")
@@ -682,6 +694,7 @@ impl Notes {
                 author_id: user_id,
                 visibility: updated.visibility,
                 visible_to: still_visible_to(&updated, &author),
+                changed_at,
             },
         )
         .await?;

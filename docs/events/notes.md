@@ -39,7 +39,7 @@ transaction that makes the change.
 |---|---|---|
 | `notes.note.created` | `{ note_id, author_id, visibility, reply_to_id, quote_of_id }` | A note, reply or quote note was posted. `visibility` is `tokuly.common.v1.Visibility` as its number (1 public, 4 friends, 5 private). |
 | `notes.note.deleted` | `{ note_id, author_id, reason }` | A note is gone for good. `reason`: `author`, `moderation`, `account_deleted`, `media_deleted`. Actor: the author, the moderator, the erased user, or nobody. |
-| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to }` | The author changed who may see a note (not emitted when nothing changed). `visible_to`: who besides the author may still see it — `null` for a public note (everyone); for a friends note the author's friends and, for a reply, the author of the note answered (people in a block with the author left out); `[]` for a private note. Anyone shown the note before (an inbox entry about it) who is not listed lost access with this change. |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to }` | The author changed who may see a note (not emitted when nothing changed). `visible_to`: who besides the author may still see it — `null` for a public note (everyone); for a friends note the author's friends and, for a reply, the author of the note answered (people in a block with the author left out); `[]` for a private note. Anyone shown the note before (an inbox entry about it) who is not listed lost access with this change. `changed_at`: when the change was made, taken while the note was locked; consumers (feed, notify) order two changes of one note by it, not by the event's time (the start of its transaction). **Never forward this event to webhooks or other outside parties: `visible_to` is the author's friend list.** |
 | `notes.story.created` | `{ story_id, owner_id, audience, expires_at }` | A story was posted. `audience` is `tokuly.notes.v1.StoryAudience` as its number (1 friends, 2 close friends). |
 | `notes.story.deleted` | `{ story_id, owner_id, reason }` | A story was deleted (same reasons as notes). Not emitted for an expiry. |
 | `notes.story.expired` | `{ story_id, owner_id }` | A story's day is over: it left the tray and is archive-only. Emitted exactly once per story by the expiry worker, shortly after `expires_at`. |
@@ -133,7 +133,8 @@ each person at most once per note (reply, then quote, then mention).
 - `ProfileExtension`: fills `ProfileStats.note_count` with the owner's notes
   (replies aside) that the viewer may see.
 - `DataExporter` named `notes`: rules agreement, notes, likes, renotes,
-  stories, story views, highlights.
+  notes announced to the user (`received_notes`), stories, story views,
+  highlights.
 
 ## Other domains' APIs used
 
@@ -175,7 +176,8 @@ attachments), `note.like`, `note.renote` (owner = note author), `story.post`
 | `notes:view:<note>:<viewer>` | `TOKULY_NOTES_VIEW_WINDOW_HOURS` | One view per viewer (user ID, or `ip:<address>` for anonymous viewers) and note within the window. |
 | `notes:notified:<like\|renote>:<note>:<user>` | 24 h | Keeps repeated likes/renotes of one person from being announced again. |
 
-Rate limits (`rl:` keys): posting `TOKULY_NOTES_POSTS_PER_MINUTE` per minute
+Rate limits (`rl:` keys): visibility changes 30/min per user;
+posting `TOKULY_NOTES_POSTS_PER_MINUTE` per minute
 and 1000 per day per user; likes and renotes 120/min (taking one back is never refused);
 view reports 120/min per viewer (excess reports are ignored, not refused);
 stories `TOKULY_NOTES_STORIES_PER_HOUR` per hour; story reactions 60/min;

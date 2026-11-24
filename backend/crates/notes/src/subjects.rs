@@ -46,7 +46,8 @@ impl SubjectResolver for NoteSubjects {
     /// A note stays reportable by someone it reached after it was hidden
     /// from them — made private, or behind a block — so withdrawing what
     /// was already delivered does not take away the report. It reached
-    /// them when it is public (anyone can read it signed out), when they
+    /// them when it is public and its author's account is in good standing
+    /// (anyone can read it signed out), when they
     /// were told about it (a reply, quote or mention notification), or when
     /// they liked or renoted it.
     async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
@@ -56,7 +57,8 @@ impl SubjectResolver for NoteSubjects {
         let (Ok(note_id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
         let sql = format!(
             "SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id = $1 AND n.author_id <> $2 AND (
-                 n.visibility = {PUBLIC}
+                 (n.visibility = {PUBLIC}
+                  AND EXISTS (SELECT 1 FROM users u WHERE u.id = n.author_id AND u.banned_at IS NULL AND u.deleted_at IS NULL))
                  OR EXISTS (SELECT 1 FROM note_recipients r WHERE r.note_id = n.id AND r.user_id = $2)
                  OR EXISTS (SELECT 1 FROM note_likes l WHERE l.note_id = n.id AND l.user_id = $2)
                  OR EXISTS (SELECT 1 FROM note_renotes r WHERE r.note_id = n.id AND r.user_id = $2))"
@@ -185,6 +187,8 @@ impl DataExporter for NotesExporter {
             ).await?,
             "likes": section("SELECT jsonb_build_object('note_id', note_id, 'liked_at', created_at) FROM note_likes WHERE user_id = $1 ORDER BY id").await?,
             "renotes": section("SELECT jsonb_build_object('note_id', note_id, 'renoted_at', created_at) FROM note_renotes WHERE user_id = $1 ORDER BY id").await?,
+            // Notes of other people announced to the user (reply, quote, mention).
+            "received_notes": section("SELECT jsonb_build_object('note_id', note_id) FROM note_recipients WHERE user_id = $1 ORDER BY note_id").await?,
             "stories": section(
                 "SELECT jsonb_build_object('id', s.id, 'title', s.title, 'items', s.items, 'audience', s.audience,
                         'audience_user_ids', (SELECT COALESCE(jsonb_agg(a.user_id ORDER BY a.user_id), '[]') FROM story_audience a WHERE a.story_id = s.id),

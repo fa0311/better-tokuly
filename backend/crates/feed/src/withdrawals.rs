@@ -11,13 +11,20 @@
 //! - a note whose audience changed: its author's entries about it get the
 //!   note's new audience (narrower or wider);
 //! - a story whose day is over: its owner's entry becomes the owner's own
-//!   memory (friends no longer see the story, so not its title and cover).
+//!   memory (friends no longer see the story, so not its title and cover);
+//! - a video that went back to draft or became private: its owner's entry
+//!   is the owner's own until the video is published to an audience again;
+//! - a deleted answer to a question: the "answered" entries go, but the
+//!   question can be answered again under the same ID, so nothing is
+//!   remembered about it.
 //!
 //! Events are not ordered and can arrive twice. The latest change per
 //! subject is remembered (`feed_subject_changes`) for as long as events can
 //! still arrive late: an entry stored afterwards gets the same treatment,
-//! and an older change delivered after a newer one is ignored. A subject
-//! that is gone stays gone.
+//! and an older change delivered after a newer one is ignored (ordered by
+//! the producer's own `changed_at` where it gives one, taken after it
+//! locked the content, otherwise by the event's time). A subject that is
+//! gone stays gone.
 use tokuly_core::{events::Event, prelude::*};
 use tokuly_proto::common::SubjectType;
 
@@ -33,6 +40,9 @@ pub enum Change {
     Gone,
     /// The owner's entries about it are shown to this audience from now on.
     Audience(i16),
+    /// The entries of this kind about it are deleted; nothing is remembered
+    /// (the content can come back under the same ID).
+    Withdrawn(&'static str),
 }
 
 /// How an event of another domain changes the entries about its content.
@@ -43,6 +53,9 @@ pub struct Rule {
     pub subject_type: SubjectType,
     /// The payload field naming the content's owner (for audience changes).
     pub owner_field: Option<&'static str>,
+    /// The payload field holding when the change was made (RFC 3339), where
+    /// the event's own time could put two racing changes in the wrong order.
+    pub time_field: Option<&'static str>,
     pub change: fn(&Event) -> Option<Change>,
 }
 
@@ -64,8 +77,35 @@ fn owner_only(_: &Event) -> Option<Change> {
     Some(Change::Audience(AUDIENCE_PRIVATE))
 }
 
+/// A published video's `tokuly.common.v1.Visibility` as the audience of
+/// its announcement, which the video domain always gives to friends (a
+/// channel does not reveal its owner to everyone): friends while the video
+/// is public or for friends, the owner alone otherwise (private, unlisted).
+fn video_audience(event: &Event) -> Option<Change> {
+    match event.data.get("visibility").and_then(serde_json::Value::as_i64)? {
+        1 | 4 => Some(Change::Audience(AUDIENCE_FRIENDS)),
+        _ => Some(Change::Audience(AUDIENCE_PRIVATE)),
+    }
+}
+
+fn answer_withdrawn(_: &Event) -> Option<Change> {
+    Some(Change::Withdrawn("ask.answered"))
+}
+
 const fn deleted(topic: &'static str, id_field: &'static str, subject_type: SubjectType) -> Rule {
-    Rule { topic, id_field, subject_type, owner_field: None, change: gone }
+    Rule { topic, id_field, subject_type, owner_field: None, time_field: None, change: gone }
+}
+
+/// The owner's entries about a video follow its publication state.
+const fn video(topic: &'static str, change: fn(&Event) -> Option<Change>) -> Rule {
+    Rule {
+        topic,
+        id_field: "video_id",
+        subject_type: SubjectType::SUBJECT_TYPE_VIDEO,
+        owner_field: Some("owner_id"),
+        time_field: None,
+        change,
+    }
 }
 
 /// The events this domain follows, with the subject their producers put on
@@ -82,6 +122,7 @@ pub const RULES: &[Rule] = &[
         id_field: "note_id",
         subject_type: SubjectType::SUBJECT_TYPE_NOTE,
         owner_field: Some("author_id"),
+        time_field: Some("changed_at"),
         change: note_audience,
     },
     Rule {
@@ -89,7 +130,21 @@ pub const RULES: &[Rule] = &[
         id_field: "story_id",
         subject_type: SubjectType::SUBJECT_TYPE_STORY,
         owner_field: Some("owner_id"),
+        time_field: None,
         change: owner_only,
+    },
+    // Back to draft: the owner's own; published (again, or with another
+    // visibility): as the visibility allows.
+    video("video.video.unpublished", owner_only),
+    video("video.video.published", video_audience),
+    video("video.video.visibility_changed", video_audience),
+    Rule {
+        topic: "ask.answer.deleted",
+        id_field: "question_id",
+        subject_type: SubjectType::SUBJECT_TYPE_QUESTION,
+        owner_field: None,
+        time_field: None,
+        change: answer_withdrawn,
     },
 ];
 
@@ -105,6 +160,8 @@ pub struct SubjectChange {
     pub subject_id: Uuid,
     pub owner_id: Option<Uuid>,
     pub change: Change,
+    /// When the change was made: the producer's `time_field`, or the event's time.
+    pub changed_at: Time,
 }
 
 fn uuid_field(event: &Event, field: &str) -> Option<Uuid> {
@@ -124,6 +181,11 @@ pub fn subject_change(event: &Event) -> Option<SubjectChange> {
         subject_id: uuid_field(event, rule.id_field)?,
         owner_id,
         change: (rule.change)(event)?,
+        changed_at: rule
+            .time_field
+            .and_then(|field| event.data.get(field))
+            .and_then(|value| serde_json::from_value::<Time>(value.clone()).ok())
+            .unwrap_or(event.occurred_at),
     })
 }
 
@@ -137,6 +199,18 @@ impl Feed {
         let audience = match change.change {
             Change::Gone => None,
             Change::Audience(audience) => Some(audience),
+            Change::Withdrawn(kind) => {
+                let owners: Vec<Uuid> = sqlx::query_scalar(
+                    "DELETE FROM activities WHERE subject_type = $1 AND subject_id = $2 AND kind = $3 RETURNING user_id",
+                )
+                .bind(change.subject_type)
+                .bind(change.subject_id)
+                .bind(kind)
+                .fetch_all(&self.core.db)
+                .await?;
+                self.invalidate_recaps_of(owners).await;
+                return Ok(());
+            }
         };
         let mut tx = self.core.db.begin().await?;
         lock_subject(&mut tx, change.subject_type, change.subject_id).await?;
@@ -154,7 +228,7 @@ impl Feed {
         .bind(change.subject_id)
         .bind(audience)
         .bind(change.owner_id)
-        .bind(event.occurred_at)
+        .bind(change.changed_at)
         .fetch_optional(&mut *tx)
         .await?
         .unwrap_or(false);
@@ -187,13 +261,16 @@ impl Feed {
             }
         };
         tx.commit().await?;
-        let mut owners = owners;
+        self.invalidate_recaps_of(owners).await;
+        Ok(())
+    }
+
+    async fn invalidate_recaps_of(&self, mut owners: Vec<Uuid>) {
         owners.sort_unstable();
         owners.dedup();
         for owner in owners {
             self.invalidate_recaps(owner).await;
         }
-        Ok(())
     }
 }
 
@@ -250,7 +327,8 @@ mod tests {
                 subject_type: SubjectType::SUBJECT_TYPE_SHORT as i32,
                 subject_id: id,
                 owner_id: None,
-                change: Change::Gone
+                change: Change::Gone,
+                changed_at: change.changed_at,
             }
         );
         assert_eq!(subject_change(&event("shorts.short.deleted", serde_json::json!({ "id": "nope" }))), None);
@@ -273,6 +351,24 @@ mod tests {
         assert_eq!(audience(99), Some((Some(author), Change::Audience(AUDIENCE_PRIVATE))), "unknown: narrowest");
         let ownerless = event("notes.note.visibility_changed", serde_json::json!({ "note_id": note, "visibility": 1 }));
         assert_eq!(subject_change(&ownerless), None);
+    }
+
+    #[test]
+    fn a_note_change_is_ordered_by_when_it_was_made_not_by_its_event() {
+        let (note, author) = (Uuid::now_v7(), Uuid::now_v7());
+        let made = now() - chrono::Duration::seconds(3);
+        let change = subject_change(&event(
+            "notes.note.visibility_changed",
+            serde_json::json!({ "note_id": note, "author_id": author, "visibility": 4, "changed_at": made }),
+        ))
+        .unwrap();
+        assert_eq!(change.changed_at, made);
+        let video = subject_change(&event(
+            "video.video.published",
+            serde_json::json!({ "video_id": note, "owner_id": author, "visibility": 5 }),
+        ))
+        .unwrap();
+        assert_eq!(video.change, Change::Audience(AUDIENCE_PRIVATE), "published, but private");
     }
 
     #[test]

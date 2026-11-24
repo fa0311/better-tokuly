@@ -130,6 +130,23 @@ async fn what_reached_someone_stays_reportable_after_it_was_hidden_from_them() {
     assert!(subjects.resolve(note_type, &public.id, Some(victim.id)).await.is_err());
     assert_eq!(reportable(note_type, public.id.clone(), victim.id).await.unwrap(), mallory.id);
 
+    // Not once the author's account is suspended: their notes are shown to nobody.
+    sqlx::query("UPDATE users SET banned_at = now() WHERE id = $1")
+        .bind(mallory.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        reportable(note_type, public.id.clone(), victim.id).await.unwrap_err().reason,
+        "SUBJECT_NOT_FOUND",
+        "a suspended account's public note"
+    );
+    sqlx::query("UPDATE users SET banned_at = NULL WHERE id = $1")
+        .bind(mallory.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+
     // A story that was watched stays reportable after its day is over.
     ctx.befriend(&mallory, &friend).await;
     ctx.befriend(&mallory, &bystander).await;
@@ -389,6 +406,7 @@ async fn the_data_export_has_a_notes_section() {
     ctx.befriend(&alice, &bob).await;
     let note = ctx.post(&alice, "exported #tag").await;
     let bobs = ctx.post(&bob, "bob's").await;
+    let mention = ctx.post(&bob, &format!("hi @{}", alice.handle)).await;
     ctx.like(&alice, &bobs).await;
     ctx.renote(&alice, &bobs).await;
     let story = ctx.post_story(&alice, "exported story").await;
@@ -426,6 +444,7 @@ async fn the_data_export_has_a_notes_section() {
         (serde_json::json!(story.id), serde_json::json!("exported story"))
     );
     assert_eq!(export["story_views"][0]["story_id"], serde_json::json!(bobs_story.id));
+    assert_eq!(export["received_notes"], serde_json::json!([{ "note_id": mention.id }]), "notes announced to her");
     assert_eq!(export["highlights"][0]["story_ids"], serde_json::json!([story.id]));
     // Someone who never used notes exports empty lists.
     let nobody = exporter.export(Uuid::now_v7()).await.unwrap();

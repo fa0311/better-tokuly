@@ -692,7 +692,8 @@ async fn concurrent_visibility_changes_count_a_note_once() {
         }
     };
     assert_eq!(count().await, 2);
-    for _ in 0..5 {
+    // Two rounds of twelve: within the per-minute limit of visibility changes.
+    for _ in 0..2 {
         // Several narrowings of the same public note at once take it out of the count once.
         futures::future::join_all(
             [Visibility::VISIBILITY_FRIENDS, Visibility::VISIBILITY_PRIVATE].into_iter().cycle().take(6).map(change),
@@ -744,4 +745,30 @@ async fn a_narrowed_note_says_who_can_still_see_it() {
     assert_eq!(visible_to, expected);
     assert_eq!(events[1].data["visible_to"], serde_json::json!([]), "private: nobody else");
     assert!(events[2].data["visible_to"].is_null(), "public: everyone");
+}
+
+#[tokio::test]
+async fn visibility_changes_are_rate_limited_and_carry_when_they_were_made() {
+    let ctx = start().await;
+    let alice = ctx.member("alice").await;
+    let note = ctx.post(&alice, "flip").await;
+    let before = chrono::Utc::now();
+    for round in 0..30 {
+        let visibility = if round % 2 == 0 { Visibility::VISIBILITY_FRIENDS } else { Visibility::VISIBILITY_PUBLIC };
+        let request =
+            SetNoteVisibilityRequest { note_id: note.id.clone(), visibility: visibility.into(), ..Default::default() };
+        let _: SetNoteVisibilityResponse = ctx.note("SetNoteVisibility", Some(&alice), &request).await.unwrap();
+    }
+    let request = SetNoteVisibilityRequest {
+        note_id: note.id.clone(),
+        visibility: Visibility::VISIBILITY_PRIVATE.into(),
+        ..Default::default()
+    };
+    assert_eq!(ctx.note_reason("SetNoteVisibility", Some(&alice), &request).await, "RATE_LIMITED");
+
+    let events = ctx.app.events_by("notes.note.visibility_changed", alice.id).await;
+    assert_eq!(events.len(), 30);
+    let times: Vec<chrono::DateTime<chrono::Utc>> =
+        events.iter().map(|event| serde_json::from_value(event.data["changed_at"].clone()).unwrap()).collect();
+    assert!(times[0] >= before && times.windows(2).all(|pair| pair[0] < pair[1]), "in the order they were made");
 }

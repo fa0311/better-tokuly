@@ -45,3 +45,11 @@ quick-xml = { version = "0.42.0", features = ["encoding"] }
 tokuly-proto = { workspace = true, features = ["social"] }
 tokuly-testkit.workspace = true
 axum.workspace = true
+# Only for the payload structs of the events feed follows (tests build them
+# from the producers' own types, so a renamed field fails a test).
+tokuly-notes.workspace = true
+tokuly-video.workspace = true
+tokuly-shorts.workspace = true
+tokuly-live.workspace = true
+tokuly-stamp.workspace = true
+tokuly-ask.workspace = true

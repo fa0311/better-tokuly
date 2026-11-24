@@ -63,6 +63,10 @@ pub struct NoteVisibilityChanged {
     /// the note before (notifications, inboxes) and is not listed lost
     /// access with this change.
     pub visible_to: Option<Vec<Uuid>>,
+    /// When the change was made, taken while the note was locked: two
+    /// changes of one note are ordered by this (the event's own time is when
+    /// its transaction began, which can put racing changes the wrong way round).
+    pub changed_at: DateTime<Utc>,
 }
 
 /// `notes.story.created`: a story was posted.

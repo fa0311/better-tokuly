@@ -1,19 +1,34 @@
 //! Entries about content that is gone, or that fewer people may see now,
 //! follow that content: deleted notes, stories, videos, shorts, streams and
 //! stamp packs leave every list; a note whose audience changed is shown to
-//! its new audience; an expired story is the owner's own memory again.
+//! its new audience; an expired story is the owner's own memory again; a
+//! video that went back to draft or private is the owner's own until it is
+//! published to an audience again; a deleted answer's "answered" entries go.
+//!
+//! Every payload is built from the producing domain's own event struct, so
+//! a renamed field fails here instead of silently withdrawing nothing.
 mod common;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use common::*;
-use tokuly_core::{events::Event, outbound::ActivityAudience};
+use serde::Serialize;
+use tokuly_core::{
+    events::Event,
+    outbound::{ActivityAudience, ActivityEntry},
+};
 use tokuly_feed::IngestOutcome;
+use tokuly_notes::events::{NoteDeleted, NoteVisibilityChanged, RemovalReason, StoryDeleted, StoryExpired};
 use tokuly_proto::{common::SubjectType, feed::*};
 use tokuly_testkit::TestUser;
 use uuid::Uuid;
 
+/// The event the relay would deliver for a producer's payload.
+fn produced(topic: &str, actor: Option<Uuid>, payload: &impl Serialize) -> Event {
+    event(topic, actor, serde_json::to_value(payload).expect("payload serializes"))
+}
+
 /// A public note with a place tag, as the notes domain records it.
-fn public_note(user: &TestUser, note_id: Uuid) -> tokuly_core::outbound::ActivityEntry {
+fn public_note(user: &TestUser, note_id: Uuid) -> ActivityEntry {
     entry(user, "note.posted", ActivityAudience::Public)
         .subject(SubjectType::SUBJECT_TYPE_NOTE, note_id)
         .path(format!("/notes/{note_id}"))
@@ -21,11 +36,40 @@ fn public_note(user: &TestUser, note_id: Uuid) -> tokuly_core::outbound::Activit
         .data(serde_json::json!({ "note_id": note_id, "text": "渋谷なう" }))
 }
 
-fn visibility_changed(note_id: Uuid, author: Uuid, visibility: i32) -> Event {
-    event(
+fn note_deleted(note_id: Uuid, author: Uuid) -> Event {
+    produced(
+        "notes.note.deleted",
+        Some(author),
+        &NoteDeleted { note_id, author_id: author, reason: RemovalReason::Author },
+    )
+}
+
+fn visibility_changed_at(note_id: Uuid, author: Uuid, visibility: i32, changed_at: DateTime<Utc>) -> Event {
+    produced(
         "notes.note.visibility_changed",
         Some(author),
-        serde_json::json!({ "note_id": note_id, "author_id": author, "visibility": visibility }),
+        &NoteVisibilityChanged { note_id, author_id: author, visibility, visible_to: None, changed_at },
+    )
+}
+
+fn visibility_changed(note_id: Uuid, author: Uuid, visibility: i32) -> Event {
+    visibility_changed_at(note_id, author, visibility, Utc::now())
+}
+
+fn video_event(topic: &str, video_id: Uuid, owner: Uuid, visibility: i32) -> Event {
+    produced(
+        topic,
+        Some(owner),
+        &tokuly_video::events::VideoEvent {
+            video_id,
+            short_id: "abcdefghijk".into(),
+            channel_id: Uuid::now_v7(),
+            owner_id: owner,
+            visibility,
+            origin: 1,
+            origin_id: None,
+            first_publication: false,
+        },
     )
 }
 
@@ -48,11 +92,7 @@ async fn a_deleted_note_leaves_every_list() {
     assert_eq!(ctx.home_feed(&friend).await.len(), 1);
     assert_eq!(map_story_items(&ctx, &friend).await, 1);
 
-    let deleted = event(
-        "notes.note.deleted",
-        Some(author.id),
-        serde_json::json!({ "note_id": note_id, "author_id": author.id, "reason": "author" }),
-    );
+    let deleted = note_deleted(note_id, author.id);
     ctx.feed.handle_event(deleted.clone()).await.unwrap();
     ctx.feed.handle_event(deleted).await.unwrap(); // a redelivery changes nothing
 
@@ -104,14 +144,7 @@ async fn changes_that_arrive_before_the_entry_or_out_of_order_still_hold() {
 
     // Deleted before the entry was stored: it never appears.
     let gone = Uuid::now_v7();
-    ctx.feed
-        .handle_event(event(
-            "notes.note.deleted",
-            Some(author.id),
-            serde_json::json!({ "note_id": gone, "author_id": author.id, "reason": "author" }),
-        ))
-        .await
-        .unwrap();
+    ctx.feed.handle_event(note_deleted(gone, author.id)).await.unwrap();
     let outcome = ctx.deliver(&public_note(&author, gone), Utc::now() - Duration::minutes(1)).await;
     assert_eq!(outcome, IngestOutcome::Dropped);
 
@@ -122,9 +155,10 @@ async fn changes_that_arrive_before_the_entry_or_out_of_order_still_hold() {
     assert!(ctx.profile(Some(&friend), author.id).await.unwrap().is_empty());
     assert_eq!(ids(&ctx.my_log(&author).await), vec![id.clone()]);
 
-    // An older change delivered after a newer one does not win.
-    let mut older = visibility_changed(narrowed, author.id, 1);
-    older.occurred_at = Utc::now() - Duration::minutes(10);
+    // An older change delivered after a newer one does not win, even when
+    // its event is the younger one: the note's own `changed_at` decides.
+    let older = visibility_changed_at(narrowed, author.id, 1, Utc::now() - Duration::minutes(10));
+    assert!(older.occurred_at > Utc::now() - Duration::minutes(1));
     ctx.feed.handle_event(older).await.unwrap();
     assert!(ctx.profile(None, author.id).await.unwrap().is_empty(), "still private");
 }
@@ -144,11 +178,7 @@ async fn an_expired_story_is_the_owners_memory_again() {
     assert_eq!(ctx.home_feed(&friend).await.len(), 1);
 
     ctx.feed
-        .handle_event(event(
-            "notes.story.expired",
-            None,
-            serde_json::json!({ "story_id": story_id, "owner_id": owner.id }),
-        ))
+        .handle_event(produced("notes.story.expired", None, &StoryExpired { story_id, owner_id: owner.id }))
         .await
         .unwrap();
     assert!(ctx.home_feed(&friend).await.is_empty(), "its title and cover are no longer shown to friends");
@@ -161,14 +191,49 @@ async fn other_kinds_of_deleted_content_leave_the_feed_too() {
     let ctx = start().await;
     let (owner, friend) = (ctx.app.user("owner").await, ctx.app.user("friend").await);
     ctx.befriend(&owner, &friend).await;
-    let cases = [
-        ("story.posted", SubjectType::SUBJECT_TYPE_STORY, "notes.story.deleted", "story_id"),
-        ("video.published", SubjectType::SUBJECT_TYPE_VIDEO, "video.video.deleted", "video_id"),
-        ("short.published", SubjectType::SUBJECT_TYPE_SHORT, "shorts.short.deleted", "id"),
-        ("live.started", SubjectType::SUBJECT_TYPE_LIVE_STREAM, "live.stream.deleted", "stream_id"),
-        ("stamp.pack.published", SubjectType::SUBJECT_TYPE_STAMP_PACK, "stamp.pack.deleted", "pack_id"),
+    let owner_id = owner.id;
+    type Payload = fn(Uuid, Uuid) -> serde_json::Value;
+    let cases: [(&str, SubjectType, &str, Payload); 5] = [
+        ("story.posted", SubjectType::SUBJECT_TYPE_STORY, "notes.story.deleted", |id, owner| {
+            serde_json::to_value(StoryDeleted { story_id: id, owner_id: owner, reason: RemovalReason::Author }).unwrap()
+        }),
+        ("video.published", SubjectType::SUBJECT_TYPE_VIDEO, "video.video.deleted", |id, owner| {
+            video_event("video.video.deleted", id, owner, 1).data
+        }),
+        ("short.published", SubjectType::SUBJECT_TYPE_SHORT, "shorts.short.deleted", |id, owner| {
+            serde_json::to_value(tokuly_shorts::events::ShortEvent {
+                id,
+                short_id: "abcdefghijk".into(),
+                channel_id: Uuid::now_v7(),
+                owner_id: owner,
+                visibility: 1,
+                first_publication: false,
+                reason: "owner".into(),
+            })
+            .unwrap()
+        }),
+        ("live.started", SubjectType::SUBJECT_TYPE_LIVE_STREAM, "live.stream.deleted", |id, owner| {
+            serde_json::to_value(tokuly_live::events::StreamEvent {
+                stream_id: id,
+                short_id: "abcdefghijk".into(),
+                channel_id: Uuid::now_v7(),
+                owner_id: owner,
+                visibility: 1,
+                end_reason: 0,
+                went_live: true,
+            })
+            .unwrap()
+        }),
+        ("stamp.pack.published", SubjectType::SUBJECT_TYPE_STAMP_PACK, "stamp.pack.deleted", |id, owner| {
+            serde_json::to_value(tokuly_stamp::events::PackEvent {
+                pack_id: id,
+                creator_id: Some(owner),
+                official: false,
+            })
+            .unwrap()
+        }),
     ];
-    for (minutes_ago, (kind, subject_type, topic, field)) in cases.into_iter().enumerate() {
+    for (minutes_ago, (kind, subject_type, topic, payload)) in cases.into_iter().enumerate() {
         let subject_id = Uuid::now_v7();
         let id = ctx
             .record(
@@ -177,11 +242,66 @@ async fn other_kinds_of_deleted_content_leave_the_feed_too() {
             )
             .await
             .to_string();
-        assert!(ids(&ctx.profile(Some(&friend), owner.id).await.unwrap()).contains(&id), "{kind}");
-        let mut data = serde_json::json!({ "owner_id": owner.id });
-        data[field] = serde_json::json!(subject_id);
-        ctx.feed.handle_event(event(topic, Some(owner.id), data)).await.unwrap();
-        assert!(!ids(&ctx.profile(Some(&friend), owner.id).await.unwrap()).contains(&id), "{topic} withdraws {kind}");
+        assert!(ids(&ctx.profile(Some(&friend), owner_id).await.unwrap()).contains(&id), "{kind}");
+        ctx.feed.handle_event(event(topic, Some(owner_id), payload(subject_id, owner_id))).await.unwrap();
+        assert!(!ids(&ctx.profile(Some(&friend), owner_id).await.unwrap()).contains(&id), "{topic} withdraws {kind}");
         assert!(!ids(&ctx.my_log(&owner).await).contains(&id));
     }
+}
+
+#[tokio::test]
+async fn a_video_back_in_draft_or_private_is_the_owners_until_published_again() {
+    let ctx = start().await;
+    let (owner, friend) = (ctx.app.user("owner").await, ctx.app.user("friend").await);
+    ctx.befriend(&owner, &friend).await;
+    let video_id = Uuid::now_v7();
+    let id = ctx
+        .record(
+            entry(&owner, "video.published", ActivityAudience::Friends)
+                .subject(SubjectType::SUBJECT_TYPE_VIDEO, video_id),
+            30,
+        )
+        .await
+        .to_string();
+
+    ctx.feed.handle_event(video_event("video.video.unpublished", video_id, owner.id, 1)).await.unwrap();
+    assert!(!seen(&ctx, &friend, owner.id, &id).await, "back to draft");
+    assert_eq!(ids(&ctx.my_log(&owner).await), vec![id.clone()], "the owner keeps it");
+
+    ctx.feed.handle_event(video_event("video.video.published", video_id, owner.id, 1)).await.unwrap();
+    assert!(seen(&ctx, &friend, owner.id, &id).await, "published again");
+
+    ctx.feed.handle_event(video_event("video.video.visibility_changed", video_id, owner.id, 5)).await.unwrap();
+    assert!(!seen(&ctx, &friend, owner.id, &id).await, "made private");
+    ctx.feed.handle_event(video_event("video.video.visibility_changed", video_id, owner.id, 4)).await.unwrap();
+    assert!(seen(&ctx, &friend, owner.id, &id).await, "for friends again");
+}
+
+#[tokio::test]
+async fn a_deleted_answer_withdraws_its_entries_but_the_question_can_be_answered_again() {
+    let ctx = start().await;
+    let (owner, friend) = (ctx.app.user("owner").await, ctx.app.user("friend").await);
+    ctx.befriend(&owner, &friend).await;
+    let question_id = Uuid::now_v7();
+    let answered = || {
+        entry(&owner, "ask.answered", ActivityAudience::Friends)
+            .subject(SubjectType::SUBJECT_TYPE_QUESTION, question_id)
+    };
+    let first = ctx.record(answered(), 20).await.to_string();
+    let deleted = produced(
+        "ask.answer.deleted",
+        Some(owner.id),
+        &tokuly_ask::events::AnswerDeleted { question_id, owner_id: owner.id },
+    );
+    ctx.feed.handle_event(deleted).await.unwrap();
+    assert!(!ids(&ctx.my_log(&owner).await).contains(&first));
+
+    // Answered again under the same question: shown as usual.
+    let again = ctx.record(answered(), 1).await.to_string();
+    assert!(ids(&ctx.profile(Some(&friend), owner.id).await.unwrap()).contains(&again));
+}
+
+/// Whether `viewer` finds entry `id` on `owner`'s profile.
+async fn seen(ctx: &Ctx, viewer: &TestUser, owner: Uuid, id: &str) -> bool {
+    ids(&ctx.profile(Some(viewer), owner).await.unwrap()).iter().any(|shown| shown == id)
 }

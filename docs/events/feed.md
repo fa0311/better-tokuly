@@ -40,7 +40,9 @@ table below): an entry about content that is gone is deleted (everyone's
 entries about it), a note's entries get the note's new audience when its
 visibility changes, and an expired story's entry becomes its owner's own
 memory (friends can no longer open the story, so its title and cover are
-not shown to them either). The latest change per subject is remembered in
+not shown to them either); a video's entry follows its publication state;
+a deleted answer's entries go (without remembering anything: the question
+can be answered again). The latest change per subject is remembered in
 `feed_subject_changes` for 8 days, as long as events can still arrive late
 or twice: an `activity.recorded` delivered after the change gets the same
 treatment, and an older change delivered after a newer one is ignored.
@@ -109,8 +111,11 @@ Durable consumer `feed`.
 | `shorts.short.deleted` | `{ id, … }` | the same for the short (`SUBJECT_TYPE_SHORT`) |
 | `live.stream.deleted` | `{ stream_id, … }` | the same for the stream (`SUBJECT_TYPE_LIVE_STREAM`) |
 | `stamp.pack.deleted` | `{ pack_id, … }` | the same for the pack (`SUBJECT_TYPE_STAMP_PACK`) |
-| `notes.note.visibility_changed` | `{ note_id, author_id, visibility }` | the author's entries about the note get the note's audience: public 1 → public, friends 4 → friends, anything else → private |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, changed_at, … }` | the author's entries about the note get the note's audience: public 1 → public, friends 4 → friends, anything else → private. Ordered by `changed_at` (taken while the note was locked), not by the event's time |
 | `notes.story.expired` | `{ story_id, owner_id }` | the owner's entries about the story become private |
+| `video.video.unpublished` | `VideoEvent` `{ video_id, owner_id, … }` | back to draft: the owner's entries about the video become private |
+| `video.video.published`, `video.video.visibility_changed` | `VideoEvent` `{ video_id, owner_id, visibility, … }` | the owner's entries are for friends again while the video is public (1) or for friends (4), private otherwise (the video domain announces every video to friends only) |
+| `ask.answer.deleted` | `{ question_id, owner_id }` | deletes the `ask.answered` entries about the question (`SUBJECT_TYPE_QUESTION`); not remembered, since the question can be answered again under the same ID |
 
 ## Events emitted
 

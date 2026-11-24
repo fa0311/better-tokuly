@@ -288,7 +288,8 @@ impl Feed {
                 return Ok(IngestOutcome::Dropped);
             }
             Some(Change::Audience(audience)) => new.audience = audience,
-            None => {}
+            // Never remembered (see `withdrawals::Change::Withdrawn`).
+            Some(Change::Withdrawn(_)) | None => {}
         }
         // The SELECT keeps entries of unknown or deleted accounts out without
         // tripping the foreign key (which would abort the transaction).
