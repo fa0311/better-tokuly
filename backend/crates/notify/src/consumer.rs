@@ -27,7 +27,12 @@ use crate::{
     Notify,
     categories::{self, Category},
     delivery::PushJob,
-    events::{FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_DELETED_TOPIC, UserDeleted},
+    blocks,
+    events::{
+        FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC, USER_DELETED_TOPIC,
+        USER_UNBLOCKED_TOPIC, UserDeleted,
+    },
+    locks,
     inbox::{self, NewNotification, NotificationRow},
     preferences::{self, DeliveryContext},
     preferences_svc::{delete_mute, insert_mute},
@@ -42,6 +47,8 @@ pub const TOPICS: &[&str] = &[
     NOTIFY_TOPIC,
     FRIEND_PREFS_CHANGED_TOPIC,
     USER_DELETED_TOPIC,
+    USER_BLOCKED_TOPIC,
+    USER_UNBLOCKED_TOPIC,
     CONTENT_REMOVED_TOPIC,
     // `withdraw::DELETION_TOPICS`
     "chat.message.deleted",
@@ -85,6 +92,8 @@ pub enum DropReason {
     OwnAction,
     /// The recipient muted the person who caused it.
     Muted,
+    /// The recipient and the person who caused it are in a block.
+    Blocked,
     /// A newer event with the same collapse key was handled first.
     Superseded,
     /// What it is about was deleted or taken down before it was handled.
@@ -212,6 +221,8 @@ impl Notify {
         match event.topic.as_str() {
             NOTIFY_TOPIC => self.handle_request(&event).await.map(|_| ()),
             FRIEND_PREFS_CHANGED_TOPIC => self.handle_friend_prefs_changed(&event).await,
+            USER_BLOCKED_TOPIC => self.handle_block(&event, true).await,
+            USER_UNBLOCKED_TOPIC => self.handle_block(&event, false).await,
             USER_DELETED_TOPIC => {
                 let deleted: UserDeleted = event.data()?;
                 self.purge_user(deleted.user_id).await
@@ -250,12 +261,11 @@ impl Notify {
         }
         let plan = plan(&request, category, &recipient, now());
         let refs = withdraw::refs_of(&request);
-        // System notices are never withdrawn (see `withdraw.rs`).
-        let withdrawable_refs: &[Uuid] = if category.id == UNWITHDRAWABLE_CATEGORY {
-            &[]
-        } else {
-            &refs
-        };
+        // System notices (account and security, moderation) are never
+        // withdrawn, nor held back by a block.
+        let system = category.id == UNWITHDRAWABLE_CATEGORY;
+        let withdrawable_refs: &[Uuid] = if system { &[] } else { &refs };
+        let blockable_actor = request.actor_id.filter(|_| !system);
 
         // Nothing above changed anything, so a redelivery may safely repeat
         // it. From here on the event ID guards against doing the work twice.
@@ -263,16 +273,20 @@ impl Notify {
         if !claim_event(&mut tx, event.id).await? {
             return Ok(RequestOutcome::Duplicate);
         }
-        // Checked under the locks a withdrawal takes, so that an entry is
-        // either refused here or seen and removed by the withdrawal.
-        withdraw::lock_shared(
-            &mut tx,
-            withdrawable_refs.iter().map(|id| withdraw::lock_key(*id)).collect(),
-        )
-        .await?;
+        // Checked under the locks a withdrawal and a block take, so that an
+        // entry is either refused here or seen and removed by them.
+        let mut keys: Vec<i64> = withdrawable_refs.iter().map(|id| locks::key(*id)).collect();
+        keys.extend(blockable_actor.map(|actor_id| locks::pair_key(request.user_id, actor_id)));
+        locks::lock_shared(&mut tx, keys).await?;
         if withdraw::any_withdrawn(&mut *tx, withdrawable_refs).await? {
             tx.commit().await?;
             return Ok(RequestOutcome::Dropped(DropReason::Withdrawn));
+        }
+        if let Some(actor_id) = blockable_actor
+            && blocks::either_blocked(&mut *tx, request.user_id, actor_id).await?
+        {
+            tx.commit().await?;
+            return Ok(RequestOutcome::Dropped(DropReason::Blocked));
         }
         let stored = if plan.inbox {
             let entry = inbox_entry(&request, category, &refs, event.occurred_at);

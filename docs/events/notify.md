@@ -21,6 +21,11 @@ Rules the consumer applies, in order:
 1. Malformed requests (kind not `[a-z0-9_.]{1,64}`, empty title) and requests
    about the recipient's own action are dropped.
 2. A recipient who muted the actor gets nothing: no inbox entry, no push.
+   Nor does anyone in a block with the actor, whoever blocked whom (blocks
+   are mirrored from `social.user.blocked` / `unblocked`; `system` notices
+   are exempt). Blocking someone also removes what they caused from the
+   blocker's inbox; the blocked person's inbox is left alone, since blocks
+   are silent.
 3. Category toggles: `inbox` off → no inbox entry (and no realtime event);
    `push` off → no push. The `system` category's inbox toggle is locked on.
 4. Global push pause and quiet hours (in `users.time_zone`) suppress the push
@@ -62,13 +67,14 @@ account's) for push.
 |---|---|---|
 | `notify.requested` | `tokuly_core::outbound::NotificationRequest` | inbox entry, realtime event, push job (see above) |
 | `social.friend.prefs_changed` | `{ user_id, friend_id, muted }` (`tokuly_notify::events::FriendPrefsChanged`) | `muted = true` adds a mute of `friend_id` for `user_id`, `false` removes it |
+| `social.user.blocked` / `social.user.unblocked` | `{ user_id, blocked_id }` (`tokuly_notify::events::UserBlocked`) | mirrors the block (rule 2). A block removes `user_id`'s non-system entries caused by `blocked_id`. Applied only when newer than the pair's last change, so events handled out of order end in the latest state |
 | `admin.content.removed` | `{ subject_type, subject_id, … }` | withdraws `subject_id` (any subject type but `SUBJECT_TYPE_USER`: a profile takedown keeps what the person did in other inboxes) |
 | `chat.message.deleted` | `{ message_id, … }` | withdraws `message_id` |
 | `engagement.comment.deleted` | `{ comment_id, … }` | withdraws `comment_id` |
 | `notes.note.deleted` / `notes.story.deleted` | `{ note_id, … }` / `{ story_id, … }` | withdraws the note / story |
 | `community.thread.deleted` | `{ community_id, thread_id }` | withdraws `thread_id` |
 | `video.playlist.deleted` | `{ playlist_id, owner_id }` | withdraws `playlist_id` |
-| `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes and push registrations, inbox entries they caused for others, and mutes on them |
+| `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, and mutes on them |
 
 ## Events emitted
 

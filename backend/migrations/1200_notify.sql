@@ -113,6 +113,21 @@ CREATE TABLE notify_mutes (
 CREATE INDEX notify_mutes_list ON notify_mutes (user_id, created_at DESC, muted_user_id DESC);
 CREATE INDEX notify_mutes_muted ON notify_mutes (muted_user_id);
 
+-- Blocks, mirrored from the social domain's events. Nothing is delivered
+-- across a block in either direction. Unblocking keeps the row
+-- (`blocked = false`) so that events handled out of order can be told apart
+-- by `changed_at` (the time of the event).
+CREATE TABLE notify_blocks (
+    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    blocked_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    blocked    boolean     NOT NULL,
+    changed_at timestamptz NOT NULL,
+    PRIMARY KEY (user_id, blocked_id),
+    CHECK (user_id <> blocked_id)
+);
+
+CREATE INDEX notify_blocks_blocked ON notify_blocks (blocked_id);
+
 -- Where push notifications go: one registration per session and channel.
 -- Rows die with their session (cascade on purge; swept when it is revoked or
 -- expires) and when the push service reports the token as gone.

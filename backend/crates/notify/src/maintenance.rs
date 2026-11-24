@@ -159,6 +159,10 @@ impl Notify {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM notify_blocks WHERE user_id = $1 OR blocked_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM notify_category_prefs WHERE user_id = $1")
             .bind(user_id)
             .execute(&mut *tx)

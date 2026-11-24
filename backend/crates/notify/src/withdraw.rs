@@ -14,11 +14,10 @@
 //! Notices of the `system` category are never withdrawn: the one telling an
 //! owner that their content was taken down refers to that content.
 use serde::Deserialize;
-use sqlx::{Postgres, Transaction};
 use tokuly_core::{events::Event, outbound::NotificationRequest, prelude::*};
 use tokuly_proto::common::SubjectType;
 
-use crate::Notify;
+use crate::{Notify, locks};
 
 /// The moderation topic: any subject type (except users) is withdrawn.
 pub const CONTENT_REMOVED_TOPIC: &str = "admin.content.removed";
@@ -83,32 +82,6 @@ pub fn refs_of(request: &NotificationRequest) -> Vec<Uuid> {
     refs
 }
 
-/// The advisory lock key of an ID. A withdrawal holds it exclusively while
-/// it removes entries; a request about the ID holds it shared while it
-/// stores one, so a withdrawal never misses an entry stored concurrently.
-/// Collisions only make unrelated work wait.
-pub(crate) fn lock_key(id: Uuid) -> i64 {
-    let bits = id.as_u128();
-    (bits as i64) ^ ((bits >> 64) as i64)
-}
-
-/// Takes the shared locks of `keys` for the rest of the transaction.
-pub(crate) async fn lock_shared(
-    tx: &mut Transaction<'_, Postgres>,
-    mut keys: Vec<i64>,
-) -> AppResult<()> {
-    if keys.is_empty() {
-        return Ok(());
-    }
-    keys.sort_unstable();
-    keys.dedup();
-    sqlx::query("SELECT pg_advisory_xact_lock_shared(k) FROM unnest($1::bigint[]) AS k")
-        .bind(&keys)
-        .execute(&mut **tx)
-        .await?;
-    Ok(())
-}
-
 /// Whether any of `refs` was withdrawn.
 pub(crate) async fn any_withdrawn<'e, E: sqlx::PgExecutor<'e>>(
     executor: E,
@@ -130,10 +103,7 @@ impl Notify {
     /// from every inbox, and remembers the ID. Idempotent.
     pub async fn withdraw(&self, ref_id: Uuid) -> AppResult<()> {
         let mut tx = self.core.db.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock($1)")
-            .bind(lock_key(ref_id))
-            .execute(&mut *tx)
-            .await?;
+        locks::lock(&mut tx, locks::key(ref_id)).await?;
         sqlx::query("INSERT INTO notify_withdrawn (ref_id) VALUES ($1) ON CONFLICT DO NOTHING")
             .bind(ref_id)
             .execute(&mut *tx)

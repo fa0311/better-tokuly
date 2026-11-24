@@ -4,6 +4,8 @@
 //! - `notify.requested` — `tokuly_core::outbound::NotificationRequest`
 //! - `social.friend.prefs_changed` — [`FriendPrefsChanged`]
 //! - `identity.user.deleted` — [`UserDeleted`]
+//! - `social.user.blocked`, `social.user.unblocked` — [`UserBlocked`]
+//! - deletion events of other domains (see `withdraw.rs`)
 //!
 //! Emitted:
 //! - `notify.mute.changed` — [`MuteChanged`]
@@ -12,6 +14,8 @@ use uuid::Uuid;
 
 pub const FRIEND_PREFS_CHANGED_TOPIC: &str = "social.friend.prefs_changed";
 pub const USER_DELETED_TOPIC: &str = "identity.user.deleted";
+pub const USER_BLOCKED_TOPIC: &str = "social.user.blocked";
+pub const USER_UNBLOCKED_TOPIC: &str = "social.user.unblocked";
 pub const MUTE_CHANGED_TOPIC: &str = "notify.mute.changed";
 
 /// Our view of the social domain's event: `user_id` changed their
@@ -21,6 +25,14 @@ pub struct FriendPrefsChanged {
     pub user_id: Uuid,
     pub friend_id: Uuid,
     pub muted: bool,
+}
+
+/// Our view of the social domain's block events: `user_id` blocked (or
+/// unblocked) `blocked_id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserBlocked {
+    pub user_id: Uuid,
+    pub blocked_id: Uuid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

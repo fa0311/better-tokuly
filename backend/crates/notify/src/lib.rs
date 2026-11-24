@@ -20,6 +20,7 @@ use std::{collections::HashMap, ops::Deref, sync::Arc};
 use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
 
+mod blocks;
 pub mod categories;
 pub mod config;
 pub mod consumer;
@@ -27,6 +28,7 @@ pub mod delivery;
 pub mod devices;
 pub mod events;
 pub mod inbox;
+mod locks;
 mod inbox_svc;
 pub mod maintenance;
 pub mod preferences;

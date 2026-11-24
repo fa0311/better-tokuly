@@ -10,6 +10,7 @@ mod devices;
 mod inbox;
 mod inbox_changes;
 mod maintenance;
+mod blocks;
 mod mutes;
 mod withdrawals;
 mod preferences;
