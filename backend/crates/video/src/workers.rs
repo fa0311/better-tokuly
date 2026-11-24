@@ -190,19 +190,42 @@ impl Video {
         if let Some(video) = video {
             videos::delete(&self.core, &video, None, false).await?;
         }
-        // A custom thumbnail falls back to the poster frame; channel art is cleared.
-        sqlx::query("UPDATE videos SET thumbnail_asset_id = NULL, thumbnail = playback -> 'poster' WHERE thumbnail_asset_id = $1")
-            .bind(asset_id)
-            .execute(&self.core.db)
-            .await?;
-        sqlx::query("UPDATE channels SET icon = NULL, icon_asset_id = NULL WHERE icon_asset_id = $1")
-            .bind(asset_id)
-            .execute(&self.core.db)
-            .await?;
+        // A custom thumbnail falls back to the poster frame; channel art is
+        // cleared. Search documents that showed the picture show the new one.
+        let mut tx = self.core.db.begin().await?;
+        let videos: Vec<Uuid> = sqlx::query_scalar(
+            "UPDATE videos SET thumbnail_asset_id = NULL, thumbnail = playback -> 'poster' WHERE thumbnail_asset_id = $1
+             RETURNING id",
+        )
+        .bind(asset_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for video_id in videos {
+            let Some(video) = videos::find_in(&mut tx, video_id).await? else { continue };
+            if !video.is_public() {
+                continue;
+            }
+            if let Some(channel) = channels::find_in(&mut tx, video.channel_id).await? {
+                search::sync_video(&mut tx, true, &video, &channel).await?;
+            }
+            playlists::sync_search_of_video_in(&mut tx, video.id).await?;
+        }
+        let iconless: Vec<Uuid> = sqlx::query_scalar(
+            "UPDATE channels SET icon = NULL, icon_asset_id = NULL WHERE icon_asset_id = $1 RETURNING id",
+        )
+        .bind(asset_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for channel_id in iconless {
+            if let Some(channel) = channels::find_in(&mut tx, channel_id).await? {
+                search::index_channel(&mut tx, &channel).await?;
+            }
+        }
         sqlx::query("UPDATE channels SET banner = NULL, banner_asset_id = NULL WHERE banner_asset_id = $1")
             .bind(asset_id)
-            .execute(&self.core.db)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -307,6 +330,8 @@ impl Video {
             for video in &public {
                 // `was_public` forces the write: the document is rewritten or removed.
                 search::sync_video(&mut tx, true, video, channel).await?;
+                // Other people's playlists show it as their picture, or stop to.
+                playlists::sync_search_of_video_in(&mut tx, video.id).await?;
             }
         }
         let listed: Vec<Uuid> =

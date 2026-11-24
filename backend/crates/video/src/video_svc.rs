@@ -10,7 +10,7 @@ use tokuly_proto::{common::Visibility, media::AssetPurpose, video::*};
 use crate::{
     Video,
     access::{self, Viewer, watchable},
-    analytics, channels, games, party,
+    analytics, channels, games, party, playlists,
     subtitles::{self, SubtitleEdit},
     validate,
     videos::{self, NewVideo, VideoRow, video_columns},
@@ -147,6 +147,7 @@ impl VideoService for Video {
             .bind(req.allow_link)
             .execute(&mut *tx)
             .await?;
+            let thumbnail_changed = thumbnail.is_some();
             if let Some(change) = thumbnail {
                 let holder = videos::holder(video.id);
                 if let Some(previous) = video.thumbnail_asset_id {
@@ -172,6 +173,11 @@ impl VideoService for Video {
             }
             let row = videos::find_in(&mut tx, video.id).await?.ok_or_else(video_not_found)?;
             let row = videos::after_visible_change_in(&mut tx, video.is_public(), row, false).await?;
+            // A new picture of a video that stays public: the playlists
+            // showing it follow (a change of audience did that already).
+            if thumbnail_changed && video.is_public() && row.is_public() {
+                playlists::sync_search_of_video_in(&mut tx, row.id).await?;
+            }
             tx.commit().await?;
             // Nobody but the owner can follow a video that went private.
             if row.is_published() && row.visibility == access::PRIVATE && video.visibility != access::PRIVATE {

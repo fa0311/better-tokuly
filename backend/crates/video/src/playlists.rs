@@ -270,6 +270,35 @@ pub(crate) async fn sync_search_in(tx: &mut Tx<'_>, was_public: bool, playlist_i
     Ok(())
 }
 
+/// The public playlists that list `video_id`, whose search documents show
+/// the thumbnail of their first public video.
+pub(crate) async fn public_lists_of_video_in(tx: &mut Tx<'_>, video_id: Uuid) -> AppResult<Vec<Uuid>> {
+    Ok(sqlx::query_scalar(
+        "SELECT i.playlist_id FROM playlist_items i JOIN playlists p ON p.id = i.playlist_id
+         WHERE i.video_id = $1 AND p.kind = 1 AND p.visibility = 1
+         ORDER BY i.playlist_id",
+    )
+    .bind(video_id)
+    .fetch_all(&mut **tx)
+    .await?)
+}
+
+/// Refreshes the search documents of `playlist_ids` (see [`public_lists_of_video_in`]).
+pub(crate) async fn sync_search_of_lists_in(tx: &mut Tx<'_>, playlist_ids: &[Uuid]) -> AppResult<()> {
+    for playlist_id in playlist_ids {
+        sync_search_in(tx, false, *playlist_id).await?;
+    }
+    Ok(())
+}
+
+/// After a video stopped (or started) being public or changed its
+/// thumbnail: the playlists listing it get their search picture again, so
+/// it never shows a video that left the public.
+pub(crate) async fn sync_search_of_video_in(tx: &mut Tx<'_>, video_id: Uuid) -> AppResult<()> {
+    let lists = public_lists_of_video_in(tx, video_id).await?;
+    sync_search_of_lists_in(tx, &lists).await
+}
+
 /// Deletes a playlist inside `tx`.
 pub(crate) async fn delete_in(
     tx: &mut Tx<'_>,

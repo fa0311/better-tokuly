@@ -624,6 +624,9 @@ pub(crate) async fn after_visible_change_in(
     let channel =
         channels::find_in(tx, row.channel_id).await?.or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
     search::sync_video(tx, was_public, &row, &channel).await?;
+    if was_public != row.is_public() {
+        playlists::sync_search_of_video_in(tx, row.id).await?;
+    }
     let announce = row.is_published()
         && !row.suspended
         && row.announced_at.is_none()
@@ -694,6 +697,9 @@ pub(crate) async fn unpublish_in(
         let channel =
             channels::find_in(tx, row.channel_id).await?.or_not_found("CHANNEL_NOT_FOUND", "channel not found")?;
         search::sync_video(tx, video.is_public(), &row, &channel).await?;
+        if video.is_public() {
+            playlists::sync_search_of_video_in(tx, row.id).await?;
+        }
         core_events::emit(&mut **tx, VIDEO_UNPUBLISHED, Some(row.owner_id), &row.event(false)).await?;
     }
     Ok(row)
@@ -916,8 +922,10 @@ pub async fn delete_in(
     force_assets: bool,
 ) -> AppResult<Aftermath> {
     let parties = party::audiences_of_video_in(tx, video.id).await?;
+    let lists = playlists::public_lists_of_video_in(tx, video.id).await?;
     assets::detach_holder(&mut **tx, &holder(video.id)).await?;
     sqlx::query("DELETE FROM videos WHERE id = $1").bind(video.id).execute(&mut **tx).await?;
+    playlists::sync_search_of_lists_in(tx, &lists).await?;
     // Whatever `video` says: it may have been read before the video went
     // public, and removing a document that does not exist costs nothing.
     outbound::unindex(&mut **tx, "video", video.id).await?;
