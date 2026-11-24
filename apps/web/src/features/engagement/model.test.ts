@@ -21,6 +21,7 @@ const base: Engagement = {
     { emoji: "🔥", count: 1 },
   ],
   emojiTotal: 4,
+  distinctEmoji: 2,
   viewerReactions: [],
   rules: DEFAULT_RULES,
   commentCount: 0,

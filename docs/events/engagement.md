@@ -101,10 +101,14 @@ one of the two).
 A subject carries at most `TOKULY_ENGAGEMENT_REACTION_EMOJI_PER_SUBJECT`
 (50) distinct emoji; once full, only emoji already on it can be added
 (Discord's rule), so summaries stay readable and nobody can flood a post
-with a hundred different emoji. Both limits are checked under locks: a
-per-user-and-subject advisory lock for the person's own reactions, and a
-per-subject one taken by every emoji addition (before any counter row) for
-the distinct count.
+with a hundred different emoji. A full subject's summary lists every one of
+its emoji (`distinct_emoji` says how many it carries), so clients offer
+exactly those. Both limits are checked under locks: a per-user-and-subject
+advisory lock for the person's own reactions, and a per-subject one taken
+by every emoji addition (before any counter row) for the distinct count.
+One change — however many reactions it adds and takes back — moves the
+per-emoji counts in name order and the statistics row last, once; account
+erasure does the same subject by subject.
 
 **Custom emoji** are checked when added, before the transaction, against
 `tokuly_emoji::catalog::lookup` (cached catalogue): unknown, pending,
@@ -203,7 +207,7 @@ block, or as the owner of content that belongs to nobody.
 | `engagement.reply` | author of the thread; author of the reply answered | a reply entered public view | |
 | `engagement.mention` | users `@mentioned` | the comment entered public view, or an edit added the mention | only users who can see the subject; at most once a day per comment and user (editing a mention out and back in is not news) |
 | `engagement.heart` | comment author | the owner gave the comment a heart | no actor; collapse key `engagement.heart:<comment>`; at most once a day per comment |
-| `engagement.like` | subject owner (for a comment: its author) | someone liked or reacted with an emoji | grouped: one entry per subject (collapse key `engagement.like:<type>:<subject>`), each new one naming the newest person and how many others hold a like or emoji there (「Aと他2人がリアクションしたよ! 🎉」, 「Aがいいねしたよ!」 when alone); the emoji is in the title (`:name:` for a custom one) and in `data = { kind, emoji, emoji_image_url, others }`. actor = the user; at most once a day per user and subject; never for dislikes |
+| `engagement.like` | subject owner (for a comment: its author) | someone liked or reacted with an emoji | grouped: one entry per subject (collapse key `engagement.like:<type>:<subject>`), each new one naming the newest person and how many others hold a like or emoji there (「Aと他2人がリアクションしたよ! 🎉」, 「Aがいいねしたよ!」 when alone, 「他99+人」 beyond 99), leaving out people in a block with the owner and people the owner muted; counted before the reaction's transaction (from the counters on subjects that take one reaction per person, from at most a bounded number of rows on those that take several). The emoji is in the title (`:name:` for a custom one) and in `data = { kind, emoji, emoji_image_url, others, others_more }`. actor = the user; at most once a day per user and subject; never for dislikes |
 
 One person gets at most one notification per comment (reply before mention
 before comment). A held comment notifies its audience when it is approved,

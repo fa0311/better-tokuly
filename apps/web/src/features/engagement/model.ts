@@ -80,6 +80,8 @@ export interface Engagement {
   /** The most used emoji first. */
   emojiCounts: EmojiCount[];
   emojiTotal: number;
+  /** How many different emoji the subject carries (all of them are in `emojiCounts` once it is full). */
+  distinctEmoji: number;
   /** The caller's like or dislike if they gave one, otherwise their newest emoji. */
   viewerReaction?: ViewerReaction;
   /** Every reaction of the caller, oldest first. */
@@ -166,7 +168,7 @@ function toRules(rules: engagement.ReactionRules | undefined): ReactionRules {
 /** The counts of a summary (what a realtime push carries too). */
 function countFields(
   summary: engagement.ReactionSummary | undefined,
-): Pick<Engagement, "likeCount" | "dislikeCount" | "emojiCounts" | "emojiTotal"> {
+): Pick<Engagement, "likeCount" | "dislikeCount" | "emojiCounts" | "emojiTotal" | "distinctEmoji"> {
   return {
     likeCount: Number(summary?.likeCount ?? 0n),
     dislikeCount: Number(summary?.dislikeCount ?? 0n),
@@ -177,6 +179,7 @@ function countFields(
         : { emoji: entry.emoji, count: Number(entry.count) };
     }),
     emojiTotal: Number(summary?.emojiTotal ?? 0n),
+    distinctEmoji: summary?.distinctEmoji ?? 0,
   };
 }
 
@@ -189,6 +192,7 @@ export function reactionFields(
   | "dislikeCount"
   | "emojiCounts"
   | "emojiTotal"
+  | "distinctEmoji"
   | "viewerReaction"
   | "viewerReactions"
   | "rules"
@@ -257,13 +261,15 @@ export function withReactionChange(current: Engagement, change: ReactionChange):
     added = change.add;
     removed = current.rules.multiple ? (isVote(added) ? held.filter(isVote) : []) : held;
   }
-  let { likeCount, dislikeCount, emojiCounts, emojiTotal } = current;
+  let { likeCount, dislikeCount, emojiCounts, emojiTotal, distinctEmoji } = current;
   const apply = (reaction: ViewerReaction, delta: number) => {
     if (reaction.kind === engagement.ReactionKind.LIKE) likeCount = Math.max(0, likeCount + delta);
     else if (reaction.kind === engagement.ReactionKind.DISLIKE)
       dislikeCount = Math.max(0, dislikeCount + delta);
     else if (reaction.kind === engagement.ReactionKind.EMOJI) {
+      const before = emojiCounts.length;
       emojiCounts = adjustEmoji(emojiCounts, reaction, delta);
+      distinctEmoji = Math.max(0, distinctEmoji + emojiCounts.length - before);
       emojiTotal = Math.max(0, emojiTotal + delta);
     }
   };
@@ -279,6 +285,7 @@ export function withReactionChange(current: Engagement, change: ReactionChange):
     dislikeCount,
     emojiCounts,
     emojiTotal,
+    distinctEmoji,
     viewerReactions,
     viewerReaction: representative(viewerReactions),
   };

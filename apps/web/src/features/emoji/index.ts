@@ -6,6 +6,7 @@
  *   <Emoji name="neko" />                              // one custom emoji by name
  *   <EmojiPicker trigger={<Button …/>} onPick={(emoji) => insert(emoji)} />   // Unicode + custom, deck first
  *   <EmojiPicker unicodeOnly … />                      // for a field that takes no `:shortcode:` (one Unicode emoji)
+ *   <EmojiPicker hideSensitive only={["🎉", ":neko:"]} … />   // without sensitive emoji; only these
  *   <EmojiPickerPanel onPick={…} />                    // the picker's inside, for a dialog of your own
  *
  *   // `:` autocomplete in a composer, ready made (a row of suggestions while a `:name` is typed):

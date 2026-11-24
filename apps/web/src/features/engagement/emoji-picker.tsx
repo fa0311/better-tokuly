@@ -16,6 +16,10 @@ export interface EmojiPickerProps {
    * fields that use this picker hold one Unicode emoji, so the default is false.
    */
   custom?: boolean;
+  /** Leave out custom emoji marked sensitive (a subject whose owner does not take them). */
+  hideSensitive?: boolean;
+  /** Offer only these emoji: a subject that carries as many different emoji as it may. */
+  only?: string[];
 }
 
 /**
@@ -30,10 +34,14 @@ export function EmojiPicker({
   side,
   onOpenChange,
   custom = false,
+  hideSensitive,
+  only,
 }: EmojiPickerProps) {
   return (
     <SharedEmojiPicker
       unicodeOnly={!custom}
+      hideSensitive={hideSensitive}
+      only={only}
       trigger={trigger}
       side={side}
       onOpenChange={onOpenChange}

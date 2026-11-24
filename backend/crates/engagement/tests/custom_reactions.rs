@@ -232,6 +232,7 @@ async fn a_subject_carries_a_limited_number_of_distinct_emoji() {
     ctx.react(&bob, video.subject_ref(), emoji("🎉")).await;
     let summary = ctx.react(&carol, video.subject_ref(), emoji("👀")).await;
     assert_eq!(summary.rules.as_option().unwrap().max_distinct_emoji, 2);
+    assert_eq!(summary.distinct_emoji, 2);
 
     // Full: a new emoji is refused, one that is there can be joined.
     assert_eq!(reason_of(&ctx, &dave, video.subject_ref(), emoji("🙏")).await, "REACTION_EMOJI_LIMIT");
@@ -455,4 +456,80 @@ async fn an_erased_account_takes_its_settings_and_mutes_along() {
     ctx.deliver("identity.user.deleted", None, serde_json::json!({ "user_id": owner.id })).await;
     assert_eq!(rows("SELECT count(*) FROM reaction_settings WHERE user_id = $1").await, 0);
     assert_eq!(rows("SELECT count(*) FROM engagement_mutes WHERE user_id = $1 OR muted_user_id = $1").await, 0);
+}
+
+#[tokio::test]
+async fn taking_many_emoji_back_at_once_keeps_the_lock_order() {
+    // Everyone holds the same emoji in a different order and takes them all
+    // back, or swaps them, at the same moment: per-emoji counts are locked in
+    // name order and the statistics row last, so nobody deadlocks.
+    let ctx = start().await;
+    let owner = ctx.app.user("Owner").await;
+    let thread = ctx.thread(&owner, "t");
+    let orders = [["🎉", "👀", "🙏"], ["🙏", "🎉", "👀"], ["👀", "🙏", "🎉"], ["🎉", "🙏", "👀"]];
+    let mut people = Vec::new();
+    for (index, order) in orders.iter().enumerate() {
+        let person = ctx.app.user(&format!("Fan{index}")).await;
+        for pick in order {
+            ctx.react(&person, thread.subject_ref(), emoji(pick)).await;
+        }
+        ctx.react(&person, thread.subject_ref(), like()).await;
+        people.push(person);
+    }
+    let all = unreact(thread.subject_ref(), None);
+    let one = unreact(thread.subject_ref(), Some(emoji("👀")));
+    let swap = set(thread.subject_ref(), dislike());
+    let calls = people.iter().enumerate().flat_map(|(index, person)| {
+        let first: futures::future::BoxFuture<'_, Result<serde_json::Value, _>> = match index % 2 {
+            0 => Box::pin(ctx.call("ReactionService", "RemoveReaction", Some(person), &all)),
+            _ => Box::pin(ctx.call("ReactionService", "RemoveReaction", Some(person), &one)),
+        };
+        let second: futures::future::BoxFuture<'_, Result<serde_json::Value, _>> =
+            Box::pin(ctx.call("ReactionService", "SetReaction", Some(person), &swap));
+        [first, second]
+    });
+    let results = futures::future::join_all(calls).await;
+    assert!(results.iter().all(Result::is_ok), "{results:?}");
+
+    // The counters say what the rows say.
+    let summary = ctx.engagement_of(None, &thread).await;
+    let reactions = summary.reactions.as_option().unwrap();
+    let held: i64 = sqlx::query_scalar("SELECT count(*) FROM reactions WHERE subject_id = $1 AND kind = 3")
+        .bind(thread.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(reactions.emoji_total, held);
+    assert_eq!(reactions.emoji_counts.iter().map(|count| count.count).sum::<i64>(), held);
+    let votes: (i64, i64) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE kind = 1), count(*) FILTER (WHERE kind = 2) FROM reactions WHERE subject_id = $1",
+    )
+    .bind(thread.id)
+    .fetch_one(&ctx.app.core.db)
+    .await
+    .unwrap();
+    assert_eq!((reactions.like_count, reactions.dislike_count), votes);
+}
+
+#[tokio::test]
+async fn the_owner_is_not_told_about_people_they_blocked_or_muted() {
+    let ctx = start().await;
+    let owner = ctx.app.user("Owner").await;
+    let (muted, blocked, alice) =
+        (ctx.app.user("Muted").await, ctx.app.user("Blocked").await, ctx.app.user("アリス").await);
+    let note = ctx.note(&owner, "n");
+    ctx.react(&muted, note.subject_ref(), emoji("🎉")).await;
+    ctx.react(&blocked, note.subject_ref(), emoji("🎉")).await;
+    ctx.deliver_at(
+        "notify.mute.changed",
+        serde_json::json!({ "user_id": owner.id, "muted_user_id": muted.id, "muted": true }),
+        chrono::Utc::now(),
+    )
+    .await;
+    ctx.block(&owner, &blocked).await;
+    ctx.react(&alice, note.subject_ref(), like()).await;
+    let notices = ctx.notifications(owner.id, "engagement.like").await;
+    let last = notices.last().expect("a notification");
+    assert_eq!(last["title"]["ja"], "アリスがいいねしたよ!");
+    assert_eq!(last["data"]["others"], 0);
 }

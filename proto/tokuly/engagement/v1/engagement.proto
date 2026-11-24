@@ -644,10 +644,14 @@ message ReactionRules {
 message ReactionSummary {
   int64 like_count = 1;
   int64 dislike_count = 2;
-  // The most used emoji first; at most 20.
+  // The most used emoji first; at most 20, or every one of them once the
+  // subject carries as many distinct emoji as it may (`rules.max_distinct_emoji`),
+  // so that a client can offer exactly those.
   repeated EmojiCount emoji_counts = 3;
   // Total emoji reactions, including emoji beyond the listed ones.
   int64 emoji_total = 4;
+  // How many distinct emoji the subject carries.
+  int32 distinct_emoji = 8;
   // The caller's reaction. On a subject that takes several: their like or
   // dislike if they gave one, otherwise their newest emoji. Unset for
   // guests, in realtime events, and when the caller did not react.

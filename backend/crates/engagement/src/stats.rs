@@ -18,14 +18,14 @@ use crate::{
     subjects::SubjectKey,
 };
 
-/// Emoji listed in a `ReactionSummary`.
+/// Emoji listed in a `ReactionSummary` (all of them once the subject is full).
 pub(crate) const SUMMARY_EMOJI: i64 = 20;
 
 /// The quiet time between two pushes of a subject's counters.
 const PUSH_INTERVAL: Duration = Duration::from_secs(1);
 
 /// One of the counters of a subject.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum Counter {
     Like,
     Dislike,
@@ -177,6 +177,7 @@ struct EmojiRow {
     subject_id: Uuid,
     emoji: String,
     count: i64,
+    distinct_emoji: i64,
 }
 
 /// The numbers of many subjects: counters, and the most used emoji of each.
@@ -184,6 +185,7 @@ struct EmojiRow {
 pub(crate) struct Stats {
     rows: HashMap<SubjectKey, StatsRow>,
     emoji: HashMap<SubjectKey, Vec<EmojiCount>>,
+    distinct_emoji: HashMap<SubjectKey, i64>,
 }
 
 impl Stats {
@@ -201,6 +203,7 @@ impl Stats {
             dislike_count: row.dislike_count,
             emoji_counts: self.emoji.get(&key).cloned().unwrap_or_default(),
             emoji_total: row.emoji_count,
+            distinct_emoji: self.distinct_emoji.get(&key).copied().unwrap_or_default().try_into().unwrap_or(i32::MAX),
             viewer_reaction: reactions::representative(own).map(Stored::to_proto).into(),
             viewer_reactions: own.iter().map(Stored::to_proto).collect(),
             ..Default::default()
@@ -212,8 +215,10 @@ fn split(keys: &[SubjectKey]) -> (Vec<i32>, Vec<Uuid>) {
     keys.iter().map(|key| (key.kind, key.id)).unzip()
 }
 
-/// Loads the numbers of `keys` in two queries.
-pub(crate) async fn load(core: &Core, keys: &[SubjectKey]) -> AppResult<Stats> {
+/// Loads the numbers of `keys` in two queries. A subject that carries
+/// `full_at` distinct emoji or more lists every one of them, not only the
+/// most used.
+pub(crate) async fn load(core: &Core, keys: &[SubjectKey], full_at: i32) -> AppResult<Stats> {
     if keys.is_empty() {
         return Ok(Stats::default());
     }
@@ -228,18 +233,20 @@ pub(crate) async fn load(core: &Core, keys: &[SubjectKey]) -> AppResult<Stats> {
     .fetch_all(&core.db)
     .await?;
     let emoji: Vec<EmojiRow> = sqlx::query_as(
-        "SELECT subject_type, subject_id, emoji, count FROM (
+        "SELECT subject_type, subject_id, emoji, count, distinct_emoji FROM (
              SELECT subject_type, subject_id, emoji, count,
-                    row_number() OVER (PARTITION BY subject_type, subject_id ORDER BY count DESC, emoji) AS rank
+                    row_number() OVER (PARTITION BY subject_type, subject_id ORDER BY count DESC, emoji) AS rank,
+                    count(*) OVER (PARTITION BY subject_type, subject_id) AS distinct_emoji
              FROM reaction_emoji_counts
              WHERE (subject_type, subject_id) IN (SELECT * FROM unnest($1::integer[], $2::uuid[]))
          ) ranked
-         WHERE rank <= $3
+         WHERE rank <= $3 OR distinct_emoji >= $4
          ORDER BY subject_type, subject_id, rank",
     )
     .bind(&kinds)
     .bind(&ids)
     .bind(SUMMARY_EMOJI)
+    .bind(i64::from(full_at))
     .fetch_all(&core.db)
     .await?;
     let mut stats = Stats::default();
@@ -247,6 +254,7 @@ pub(crate) async fn load(core: &Core, keys: &[SubjectKey]) -> AppResult<Stats> {
         stats.rows.insert(SubjectKey { kind: row.subject_type, id: row.subject_id }, row);
     }
     for row in emoji {
+        stats.distinct_emoji.insert(SubjectKey { kind: row.subject_type, id: row.subject_id }, row.distinct_emoji);
         stats.emoji.entry(SubjectKey { kind: row.subject_type, id: row.subject_id }).or_default().push(EmojiCount {
             emoji: row.emoji,
             count: row.count,
@@ -302,7 +310,7 @@ impl Engagement {
     }
 
     async fn push_counters(&self, key: SubjectKey) {
-        let stats = match load(&self.core, &[key]).await {
+        let stats = match load(&self.core, &[key], self.cfg.reaction_emoji_per_subject).await {
             Ok(stats) => stats,
             Err(error) => {
                 tracing::warn!(%error, "counter push skipped");

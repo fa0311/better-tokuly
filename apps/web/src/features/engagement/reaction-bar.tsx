@@ -223,9 +223,16 @@ export function AddReactionButton({
   const { fire, burst } = useBurst(["✨", "🎉", "💫"]);
   const pops = useReactionPops(subject.type, data?.subjectId);
   const disabled = !data?.interactionsEnabled;
+  // A subject full of different emoji takes only the ones it carries (the server lists them all then).
+  const full = Boolean(data && data.distinctEmoji >= data.rules.maxDistinctEmoji);
+  const present = data?.emojiCounts
+    .filter((entry) => entry.custom?.available !== false)
+    .map((entry) => entry.emoji);
   return (
     <EmojiPicker
       custom={data?.rules.customEmoji ?? true}
+      hideSensitive={!data?.rules.sensitiveEmoji}
+      only={full ? present : undefined}
       onPick={(emoji) => {
         fire([burstGlyph(emoji), "✨"]);
         void react(emojiReaction(emoji));

@@ -536,3 +536,21 @@ test("an owner decides about custom and sensitive emoji in the reaction settings
     .toMatch(/CUSTOM_EMOJI_NOT_ALLOWED/);
   await react("🎉");
 });
+
+test("the picker leaves out sensitive emoji where the owner does not take them", async ({
+  page,
+  me,
+  request,
+}) => {
+  const spicy = await customEmoji(request, { sensitive: true });
+  const plain = await customEmoji(request);
+  const text = `e2e センシティブなし ${tag()}`;
+  const { noteId } = await friendWithNote(request, me, text);
+  await page.goto(`/notes/${noteId}`);
+  await card(page, text).getByRole("button", { name: "リアクションする" }).click();
+  const picker = page.getByTestId("emoji-picker");
+  await picker.getByRole("searchbox").fill(plain.name);
+  await expect(picker.getByRole("button", { name: plain.code })).toBeVisible();
+  await picker.getByRole("searchbox").fill(spicy.name);
+  await expect(picker.getByRole("button", { name: spicy.code })).toHaveCount(0);
+});

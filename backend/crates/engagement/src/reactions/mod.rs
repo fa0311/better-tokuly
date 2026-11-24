@@ -17,7 +17,10 @@ mod custom;
 mod notice;
 pub(crate) mod rules;
 
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    time::Duration,
+};
 
 use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
@@ -167,52 +170,92 @@ pub(crate) async fn of_user_on_comments(
         .collect())
 }
 
-/// A reaction entered (`delta` 1) or left (`delta` -1) the counters of its
-/// subject. A comment's own counts go first: every path locks the comment
-/// row before the statistics row. Returns `false` when the subject is a
-/// comment that no longer exists (nothing is counted then; only possible
-/// when the reaction's row was removed by other means).
-async fn count(
+/// Moves the counters of a subject by the reactions that came (`1`) and
+/// went (`-1`) in one change, in the lock order every path keeps: the
+/// comment row (which the caller locked first), then the per-emoji counts in
+/// the order of their names, and last the subject's statistics row, once.
+/// Reactions taken back and given in one change therefore lock nothing out
+/// of order, however many emoji are involved.
+///
+/// `new_emoji`, for an emoji that came, is checked against the subject's
+/// distinct-emoji cap once the per-emoji counts moved (under the subject's
+/// emoji lock, which every emoji addition holds): one that is new to the
+/// subject and takes it beyond `max` is refused, and the transaction rolls
+/// back. Nothing is counted on a comment that no longer exists (only
+/// possible when the reaction rows were removed by other means).
+async fn move_counts(
     conn: &mut PgConnection,
     effects: &mut Effects,
     key: SubjectKey,
     owner_id: Option<Uuid>,
-    reaction: &Stored,
-    delta: i64,
-) -> AppResult<bool> {
-    if key.is_comment() && reaction.kind != EMOJI {
-        let (likes, dislikes) = if reaction.kind == LIKE { (delta, 0) } else { (0, delta) };
-        let counted = sqlx::query(
-            "UPDATE comments SET like_count = GREATEST(like_count + $2, 0), dislike_count = GREATEST(dislike_count + $3, 0) WHERE id = $1",
-        )
-        .bind(key.id)
-        .bind(likes)
-        .bind(dislikes)
-        .execute(&mut *conn)
-        .await?;
-        if counted.rows_affected() == 0 {
-            return Ok(false);
+    moved: &[(&Stored, i64)],
+    new_emoji: Option<(&str, i32)>,
+) -> AppResult<()> {
+    if key.is_comment() {
+        let delta_of =
+            |kind: i32| moved.iter().filter(|(reaction, _)| reaction.kind == kind).map(|(_, delta)| delta).sum::<i64>();
+        let (likes, dislikes) = (delta_of(LIKE), delta_of(DISLIKE));
+        if likes != 0 || dislikes != 0 {
+            let counted = sqlx::query(
+                "UPDATE comments SET like_count = GREATEST(like_count + $2, 0), dislike_count = GREATEST(dislike_count + $3, 0) WHERE id = $1",
+            )
+            .bind(key.id)
+            .bind(likes)
+            .bind(dislikes)
+            .execute(&mut *conn)
+            .await?;
+            if counted.rows_affected() == 0 {
+                return Ok(());
+            }
         }
     }
-    // The statistics row is always the last lock taken.
-    if reaction.kind == EMOJI {
-        stats::add_emoji(conn, key, &reaction.emoji, delta).await?;
+    let mut per_emoji: BTreeMap<&str, i64> = BTreeMap::new();
+    let mut per_counter: BTreeMap<Counter, i64> = BTreeMap::new();
+    for (reaction, delta) in moved {
+        if reaction.kind == EMOJI {
+            *per_emoji.entry(reaction.emoji.as_str()).or_default() += delta;
+        }
+        *per_counter.entry(reaction.counter()).or_default() += delta;
     }
-    stats::add(conn, key, owner_id, reaction.counter(), delta).await?;
-    effects.count(key, reaction.counter(), delta);
-    Ok(true)
+    for (emoji, delta) in &per_emoji {
+        stats::add_emoji(conn, key, emoji, *delta).await?;
+    }
+    if let Some((emoji, max)) = new_emoji {
+        // The emoji's own row holds only the new reaction when it is new to the subject.
+        let (count, distinct): (i64, i64) = sqlx::query_as(
+            "SELECT count, (SELECT count(*) FROM reaction_emoji_counts WHERE subject_type = $1 AND subject_id = $2)
+             FROM reaction_emoji_counts WHERE subject_type = $1 AND subject_id = $2 AND emoji = $3",
+        )
+        .bind(key.kind)
+        .bind(key.id)
+        .bind(emoji)
+        .fetch_one(&mut *conn)
+        .await?;
+        ensure!(
+            count > 1 || distinct <= i64::from(max),
+            precondition,
+            "REACTION_EMOJI_LIMIT",
+            "this already has as many different emoji as it can take; join one of them"
+        );
+    }
+    // The statistics row is always the last lock taken.
+    for (counter, delta) in per_counter {
+        stats::add(conn, key, owner_id, counter, delta).await?;
+        effects.count(key, counter, delta);
+    }
+    Ok(())
 }
 
-/// Takes a reaction whose row was deleted by other means (its user's
-/// account was erased) out of the counters of its subject.
+/// Takes reactions whose rows were deleted by other means (their user's
+/// account was erased) out of the counters of their subject.
 pub(crate) async fn uncount(
     conn: &mut PgConnection,
     effects: &mut Effects,
     key: SubjectKey,
-    reaction: &Stored,
+    reactions: &[Stored],
 ) -> AppResult<()> {
-    count(conn, effects, key, None, reaction, -1).await?;
-    Ok(())
+    let moved: Vec<(&Stored, i64)> = reactions.iter().map(|reaction| (reaction, -1)).collect();
+    move_counts(conn, effects, key, None, &moved, None).await
 }
 
 /// What a person wants done with their reactions to one subject.
@@ -333,28 +376,8 @@ pub(crate) async fn change(
         .bind(&reaction.emoji)
         .execute(&mut *conn)
         .await?;
-        count(conn, effects, key, owner_id, reaction, -1).await?;
     }
-    if let (Some(new), Change::Add(_, rules)) = (&changed.added, change) {
-        if !new.is_vote() {
-            // Counted after the removals: replacing one's only emoji on a
-            // full subject frees its place first.
-            let (distinct, present): (i64, bool) = sqlx::query_as(
-                "SELECT count(*), COALESCE(bool_or(emoji = $3), false) FROM reaction_emoji_counts
-                 WHERE subject_type = $1 AND subject_id = $2",
-            )
-            .bind(key.kind)
-            .bind(key.id)
-            .bind(&new.emoji)
-            .fetch_one(&mut *conn)
-            .await?;
-            ensure!(
-                present || distinct < i64::from(rules.max_distinct_emoji),
-                precondition,
-                "REACTION_EMOJI_LIMIT",
-                "this already has as many different emoji as it can take; join one of them"
-            );
-        }
+    if let Some(new) = &changed.added {
         sqlx::query(
             "INSERT INTO reactions (user_id, subject_type, subject_id, kind, emoji) VALUES ($1, $2, $3, $4, $5)",
         )
@@ -365,8 +388,16 @@ pub(crate) async fn change(
         .bind(&new.emoji)
         .execute(&mut *conn)
         .await?;
-        count(conn, effects, key, owner_id, new, 1).await?;
     }
+    let mut moved: Vec<(&Stored, i64)> = changed.removed.iter().map(|reaction| (reaction, -1)).collect();
+    moved.extend(changed.added.iter().map(|reaction| (reaction, 1)));
+    // Counted after the removals: replacing one's only emoji on a full
+    // subject frees its place first.
+    let new_emoji = match (&changed.added, change) {
+        (Some(new), Change::Add(_, rules)) if !new.is_vote() => Some((new.emoji.as_str(), rules.max_distinct_emoji)),
+        _ => None,
+    };
+    move_counts(conn, effects, key, owner_id, &moved, new_emoji).await?;
     Ok(changed)
 }
 
@@ -460,12 +491,19 @@ impl Engagement {
         custom::check(&self.core, new, &rules).await?;
         let pictures = Pictures::load(&self.core, [new.emoji.as_str()]).await?;
         let owner_to_tell = subject.owner().filter(|owner_id| *owner_id != user_id && new.is_applause());
-        let actor_name = match owner_to_tell {
-            Some(_) => {
+        // Reacting, taking it back and reacting again is not news twice.
+        let notice_key = format!("engagement:liked:{user_id}:{}:{}", subject.key.kind, subject.key.id);
+        let owner_to_tell = match owner_to_tell {
+            Some(owner_id) if !self.core.cache.exists(&notice_key).await.unwrap_or(false) => Some(owner_id),
+            _ => None,
+        };
+        let (actor_name, others) = match owner_to_tell {
+            Some(owner_id) => {
                 let user = tokuly_identity::summary(&self.core, user_id).await?;
-                if user.display_name.is_empty() { format!("@{}", user.handle) } else { user.display_name }
+                let name = if user.display_name.is_empty() { format!("@{}", user.handle) } else { user.display_name };
+                (name, self.others_applauding(subject, &rules, user_id, owner_id).await?)
             }
-            None => String::new(),
+            None => (String::new(), notice::Others::Exact(0)),
         };
 
         let mut tx = self.core.db.begin().await?;
@@ -476,12 +514,9 @@ impl Engagement {
             events::emit(&mut *tx, REACTION_CHANGED, Some(user_id), &event).await?;
         }
         if changed.added.is_some() {
-            // Reacting, taking it back and reacting again is not news twice.
-            let notice_key = format!("engagement:liked:{user_id}:{}:{}", subject.key.kind, subject.key.id);
             if let Some(owner_id) = owner_to_tell
                 && self.core.cache.set_nx(&notice_key, "1", LIKE_NOTICE_WINDOW).await.unwrap_or(true)
             {
-                let others = notice::others_applauding(&mut tx, subject, user_id, owner_id).await?;
                 let picture = pictures
                     .get(&new.emoji)
                     .and_then(|picture| picture.image.as_option())
@@ -551,7 +586,7 @@ impl Engagement {
     /// rules and the pictures of its custom emoji.
     pub(crate) async fn reaction_summary(&self, subject: &Subject, viewer: Option<Uuid>) -> AppResult<ReactionSummary> {
         let key = subject.key;
-        let stats = stats::load(&self.core, &[key]).await?;
+        let stats = stats::load(&self.core, &[key], self.cfg.reaction_emoji_per_subject).await?;
         let own = match viewer {
             Some(viewer) => of_user(&self.core, viewer, &[key]).await?.remove(&key).unwrap_or_default(),
             None => Vec::new(),

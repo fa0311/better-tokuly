@@ -88,7 +88,7 @@ impl Engagement {
         let key = subject.key;
         let repeat_key = format!("engagement:shared:{sharer}:{}:{}:{}", key.kind, key.id, target as i32);
         if !cache.set_nx(&repeat_key, "1", REPEAT_WINDOW).await.unwrap_or(true) {
-            return Ok(stats::load(&self.core, &[key]).await?.of(key).share_count);
+            return Ok(stats::load(&self.core, &[key], self.cfg.reaction_emoji_per_subject).await?.of(key).share_count);
         }
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();

@@ -16,6 +16,7 @@ export default {
   },
   preview: { light: "Light", dark: "Dark" },
   picker: {
+    onlyThese: "Emoji already here (no room for new kinds)",
     title: "Pick an emoji",
     open: "Pick an emoji",
     search: "Search emoji (cat / ねこ)",

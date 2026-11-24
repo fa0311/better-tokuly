@@ -184,7 +184,8 @@ export function useReactionChange(subject: Subject): (change: ReactionChange) =>
     const before = queryClient.getQueryData<Engagement | null>(key);
     if (before && withReactionChange(before, change) === before) return;
     patch(queryClient, subject, (current) => withReactionChange(current, change));
-    if ("add" in change) noteOwnReaction(change.add);
+    // Realtime names the subject by UUID; a short ID is resolved through the cached engagement.
+    if ("add" in change) noteOwnReaction(subject.type, before?.subjectId || subject.id, change.add);
     try {
       const response =
         "add" in change

@@ -320,10 +320,13 @@ impl Engagement {
             .bind(&ids)
             .fetch_all(&mut *tx)
             .await?;
+            // Subject by subject, each in one go: its per-emoji counts in name order, its statistics row last.
             removed.sort();
-            for (kind, id, reaction_kind, emoji) in removed {
-                let key = SubjectKey { kind, id };
-                reactions::uncount(&mut tx, &mut effects, key, &Stored { kind: reaction_kind, emoji }).await?;
+            for group in removed.chunk_by(|a, b| (a.0, a.1) == (b.0, b.1)) {
+                let key = SubjectKey { kind: group[0].0, id: group[0].1 };
+                let gone: Vec<Stored> =
+                    group.iter().map(|(_, _, kind, emoji)| Stored { kind: *kind, emoji: emoji.clone() }).collect();
+                reactions::uncount(&mut tx, &mut effects, key, &gone).await?;
             }
             tx.commit().await?;
             self.apply(effects).await;

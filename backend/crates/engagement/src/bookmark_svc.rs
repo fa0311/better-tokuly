@@ -15,7 +15,7 @@ const PAGE_MAX: i64 = 100;
 
 impl Engagement {
     async fn bookmark_count(&self, key: SubjectKey) -> AppResult<i64> {
-        Ok(stats::load(&self.core, &[key]).await?.of(key).bookmark_count)
+        Ok(stats::load(&self.core, &[key], self.cfg.reaction_emoji_per_subject).await?.of(key).bookmark_count)
     }
 }
 
