@@ -52,12 +52,10 @@ pub struct Rule {
     /// The content is hidden, not gone: the user named by this payload field
     /// (its owner) keeps their entries, and nothing is remembered.
     pub hidden_except: Option<&'static str>,
-    /// Only when this payload field holds `VISIBILITY_PRIVATE`.
-    pub when_private: Option<&'static str>,
 }
 
 const fn gone(topic: &'static str, id_field: &'static str) -> Rule {
-    Rule { topic, id_field, kinds: &[], hidden_except: None, when_private: None }
+    Rule { topic, id_field, kinds: &[], hidden_except: None }
 }
 
 /// The events that withdraw notifications. Each producer's entries carry the
@@ -78,13 +76,6 @@ pub const RULES: &[Rule] = &[
     Rule { kinds: &["ask.answered"], hidden_except: Some("owner_id"), ..gone("ask.answer.deleted", "question_id") },
     // Back to draft: only the owner can see it.
     Rule { hidden_except: Some("owner_id"), ..gone("video.video.unpublished", "video_id") },
-    // Made private: only the author can see it. A note narrowed to friends
-    // is not withdrawn: this domain does not know who is a friend.
-    Rule {
-        hidden_except: Some("author_id"),
-        when_private: Some("visibility"),
-        ..gone("notes.note.visibility_changed", "note_id")
-    },
 ];
 
 /// How an event that changes who may see content withdraws notifications.
@@ -103,6 +94,10 @@ pub struct AudienceRule {
 pub const AUDIENCE_RULES: &[AudienceRule] = &[
     // Hidden by the subject owner, by a block, or held for review again.
     AudienceRule { topic: "engagement.comment.hidden", id_field: "comment_id", owner_field: "author_id" },
+    // Narrowed to friends or made private (or opened up again): who may
+    // still see it is the author's friends, the author of the note a reply
+    // answers, or nobody else.
+    AudienceRule { topic: "notes.note.visibility_changed", id_field: "note_id", owner_field: "author_id" },
 ];
 
 /// The category whose entries are never withdrawn.
@@ -170,11 +165,6 @@ pub fn withdrawal_of(event: &Event) -> AppResult<Option<Withdrawal>> {
     let Some(rule) = RULES.iter().find(|rule| rule.topic == event.topic) else {
         return Ok(None);
     };
-    if let Some(field) = rule.when_private
-        && event.data.get(field).and_then(|v| v.as_i64()) != Some(i64::from(Visibility::VISIBILITY_PRIVATE as i32))
-    {
-        return Ok(None);
-    }
     let Some(ref_id) = uuid_field(event, rule.id_field) else {
         return Ok(None);
     };
@@ -479,12 +469,27 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!((private.ref_id, private.except_users, private.remember), (id, vec![owner], false));
-        let friends = withdrawal_of(&event(
+        let old_friends = withdrawal_of(&event(
             "notes.note.visibility_changed",
             serde_json::json!({ "note_id": id, "author_id": owner, "visibility": 4 }),
         ))
         .unwrap();
-        assert_eq!(friends, None, "narrowed to friends: not known here who still sees it");
+        assert_eq!(old_friends, None, "narrowed to friends without saying who: not known here who still sees it");
+        let friend = Uuid::now_v7();
+        let friends = withdrawal_of(&event(
+            "notes.note.visibility_changed",
+            serde_json::json!({ "note_id": id, "author_id": owner, "visibility": 4, "visible_to": [friend] }),
+        ))
+        .unwrap()
+        .unwrap();
+        assert!(friends.except_users.contains(&friend) && friends.except_users.contains(&owner));
+        let public = withdrawal_of(&event(
+            "notes.note.visibility_changed",
+            serde_json::json!({ "note_id": id, "author_id": owner, "visibility": 1, "visible_to": null }),
+        ))
+        .unwrap()
+        .unwrap();
+        assert_eq!(public.audience.unwrap().visible_to, None, "open to everyone again: remembered, nothing taken");
         let deleted =
             withdrawal_of(&event("video.video.deleted", serde_json::json!({ "video_id": id, "owner_id": owner })))
                 .unwrap()

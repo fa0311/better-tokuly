@@ -56,16 +56,16 @@ other events stays with one event less, and without its body and image when
 it was showing the withdrawn one (clients see that change on their next
 read; no event is sent for it). Content that is gone is remembered for
 8 days: a request about it that arrives late, or a push job still queued for
-it, is dropped. Content that is only hidden (unpublished, made private) is
+it, is dropped. Content that is only hidden (a video back to draft) is
 withdrawn from everyone but its owner and not remembered, since it can come
-back. Content whose audience narrowed (a comment hidden by its subject's
-owner, by a block or held again; see the events below) is withdrawn from
-everyone but its owner and those the event names as still seeing it
-(`visible_to`), but only entries about what happened up to the change
-(`changed_at`). The latest change per ID is remembered for 8 days
-(`notify_audiences`): a change older than it does nothing, and a request
-or a push job from before it is dropped for everyone it left out. A note narrowed to friends is not withdrawn: this domain does not know
-who is a friend. Entries of
+back. Content whose audience narrowed (a note narrowed to friends or made
+private, a comment hidden by its subject's owner, by a block or held again;
+see the events below) is withdrawn from everyone but its owner and those
+the event names as still seeing it (`visible_to`), but only entries about
+what happened up to the change (`changed_at`). The latest change per ID is
+remembered for 8 days (`notify_audiences`): a change older than it does
+nothing, and a request or a push job from before it is dropped for
+everyone it left out. Entries of
 the `system` category are never withdrawn: the notice telling an owner that
 their content was taken down refers to that content. A withdrawal and a
 request about the same ID serialize on an advisory lock, so an entry stored
@@ -112,7 +112,7 @@ account's) for push.
 | `live.stream.deleted` | `StreamEvent` `{ stream_id, … }` | withdraws `stream_id` |
 | `ask.answer.deleted` | `{ question_id, owner_id }` | withdraws the asker's `ask.answered` entries for `question_id` (the question itself stays; not remembered, it can be answered again) |
 | `video.video.unpublished` | `VideoEvent` | hides `video_id` from everyone but `owner_id` |
-| `notes.note.visibility_changed` | `{ note_id, author_id, visibility }` | `visibility` = 5 (private): hides `note_id` from everyone but `author_id`. Other values change nothing |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to, changed_at }` | withdraws `note_id` (and what refers to it: comments, mentions, likes) from everyone but `author_id` and `visible_to`, as far as the entries are not newer than `changed_at`; `visible_to = null` (public) withdraws nothing but is remembered, so an older narrowing handled after it does nothing. An event without `visible_to` withdraws only for `visibility` = 5 (private) |
 | `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, mutes on them, the remembered edits of their comments and audience changes of their content, and their name in the remembered mentions and audiences of others' |
 
 ## Events emitted

@@ -486,3 +486,79 @@ async fn a_push_still_queued_for_a_hidden_comment_reaches_only_who_still_sees_it
     assert_eq!(ctx.notify.deliver_push(&to_owner).await.unwrap().delivered, 1);
     assert!(stub.requests_to("/push/carol").is_empty());
 }
+
+fn visibility_changed(
+    note: Uuid,
+    author: &TestUser,
+    visibility: i32,
+    visible_to: Option<&[Uuid]>,
+    changed_at: chrono::DateTime<Utc>,
+) -> tokuly_core::events::Event {
+    event(
+        "notes.note.visibility_changed",
+        serde_json::json!({
+            "note_id": note,
+            "author_id": author.id,
+            "visibility": visibility,
+            "visible_to": visible_to,
+            "changed_at": changed_at,
+        }),
+    )
+}
+
+#[tokio::test]
+async fn a_note_narrowed_to_friends_leaves_everyone_else_in_the_order_it_changed() {
+    let ctx = start().await;
+    let (bob, alice, carol, dave) = (
+        ctx.app.user("bob").await,
+        ctx.app.user("alice").await,
+        ctx.app.user("carol").await,
+        ctx.app.user("dave").await,
+    );
+    let note = Uuid::now_v7();
+    let before = Utc::now() - chrono::Duration::seconds(60);
+    let at = |seconds: i64| before + chrono::Duration::seconds(seconds);
+    let like = |to: &TestUser| about(to, "notes.like", (SubjectType::SUBJECT_TYPE_NOTE, note), serde_json::json!({}));
+    // Bob's public note: Alice, Carol and Dave heard about it (a mention, a
+    // comment on it...), and so did Bob.
+    for user in [&alice, &carol, &dave, &bob] {
+        ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, like(user), at(0))).await.unwrap();
+    }
+    ctx.notify
+        .handle_request(&event_at(NOTIFY_TOPIC, comment_on(&dave, &alice, note, Uuid::now_v7()), at(0)))
+        .await
+        .unwrap();
+
+    // Narrowed to friends: Carol is one.
+    ctx.notify.handle_event(visibility_changed(note, &bob, 4, Some(&[carol.id]), at(10))).await.unwrap();
+    assert!(kinds(&ctx, &alice).await.is_empty());
+    assert!(kinds(&ctx, &dave).await.is_empty(), "comments on the note go with it");
+    assert_eq!(kinds(&ctx, &carol).await, ["notes.like"]);
+    assert_eq!(kinds(&ctx, &bob).await, ["notes.like"], "the author keeps theirs");
+
+    // A request from before the change, handled after it, reaches only who
+    // still sees the note.
+    let late = event_at(NOTIFY_TOPIC, like(&alice), at(5));
+    assert!(matches!(ctx.notify.handle_request(&late).await.unwrap(), RequestOutcome::Dropped(_)));
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, like(&carol), at(5))).await.unwrap();
+    assert_eq!(ctx.inbox(&carol).await.notifications.len(), 2);
+
+    // Public again, and Alice hears about it again; then the narrowing is
+    // delivered once more, late: it takes nothing that came after it, and
+    // nothing at all, since a newer change is known.
+    ctx.notify.handle_event(visibility_changed(note, &bob, 1, None, at(20))).await.unwrap();
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, like(&alice), at(25))).await.unwrap();
+    ctx.notify.handle_event(visibility_changed(note, &bob, 4, Some(&[carol.id]), at(10))).await.unwrap();
+    ctx.notify.handle_event(visibility_changed(note, &bob, 5, Some(&[]), at(15))).await.unwrap();
+    assert_eq!(kinds(&ctx, &alice).await, ["notes.like"]);
+    // And a request from the friends-only time is no longer held back.
+    ctx.notify.handle_request(&event_at(NOTIFY_TOPIC, like(&dave), at(12))).await.unwrap();
+    assert_eq!(kinds(&ctx, &dave).await, ["notes.like"]);
+
+    // Made private later on: only the author is left, also for what came after the earlier changes.
+    ctx.notify.handle_event(visibility_changed(note, &bob, 5, Some(&[]), at(30))).await.unwrap();
+    for user in [&alice, &carol, &dave] {
+        assert!(kinds(&ctx, user).await.is_empty());
+    }
+    assert_eq!(kinds(&ctx, &bob).await, ["notes.like"]);
+}

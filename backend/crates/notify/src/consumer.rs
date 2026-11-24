@@ -61,9 +61,9 @@ pub const TOPICS: &[&str] = &[
     "live.stream.deleted",
     "ask.answer.deleted",
     "video.video.unpublished",
-    "notes.note.visibility_changed",
     // `withdraw::AUDIENCE_RULES`
     "engagement.comment.hidden",
+    "notes.note.visibility_changed",
 ];
 
 /// Why a notification was not pushed.
