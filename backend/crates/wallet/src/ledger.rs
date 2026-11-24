@@ -106,6 +106,10 @@ pub async fn spend(core: &Core, user_id: Uuid, amount: i64, reason: &str, idempo
     check_amount(amount)?;
     check_key(idempotency_key)?;
     let mut tx = core.db.begin().await?;
+    // Bounded like a transfer (see `TRANSFER_TIME_BOUND`).
+    for limit in TRANSFER_TIME_BOUND {
+        sqlx::query(limit).execute(&mut *tx).await?;
+    }
     let before = lock_account(&mut tx, user_id).await?;
     if let Some(existing) = existing_entry(&mut tx, idempotency_key).await? {
         return Ok((existing.retry_of("spend", Some(user_id), None, amount)?.entry_id, false));
@@ -120,9 +124,9 @@ pub async fn spend(core: &Core, user_id: Uuid, amount: i64, reason: &str, idempo
     Ok((entry_id, true))
 }
 
-/// Limits of one transfer's transaction: no lock waited for longer than 5
-/// seconds, no statement longer than 10. With its dozen-odd statements a
-/// transfer is over within about two minutes whatever happens.
+/// Limits of one transfer's (and spend's) transaction: no lock waited for
+/// longer than 5 seconds, no statement longer than 10. With its dozen-odd
+/// statements a movement is over within about two minutes whatever happens.
 const TRANSFER_TIME_BOUND: [&str; 2] = ["SET LOCAL lock_timeout = '5s'", "SET LOCAL statement_timeout = '10s'"];
 
 /// Moves coins from a payer to a recipient's earnings, withholding

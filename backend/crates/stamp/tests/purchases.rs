@@ -516,31 +516,26 @@ async fn purchases_of(ctx: &Ctx, pack_id: &str) -> i64 {
         .unwrap()
 }
 
-#[tokio::test]
-async fn a_retry_while_the_first_payment_still_waits_charges_once() {
-    let ctx = start().await;
-    let (creator, buyer) = (ctx.app.user("creator").await, ctx.app.user("buyer").await);
-    let id = id_of(&ctx.published(&creator, "まちぼうけ", 100, &[], 1).await);
-    ctx.grant_coins(&buyer, 300).await;
-    let buy = PurchasePackRequest { pack_id: id.clone(), expected_price: 100, ..Default::default() };
-
-    // Something holds the buyer's wallet account: the first attempt's payment waits for it.
+/// The first attempt's payment waits on the buyer's wallet account while its
+/// lease runs out, and a retry comes in. Exactly one of them may charge.
+async fn retry_while_the_first_payment_waits(ctx: &Ctx, buyer: &tokuly_testkit::TestUser, id: &str, price: i32) {
+    ctx.grant_coins(buyer, 3 * price as i64).await;
+    let buy = PurchasePackRequest { pack_id: id.to_owned(), expected_price: price, ..Default::default() };
     let mut holder = ctx.app.core.db.begin().await.unwrap();
     sqlx::query("SELECT 1 FROM wallet_accounts WHERE user_id = $1 FOR UPDATE")
         .bind(buyer.id)
         .execute(&mut *holder)
         .await
         .unwrap();
-    let first = ctx.call::<_, PurchasePackResponse>("Library", "PurchasePack", Some(&buyer), &buy);
+    let first = ctx.call::<_, PurchasePackResponse>("Library", "PurchasePack", Some(buyer), &buy);
     let retry = async {
         tokio::time::sleep(std::time::Duration::from_millis(700)).await;
-        // The first attempt's lease runs out while its payment still waits.
         sqlx::query("UPDATE stamp_purchase_intents SET leased_until = now() - interval '1 second' WHERE user_id = $1")
             .bind(buyer.id)
             .execute(&ctx.app.core.db)
             .await
             .unwrap();
-        ctx.call::<_, PurchasePackResponse>("Library", "PurchasePack", Some(&buyer), &buy).await
+        ctx.call::<_, PurchasePackResponse>("Library", "PurchasePack", Some(buyer), &buy).await
     };
     let release = async move {
         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
@@ -548,10 +543,32 @@ async fn a_retry_while_the_first_payment_still_waits_charges_once() {
     };
     let (first, retry, ()) = tokio::join!(first, retry, release);
     let (first, retry) = (first.unwrap(), retry.unwrap());
-    assert_eq!(first.charged + retry.charged, 100, "one of them was charged");
+    assert_eq!(first.charged + retry.charged, price, "one of them was charged");
     assert!(first.pack.viewer.owned && retry.pack.viewer.owned);
-    assert_eq!((ctx.balance(&buyer).await.coins, ctx.balance(&creator).await.earnings), (200, 70));
-    assert_eq!((purchases_of(&ctx, &id).await, open_orders(&ctx, &id).await), (1, 0));
+    assert_eq!(ctx.balance(buyer).await.coins, 2 * price as i64);
+    assert_eq!((purchases_of(ctx, id).await, open_orders(ctx, id).await), (1, 0));
+}
+
+#[tokio::test]
+async fn a_retry_while_the_first_payment_still_waits_charges_once() {
+    let ctx = start().await;
+    let (creator, buyer) = (ctx.app.user("creator").await, ctx.app.user("buyer").await);
+    let id = id_of(&ctx.published(&creator, "まちぼうけ", 100, &[], 1).await);
+    retry_while_the_first_payment_waits(&ctx, &buyer, &id, 100).await;
+    assert_eq!(ctx.balance(&creator).await.earnings, 70);
+}
+
+#[tokio::test]
+async fn a_retry_while_the_first_payment_of_an_official_pack_still_waits_charges_once() {
+    let ctx = start().await;
+    let (admin, buyer) = (ctx.app.user_with_roles("admin", &["admin"]).await, ctx.app.user("buyer").await);
+    let request =
+        CreatePackRequest { name: "こうしきまち".into(), price: 50, official: true, ..Default::default() };
+    let created: CreatePackResponse = ctx.call("Studio", "CreatePack", Some(&admin), &request).await.unwrap();
+    let id = created.pack.summary.id.clone();
+    ctx.add_stamps(&admin, &id, "s", 1).await;
+    ctx.submit(&admin, &id).await;
+    retry_while_the_first_payment_waits(&ctx, &buyer, &id, 50).await;
 }
 
 #[tokio::test]
@@ -605,4 +622,29 @@ async fn a_paid_order_of_a_taken_down_pack_ends_when_the_refund_is_impossible() 
     assert_eq!(open_orders(&ctx, &id).await, 0, "the order is over");
     assert_eq!(purchases_of(&ctx, &id).await, 1, "and the buyer keeps what they paid for");
     assert_eq!(ctx.balance(&buyer).await.coins, 0);
+}
+
+#[tokio::test]
+async fn a_payment_of_an_official_pack_stuck_on_a_lock_gives_up_too() {
+    let ctx = start().await;
+    let (admin, buyer) = (ctx.app.user_with_roles("admin", &["admin"]).await, ctx.app.user("buyer").await);
+    let request =
+        CreatePackRequest { name: "こうしきながまち".into(), price: 50, official: true, ..Default::default() };
+    let created: CreatePackResponse = ctx.call("Studio", "CreatePack", Some(&admin), &request).await.unwrap();
+    let id = created.pack.summary.id.clone();
+    ctx.add_stamps(&admin, &id, "s", 1).await;
+    ctx.submit(&admin, &id).await;
+    ctx.grant_coins(&buyer, 100).await;
+    let mut holder = ctx.app.core.db.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM wallet_accounts WHERE user_id = $1 FOR UPDATE")
+        .bind(buyer.id)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+    let buy = PurchasePackRequest { pack_id: id.clone(), expected_price: 50, ..Default::default() };
+    let started = std::time::Instant::now();
+    assert!(ctx.call::<_, PurchasePackResponse>("Library", "PurchasePack", Some(&buyer), &buy).await.is_err());
+    assert!(started.elapsed() < std::time::Duration::from_secs(30), "the spend gave up on the lock");
+    holder.rollback().await.unwrap();
+    assert_eq!(ctx.balance(&buyer).await.coins, 100);
 }
