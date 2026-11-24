@@ -120,6 +120,10 @@ impl VideoService for Video {
             };
 
             let mut tx = core.db.begin().await?;
+            // What the change starts from is the row as it is under the lock,
+            // not as it was read above: the scheduler may have published it
+            // in between.
+            let video = videos::find_in(&mut tx, video.id).await?.ok_or_else(video_not_found)?;
             sqlx::query(
                 "UPDATE videos SET
                      title = COALESCE($2, title), description = COALESCE($3, description), tags = COALESCE($4, tags),
@@ -192,6 +196,8 @@ impl VideoService for Video {
             let publish_at = req.publish_at.as_option().map(from_ts);
 
             let mut tx = core.db.begin().await?;
+            // Locked before anything is decided from it (see `update_video`).
+            let video = videos::find_in(&mut tx, video.id).await?.ok_or_else(video_not_found)?;
             if let Some(visibility) = visibility {
                 sqlx::query("UPDATE videos SET visibility = $2, allow_link = allow_link AND $2 = 4 WHERE id = $1")
                     .bind(video.id)

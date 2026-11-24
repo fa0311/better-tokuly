@@ -918,9 +918,9 @@ pub async fn delete_in(
     let parties = party::audiences_of_video_in(tx, video.id).await?;
     assets::detach_holder(&mut **tx, &holder(video.id)).await?;
     sqlx::query("DELETE FROM videos WHERE id = $1").bind(video.id).execute(&mut **tx).await?;
-    if video.is_public() {
-        outbound::unindex(&mut **tx, "video", video.id).await?;
-    }
+    // Whatever `video` says: it may have been read before the video went
+    // public, and removing a document that does not exist costs nothing.
+    outbound::unindex(&mut **tx, "video", video.id).await?;
     core_events::emit(&mut **tx, VIDEO_DELETED, actor, &video.event(false)).await?;
     Ok(Aftermath {
         assets: vec![(video.asset_id, video.owner_id, force_assets)],
