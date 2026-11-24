@@ -28,6 +28,14 @@ impl Admin {
         .fetch_one(&self.core.db)
         .await?)
     }
+
+    /// Refuses a staff member the case is about (their content or their
+    /// account): they must not learn who reported them or what staff noted,
+    /// nor steer the case.
+    fn refuse_own_case(staff: &Staff, case: &CaseRow) -> AppResult<()> {
+        ensure!(!case.is_about(staff.id), denied, "CONFLICT_OF_INTEREST", "this case is about you; another moderator has to handle it");
+        Ok(())
+    }
 }
 
 impl ModerationService for Admin {
@@ -58,9 +66,17 @@ impl ModerationService for Admin {
         handle(async {
             let staff = Staff::moderator(&ctx)?;
             let case = self.case(parse_id(request.case_id)?).await?;
-            let (reports, _) = self.case_reports(case.id, &first_page(CASE_PREVIEW_REPORTS)).await?;
             let action_filter = ActionFilter { case_id: Some(case.id), ..Default::default() };
             let (actions, _) = self.list_actions(&action_filter, &first_page(CASE_ACTIONS_LIMIT)).await?;
+            if case.is_about(staff.id) {
+                // A case about the caller: that it exists and what was done, not
+                // who reported them, what they wrote, or what staff noted.
+                let mut moderation_case = self.case_to_proto(&case).await?;
+                moderation_case.conflict_of_interest = true;
+                let actions = self.actions_for(&staff, &actions, None).await?;
+                return ok(GetCaseResponse { moderation_case: moderation_case.into(), actions, ..Default::default() });
+            }
+            let (reports, _) = self.case_reports(case.id, &first_page(CASE_PREVIEW_REPORTS)).await?;
             // A hidden author is named here, to a moderator who is not involved, and nowhere else.
             let (moderation_case, owner_named) = self.opened_case(&staff, &case).await?;
             let owner_record = match case.subject_owner_id.filter(|_| owner_named) {
@@ -82,8 +98,9 @@ impl ModerationService for Admin {
 
     async fn list_case_reports(&self, ctx: RequestContext, request: ServiceRequest<'_, ListCaseReportsRequest>) -> ServiceResult<ListCaseReportsResponse> {
         handle(async {
-            Staff::moderator(&ctx)?;
+            let staff = Staff::moderator(&ctx)?;
             let case = self.case(parse_id(request.case_id)?).await?;
+            Self::refuse_own_case(&staff, &case)?;
             let page = Page::from_view(request.page.as_option(), 100);
             let (reports, info) = self.case_reports(case.id, &page).await?;
             ok(ListCaseReportsResponse { reports, page: info.into(), ..Default::default() })
@@ -110,6 +127,7 @@ impl ModerationService for Admin {
             };
             let mut tx = self.core.db.begin().await?;
             let case = self.lock_case(&mut tx, case_id).await?;
+            Self::refuse_own_case(&staff, &case)?;
             ensure!(case.is_open(), precondition, "CASE_ALREADY_RESOLVED", "this case has already been resolved");
             let updated: CaseRow = sqlx::query_as(concat!(
                 "UPDATE moderation_cases SET assignee_id = $2, assigned_at = CASE WHEN $2::uuid IS NULL THEN NULL ELSE now() END
@@ -138,6 +156,7 @@ impl ModerationService for Admin {
             let body = note_text(request.body)?;
             ensure!(!body.is_empty(), invalid, "NOTE_INVALID", "a note needs 1-{NOTE_MAX_CHARS} characters");
             let case = self.case(parse_id(request.case_id)?).await?;
+            Self::refuse_own_case(&staff, &case)?;
             let mut tx = self.core.db.begin().await?;
             let note: NoteRow =
                 sqlx::query_as("INSERT INTO moderation_case_notes (case_id, author_id, body) VALUES ($1, $2, $3) RETURNING id, author_id, body, created_at")
@@ -176,6 +195,7 @@ impl ModerationService for Admin {
             let note = note_text(request.note)?;
             let mut tx = self.core.db.begin().await?;
             let case = self.lock_case(&mut tx, case_id).await?;
+            Self::refuse_own_case(&staff, &case)?;
             ensure!(!case.is_open(), precondition, "CASE_NOT_RESOLVED", "only resolved cases can be reopened");
             // Only one case per subject may be open; reports that arrived
             // since the resolution already opened a newer one.

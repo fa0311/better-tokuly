@@ -274,6 +274,63 @@ async fn moderators_cannot_judge_themselves_or_sanction_staff() {
 }
 
 #[tokio::test]
+async fn a_moderator_is_never_shown_who_reported_them() {
+    let (app, admin) = start().await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let colleague = app.user_with_roles("colleague", &["moderator"]).await;
+    let reporter = app.user("rep").await;
+    let conflict = |result: Result<serde_json::Value, tokuly_testkit::RpcError>, what: &str| {
+        let error = result.expect_err(what);
+        assert_eq!((error.code.as_str(), error.reason.as_str()), ("permission_denied", "CONFLICT_OF_INTEREST"), "{what}");
+    };
+
+    // A report about the moderator's note, and one about the account itself.
+    let about_note = open_case(&app, &admin, &colleague, &reporter, &moderator).await;
+    let account = (SubjectType::SUBJECT_TYPE_USER, moderator.id);
+    admin.handle_event(report_event(reporter.id, account, moderator.id, "HARASSMENT", "しつこく絡まれています")).await.unwrap();
+    let about_account =
+        case_of_owner(&app, &colleague, moderator.id).await.into_iter().find(|c| c.subject.id == moderator.id.to_string()).expect("account case");
+    for case in [&about_note, &about_account] {
+        let _: AddCaseNoteResponse = app
+            .call(&format!("{MODERATION}/AddCaseNote"), Some(&colleague), &AddCaseNoteRequest { case_id: case.id.clone(), body: "要確認".into(), ..Default::default() })
+            .await
+            .unwrap();
+
+        // The colleague sees the reports and notes...
+        let seen = get_case(&app, &colleague, &case.id).await;
+        assert!(!seen.moderation_case.conflict_of_interest);
+        assert_eq!((seen.reports.len(), seen.notes.len()), (1, 1));
+        assert_eq!(seen.reports[0].reporter.id, reporter.id.to_string());
+
+        // ...the moderator the case is about sees that it exists, not who reported it or what staff noted.
+        let own = get_case(&app, &moderator, &case.id).await;
+        assert!(own.moderation_case.conflict_of_interest);
+        assert!(own.reports.is_empty() && own.notes.is_empty() && own.owner_record.is_unset());
+        let case_id = case.id.clone();
+        conflict(
+            app.call(&format!("{MODERATION}/ListCaseReports"), Some(&moderator), &ListCaseReportsRequest { case_id: case_id.clone(), ..Default::default() }).await,
+            "ListCaseReports",
+        );
+        conflict(
+            app.call(&format!("{MODERATION}/AddCaseNote"), Some(&moderator), &AddCaseNoteRequest { case_id: case_id.clone(), body: "誤解です".into(), ..Default::default() })
+                .await,
+            "AddCaseNote",
+        );
+        conflict(
+            app.call(&format!("{MODERATION}/AssignCase"), Some(&moderator), &AssignCaseRequest { case_id: case_id.clone(), ..Default::default() }).await,
+            "AssignCase",
+        );
+
+        // Nor can they reopen it once someone else decided.
+        resolve(&app, &colleague, resolution(case, DISMISS, "")).await.unwrap();
+        conflict(
+            app.call(&format!("{MODERATION}/ReopenCase"), Some(&moderator), &ReopenCaseRequest { case_id, ..Default::default() }).await,
+            "ReopenCase",
+        );
+    }
+}
+
+#[tokio::test]
 async fn account_cases_cannot_remove_content_and_ownerless_cases_cannot_sanction() {
     let (app, admin) = start().await;
     let moderator = app.user_with_roles("mod", &["moderator"]).await;

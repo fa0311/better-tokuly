@@ -28,19 +28,26 @@ service ModerationService {
   // Errors: INVALID_CURSOR (a cursor from a different sort order).
   rpc ListCases(ListCasesRequest) returns (ListCasesResponse);
   // One case with its latest reports, internal notes, the actions taken on it
-  // and the moderation record of the content owner. Role: `moderator`.
+  // and the moderation record of the content owner. A case about the
+  // caller's own content or account comes with `conflict_of_interest` and
+  // without reports, notes or owner record: nobody learns who reported them.
+  // Role: `moderator`.
   // Errors: CASE_NOT_FOUND.
   rpc GetCase(GetCaseRequest) returns (GetCaseResponse);
   // All reports grouped into a case, newest first. Role: `moderator`.
-  // Errors: CASE_NOT_FOUND.
+  // Errors: CASE_NOT_FOUND, CONFLICT_OF_INTEREST (the case is about the
+  // caller's own content or account).
   rpc ListCaseReports(ListCaseReportsRequest) returns (ListCaseReportsResponse);
   // Assigns an open case to a moderator (default: the caller) or clears the
   // assignment. Assignment is advisory: any moderator may still resolve it.
   // Role: `moderator`.
-  // Errors: CASE_NOT_FOUND, CASE_ALREADY_RESOLVED, ASSIGNEE_NOT_MODERATOR.
+  // Errors: CASE_NOT_FOUND, CASE_ALREADY_RESOLVED, ASSIGNEE_NOT_MODERATOR,
+  // CONFLICT_OF_INTEREST (the case is about the caller's own content or
+  // account).
   rpc AssignCase(AssignCaseRequest) returns (AssignCaseResponse);
   // Adds an internal note to a case (never shown to users). Role: `moderator`.
-  // Errors: CASE_NOT_FOUND, NOTE_INVALID.
+  // Errors: CASE_NOT_FOUND, NOTE_INVALID, CONFLICT_OF_INTEREST (the case is
+  // about the caller's own content or account).
   rpc AddCaseNote(AddCaseNoteRequest) returns (AddCaseNoteResponse);
   // Closes an open case with an action. Depending on the action the content
   // is taken down, the owner is warned, suspended or banned, and every
@@ -49,13 +56,15 @@ service ModerationService {
   // ACTION_NOT_APPLICABLE (content removal of an account, or an owner action
   // when the owner is gone), REASON_REQUIRED, REASON_TOO_LONG, NOTE_INVALID,
   // SUSPENSION_DURATION_INVALID, CONFLICT_OF_INTEREST (the case is about the
-  // caller's own content), TARGET_IS_STAFF (only admins sanction staff),
+  // caller's own content or account, or the caller is involved in an
+  // anonymous post), TARGET_IS_STAFF (only admins sanction staff),
   // RATE_LIMITED.
   rpc ResolveCase(ResolveCaseRequest) returns (ResolveCaseResponse);
   // Puts a resolved case back into the queue (e.g. after a mistaken
   // dismissal). Actions already taken are not undone. Role: `moderator`.
   // Errors: CASE_NOT_FOUND, CASE_NOT_RESOLVED, CASE_SUPERSEDED (a newer open
-  // case exists for the same subject).
+  // case exists for the same subject), CONFLICT_OF_INTEREST (the case is
+  // about the caller's own content or account).
   rpc ReopenCase(ReopenCaseRequest) returns (ReopenCaseResponse);
   // Takes content down by reference, without a report. The owning domain
   // removes it and the owner is notified. An open case about the same subject
@@ -162,11 +171,12 @@ message ModerationCase {
   // message does not name them. Lists never do; `GetCase` names the author
   // to a moderator who is not involved, and records that in the audit log.
   bool owner_withheld = 18;
-  // Only in `GetCase`, with `owner_withheld`: the caller is involved in the
-  // reported post (reported it, wrote in its thread, is mentioned or answered
-  // by its author there), so the author stays hidden from them and another
-  // moderator has to handle the case. Resolving it answers
-  // CONFLICT_OF_INTEREST.
+  // Only in `GetCase`: another moderator has to handle the case, and
+  // resolving it answers CONFLICT_OF_INTEREST. Either the case is about the
+  // caller's own content or account (then `GetCase` has no reports, notes or
+  // owner record), or, with `owner_withheld`, the caller is involved in the
+  // reported post (reported it, wrote in its thread, is mentioned or
+  // answered by its author there), so the author stays hidden from them.
   bool conflict_of_interest = 19;
 }
 

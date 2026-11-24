@@ -11,7 +11,7 @@ use sqlx::{PgConnection, Postgres, QueryBuilder};
 use tokuly_core::prelude::*;
 use tokuly_proto::{
     admin::{AssigneeFilter, CaseNote, CaseReport, CaseSort, CaseStatus, ModerationCase, ReportCategory, UserModerationSummary},
-    common::{SubjectRef, UserSummary},
+    common::{SubjectRef, SubjectType, UserSummary},
 };
 
 use crate::{Admin, audit::Audit, staff::Staff};
@@ -56,6 +56,11 @@ pub(crate) struct CaseRow {
 impl CaseRow {
     pub fn is_open(&self) -> bool {
         self.status == STATUS_OPEN
+    }
+
+    /// Whether the case is about `user_id`: their content, or their account.
+    pub fn is_about(&self, user_id: Uuid) -> bool {
+        self.subject_owner_id == Some(user_id) || (self.subject_type == SubjectType::SUBJECT_TYPE_USER as i32 && self.subject_id == user_id)
     }
 
     /// The owner as far as a view may name them: a hidden owner only when

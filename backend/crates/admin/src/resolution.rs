@@ -262,7 +262,7 @@ impl Admin {
     /// owner when the resolution sanctions them.
     async fn check_resolution(&self, staff: &Staff, case: &CaseRow, resolution: &Resolution) -> AppResult<Option<Target>> {
         ensure!(case.is_open(), precondition, "CASE_ALREADY_RESOLVED", "this case has already been resolved");
-        ensure!(case.subject_owner_id != Some(staff.id), denied, "CONFLICT_OF_INTEREST", "you cannot resolve a case about your own content");
+        ensure!(!case.is_about(staff.id), denied, "CONFLICT_OF_INTEREST", "you cannot resolve a case about yourself or your own content");
         // An anonymous post: whoever is involved in it leaves the case to
         // another moderator, as they would inside the community.
         ensure!(
