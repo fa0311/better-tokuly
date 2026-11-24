@@ -16,6 +16,7 @@ package tokuly.admin.v1;
 
 import "google/protobuf/timestamp.proto";
 import "tokuly/common/v1/common.proto";
+import "tokuly/identity/v1/identity.proto";
 
 // ───────────────────────────── Moderation ─────────────────────────────
 
@@ -36,6 +37,15 @@ service ModerationService {
   // author of an anonymous post, and the caller was shown
   // TOKULY_MODERATOR_REVEALS_PER_HOUR of them in the last hour).
   rpc GetCase(GetCaseRequest) returns (GetCaseResponse);
+  // The reported account's プロフ帳 as far as it reaches anybody: every field
+  // and card whatever its audience (friends, close friends, a circle...),
+  // with the audiences, but not what the owner keeps to themself ("only me"
+  // fields, hidden cards). For an open case about an account. Written to the
+  // audit log (`case.profile_viewed`). Role: `moderator`. Errors:
+  // CASE_NOT_FOUND, CASE_CLOSED, NOT_AN_ACCOUNT (the case is about content),
+  // CONFLICT_OF_INTEREST (the case is about the caller, or the caller
+  // reported it).
+  rpc GetReportedProfile(GetReportedProfileRequest) returns (GetReportedProfileResponse);
   // All reports grouped into a case, newest first. Role: `moderator`.
   // Errors: CASE_NOT_FOUND, CONFLICT_OF_INTEREST (the case is about the
   // caller's own content or account).
@@ -317,6 +327,15 @@ message GetCaseResponse {
   // Moderation record of the content owner; unset when the owner is gone or
   // withheld (`moderation_case.owner_withheld`).
   UserModerationSummary owner_record = 5;
+}
+
+message GetReportedProfileRequest {
+  string case_id = 1;
+}
+
+message GetReportedProfileResponse {
+  tokuly.common.v1.UserSummary user = 1;
+  tokuly.identity.v1.ProfileExtras extras = 2;
 }
 
 message ListCaseReportsRequest {

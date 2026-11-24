@@ -1,11 +1,13 @@
 import {
   AtSign,
+  BookHeart,
   EyeOff,
   HardDriveDownload,
   Link2,
   Palette,
   ShieldCheck,
   UserRound,
+  Users,
 } from "lucide-react";
 import i18n from "#/lib/i18n";
 import type { SettingsSection } from "#/seams/settings";
@@ -29,6 +31,22 @@ export default [
     icon: UserRound,
     tint: `bg-sky ${INK}`,
     ...strings("profile"),
+  },
+  {
+    id: "profile-book",
+    order: 15,
+    to: "/settings/profile-book",
+    icon: BookHeart,
+    tint: `bg-pink ${INK}`,
+    ...strings("profileBook"),
+  },
+  {
+    id: "accounts",
+    order: 25,
+    to: "/settings/accounts",
+    icon: Users,
+    tint: `bg-sky ${INK}`,
+    ...strings("accounts"),
   },
   {
     id: "account",

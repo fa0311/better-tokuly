@@ -28,12 +28,18 @@ export function DataSection() {
 function SignOutCard() {
   const { t } = useTranslation("settings");
   const navigate = useNavigate();
-  const [busy, setBusy] = useState<"here" | "everywhere" | null>(null);
+  const [busy, setBusy] = useState<"here" | "everywhere" | "browser" | null>(null);
   const [confirming, setConfirming] = useState(false);
 
   const signOut = async (everywhere: boolean) => {
     setBusy(everywhere ? "everywhere" : "here");
     await signOutOfApp(everywhere);
+    await navigate({ to: "/" });
+  };
+  // A shared computer: every account of this browser, switched-away ones included.
+  const signOutBrowser = async () => {
+    setBusy("browser");
+    await signOutOfApp(false, true);
     await navigate({ to: "/" });
   };
 
@@ -52,6 +58,16 @@ function SignOutCard() {
         </Button>
         <Button
           size="sm"
+          variant="secondary"
+          icon={<LogOut className="size-4" />}
+          loading={busy === "browser"}
+          disabled={busy !== null}
+          onClick={signOutBrowser}
+        >
+          {t("data.signOut.browser")}
+        </Button>
+        <Button
+          size="sm"
           variant="ghost"
           className="text-danger"
           disabled={busy !== null}
@@ -60,6 +76,7 @@ function SignOutCard() {
           {t("data.signOut.everywhere")}
         </Button>
       </div>
+      <p className="mt-3 text-sm leading-relaxed text-ink-soft">{t("data.signOut.browserHint")}</p>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}

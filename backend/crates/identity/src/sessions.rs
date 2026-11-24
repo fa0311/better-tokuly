@@ -8,6 +8,7 @@ use chrono::{DateTime, Duration, Utc};
 use tokuly_core::{auth::ClientMeta, keys::random_token, prelude::*};
 use tokuly_proto::identity::{ClientInfo, Session};
 
+pub use crate::device_accounts::SessionOrigin;
 use crate::{Identity, users::UserRow};
 
 /// How long an access token lives: a session revoked longer than this
@@ -40,6 +41,7 @@ struct SessionRow {
     rotated_at: Option<DateTime<Utc>>,
     expires_at: DateTime<Utc>,
     revoked_at: Option<DateTime<Utc>>,
+    parked_at: Option<DateTime<Utc>>,
 }
 
 fn new_refresh_token(session_id: Uuid) -> String {
@@ -48,9 +50,7 @@ fn new_refresh_token(session_id: Uuid) -> String {
 
 /// The session ID embedded in a refresh token, if it is well formed.
 fn session_id_of(token: &str) -> Option<Uuid> {
-    token
-        .split_once('.')
-        .and_then(|(id, _)| Uuid::parse_str(id).ok())
+    token.split_once('.').and_then(|(id, _)| Uuid::parse_str(id).ok())
 }
 
 impl Identity {
@@ -60,6 +60,18 @@ impl Identity {
         user: &UserRow,
         client: Option<&ClientInfo>,
         meta: &ClientMeta,
+    ) -> AppResult<Issued> {
+        self.create_session_with(user, client, meta, SessionOrigin::default()).await
+    }
+
+    /// [`Self::create_session`], saying how the sign-in went (second
+    /// factor, added beside other accounts of the device).
+    pub async fn create_session_with(
+        &self,
+        user: &UserRow,
+        client: Option<&ClientInfo>,
+        meta: &ClientMeta,
+        origin: SessionOrigin,
     ) -> AppResult<Issued> {
         let core = &self.core;
         let session_id = new_id();
@@ -87,8 +99,9 @@ impl Identity {
             }
         }
         sqlx::query(
-            "INSERT INTO sessions (id, user_id, refresh_hash, refresh_sealed, platform, device_name, device_id, app_version, ip, user_agent, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+            "INSERT INTO sessions (id, user_id, refresh_hash, refresh_sealed, platform, device_name, device_id, app_version, ip, user_agent, expires_at,
+                                   added_by_switch, mfa_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CASE WHEN $13 THEN now() END)",
         )
         .bind(session_id)
         .bind(user.id)
@@ -101,25 +114,29 @@ impl Identity {
         .bind(&meta.ip)
         .bind(truncate(&meta.user_agent, 400))
         .bind(Utc::now() + Duration::days(self.cfg.session_days))
+        .bind(origin.added_by_switch)
+        .bind(origin.mfa)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
 
-        let (access_token, access_expires_at) =
-            core.tokens.issue(user.id, session_id, &user.roles)?;
-        Ok(Issued {
-            session_id,
-            access_token,
-            access_expires_at,
-            refresh_token,
-        })
+        let (access_token, access_expires_at) = core.tokens.issue(user.id, session_id, &user.roles)?;
+        Ok(Issued { session_id, access_token, access_expires_at, refresh_token })
     }
 
     /// Exchanges a refresh token for a new token pair.
-    pub async fn refresh_session(
+    pub async fn refresh_session(&self, presented: &str, meta: &ClientMeta) -> AppResult<(Issued, UserRow)> {
+        self.refresh_session_with(presented, meta, false).await
+    }
+
+    /// [`Self::refresh_session`]; a parked session (another account is the
+    /// active one on its device) is refreshed only by a switch
+    /// (`allow_parked`), otherwise `SWITCH_REQUIRED`.
+    pub(crate) async fn refresh_session_with(
         &self,
         presented: &str,
         meta: &ClientMeta,
+        allow_parked: bool,
     ) -> AppResult<(Issued, UserRow)> {
         let core = &self.core;
         let invalid = || AppError::unauthenticated("REFRESH_INVALID", "sign in again");
@@ -128,7 +145,7 @@ impl Identity {
         }
         let hash = core.keys.token_hash(presented);
         let row: Option<SessionRow> = sqlx::query_as(
-            "SELECT id, user_id, refresh_hash, refresh_sealed, rotated_at, expires_at, revoked_at
+            "SELECT id, user_id, refresh_hash, refresh_sealed, rotated_at, expires_at, revoked_at, parked_at
              FROM sessions WHERE refresh_hash = $1 OR previous_refresh_hash = $1",
         )
         .bind(&hash)
@@ -160,22 +177,20 @@ impl Identity {
             return Err(invalid());
         };
         if row.revoked_at.is_some() || row.expires_at <= Utc::now() {
-            return Err(AppError::unauthenticated(
-                "SESSION_EXPIRED",
-                "sign in again",
-            ));
+            return Err(AppError::unauthenticated("SESSION_EXPIRED", "sign in again"));
         }
-        let user = crate::users::get(core, row.user_id)
-            .await
-            .map_err(|_| invalid())?;
+        ensure!(
+            allow_parked || row.parked_at.is_none(),
+            precondition,
+            "SWITCH_REQUIRED",
+            "another account is active on this device; switch to this one"
+        );
+        let user = crate::users::get(core, row.user_id).await.map_err(|_| invalid())?;
         if user.deleted_at.is_some() {
             return Err(invalid());
         }
         if user.banned_at.is_some() {
-            return Err(AppError::denied(
-                "ACCOUNT_BANNED",
-                "this account has been suspended",
-            ));
+            return Err(AppError::denied("ACCOUNT_BANNED", "this account has been suspended"));
         }
 
         let refresh_token = if row.refresh_hash == hash {
@@ -199,22 +214,17 @@ impl Identity {
                 next
             } else {
                 // Lost a race with a concurrent refresh; hand out what that one issued.
-                self.current_refresh_token(row.id)
-                    .await?
-                    .ok_or_else(invalid)?
+                self.current_refresh_token(row.id).await?.ok_or_else(invalid)?
             }
         } else {
             // The previous token: fine shortly after a rotation, theft afterwards.
-            let within_grace = row
-                .rotated_at
-                .is_some_and(|t| Utc::now() - t <= Duration::seconds(ROTATION_GRACE_SECONDS));
+            let within_grace =
+                row.rotated_at.is_some_and(|t| Utc::now() - t <= Duration::seconds(ROTATION_GRACE_SECONDS));
             if !within_grace {
-                sqlx::query(
-                    "UPDATE sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
-                )
-                .bind(row.id)
-                .execute(&core.db)
-                .await?;
+                sqlx::query("UPDATE sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL")
+                    .bind(row.id)
+                    .execute(&core.db)
+                    .await?;
                 core.revoke_session(row.id).await;
                 self.log_security_event(
                     row.user_id,
@@ -226,45 +236,31 @@ impl Identity {
                 .await;
                 return Err(invalid());
             }
-            String::from_utf8(
-                core.keys
-                    .open("refresh", &row.refresh_sealed)
-                    .ok_or_else(invalid)?,
-            )
-            .map_err(|_| invalid())?
+            String::from_utf8(core.keys.open("refresh", &row.refresh_sealed).ok_or_else(invalid)?)
+                .map_err(|_| invalid())?
         };
 
         let (access_token, access_expires_at) = core.tokens.issue(user.id, row.id, &user.roles)?;
-        Ok((
-            Issued {
-                session_id: row.id,
-                access_token,
-                access_expires_at,
-                refresh_token,
-            },
-            user,
-        ))
+        Ok((Issued { session_id: row.id, access_token, access_expires_at, refresh_token }, user))
     }
 
     async fn current_refresh_token(&self, session_id: Uuid) -> AppResult<Option<String>> {
-        let sealed: Option<Vec<u8>> = sqlx::query_scalar(
-            "SELECT refresh_sealed FROM sessions WHERE id = $1 AND revoked_at IS NULL",
-        )
-        .bind(session_id)
-        .fetch_optional(&self.core.db)
-        .await?;
-        Ok(sealed
-            .and_then(|s| self.core.keys.open("refresh", &s))
-            .and_then(|b| String::from_utf8(b).ok()))
+        let sealed: Option<Vec<u8>> =
+            sqlx::query_scalar("SELECT refresh_sealed FROM sessions WHERE id = $1 AND revoked_at IS NULL")
+                .bind(session_id)
+                .fetch_optional(&self.core.db)
+                .await?;
+        Ok(sealed.and_then(|s| self.core.keys.open("refresh", &s)).and_then(|b| String::from_utf8(b).ok()))
     }
 
     /// Revokes one session of a user. Returns whether it existed.
     pub async fn revoke_session(&self, user_id: Uuid, session_id: Uuid) -> AppResult<bool> {
-        let done = sqlx::query("UPDATE sessions SET revoked_at = now() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL")
-            .bind(session_id)
-            .bind(user_id)
-            .execute(&self.core.db)
-            .await?;
+        let done =
+            sqlx::query("UPDATE sessions SET revoked_at = now() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL")
+                .bind(session_id)
+                .bind(user_id)
+                .execute(&self.core.db)
+                .await?;
         self.core.revoke_session(session_id).await;
         Ok(done.rows_affected() > 0)
     }
@@ -322,9 +318,13 @@ impl Identity {
             location: String,
             created_at: DateTime<Utc>,
             last_active_at: DateTime<Utc>,
+            added_by_switch: bool,
+            parked_at: Option<DateTime<Utc>>,
+            switched_at: Option<DateTime<Utc>>,
         }
         let rows: Vec<Row> = sqlx::query_as(
-            "SELECT id, platform, device_name, device_id, app_version, ip, location, created_at, last_active_at
+            "SELECT id, platform, device_name, device_id, app_version, ip, location, created_at, last_active_at,
+                    added_by_switch, parked_at, switched_at
              FROM sessions WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
              ORDER BY last_active_at DESC",
         )
@@ -348,6 +348,9 @@ impl Identity {
                 created_at: ts(r.created_at),
                 last_active_at: ts(r.last_active_at),
                 current: r.id == current,
+                added_by_switch: r.added_by_switch,
+                parked: r.parked_at.is_some(),
+                last_switched_at: opt_ts(r.switched_at),
                 ..Default::default()
             })
             .collect())
@@ -362,19 +365,18 @@ impl Identity {
         device_name: &str,
         attrs: serde_json::Value,
     ) {
-        let device = if device_name.is_empty() {
-            device_name_from_user_agent(&meta.user_agent)
-        } else {
-            device_name.to_owned()
-        };
-        let result = sqlx::query("INSERT INTO security_events (user_id, type, ip, device_name, attrs) VALUES ($1, $2, $3, $4, $5)")
-            .bind(user_id)
-            .bind(kind)
-            .bind(&meta.ip)
-            .bind(device)
-            .bind(attrs)
-            .execute(&self.core.db)
-            .await;
+        let device =
+            if device_name.is_empty() { device_name_from_user_agent(&meta.user_agent) } else { device_name.to_owned() };
+        let result = sqlx::query(
+            "INSERT INTO security_events (user_id, type, ip, device_name, attrs) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(user_id)
+        .bind(kind)
+        .bind(&meta.ip)
+        .bind(device)
+        .bind(attrs)
+        .execute(&self.core.db)
+        .await;
         if let Err(e) = result {
             tracing::warn!(%user_id, kind, error = %e, "failed to record security event");
         }
@@ -384,37 +386,28 @@ impl Identity {
         format!("{}{COOKIE_RPC_PATH}", self.core.cfg.api_path_prefix())
     }
 
+    /// `Set-Cookie` value of an HttpOnly cookie that only the auth service
+    /// receives; `max_age` 0 removes it.
+    pub(crate) fn cookie(&self, name: &str, value: &str, max_age: i64) -> String {
+        let secure = if self.core.cfg.public_url.starts_with("https://") { "; Secure" } else { "" };
+        let path = self.refresh_cookie_path();
+        format!("{name}={value}; Path={path}; Max-Age={max_age}; HttpOnly; SameSite=Lax{secure}")
+    }
+
     /// `Set-Cookie` value storing the refresh token for web clients.
     pub fn refresh_cookie(&self, token: &str) -> String {
-        let secure = if self.core.cfg.public_url.starts_with("https://") {
-            "; Secure"
-        } else {
-            ""
-        };
-        let max_age = self.cfg.session_days * 24 * 3600;
-        let path = self.refresh_cookie_path();
-        format!("{REFRESH_COOKIE}={token}; Path={path}; Max-Age={max_age}; HttpOnly; SameSite=Lax{secure}")
+        self.cookie(REFRESH_COOKIE, token, self.cfg.session_days * 24 * 3600)
     }
 
     /// `Set-Cookie` value removing the refresh cookie.
     pub fn clear_refresh_cookie(&self) -> String {
-        let secure = if self.core.cfg.public_url.starts_with("https://") {
-            "; Secure"
-        } else {
-            ""
-        };
-        let path = self.refresh_cookie_path();
-        format!("{REFRESH_COOKIE}=; Path={path}; Max-Age=0; HttpOnly; SameSite=Lax{secure}")
+        self.cookie(REFRESH_COOKIE, "", 0)
     }
 }
 
 /// Finds a cookie in a raw `Cookie` header.
 pub fn cookie_value<'a>(cookies: &'a str, name: &str) -> Option<&'a str> {
-    cookies
-        .split(';')
-        .filter_map(|pair| pair.trim().split_once('='))
-        .find(|(k, _)| *k == name)
-        .map(|(_, v)| v)
+    cookies.split(';').filter_map(|pair| pair.trim().split_once('=')).find(|(k, _)| *k == name).map(|(_, v)| v)
 }
 
 fn truncate(value: &str, max_chars: usize) -> String {
@@ -426,16 +419,11 @@ pub fn device_name_from_user_agent(ua: &str) -> String {
     if ua.is_empty() {
         return "Unknown device".to_owned();
     }
-    let browser = [
-        ("Edg/", "Edge"),
-        ("OPR/", "Opera"),
-        ("Firefox/", "Firefox"),
-        ("Chrome/", "Chrome"),
-        ("Safari/", "Safari"),
-    ]
-    .iter()
-    .find(|(needle, _)| ua.contains(needle))
-    .map(|(_, name)| *name);
+    let browser =
+        [("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox/", "Firefox"), ("Chrome/", "Chrome"), ("Safari/", "Safari")]
+            .iter()
+            .find(|(needle, _)| ua.contains(needle))
+            .map(|(_, name)| *name);
     let os = [
         ("iPhone", "iPhone"),
         ("iPad", "iPad"),

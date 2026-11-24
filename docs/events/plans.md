@@ -188,10 +188,12 @@ and the `Social` argument of `Plans::new` with it.
 
 ## Birthdays
 
-Identity stores `users.birthdate` but has no setting for showing it to
-friends, so this domain keeps one (`plan_settings.share_birthday`,
-`AnniversaryService.UpdatePlansSettings`), off by default. Only the month
-and the day are ever returned.
+Birthdays and who sees them are identity's: `users.birthdate` and the
+privacy setting `birthday_visible_to` / `birthday_show_year`, read through
+`tokuly_identity::birthdays::shared_birthdays` (batched).
+`AnniversaryService.UpdatePlansSettings` (`share_birthday`) is the switch on
+this domain's screen and writes that setting (on: friends, or everyone when
+it already was; off: nobody). Only the month and the day are returned here.
 
 ## Background work
 

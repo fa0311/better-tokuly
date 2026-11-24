@@ -1,4 +1,4 @@
-import { type Client, createClient, type Transport } from "@connectrpc/connect";
+import { type Client, Code, ConnectError, createClient, type Transport } from "@connectrpc/connect";
 import { isUnauthenticated } from "./errors.js";
 import { type AuthResponse, AuthService, type Me } from "./gen/tokuly/identity/v1/identity_pb.js";
 import { toMillis } from "./time.js";
@@ -21,6 +21,8 @@ export type SessionState =
   | { status: "signedIn"; me: Me; sessionId: string };
 
 type Listener = (state: SessionState) => void;
+/** Told when the session starts to belong to another account (or another session of it). */
+type AccountChangeListener = (next: { userId: string; sessionId: string }) => void;
 
 /** Refresh this long before the access token actually expires. */
 const REFRESH_MARGIN_MS = 60_000;
@@ -38,6 +40,14 @@ export class Session {
   private refreshing: Promise<boolean> | null = null;
   private current: SessionState = { status: "unknown" };
   private readonly listeners = new Set<Listener>();
+  private readonly accountListeners = new Set<AccountChangeListener>();
+  /**
+   * Set once a refresh came back as another account: this session object
+   * still stands for the previous one (its screen, caches, subscriptions),
+   * so it never sends anything again — not as the old account, not as the
+   * new one. The app starts over (a web page reloads).
+   */
+  private stale = false;
   private readonly auth: Client<typeof AuthService>;
 
   /**
@@ -66,13 +76,49 @@ export class Session {
     for (const listener of this.listeners) listener(state);
   }
 
-  /** Adopts the tokens of a successful sign-in / sign-up / refresh. */
-  async adopt(response: AuthResponse): Promise<void> {
-    if (!response.accessToken || !response.me) return;
+  /**
+   * Subscribes to the session moving to another account: a refresh that
+   * came back as someone else (another tab switched the active account of
+   * this browser) or a switch made here. Everything held for the previous
+   * account (caches, subscriptions, the screen) is stale then; a web client
+   * reloads. Returns an unsubscribe function.
+   */
+  onAccountChange(listener: AccountChangeListener): () => void {
+    this.accountListeners.add(listener);
+    return () => this.accountListeners.delete(listener);
+  }
+
+  /**
+   * Adopts the tokens of a successful sign-in / sign-up / refresh. Resolves
+   * to false, adopting nothing, when they belong to another account (or
+   * another session) than the one signed in here: the tokens are dropped,
+   * the session goes stale (see `onAccountChange`) and nothing is sent.
+   */
+  async adopt(response: AuthResponse): Promise<boolean> {
+    if (this.stale || !response.accessToken || !response.me) return false;
+    const previous = this.current;
+    const userId = response.me.user?.id ?? "";
+    const changed =
+      previous.status === "signedIn" &&
+      (previous.me.user?.id !== userId || previous.sessionId !== response.sessionId);
+    if (changed) {
+      this.stale = true;
+      this.accessTokenValue = null;
+      this.expiresAtMs = 0;
+      for (const listener of this.accountListeners)
+        listener({ userId, sessionId: response.sessionId });
+      return false;
+    }
     this.accessTokenValue = response.accessToken;
     this.expiresAtMs = toMillis(response.accessTokenExpiresAt);
     if (response.refreshToken && this.store) await this.store.set(response.refreshToken);
     this.setState({ status: "signedIn", me: response.me, sessionId: response.sessionId });
+    return true;
+  }
+
+  /** The session went stale: another account became the active one. */
+  get isStale(): boolean {
+    return this.stale;
   }
 
   /** Replaces the cached account (after a profile update). */
@@ -100,6 +146,7 @@ export class Session {
    * share one request. Resolves to false when the session is gone.
    */
   refresh(): Promise<boolean> {
+    if (this.stale) return Promise.resolve(false);
     this.refreshing ??= this.doRefresh().finally(() => {
       this.refreshing = null;
     });
@@ -114,8 +161,7 @@ export class Session {
         return false;
       }
       const response = await this.auth.refreshToken({ refreshToken });
-      await this.adopt(response);
-      return true;
+      return await this.adopt(response);
     } catch (error) {
       // Only a definite rejection signs the user out; a network failure keeps
       // the session so the app can retry when it is back online.
@@ -133,8 +179,13 @@ export class Session {
     this.setState({ status: "signedOut" });
   }
 
-  /** A valid access token, or `null` when signed out. */
+  /**
+   * A valid access token, or `null` when signed out. Throws (code
+   * `aborted`) once the session is stale: a request must not go out as an
+   * account the screen does not show.
+   */
   async accessToken(): Promise<string | null> {
+    this.throwIfStale();
     if (this.accessTokenValue && Date.now() < this.expiresAtMs - REFRESH_MARGIN_MS) {
       return this.accessTokenValue;
     }
@@ -145,20 +196,31 @@ export class Session {
       return this.accessTokenValue;
     }
     await this.refresh();
+    this.throwIfStale();
     return this.accessTokenValue;
+  }
+
+  private throwIfStale(): void {
+    if (this.stale)
+      throw new ConnectError("another account became active on this device", Code.Aborted);
   }
 
   /** The access token if one is cached, without refreshing. */
   peekAccessToken(): string | null {
+    if (this.stale) return null;
     return this.accessTokenValue && Date.now() < this.expiresAtMs ? this.accessTokenValue : null;
   }
 
-  /** Signs out on the server and locally. */
-  async signOut(allSessions = false): Promise<void> {
+  /**
+   * Signs out on the server and locally. `allAccountsOnDevice`: every
+   * account of this browser too (a shared computer; native clients sign
+   * their parked accounts out with the tokens they hold).
+   */
+  async signOut(allSessions = false, allAccountsOnDevice = false): Promise<void> {
     const token = this.peekAccessToken();
     try {
       await this.auth.signOut(
-        { allSessions },
+        { allSessions, allAccountsOnDevice },
         { headers: token ? { authorization: `Bearer ${token}` } : undefined },
       );
     } catch {

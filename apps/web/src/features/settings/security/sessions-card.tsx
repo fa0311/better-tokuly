@@ -92,6 +92,16 @@ export function SessionsCard() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-bold">{name}</p>
+                  {(session.addedBySwitch || session.parked) && (
+                    <p className="mt-0.5 flex flex-wrap gap-1">
+                      {session.addedBySwitch && (
+                        <StateChip tone="off">{t("security.sessions.addedBySwitch")}</StateChip>
+                      )}
+                      {session.parked && (
+                        <StateChip tone="warn">{t("security.sessions.parked")}</StateChip>
+                      )}
+                    </p>
+                  )}
                   {/* Where it signed in from, then when it was last used; a line break only falls between the two. */}
                   <p className="text-sm leading-snug text-ink-soft">
                     {place && <span className="whitespace-nowrap">{place} ・ </span>}

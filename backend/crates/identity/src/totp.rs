@@ -11,8 +11,8 @@ use crate::Identity;
 const SPENT_STEP_TTL: Duration = Duration::from_secs(120);
 
 fn build(secret_base32: &str, account: &str) -> AppResult<Totp> {
-    let secret = Secret::try_from_base32(secret_base32)
-        .map_err(|e| AppError::internal(anyhow::anyhow!("totp secret: {e}")))?;
+    let secret =
+        Secret::try_from_base32(secret_base32).map_err(|e| AppError::internal(anyhow::anyhow!("totp secret: {e}")))?;
     Builder::new()
         .with_secret(secret)
         .with_account_name(account.to_owned())
@@ -24,9 +24,7 @@ fn build(secret_base32: &str, account: &str) -> AppResult<Totp> {
 /// A new random secret (base32) and its `otpauth://` URL for QR codes.
 pub fn generate(account: &str) -> AppResult<(String, String)> {
     let secret = Secret::generate().to_base32();
-    let url = build(&secret, account)?
-        .to_url()
-        .map_err(|e| AppError::internal(anyhow::anyhow!("totp url: {e}")))?;
+    let url = build(&secret, account)?.to_url().map_err(|e| AppError::internal(anyhow::anyhow!("totp url: {e}")))?;
     Ok((secret, url))
 }
 
@@ -60,10 +58,7 @@ impl Identity {
         let Some(step) = check(secret, code) else {
             return Ok(false);
         };
-        self.core
-            .cache
-            .set_nx(&format!("id:totp:spent:{user_id}:{step}"), "1", SPENT_STEP_TTL)
-            .await
+        self.core.cache.set_nx(&format!("id:totp:spent:{user_id}:{step}"), "1", SPENT_STEP_TTL).await
     }
 }
 
@@ -105,10 +100,7 @@ mod tests {
         assert!(url.starts_with("otpauth://totp/") && url.contains("issuer=Tokuly"));
         let code = build(&secret, "x").unwrap().generate_current().to_string();
         assert!(check(&secret, &code).is_some());
-        assert!(
-            check(&secret, &format!("{} {}", &code[..3], &code[3..])).is_some(),
-            "spaces are tolerated"
-        );
+        assert!(check(&secret, &format!("{} {}", &code[..3], &code[3..])).is_some(), "spaces are tolerated");
         assert!(check(&secret, "abcdef").is_none());
         let wrong = if code == "000000" { "111111" } else { "000000" };
         assert!(check(&secret, wrong).is_none());
@@ -119,17 +111,10 @@ mod tests {
         let keys = Keys::new("0123456789abcdef0123456789abcdef");
         let codes = generate_recovery_codes();
         assert_eq!(codes.len(), 10);
-        assert!(
-            codes
-                .iter()
-                .all(|c| c.len() == 9 && c.as_bytes()[4] == b'-')
-        );
+        assert!(codes.iter().all(|c| c.len() == 9 && c.as_bytes()[4] == b'-'));
         let unique: std::collections::HashSet<_> = codes.iter().collect();
         assert_eq!(unique.len(), 10);
-        assert_eq!(
-            hash_recovery_code(&keys, "AbCd-1234"),
-            hash_recovery_code(&keys, " abcd-1234 ")
-        );
+        assert_eq!(hash_recovery_code(&keys, "AbCd-1234"), hash_recovery_code(&keys, " abcd-1234 "));
     }
 
     #[test]
@@ -137,10 +122,7 @@ mod tests {
         let keys = Keys::new("0123456789abcdef0123456789abcdef");
         let sealed = seal_secret(&keys, "JBSWY3DPEHPK3PXP");
         assert_ne!(sealed, "JBSWY3DPEHPK3PXP");
-        assert_eq!(
-            open_secret(&keys, &sealed).as_deref(),
-            Some("JBSWY3DPEHPK3PXP")
-        );
+        assert_eq!(open_secret(&keys, &sealed).as_deref(), Some("JBSWY3DPEHPK3PXP"));
         assert!(open_secret(&keys, "garbage").is_none());
     }
 }

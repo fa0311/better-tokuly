@@ -1,7 +1,7 @@
 //! `ModerationService`: the reports queue. Every RPC needs the `moderator` role.
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
 use tokuly_core::prelude::*;
-use tokuly_proto::admin::*;
+use tokuly_proto::{admin::*, common::SubjectType};
 
 use crate::{
     Admin,
@@ -103,6 +103,31 @@ impl ModerationService for Admin {
                 owner_record: owner_record.into(),
                 ..Default::default()
             })
+        })
+        .await
+    }
+
+    async fn get_reported_profile(&self, ctx: RequestContext, request: ServiceRequest<'_, GetReportedProfileRequest>) -> ServiceResult<GetReportedProfileResponse> {
+        handle(async {
+            let staff = Staff::moderator(&ctx)?;
+            let case = self.case(parse_id(request.case_id)?).await?;
+            ensure!(case.subject_type == SubjectType::SUBJECT_TYPE_USER as i32, invalid, "NOT_AN_ACCOUNT", "this case is about content, not an account");
+            // A moderator who is the reported account takes no look past its audiences.
+            Self::refuse_own_case(&staff, &case)?;
+            // Nor one who reported it: filing a report must not open anyone's
+            // profile book to the reporter.
+            let reported_it: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM moderation_reports WHERE case_id = $1 AND reporter_id = $2)")
+                .bind(case.id)
+                .bind(staff.id)
+                .fetch_one(&self.core.db)
+                .await?;
+            ensure!(!reported_it, denied, "CONFLICT_OF_INTEREST", "you reported this account; another moderator has to look");
+            ensure!(case.is_open(), precondition, "CASE_CLOSED", "the case is resolved; reopen it to look again");
+            // On record before anything is shown.
+            Audit::by(&staff, "case.profile_viewed").case(&case).record(&self.core.db).await?;
+            let extras = self.identity.extras_for_moderation(case.subject_id).await?;
+            let user = tokuly_identity::summary(&self.core, case.subject_id).await?;
+            ok(GetReportedProfileResponse { user: user.into(), extras: extras.into(), ..Default::default() })
         })
         .await
     }

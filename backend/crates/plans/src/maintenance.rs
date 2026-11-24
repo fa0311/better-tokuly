@@ -636,9 +636,11 @@ impl DataExporter for PlansExporter {
                 "SELECT COALESCE(jsonb_agg(jsonb_build_object(
                      'plan_id', plan_id, 'title', title, 'invited_by', invited_by, 'left_at', left_at) ORDER BY left_at), '[]'::jsonb)
                  FROM plan_past_participants WHERE user_id = $1", user_id).await?,
-            "settings": self.json(
-                "SELECT COALESCE((SELECT jsonb_build_object('share_birthday', share_birthday) FROM plan_settings WHERE user_id = $1),
-                                 jsonb_build_object('share_birthday', false))", user_id).await?,
+            // The switch this domain offers; the setting itself is identity's.
+            "settings": serde_json::json!({
+                "share_birthday": tokuly_identity::birthdays::audience_of(&tokuly_identity::settings::privacy_of(&self.core, user_id).await?)
+                    != tokuly_proto::identity::Audience::AUDIENCE_NOBODY,
+            }),
         }))
     }
 }

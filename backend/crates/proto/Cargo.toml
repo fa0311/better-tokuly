@@ -24,7 +24,7 @@ doctest = false
 # its own code; there is no default, so nothing compiles an API it does not use.
 # `tests/features.rs` keeps this table in step with the proto tree.
 [features]
-admin = ["common"]
+admin = ["common", "identity"]
 ask = ["common"]
 chat = ["common", "media"]
 common = []
