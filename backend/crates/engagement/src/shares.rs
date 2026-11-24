@@ -3,7 +3,7 @@
 //! PostgreSQL keeps the counts (`subject_stats.share_count`, `share_counts`
 //! per target). Single shares are not rows: each one is an analytics event
 //! (`engagement.share`) and a domain event (`engagement.share.recorded`).
-use std::time::Duration;
+use std::{net::IpAddr, time::Duration};
 
 use tokuly_core::{analytics::AnalyticsEvent, events, prelude::*};
 use tokuly_proto::engagement::{ShareTarget, ShareTargetCount};
@@ -23,6 +23,29 @@ const GUEST_SHARES_PER_MINUTE: u32 = 30;
 /// How long sharing the same subject the same way again is not counted again.
 const REPEAT_WINDOW: Duration = Duration::from_secs(3600);
 
+/// How guests behind an address are told apart, without keeping the
+/// address: an HMAC (under a key derived from the server secret) of the
+/// address, or of its /64 network for IPv6, where one connection usually
+/// has a whole /64 to pick from.
+pub(crate) fn guest_key(core: &Core, client_ip: &str) -> String {
+    guest_key_with(&core.keys, client_ip)
+}
+
+fn guest_key_with(keys: &tokuly_core::keys::Keys, client_ip: &str) -> String {
+    let network = match client_ip.parse::<IpAddr>() {
+        Ok(IpAddr::V6(address)) => match address.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => {
+                let segments = address.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", segments[0], segments[1], segments[2], segments[3])
+            }
+        },
+        Ok(IpAddr::V4(address)) => address.to_string(),
+        Err(_) => client_ip.to_owned(),
+    };
+    keys.mac("engagement/share-guest", network.as_bytes())[..16].iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 /// The share target of a request; `SHARE_TARGET_INVALID` when unset or unknown.
 pub(crate) fn requested_target(value: buffa::EnumValue<ShareTarget>) -> AppResult<ShareTarget> {
     match value.as_known() {
@@ -33,8 +56,9 @@ pub(crate) fn requested_target(value: buffa::EnumValue<ShareTarget>) -> AppResul
 
 impl Engagement {
     /// Records that a subject was shared (`EngagementService.RecordShare`)
-    /// and returns its new share count. `client_ip` rate-limits guests. The
-    /// same user (or guest address) sharing the same subject the same way
+    /// and returns its new share count. `client_ip` rate-limits guests
+    /// (through [`guest_key`], never stored as it is). The same user (or
+    /// guest address) sharing the same subject the same way
     /// again within [`REPEAT_WINDOW`] is not counted again: one account
     /// cannot inflate a public number.
     pub(crate) async fn record_share(
@@ -45,6 +69,10 @@ impl Engagement {
         target: ShareTarget,
     ) -> AppResult<i64> {
         let cache = &self.core.cache;
+        let sharer = match user_id {
+            Some(user_id) => user_id.to_string(),
+            None => format!("guest:{}", guest_key(&self.core, client_ip)),
+        };
         match user_id {
             Some(user_id) => {
                 cache
@@ -53,19 +81,11 @@ impl Engagement {
             }
             None => {
                 cache
-                    .rate_limit(
-                        &format!("engagement:share:ip:{client_ip}"),
-                        GUEST_SHARES_PER_MINUTE,
-                        Duration::from_secs(60),
-                    )
+                    .rate_limit(&format!("engagement:share:{sharer}"), GUEST_SHARES_PER_MINUTE, Duration::from_secs(60))
                     .await?
             }
         }
         let key = subject.key;
-        let sharer = match user_id {
-            Some(user_id) => user_id.to_string(),
-            None => format!("ip:{client_ip}"),
-        };
         let repeat_key = format!("engagement:shared:{sharer}:{}:{}:{}", key.kind, key.id, target as i32);
         if !cache.set_nx(&repeat_key, "1", REPEAT_WINDOW).await.unwrap_or(true) {
             return Ok(stats::load(&self.core, &[key]).await?.of(key).share_count);
@@ -133,6 +153,24 @@ impl Engagement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guests_are_keyed_by_a_keyed_hash_of_their_network() {
+        let core_keys = tokuly_core::keys::Keys::new("test-secret-test-secret-test-secret");
+        let key = |ip: &str| super::guest_key_with(&core_keys, ip);
+        // Neither the address nor its network appears in the key.
+        assert!(!key("203.0.113.7").contains("203"));
+        assert_eq!(key("203.0.113.7").len(), 32);
+        assert_ne!(key("203.0.113.7"), key("203.0.113.8"));
+        // One IPv6 /64 is one guest; another /64 is another.
+        assert_eq!(key("2001:db8:1:2::1"), key("2001:db8:1:2:ffff::9"));
+        assert_ne!(key("2001:db8:1:2::1"), key("2001:db8:1:3::1"));
+        // An IPv4 address written as IPv6 is the same guest.
+        assert_eq!(key("::ffff:203.0.113.7"), key("203.0.113.7"));
+        // Another secret, other keys.
+        let other = tokuly_core::keys::Keys::new("another-secret-another-secret-123");
+        assert_ne!(super::guest_key_with(&other, "203.0.113.7"), key("203.0.113.7"));
+    }
 
     #[test]
     fn a_share_needs_a_known_target() {
