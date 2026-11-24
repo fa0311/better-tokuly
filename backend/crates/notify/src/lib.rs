@@ -9,6 +9,9 @@
 //!                               └─▶ notify.push job (delivery.rs) ─▶ Web Push / FCM / APNs (push/)
 //! ```
 //!
+//! Entries about content that is deleted or taken down are withdrawn
+//! ([`withdraw`]).
+//!
 //! What a user receives is governed by their preferences ([`preferences`]):
 //! per-category toggles, a global push pause, quiet hours and per-person
 //! mutes. Push tokens are registered per session ([`devices`]).
@@ -17,6 +20,7 @@ use std::{collections::HashMap, ops::Deref, sync::Arc};
 use tokuly_core::prelude::*;
 use tokuly_identity::Identity;
 
+mod blocks;
 pub mod categories;
 pub mod config;
 pub mod consumer;
@@ -24,6 +28,7 @@ pub mod delivery;
 pub mod devices;
 pub mod events;
 pub mod inbox;
+mod locks;
 mod inbox_svc;
 pub mod maintenance;
 pub mod preferences;
@@ -31,6 +36,7 @@ mod preferences_svc;
 pub mod push;
 mod push_svc;
 pub mod sanitize;
+pub mod withdraw;
 
 pub use config::NotifyConfig;
 pub use push_svc::TEST_KIND;
@@ -89,7 +95,7 @@ impl Notify {
         let endpoint_policy = EndpointPolicy::from_config(&cfg);
 
         let mut channels: Vec<Arc<dyn PushChannel>> = vec![Arc::new(WebPush::new(
-            http.clone(),
+            push::web_push_client(cfg.webpush_allow_insecure)?,
             vapid.clone(),
             endpoint_policy.clone(),
         ))];

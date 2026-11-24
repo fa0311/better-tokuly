@@ -20,6 +20,19 @@ pub(crate) struct LiveGeoSet {
     ttl: Duration,
 }
 
+/// Removes `ARGV[1]` from the GEO set `KEYS[1]` and its check-in times
+/// `KEYS[2]`, and the owner `KEYS[3]`, unless the owner is someone other
+/// than `ARGV[2]`.
+const LEAVE_UNLESS_TAKEN_OVER: &str = r"
+local owner = redis.call('GET', KEYS[3])
+if owner and owner ~= ARGV[2] then
+    return 0
+end
+redis.call('DEL', KEYS[3])
+redis.call('ZREM', KEYS[1], ARGV[1])
+redis.call('ZREM', KEYS[2], ARGV[1])
+return 1";
+
 /// Stale members removed per prune call.
 const PRUNE_BATCH: usize = 1000;
 
@@ -50,6 +63,20 @@ impl LiveGeoSet {
     /// Takes the user off the map right away.
     pub(crate) async fn leave(&self, cache: &Cache, user_id: Uuid) -> AppResult<()> {
         self.remove(cache, &[member(user_id)]).await
+    }
+
+    /// Takes the user off the map unless `owner_key` names someone other
+    /// than `owner` (a newer session of theirs that now keeps them there).
+    pub(crate) async fn leave_unless_taken_over(&self, cache: &Cache, user_id: Uuid, owner_key: &str, owner: &str) -> AppResult<()> {
+        redis::Script::new(LEAVE_UNLESS_TAKEN_OVER)
+            .key(self.geo_key)
+            .key(self.seen_key)
+            .key(owner_key)
+            .arg(member(user_id))
+            .arg(owner)
+            .invoke_async::<i64>(&mut cache.conn())
+            .await?;
+        Ok(())
     }
 
     async fn remove(&self, cache: &Cache, members: &[String]) -> AppResult<()> {

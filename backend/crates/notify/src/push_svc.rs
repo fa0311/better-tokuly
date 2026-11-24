@@ -143,6 +143,7 @@ impl PushService for Notify {
             let job = PushJob {
                 id: new_id(),
                 user_id,
+                actor_id: None,
                 notification_id: None,
                 kind: TEST_KIND.to_owned(),
                 category: categories::of_kind(TEST_KIND).id.to_owned(),
@@ -156,6 +157,7 @@ impl PushService for Notify {
                 collapse_key: Some("notify:test".to_owned()),
                 badge: i64::from(inbox::unread_count(&self.core.db, user_id).await?.total),
                 data: serde_json::Value::Null,
+                refs: Vec::new(),
                 urgent: false,
                 created_at: now(),
             };

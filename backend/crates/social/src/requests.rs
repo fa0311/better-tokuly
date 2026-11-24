@@ -284,6 +284,7 @@ impl Social {
     /// transaction has committed.
     async fn befriend(&self, tx: &mut Transaction<'_, Postgres>, source: FriendSource, parties: &Introductions) -> AppResult<()> {
         let (accepter, requester) = (&parties.accepter, &parties.requester);
+        graph::lock_friend_lists(tx, accepter.id, requester.id).await?;
         for party in [accepter, requester] {
             let friends: i64 = sqlx::query_scalar("SELECT count(*) FROM friendships WHERE user_id = $1").bind(party.id).fetch_one(&mut **tx).await?;
             ensure!(friends < self.cfg.max_friends, precondition, "FRIEND_LIMIT_REACHED", "one of you has reached the friend limit");
@@ -420,7 +421,10 @@ impl Social {
         user_ids.sort_unstable();
         user_ids.dedup();
         let summaries = tokuly_identity::summaries(&self.core, &user_ids).await?;
-        let mutual = graph::mutual_friend_counts(&self.core, viewer, &user_ids).await?;
+        let mut mutual = graph::mutual_friend_counts(&self.core, viewer, &user_ids).await?;
+        // Only for people whose friend list the viewer may see.
+        let visible = self.friend_lists_visible_to(viewer, &user_ids).await?;
+        mutual.retain(|id, _| visible.contains(id));
         Ok(rows
             .into_iter()
             .map(|row| {

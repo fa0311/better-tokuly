@@ -66,7 +66,10 @@ async fn two_friends_shaking_together_bump_once() {
 
     // Mutual friends are told "A and B bumped!"; other friends are not.
     match next_push(&mut mutual_devices).await {
-        Some(Push::FriendsBumped(pushed)) => assert_eq!(pushed.id, bump.id),
+        Some(Push::FriendsBumped(pushed)) => {
+            assert_eq!(pushed.id, bump.id);
+            assert!(pushed.location.is_unset(), "who bumped, not where (ghost mode may hide either of them from this friend)");
+        }
         other => panic!("expected a friends-bumped push, got {other:?}"),
     }
     assert!(pushes(&mut bystander_devices, QUIET).await.is_empty());
@@ -75,7 +78,7 @@ async fn two_friends_shaking_together_bump_once() {
     assert_eq!(told[0].data["body"]["ja"], "ありすさんとぼぶさんがBumpしたよ!");
     assert!(ctx.notifications_for(bystander.id, "social.friends_bumped").await.is_empty());
 
-    // Both get an inbox entry and an activity entry at the place of the bump.
+    // Both get an inbox entry and an activity entry, without the position.
     for (user, partner) in [(&alice, &bob), (&bob, &alice)] {
         let notices = ctx.notifications_for(user.id, "social.bump").await;
         assert_eq!(notices.len(), 1);
@@ -83,7 +86,7 @@ async fn two_friends_shaking_together_bump_once() {
         let activity = ctx.activities_of(user.id, "social.bumped").await;
         assert_eq!(activity.len(), 1);
         assert_eq!(activity[0].data["with_user_ids"], serde_json::json!([partner.id]));
-        assert!(activity[0].data["location"].is_array());
+        assert!(activity[0].data["location"].is_null(), "{}", activity[0].data);
     }
     let created = ctx.app.events("social.bump.created").await.into_iter().filter(|e| e.data["bump_id"] == bump.id.as_str()).count();
     assert_eq!(created, 1);
@@ -136,10 +139,12 @@ async fn strangers_who_bump_get_a_friend_request_and_blocked_users_never_match()
     let spot = somewhere();
     let mut first_devices = ctx.app.listen_user(first.id).await;
 
-    assert!(shake(&ctx, &first, spot).await.unwrap().is_empty());
-    assert!(shake(&ctx, &blocked, north_of(spot, 2.0)).await.unwrap().is_empty(), "people in a block never bump");
+    assert!(shake(&ctx, &blocked, north_of(spot, 2.0)).await.unwrap().is_empty());
+    assert!(shake(&ctx, &first, spot).await.unwrap().is_empty(), "people in a block never bump");
     let bumps = shake(&ctx, &second, north_of(spot, 4.0)).await.unwrap();
-    // `second` matches `first` (and `blocked`, a stranger to them, who also shook).
+    // `second` and `first` are each other's best match; `blocked`, who shook
+    // earlier, is not (one stranger per shake).
+    assert_eq!(bumps.len(), 1);
     let with_first = bumps.iter().find(|b| participants(b) == sorted(vec![first.id, second.id])).expect("a bump with the first shaker");
     assert!(with_first.friend_request_created);
     assert_eq!(with_first.pair_count, 1);
@@ -153,6 +158,84 @@ async fn strangers_who_bump_get_a_friend_request_and_blocked_users_never_match()
     // Not friends: no activity entries, no "friends bumped".
     assert!(ctx.activities_of(first.id, "social.bumped").await.is_empty());
     assert!(ctx.notifications_for(first.id, "social.bump").await.is_empty());
+}
+
+#[tokio::test]
+async fn a_stranger_who_bumps_you_learns_nothing_of_where_you_are() {
+    let ctx = start().await;
+    let (alice, bob, lurker, stranger) = (ctx.app.user("alice").await, ctx.app.user("bob").await, ctx.app.user("lurker").await, ctx.app.user("stranger").await);
+    ctx.befriend(&alice, &bob).await;
+
+    // Two friends bump; someone shaking at a made-up point next to them a
+    // moment later is nobody's best match and bumps no one.
+    let spot = somewhere();
+    assert!(shake(&ctx, &alice, spot).await.unwrap().is_empty());
+    assert_eq!(shake(&ctx, &bob, north_of(spot, 4.0)).await.unwrap().len(), 1);
+    assert!(shake(&ctx, &lurker, north_of(spot, 20.0)).await.unwrap().is_empty());
+
+    // Strangers who do bump each get their own position back, never the
+    // point between the phones (which, with one's own, gives away the other's).
+    let (stranger_at, lurker_at) = { let spot = somewhere(); (spot, north_of(spot, 12.0)) };
+    let mut stranger_devices = ctx.app.listen_user(stranger.id).await;
+    assert!(shake(&ctx, &stranger, stranger_at).await.unwrap().is_empty());
+    let bumps = shake(&ctx, &lurker, lurker_at).await.unwrap();
+    assert_eq!(bumps.len(), 1);
+    // (Equal up to the last bit of a float stored in jsonb.)
+    let is_at = |bump: &Bump, (lat, lng): (f64, f64)| {
+        let l = bump.location.as_option().unwrap();
+        (l.lat - lat).abs() < 1e-9 && (l.lng - lng).abs() < 1e-9
+    };
+    assert!(is_at(&bumps[0], lurker_at), "the response: {:?}", bumps[0].location);
+    match next_push(&mut stranger_devices).await {
+        Some(Push::Bump(pushed)) => assert!(is_at(&pushed, stranger_at), "the push: {:?}", pushed.location),
+        other => panic!("expected a bump, got {other:?}"),
+    }
+    for (user, own) in [(&lurker, lurker_at), (&stranger, stranger_at)] {
+        let listed: ListBumpsResponse = ctx.interact("ListBumps", user, &ListBumpsRequest::default()).await.unwrap();
+        assert!(is_at(&listed.bumps[0], own), "the list: {:?}", listed.bumps[0].location);
+    }
+}
+
+#[tokio::test]
+async fn strangers_bump_only_when_both_can_be_found_nearby() {
+    let ctx = start().await;
+    let (hermit, stranger, friend) = (ctx.app.user("hermit").await, ctx.app.user("stranger").await, ctx.app.user("friend").await);
+    ctx.set_privacy(&hermit, |p| p.nearby_discoverable = false).await;
+    ctx.befriend(&hermit, &friend).await;
+
+    // A bump tells a stranger who you are: not for someone who keeps out of
+    // nearby discovery, whichever of the two shakes first.
+    let spot = somewhere();
+    assert!(shake(&ctx, &hermit, spot).await.unwrap().is_empty());
+    assert!(shake(&ctx, &stranger, north_of(spot, 3.0)).await.unwrap().is_empty());
+    let spot = somewhere();
+    assert!(shake(&ctx, &stranger, spot).await.unwrap().is_empty());
+    assert!(shake(&ctx, &hermit, north_of(spot, 3.0)).await.unwrap().is_empty());
+    assert_eq!(graph::relationship(&ctx.app.core, hermit.id, stranger.id).await.unwrap(), Relationship::RELATIONSHIP_NONE, "no friend request either");
+
+    // Friends bump regardless.
+    let spot = somewhere();
+    assert!(shake(&ctx, &hermit, spot).await.unwrap().is_empty());
+    assert_eq!(shake(&ctx, &friend, north_of(spot, 3.0)).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn minors_bump_adults_only_when_they_are_friends() {
+    let ctx = start().await;
+    let (kid, adult, other_kid, parent) = (ctx.app.user("kid").await, ctx.app.user("adult").await, ctx.app.user("kid2").await, ctx.app.user("parent").await);
+    ctx.make_minor(&kid).await;
+    ctx.make_minor(&other_kid).await;
+    ctx.befriend(&kid, &parent).await;
+
+    let spot = somewhere();
+    assert!(shake(&ctx, &kid, spot).await.unwrap().is_empty());
+    assert!(shake(&ctx, &adult, north_of(spot, 3.0)).await.unwrap().is_empty(), "an adult stranger never bumps a minor");
+    let spot = somewhere();
+    assert!(shake(&ctx, &kid, spot).await.unwrap().is_empty());
+    assert_eq!(shake(&ctx, &other_kid, north_of(spot, 3.0)).await.unwrap().len(), 1, "two minors may");
+    let spot = somewhere();
+    assert!(shake(&ctx, &kid, spot).await.unwrap().is_empty());
+    assert_eq!(shake(&ctx, &parent, north_of(spot, 3.0)).await.unwrap().len(), 1, "friends always may");
 }
 
 #[tokio::test]
@@ -417,4 +500,69 @@ async fn map_views_count_everyone_but_name_only_those_who_share() {
     sqlx::query("UPDATE map_views SET viewed_at = now() - interval '25 hours' WHERE viewer_id = $1").bind(open.id).execute(&ctx.app.core.db).await.unwrap();
     let views: GetMapViewsResponse = ctx.interact("GetMapViews", &owner, &GetMapViewsRequest::default()).await.unwrap();
     assert_eq!((views.viewer_count, views.viewers.len()), (1, 0));
+}
+
+#[tokio::test]
+async fn knocks_reactions_and_views_have_limits_per_sender_and_recipient() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let mut friends = Vec::new();
+    for i in 0..4 {
+        let friend = ctx.app.user(&format!("f{i}")).await;
+        ctx.befriend(&alice, &friend).await;
+        friends.push(friend);
+    }
+
+    // Knocks: 20 a minute per friend, and 60 per 10 minutes in all.
+    let knock = |to: &TestUser| {
+        let (ctx, alice, user_id) = (&ctx, alice.clone(), to.id.to_string());
+        async move { ctx.interact::<_, KnockResponse>("Knock", &alice, &KnockRequest { user_id, count: 1, ..Default::default() }).await }
+    };
+    for friend in &friends[..3] {
+        for _ in 0..20 {
+            knock(friend).await.unwrap();
+        }
+    }
+    assert_eq!(knock(&friends[3]).await.unwrap_err().reason, "RATE_LIMITED");
+
+    // Map reactions: 60 a minute to the same friend.
+    let react = |to: &TestUser| {
+        let (ctx, alice) = (&ctx, alice.clone());
+        let request = reaction_to(&[to], MapReactionKind::MAP_REACTION_KIND_HEARTS);
+        async move { ctx.interact::<_, SendMapReactionResponse>("SendMapReaction", &alice, &request).await }
+    };
+    for _ in 0..60 {
+        react(&friends[0]).await.unwrap();
+    }
+    assert_eq!(react(&friends[0]).await.unwrap_err().reason, "RATE_LIMITED");
+    react(&friends[1]).await.unwrap();
+    // A throw at a gathering that includes a friend at the limit is refused
+    // as a whole and counts against nobody.
+    let gathering = reaction_to(&[&friends[0], &friends[1]], MapReactionKind::MAP_REACTION_KIND_HEARTS);
+    let refused = ctx.interact::<_, SendMapReactionResponse>("SendMapReaction", &alice, &gathering).await.unwrap_err();
+    assert_eq!(refused.reason, "RATE_LIMITED");
+    let counted: Option<i64> = redis::cmd("GET").arg(format!("rl:map-reaction:{}:{}", alice.id, friends[1].id)).query_async(&mut ctx.app.core.cache.conn()).await.unwrap();
+    assert_eq!(counted, Some(1), "only the one reaction that went through");
+
+    // Map views: 120 different pins a minute.
+    let viewer = ctx.app.user("viewer").await;
+    let crowd = ctx.crowd(121).await;
+    sqlx::query("INSERT INTO friendships (user_id, friend_id) SELECT $1, id FROM unnest($2::uuid[]) AS c(id) UNION ALL SELECT id, $1 FROM unnest($2::uuid[]) AS c(id)")
+        .bind(viewer.id)
+        .bind(&crowd)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let view = |user_id: Uuid| {
+        let (ctx, viewer) = (&ctx, viewer.clone());
+        async move { ctx.interact::<_, RecordMapViewResponse>("RecordMapView", &viewer, &RecordMapViewRequest { user_id: user_id.to_string(), ..Default::default() }).await }
+    };
+    for friend in &crowd[..120] {
+        view(*friend).await.unwrap();
+    }
+    view(crowd[0]).await.unwrap(); // the same pin again is the same look
+    assert_eq!(view(crowd[120]).await.unwrap_err().reason, "RATE_LIMITED");
+    // The refused look is not marked as seen, so a retry later still counts.
+    let marked = ctx.app.core.cache.exists(&format!("social:map-view:{}:{}", viewer.id.simple(), crowd[120].simple())).await.unwrap();
+    assert!(!marked);
 }

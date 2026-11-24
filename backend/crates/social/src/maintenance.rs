@@ -11,7 +11,11 @@ use tokuly_core::{
 use tokuly_identity::maintenance::{UserCreated, UserRef};
 use tokuly_proto::social::social_event::Event as Push;
 
-use crate::{Social, idcache, map_reactions, nearby, ranking};
+use crate::{
+    Social,
+    events::{BlockChanged, FRIEND_ACCEPTED, FRIEND_REMOVED, FriendAccepted, FriendRemoved, USER_BLOCKED, USER_UNBLOCKED},
+    idcache, map_reactions, nearby, ranking,
+};
 
 const USER_CREATED: &str = "identity.user.created";
 const USER_DELETED: &str = "identity.user.deleted";
@@ -42,7 +46,7 @@ impl Social {
         events::consume(
             self.core.bus.clone(),
             "social",
-            &[USER_CREATED, USER_DELETED, PRIVACY_CHANGED, MUTE_CHANGED],
+            &[USER_CREATED, USER_DELETED, PRIVACY_CHANGED, MUTE_CHANGED, FRIEND_ACCEPTED, FRIEND_REMOVED, USER_BLOCKED, USER_UNBLOCKED],
             ConsumeOptions::default(),
             self.core.shutdown.clone(),
             move |event| {
@@ -63,8 +67,34 @@ impl Social {
                 self.record_intro(created.user_id, &created.invite_code).await
             }
             USER_DELETED => self.forget_user(event.data::<UserRef>()?.user_id).await,
-            PRIVACY_CHANGED => self.refresh_presence(event.data::<UserRef>()?.user_id).await,
+            PRIVACY_CHANGED => {
+                let user_id = event.data::<UserRef>()?.user_id;
+                if !tokuly_identity::settings::privacy_of(&self.core, user_id).await?.nearby_discoverable {
+                    self.end_nearby_discovery(user_id).await?;
+                }
+                self.refresh_presence(user_id).await
+            }
             MUTE_CHANGED => self.mirror_mute(event.data()?).await,
+            // Our own changes to the graph. The request that made them drops
+            // the cached lists right after its commit, but a request can be
+            // cut off there (client deadline, lost connection): these events
+            // come from the same transaction and arrive at least once, so
+            // the lists are dropped whatever became of the request.
+            FRIEND_ACCEPTED => {
+                let accepted: FriendAccepted = event.data()?;
+                idcache::FRIENDS.invalidate(&self.core, &[accepted.user_id, accepted.friend_id]).await;
+                Ok(())
+            }
+            FRIEND_REMOVED => {
+                let removed: FriendRemoved = event.data()?;
+                idcache::FRIENDS.invalidate(&self.core, &[removed.user_id, removed.friend_id]).await;
+                Ok(())
+            }
+            USER_BLOCKED | USER_UNBLOCKED => {
+                let block: BlockChanged = event.data()?;
+                idcache::HIDDEN.invalidate(&self.core, &[block.user_id, block.blocked_id]).await;
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -215,7 +245,10 @@ impl DataExporter for SocialExporter {
                  FROM friend_pairs WHERE user_lo = $1 OR user_hi = $1", user_id).await?,
             "bumps": self.list(
                 "SELECT COALESCE(jsonb_agg(jsonb_build_object(
-                     'id', id, 'with_user_id', CASE WHEN user_lo = $1 THEN user_hi ELSE user_lo END, 'lat', lat, 'lng', lng,
+                     'id', id, 'with_user_id', CASE WHEN user_lo = $1 THEN user_hi ELSE user_lo END,
+                     -- A bump with a stranger keeps each one's own position (see bumps.rs).
+                     'lat', COALESCE((attrs->'own_positions'->($1::text)->>'lat')::float8, lat),
+                     'lng', COALESCE((attrs->'own_positions'->($1::text)->>'lng')::float8, lng),
                      'place_name', place_name, 'at', created_at) ORDER BY id), '[]'::jsonb)
                  FROM bumps WHERE user_lo = $1 OR user_hi = $1", user_id).await?,
             "map_reactions_sent": self.list(

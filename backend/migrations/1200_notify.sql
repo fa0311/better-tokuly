@@ -26,6 +26,10 @@ CREATE TABLE notifications (
     collapse_key text,
     -- Extra structured data from the producing domain.
     data         jsonb       NOT NULL DEFAULT 'null',
+    -- IDs the entry refers to: the subject and every `*_id` value at the top
+    -- level of `data` (the comment, the message...). When one of them is
+    -- deleted or taken down the entry is withdrawn (see `withdraw.rs`).
+    refs         uuid[]      NOT NULL DEFAULT '{}',
     -- The producing domain marked it urgent (incoming call, SOS): its push
     -- was sent even during quiet hours and while pushes were paused.
     urgent       boolean     NOT NULL DEFAULT false,
@@ -41,8 +45,19 @@ CREATE UNIQUE INDEX notifications_collapse ON notifications (user_id, collapse_k
 CREATE INDEX notifications_inbox ON notifications (user_id, occurred_at DESC, id DESC);
 CREATE INDEX notifications_unread ON notifications (user_id, category) WHERE read_at IS NULL;
 CREATE INDEX notifications_actor ON notifications (actor_id) WHERE actor_id IS NOT NULL;
+CREATE INDEX notifications_refs ON notifications USING gin (refs);
 -- Retention sweep.
 CREATE INDEX notifications_age ON notifications (occurred_at);
+
+-- IDs of content that was deleted or taken down. A request about one that
+-- arrives after the deletion (events are not ordered) is dropped, and a push
+-- still queued for it is not sent. Swept with the handled-event markers.
+CREATE TABLE notify_withdrawn (
+    ref_id       uuid PRIMARY KEY,
+    withdrawn_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX notify_withdrawn_age ON notify_withdrawn (withdrawn_at);
 
 -- IDs of `notify.requested` events that were already handled. Event delivery
 -- is at-least-once; a row here makes a redelivery a no-op. Rows outlive the
@@ -87,16 +102,37 @@ CREATE TABLE notify_category_prefs (
 
 -- "Do not notify me about what this person does." Written by the mute RPCs
 -- and kept in sync with the friend preference of the social domain.
+-- Unmuting keeps the row (`muted = false`): changes arrive from two places
+-- and events are not ordered, so the latest change (`changed_at`) wins.
 CREATE TABLE notify_mutes (
     user_id       uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     muted_user_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    muted         boolean     NOT NULL DEFAULT true,
+    -- When the mute was last switched on (the list is sorted by it).
     created_at    timestamptz NOT NULL DEFAULT now(),
+    -- Time of the change this row reflects: the RPC's or the event's.
+    changed_at    timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, muted_user_id),
     CHECK (user_id <> muted_user_id)
 );
 
-CREATE INDEX notify_mutes_list ON notify_mutes (user_id, created_at DESC, muted_user_id DESC);
+CREATE INDEX notify_mutes_list ON notify_mutes (user_id, created_at DESC, muted_user_id DESC) WHERE muted;
 CREATE INDEX notify_mutes_muted ON notify_mutes (muted_user_id);
+
+-- Blocks, mirrored from the social domain's events. Nothing is delivered
+-- across a block in either direction. Unblocking keeps the row
+-- (`blocked = false`) so that events handled out of order can be told apart
+-- by `changed_at` (the time of the event).
+CREATE TABLE notify_blocks (
+    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    blocked_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    blocked    boolean     NOT NULL,
+    changed_at timestamptz NOT NULL,
+    PRIMARY KEY (user_id, blocked_id),
+    CHECK (user_id <> blocked_id)
+);
+
+CREATE INDEX notify_blocks_blocked ON notify_blocks (blocked_id);
 
 -- Where push notifications go: one registration per session and channel.
 -- Rows die with their session (cascade on purge; swept when it is revoked or

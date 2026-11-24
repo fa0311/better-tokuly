@@ -21,9 +21,17 @@ impl ProfileExtension for Social {
     async fn enrich_profile(&self, viewer: Option<Uuid>, owner: Uuid, profile: &mut Profile) -> AppResult<()> {
         let core = &self.core;
         let stats = profile.stats.get_or_insert_default();
-        stats.friend_count = graph::friend_count(core, owner).await? as i32;
-        stats.intro_count = invites::intro_count(core, owner).await? as i32;
         stats.bump_count = bumps::bump_count(core, owner).await? as i32;
+        // Friend and intro counts are for signed-in viewers only, and leave
+        // out whom that viewer's lists leave out (people in a block with the
+        // viewer). A signed-out count would include them, and comparing the
+        // two would tell a blocked user someone blocked them. (Comparing
+        // with what a second account sees cannot be prevented.)
+        if let Some(viewer) = viewer {
+            let hidden = if viewer == owner { Vec::new() } else { graph::blocked_ids_either(core, viewer).await? };
+            stats.friend_count = graph::visible_friend_count(core, owner, &hidden).await? as i32;
+            stats.intro_count = invites::visible_intro_count(core, owner, &hidden).await? as i32;
+        }
 
         let Some(viewer) = viewer.filter(|viewer| *viewer != owner) else {
             // Anonymous viewers have no relationship; identity marks SELF itself.
@@ -31,9 +39,13 @@ impl ProfileExtension for Social {
         };
         let relationship = graph::relationship(core, viewer, owner).await?;
         profile.relationship = relationship.into();
-        profile.mutual_friend_count = graph::mutual_friend_count(core, viewer, owner).await?;
-        let preview = graph::mutual_friend_ids(core, viewer, owner, MUTUAL_PREVIEW).await?;
-        profile.mutual_friends = tokuly_identity::summaries_ordered(core, &preview).await?;
+        // Mutual friends are part of the owner's friend list: shown only to
+        // those who may see it.
+        if !self.friend_lists_visible_to(viewer, &[owner]).await?.is_empty() {
+            profile.mutual_friend_count = graph::mutual_friend_count(core, viewer, owner).await?;
+            let preview = graph::mutual_friend_ids(core, viewer, owner, MUTUAL_PREVIEW).await?;
+            profile.mutual_friends = tokuly_identity::summaries_ordered(core, &preview).await?;
+        }
 
         if relationship == Relationship::RELATIONSHIP_FRIENDS {
             let friendship: Option<(DateTime<Utc>, i32, bool)> =
@@ -53,7 +65,9 @@ impl ProfileExtension for Social {
     async fn relationships(&self, viewer: Uuid, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, (Relationship, i32)>> {
         let core = &self.core;
         let relationships = graph::relationships(core, viewer, user_ids).await?;
-        let mutual = graph::mutual_friend_counts(core, viewer, user_ids).await?;
+        let mut mutual = graph::mutual_friend_counts(core, viewer, user_ids).await?;
+        let visible = self.friend_lists_visible_to(viewer, user_ids).await?;
+        mutual.retain(|id, _| visible.contains(id));
         Ok(relationships.into_iter().map(|(id, relationship)| (id, (relationship, mutual.get(&id).copied().unwrap_or(0)))).collect())
     }
 

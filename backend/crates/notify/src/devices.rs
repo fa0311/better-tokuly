@@ -13,9 +13,12 @@ use tokuly_proto::{
     notify::{PushChannelKind, PushDevice, RegisterDeviceRequest, register_device_request::Token},
 };
 
-use crate::push::{
-    PushTarget, ece,
-    webpush::{EndpointError, EndpointPolicy},
+use crate::{
+    locks,
+    push::{
+        PushTarget, ece,
+        webpush::{EndpointError, EndpointPolicy},
+    },
 };
 
 const MAX_TOKEN_LEN: usize = 4096;
@@ -209,6 +212,11 @@ pub async fn register(
 ) -> AppResult<DeviceRow> {
     let channel = device.channel as i32;
     let mut tx = core.db.begin().await?;
+    // A session holds one registration per channel: two registrations of
+    // one session at once (an app re-registering on launch while a
+    // permission prompt also does) must replace each other in turn, not
+    // collide on the unique index.
+    locks::lock(&mut tx, locks::key(session_id)).await?;
     sqlx::query("DELETE FROM push_devices WHERE session_id = $1 AND channel = $2 AND token <> $3")
         .bind(session_id)
         .bind(channel)

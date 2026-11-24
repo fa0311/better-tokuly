@@ -67,7 +67,7 @@ impl Notify {
     }
 
     /// Tells the user's other devices that entries were deleted.
-    async fn publish_removed(&self, user_id: Uuid, ids: &[Uuid], unread: &UnreadCount) {
+    pub(crate) async fn publish_removed(&self, user_id: Uuid, ids: &[Uuid], unread: &UnreadCount) {
         if ids.is_empty() {
             return;
         }

@@ -54,6 +54,9 @@ async fn friends_of_friends_are_suggested_until_related_or_dismissed() {
     ctx.befriend(&f2, &close).await;
     ctx.befriend(&f2, &dismissed).await;
     ctx.set_privacy(&private, |p| p.discoverable = false).await;
+    // Mutual friends come from the candidate's friend list: shown only when
+    // that list is visible to me (friends only, the default, hides them).
+    ctx.set_privacy(&close, |p| p.friend_list_visible_to = Audience::AUDIENCE_FRIENDS_OF_FRIENDS.into()).await;
     ctx.request(&me, &requested).await;
     let _: BlockUserResponse = ctx.friends("BlockUser", &blocker, &BlockUserRequest { user_id: me.id.to_string(), ..Default::default() }).await.unwrap();
 
@@ -71,6 +74,7 @@ async fn friends_of_friends_are_suggested_until_related_or_dismissed() {
     let mut expected = vec![distant.id, dismissed.id];
     expected.sort();
     assert_eq!(rest, expected, "friends, pending requests, blocks and hidden accounts are left out");
+    assert!(found[1..].iter().all(|s| s.mutual_friend_count == 0 && s.mutual_friends.is_empty()), "their friend lists are friends-only");
 
     assert_eq!(suggestions_for(&ctx, &me, 1).await.len(), 1);
 
@@ -135,6 +139,26 @@ async fn contacts_match_verified_discoverable_accounts_by_email_hash() {
     assert!(match_contacts(Vec::new()).await.unwrap().matches.is_empty());
     assert_eq!(match_contacts(vec!["not-a-hash".into()]).await.unwrap_err().reason, "INVALID_CONTACT_HASH");
     assert_eq!(match_contacts(vec![known_hash; 2001]).await.unwrap_err().reason, "TOO_MANY_CONTACTS");
+}
+
+fn random_hashes(count: usize) -> Vec<String> {
+    (0..count).map(|_| contact_hash(&format!("{}@example.com", Uuid::new_v4()))).collect()
+}
+
+#[tokio::test]
+async fn contact_matching_cannot_test_address_lists() {
+    let ctx = start().await;
+    let me = ctx.app.user("me").await;
+    let call = |hashes: Vec<String>| {
+        let (ctx, me) = (&ctx, me.clone());
+        async move { ctx.friends::<_, MatchContactsResponse>("MatchContacts", &me, &MatchContactsRequest { contact_hashes: hashes, ..Default::default() }).await }
+    };
+    let (book, more, others) = (random_hashes(2000), random_hashes(2000), random_hashes(2000));
+    call(book.clone()).await.unwrap();
+    call(book).await.unwrap(); // syncing the same address book again costs nothing
+    call(more).await.unwrap();
+    let err = call(others).await.unwrap_err();
+    assert_eq!(err.reason, "RATE_LIMITED", "6000 different addresses in a day is a lookup, not an address book");
 }
 
 async fn my_invite(ctx: &Ctx, user: &TestUser) -> Invite {
@@ -228,7 +252,7 @@ async fn signing_up_through_an_invite_counts_as_an_intro() {
         .app
         .call(
             "tokuly.identity.v1.ProfileService/GetProfile",
-            None,
+            Some(&inviter),
             &GetProfileRequest { by: Some(get_profile_request::By::UserId(inviter.id.to_string())), ..Default::default() },
         )
         .await
@@ -311,8 +335,7 @@ async fn nearby_stream_reports_arrivals_and_departures() {
     assert_eq!(alice_saw.len(), 3, "an empty start, Bob arriving, Bob leaving");
     assert!(alice_saw[0].users.is_empty());
     assert_eq!(seen(&alice_saw[1]), vec![(bob.id, Relationship::RELATIONSHIP_REQUEST_SENT)], "the blocked and the far-away user never show up");
-    let distance = alice_saw[1].users[0].distance_meters;
-    assert!((18.0..=22.0).contains(&distance), "{distance}");
+    assert_eq!(alice_saw[1].users[0].distance_meters, 25.0, "Bob, 20 m away, is 'within 25 m': never an exact distance");
     assert!(alice_saw[2].users.is_empty());
 
     // Bob sees Alice from his side of the pending request (and possibly the
@@ -340,4 +363,123 @@ async fn nearby_stream_rejects_bad_input_and_opted_out_users() {
 
     ctx.set_privacy(&hermit, |p| p.nearby_discoverable = false).await;
     assert_eq!(open(Some(&hermit), nearby_at(somewhere())).await.unwrap_err().reason, "NEARBY_DISCOVERY_DISABLED");
+
+    // Every session is a look at a point of the client's choosing: there are
+    // only so many of them.
+    let scanner = ctx.app.user("scanner").await;
+    for _ in 0..20 {
+        open(Some(&scanner), nearby_at(somewhere())).await.unwrap();
+    }
+    assert_eq!(open(Some(&scanner), nearby_at(somewhere())).await.unwrap_err().reason, "RATE_LIMITED");
+}
+
+#[tokio::test]
+async fn a_new_nearby_session_takes_over_from_the_previous_one() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let (here, there) = (somewhere(), somewhere());
+    let app = &ctx.app;
+    let started = std::time::Instant::now();
+    let first = async {
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&alice), &nearby_at(here), 100, Duration::from_secs(15)).await.unwrap();
+        started.elapsed()
+    };
+    let second = async {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&alice), &nearby_at(there), 100, Duration::from_secs(10)).await.unwrap()
+    };
+    // Bob arrives where Alice's newer session is, after the older one ended.
+    let watcher = async {
+        tokio::time::sleep(Duration::from_secs(7)).await;
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&bob), &nearby_at(north_of(there, 5.0)), 1, Duration::from_secs(3)).await.unwrap()
+    };
+    let (first_lasted, _, bob_saw) = tokio::join!(first, second, watcher);
+    assert!(first_lasted < Duration::from_secs(7), "one session at a time: the older one ran for {first_lasted:?}");
+    assert_eq!(seen(&bob_saw[0]), vec![(alice.id, Relationship::RELATIONSHIP_NONE)], "ending the older session leaves the newer one on the map");
+}
+
+#[tokio::test]
+async fn minors_and_adults_do_not_find_each_other_nearby() {
+    let ctx = start().await;
+    let (adult, kid, other_kid) = (ctx.app.user("adult").await, ctx.app.user("kid").await, ctx.app.user("kid2").await);
+    ctx.make_minor(&kid).await;
+    ctx.make_minor(&other_kid).await;
+    let spot = somewhere();
+    let app = &ctx.app;
+    let open = |user: &TestUser, delay: u64| {
+        let user = user.clone();
+        async move {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+            app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&user), &nearby_at(north_of(spot, 5.0)), 10, Duration::from_secs(5)).await.unwrap()
+        }
+    };
+    let (adult_saw, kid_saw, _) = tokio::join!(open(&adult, 0), open(&kid, 500), open(&other_kid, 0));
+    let everyone = |snapshots: &[DiscoverNearbyResponse]| snapshots.iter().flat_map(seen).map(|(id, _)| id).collect::<Vec<Uuid>>();
+    assert!(everyone(&adult_saw).is_empty(), "an adult is never shown minors nearby");
+    assert!(!everyone(&kid_saw).contains(&adult.id), "nor a minor adults");
+    assert!(everyone(&kid_saw).contains(&other_kid.id), "minors find each other");
+}
+
+#[tokio::test]
+async fn counts_leave_out_whom_the_lists_leave_out() {
+    let ctx = start().await;
+    let (owner, viewer, newcomer) = (ctx.app.user("owner").await, ctx.app.user("viewer").await, ctx.app.user("newcomer").await);
+    let invite = my_invite(&ctx, &owner).await;
+    ctx.social.handle_event(&signed_up(&newcomer, &invite.code)).await.unwrap();
+    ctx.befriend(&owner, &viewer).await;
+    ctx.befriend(&owner, &newcomer).await;
+    // The newcomer blocks the viewer: from then on, to the viewer, the
+    // newcomer looks like an account that does not exist, in lists and in
+    // the numbers next to them alike.
+    let _: BlockUserResponse = ctx.friends("BlockUser", &newcomer, &BlockUserRequest { user_id: viewer.id.to_string(), ..Default::default() }).await.unwrap();
+
+    let stats_for = |viewer: &TestUser| {
+        let (ctx, viewer, owner) = (&ctx, viewer.clone(), owner.id.to_string());
+        async move {
+            let response: GetProfileResponse = ctx
+                .app
+                .call("tokuly.identity.v1.ProfileService/GetProfile", Some(&viewer), &GetProfileRequest { by: Some(get_profile_request::By::UserId(owner)), ..Default::default() })
+                .await
+                .unwrap();
+            let stats = response.profile.into_option().unwrap().stats.into_option().unwrap();
+            (stats.friend_count, stats.intro_count)
+        }
+    };
+    let friends: ListFriendsResponse = ctx.friends("ListFriends", &viewer, &ListFriendsRequest { user_id: owner.id.to_string(), ..Default::default() }).await.unwrap();
+    let intros: ListIntrosResponse = ctx.friends("ListIntros", &viewer, &ListIntrosRequest { user_id: owner.id.to_string(), ..Default::default() }).await.unwrap();
+    assert_eq!((friends.friends.len(), friends.total), (1, 1));
+    assert_eq!((intros.users.len(), intros.total), (0, 0));
+    assert_eq!(stats_for(&viewer).await, (1, 0));
+    assert_eq!(stats_for(&owner).await, (2, 1), "the owner's own numbers are complete");
+}
+
+#[tokio::test]
+async fn switching_nearby_discovery_off_ends_the_open_session() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let spot = somewhere();
+    let app = &ctx.app;
+    let started = std::time::Instant::now();
+    let alice_request = nearby_at(spot);
+    let session = async {
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&alice), &alice_request, 100, Duration::from_secs(15)).await.unwrap();
+        started.elapsed()
+    };
+    let switch_off = async {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        ctx.set_privacy(&alice, |p| p.nearby_discoverable = false).await;
+        let changed = Event {
+            id: Uuid::now_v7(),
+            topic: "identity.user.privacy_changed".into(),
+            actor_id: Some(alice.id),
+            occurred_at: chrono::Utc::now(),
+            data: serde_json::json!({ "user_id": alice.id }),
+        };
+        ctx.social.handle_event(&changed).await.unwrap();
+        // Someone arriving right after does not find her.
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&bob), &nearby_at(north_of(spot, 5.0)), 1, Duration::from_secs(3)).await.unwrap()
+    };
+    let (lasted, bob_saw) = tokio::join!(session, switch_off);
+    assert!(lasted < Duration::from_secs(7), "the session ran on for {lasted:?}");
+    assert!(bob_saw[0].users.is_empty(), "{:?}", seen(&bob_saw[0]));
 }

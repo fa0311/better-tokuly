@@ -32,7 +32,8 @@ Durable consumer `social`. Every handler is idempotent.
 |---|---|
 | `identity.user.created` | If `invite_code` belongs to someone: records the intro, suggests the two to each other, and sends a friend request from the newcomer to the inviter (source `INVITE_LINK`; the inviter's "who may send me requests" audience does not apply, since they handed out the link). |
 | `identity.user.deleted` | Deletes every row about the user (friendships, requests, blocks, suggestions, invite, intros, shared history, bumps, map reactions, map views), drops cached lists, and pushes `friend_removed_user_id` to their former friends. |
-| `identity.user.privacy_changed` | Re-syncs friends' view of the user's online state with `share_online_status`: hidden → pushed as offline (no "last seen"); shown again while online → pushed as online. |
+| `identity.user.privacy_changed` | Re-syncs friends' view of the user's online state with `share_online_status`: hidden → pushed as offline (no "last seen"); shown again while online → pushed as online. With `nearby_discoverable` off, ends the user's open nearby session and takes them off the nearby map at once. |
+| `social.friend.accepted`, `social.friend.removed`, `social.user.blocked`, `social.user.unblocked` | Our own: drops the two users' cached friend / hidden lists. The request that made the change does this right after its commit too, but it can be cut off there (deadline, lost connection); these events come from the same transaction and arrive at least once. |
 | `notify.mute.changed` | `{ user_id, muted_user_id, muted }`: mirrors a mute made in the notification settings onto the friendship's `muted` flag (when the two are friends). Not re-announced as `social.friend.prefs_changed`. |
 
 ## Bus subjects (core NATS)
@@ -52,8 +53,8 @@ Durable consumer `social`. Every handler is idempotent.
 | `friend_request_cancelled_id` | recipient | The sender withdrew a request the recipient could still see. |
 | `friend_request_accepted` | the user who had asked | They are friends now (accept, crossed request, bump or invite completing a request). |
 | `friend_removed_user_id` | both sides | Unfriend, block of a friend, or the friend's account was deleted. A block between non-friends pushes nothing (blocks are silent). |
-| `bump` | both participants | A bump was recorded. |
-| `friends_bumped` | mutual friends of two friends who bumped | At most once per pair every 10 minutes, to at most 200 friends. |
+| `bump` | both participants | A bump was recorded. Between strangers each gets their own shake's position as `location`. |
+| `friends_bumped` | mutual friends of two friends who bumped | At most once per pair every 10 minutes, to at most 200 friends. Without `location`: either of the two may hide their position from the recipient (ghost mode). |
 | `buzz`, `knock` | the friend | Buzz / knock. |
 | `map_reaction` | each recipient | A map reaction was sent. Also stored until acknowledged. |
 | `map_view` | the viewed user | A friend opened their pin (the viewer is named only if they share views). |
@@ -83,7 +84,7 @@ Through `tokuly_core::outbound::activity`:
 | Kind | Who | Audience | Notes |
 |---|---|---|---|
 | `social.friend_added` | each of the two new friends | friends — private for a user whose friend list is visible to nobody | `with_user_ids = [the new friend]` |
-| `social.bumped` | each of two friends who bumped | friends | `with_user_ids = [the other]`, location of the bump, `data = { bump_id }` |
+| `social.bumped` | each of two friends who bumped | friends | `with_user_ids = [the other]`, `data = { bump_id }`. No location: ghost mode is the geo domain's to apply. |
 
 ## Public Rust API
 
@@ -138,8 +139,9 @@ No job-queue jobs. `Social::spawn_workers` starts:
 | Key | Type, TTL | Purpose |
 |---|---|---|
 | `social:friends:<user>` / `social:hidden:<user>` | bytes (16 per ID), 10 min | Cached friend IDs / IDs hidden by a block. Dropped on every change. |
-| `social:friends:dirty:<user>` / `social:hidden:dirty:<user>` | marker, 5 s | Keeps a reader that raced a writer from re-caching a stale list. |
+| `social:friends:gen:<user>` / `social:hidden:gen:<user>` | counter, 1 h after the last change | Bumped by every change. A reader stores the list it loaded only if the counter has not moved since it started, so one that raced a writer cannot re-cache a stale list. |
 | `social:nearby:geo`, `social:nearby:seen` | GEO set + last check-in times | Users with a `DiscoverNearby` stream open (visible for 15 s after their last heartbeat). |
+| `social:nearby:session:<user>` | session ID, 11 min | The user's current `DiscoverNearby` session. A user has one at a time: an older session ends when it sees a newer one here. |
 | `social:bump:geo`, `social:bump:seen` | GEO set + last check-in times | Users who just shook their phone. |
 | `social:bump:attempt:<user>` | JSON, match window + 2 s | The latest shake of a user. |
 | `social:bump:pair:<lo>:<hi>` | bump ID, cool-down | Makes two racing requests record one bump; later shakes within the cool-down return it. |
@@ -147,10 +149,10 @@ No job-queue jobs. `Social::spawn_workers` starts:
 | `social:map-view:<viewer>:<viewed>` | marker, 60 s | De-duplicates repeated map views. |
 
 Rate limits (`rl:` keys): friend requests 60/h and 200/day per sender and
-5/day per sender→recipient; contact matching 6/h and 30/day; blocks 100/h; invite
+5/day per sender→recipient; contact matching 6/h and 30/day and 5000 distinct hashes a day (counted in a HyperLogLog, `rl:match-contacts-distinct:<user>`, so no hash is kept); blocks 100/h; invite
 resets 10/day; invite lookups 60/min per user or IP; suggestions 60/min;
-nearby sessions 30/min; bumps 30/min; buzz 10/min per pair and 60/10 min per
-sender; knocks 20/min per pair; map reactions 120/min.
+nearby sessions 20 per 10 min; bumps 30/min; buzz 10/min per pair and 60/10 min per
+sender; knocks 20/min per pair and 60/10 min per sender; map reactions 120 calls/min per sender and 60/min per sender→recipient; map views 120 new views/min per viewer.
 
 ## Configuration
 

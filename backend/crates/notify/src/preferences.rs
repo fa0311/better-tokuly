@@ -67,7 +67,7 @@ pub async fn delivery_context(
                 COALESCE(s.quiet_enabled, false) AS quiet_enabled,
                 COALESCE(s.quiet_start_minute, 0::smallint) AS quiet_start_minute,
                 COALESCE(s.quiet_end_minute, 0::smallint) AS quiet_end_minute,
-                EXISTS (SELECT 1 FROM notify_mutes m WHERE m.user_id = u.id AND m.muted_user_id = $3) AS muted,
+                EXISTS (SELECT 1 FROM notify_mutes m WHERE m.user_id = u.id AND m.muted_user_id = $3 AND m.muted) AS muted,
                 EXISTS (SELECT 1 FROM push_devices d WHERE d.user_id = u.id) AS has_devices
          FROM users u
          LEFT JOIN notify_settings s ON s.user_id = u.id

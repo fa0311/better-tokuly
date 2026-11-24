@@ -301,13 +301,23 @@ async fn profiles_show_relationship_mutual_friends_and_counters() {
     ctx.befriend(&owner, &mutual).await;
     ctx.befriend(&viewer, &mutual).await;
 
-    // Anonymous: counters only.
+    // Anonymous: no relationship, and no friend or intro counts either (a
+    // count that ignores blocks, next to the viewer's own, would tell them
+    // someone blocked them).
     let anonymous = profile(&ctx, None, &owner).await.unwrap();
     assert_eq!(anonymous.relationship, Relationship::RELATIONSHIP_NONE);
-    assert_eq!(anonymous.stats.as_option().unwrap().friend_count, 1);
+    let stats = anonymous.stats.as_option().unwrap();
+    assert_eq!((stats.friend_count, stats.intro_count), (0, 0));
+    assert_eq!(profile(&ctx, Some(&stranger), &owner).await.unwrap().stats.as_option().unwrap().friend_count, 1);
     assert!(anonymous.mutual_friends.is_empty());
 
-    // A stranger with a mutual friend.
+    // A stranger with a mutual friend. Mutual friends are part of the
+    // owner's friend list, so they follow its audience: friends only (the
+    // default) hides them from a stranger...
+    let hidden = profile(&ctx, Some(&viewer), &owner).await.unwrap();
+    assert_eq!((hidden.mutual_friend_count, hidden.mutual_friends.len()), (0, 0));
+    // ...friends of friends shows them.
+    ctx.set_privacy(&owner, |p| p.friend_list_visible_to = Audience::AUDIENCE_FRIENDS_OF_FRIENDS.into()).await;
     let before = profile(&ctx, Some(&viewer), &owner).await.unwrap();
     assert_eq!(before.relationship, Relationship::RELATIONSHIP_NONE);
     assert_eq!(before.mutual_friend_count, 1);
@@ -346,6 +356,7 @@ async fn blocked_users_cannot_see_each_other_in_profiles_or_search() {
     let (owner, viewer, friend) = (ctx.app.user(&name).await, ctx.app.user("viewer").await, ctx.app.user("friend").await);
     ctx.befriend(&viewer, &friend).await;
     ctx.befriend(&owner, &friend).await;
+    ctx.set_privacy(&owner, |p| p.friend_list_visible_to = Audience::AUDIENCE_EVERYONE.into()).await;
 
     let search = |who: &TestUser| {
         let (ctx, who, query) = (&ctx, who.clone(), name.to_lowercase());

@@ -103,6 +103,8 @@ pub struct NewNotification<'a> {
     pub subject: Option<(i32, Uuid)>,
     pub collapse_key: Option<&'a str>,
     pub data: &'a serde_json::Value,
+    /// What the entry refers to ([`crate::withdraw::refs_of`]).
+    pub refs: &'a [Uuid],
     pub urgent: bool,
     pub occurred_at: Time,
 }
@@ -120,15 +122,21 @@ pub async fn upsert(
     let row = sqlx::query_as(concat!(
         "INSERT INTO notifications
             (user_id, kind, category, actor_id, title_ja, title_en, body_ja, body_en, image_url, path,
-             subject_type, subject_id, collapse_key, data, urgent, occurred_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+             subject_type, subject_id, collapse_key, data, refs, urgent, occurred_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
          ON CONFLICT (user_id, collapse_key) WHERE collapse_key IS NOT NULL DO UPDATE SET
             kind = EXCLUDED.kind, category = EXCLUDED.category, actor_id = EXCLUDED.actor_id,
             title_ja = EXCLUDED.title_ja, title_en = EXCLUDED.title_en,
             body_ja = EXCLUDED.body_ja, body_en = EXCLUDED.body_en,
             image_url = EXCLUDED.image_url, path = EXCLUDED.path,
             subject_type = EXCLUDED.subject_type, subject_id = EXCLUDED.subject_id,
-            data = EXCLUDED.data, urgent = EXCLUDED.urgent, occurred_at = EXCLUDED.occurred_at,
+            data = EXCLUDED.data,
+            -- Unread, the entry stands for every event folded in since it was
+            -- read, so it refers to what all of them refer to.
+            refs = CASE WHEN notifications.read_at IS NULL
+                        THEN ARRAY(SELECT DISTINCT r FROM unnest(notifications.refs || EXCLUDED.refs) AS r ORDER BY r)
+                        ELSE EXCLUDED.refs END,
+            urgent = EXCLUDED.urgent, occurred_at = EXCLUDED.occurred_at,
             -- The count restarts once the user has seen the entry.
             group_count = CASE WHEN notifications.read_at IS NULL THEN notifications.group_count + 1 ELSE 1 END,
             read_at = NULL
@@ -150,6 +158,7 @@ pub async fn upsert(
     .bind(new.subject.map(|(_, id)| id))
     .bind(new.collapse_key)
     .bind(new.data)
+    .bind(new.refs)
     .bind(new.urgent)
     .bind(new.occurred_at)
     .fetch_optional(&mut **tx)
