@@ -275,3 +275,16 @@ async fn pasted_texts_and_single_letters_do_not_trend() {
     }
     assert!(!refreshed(&ctx).await.contains(&pasted));
 }
+
+#[tokio::test]
+async fn concurrent_refreshes_do_not_starve_the_pool() {
+    // As many refreshes as the test pool has connections: each one waits for
+    // the refresh lock on a connection of its own, so the holder must not
+    // need a second one (the blocklist) before it lets go.
+    let ctx = start().await;
+    let refreshes = (0..5).map(|_| ctx.search.refresh_trending());
+    let done = tokio::time::timeout(std::time::Duration::from_secs(8), futures::future::join_all(refreshes))
+        .await
+        .expect("refreshes finish without waiting out the pool");
+    assert!(done.iter().all(Result::is_ok), "{:?}", done.iter().find(|r| r.is_err()));
+}
