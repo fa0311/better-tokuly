@@ -60,6 +60,15 @@ pub fn handle(input: &str) -> AppResult<String> {
     tokuly_identity::users::validate_handle(input)
 }
 
+/// [`handle`], and not one that identity holds for the account that gave it
+/// up recently (`HANDLE_TAKEN`).
+pub async fn unheld_handle(core: &Core, input: &str) -> AppResult<String> {
+    let handle = handle(input)?;
+    let held = tokuly_identity::users::handle_held_from(core, &handle, None).await?;
+    ensure!(!held, already_exists, "HANDLE_TAKEN", "this handle is already in use");
+    Ok(handle)
+}
+
 pub fn description(input: &str, max_chars: usize) -> AppResult<String> {
     let description = text::clean(input);
     ensure!(

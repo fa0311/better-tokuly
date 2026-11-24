@@ -519,3 +519,40 @@ async fn the_front_page_tells_the_staff_what_waits_for_them() {
     // Members are not told about the queue.
     assert_eq!(ctx.viewer(&member, &community.id).await.pending_request_count, 0);
 }
+
+#[tokio::test]
+async fn a_community_cannot_take_a_reserved_look_alike_or_a_held_handle() {
+    let ctx = start().await;
+    let owner = ctx.app.user("Owner").await;
+    let check = |handle: &str| CheckHandleRequest { handle: handle.to_owned(), ..Default::default() };
+    let lookalike: CheckHandleResponse =
+        ctx.call(SVC, "CheckHandle", Some(&owner), &check("t0kuly-0fficial")).await.unwrap();
+    assert_eq!((lookalike.available, lookalike.reason.as_str()), (false, "HANDLE_RESERVED"));
+
+    // A person gives a handle up: identity holds it for them.
+    let carol = ctx.app.user("Carol").await;
+    let given_up = carol.handle.clone();
+    let _: tokuly_proto::identity::UpdateProfileResponse = ctx
+        .app
+        .call(
+            "tokuly.identity.v1.AccountService/UpdateProfile",
+            Some(&carol),
+            &tokuly_proto::identity::UpdateProfileRequest {
+                handle: Some(unique_handle("carol")),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("carol renames");
+    let held: CheckHandleResponse = ctx.call(SVC, "CheckHandle", Some(&owner), &check(&given_up)).await.unwrap();
+    assert_eq!((held.available, held.reason.as_str()), (false, "HANDLE_TAKEN"));
+
+    let mut request = ctx.new_community(CommunityVisibility::COMMUNITY_VISIBILITY_PUBLIC);
+    request.handle = given_up.clone();
+    assert_eq!(ctx.try_create(&owner, &request).await.unwrap_err().reason, "HANDLE_TAKEN");
+
+    let community = ctx.public(&owner).await;
+    let rename =
+        UpdateCommunityRequest { community_id: community.id.clone(), handle: Some(given_up), ..Default::default() };
+    assert_eq!(ctx.reason(SVC, "UpdateCommunity", Some(&owner), &rename).await, "HANDLE_TAKEN");
+}
