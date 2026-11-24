@@ -12,7 +12,7 @@ use tokuly_identity::users;
 use tokuly_media::assets;
 use tokuly_proto::{
     chat as pb,
-    common::{StampRef, UserSummary},
+    common::{LocalizedText, StampRef, UserSummary},
     media::{AssetKind, Attachment, LinkPreview},
 };
 
@@ -273,6 +273,10 @@ impl Chat {
                     targets: system.target_ids.iter().map(|id| users::pick(&users, *id)).collect(),
                     text: system.text,
                     message_id: system.message_id.map(|id| id.to_string()).unwrap_or_default(),
+                    notice: system
+                        .notice
+                        .map(|notice| LocalizedText { ja: notice.ja, en: notice.en, ..Default::default() })
+                        .into(),
                     ..Default::default()
                 })
                 .into();

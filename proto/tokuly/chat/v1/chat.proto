@@ -677,6 +677,11 @@ enum SystemEventType {
   SYSTEM_EVENT_TYPE_ADMIN_REMOVED = 9;
   // `actor` pinned the message `message_id`.
   SYSTEM_EVENT_TYPE_MESSAGE_PINNED = 10;
+  // A notice from the server, worded in `notice` (no actor, no targets):
+  // another domain telling the members something about the conversation,
+  // such as a bot that has a new owner. Shown like the other system
+  // messages; not counted as unread, not notified, not reportable.
+  SYSTEM_EVENT_TYPE_NOTICE = 11;
 }
 
 // Content of a system message. Clients build the sentence from the type.
@@ -686,6 +691,8 @@ message SystemEvent {
   repeated tokuly.common.v1.UserSummary targets = 3;
   string text = 4;
   string message_id = 5;
+  // NOTICE: the sentence to show, in the viewer's language.
+  tokuly.common.v1.LocalizedText notice = 6;
 }
 
 message ReactionCount {

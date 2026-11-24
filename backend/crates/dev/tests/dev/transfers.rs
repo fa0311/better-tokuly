@@ -243,3 +243,26 @@ async fn a_block_either_way_stops_an_offer_and_its_acceptance() {
     let still: ListBotsResponse = ctx.app.call(&format!("{BOT_SERVICE}/ListBots"), Some(&owen), &mine).await.unwrap();
     assert_eq!(still.bots.len(), 2, "both bots stay with their owner");
 }
+
+#[tokio::test]
+async fn the_bots_conversations_are_told_it_has_a_new_owner() {
+    let ctx = start().await;
+    let (owen, rita) = (ctx.app.user("owen").await, ctx.app.user("rita").await);
+    let bot = create_bot(&ctx, &owen, "Helper").await;
+    let bot_uuid = Uuid::parse_str(&bot).unwrap();
+    let offered = offer(&ctx, &owen, &bot, &rita.id.to_string()).await.unwrap();
+    accept(&ctx, &rita, &offered.id).await.unwrap();
+    assert!(ctx.notices.posted.lock().is_empty(), "told by the event consumer, after the commit");
+
+    // The hand-over's event, delivered twice.
+    let transferred = ctx.app.events_by("dev.bot.transferred", rita.id).await.pop().expect("the hand-over's event");
+    ctx.dev.on_account_event(&transferred).await.unwrap();
+    ctx.dev.on_account_event(&transferred).await.unwrap();
+    let posted = ctx.notices.posted.lock().clone();
+    assert_eq!(posted.len(), 2);
+    for (account, key, notice) in &posted {
+        assert_eq!(*account, bot_uuid, "the bot's conversations, not its owners'");
+        assert_eq!(key, &format!("dev.bot.transferred:{}", transferred.id), "one key per hand-over: posted once");
+        assert_eq!((notice.ja.as_str(), notice.en.as_str()), ("このボットの持ち主が変わったよ", "This bot has a new owner"));
+    }
+}

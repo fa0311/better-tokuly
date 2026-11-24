@@ -1,6 +1,6 @@
 //! What other domains ask of this one: reacting to bans, password changes,
-//! account deletions and moderation takedowns; the report subject for
-//! applications; the personal data export.
+//! account deletions, moderation takedowns and (its own) bot hand-overs; the
+//! report subject for applications; the personal data export.
 use async_trait::async_trait;
 use tokuly_core::{
     events::{self, Event},
@@ -24,6 +24,7 @@ pub const ACCOUNT_TOPICS: &[&str] = &[
     "identity.user.password_changed",
     "identity.user.deleted",
     "admin.content.removed",
+    "dev.bot.transferred",
 ];
 
 impl Dev {
@@ -46,6 +47,7 @@ impl Dev {
                 }
                 Ok(())
             }
+            "dev.bot.transferred" => self.on_bot_transferred(event).await,
             _ => Ok(()),
         }
     }

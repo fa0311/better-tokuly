@@ -13,8 +13,8 @@ const SWEEP_INTERVAL: Duration = Duration::from_secs(15);
 const HOUSEKEEPING_INTERVAL: Duration = Duration::from_secs(3600);
 
 impl Dev {
-    /// Starts the event consumers (webhook fan-out; account bans, deletions
-    /// and takedowns), the delivery job, the retry sweep and housekeeping.
+    /// Starts the event consumers (webhook fan-out; account bans, deletions,
+    /// takedowns and bot hand-overs), the delivery job, the retry sweep and housekeeping.
     pub fn spawn_workers(&self) {
         let core = &self.core;
 

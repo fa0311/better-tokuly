@@ -10,8 +10,9 @@ use async_trait::async_trait;
 use sqlx::PgConnection;
 use tokuly_admin::{HiddenOwners, ReportEvidence, ReportedSubjects};
 use tokuly_community::Community;
-use tokuly_core::{prelude::*, subject::SubjectInfo};
-use tokuly_dev::ImageStore;
+use tokuly_core::{outbound::Localized, prelude::*, subject::SubjectInfo};
+use tokuly_chat::Chat;
+use tokuly_dev::{ConversationNotices, ImageStore};
 use tokuly_engagement::{ChannelDirectory, Engagement};
 use tokuly_media::assets;
 use tokuly_proto::{
@@ -31,6 +32,7 @@ pub fn connect(core: &Core, domains: &Domains) {
     domains.engagement.set_channel_directory(Arc::new(ChannelsForComments { core: core.clone() }));
     domains.quest.set_direct_chats(Arc::new(DirectChatsForStreaks { core: core.clone() }));
     domains.dev.set_images(Arc::new(ImagesForDevelopers { core: core.clone() }));
+    domains.dev.set_conversation_notices(Arc::new(NoticesForBots { core: core.clone(), chat: domains.chat.clone() }));
     domains.admin.set_hidden_owners(Arc::new(AnonymousAuthors { community: domains.community.clone() }));
     domains.admin.set_report_evidence(Arc::new(EvidenceOfReports));
     domains.admin.set_reported_subjects(Arc::new(ReportedForModerators { engagement: domains.engagement.clone() }));
@@ -111,6 +113,29 @@ impl ImageStore for ImagesForDevelopers {
 
     async fn release(&self, tx: &mut PgConnection, holder: &str) -> AppResult<()> {
         assets::detach_holder(&mut *tx, holder).await?;
+        Ok(())
+    }
+}
+
+/// Notices in a bot's conversations (it changed hands): the developer
+/// platform asks, the chat domain posts them.
+struct NoticesForBots {
+    core: Core,
+    chat: Chat,
+}
+
+#[async_trait]
+impl ConversationNotices for NoticesForBots {
+    async fn post_to_direct_conversations(&self, account: Uuid, key: &str, notice: Localized) -> AppResult<()> {
+        for conversation_id in tokuly_chat::direct_conversations_of(&self.core, account).await? {
+            match self.chat.post_notice(conversation_id, key, notice.clone()).await {
+                // Gone in the meantime (a group cannot be one of them).
+                Err(e) if e.is_not_found() => {}
+                result => {
+                    result?;
+                }
+            }
+        }
         Ok(())
     }
 }

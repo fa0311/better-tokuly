@@ -193,12 +193,15 @@ impl Chat {
         conv: &mut ConversationRow,
         draft: Draft,
     ) -> AppResult<Posted> {
-        if let (Some(sender_id), Some(client_id)) = (draft.sender_id, &draft.client_id) {
+        if let Some(client_id) = &draft.client_id {
+            // System messages with a `client_id` (server notices) are unique
+            // the same way; the conversation lock serializes the check.
             let existing: Option<MessageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT {MSG} FROM chat_messages x WHERE x.conversation_id = $1 AND x.sender_id = $2 AND x.client_id = $3"
+                "SELECT {MSG} FROM chat_messages x
+                 WHERE x.conversation_id = $1 AND x.sender_id IS NOT DISTINCT FROM $2 AND x.client_id = $3"
             )))
             .bind(conv.id)
-            .bind(sender_id)
+            .bind(draft.sender_id)
             .bind(client_id)
             .fetch_optional(&mut **tx)
             .await?;

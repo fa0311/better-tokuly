@@ -92,6 +92,16 @@ describe("system notices", () => {
     ).toBe("れんがオーナーになりました");
   });
 
+  it("shows a notice from the server in the app's language", () => {
+    const notice = (ja: string, en: string) =>
+      systemText(event(chat.SystemEventType.NOTICE, { actor: undefined, notice: { ja, en } }), ME);
+    expect(notice("このボットの持ち主が変わったよ", "This bot has a new owner")).toBe(
+      "このボットの持ち主が変わったよ",
+    );
+    expect(notice("", "This bot has a new owner")).toBe("This bot has a new owner");
+    expect(systemText(event(chat.SystemEventType.NOTICE, { actor: undefined }), ME)).toBe("");
+  });
+
   it("shortens long lists of people", () => {
     const targets = ["a", "b", "c", "d", "e"].map((id) => user(id));
     expect(systemText(event(chat.SystemEventType.MEMBERS_ADDED, { targets }), ME)).toBe(

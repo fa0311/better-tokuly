@@ -100,6 +100,11 @@ impl MessageSubjects {
     async fn lookup(&self, id: &str, viewer: Option<Uuid>, for_report: bool) -> AppResult<Option<SubjectInfo>> {
         let (Ok(message_id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
         let Some(row) = access::find_message(&self.core, message_id).await? else { return Ok(None) };
+        // A notice another domain posted is the server's own wording: there
+        // is nobody behind it to report.
+        if row.system().is_some_and(|system| system.is_notice()) {
+            return Ok(None);
+        }
         let member = access::find_member(&self.core, row.conversation_id, viewer).await?;
         let visible =
             member.is_some_and(|member| member.request_state != request::DECLINED && row.seq > member.history_from_seq);

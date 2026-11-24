@@ -25,8 +25,9 @@
 //!
 //! Wiring, done by the server: [`Dev::new`], [`Dev::register`],
 //! [`Dev::http_routes`] merged into the HTTP router (inside the auth
-//! middleware), [`Dev::spawn_workers`], and [`Dev::set_images`] bridged to
-//! the media domain. See `docs/events/dev.md`.
+//! middleware), [`Dev::spawn_workers`], [`Dev::set_images`] bridged to
+//! the media domain and [`Dev::set_conversation_notices`] bridged to the
+//! chat domain. See `docs/events/dev.md`.
 use std::{ops::Deref, sync::Arc};
 
 use parking_lot::RwLock;
@@ -42,6 +43,7 @@ pub mod delivery;
 pub mod events;
 pub mod fanout;
 pub mod images;
+pub mod notices;
 mod oauth;
 mod oauth_http;
 pub mod reference;
@@ -56,12 +58,15 @@ mod workers;
 
 pub use config::DevConfig;
 pub use images::ImageStore;
+pub use notices::ConversationNotices;
 
 pub struct DevInner {
     pub core: Core,
     pub identity: Identity,
     pub cfg: DevConfig,
     images: RwLock<Option<Arc<dyn ImageStore>>>,
+    /// Tells a bot's conversations when it changes hands (see [`Dev::set_conversation_notices`]).
+    notices: RwLock<Option<Arc<dyn ConversationNotices>>>,
     /// The API as its descriptor set describes it.
     reference: reference::Reference,
     /// Sends webhook deliveries; never follows redirects, never connects
@@ -93,6 +98,7 @@ impl Dev {
             reference: reference::Reference::load(tokuly_proto::FILE_DESCRIPTOR_SET)?,
             webhook_http: delivery::http_client(&cfg)?,
             images: RwLock::new(None),
+            notices: RwLock::new(None),
             subscribed: fanout::SubscribedTypes::default(),
             core,
             identity,
@@ -110,6 +116,12 @@ impl Dev {
     /// Until this is called they cannot be set (`ICONS_UNAVAILABLE`).
     pub fn set_images(&self, images: Arc<dyn ImageStore>) {
         *self.images.write() = Some(images);
+    }
+
+    /// Connects the notices a bot's conversations get when it is handed
+    /// over to the chat domain. Until this is called they get none.
+    pub fn set_conversation_notices(&self, notices: Arc<dyn ConversationNotices>) {
+        *self.notices.write() = Some(notices);
     }
 
     pub(crate) fn images(&self) -> AppResult<Arc<dyn ImageStore>> {

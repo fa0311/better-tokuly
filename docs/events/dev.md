@@ -88,6 +88,7 @@ No event is emitted in identity's name: a bot is not announced as `identity.user
 | `identity.user.unbanned` | `dev-accounts` | Nothing is restored; what was not revoked (the tokens of the account's applications) is judged afresh at once instead of when the cached refusal expires. |
 | `identity.user.password_changed` | `dev-accounts` | Revokes every personal and bot token the account created before the change (`occurred_at`). **Identity does not emit this yet**; until it does, the same happens when a token is next verified against the database (within 60 s of its next use): each token remembers a fingerprint of its creator's password hash, and the tokens made under another password than the current one are revoked. |
 | `identity.user.deleted` | `dev-accounts` | Deletes the account's tokens, applications (with every user's authorization of them), the authorizations it gave, its webhooks with their logs, and its bots (whose accounts are then deleted through identity). For a bot account: the record of who owned it is kept (see "Bots"). |
+| `dev.bot.transferred` | `dev-accounts` | Its own event: every direct conversation of the bot gets the notice that it has a new owner (see "Handing a bot over"). Keyed on the event's ID, so a redelivery posts nothing new; one that arrives late is posted all the same. Nothing happens on a server without the chat bridge. |
 | `admin.content.removed` | `dev-accounts` | `SUBJECT_TYPE_APP`: the application is disabled (`AppStatus.DISABLED`, `reason` shown to its owner), its tokens stop working at once, its owner is notified. Other subject types are ignored. |
 | the webhook sources (below) | `dev-webhooks` | Stored as deliveries for the webhooks that subscribed. |
 
@@ -215,9 +216,12 @@ the bot's tokens only after that check, in the same transaction).
 **The new owner inherits what the bot received**: its direct messages, its
 notification inbox, notes and anything else shared with it, readable through
 the tokens they make with `*:read` scopes. The offer screen and the accept
-screen say so. The bot's conversations are not told that it changed hands:
-the chat domain has no way for another domain to post a notice into a
-conversation.
+screen say so. Every direct conversation of the bot is told as well, with a
+notice from the server between the bubbles: 「このボットの持ち主が変わったよ」 /
+"This bot has a new owner" (posted by this domain's `dev-accounts` consumer
+on `dev.bot.transferred`, through the chat bridge; once per hand-over, and
+at most `tokuly_chat::NOTICES_PER_CONVERSATION_PER_DAY` notices a day per
+conversation, so handing a bot back and forth does not flood anybody).
 
 Accepted offers are the record of who owned a bot before
 (`Dev::bot_owner_at(bot, time)`), kept for `TOKULY_DEV_BOT_RECORD_DAYS` from
@@ -306,6 +310,8 @@ dev.spawn_workers()
 dev.set_images(Arc<dyn tokuly_dev::ImageStore>)                  // bridge to tokuly_media::assets, for icons and avatars:
                                                                  //   image(uploader, asset_id) -> Image JSON   (reads; called outside transactions)
                                                                  //   hold(tx, asset_id, holder) / release(tx, holder)   (on the caller's transaction)
+dev.set_conversation_notices(Arc<dyn tokuly_dev::ConversationNotices>)   // bridge to tokuly_chat::Chat::post_notice:
+                                                                 //   post_to_direct_conversations(account, key, notice)   (once per key)
 dev.bot_owner(bot_id) -> AppResult<Option<Uuid>>                 // for moderation; also for bots deleted within the retention
 dev.set_app_rate_tier(app_id, "standard" | "elevated") -> AppResult<()>
 dev.fan_out(&Event) -> AppResult<usize>                          // webhook consumer body
