@@ -34,6 +34,29 @@ logs), 調整さん (date polls), Discord (communities, always-on voice rooms).
 
 See their proto files. Summary of behaviour that is not obvious from the API:
 
+- **identity**: accounts, sessions (rotating refresh tokens, passkeys, TOTP,
+  device login), profiles and settings. Profiles carry the **プロフ帳**:
+  MBTI, blood type, zodiac (derived from the birthday), pronouns, 推し (with
+  an image or emoji and a link), favourite things as tags in categories
+  (music, games, food, anime…, suggested from what others show publicly),
+  links verified by a `rel="me"` link back (checked in the background
+  through the egress guard), a longer bio, a theme colour and style, a song
+  pinned from Spotify, and question-and-answer cards from a curated bank of
+  prompts ("好きな教科", "無人島に1つ持っていくなら") or free ones,
+  reorderable and hideable. Every field and every card has its own audience
+  (public / friends / only me); a block in either direction hides the whole
+  profile; moderators can open a profile in full. The public fields are in
+  the account's search document. **Birthdays** are shown per one privacy
+  setting (nobody / friends / everyone, month and day or the full date;
+  never the year to everyone under 18), which every domain reads.
+  **Bots** (made on the developer platform) carry the bot flag and their
+  owner on the account; bots never count as people (`bots::humans_only`).
+  **Several accounts on one device** (main, 裏垢, creator): each is added
+  by a full sign-in and keeps its own session; switching needs no password
+  but asks for the target's second factor when it has not passed it there
+  within 12 hours; the server never links the accounts, signing out one
+  leaves the others; at most 5 per device.
+
 - **social**: friendships are mutual; a request to someone who already
   requested you auto-accepts. Best friends are ranked automatically from
   interactions (messages, stamps, bumps, time together, map views) with a
@@ -411,8 +434,6 @@ Collected here so the next pass over each domain has its list:
   notes, edit history, lists, antennas (saved keyword timelines), channels
   (topic timelines), clips (curated public collections), muted words,
   trends, a following timeline, circle audiences, a profile media grid.
-- **identity**: profile extras (MBTI, 推し, links, pronouns, プロフ帳 cards),
-  bot flag, linked accounts for quick switching.
 - **federation** (new, after notes): ActivityPub, so accounts and notes
   interoperate with Misskey and Mastodon.
 - **web**: deck layout, command palette, theme editor, API explorer.

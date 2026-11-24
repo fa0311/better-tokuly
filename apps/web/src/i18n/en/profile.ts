@@ -1,4 +1,6 @@
 export default {
+  bot: "Bot",
+  botOwner: "A bot by @{{handle}}",
   notFound: "User not found",
   joined: "{{name}} joined {{count}} days ago",
   distance: "Hey friend! Waiting for you {{distance}} away.",

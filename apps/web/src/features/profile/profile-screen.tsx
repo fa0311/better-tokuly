@@ -120,7 +120,28 @@ export function ProfileScreen({ handle }: { handle: string }) {
         <h1 className="mt-3 truncate text-2xl font-black">
           <EmojiText text={user.displayName} /> {user.verified && <span title="verified">✅</span>}
         </h1>
-        <p className="truncate font-bold text-ink-soft">@{user.handle}</p>
+        <p className="truncate font-bold text-ink-soft">
+          @{user.handle}
+          {profile.extras?.pronouns && (
+            <span className="ml-2 text-sm font-bold text-ink-faint">{profile.extras.pronouns}</span>
+          )}
+        </p>
+        {profile.bot && (
+          <p className="mt-2 inline-flex flex-wrap items-center gap-2 text-sm font-bold">
+            <span className="rounded-full border-2 border-ink bg-sky px-2.5 py-0.5 text-xs font-black text-[#17122b]">
+              🤖 {t("bot")}
+            </span>
+            {profile.botOwner && (
+              <Link
+                to="/u/$handle"
+                params={{ handle: profile.botOwner.handle }}
+                className="text-ink-soft underline-offset-4 hover:underline"
+              >
+                {t("botOwner", { handle: profile.botOwner.handle })}
+              </Link>
+            )}
+          </p>
+        )}
 
         {(profile.status?.emoji || profile.status?.text) && (
           <p className="sticker-sm mt-4 inline-flex max-w-full items-center gap-2 rounded-full bg-surface px-4 py-1.5 text-sm font-bold">

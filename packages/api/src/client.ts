@@ -62,9 +62,11 @@ export function createApi(options: ApiOptions): Api {
     } catch (error) {
       // Streams cannot be replayed; unary calls are retried once.
       if (request.stream || !isStaleToken(error)) throw error;
+      // A refresh that came back as another account leaves nothing to resend with.
       if (!(await session.refresh())) throw error;
       const fresh = session.peekAccessToken();
-      if (fresh) request.header.set("authorization", `Bearer ${fresh}`);
+      if (!fresh) throw error;
+      request.header.set("authorization", `Bearer ${fresh}`);
       return next(request);
     }
   };

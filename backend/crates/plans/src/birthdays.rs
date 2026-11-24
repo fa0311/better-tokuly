@@ -1,13 +1,15 @@
 //! Friends' birthdays, and the setting that shares one's own.
 //!
-//! Birthdays come from the account (identity's `users.birthdate`) and are
-//! read-only here. Identity has no setting saying whether a birthday may be
-//! shown to friends, so this domain keeps one of its own: off unless the
-//! user switches it on. Only the month and the day ever leave the server —
-//! the year would give a minor's age away.
+//! Birthdays and who sees them belong to the account: identity's
+//! `users.birthdate` and its privacy setting (`tokuly_identity::birthdays`),
+//! read through identity's batched API. This domain only offers the switch
+//! on its own settings screen ("share with friends"), which writes that
+//! setting. Only the month and the day are shown here, whatever the owner
+//! shares with friends.
 use chrono::{Datelike as _, NaiveDate};
 use tokuly_core::prelude::*;
-use tokuly_proto::plans::*;
+use tokuly_identity::birthdays::Closeness;
+use tokuly_proto::{identity::Audience, plans::*};
 use tokuly_social::graph;
 
 use crate::{Plans, dates};
@@ -22,28 +24,24 @@ pub(crate) struct SharedBirthday {
 
 impl Plans {
     pub(crate) async fn plans_settings(&self, user_id: Uuid) -> AppResult<PlansSettings> {
-        let share_birthday: Option<bool> =
-            sqlx::query_scalar("SELECT share_birthday FROM plan_settings WHERE user_id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.core.db)
-                .await?;
-        Ok(PlansSettings { share_birthday: share_birthday.unwrap_or(false), ..Default::default() })
+        let privacy = tokuly_identity::settings::privacy_of(&self.core, user_id).await?;
+        let shared = tokuly_identity::birthdays::audience_of(&privacy) != Audience::AUDIENCE_NOBODY;
+        Ok(PlansSettings { share_birthday: shared, ..Default::default() })
     }
 
+    /// Turning sharing on shows the birthday to friends (an account that
+    /// already shows it to everyone keeps that); off hides it from everyone.
     pub(crate) async fn update_plans_settings(
         &self,
         user_id: Uuid,
         share_birthday: Option<bool>,
     ) -> AppResult<PlansSettings> {
         if let Some(share_birthday) = share_birthday {
-            sqlx::query(
-                "INSERT INTO plan_settings (user_id, share_birthday) VALUES ($1, $2)
-                 ON CONFLICT (user_id) DO UPDATE SET share_birthday = EXCLUDED.share_birthday, updated_at = now()",
-            )
-            .bind(user_id)
-            .bind(share_birthday)
-            .execute(&self.core.db)
-            .await?;
+            let current = self.plans_settings(user_id).await?.share_birthday;
+            if share_birthday != current {
+                let audience = if share_birthday { Audience::AUDIENCE_FRIENDS } else { Audience::AUDIENCE_NOBODY };
+                tokuly_identity::birthdays::set_birthday_audience(&self.core, user_id, audience, None).await?;
+            }
         }
         self.plans_settings(user_id).await
     }
@@ -54,17 +52,11 @@ impl Plans {
         let hidden = graph::blocked_ids_either(core, viewer).await?;
         let friends: Vec<Uuid> =
             graph::friend_ids(core, viewer).await?.into_iter().filter(|friend| !hidden.contains(friend)).collect();
-        let rows: Vec<(Uuid, NaiveDate)> = sqlx::query_as(
-            "SELECT u.id, u.birthdate FROM users u JOIN plan_settings s ON s.user_id = u.id AND s.share_birthday
-             WHERE u.id = ANY($1) AND u.birthdate IS NOT NULL AND u.deleted_at IS NULL AND u.banned_at IS NULL",
-        )
-        .bind(&friends)
-        .fetch_all(&core.db)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|(user_id, birthdate)| SharedBirthday { user_id, month: birthdate.month(), day: birthdate.day() })
-            .collect())
+        let shared = tokuly_identity::birthdays::shared_birthdays(core, &friends, |_| Closeness::Friend).await?;
+        let mut birthdays: Vec<SharedBirthday> =
+            shared.into_values().map(|b| SharedBirthday { user_id: b.user_id, month: b.month, day: b.day }).collect();
+        birthdays.sort_by_key(|b| b.user_id);
+        Ok(birthdays)
     }
 
     /// `user_id`'s own birthday, when their account has one.

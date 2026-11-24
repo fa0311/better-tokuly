@@ -24,19 +24,9 @@ impl Identity {
         if user.password_hash.is_none() {
             return Ok(());
         }
-        self.core
-            .cache
-            .rate_limit(
-                &format!("confirm-pw:{}", user.id),
-                10,
-                Duration::from_secs(300),
-            )
-            .await?;
+        self.core.cache.rate_limit(&format!("confirm-pw:{}", user.id), 10, Duration::from_secs(300)).await?;
         // The burst limit alone allows ~2900 guesses a day.
-        self.core
-            .cache
-            .rate_limit(&format!("confirm-pw-day:{}", user.id), 30, Duration::from_secs(24 * 3600))
-            .await?;
+        self.core.cache.rate_limit(&format!("confirm-pw-day:{}", user.id), 30, Duration::from_secs(24 * 3600)).await?;
         ensure!(
             crate::password::verify(password, user.password_hash.as_deref()).await,
             unauthenticated,
@@ -60,10 +50,7 @@ impl AccountService for Identity {
     ) -> ServiceResult<GetMeResponse> {
         handle(async {
             let user = users::get(&self.core, ctx.user_id()?).await?;
-            ok(GetMeResponse {
-                me: self.me(&user).await?.into(),
-                ..Default::default()
-            })
+            ok(GetMeResponse { me: self.me(&user).await?.into(), ..Default::default() })
         })
         .await
     }
@@ -74,70 +61,91 @@ impl AccountService for Identity {
         request: ServiceRequest<'_, UpdateProfileRequest>,
     ) -> ServiceResult<UpdateProfileResponse> {
         handle(async {
-        let user_id = ctx.user_id()?;
-        let core = &self.core;
-        let current = users::get(core, user_id).await?;
+            let user_id = ctx.user_id()?;
+            let core = &self.core;
+            let current = users::get(core, user_id).await?;
 
-        let display_name = request.display_name.map(users::validate_display_name).transpose()?;
-        let bio = request.bio.map(users::validate_bio).transpose()?;
-        let locale = request.locale.map(users::validate_locale).transpose()?;
-        let time_zone = request.time_zone.map(users::validate_time_zone).transpose()?;
-        let school_name = request.school_name.map(users::validate_school_name).transpose()?;
-        let handle = match request.handle {
-            Some(h) => {
-                // Compare before the claim rules: an account sending its own
-                // handle back (a grandfathered one included) changes nothing,
-                // and the previous owner of a held handle may take it back.
-                let normalized = users::handle_error(users::normalize_handle(h))?;
-                if normalized.eq_ignore_ascii_case(&current.handle) {
-                    None
-                } else {
-                    let handle = if users::handle_holder(core, &normalized).await? == Some(user_id) {
-                        normalized
+            let display_name = request.display_name.map(users::validate_display_name).transpose()?;
+            let bio = request.bio.map(users::validate_bio).transpose()?;
+            let locale = request.locale.map(users::validate_locale).transpose()?;
+            let time_zone = request.time_zone.map(users::validate_time_zone).transpose()?;
+            let school_name = request.school_name.map(users::validate_school_name).transpose()?;
+            let handle = match request.handle {
+                Some(h) => {
+                    // Compare before the claim rules: an account sending its own
+                    // handle back (a grandfathered one included) changes nothing,
+                    // and the previous owner of a held handle may take it back.
+                    let normalized = users::handle_error(users::normalize_handle(h))?;
+                    if normalized.eq_ignore_ascii_case(&current.handle) {
+                        None
                     } else {
-                        users::handle_error(users::claimable_handle(h))?
-                    };
-                    core.cache.rate_limit(&format!("handle-change:{user_id}"), 3, Duration::from_secs(7 * 24 * 3600)).await?;
-                    let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext AND id <> $2)")
+                        let handle = if users::handle_holder(core, &normalized).await? == Some(user_id) {
+                            normalized
+                        } else {
+                            users::handle_error(users::claimable_handle(h))?
+                        };
+                        core.cache
+                            .rate_limit(&format!("handle-change:{user_id}"), 3, Duration::from_secs(7 * 24 * 3600))
+                            .await?;
+                        let taken: bool = sqlx::query_scalar(
+                            "SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext AND id <> $2)",
+                        )
                         .bind(&handle)
                         .bind(user_id)
                         .fetch_one(&core.db)
                         .await
                         .map_err(AppError::from)?;
-                    ensure!(!taken, already_exists, "HANDLE_TAKEN", "this handle is already in use");
-                    let held = users::handle_held_from(core, &handle, Some(user_id)).await?;
-                    ensure!(!held, already_exists, "HANDLE_TAKEN", "this handle is already in use");
-                    Some(handle)
+                        ensure!(!taken, already_exists, "HANDLE_TAKEN", "this handle is already in use");
+                        let held = users::handle_held_from(core, &handle, Some(user_id)).await?;
+                        ensure!(!held, already_exists, "HANDLE_TAKEN", "this handle is already in use");
+                        Some(handle)
+                    }
                 }
-            }
-            None => None,
-        };
+                None => None,
+            };
 
-        // `Some(None)` clears an image, `Some(Some(json))` replaces it, `None` leaves it.
-        let avatar: Option<Option<serde_json::Value>> = match request.avatar_asset_id {
-            None => None,
-            Some("") => Some(None),
-            Some(id) => Some(Some(assets::require_image_json(core, parse_id(id)?, user_id, &[AssetPurpose::ASSET_PURPOSE_AVATAR]).await?)),
-        };
-        let banner: Option<Option<serde_json::Value>> = match request.banner_asset_id {
-            None => None,
-            Some("") => Some(None),
-            Some(id) => Some(Some(assets::require_image_json(core, parse_id(id)?, user_id, &[AssetPurpose::ASSET_PURPOSE_BANNER]).await?)),
-        };
-        let avatar_video: Option<Option<String>> = match request.avatar_video_asset_id {
-            None => None,
-            Some("") => Some(None),
-            Some(id) => {
-                let asset = assets::require_ready(core, parse_id(id)?, user_id, &[AssetPurpose::ASSET_PURPOSE_AVATAR_VIDEO]).await?;
-                ensure!(asset.kind == AssetKind::ASSET_KIND_VIDEO as i32, invalid, "ASSET_NOT_VIDEO", "a video is required");
-                let url = asset.video().map(|v| v.mp4_url).filter(|u| !u.is_empty()).unwrap_or(asset.url);
-                Some(Some(url))
-            }
-        };
+            // `Some(None)` clears an image, `Some(Some(json))` replaces it, `None` leaves it.
+            let avatar: Option<Option<serde_json::Value>> = match request.avatar_asset_id {
+                None => None,
+                Some("") => Some(None),
+                Some(id) => Some(Some(
+                    assets::require_image_json(core, parse_id(id)?, user_id, &[AssetPurpose::ASSET_PURPOSE_AVATAR])
+                        .await?,
+                )),
+            };
+            let banner: Option<Option<serde_json::Value>> = match request.banner_asset_id {
+                None => None,
+                Some("") => Some(None),
+                Some(id) => Some(Some(
+                    assets::require_image_json(core, parse_id(id)?, user_id, &[AssetPurpose::ASSET_PURPOSE_BANNER])
+                        .await?,
+                )),
+            };
+            let avatar_video: Option<Option<String>> = match request.avatar_video_asset_id {
+                None => None,
+                Some("") => Some(None),
+                Some(id) => {
+                    let asset = assets::require_ready(
+                        core,
+                        parse_id(id)?,
+                        user_id,
+                        &[AssetPurpose::ASSET_PURPOSE_AVATAR_VIDEO],
+                    )
+                    .await?;
+                    ensure!(
+                        asset.kind == AssetKind::ASSET_KIND_VIDEO as i32,
+                        invalid,
+                        "ASSET_NOT_VIDEO",
+                        "a video is required"
+                    );
+                    let url = asset.video().map(|v| v.mp4_url).filter(|u| !u.is_empty()).unwrap_or(asset.url);
+                    Some(Some(url))
+                }
+            };
 
-        let mut tx = core.db.begin().await?;
-        let user: UserRow = sqlx::query_as(concat!(
-            "UPDATE users SET
+            let mut tx = core.db.begin().await?;
+            let user: UserRow = sqlx::query_as(concat!(
+                "UPDATE users SET
                 display_name     = COALESCE($2, display_name),
                 handle           = COALESCE($3::citext, handle),
                 bio              = COALESCE($4, bio),
@@ -148,53 +156,59 @@ impl AccountService for Identity {
                 avatar_video_url = CASE WHEN $11 THEN $12 ELSE avatar_video_url END,
                 school_name      = COALESCE($13, school_name)
              WHERE id = $1 RETURNING ",
-            users::user_columns!()
-        ))
-        .bind(user_id)
-        .bind(display_name)
-        .bind(&handle)
-        .bind(bio)
-        .bind(locale)
-        .bind(time_zone)
-        .bind(avatar.is_some())
-        .bind(avatar.flatten())
-        .bind(banner.is_some())
-        .bind(banner.flatten())
-        .bind(avatar_video.is_some())
-        .bind(avatar_video.flatten())
-        .bind(school_name)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| {
-            let e = AppError::from(e);
-            if e.is_already_exists() { AppError::already_exists("HANDLE_TAKEN", "this handle is already in use") } else { e }
-        })?;
-        // Keep the media assets behind the profile images alive (and release
-        // the ones they replace): unheld uploads are garbage-collected.
-        let slots = [
-            ("avatar", request.avatar_asset_id),
-            ("banner", request.banner_asset_id),
-            ("avatar-video", request.avatar_video_asset_id),
-        ];
-        for (slot, requested) in slots {
-            let Some(asset_id) = requested else { continue };
-            let holder = profile_asset_holder(slot, user_id);
-            assets::detach_holder(&mut *tx, &holder).await?;
-            if !asset_id.is_empty() {
-                assets::attach(&mut *tx, parse_id(asset_id)?, &holder).await?;
+                users::user_columns!()
+            ))
+            .bind(user_id)
+            .bind(display_name)
+            .bind(&handle)
+            .bind(bio)
+            .bind(locale)
+            .bind(time_zone)
+            .bind(avatar.is_some())
+            .bind(avatar.flatten())
+            .bind(banner.is_some())
+            .bind(banner.flatten())
+            .bind(avatar_video.is_some())
+            .bind(avatar_video.flatten())
+            .bind(school_name)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| {
+                let e = AppError::from(e);
+                if e.is_already_exists() {
+                    AppError::already_exists("HANDLE_TAKEN", "this handle is already in use")
+                } else {
+                    e
+                }
+            })?;
+            // Keep the media assets behind the profile images alive (and release
+            // the ones they replace): unheld uploads are garbage-collected.
+            let slots = [
+                ("avatar", request.avatar_asset_id),
+                ("banner", request.banner_asset_id),
+                ("avatar-video", request.avatar_video_asset_id),
+            ];
+            for (slot, requested) in slots {
+                let Some(asset_id) = requested else { continue };
+                let holder = profile_asset_holder(slot, user_id);
+                assets::detach_holder(&mut *tx, &holder).await?;
+                if !asset_id.is_empty() {
+                    assets::attach(&mut *tx, parse_id(asset_id)?, &holder).await?;
+                }
             }
-        }
-        events::emit(&mut *tx, "identity.user.updated", Some(user_id), &UserRef { user_id }).await?;
-        if let Some(handle) = &handle {
-            // Before the commit, so nobody can grab the old one in between.
-            users::hold_handle(core, &current.handle, user_id).await?;
-            tx.commit().await?;
-            // Taking a held handle back ends its hold.
-            core.cache.del(&users::held_handle_key(handle)).await?;
-        } else {
-            tx.commit().await?;
-        }
-        ok(UpdateProfileResponse { me: self.me(&user).await?.into(), ..Default::default() })
+            events::emit(&mut *tx, "identity.user.updated", Some(user_id), &UserRef { user_id }).await?;
+            if let Some(handle) = &handle {
+                // Before the commit, so nobody can grab the old one in between.
+                users::hold_handle(core, &current.handle, user_id).await?;
+                tx.commit().await?;
+                // Taking a held handle back ends its hold.
+                core.cache.del(&users::held_handle_key(handle)).await?;
+                // Verified links pointed at the old profile URL.
+                self.links_moved(user_id).await?;
+            } else {
+                tx.commit().await?;
+            }
+            ok(UpdateProfileResponse { me: self.me(&user).await?.into(), ..Default::default() })
         })
         .await
     }
@@ -258,7 +272,16 @@ impl AccountService for Identity {
         let privacy = match req.privacy.as_option() {
             Some(p) => {
                 settings::validate_privacy(p)?;
-                Some(encode(&|| serde_json::to_value(p))?)
+                let user = users::get(&self.core, user_id).await?;
+                let mut p = p.clone();
+                // A client that does not know the birthday setting yet keeps it.
+                if p.birthday_visible_to.as_known() == Some(Audience::AUDIENCE_UNSPECIFIED) {
+                    let stored = settings::privacy_from_json(&user.privacy);
+                    p.birthday_visible_to = stored.birthday_visible_to;
+                    p.birthday_show_year = stored.birthday_show_year;
+                }
+                crate::birthdays::check_year_rule(&p, user.birthdate, Utc::now().date_naive())?;
+                Some(encode(&|| serde_json::to_value(&p))?)
             }
             None => None,
         };
@@ -297,8 +320,7 @@ impl AccountService for Identity {
         handle(async {
             let auth = ctx.auth()?.clone();
             let user = users::get(&self.core, auth.user_id).await?;
-            self.confirm_password(&user, request.current_password)
-                .await?;
+            self.confirm_password(&user, request.current_password).await?;
             users::validate_password(request.new_password)?;
             let hash = crate::password::hash(request.new_password).await?;
             sqlx::query("UPDATE users SET password_hash = $2 WHERE id = $1")
@@ -310,16 +332,8 @@ impl AccountService for Identity {
             // Other devices must sign in again with the new password, and a
             // pending address change requested with the old one is void.
             self.drop_account_links(user.id).await?;
-            self.revoke_all_sessions(user.id, Some(auth.session_id))
-                .await?;
-            self.log_security_event(
-                user.id,
-                "PASSWORD_CHANGED",
-                &ctx.client(),
-                "",
-                serde_json::json!({}),
-            )
-            .await;
+            self.revoke_all_sessions(user.id, Some(auth.session_id)).await?;
+            self.log_security_event(user.id, "PASSWORD_CHANGED", &ctx.client(), "", serde_json::json!({})).await;
             self.notify_security_change(&user, SecurityNotice::PasswordChanged);
             ok(ChangePasswordResponse::default())
         })
@@ -333,8 +347,7 @@ impl AccountService for Identity {
     ) -> ServiceResult<ChangeEmailResponse> {
         handle(async {
             let user = users::get(&self.core, ctx.user_id()?).await?;
-            self.confirm_password(&user, request.current_password)
-                .await?;
+            self.confirm_password(&user, request.current_password).await?;
             let email = users::validate_email(request.new_email)?;
             ensure!(
                 user.email.as_deref() != Some(email.as_str()),
@@ -342,14 +355,7 @@ impl AccountService for Identity {
                 "EMAIL_UNCHANGED",
                 "this is already your email address"
             );
-            self.core
-                .cache
-                .rate_limit(
-                    &format!("email-change:{}", user.id),
-                    5,
-                    Duration::from_secs(3600),
-                )
-                .await?;
+            self.core.cache.rate_limit(&format!("email-change:{}", user.id), 5, Duration::from_secs(3600)).await?;
             // Someone else's address gets the same answer as a free one, so
             // this cannot be used to find out who has an account; it just
             // never receives a link (and VerifyEmail checks again).
@@ -371,10 +377,7 @@ impl AccountService for Identity {
         handle(async {
             let auth = ctx.auth()?;
             let sessions = Identity::list_sessions(self, auth.user_id, auth.session_id).await?;
-            ok(ListSessionsResponse {
-                sessions,
-                ..Default::default()
-            })
+            ok(ListSessionsResponse { sessions, ..Default::default() })
         })
         .await
     }
@@ -408,23 +411,24 @@ impl AccountService for Identity {
         _request: ServiceRequest<'_, ListPasskeysRequest>,
     ) -> ServiceResult<ListPasskeysResponse> {
         handle(async {
-        let rows: Vec<(Uuid, String, DateTime<Utc>, Option<DateTime<Utc>>)> =
-            sqlx::query_as("SELECT id, name, created_at, last_used_at FROM passkeys WHERE user_id = $1 ORDER BY id")
-                .bind(ctx.user_id()?)
-                .fetch_all(&self.core.db)
-                .await
-                .map_err(AppError::from)?;
-        let passkeys = rows
-            .into_iter()
-            .map(|(id, name, created_at, last_used_at)| Passkey {
-                id: id.to_string(),
-                name,
-                created_at: ts(created_at),
-                last_used_at: opt_ts(last_used_at),
-                ..Default::default()
-            })
-            .collect();
-        ok(ListPasskeysResponse { passkeys, ..Default::default() })
+            let rows: Vec<(Uuid, String, DateTime<Utc>, Option<DateTime<Utc>>)> = sqlx::query_as(
+                "SELECT id, name, created_at, last_used_at FROM passkeys WHERE user_id = $1 ORDER BY id",
+            )
+            .bind(ctx.user_id()?)
+            .fetch_all(&self.core.db)
+            .await
+            .map_err(AppError::from)?;
+            let passkeys = rows
+                .into_iter()
+                .map(|(id, name, created_at, last_used_at)| Passkey {
+                    id: id.to_string(),
+                    name,
+                    created_at: ts(created_at),
+                    last_used_at: opt_ts(last_used_at),
+                    ..Default::default()
+                })
+                .collect();
+            ok(ListPasskeysResponse { passkeys, ..Default::default() })
         })
         .await
     }
@@ -455,20 +459,8 @@ impl AccountService for Identity {
                 .execute(&self.core.db)
                 .await
                 .map_err(AppError::from)?;
-            ensure!(
-                done.rows_affected() == 1,
-                not_found,
-                "PASSKEY_NOT_FOUND",
-                "passkey not found"
-            );
-            self.log_security_event(
-                user_id,
-                "PASSKEY_REMOVED",
-                &ctx.client(),
-                "",
-                serde_json::json!({}),
-            )
-            .await;
+            ensure!(done.rows_affected() == 1, not_found, "PASSKEY_NOT_FOUND", "passkey not found");
+            self.log_security_event(user_id, "PASSKEY_REMOVED", &ctx.client(), "", serde_json::json!({})).await;
             ok(DeletePasskeyResponse::default())
         })
         .await
@@ -497,11 +489,7 @@ impl AccountService for Identity {
                     Some(Duration::from_secs(600)),
                 )
                 .await?;
-            ok(BeginTotpSetupResponse {
-                secret,
-                otpauth_url,
-                ..Default::default()
-            })
+            ok(BeginTotpSetupResponse { secret, otpauth_url, ..Default::default() })
         })
         .await
     }
@@ -512,27 +500,45 @@ impl AccountService for Identity {
         request: ServiceRequest<'_, EnableTotpRequest>,
     ) -> ServiceResult<EnableTotpResponse> {
         handle(async {
-        let user = users::get(&self.core, ctx.user_id()?).await?;
-        let user_id = user.id;
-        self.confirm_password(&user, request.current_password).await?;
-        let key = format!("id:totp:setup:{user_id}");
-        let sealed = self.core.cache.get_string(&key).await?.or_not_found("TOTP_SETUP_EXPIRED", "start the setup again")?;
-        let secret = totp::open_secret(&self.core.keys, &sealed).or_not_found("TOTP_SETUP_EXPIRED", "start the setup again")?;
-        self.limit_totp_attempts(user_id).await?;
-        ensure!(self.accept_totp(user_id, &secret, request.code).await?, invalid, "INVALID_TOTP", "wrong authentication code");
-        let codes = totp::generate_recovery_codes();
-        let hashes: Vec<String> = codes.iter().map(|c| totp::hash_recovery_code(&self.core.keys, c)).collect();
-        sqlx::query("UPDATE users SET totp_secret = $2, totp_enabled_at = now(), recovery_code_hashes = $3 WHERE id = $1")
+            let user = users::get(&self.core, ctx.user_id()?).await?;
+            let user_id = user.id;
+            self.confirm_password(&user, request.current_password).await?;
+            let key = format!("id:totp:setup:{user_id}");
+            let sealed =
+                self.core.cache.get_string(&key).await?.or_not_found("TOTP_SETUP_EXPIRED", "start the setup again")?;
+            let secret = totp::open_secret(&self.core.keys, &sealed)
+                .or_not_found("TOTP_SETUP_EXPIRED", "start the setup again")?;
+            self.limit_totp_attempts(user_id).await?;
+            ensure!(
+                self.accept_totp(user_id, &secret, request.code).await?,
+                invalid,
+                "INVALID_TOTP",
+                "wrong authentication code"
+            );
+            let codes = totp::generate_recovery_codes();
+            let hashes: Vec<String> = codes.iter().map(|c| totp::hash_recovery_code(&self.core.keys, c)).collect();
+            sqlx::query(
+                "UPDATE users SET totp_secret = $2, totp_enabled_at = now(), recovery_code_hashes = $3 WHERE id = $1",
+            )
             .bind(user_id)
             .bind(sealed)
             .bind(hashes)
             .execute(&self.core.db)
             .await
             .map_err(AppError::from)?;
-        self.core.cache.del(&key).await?;
-        self.log_security_event(user_id, "TOTP_ENABLED", &ctx.client(), "", serde_json::json!({})).await;
-        self.notify_security_change(&user, SecurityNotice::TotpEnabled);
-        ok(EnableTotpResponse { recovery_codes: codes, ..Default::default() })
+            self.core.cache.del(&key).await?;
+            // This device just proved the second factor (account switching asks for it otherwise).
+            if let Ok(auth) = ctx.auth() {
+                sqlx::query("UPDATE sessions SET mfa_at = now() WHERE id = $1 AND user_id = $2")
+                    .bind(auth.session_id)
+                    .bind(user_id)
+                    .execute(&self.core.db)
+                    .await
+                    .map_err(AppError::from)?;
+            }
+            self.log_security_event(user_id, "TOTP_ENABLED", &ctx.client(), "", serde_json::json!({})).await;
+            self.notify_security_change(&user, SecurityNotice::TotpEnabled);
+            ok(EnableTotpResponse { recovery_codes: codes, ..Default::default() })
         })
         .await
     }
@@ -584,37 +590,30 @@ impl AccountService for Identity {
             let user_id = ctx.user_id()?;
             let page = Page::from_view(request.page.as_option(), 100);
             let before: Option<Uuid> = page.decode()?;
-            let mut rows: Vec<(Uuid, String, String, String, String, DateTime<Utc>)> =
-                sqlx::query_as(
-                    "SELECT id, type, ip, device_name, location, created_at FROM security_events
+            let mut rows: Vec<(Uuid, String, String, String, String, DateTime<Utc>)> = sqlx::query_as(
+                "SELECT id, type, ip, device_name, location, created_at FROM security_events
              WHERE user_id = $1 AND ($2::uuid IS NULL OR id < $2) ORDER BY id DESC LIMIT $3",
-                )
-                .bind(user_id)
-                .bind(before)
-                .bind(page.fetch())
-                .fetch_all(&self.core.db)
-                .await
-                .map_err(AppError::from)?;
+            )
+            .bind(user_id)
+            .bind(before)
+            .bind(page.fetch())
+            .fetch_all(&self.core.db)
+            .await
+            .map_err(AppError::from)?;
             let info = page.finish(&mut rows, |r| r.0);
             let events = rows
                 .into_iter()
-                .map(
-                    |(id, r#type, ip, device_name, location, created_at)| SecurityEvent {
-                        id: id.to_string(),
-                        r#type,
-                        ip,
-                        device_name,
-                        location,
-                        created_at: ts(created_at),
-                        ..Default::default()
-                    },
-                )
+                .map(|(id, r#type, ip, device_name, location, created_at)| SecurityEvent {
+                    id: id.to_string(),
+                    r#type,
+                    ip,
+                    device_name,
+                    location,
+                    created_at: ts(created_at),
+                    ..Default::default()
+                })
                 .collect();
-            ok(ListSecurityEventsResponse {
-                events,
-                page: info.into(),
-                ..Default::default()
-            })
+            ok(ListSecurityEventsResponse { events, page: info.into(), ..Default::default() })
         })
         .await
     }
@@ -626,8 +625,7 @@ impl AccountService for Identity {
     ) -> ServiceResult<RequestAccountDeletionResponse> {
         handle(async {
             let user = users::get(&self.core, ctx.user_id()?).await?;
-            self.confirm_password(&user, request.current_password)
-                .await?;
+            self.confirm_password(&user, request.current_password).await?;
             let scheduled = Utc::now() + chrono::Duration::days(self.cfg.deletion_grace_days);
             let mut tx = self.core.db.begin().await?;
             sqlx::query("UPDATE users SET deletion_scheduled_at = $2 WHERE id = $1")
@@ -636,13 +634,8 @@ impl AccountService for Identity {
                 .execute(&mut *tx)
                 .await
                 .map_err(AppError::from)?;
-            events::emit(
-                &mut *tx,
-                "identity.user.deletion_requested",
-                Some(user.id),
-                &UserRef { user_id: user.id },
-            )
-            .await?;
+            events::emit(&mut *tx, "identity.user.deletion_requested", Some(user.id), &UserRef { user_id: user.id })
+                .await?;
             tx.commit().await.map_err(AppError::from)?;
             let reason: String = request.reason.chars().take(500).collect();
             self.log_security_event(
@@ -653,10 +646,7 @@ impl AccountService for Identity {
                 serde_json::json!({ "reason": reason }),
             )
             .await;
-            ok(RequestAccountDeletionResponse {
-                deletion_scheduled_at: ts(scheduled),
-                ..Default::default()
-            })
+            ok(RequestAccountDeletionResponse { deletion_scheduled_at: ts(scheduled), ..Default::default() })
         })
         .await
     }
@@ -688,32 +678,17 @@ impl AccountService for Identity {
     ) -> ServiceResult<RequestDataExportResponse> {
         handle(async {
             let user_id = ctx.user_id()?;
-            self.core
-                .cache
-                .rate_limit(
-                    &format!("export:{user_id}"),
-                    2,
-                    Duration::from_secs(24 * 3600),
-                )
-                .await?;
-            let export_id: Uuid =
-                sqlx::query_scalar("INSERT INTO data_exports (user_id) VALUES ($1) RETURNING id")
-                    .bind(user_id)
-                    .fetch_one(&self.core.db)
-                    .await
-                    .map_err(AppError::from)?;
+            self.core.cache.rate_limit(&format!("export:{user_id}"), 2, Duration::from_secs(24 * 3600)).await?;
+            let export_id: Uuid = sqlx::query_scalar("INSERT INTO data_exports (user_id) VALUES ($1) RETURNING id")
+                .bind(user_id)
+                .fetch_one(&self.core.db)
+                .await
+                .map_err(AppError::from)?;
             self.core
                 .jobs
-                .enqueue_unique(
-                    "identity.export",
-                    &export_id.to_string(),
-                    &ExportJob { export_id, user_id },
-                )
+                .enqueue_unique("identity.export", &export_id.to_string(), &ExportJob { export_id, user_id })
                 .await?;
-            ok(RequestDataExportResponse {
-                export_id: export_id.to_string(),
-                ..Default::default()
-            })
+            ok(RequestDataExportResponse { export_id: export_id.to_string(), ..Default::default() })
         })
         .await
     }
@@ -740,14 +715,9 @@ impl AccountService for Identity {
         request: ServiceRequest<'_, BeginConnectionRequest>,
     ) -> ServiceResult<BeginConnectionResponse> {
         handle(async {
-            let (authorization_url, state) = self
-                .begin_provider_connection(ctx.user_id()?, request.provider, request.redirect_uri)
-                .await?;
-            ok(BeginConnectionResponse {
-                authorization_url,
-                state,
-                ..Default::default()
-            })
+            let (authorization_url, state) =
+                self.begin_provider_connection(ctx.user_id()?, request.provider, request.redirect_uri).await?;
+            ok(BeginConnectionResponse { authorization_url, state, ..Default::default() })
         })
         .await
     }
@@ -758,18 +728,9 @@ impl AccountService for Identity {
         request: ServiceRequest<'_, FinishConnectionRequest>,
     ) -> ServiceResult<FinishConnectionResponse> {
         handle(async {
-            let connection = self
-                .finish_provider_connection(
-                    ctx.user_id()?,
-                    request.provider,
-                    request.code,
-                    request.state,
-                )
-                .await?;
-            ok(FinishConnectionResponse {
-                connection: connection.into(),
-                ..Default::default()
-            })
+            let connection =
+                self.finish_provider_connection(ctx.user_id()?, request.provider, request.code, request.state).await?;
+            ok(FinishConnectionResponse { connection: connection.into(), ..Default::default() })
         })
         .await
     }
@@ -789,6 +750,58 @@ impl AccountService for Identity {
                 .map_err(AppError::from)?;
             self.core.cache.del(&format!("id:np:{user_id}")).await?;
             ok(DeleteConnectionResponse::default())
+        })
+        .await
+    }
+
+    async fn update_profile_extras(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, UpdateProfileExtrasRequest>,
+    ) -> ServiceResult<UpdateProfileExtrasResponse> {
+        handle(async {
+            let user_id = ctx.user_id()?;
+            let req = request.to_owned_message();
+            let extras = Identity::update_profile_extras(self, user_id, &req).await?;
+            ok(UpdateProfileExtrasResponse { extras: extras.into(), ..Default::default() })
+        })
+        .await
+    }
+
+    async fn pin_song(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, PinSongRequest>,
+    ) -> ServiceResult<PinSongResponse> {
+        handle(async {
+            let user_id = ctx.user_id()?;
+            self.core.cache.rate_limit(&format!("pin-song:{user_id}"), 30, Duration::from_secs(3600)).await?;
+            if request.clear {
+                self.store_pinned_song(user_id, None).await?;
+                return ok(PinSongResponse::default());
+            }
+            let song = self.lookup_song(user_id, request.track).await?;
+            self.store_pinned_song(user_id, Some(&song)).await?;
+            ok(PinSongResponse { song: song.into(), ..Default::default() })
+        })
+        .await
+    }
+
+    async fn recheck_profile_links(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, RecheckProfileLinksRequest>,
+    ) -> ServiceResult<RecheckProfileLinksResponse> {
+        handle(async {
+            let user_id = ctx.user_id()?;
+            self.core.cache.rate_limit(&format!("link-recheck:{user_id}"), 5, Duration::from_secs(3600)).await?;
+            sqlx::query("UPDATE profile_links SET checked_at = NULL WHERE user_id = $1")
+                .bind(user_id)
+                .execute(&self.core.db)
+                .await
+                .map_err(AppError::from)?;
+            self.enqueue_link_check(user_id).await;
+            ok(RecheckProfileLinksResponse::default())
         })
         .await
     }

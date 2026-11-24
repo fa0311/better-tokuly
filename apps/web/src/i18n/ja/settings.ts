@@ -10,6 +10,8 @@ export default {
   },
   sections: {
     profile: { title: "プロフィール", hint: "アイコン・なまえ・ひとこと" },
+    profileBook: { title: "プロフ帳", hint: "MBTI・推し・好きなもの・質問カード" },
+    accounts: { title: "アカウント切り替え", hint: "メイン・裏垢・クリエイター用をこの端末で" },
     account: { title: "アカウント", hint: "メール・パスワード・ことば" },
     security: { title: "セキュリティ", hint: "パスキー・2段階認証・デバイス" },
     privacy: { title: "プライバシー", hint: "だれに、なにを見せる？" },
@@ -231,6 +233,8 @@ export default {
       revokeOthersTitle: "ほかのデバイスをすべてログアウトさせる？",
       revokeBody: "そのデバイスでもう一度使うには、ログインしなおす必要があります。",
       revokeConfirm: "ログアウトさせる",
+      addedBySwitch: "アカウント切り替えで追加",
+      parked: "切り替え待ち",
     },
     log: {
       title: "セキュリティログ",
@@ -238,6 +242,8 @@ export default {
       all: "すべて見る",
       empty: "まだ記録がありません",
       types: {
+        ACCOUNT_SWITCHED: "アカウント切り替えでこのアカウントに入りました",
+        MODERATOR_PROFILE_VIEW: "モデレーターとしてプロフィールを確認しました",
         SIGN_UP: "アカウントをつくりました",
         SIGN_IN: "ログインしました",
         SIGN_IN_FAILED: "ログインに失敗しました",
@@ -293,6 +299,19 @@ export default {
   },
 
   privacy: {
+    birthdayVisibleTo: {
+      label: "誕生日を見せる相手",
+      hint: "プロフィールと、ともだちのカレンダーに出ます",
+      options: {
+        EVERYONE: "プロフィールを見た人みんな",
+        FRIENDS: "ともだちだけ",
+        NOBODY: "だれにも見せない",
+      },
+    },
+    birthdayShowYear: {
+      label: "生まれた年も見せる",
+      hint: "オフなら月日だけ。18歳未満は「だれでも」に年は出せません",
+    },
     audience: {
       EVERYONE: "だれでも",
       FRIENDS_OF_FRIENDS: "ともだちのともだちまで",
@@ -300,6 +319,7 @@ export default {
       NOBODY: "だれにも",
     },
     groups: {
+      birthday: { title: "誕生日", lead: "いつお祝いしてもらえるかは、あなたが決めよう" },
       connect: { title: "つながり", lead: "だれがあなたを見つけて、ともだちになれるか。" },
       talk: { title: "メッセージと通話" },
       map: {
@@ -560,6 +580,9 @@ export default {
       confirm: "削除を予約する",
     },
     signOut: {
+      browser: "このブラウザのすべてのアカウントからログアウト",
+      browserHint:
+        "学校や家族の共用パソコンでは、こちらを。アカウント切り替えで入っているほかのアカウントも、このブラウザからログアウトします（ほかの端末はそのまま）。",
       title: "ログアウト",
       lead: "ログアウトしても、データは消えません。",
       here: "このデバイスからログアウト",
@@ -571,6 +594,7 @@ export default {
   },
 
   errors: {
+    BIRTHDAY_YEAR_RESTRICTED: "18歳未満は、生まれた年を「だれでも」には見せられません",
     BIO_TOO_LONG: "ひとことは300文字までにしてね",
     SCHOOL_NAME_INVALID: "学校名は60文字までにしてね",
     STATUS_INVALID: "ステータスは絵文字2つまで、ひとこと60文字までにしてね",

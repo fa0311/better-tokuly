@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
+import { enterAccount } from "#/features/settings";
 import { api, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { parseRedirect } from "#/lib/redirect";
@@ -12,7 +13,8 @@ import { parseRedirect } from "#/lib/redirect";
 export const Route = createFileRoute("/signup")({
   // `redirect`: where a visitor of a public page (`/q/<handle>`, `/join/party/<code>`,
   // `/share/<token>`) goes back to once the account exists; the map otherwise.
-  validateSearch: (search): { invite?: string; redirect?: string } => ({
+  validateSearch: (search): { invite?: string; redirect?: string; add?: boolean } => ({
+    add: search.add === true || search.add === "true" || undefined,
     invite: typeof search.invite === "string" ? search.invite : undefined,
     redirect: parseRedirect(search.redirect),
   }),
@@ -57,7 +59,7 @@ function useHandleCheck(handle: string): HandleState {
 function SignUp() {
   const { t } = useTranslation("auth");
   const navigate = useNavigate();
-  const { invite, redirect } = Route.useSearch();
+  const { invite, redirect, add } = Route.useSearch();
   const [form, setForm] = useState({
     displayName: "",
     handle: "",
@@ -93,11 +95,13 @@ function SignUp() {
         ...form,
         acceptTerms,
         inviteCode: invite ?? "",
+        addAccount: add === true,
         client: {
           locale: navigator.language,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
       });
+      if (add) return enterAccount();
       await api().session.adopt(response);
       await navigate({ to: redirect ?? "/map", replace: true });
     } catch (e) {
@@ -115,7 +119,7 @@ function SignUp() {
           {t("signUp.haveAccount")}{" "}
           <Link
             to="/login"
-            search={{ redirect }}
+            search={{ redirect, add: add || undefined }}
             className="font-black text-brand underline-offset-4 hover:underline"
           >
             {t("signUp.toSignIn")}

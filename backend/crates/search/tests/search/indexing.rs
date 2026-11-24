@@ -385,6 +385,7 @@ fn the_consumer_listens_to_everything_that_changes_search() {
         "identity.user.unbanned",
         "identity.user.deleted",
         "admin.content.removed",
+        "social.follow.settings_changed",
     ] {
         assert!(TOPICS.contains(&topic), "{topic}");
     }

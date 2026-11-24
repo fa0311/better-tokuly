@@ -6,13 +6,16 @@ import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
+import { DeviceAccountsOnLogin, enterAccount } from "#/features/settings";
 import { api, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { parseRedirect } from "#/lib/redirect";
 
 export const Route = createFileRoute("/login")({
-  validateSearch: (search): { redirect?: string } => ({
+  // `add`: sign in to another account beside the one in use (account switching).
+  validateSearch: (search): { redirect?: string; add?: boolean } => ({
     redirect: parseRedirect(search.redirect),
+    add: search.add === true || search.add === "true" || undefined,
   }),
   component: Login,
 });
@@ -20,7 +23,9 @@ export const Route = createFileRoute("/login")({
 function Login() {
   const { t } = useTranslation("auth");
   const navigate = useNavigate();
-  const { redirect } = Route.useSearch();
+  const { redirect, add } = Route.useSearch();
+  const { t: ta } = useTranslation("accounts");
+  const addAccount = add === true;
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
@@ -28,14 +33,18 @@ function Login() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"password" | "passkey" | null>(null);
 
-  const finish = () => navigate({ to: redirect ?? "/map", replace: true });
+  const finish = async () => {
+    // A new account beside others starts the app over as that account.
+    if (addAccount) return enterAccount();
+    await navigate({ to: redirect ?? "/map", replace: true });
+  };
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy("password");
     setError(null);
     try {
-      const response = await authClient().signIn({ identifier, password, totpCode });
+      const response = await authClient().signIn({ identifier, password, totpCode, addAccount });
       if (response.mfaRequired) {
         setNeedsTotp(true);
         return;
@@ -58,6 +67,7 @@ function Login() {
       const response = await authClient().finishPasskeySignIn({
         challengeId: begin.challengeId,
         credentialJson: JSON.stringify(credential),
+        addAccount,
       });
       await api().session.adopt(response);
       await finish();
@@ -71,15 +81,15 @@ function Login() {
 
   return (
     <AuthLayout
-      title={needsTotp ? t("signIn.totpTitle") : t("signIn.title")}
-      lead={needsTotp ? t("signIn.totpHint") : undefined}
+      title={needsTotp ? t("signIn.totpTitle") : addAccount ? ta("addTitle") : t("signIn.title")}
+      lead={needsTotp ? t("signIn.totpHint") : addAccount ? ta("addLead") : undefined}
       footer={
         <>
           {t("signIn.noAccount")}{" "}
           {/* Whoever came from a public page comes back to it, whichever way they get an account. */}
           <Link
             to="/signup"
-            search={{ redirect }}
+            search={{ redirect, add: add || undefined }}
             className="font-black text-brand underline-offset-4 hover:underline"
           >
             {t("signIn.toSignUp")}
@@ -87,6 +97,7 @@ function Login() {
         </>
       }
     >
+      {!addAccount && !needsTotp && <DeviceAccountsOnLogin />}
       <form onSubmit={submit} className="flex flex-col gap-4">
         {needsTotp ? (
           <TextField

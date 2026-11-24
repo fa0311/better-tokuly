@@ -27,6 +27,8 @@ pub fn default_privacy() -> PrivacySettings {
         direct_messages_from: Audience::AUDIENCE_FRIENDS.into(),
         calls_from: Audience::AUDIENCE_FRIENDS.into(),
         default_note_visibility: Visibility::VISIBILITY_PUBLIC.into(),
+        birthday_visible_to: Audience::AUDIENCE_NOBODY.into(),
+        birthday_show_year: false,
         ..Default::default()
     }
 }
@@ -91,9 +93,7 @@ pub fn settings_from_json(privacy: &serde_json::Value, appearance: &serde_json::
 
 fn check_audience(value: &buffa::EnumValue<Audience>, field: &str) -> AppResult<()> {
     ensure!(
-        value
-            .as_known()
-            .is_some_and(|a| a != Audience::AUDIENCE_UNSPECIFIED),
+        value.as_known().is_some_and(|a| a != Audience::AUDIENCE_UNSPECIFIED),
         invalid,
         "SETTINGS_INVALID",
         "{field} must be a valid audience"
@@ -116,15 +116,26 @@ pub fn validate_privacy(p: &PrivacySettings) -> AppResult<()> {
     ensure!(
         matches!(
             p.default_note_visibility.as_known(),
-            Some(
-                Visibility::VISIBILITY_PUBLIC
-                    | Visibility::VISIBILITY_FRIENDS
-                    | Visibility::VISIBILITY_PRIVATE
-            )
+            Some(Visibility::VISIBILITY_PUBLIC | Visibility::VISIBILITY_FRIENDS | Visibility::VISIBILITY_PRIVATE)
         ),
         invalid,
         "SETTINGS_INVALID",
         "default_note_visibility must be public, friends or private"
+    );
+    // Unspecified: a client that does not know the setting (the stored one stays).
+    ensure!(
+        matches!(
+            p.birthday_visible_to.as_known(),
+            Some(
+                Audience::AUDIENCE_UNSPECIFIED
+                    | Audience::AUDIENCE_EVERYONE
+                    | Audience::AUDIENCE_FRIENDS
+                    | Audience::AUDIENCE_NOBODY
+            )
+        ),
+        invalid,
+        "SETTINGS_INVALID",
+        "birthday_visible_to must be everyone, friends or nobody"
     );
     Ok(())
 }
@@ -139,9 +150,7 @@ pub fn validate_appearance(a: &AppearanceSettings) -> AppResult<()> {
     ensure!(
         !a.map_style.is_empty()
             && a.map_style.len() <= 32
-            && a.map_style
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+            && a.map_style.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
         invalid,
         "SETTINGS_INVALID",
         "invalid map style"
@@ -149,18 +158,8 @@ pub fn validate_appearance(a: &AppearanceSettings) -> AppResult<()> {
     let color_ok = a.accent_color.len() == 7
         && a.accent_color.starts_with('#')
         && a.accent_color[1..].bytes().all(|b| b.is_ascii_hexdigit());
-    ensure!(
-        color_ok,
-        invalid,
-        "SETTINGS_INVALID",
-        "accent_color must be #rrggbb"
-    );
-    ensure!(
-        (0..=5).contains(&a.dopamine_level),
-        invalid,
-        "SETTINGS_INVALID",
-        "dopamine_level must be 0-5"
-    );
+    ensure!(color_ok, invalid, "SETTINGS_INVALID", "accent_color must be #rrggbb");
+    ensure!((0..=5).contains(&a.dopamine_level), invalid, "SETTINGS_INVALID", "dopamine_level must be 0-5");
     ensure!(
         matches!(a.distance_unit.as_str(), "km" | "mi"),
         invalid,
@@ -173,14 +172,8 @@ pub fn validate_appearance(a: &AppearanceSettings) -> AppResult<()> {
 /// A user's privacy settings (defaults when never customized or unknown user).
 pub async fn privacy_of(core: &Core, user_id: Uuid) -> AppResult<PrivacySettings> {
     let value: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT privacy FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(&core.db)
-            .await?;
-    Ok(value
-        .as_ref()
-        .map(privacy_from_json)
-        .unwrap_or_else(default_privacy))
+        sqlx::query_scalar("SELECT privacy FROM users WHERE id = $1").bind(user_id).fetch_optional(&core.db).await?;
+    Ok(value.as_ref().map(privacy_from_json).unwrap_or_else(default_privacy))
 }
 
 /// Privacy settings for many users at once, keyed by user ID.
@@ -189,14 +182,8 @@ pub async fn privacy_of_many(
     user_ids: &[Uuid],
 ) -> AppResult<std::collections::HashMap<Uuid, PrivacySettings>> {
     let rows: Vec<(Uuid, serde_json::Value)> =
-        sqlx::query_as("SELECT id, privacy FROM users WHERE id = ANY($1)")
-            .bind(user_ids)
-            .fetch_all(&core.db)
-            .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(id, v)| (id, privacy_from_json(&v)))
-        .collect())
+        sqlx::query_as("SELECT id, privacy FROM users WHERE id = ANY($1)").bind(user_ids).fetch_all(&core.db).await?;
+    Ok(rows.into_iter().map(|(id, v)| (id, privacy_from_json(&v))).collect())
 }
 
 #[cfg(test)]
@@ -207,10 +194,7 @@ mod tests {
     fn empty_json_yields_defaults() {
         let p = privacy_from_json(&serde_json::json!({}));
         assert!(p.discoverable && p.record_history && p.share_battery);
-        assert_eq!(
-            appearance_from_json(&serde_json::Value::Null).dopamine_level,
-            3
-        );
+        assert_eq!(appearance_from_json(&serde_json::Value::Null).dopamine_level, 3);
     }
 
     #[test]

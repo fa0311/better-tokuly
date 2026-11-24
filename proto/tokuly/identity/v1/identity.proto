@@ -55,6 +55,30 @@ service AuthService {
   // RATE_LIMITED past 20 codes per account in 10 minutes.
   rpc GetDeviceLogin(GetDeviceLoginRequest) returns (GetDeviceLoginResponse);
   rpc ApproveDeviceLogin(ApproveDeviceLoginRequest) returns (ApproveDeviceLoginResponse);
+
+  // Accounts on this device (quick switching between a main account, a 裏垢,
+  // a creator account...). Each account keeps a session of its own on the
+  // device; the server never records that they belong together. One of them
+  // is active, the others are parked: a parked session is refreshed only
+  // through SwitchAccount (RefreshToken answers SWITCH_REQUIRED). An account
+  // is added by signing in to it in full (SignIn, SignUp or
+  // FinishPasskeySignIn with `add_account`), with its own password and second
+  // factor; at most 5 accounts per device (TOO_MANY_ACCOUNTS).
+  //
+  // Web keeps the parked refresh tokens in an HttpOnly cookie; native clients
+  // hold them and pass them in `refresh_tokens` / `refresh_token`.
+  rpc ListDeviceAccounts(ListDeviceAccountsRequest) returns (ListDeviceAccountsResponse);
+  // Makes a parked account the active one, without its password. The account
+  // that was active is parked. When the target account has two-factor
+  // authentication on and its session on this device has not passed the
+  // second factor in the last 12 hours, the answer is `mfa_required` until
+  // `totp_code` (or a recovery code) is given. ACCOUNT_NOT_ON_DEVICE (no such
+  // parked session: signed out, expired, revoked by a password change),
+  // INVALID_TOTP, ACCOUNT_BANNED, RATE_LIMITED. The switch is written to the
+  // target account's security log (ACCOUNT_SWITCHED).
+  rpc SwitchAccount(SwitchAccountRequest) returns (AuthResponse);
+  // Signs a parked account out of this device; the others stay.
+  rpc RemoveDeviceAccount(RemoveDeviceAccountRequest) returns (RemoveDeviceAccountResponse);
 }
 
 message ClientInfo {
@@ -82,6 +106,9 @@ message SignUpRequest {
   string invite_code = 7;
   // The user accepted the terms of service and community rules.
   bool accept_terms = 8;
+  // Keep the account that is signed in on this device (parked) and add the
+  // new one beside it, instead of replacing it. TOO_MANY_ACCOUNTS past 5.
+  bool add_account = 9;
 }
 
 message SignInRequest {
@@ -91,6 +118,8 @@ message SignInRequest {
   // Required when the account has TOTP enabled and `mfa_required` was returned.
   string totp_code = 3;
   ClientInfo client = 4;
+  // See SignUpRequest.add_account.
+  bool add_account = 5;
 }
 
 message AuthResponse {
@@ -112,6 +141,12 @@ message RefreshTokenRequest {
 message SignOutRequest {
   // Also revoke every other session of this account.
   bool all_sessions = 1;
+  // Sign every account on this device out (a shared computer): the active
+  // one and the parked ones. Web: both refresh cookies are read and cleared.
+  bool all_accounts_on_device = 2;
+  // Native clients with `all_accounts_on_device`: the parked accounts'
+  // refresh tokens they hold.
+  repeated string parked_refresh_tokens = 3;
 }
 
 message SignOutResponse {}
@@ -170,6 +205,8 @@ message FinishPasskeySignInRequest {
   // AuthenticationResponseJSON from navigator.credentials.get().
   string credential_json = 2;
   ClientInfo client = 3;
+  // See SignUpRequest.add_account.
+  bool add_account = 4;
 }
 
 message RequestEmailVerificationRequest {}
@@ -252,6 +289,52 @@ message ApproveDeviceLoginRequest {
 
 message ApproveDeviceLoginResponse {}
 
+message ListDeviceAccountsRequest {
+  // Native clients: the refresh tokens of the parked accounts they hold.
+  // Web: empty (the cookie is read).
+  repeated string refresh_tokens = 1;
+}
+
+// An account signed in on this device.
+message DeviceAccount {
+  // The account's session on this device; names it in SwitchAccount and
+  // RemoveDeviceAccount.
+  string session_id = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  // The account this request was made as (from the access token, or the
+  // web cookie of the active account).
+  bool active = 3;
+  // Switching to it will ask for its second factor.
+  bool mfa_required = 4;
+}
+
+message ListDeviceAccountsResponse {
+  // The active account first, then the parked ones, most recently used
+  // first. Tokens that no longer work are left out (and dropped from the web
+  // cookie).
+  repeated DeviceAccount accounts = 1;
+  // How many accounts one device may hold.
+  int32 limit = 2;
+}
+
+message SwitchAccountRequest {
+  // The parked session to switch to (web).
+  string session_id = 1;
+  // Native clients: the refresh token of the parked account instead.
+  string refresh_token = 2;
+  // The target account's TOTP or recovery code, when `mfa_required` was answered.
+  string totp_code = 3;
+}
+
+message RemoveDeviceAccountRequest {
+  // The parked session to sign out (web).
+  string session_id = 1;
+  // Native clients: its refresh token instead.
+  string refresh_token = 2;
+}
+
+message RemoveDeviceAccountResponse {}
+
 // ───────────────────────────── Account ─────────────────────────────
 
 // Everything about the signed-in account itself.
@@ -304,6 +387,24 @@ service AccountService {
   rpc BeginConnection(BeginConnectionRequest) returns (BeginConnectionResponse);
   rpc FinishConnection(FinishConnectionRequest) returns (FinishConnectionResponse);
   rpc DeleteConnection(DeleteConnectionRequest) returns (DeleteConnectionResponse);
+
+  // Profile extras (プロフ帳): MBTI, blood type, zodiac, pronouns, 推し,
+  // favourite things, links, a longer bio, a theme and question cards, each
+  // with the audience that sees it. Groups present in the request replace
+  // what is stored; absent ones stay. Nothing here is needed at sign-up.
+  // MBTI_INVALID, BLOOD_TYPE_INVALID, PRONOUNS_INVALID, LONG_BIO_TOO_LONG,
+  // THEME_INVALID, VISIBILITY_INVALID, TOO_MANY_OSHI, OSHI_INVALID,
+  // TOO_MANY_TAGS, TAG_INVALID, TOO_MANY_LINKS, LINK_INVALID,
+  // TOO_MANY_CARDS, CARD_INVALID, PROMPT_NOT_FOUND, CARD_NOT_FOUND, the
+  // media errors for an oshi image, RATE_LIMITED (60 an hour).
+  rpc UpdateProfileExtras(UpdateProfileExtrasRequest) returns (UpdateProfileExtrasResponse);
+  // Pins a song on the profile from the connected Spotify account: the track
+  // named, or what is playing now. SPOTIFY_NOT_CONNECTED, TRACK_INVALID,
+  // NOTHING_PLAYING, PROVIDER_ERROR, RATE_LIMITED.
+  rpc PinSong(PinSongRequest) returns (PinSongResponse);
+  // Checks the profile links again for a link back (`rel="me"`) to this
+  // profile. The check runs in the background; RATE_LIMITED past 5 an hour.
+  rpc RecheckProfileLinks(RecheckProfileLinksRequest) returns (RecheckProfileLinksResponse);
 }
 
 // The signed-in user's full account.
@@ -327,6 +428,14 @@ message Me {
   map<string, bool> features = 14;
   string locale = 15;
   string time_zone = 16;
+  // Everything of the プロフ帳, with the audience of every field.
+  ProfileExtras extras = 17;
+  // The account is a bot (made on the developer platform); `bot_owner` is the
+  // person it belongs to.
+  bool bot = 18;
+  tokuly.common.v1.UserSummary bot_owner = 19;
+  // School shown on the profile.
+  string school_name = 20;
 }
 
 // Ephemeral mood/status shown on the profile and next to the map pin.
@@ -419,6 +528,14 @@ message PrivacySettings {
   Audience calls_from = 15;
   // Notes default visibility.
   tokuly.common.v1.Visibility default_note_visibility = 16;
+  // Who sees my birthday (on the profile, in friends' calendars, birthday
+  // reminders): AUDIENCE_EVERYONE, AUDIENCE_FRIENDS or AUDIENCE_NOBODY
+  // (the default). The zodiac sign follows its own field visibility.
+  Audience birthday_visible_to = 17;
+  // Show the year as well as the month and day. Not with AUDIENCE_EVERYONE
+  // for an account under 18 (BIRTHDAY_YEAR_RESTRICTED): the year gives the
+  // age away.
+  bool birthday_show_year = 18;
 }
 
 message AppearanceSettings {
@@ -488,6 +605,12 @@ message Session {
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp last_active_at = 6;
   bool current = 7;
+  // Added beside another account on that device (account switching).
+  bool added_by_switch = 8;
+  // Parked on that device: another account is the active one there.
+  bool parked = 9;
+  // Last time this account was switched to on that device.
+  google.protobuf.Timestamp last_switched_at = 10;
 }
 
 message ListSessionsRequest {}
@@ -631,6 +754,102 @@ message DeleteConnectionRequest {
 
 message DeleteConnectionResponse {}
 
+message UpdateProfileExtrasRequest {
+  // Four letters (`ENFP`), optionally `-A` / `-T`; empty clears.
+  optional string mbti = 1;
+  optional BloodType blood_type = 2;
+  // Free text, e.g. "she/her", "彼/彼女"; at most 24 characters.
+  optional string pronouns = 3;
+  // The long bio: up to 2000 characters, line breaks and the note markup.
+  optional string long_bio = 4;
+  ProfileTheme theme = 5;
+  // Replaces every field audience at once (see ProfileFieldVisibility).
+  ProfileFieldVisibility visibility = 6;
+  OshiList oshi = 7;
+  ProfileTagList tags = 8;
+  ProfileLinkList links = 9;
+  ProfileQaCardList qa_cards = 10;
+}
+
+// Up to 10 推し, in display order.
+message OshiList {
+  repeated OshiInput items = 1;
+}
+
+message OshiInput {
+  // An existing 推し being kept (its image stays unless replaced); empty for a new one.
+  string id = 1;
+  // 1-40 characters.
+  string name = 2;
+  // Absent: keep the image; empty: no image; otherwise an uploaded image (purpose AVATAR: a square picture).
+  optional string image_asset_id = 3;
+  // An https:// page about them (optional).
+  string url = 4;
+  // One emoji standing in for an image (optional).
+  string emoji = 5;
+}
+
+// Up to 30 favourite things.
+message ProfileTagList {
+  repeated ProfileTag items = 1;
+}
+
+// Up to 8 links, in display order. A link keeps its verification while its URL stays.
+message ProfileLinkList {
+  repeated ProfileLinkInput items = 1;
+}
+
+message ProfileLinkInput {
+  // 1-40 characters; empty uses the host name.
+  string title = 1;
+  // http(s), at most 500 characters.
+  string url = 2;
+}
+
+// Up to 30 cards of the プロフ帳, in display order.
+message ProfileQaCardList {
+  repeated ProfileQaCardInput items = 1;
+}
+
+message ProfileQaCardInput {
+  // An existing card being kept; empty for a new one.
+  string id = 1;
+  // A prompt from ListProfilePrompts; empty for a free question.
+  string prompt_id = 2;
+  // The question of a free card: 1-60 characters. Ignored with `prompt_id`.
+  string question = 3;
+  // 1-200 characters.
+  string answer = 4;
+  reserved 5;
+  reserved "visibility";
+  // Kept but not shown on the profile.
+  bool hidden = 6;
+  // Who sees the card: PUBLIC, FOLLOWERS, FRIENDS, CLOSE_FRIENDS, CIRCLE
+  // (with `circle_id`, one of the owner's circles) or PRIVATE (only me).
+  tokuly.common.v1.AudienceRef audience = 7;
+}
+
+message UpdateProfileExtrasResponse {
+  ProfileExtras extras = 1;
+}
+
+message PinSongRequest {
+  // A Spotify track URL (`https://open.spotify.com/track/…`), URI or ID;
+  // empty pins what is playing now.
+  string track = 1;
+  // Removes the pinned song instead.
+  bool clear = 2;
+}
+
+message PinSongResponse {
+  // Unset after `clear`.
+  PinnedSong song = 1;
+}
+
+message RecheckProfileLinksRequest {}
+
+message RecheckProfileLinksResponse {}
+
 // ───────────────────────────── Profiles ─────────────────────────────
 
 // Public-facing profiles of any user.
@@ -643,6 +862,13 @@ service ProfileService {
   rpc RecordProfileView(RecordProfileViewRequest) returns (RecordProfileViewResponse);
   // Who viewed my profile: cumulative count plus recent viewers who share views.
   rpc GetProfileViews(GetProfileViewsRequest) returns (GetProfileViewsResponse);
+  // The curated questions of the プロフ帳.
+  rpc ListProfilePrompts(ListProfilePromptsRequest) returns (ListProfilePromptsResponse);
+  // Favourite things other people show publicly, most used first, for the
+  // tag picker. A tag is suggested once at least 5 people show it (one
+  // person's tag would point at them); locked accounts and bots do not
+  // count. QUERY_TOO_LONG, RATE_LIMITED.
+  rpc SuggestProfileTags(SuggestProfileTagsRequest) returns (SuggestProfileTagsResponse);
 }
 
 // What the viewer is to the profile owner.
@@ -681,6 +907,177 @@ message Profile {
   string school_name = 14;
   // Pieces contributed by other domains, in display order.
   repeated ProfileCard cards = 15;
+  // The プロフ帳 as the viewer may see it: fields whose audience leaves the
+  // viewer out are empty, cards hidden from them are absent.
+  ProfileExtras extras = 16;
+  // A bot account (developer platform) and the person it belongs to (unset
+  // when the viewer may not see that person).
+  bool bot = 17;
+  tokuly.common.v1.UserSummary bot_owner = 18;
+  // The birthday when the owner shares it with the viewer.
+  BirthdayView birthday = 19;
+}
+
+// A birthday as it is shared.
+message BirthdayView {
+  int32 month = 1;
+  int32 day = 2;
+  // 0 when the year is not shared.
+  int32 year = 3;
+}
+
+// The プロフ帳: what makes a profile somebody's own.
+message ProfileExtras {
+  // e.g. `ENFP` or `INFJ-T`.
+  string mbti = 1;
+  BloodType blood_type = 2;
+  string pronouns = 3;
+  // Derived from the birthday; shown when its field audience lets the viewer in.
+  Zodiac zodiac = 4;
+  repeated Oshi oshi = 5;
+  repeated ProfileTag tags = 6;
+  repeated ProfileLink links = 7;
+  string long_bio = 8;
+  // Always public: it is how the page looks.
+  ProfileTheme theme = 9;
+  PinnedSong pinned_song = 10;
+  repeated ProfileQaCard qa_cards = 11;
+  // The owner's own view (Me, UpdateProfileExtras) only: who sees each field.
+  ProfileFieldVisibility visibility = 12;
+}
+
+// Who sees each field of the プロフ帳: VISIBILITY_PUBLIC, VISIBILITY_FOLLOWERS,
+// VISIBILITY_FRIENDS, VISIBILITY_CLOSE_FRIENDS or VISIBILITY_PRIVATE (only
+// me), with the meaning of the social domain's audiences: the public fields
+// of a locked account reach only its followers and friends (and stay out of
+// search and tag suggestions). Defaults: public, except zodiac (private).
+message ProfileFieldVisibility {
+  tokuly.common.v1.Visibility mbti = 1;
+  tokuly.common.v1.Visibility blood_type = 2;
+  tokuly.common.v1.Visibility pronouns = 3;
+  tokuly.common.v1.Visibility zodiac = 4;
+  tokuly.common.v1.Visibility oshi = 5;
+  tokuly.common.v1.Visibility tags = 6;
+  tokuly.common.v1.Visibility links = 7;
+  tokuly.common.v1.Visibility long_bio = 8;
+  tokuly.common.v1.Visibility pinned_song = 9;
+}
+
+enum BloodType {
+  BLOOD_TYPE_UNSPECIFIED = 0;
+  BLOOD_TYPE_A = 1;
+  BLOOD_TYPE_B = 2;
+  BLOOD_TYPE_O = 3;
+  BLOOD_TYPE_AB = 4;
+}
+
+enum Zodiac {
+  ZODIAC_UNSPECIFIED = 0;
+  ZODIAC_ARIES = 1;
+  ZODIAC_TAURUS = 2;
+  ZODIAC_GEMINI = 3;
+  ZODIAC_CANCER = 4;
+  ZODIAC_LEO = 5;
+  ZODIAC_VIRGO = 6;
+  ZODIAC_LIBRA = 7;
+  ZODIAC_SCORPIO = 8;
+  ZODIAC_SAGITTARIUS = 9;
+  ZODIAC_CAPRICORN = 10;
+  ZODIAC_AQUARIUS = 11;
+  ZODIAC_PISCES = 12;
+}
+
+// A 推し: a person, a character, a group, a team...
+message Oshi {
+  string id = 1;
+  string name = 2;
+  tokuly.common.v1.Image image = 3;
+  string url = 4;
+  string emoji = 5;
+}
+
+// What a favourite thing is about.
+enum ProfileTagCategory {
+  PROFILE_TAG_CATEGORY_UNSPECIFIED = 0;
+  PROFILE_TAG_CATEGORY_MUSIC = 1;
+  PROFILE_TAG_CATEGORY_GAMES = 2;
+  PROFILE_TAG_CATEGORY_FOOD = 3;
+  PROFILE_TAG_CATEGORY_ANIME_MANGA = 4;
+  PROFILE_TAG_CATEGORY_SPORTS = 5;
+  PROFILE_TAG_CATEGORY_MOVIES_TV = 6;
+  PROFILE_TAG_CATEGORY_BOOKS = 7;
+  PROFILE_TAG_CATEGORY_FASHION = 8;
+  PROFILE_TAG_CATEGORY_OTHER = 9;
+}
+
+// A favourite thing: free text (1-24 characters) in a category.
+message ProfileTag {
+  ProfileTagCategory category = 1;
+  string name = 2;
+}
+
+message ProfileLink {
+  string id = 1;
+  string title = 2;
+  string url = 3;
+  // The page links back to this profile with `rel="me"`.
+  bool verified = 4;
+  google.protobuf.Timestamp verified_at = 5;
+}
+
+// How the profile page looks.
+message ProfileTheme {
+  // #rrggbb; empty uses the app's accent.
+  string color = 1;
+  ProfileThemeStyle style = 2;
+}
+
+enum ProfileThemeStyle {
+  PROFILE_THEME_STYLE_UNSPECIFIED = 0;
+  PROFILE_THEME_STYLE_POP = 1;
+  PROFILE_THEME_STYLE_PASTEL = 2;
+  PROFILE_THEME_STYLE_NEON = 3;
+  PROFILE_THEME_STYLE_MONO = 4;
+  PROFILE_THEME_STYLE_NIGHT = 5;
+}
+
+// A song pinned to the profile.
+message PinnedSong {
+  // "spotify".
+  string provider = 1;
+  string track_id = 2;
+  string title = 3;
+  string artist = 4;
+  string album = 5;
+  string artwork_url = 6;
+  string track_url = 7;
+  google.protobuf.Timestamp pinned_at = 8;
+}
+
+// A question-and-answer card of the プロフ帳.
+message ProfileQaCard {
+  string id = 1;
+  // The prompt it answers; empty for a free question.
+  string prompt_id = 2;
+  // The prompt's text, or the free question in both fields.
+  tokuly.common.v1.LocalizedText question = 3;
+  string answer = 4;
+  reserved 5;
+  reserved "visibility";
+  // The owner's own view only: kept but not shown.
+  bool hidden = 6;
+  // The owner's own view only: who sees the card.
+  tokuly.common.v1.AudienceRef audience = 7;
+}
+
+// A question from the curated bank ("好きな教科", "無人島に1つ持っていくなら").
+message ProfilePrompt {
+  string id = 1;
+  tokuly.common.v1.LocalizedText question = 2;
+  // A group for the picker: "school", "likes", "me", "if".
+  string group = 3;
+  // An emoji for the card.
+  string emoji = 4;
 }
 
 // A piece of a profile contributed by another domain: a level badge, a
@@ -739,6 +1136,10 @@ message GetProfileRequest {
     string user_id = 1;
     string handle = 2;
   }
+  // Field 3 (as_moderator) is gone: moderators read a reported プロフ帳
+  // through tokuly.admin.v1.ModerationService.GetReportedProfile.
+  reserved 3;
+  reserved "as_moderator";
 }
 
 message GetProfileResponse {
@@ -767,6 +1168,7 @@ message UserSearchResult {
   tokuly.common.v1.UserSummary user = 1;
   Relationship relationship = 2;
   int32 mutual_friend_count = 3;
+  bool bot = 4;
 }
 
 message RecordProfileViewRequest {
@@ -787,4 +1189,26 @@ message GetProfileViewsResponse {
 message ProfileViewer {
   tokuly.common.v1.UserSummary user = 1;
   google.protobuf.Timestamp viewed_at = 2;
+}
+
+message ListProfilePromptsRequest {}
+
+message ListProfilePromptsResponse {
+  repeated ProfilePrompt prompts = 1;
+}
+
+message SuggestProfileTagsRequest {
+  ProfileTagCategory category = 1;
+  // Beginning of the tag; empty lists the most used ones. At most 24 characters.
+  string query = 2;
+}
+
+message SuggestProfileTagsResponse {
+  repeated TagSuggestion suggestions = 1;
+}
+
+message TagSuggestion {
+  string name = 1;
+  // How many people show it.
+  int32 count = 2;
 }

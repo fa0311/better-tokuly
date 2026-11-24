@@ -65,7 +65,12 @@ pub async fn set_banned_on(conn: &mut PgConnection, user_id: Uuid, reason: Optio
 /// [`Identity::set_roles`] on the caller's transaction.
 pub async fn set_roles_on(conn: &mut PgConnection, user_id: Uuid, roles: &[String]) -> AppResult<()> {
     for role in roles {
-        ensure!(matches!(role.as_str(), "admin" | "moderator" | "staff"), invalid, "ROLE_INVALID", "unknown role {role}");
+        ensure!(
+            matches!(role.as_str(), "admin" | "moderator" | "staff"),
+            invalid,
+            "ROLE_INVALID",
+            "unknown role {role}"
+        );
     }
     let done = sqlx::query("UPDATE users SET roles = $2 WHERE id = $1 AND deleted_at IS NULL")
         .bind(user_id)

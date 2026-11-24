@@ -7,7 +7,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokuly_core::{keys::random_token, prelude::*};
-use tokuly_proto::identity::{Connection, NowPlaying};
+use tokuly_proto::identity::{Connection, NowPlaying, PinnedSong};
 
 use crate::Identity;
 
@@ -38,10 +38,7 @@ struct TokenResponse {
 struct CachedNowPlaying(Option<serde_json::Value>);
 
 fn provider_err(e: impl std::fmt::Display) -> AppError {
-    AppError::unavailable(
-        "PROVIDER_UNAVAILABLE",
-        format!("music provider request failed: {e}"),
-    )
+    AppError::unavailable("PROVIDER_UNAVAILABLE", format!("music provider request failed: {e}"))
 }
 
 /// Maps Spotify's `currently-playing` payload to our message.
@@ -50,21 +47,11 @@ pub(crate) fn now_playing_from_spotify(body: &serde_json::Value) -> Option<NowPl
     if item.is_null() {
         return None;
     }
-    let text = |v: &serde_json::Value, key: &str| {
-        v.get(key)
-            .and_then(|x| x.as_str())
-            .unwrap_or_default()
-            .to_owned()
-    };
+    let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or_default().to_owned();
     let artists = item
         .get("artists")
         .and_then(|a| a.as_array())
-        .map(|list| {
-            list.iter()
-                .filter_map(|a| a.get("name").and_then(|n| n.as_str()))
-                .collect::<Vec<_>>()
-                .join(", ")
-        })
+        .map(|list| list.iter().filter_map(|a| a.get("name").and_then(|n| n.as_str())).collect::<Vec<_>>().join(", "))
         .unwrap_or_default();
     let album = item.get("album");
     let artwork_url = album
@@ -79,22 +66,10 @@ pub(crate) fn now_playing_from_spotify(body: &serde_json::Value) -> Option<NowPl
         artist: artists,
         album: album.map(|a| text(a, "name")).unwrap_or_default(),
         artwork_url,
-        track_url: item
-            .get("external_urls")
-            .map(|u| text(u, "spotify"))
-            .unwrap_or_default(),
-        duration_ms: item
-            .get("duration_ms")
-            .and_then(|d| d.as_i64())
-            .unwrap_or(0) as i32,
-        progress_ms: body
-            .get("progress_ms")
-            .and_then(|d| d.as_i64())
-            .unwrap_or(0) as i32,
-        playing: body
-            .get("is_playing")
-            .and_then(|p| p.as_bool())
-            .unwrap_or(false),
+        track_url: item.get("external_urls").map(|u| text(u, "spotify")).unwrap_or_default(),
+        duration_ms: item.get("duration_ms").and_then(|d| d.as_i64()).unwrap_or(0) as i32,
+        progress_ms: body.get("progress_ms").and_then(|d| d.as_i64()).unwrap_or(0) as i32,
+        playing: body.get("is_playing").and_then(|p| p.as_bool()).unwrap_or(false),
         updated_at: ts(Utc::now()),
         ..Default::default()
     })
@@ -108,29 +83,17 @@ fn is_own_redirect(public_url: &str, redirect_uri: &str) -> bool {
         return false;
     };
     let base = ours.path().trim_end_matches('/');
-    let below = target
-        .path()
-        .strip_prefix(base)
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
+    let below = target.path().strip_prefix(base).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
     ours.origin() == target.origin() && target.username().is_empty() && target.password().is_none() && below
 }
 
 impl Identity {
     pub(crate) fn available_providers(&self) -> Vec<String> {
-        if self.cfg.spotify_enabled() {
-            vec![SPOTIFY.to_owned()]
-        } else {
-            Vec::new()
-        }
+        if self.cfg.spotify_enabled() { vec![SPOTIFY.to_owned()] } else { Vec::new() }
     }
 
     fn require_provider(&self, provider: &str) -> AppResult<()> {
-        ensure!(
-            provider == SPOTIFY,
-            invalid,
-            "PROVIDER_UNKNOWN",
-            "unknown provider"
-        );
+        ensure!(provider == SPOTIFY, invalid, "PROVIDER_UNKNOWN", "unknown provider");
         ensure!(
             self.cfg.spotify_enabled(),
             unimplemented,
@@ -141,11 +104,12 @@ impl Identity {
     }
 
     pub(crate) async fn connections_of(&self, user_id: Uuid) -> AppResult<Vec<Connection>> {
-        let rows: Vec<(String, String, DateTime<Utc>)> =
-            sqlx::query_as("SELECT provider, account_name, connected_at FROM connections WHERE user_id = $1 ORDER BY provider")
-                .bind(user_id)
-                .fetch_all(&self.core.db)
-                .await?;
+        let rows: Vec<(String, String, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT provider, account_name, connected_at FROM connections WHERE user_id = $1 ORDER BY provider",
+        )
+        .bind(user_id)
+        .fetch_all(&self.core.db)
+        .await?;
         Ok(rows
             .into_iter()
             .map(|(provider, account_name, connected_at)| Connection {
@@ -176,16 +140,11 @@ impl Identity {
             .cache
             .set_json(
                 &format!("id:conn:{state}"),
-                &PendingConnection {
-                    user_id,
-                    provider: provider.to_owned(),
-                    redirect_uri: redirect_uri.to_owned(),
-                },
+                &PendingConnection { user_id, provider: provider.to_owned(), redirect_uri: redirect_uri.to_owned() },
                 Some(Duration::from_secs(600)),
             )
             .await?;
-        let mut url =
-            url::Url::parse("https://accounts.spotify.com/authorize").expect("static url");
+        let mut url = url::Url::parse("https://accounts.spotify.com/authorize").expect("static url");
         url.query_pairs_mut()
             .append_pair("client_id", &self.cfg.spotify_client_id)
             .append_pair("response_type", "code")
@@ -203,16 +162,9 @@ impl Identity {
         state: &str,
     ) -> AppResult<Connection> {
         self.require_provider(provider)?;
-        let pending: PendingConnection = self
-            .core
-            .cache
-            .take_json(&format!("id:conn:{state}"))
-            .await?
-            .ok_or_else(|| {
-                AppError::precondition(
-                    "CONNECTION_EXPIRED",
-                    "the connection request expired, try again",
-                )
+        let pending: PendingConnection =
+            self.core.cache.take_json(&format!("id:conn:{state}")).await?.ok_or_else(|| {
+                AppError::precondition("CONNECTION_EXPIRED", "the connection request expired, try again")
             })?;
         ensure!(
             pending.user_id == user_id && pending.provider == provider,
@@ -224,10 +176,7 @@ impl Identity {
             .core
             .http
             .post("https://accounts.spotify.com/api/token")
-            .basic_auth(
-                &self.cfg.spotify_client_id,
-                Some(&self.cfg.spotify_client_secret),
-            )
+            .basic_auth(&self.cfg.spotify_client_id, Some(&self.cfg.spotify_client_secret))
             .form(&[
                 ("grant_type", "authorization_code"),
                 ("code", code),
@@ -244,7 +193,7 @@ impl Identity {
         let profile: serde_json::Value = self
             .core
             .http
-            .get("https://api.spotify.com/v1/me")
+            .get(format!("{}/v1/me", self.cfg.spotify_api_url.trim_end_matches('/')))
             .bearer_auth(&tokens.access_token)
             .send()
             .await
@@ -254,11 +203,7 @@ impl Identity {
             .json()
             .await
             .map_err(provider_err)?;
-        let account_id = profile
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_owned();
+        let account_id = profile.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_owned();
         let account_name = profile
             .get("display_name")
             .and_then(|v| v.as_str())
@@ -294,21 +239,19 @@ impl Identity {
     }
 
     /// A valid Spotify access token for the user, refreshing it when expired.
-    async fn spotify_access_token(&self, user_id: Uuid) -> AppResult<Option<String>> {
-        let row: Option<(Vec<u8>, Option<Vec<u8>>, Option<DateTime<Utc>>)> =
-            sqlx::query_as("SELECT access_token, refresh_token, expires_at FROM connections WHERE user_id = $1 AND provider = $2")
-                .bind(user_id)
-                .bind(SPOTIFY)
-                .fetch_optional(&self.core.db)
-                .await?;
+    pub(crate) async fn spotify_access_token(&self, user_id: Uuid) -> AppResult<Option<String>> {
+        let row: Option<(Vec<u8>, Option<Vec<u8>>, Option<DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT access_token, refresh_token, expires_at FROM connections WHERE user_id = $1 AND provider = $2",
+        )
+        .bind(user_id)
+        .bind(SPOTIFY)
+        .fetch_optional(&self.core.db)
+        .await?;
         let Some((access, refresh, expires_at)) = row else {
             return Ok(None);
         };
         let keys = &self.core.keys;
-        let open = |sealed: &[u8]| {
-            keys.open("connection", sealed)
-                .and_then(|b| String::from_utf8(b).ok())
-        };
+        let open = |sealed: &[u8]| keys.open("connection", sealed).and_then(|b| String::from_utf8(b).ok());
         if expires_at.is_none_or(|t| t > Utc::now() + chrono::Duration::seconds(30)) {
             return Ok(open(&access));
         }
@@ -319,14 +262,8 @@ impl Identity {
             .core
             .http
             .post("https://accounts.spotify.com/api/token")
-            .basic_auth(
-                &self.cfg.spotify_client_id,
-                Some(&self.cfg.spotify_client_secret),
-            )
-            .form(&[
-                ("grant_type", "refresh_token"),
-                ("refresh_token", refresh_token.as_str()),
-            ])
+            .basic_auth(&self.cfg.spotify_client_id, Some(&self.cfg.spotify_client_secret))
+            .form(&[("grant_type", "refresh_token"), ("refresh_token", refresh_token.as_str())])
             .send()
             .await
             .map_err(provider_err)?
@@ -355,12 +292,7 @@ impl Identity {
             return None;
         }
         let cache_key = format!("id:np:{user_id}");
-        if let Ok(Some(CachedNowPlaying(cached))) = self
-            .core
-            .cache
-            .get_json::<CachedNowPlaying>(&cache_key)
-            .await
-        {
+        if let Ok(Some(CachedNowPlaying(cached))) = self.core.cache.get_json::<CachedNowPlaying>(&cache_key).await {
             return cached.and_then(|v| serde_json::from_value(v).ok());
         }
         let fetched: AppResult<Option<NowPlaying>> = async {
@@ -370,7 +302,7 @@ impl Identity {
             let response = self
                 .core
                 .http
-                .get("https://api.spotify.com/v1/me/player/currently-playing")
+                .get(format!("{}/v1/me/player/currently-playing", self.cfg.spotify_api_url.trim_end_matches('/')))
                 .bearer_auth(token)
                 .timeout(Duration::from_secs(4))
                 .send()
@@ -379,12 +311,8 @@ impl Identity {
             if response.status() == reqwest::StatusCode::NO_CONTENT {
                 return Ok(None);
             }
-            let body: serde_json::Value = response
-                .error_for_status()
-                .map_err(provider_err)?
-                .json()
-                .await
-                .map_err(provider_err)?;
+            let body: serde_json::Value =
+                response.error_for_status().map_err(provider_err)?.json().await.map_err(provider_err)?;
             Ok(now_playing_from_spotify(&body))
         }
         .await;
@@ -395,23 +323,147 @@ impl Identity {
                 None
             }
         };
-        let cached = CachedNowPlaying(
-            now_playing
-                .as_ref()
-                .and_then(|np| serde_json::to_value(np).ok()),
-        );
-        let _ = self
-            .core
-            .cache
-            .set_json(&cache_key, &cached, Some(NOW_PLAYING_TTL))
-            .await;
+        let cached = CachedNowPlaying(now_playing.as_ref().and_then(|np| serde_json::to_value(np).ok()));
+        let _ = self.core.cache.set_json(&cache_key, &cached, Some(NOW_PLAYING_TTL)).await;
         now_playing
+    }
+}
+
+/// The Spotify track ID in a track URL (`https://open.spotify.com/track/…`,
+/// with or without a locale segment), URI (`spotify:track:…`) or bare ID.
+pub(crate) fn spotify_track_id(input: &str) -> Option<String> {
+    let input = input.trim();
+    let candidate = if let Some(rest) = input.strip_prefix("spotify:track:") {
+        rest.to_owned()
+    } else if input.contains("://") {
+        let url = url::Url::parse(input).ok()?;
+        if url.scheme() != "https" || url.host_str() != Some("open.spotify.com") {
+            return None;
+        }
+        let segments: Vec<&str> = url.path_segments()?.collect();
+        let at = segments.iter().position(|s| *s == "track")?;
+        (*segments.get(at + 1)?).to_owned()
+    } else {
+        input.to_owned()
+    };
+    (candidate.len() == 22 && candidate.bytes().all(|b| b.is_ascii_alphanumeric())).then_some(candidate)
+}
+
+/// Maps a Spotify track object to a pinned song.
+pub(crate) fn pinned_song_from_spotify(track: &serde_json::Value) -> Option<PinnedSong> {
+    let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or_default().to_owned();
+    let track_id = text(track, "id");
+    if track_id.is_empty() {
+        return None;
+    }
+    let artist = track
+        .get("artists")
+        .and_then(|a| a.as_array())
+        .map(|artists| artists.iter().map(|a| text(a, "name")).filter(|n| !n.is_empty()).collect::<Vec<_>>().join(", "))
+        .unwrap_or_default();
+    let album = track.get("album").cloned().unwrap_or_default();
+    let artwork_url = album
+        .get("images")
+        .and_then(|i| i.as_array())
+        .and_then(|images| images.first())
+        .map(|image| text(image, "url"))
+        .unwrap_or_default();
+    let track_url = track.pointer("/external_urls/spotify").and_then(|u| u.as_str()).unwrap_or_default().to_owned();
+    Some(PinnedSong {
+        provider: SPOTIFY.to_owned(),
+        title: text(track, "name"),
+        artist,
+        album: text(&album, "name"),
+        // Only Spotify's own pages and images are kept.
+        artwork_url: if artwork_url.starts_with("https://") { artwork_url } else { String::new() },
+        track_url: if track_url.starts_with("https://open.spotify.com/") {
+            track_url
+        } else {
+            format!("https://open.spotify.com/track/{track_id}")
+        },
+        track_id,
+        pinned_at: ts(Utc::now()),
+        ..Default::default()
+    })
+}
+
+impl Identity {
+    /// The song to pin: the track named (`track`), or what the account's
+    /// Spotify is playing now (`track` empty).
+    pub(crate) async fn lookup_song(&self, user_id: Uuid, track: &str) -> AppResult<PinnedSong> {
+        let not_connected = || AppError::precondition("SPOTIFY_NOT_CONNECTED", "connect Spotify first");
+        if !self.cfg.spotify_enabled() {
+            return Err(not_connected());
+        }
+        let track_id = if track.trim().is_empty() {
+            None
+        } else {
+            Some(
+                spotify_track_id(track)
+                    .ok_or_else(|| AppError::invalid("TRACK_INVALID", "paste a Spotify track link"))?,
+            )
+        };
+        let token = self.spotify_access_token(user_id).await?.ok_or_else(not_connected)?;
+        let api = self.cfg.spotify_api_url.trim_end_matches('/');
+        let url = match &track_id {
+            Some(id) => format!("{api}/v1/tracks/{id}"),
+            None => format!("{api}/v1/me/player/currently-playing"),
+        };
+        let response = self
+            .core
+            .http
+            .get(url)
+            .bearer_auth(token)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+            .map_err(provider_err)?;
+        if track_id.is_none() && response.status() == reqwest::StatusCode::NO_CONTENT {
+            return Err(AppError::precondition("NOTHING_PLAYING", "nothing is playing right now"));
+        }
+        if track_id.is_some()
+            && matches!(response.status(), reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::BAD_REQUEST)
+        {
+            return Err(AppError::invalid("TRACK_INVALID", "this track does not exist"));
+        }
+        let body: serde_json::Value =
+            response.error_for_status().map_err(provider_err)?.json().await.map_err(provider_err)?;
+        let item = if track_id.is_some() { Some(&body) } else { body.get("item").filter(|item| !item.is_null()) };
+        item.and_then(pinned_song_from_spotify)
+            .ok_or_else(|| AppError::precondition("NOTHING_PLAYING", "nothing is playing right now"))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn track_ids_come_from_links_uris_and_ids() {
+        let id = "4uLU6hMCjMI75M1A2tKUQC";
+        assert_eq!(spotify_track_id(&format!("https://open.spotify.com/track/{id}?si=abc")).as_deref(), Some(id));
+        assert_eq!(spotify_track_id(&format!("https://open.spotify.com/intl-ja/track/{id}")).as_deref(), Some(id));
+        assert_eq!(spotify_track_id(&format!("spotify:track:{id}")).as_deref(), Some(id));
+        assert_eq!(spotify_track_id(id).as_deref(), Some(id));
+        assert_eq!(spotify_track_id(&format!("https://evil.example/track/{id}")), None);
+        assert_eq!(spotify_track_id("https://open.spotify.com/album/4uLU6hMCjMI75M1A2tKUQC"), None);
+        assert_eq!(spotify_track_id("short"), None);
+    }
+
+    #[test]
+    fn maps_a_track_to_a_pinned_song() {
+        let track = serde_json::json!({
+            "id": "4uLU6hMCjMI75M1A2tKUQC", "name": "晴る",
+            "artists": [{ "name": "ヨルシカ" }],
+            "album": { "name": "晴る", "images": [{ "url": "https://i.scdn.co/image/x" }, { "url": "https://i.scdn.co/image/y" }] },
+            "external_urls": { "spotify": "javascript:alert(1)" }
+        });
+        let song = pinned_song_from_spotify(&track).unwrap();
+        assert_eq!((song.title.as_str(), song.artist.as_str()), ("晴る", "ヨルシカ"));
+        assert_eq!(song.artwork_url, "https://i.scdn.co/image/x");
+        assert_eq!(song.track_url, "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC");
+        assert!(pinned_song_from_spotify(&serde_json::json!({})).is_none());
+    }
 
     #[test]
     fn maps_spotify_payload() {
@@ -430,10 +482,7 @@ mod tests {
         assert_eq!(np.title, "ライラック");
         assert_eq!(np.artist, "Mrs. GREEN APPLE, Guest");
         assert_eq!(np.artwork_url, "https://i.scdn.co/image/abc");
-        assert_eq!(
-            (np.duration_ms, np.progress_ms, np.playing),
-            (247000, 42000, true)
-        );
+        assert_eq!((np.duration_ms, np.progress_ms, np.playing), (247000, 42000, true));
         assert_eq!(np.track_url, "https://open.spotify.com/track/xyz");
     }
 
@@ -456,10 +505,7 @@ mod tests {
 
     #[test]
     fn nothing_playing_maps_to_none() {
-        assert!(
-            now_playing_from_spotify(&serde_json::json!({ "is_playing": false, "item": null }))
-                .is_none()
-        );
+        assert!(now_playing_from_spotify(&serde_json::json!({ "is_playing": false, "item": null })).is_none());
         assert!(now_playing_from_spotify(&serde_json::json!({})).is_none());
     }
 }

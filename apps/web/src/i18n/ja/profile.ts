@@ -1,4 +1,6 @@
 export default {
+  bot: "Bot",
+  botOwner: "@{{handle}} さんのBot",
   notFound: "ユーザーが見つかりません",
   joined: "{{name}}さんが参加して {{count}}日が経ちました",
   distance: "フレンドの君へ！{{distance}}先で待っています。",

@@ -17,10 +17,7 @@ fn japanese(locale: &str) -> bool {
 }
 
 fn render(mail: &Mail) -> (String, String) {
-    let text = format!(
-        "{}\n\n{}\n\n{}\n\n{}\n",
-        mail.heading, mail.body, mail.url, mail.footer
-    );
+    let text = format!("{}\n\n{}\n\n{}\n\n{}\n", mail.heading, mail.body, mail.url, mail.footer);
     let html = format!(
         r#"<!doctype html><html><body style="margin:0;background:#f4f2ff;font-family:-apple-system,'Segoe UI','Hiragino Sans','Noto Sans JP',sans-serif;color:#1b1530">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
@@ -41,11 +38,7 @@ fn render(mail: &Mail) -> (String, String) {
 }
 
 fn escape(input: &str) -> String {
-    input
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+    input.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
 impl Identity {
@@ -65,7 +58,11 @@ impl Identity {
         let mail = if japanese(locale) {
             Mail {
                 subject: "【Tokuly】メールアドレスの確認".into(),
-                heading: if changing { "新しいメールアドレスを確認しよう！".into() } else { "Tokulyへようこそ！".into() },
+                heading: if changing {
+                    "新しいメールアドレスを確認しよう！".into()
+                } else {
+                    "Tokulyへようこそ！".into()
+                },
                 body: "下のボタンを押して、メールアドレスの確認を完了してください。このリンクは24時間有効です。".into(),
                 button: "メールアドレスを確認".into(),
                 url,
@@ -84,27 +81,25 @@ impl Identity {
         self.deliver(to, mail).await
     }
 
-    pub(crate) async fn send_password_reset_mail(
-        &self,
-        to: &str,
-        locale: &str,
-        token: &str,
-    ) -> AppResult<()> {
+    pub(crate) async fn send_password_reset_mail(&self, to: &str, locale: &str, token: &str) -> AppResult<()> {
         let url = self.core.web_url(&format!("reset-password?token={token}"));
         let mail = if japanese(locale) {
             Mail {
                 subject: "【Tokuly】パスワードの再設定".into(),
                 heading: "パスワードを再設定しよう".into(),
-                body: "下のボタンから新しいパスワードを設定できます。このリンクは1時間有効で、一度だけ使えます。".into(),
+                body: "下のボタンから新しいパスワードを設定できます。このリンクは1時間有効で、一度だけ使えます。"
+                    .into(),
                 button: "パスワードを再設定".into(),
                 url,
-                footer: "再設定を依頼していない場合は、このメールを無視してください。パスワードは変更されません。".into(),
+                footer: "再設定を依頼していない場合は、このメールを無視してください。パスワードは変更されません。"
+                    .into(),
             }
         } else {
             Mail {
                 subject: "Reset your Tokuly password".into(),
                 heading: "Reset your password".into(),
-                body: "Use the button below to choose a new password. The link is valid for 1 hour and works once.".into(),
+                body: "Use the button below to choose a new password. The link is valid for 1 hour and works once."
+                    .into(),
                 button: "Reset password".into(),
                 url,
                 footer: "If you did not ask for this, ignore this email and your password stays the same.".into(),
@@ -113,12 +108,7 @@ impl Identity {
         self.deliver(to, mail).await
     }
 
-    pub(crate) async fn send_data_export_mail(
-        &self,
-        to: &str,
-        locale: &str,
-        download_url: &str,
-    ) -> AppResult<()> {
+    pub(crate) async fn send_data_export_mail(&self, to: &str, locale: &str, download_url: &str) -> AppResult<()> {
         let mail = if japanese(locale) {
             Mail {
                 subject: "【Tokuly】データのエクスポートが完了しました".into(),
@@ -156,14 +146,46 @@ impl SecurityNotice {
     /// `(subject, heading, body)` in Japanese or English.
     fn text(self, japanese: bool) -> (&'static str, &'static str, &'static str) {
         match (self, japanese) {
-            (Self::PasswordChanged, true) => ("【Tokuly】パスワードが変更されました", "パスワードが変わったよ", "あなたのTokulyアカウントのパスワードが変更されました。ほかの端末はログアウトしています。"),
-            (Self::PasswordChanged, false) => ("Your Tokuly password was changed", "Your password was changed", "The password of your Tokuly account was just changed. Your other devices were signed out."),
-            (Self::PasskeyAdded, true) => ("【Tokuly】パスキーが追加されました", "新しいパスキーが追加されたよ", "あなたのTokulyアカウントに、新しいパスキーが追加されました。このパスキーでログインできます。"),
-            (Self::PasskeyAdded, false) => ("A passkey was added to your Tokuly account", "A new passkey was added", "A new passkey was added to your Tokuly account. It can now be used to sign in."),
-            (Self::TotpEnabled, true) => ("【Tokuly】2段階認証がオンになりました", "2段階認証がオンになったよ", "あなたのTokulyアカウントで、認証アプリによる2段階認証がオンになりました。"),
-            (Self::TotpEnabled, false) => ("Two-step verification is on for your Tokuly account", "Two-step verification is on", "Two-step verification with an authenticator app was turned on for your Tokuly account."),
-            (Self::TotpDisabled, true) => ("【Tokuly】2段階認証がオフになりました", "2段階認証がオフになったよ", "あなたのTokulyアカウントで、2段階認証がオフになりました。"),
-            (Self::TotpDisabled, false) => ("Two-step verification is off for your Tokuly account", "Two-step verification is off", "Two-step verification was turned off for your Tokuly account."),
+            (Self::PasswordChanged, true) => (
+                "【Tokuly】パスワードが変更されました",
+                "パスワードが変わったよ",
+                "あなたのTokulyアカウントのパスワードが変更されました。ほかの端末はログアウトしています。",
+            ),
+            (Self::PasswordChanged, false) => (
+                "Your Tokuly password was changed",
+                "Your password was changed",
+                "The password of your Tokuly account was just changed. Your other devices were signed out.",
+            ),
+            (Self::PasskeyAdded, true) => (
+                "【Tokuly】パスキーが追加されました",
+                "新しいパスキーが追加されたよ",
+                "あなたのTokulyアカウントに、新しいパスキーが追加されました。このパスキーでログインできます。",
+            ),
+            (Self::PasskeyAdded, false) => (
+                "A passkey was added to your Tokuly account",
+                "A new passkey was added",
+                "A new passkey was added to your Tokuly account. It can now be used to sign in.",
+            ),
+            (Self::TotpEnabled, true) => (
+                "【Tokuly】2段階認証がオンになりました",
+                "2段階認証がオンになったよ",
+                "あなたのTokulyアカウントで、認証アプリによる2段階認証がオンになりました。",
+            ),
+            (Self::TotpEnabled, false) => (
+                "Two-step verification is on for your Tokuly account",
+                "Two-step verification is on",
+                "Two-step verification with an authenticator app was turned on for your Tokuly account.",
+            ),
+            (Self::TotpDisabled, true) => (
+                "【Tokuly】2段階認証がオフになりました",
+                "2段階認証がオフになったよ",
+                "あなたのTokulyアカウントで、2段階認証がオフになりました。",
+            ),
+            (Self::TotpDisabled, false) => (
+                "Two-step verification is off for your Tokuly account",
+                "Two-step verification is off",
+                "Two-step verification was turned off for your Tokuly account.",
+            ),
         }
     }
 }
@@ -191,7 +213,8 @@ impl Identity {
                 body: body.into(),
                 button: "This wasn't me".into(),
                 url,
-                footer: "If you made this change, you can ignore this email. If not, reset your password right away.".into(),
+                footer: "If you made this change, you can ignore this email. If not, reset your password right away."
+                    .into(),
             }
         };
         self.deliver(to, mail).await
@@ -199,13 +222,21 @@ impl Identity {
 
     /// Tells the previous address that the account moved to `new_email`,
     /// with a link that moves it back and signs out every device.
-    pub(crate) async fn send_email_changed_mail(&self, to: &str, locale: &str, new_email: &str, revert_token: &str) -> AppResult<()> {
+    pub(crate) async fn send_email_changed_mail(
+        &self,
+        to: &str,
+        locale: &str,
+        new_email: &str,
+        revert_token: &str,
+    ) -> AppResult<()> {
         let url = self.core.web_url(&format!("undo-email-change?token={revert_token}"));
         let mail = if japanese(locale) {
             Mail {
                 subject: "【Tokuly】メールアドレスが変更されました".into(),
                 heading: "メールアドレスが変わったよ".into(),
-                body: format!("あなたのTokulyアカウントのメールアドレスが {new_email} に変更されました。心当たりがない場合は、下のボタンで元のアドレスに戻せます（7日間有効）。すべての端末からログアウトされるので、そのあとパスワードも再設定してください。"),
+                body: format!(
+                    "あなたのTokulyアカウントのメールアドレスが {new_email} に変更されました。心当たりがない場合は、下のボタンで元のアドレスに戻せます（7日間有効）。すべての端末からログアウトされるので、そのあとパスワードも再設定してください。"
+                ),
                 button: "元のアドレスに戻す".into(),
                 url,
                 footer: "あなたが行った変更なら、このメールは無視してOKです。".into(),
@@ -214,7 +245,9 @@ impl Identity {
             Mail {
                 subject: "The email of your Tokuly account was changed".into(),
                 heading: "Your email address was changed".into(),
-                body: format!("The email address of your Tokuly account was changed to {new_email}. If this wasn't you, the button below moves it back to this address (valid for 7 days) and signs out every device; then reset your password."),
+                body: format!(
+                    "The email address of your Tokuly account was changed to {new_email}. If this wasn't you, the button below moves it back to this address (valid for 7 days) and signs out every device; then reset your password."
+                ),
                 button: "Move it back".into(),
                 url,
                 footer: "If you made this change, you can ignore this email.".into(),
@@ -230,7 +263,12 @@ mod tests {
 
     #[test]
     fn every_security_notice_has_both_languages() {
-        for notice in [SecurityNotice::PasswordChanged, SecurityNotice::PasskeyAdded, SecurityNotice::TotpEnabled, SecurityNotice::TotpDisabled] {
+        for notice in [
+            SecurityNotice::PasswordChanged,
+            SecurityNotice::PasskeyAdded,
+            SecurityNotice::TotpEnabled,
+            SecurityNotice::TotpDisabled,
+        ] {
             let (ja, en) = (notice.text(true), notice.text(false));
             assert!(ja.0.starts_with("【Tokuly】") && !ja.2.is_empty(), "{notice:?}");
             assert!(en.0.is_ascii() && en.0.contains("Tokuly") && !en.2.is_empty(), "{notice:?}");

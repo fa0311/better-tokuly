@@ -131,6 +131,11 @@ export default {
     },
   },
   moderation: {
+    profileBook: {
+      title: "プロフ帳（ほかの人に見えている部分）",
+      lead: "ともだち限定などをふくめ、だれかに見えている項目を公開範囲つきで表示します（「自分だけ」と非表示のカードはのぞく）。見たことは監査ログに残ります。",
+      open: "プロフ帳を表示",
+    },
     title: "モデレーション",
     untitled: "（タイトルなし）",
     unassigned: "担当なし",
@@ -716,6 +721,8 @@ export default {
     },
   },
   errors: {
+    CASE_CLOSED: "解決済みのケースです。見直すには再オープンしてね",
+    NOT_AN_ACCOUNT: "このケースはアカウントについてではありません",
     INVALID_CURSOR: "一覧の続きを読み込めませんでした。ページを開き直してね",
     CASE_NOT_FOUND: "このケースは見つかりませんでした",
     CASE_ALREADY_RESOLVED: "このケースはもう解決済みです",
