@@ -102,6 +102,20 @@ async fn a_late_block_event_does_not_hide_comments_again() {
     assert_eq!(ctx.comments(Some(&carol), &video).await.total_count, 1);
 }
 
+#[tokio::test]
+async fn comments_cannot_be_edited_while_they_are_turned_off() {
+    let ctx = start().await;
+    let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, "やあ").await;
+    ctx.videos.update(video.id, |video| video.interactions_enabled = false);
+    assert_eq!(
+        ctx.edit(&alice, &comment.id, &format!("やあ @{}", bob.handle)).await.unwrap_err(),
+        "COMMENTS_DISABLED"
+    );
+    assert!(ctx.notifications(bob.id, "engagement.mention").await.is_empty());
+}
+
 // ───────────────────────────── counts ─────────────────────────────
 
 #[tokio::test]

@@ -225,7 +225,9 @@ service CommentService {
   // comment that is held or hidden. Newly mentioned users are notified.
   //
   // Errors: COMMENT_NOT_FOUND, NOT_COMMENT_AUTHOR (permission denied),
-  // COMMENT_EMPTY, COMMENT_TOO_LONG, TOO_MANY_MENTIONS, RATE_LIMITED.
+  // COMMENTS_DISABLED (failed precondition: the subject does not accept
+  // comments right now), COMMENT_EMPTY, COMMENT_TOO_LONG, TOO_MANY_MENTIONS,
+  // RATE_LIMITED.
   rpc UpdateComment(UpdateCommentRequest) returns (UpdateCommentResponse);
 
   // Deletes a comment and, for a top-level comment, all of its replies.

@@ -317,6 +317,14 @@ impl Engagement {
     ) -> AppResult<(CommentRow, Subject)> {
         let found = self.require_comment(comment_id, Some(user_id)).await?;
         ensure!(found.row.author_id == user_id, denied, "NOT_COMMENT_AUTHOR", "only the author can edit a comment");
+        // Nobody sees the comments while they are turned off; an edit would
+        // still reach the people it newly mentions.
+        ensure!(
+            found.subject.info.interactions_enabled,
+            precondition,
+            "COMMENTS_DISABLED",
+            "comments are turned off here"
+        );
         self.core
             .cache
             .rate_limit(&format!("engagement:comment:edit:{user_id}"), EDITS_PER_MINUTE, Duration::from_secs(60))
