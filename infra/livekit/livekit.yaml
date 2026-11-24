@@ -7,6 +7,11 @@ rtc:
   # On a server with a public address set this to true so clients are told
   # that address; on a laptop or LAN the container's view of itself is enough.
   use_external_ip: false
+# Rooms exist only when the API made them (spaces, hangouts, chat calls):
+# a join token for a room that does not exist does not conjure one up with
+# the server's defaults (no size limit, our empty timeout lost).
+room:
+  auto_create: false
 # Webhook: LiveKit tells the API the moment someone connects to or leaves a
 # room, so that a connection without a seat (a banned or removed person
 # coming back on a token that has not expired yet) is cut at once rather
