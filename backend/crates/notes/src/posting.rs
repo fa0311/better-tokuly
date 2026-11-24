@@ -630,11 +630,22 @@ impl Notes {
     /// it is now. A reply stays within the audience of the note it answers.
     pub(crate) async fn set_visibility(&self, user_id: Uuid, note_id: Uuid, wanted: i32) -> AppResult<NoteRow> {
         let note = self.own_note(user_id, note_id).await?;
+        let actor = tokuly_identity::summary(&self.core, user_id).await?;
+        let mut tx = self.core.db.begin().await?;
+        // Changes of one note apply one after the other, each starting from
+        // what the previous one left: two narrowings at once must not both
+        // take the note's hashtags out of the public counts.
+        let sql = format!("SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id = $1 FOR UPDATE");
+        let note: NoteRow = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(note.id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .or_not_found("NOTE_NOT_FOUND", "note not found")?;
         let limit: Option<i32> = match note.reply_to_id {
             Some(parent) => {
                 sqlx::query_scalar("SELECT visibility FROM notes WHERE id = $1")
                     .bind(parent)
-                    .fetch_optional(&self.core.db)
+                    .fetch_optional(&mut *tx)
                     .await?
             }
             None => None,
@@ -643,8 +654,6 @@ impl Notes {
         if applied == note.visibility {
             return Ok(note);
         }
-        let actor = tokuly_identity::summary(&self.core, user_id).await?;
-        let mut tx = self.core.db.begin().await?;
         let sql = format!("UPDATE notes AS n SET visibility = $2 WHERE n.id = $1 RETURNING {NOTE_COLUMNS}");
         let updated: NoteRow =
             sqlx::query_as(sqlx::AssertSqlSafe(sql)).bind(note.id).bind(applied).fetch_one(&mut *tx).await?;

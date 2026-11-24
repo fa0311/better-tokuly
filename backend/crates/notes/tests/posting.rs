@@ -665,3 +665,41 @@ async fn one_note_is_pinned_to_a_profile() {
     let _: UnpinNoteResponse = ctx.note("UnpinNote", Some(&alice), &UnpinNoteRequest::default()).await.unwrap();
     assert!(timeline(Some(alice.clone())).await.pinned_note.as_option().is_none());
 }
+
+#[tokio::test]
+async fn concurrent_visibility_changes_count_a_note_once() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.member("alice").await, ctx.member("bob").await);
+    let tag = unique("tag");
+    let note = ctx.post(&alice, &format!("mine #{tag}")).await;
+    ctx.post(&bob, &format!("someone else's #{tag}")).await;
+    let count = || {
+        let (db, tag) = (ctx.app.core.db.clone(), tag.clone());
+        async move {
+            sqlx::query_scalar::<_, i64>("SELECT note_count FROM hashtags WHERE tag = $1")
+                .bind(tag)
+                .fetch_one(&db)
+                .await
+                .unwrap()
+        }
+    };
+    let change = |visibility: Visibility| {
+        let request =
+            SetNoteVisibilityRequest { note_id: note.id.clone(), visibility: visibility.into(), ..Default::default() };
+        let (ctx, alice) = (&ctx, alice.clone());
+        async move {
+            let _: SetNoteVisibilityResponse = ctx.note("SetNoteVisibility", Some(&alice), &request).await.unwrap();
+        }
+    };
+    assert_eq!(count().await, 2);
+    for _ in 0..5 {
+        // Several narrowings of the same public note at once take it out of the count once.
+        futures::future::join_all(
+            [Visibility::VISIBILITY_FRIENDS, Visibility::VISIBILITY_PRIVATE].into_iter().cycle().take(6).map(change),
+        )
+        .await;
+        assert_eq!(count().await, 1, "only bob's note is public");
+        futures::future::join_all(std::iter::repeat_n(Visibility::VISIBILITY_PUBLIC, 6).map(change)).await;
+        assert_eq!(count().await, 2, "and making it public again counts it once");
+    }
+}
