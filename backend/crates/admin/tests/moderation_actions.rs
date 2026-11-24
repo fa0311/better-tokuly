@@ -298,13 +298,13 @@ async fn a_moderator_is_never_shown_who_reported_them() {
 
         // The colleague sees the reports and notes...
         let seen = get_case(&app, &colleague, &case.id).await;
-        assert!(!seen.moderation_case.conflict_of_interest);
+        assert!(!seen.moderation_case.conflict_of_interest && !seen.moderation_case.about_you);
         assert_eq!((seen.reports.len(), seen.notes.len()), (1, 1));
         assert_eq!(seen.reports[0].reporter.id, reporter.id.to_string());
 
         // ...the moderator the case is about sees that it exists, not who reported it or what staff noted.
         let own = get_case(&app, &moderator, &case.id).await;
-        assert!(own.moderation_case.conflict_of_interest);
+        assert!(own.moderation_case.conflict_of_interest && own.moderation_case.about_you);
         assert!(own.reports.is_empty() && own.notes.is_empty() && own.owner_record.is_unset());
         let case_id = case.id.clone();
         conflict(
@@ -516,7 +516,7 @@ async fn the_author_of_an_anonymous_post_is_withheld_from_moderators_who_are_inv
     for staff in [&reporting, &answered] {
         let opened = get_case(&app, staff, &case_id).await;
         let case = opened.moderation_case.as_option().unwrap();
-        assert!(case.owner_withheld && case.conflict_of_interest && case.subject_owner.is_unset(), "{}", staff.handle);
+        assert!(case.owner_withheld && case.conflict_of_interest && !case.about_you && case.subject_owner.is_unset(), "{}", staff.handle);
         assert!(opened.owner_record.is_unset(), "{}", staff.handle);
         for request in [resolution(case, DISMISS, ""), resolution(case, WARN, "x"), resolution(case, REMOVE_CONTENT, "x")] {
             let refused = resolve(&app, staff, request).await.unwrap_err();

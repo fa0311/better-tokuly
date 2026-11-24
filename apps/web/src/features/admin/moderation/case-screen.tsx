@@ -167,9 +167,7 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
       <div className="@container">
         <div className="grid items-start gap-4 @4xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="flex min-w-0 flex-col gap-4">
-            {moderationCase.conflictOfInterest && (
-              <ConflictNotice own={!moderationCase.ownerWithheld} />
-            )}
+            {moderationCase.conflictOfInterest && <ConflictNotice own={moderationCase.aboutYou} />}
             <SubjectCard moderationCase={moderationCase} ownerRecord={detail.data.ownerRecord} />
             {/* Who reported it, and what staff noted, is for whoever handles the case. */}
             {!moderationCase.conflictOfInterest && (
@@ -189,7 +187,7 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
           </div>
           <div className="flex min-w-0 flex-col gap-4">
             {/* A case about the viewer is not theirs to take (the server refuses). */}
-            {!(moderationCase.conflictOfInterest && !moderationCase.ownerWithheld) && (
+            {!moderationCase.aboutYou && (
               <Assignment moderationCase={moderationCase} onChanged={applied} />
             )}
             {isOpen && moderationCase.conflictOfInterest ? (
@@ -197,9 +195,9 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
               <Section title={t("moderation.resolve.title")}>
                 <p className="p-4 text-sm text-ink-soft" data-testid="resolve-conflict">
                   {t(
-                    moderationCase.ownerWithheld
-                      ? "moderation.conflict.cannotResolve"
-                      : "moderation.conflict.ownCannotResolve",
+                    moderationCase.aboutYou
+                      ? "moderation.conflict.ownCannotResolve"
+                      : "moderation.conflict.cannotResolve",
                   )}
                 </p>
               </Section>

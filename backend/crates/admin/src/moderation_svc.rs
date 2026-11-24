@@ -73,6 +73,7 @@ impl ModerationService for Admin {
                 // who reported them, what they wrote, or what staff noted.
                 let mut moderation_case = self.case_to_proto(&case).await?;
                 moderation_case.conflict_of_interest = true;
+                moderation_case.about_you = true;
                 let actions = self.case_actions(&staff, &actions, false).await?;
                 return ok(GetCaseResponse { moderation_case: moderation_case.into(), actions, ..Default::default() });
             }

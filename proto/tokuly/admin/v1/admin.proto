@@ -182,6 +182,10 @@ message ModerationCase {
   // reported post (reported it, wrote in its thread, is mentioned or
   // answered by its author there), so the author stays hidden from them.
   bool conflict_of_interest = 19;
+  // Only in `GetCase`, with `conflict_of_interest`: the case is about the
+  // caller's own content or account (rather than an anonymous post they are
+  // involved in).
+  bool about_you = 20;
 }
 
 // One user's report inside a case.
