@@ -102,20 +102,29 @@ What follows from the rule, path by path:
   user anything about another.
 - **Claimed positions** (`tokuly_geo::claims`). The social domain matches
   nearby discovery and bumps on a position the client sends, and asks this
-  domain first whether it is plausible (`tokuly_social::claims::PositionCheck`,
-  plugged in by `Geo::new`). The answer is a yes or a no, never a position or
-  distance. The live state keeps the latest *real* fix (`trusted`): a sample
-  taken as the position, accurate to 100 m, not mocked, received within 5
-  minutes of being taken, and reachable from the previous real fix at
-  `MAX_SPEED_MPS`. A mock sample forgets it. A claim is plausible when the
-  real fix is at most 10 minutes old (45 while staying in one spot) and the
-  claim is within 50 m plus both accuracies (the claim's counted up to
-  50 m) plus walking speed since the fix, never more than 300 m. Ghost
-  rules play no part: the check is about the account's own claim, and what
-  others see is computed from the claim (`tests/claims.rs` runs two worlds
-  that differ only in where the claimer really is and checks that the other
-  person's view is the same). Known limit: samples are the device's word; a
-  device that fakes a continuous, unflagged track moves its real fix with it.
+  domain first (`tokuly_social::claims::PositionCheck`, plugged in by
+  `Geo::new`). The answer is a verdict about the caller's own claim —
+  plausible, not verified, or too coarse — never a position or distance.
+  The live state keeps `trust`: the real fix, its anchor and a run. Only
+  the newest sample of an upload counts, and all times are arrival times
+  (server clock; a phone whose clock is off is not locked out). A sample
+  accurate to 100 m and not mocked becomes the real fix when it follows
+  from the anchor: at most 90 m/s from it within 10 minutes, or within
+  1 km after a longer silence. Anything else is a jump, which becomes real
+  only after 3 consistent fixes (each within 5 minutes of the previous and
+  at ground speed from it) over at least 2 minutes. A mock sample drops the
+  real fix but not the anchor; an account's very first fix is taken as it
+  is. A claim is plausible when the real fix arrived at most 10 minutes ago
+  (45 while staying) and the claim is within 50 m plus both accuracies (the
+  claim's counted up to 50 m) plus walking speed since the fix, never more
+  than 300 m. A refused claim is "too coarse" when the latest sample was
+  refused only for its accuracy. Ghost rules play no part: what others see
+  is computed from the claim (`tests/claims.rs` runs two worlds that differ
+  only in where the claimer really is, with a series of claims in each).
+  What this guarantees: the real fix moves at ground speed or jumps after
+  two minutes of consistent reports. Samples are the device's word, so a
+  device that fakes a ground-speed track, or a new place steadily for two
+  minutes, moves its real fix there.
 - **Pushes to viewers who do not see precisely.** A blurred viewer is sent
   the stand-in when what they see changes (another cell, the battery, the
   paused flag, a new ten-minute step of `recorded_at`, which is rounded down

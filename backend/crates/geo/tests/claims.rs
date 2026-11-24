@@ -10,8 +10,10 @@
 //! same things next to it. Only Aoi's true position differs: in one world
 //! she is at the spot, in the other a few dozen meters off it (still
 //! plausible) — or, for the refused pair, far away in both, by different
-//! distances. Everything Ren can observe (his nearby stream, his shake and
-//! bumps, pushes, notifications, Aoi's profile) must be the same in both.
+//! distances. Aoi probes with a series of claims around the spot (the
+//! add-friend screen and a shake at each). Everything Ren can observe (his
+//! nearby stream and shake at every probe, his bumps, pushes,
+//! notifications, Aoi's profile) must be the same in both.
 //! Ren stands 8 m from the claim, "within 10 m"; Aoi's true position is
 //! at least 27 m from him in the off-spot world, so an answer computed
 //! from her true position would show.
@@ -31,6 +33,8 @@ use uuid::Uuid;
 
 const NEARBY: &str = "tokuly.social.v1.FriendService/DiscoverNearby";
 const BUMP: &str = "tokuly.social.v1.InteractionService/Bump";
+/// Where Aoi claims to be, one probe after the other: (bearing, meters) from the spot.
+const PROBES: [(f64, f64); 3] = [(0.0, 0.0), (90.0, 6.0), (200.0, 9.0)];
 
 fn nearby_at(spot: Point) -> DiscoverNearbyRequest {
     DiscoverNearbyRequest { location: lat_lng(spot).into(), accuracy_meters: 5.0, ..Default::default() }
@@ -48,6 +52,13 @@ async fn shake(ctx: &Ctx, user: &TestUser, spot: Point) -> Result<BumpResponse, 
     ctx.app.call(BUMP, Some(user), &request).await
 }
 
+/// Both claims at once: the error reason of each, `None` when it was let through.
+async fn claim_reasons(ctx: &Ctx, user: &TestUser, spot: Point) -> (Option<String>, Option<String>) {
+    let nearby = open_nearby(ctx, user, spot).await.err().map(|e| e.reason);
+    let bump = shake(ctx, user, spot).await.err().map(|e| e.reason);
+    (nearby, bump)
+}
+
 /// Both claims at once, as whether each was let through.
 async fn claims_pass(ctx: &Ctx, user: &TestUser, spot: Point) -> (bool, bool) {
     let verdict = |reason: Option<String>| match reason.as_deref() {
@@ -55,13 +66,21 @@ async fn claims_pass(ctx: &Ctx, user: &TestUser, spot: Point) -> (bool, bool) {
         Some("LOCATION_NOT_VERIFIED") => false,
         Some(other) => panic!("unexpected error {other}"),
     };
-    let nearby = open_nearby(ctx, user, spot).await.err().map(|e| e.reason);
-    let bump = shake(ctx, user, spot).await.err().map(|e| e.reason);
+    let (nearby, bump) = claim_reasons(ctx, user, spot).await;
     (verdict(nearby), verdict(bump))
 }
 
 fn mocked(sample: LocationSample) -> LocationSample {
     LocationSample { mocked: true, ..sample }
+}
+
+/// Walks `user` from `from` to `to` in fixes about 60 m apart, one upload each.
+async fn walk(ctx: &Ctx, user: &TestUser, from: Point, to: Point) {
+    let steps = (distance(from, to) / 60.0).ceil().max(1.0) as usize;
+    for step in 1..=steps {
+        let f = step as f64 / steps as f64;
+        ctx.at(user, (from.0 + (to.0 - from.0) * f, from.1 + (to.1 - from.1) * f)).await;
+    }
 }
 
 #[tokio::test]
@@ -77,30 +96,56 @@ async fn claims_follow_the_accounts_own_real_fixes() {
     assert_eq!(claims_pass(&ctx, &aoi, offset(spot, 90.0, 40.0)).await, (true, true), "GPS wanders a little");
     assert_eq!(claims_pass(&ctx, &aoi, offset(spot, 90.0, 1000.0)).await, (false, false), "a kilometer off");
 
-    // A fix 100 km away a second later is no journey: the real fix stays.
-    let far = offset(spot, 0.0, 100_000.0);
+    // A fix 20 km away moments later is no journey, nor are several in one upload: the real fix stays.
+    let far = offset(spot, 0.0, 20_000.0);
     ctx.report(&aoi, vec![sample(far, next_fix_time(aoi.id))]).await;
+    ctx.report(&aoi, (0..5).map(|_| sample(far, next_fix_time(aoi.id))).collect()).await;
     assert_eq!(claims_pass(&ctx, &aoi, far).await, (false, false), "a jump does not move the real position");
     assert_eq!(claims_pass(&ctx, &aoi, spot).await, (true, true));
 
-    // A mock location: nothing is plausible until a real fix comes.
+    // A mock location: nothing is plausible until a real fix comes, and that must follow from the real one.
     ctx.report(&aoi, vec![mocked(sample(spot, next_fix_time(aoi.id)))]).await;
     assert_eq!(claims_pass(&ctx, &aoi, spot).await, (false, false), "the device mocks its location");
+    ctx.at(&aoi, far).await;
+    assert_eq!(claims_pass(&ctx, &aoi, far).await, (false, false), "no jump after a mock either");
     ctx.at(&aoi, spot).await;
     assert_eq!(claims_pass(&ctx, &aoi, spot).await, (true, true));
 
-    // A coarse fix is not accurate enough to vouch for anything.
+    // Walking at a walking pace moves the real fix along.
+    let there = offset(spot, 45.0, 400.0);
+    walk(&ctx, &aoi, spot, there).await;
+    assert_eq!(claims_pass(&ctx, &aoi, there).await, (true, true));
+    assert_eq!(claims_pass(&ctx, &aoi, spot).await, (false, false), "400 m back is too far");
+
+    // Approximate location only: told apart, so the app can ask for precise location.
     let ren = ctx.app.user("ren").await;
     let elsewhere = somewhere();
     let coarse = LocationSample { accuracy_meters: 800.0, ..sample(elsewhere, next_fix_time(ren.id)) };
     ctx.report(&ren, vec![coarse]).await;
-    assert_eq!(claims_pass(&ctx, &ren, elsewhere).await, (false, false), "accuracy 800 m");
+    let too_coarse = Some("LOCATION_TOO_COARSE".to_owned());
+    assert_eq!(claim_reasons(&ctx, &ren, elsewhere).await, (too_coarse.clone(), too_coarse), "accuracy 800 m");
+    ctx.at(&ren, elsewhere).await;
+    assert_eq!(claims_pass(&ctx, &ren, elsewhere).await, (true, true), "precise again");
 
-    // A backlog upload is history, not where the account is now.
+    // In a backlog upload only the newest sample is the present.
     let kai = ctx.app.user("kai").await;
-    let there = somewhere();
-    ctx.report(&kai, vec![sample(there, minutes_ago(30))]).await;
-    assert_eq!(claims_pass(&ctx, &kai, there).await, (false, false), "a fix from half an hour ago");
+    let (then, now) = (somewhere(), somewhere());
+    ctx.report(&kai, vec![sample(then, minutes_ago(30)), sample(now, seconds_ago(1))]).await;
+    assert_eq!(claims_pass(&ctx, &kai, then).await, (false, false), "a fix from half an hour ago");
+    assert_eq!(claims_pass(&ctx, &kai, now).await, (true, true));
+}
+
+#[tokio::test]
+async fn a_slow_device_clock_does_not_lock_anyone_out() {
+    let ctx = start().await;
+    let aoi = ctx.app.user("aoi").await;
+    let spot = somewhere();
+    // The phone's clock is six minutes behind: every fix it sends looks six minutes old.
+    ctx.report(&aoi, vec![sample(spot, minutes_ago(6))]).await;
+    assert_eq!(claims_pass(&ctx, &aoi, spot).await, (true, true));
+    let step = offset(spot, 0.0, 50.0);
+    ctx.report(&aoi, vec![sample(step, minutes_ago(6) + chrono::Duration::seconds(5))]).await;
+    assert_eq!(claims_pass(&ctx, &aoi, offset(step, 0.0, 40.0)).await, (true, true), "the fix moved along");
 }
 
 #[tokio::test]
@@ -109,11 +154,11 @@ async fn claims_are_checked_against_the_latest_fix_not_the_pin_shown_to_friends(
     let ctx = start().await;
     let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
     ctx.befriend(&aoi, &ren).await;
-    let (frozen_at, now_at) = (somewhere(), somewhere());
-    // (The frozen pin is from two hours ago, so getting to `now_at` is a journey.)
-    ctx.report(&aoi, vec![sample(frozen_at, minutes_ago(120))]).await;
+    let frozen_at = somewhere();
+    let now_at = offset(frozen_at, 90.0, 400.0);
+    ctx.at(&aoi, frozen_at).await;
     ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_FROZEN, 0).await.expect("freeze");
-    ctx.at(&aoi, now_at).await;
+    walk(&ctx, &aoi, frozen_at, now_at).await;
     assert_eq!(claims_pass(&ctx, &aoi, now_at).await, (true, true));
     assert_eq!(claims_pass(&ctx, &aoi, frozen_at).await, (false, false));
 }
@@ -168,43 +213,42 @@ impl World {
 
         if plan.friends {
             ctx.befriend(aoi, ren).await;
-            // Her pin, as Ren keeps seeing it, is the same in both worlds:
-            // an old fix 20 km north of the claim, then frozen.
-            ctx.report(aoi, vec![sample(offset(claim, 0.0, 20_000.0), minutes_ago(120))]).await;
+            // Frozen for Ren before she ever reported anything: there is no pin he could compare.
             ctx.ghost(aoi, &[ren], GhostMode::GHOST_MODE_FROZEN, 0).await.expect("freeze");
         }
         let mut rens_devices = ctx.app.listen_user(ren.id).await;
         ctx.at(ren, ren_at).await;
         ctx.at(aoi, truth).await;
 
-        // Ren opens the add-friend screen; Aoi joins a moment later and stays a while.
-        let rens_request = nearby_at(ren_at);
-        let rens_stream =
-            ctx.app.stream::<_, Value>(NEARBY, Some(ren), &rens_request, 2, std::time::Duration::from_secs(5));
-        let aoi_joins = async {
-            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
-            ctx.app.stream::<_, Value>(NEARBY, Some(aoi), &nearby_at(claim), 2, std::time::Duration::from_secs(3)).await
-        };
-        let (rens_snapshots, aoi_joined) = tokio::join!(rens_stream, aoi_joins);
-        assert_eq!(aoi_joined.is_ok(), plan.plausible, "Aoi's session: {:?}", aoi_joined.err());
-        let mut seen = vec![("nearby".to_owned(), Value::Array(rens_snapshots.expect("Ren's session")))];
+        // Aoi probes: a series of claims around the spot, each with the
+        // add-friend screen and a shake, while Ren looks and shakes too.
+        let mut seen = Vec::new();
+        for (index, (bearing, meters)) in PROBES.into_iter().enumerate() {
+            let probe = offset(claim, bearing, meters);
+            let rens_request = nearby_at(ren_at);
+            let rens_stream =
+                ctx.app.stream::<_, Value>(NEARBY, Some(ren), &rens_request, 2, std::time::Duration::from_secs(4));
+            let aoi_joins = async {
+                tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+                ctx.app
+                    .stream::<_, Value>(NEARBY, Some(aoi), &nearby_at(probe), 2, std::time::Duration::from_secs(2))
+                    .await
+            };
+            let (rens_snapshots, aoi_joined) = tokio::join!(rens_stream, aoi_joins);
+            assert_eq!(aoi_joined.is_ok(), plan.plausible, "Aoi's session {index}: {:?}", aoi_joined.err());
+            seen.push((format!("nearby#{index}"), Value::Array(rens_snapshots.expect("Ren's session"))));
 
-        // Both shake: Aoi first, Ren right after.
-        let aoi_shook = shake(ctx, aoi, claim).await;
-        assert_eq!(aoi_shook.is_ok(), plan.plausible, "Aoi's shake: {:?}", aoi_shook.err());
-        let rens_shake = match ctx
-            .app
-            .call::<_, Value>(
-                BUMP,
-                Some(ren),
-                &json!({ "location": { "lat": ren_at.0, "lng": ren_at.1 }, "accuracyMeters": 5.0, "intensity": 2.5 }),
-            )
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => json!({ "error": error.reason }),
-        };
-        seen.push(("shake".into(), rens_shake));
+            // Both shake: Aoi first, Ren right after.
+            let aoi_shook = shake(ctx, aoi, probe).await;
+            assert_eq!(aoi_shook.is_ok(), plan.plausible, "Aoi's shake {index}: {:?}", aoi_shook.err());
+            let request =
+                json!({ "location": { "lat": ren_at.0, "lng": ren_at.1 }, "accuracyMeters": 5.0, "intensity": 2.5 });
+            let rens_shake = match ctx.app.call::<_, Value>(BUMP, Some(ren), &request).await {
+                Ok(response) => response,
+                Err(error) => json!({ "error": error.reason }),
+            };
+            seen.push((format!("shake#{index}"), rens_shake));
+        }
         for (path, request) in [
             ("tokuly.social.v1.InteractionService/ListBumps", json!({})),
             (

@@ -97,12 +97,15 @@ service FriendService {
   // opening a new one ends the previous one.
   // `location` must agree with the caller's own location as the server last
   // received it (LocationService / the realtime gateway): a fix from the
-  // last 10 minutes (45 while staying in one spot), not from a mock
-  // location, and within a few hundred meters of the claim. Clients report
-  // a fresh fix before opening the stream.
+  // last 10 minutes (45 while staying in one spot), accurate to 100 m, not
+  // from a mock location, and within a few hundred meters of the claim; a
+  // fix far from the previous one counts only after a few consistent fixes
+  // over two minutes. Clients report a fresh fix before opening the stream.
   // Errors: INVALID_LOCATION, NEARBY_DISCOVERY_DISABLED (the caller switched
   // off `nearby_discoverable`), LOCATION_NOT_VERIFIED (no such fix, or the
-  // location is too far from it), RATE_LIMITED.
+  // location is too far from it), LOCATION_TOO_COARSE (the same, while the
+  // device only reports approximate locations, worse than 100 m: the client
+  // asks for precise location), RATE_LIMITED.
   rpc DiscoverNearby(DiscoverNearbyRequest) returns (stream DiscoverNearbyResponse);
 }
 
@@ -420,7 +423,8 @@ service InteractionService {
   // Calling again within a few seconds returns the same bump, not a new one.
   // `location` is checked like DiscoverNearby's: a shake where the caller's
   // own recent fixes do not put them is refused before it can match anyone.
-  // Errors: INVALID_LOCATION, LOCATION_NOT_VERIFIED, RATE_LIMITED.
+  // Errors: INVALID_LOCATION, LOCATION_NOT_VERIFIED, LOCATION_TOO_COARSE,
+  // RATE_LIMITED.
   rpc Bump(BumpRequest) returns (BumpResponse);
   // The caller's bumps, newest first. Errors: INVALID_ID.
   rpc ListBumps(ListBumpsRequest) returns (ListBumpsResponse);

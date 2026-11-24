@@ -18,7 +18,7 @@ use tokuly_proto::{
 };
 use tokuly_social::{
     Social, SocialConfig,
-    claims::{Claim, PositionCheck},
+    claims::{Claim, PositionCheck, Verdict},
 };
 use tokuly_testkit::{FrameListener, TestApp, TestUser};
 use uuid::Uuid;
@@ -48,6 +48,7 @@ pub struct Ctx {
 #[derive(Default)]
 pub struct FakePositionCheck {
     refused: Mutex<HashSet<Uuid>>,
+    coarse: Mutex<HashSet<Uuid>>,
     /// Every claim asked about, in order.
     pub asked: Mutex<Vec<(Uuid, Claim)>>,
 }
@@ -56,13 +57,24 @@ impl FakePositionCheck {
     pub fn refuse(&self, user_id: Uuid) {
         self.refused.lock().unwrap().insert(user_id);
     }
+
+    /// The user's device only gives approximate locations.
+    pub fn coarse(&self, user_id: Uuid) {
+        self.coarse.lock().unwrap().insert(user_id);
+    }
 }
 
 #[async_trait::async_trait]
 impl PositionCheck for FakePositionCheck {
-    async fn plausible(&self, user_id: Uuid, claim: Claim) -> tokuly_core::AppResult<bool> {
+    async fn check(&self, user_id: Uuid, claim: Claim) -> tokuly_core::AppResult<Verdict> {
         self.asked.lock().unwrap().push((user_id, claim));
-        Ok(!self.refused.lock().unwrap().contains(&user_id))
+        Ok(if self.refused.lock().unwrap().contains(&user_id) {
+            Verdict::NotVerified
+        } else if self.coarse.lock().unwrap().contains(&user_id) {
+            Verdict::TooCoarse
+        } else {
+            Verdict::Plausible
+        })
     }
 }
 

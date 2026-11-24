@@ -219,12 +219,24 @@ impl Geo {
         let mut state = self.load_state(user_id).await?.unwrap_or_default();
         let mut effects = Effects::default();
         let mut accepted = 0;
-        for sample in &samples {
+        // When this upload arrived, by the server's clock: device clocks may be off.
+        let arrived_ms = Utc::now().timestamp_millis();
+        for (index, sample) in samples.iter().enumerate() {
             // Duplicates, stragglers and floods: the state only moves forward, a second at a time.
             if state.located() && sample.recorded_ms < state.pin.recorded_ms + MIN_SPACING_MS {
                 continue;
             }
             self.apply(user_id, &ctx, &mut state, sample, &mut effects).await?;
+            // Only the newest sample of an upload is the present (see `claims`).
+            state.trust.take(&claims::Taken {
+                lat: sample.lat,
+                lng: sample.lng,
+                accuracy: sample.accuracy,
+                mocked: sample.mocked,
+                staying: state.stay.current().is_some(),
+                newest: index + 1 == samples.len(),
+                arrived_ms,
+            });
             accepted += 1;
             // A long batch outlives the lock's own lifetime unless it says it is still at it.
             if accepted % RENEW_EVERY == 0 {
@@ -319,15 +331,6 @@ impl Geo {
             state.pin.heading = sample.heading;
             state.pin.activity = activity as i32;
             state.altitude = sample.altitude;
-            let taken = claims::Taken {
-                lat: sample.lat,
-                lng: sample.lng,
-                accuracy: sample.accuracy,
-                recorded_ms: at_ms,
-                mocked: sample.mocked,
-                staying: state.stay.current().is_some(),
-            };
-            state.trusted = claims::next_trusted(state.trusted, &taken, Utc::now().timestamp_millis());
             if state.area_at.is_none_or(|looked_up| math::distance(looked_up, position) >= AREA_REFRESH_M) {
                 state.pin.area = Gazetteer::shared().area(sample.lat, sample.lng);
                 state.area_at = Some(position);
@@ -354,10 +357,6 @@ impl Geo {
         state.pin.recorded_ms = at_ms;
         state.pin.sharing = true;
         state.mocked = sample.mocked;
-        if sample.mocked {
-            // Also a mock fix that did not move the pin: the device mocks now.
-            state.trusted = None;
-        }
         if let Some(battery) = sample.battery {
             state.pin.battery = Some(battery);
         }
@@ -606,9 +605,7 @@ impl Geo {
                 state.pin.sharing = false;
                 state.pin.speed = 0.0;
                 // The stay ended: the real fix is no longer "staying" either.
-                if let Some(fix) = state.trusted.as_mut() {
-                    fix.staying = false;
-                }
+                state.trust.left_stay();
                 state.near = Default::default();
                 state.gathering_with.clear();
                 state.pushed = None;

@@ -8,9 +8,11 @@
 //! account's location samples, implements [`PositionCheck`] and is plugged
 //! in with [`crate::Social::set_position_check`].
 //!
-//! The answer is a yes or a no and nothing else, never a position or a
-//! distance: social never learns where the account really is, and so cannot
-//! pass anything derived from it on to the people it shows the claimer to.
+//! The answer is a verdict about the caller's own claim (plausible, not
+//! verified, or too coarse: the device only gives approximate locations) and
+//! nothing else, never a position or a distance: social never learns where
+//! the account really is, and so cannot pass anything derived from it on to
+//! the people it shows the claimer to.
 //! What those people get is computed from the claim alone (a distance band,
 //! one's own shake position); the true position only decides whether the
 //! claimer takes part at all.
@@ -22,7 +24,10 @@
 //!   and a session placed there would show strangers a distance band to the
 //!   true position, which is what ghost mode forbids for anyone who does not
 //!   see the person precisely.
-//! - **Bumps** refuse the shake (`LOCATION_NOT_VERIFIED`) before it is
+//!   A device that only reports approximate locations (worse than 100 m)
+//!   gets `LOCATION_TOO_COARSE` instead, so it can ask for precise location.
+//! - **Bumps** refuse the shake (`LOCATION_NOT_VERIFIED` /
+//!   `LOCATION_TOO_COARSE`) before it is
 //!   published, for the same reason: a bump moved to the real position would
 //!   tell friends of both the point between the true positions. A refused
 //!   shake can match nobody, so the other phone simply sees no bump.
@@ -42,17 +47,32 @@ pub struct Claim {
     pub accuracy_meters: f64,
 }
 
+/// What the check says about a claim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    Plausible,
+    /// No recent real fix puts the account there (or none at all).
+    NotVerified,
+    /// Not plausible, and the device's latest location was refused only for
+    /// being too coarse (approximate location).
+    TooCoarse,
+}
+
 /// Decides whether a claimed position is plausible for an account, from that
 /// account's own recent location fixes. Implemented by the geo domain.
 #[async_trait::async_trait]
 pub trait PositionCheck: Send + Sync + 'static {
-    /// True when `user_id` may plausibly be at `claim` right now. Answers no
-    /// when there is no recent, accurate, real fix to compare with.
-    async fn plausible(&self, user_id: Uuid, claim: Claim) -> AppResult<bool>;
+    /// Whether `user_id` may plausibly be at `claim` right now.
+    async fn check(&self, user_id: Uuid, claim: Claim) -> AppResult<Verdict>;
 }
 
 /// The check in use; `None` until one is plugged in.
 pub(crate) type Slot = std::sync::OnceLock<Arc<dyn PositionCheck>>;
+
+/// The error for a claim a device with only approximate locations made.
+pub(crate) fn too_coarse() -> AppError {
+    AppError::precondition("LOCATION_TOO_COARSE", "your location is too approximate; turn on precise location and try again")
+}
 
 /// The error for a claim the check refused (or could not confirm).
 pub(crate) fn not_verified() -> AppError {
@@ -71,10 +91,14 @@ impl crate::Social {
         }
     }
 
-    /// Fails with `LOCATION_NOT_VERIFIED` unless the claim is plausible for
-    /// `user_id`.
+    /// Fails with `LOCATION_NOT_VERIFIED` (or `LOCATION_TOO_COARSE`) unless
+    /// the claim is plausible for `user_id`.
     pub(crate) async fn require_plausible(&self, user_id: Uuid, claim: Claim) -> AppResult<()> {
         let Some(check) = self.position_check.get() else { return Err(not_verified()) };
-        if check.plausible(user_id, claim).await? { Ok(()) } else { Err(not_verified()) }
+        match check.check(user_id, claim).await? {
+            Verdict::Plausible => Ok(()),
+            Verdict::NotVerified => Err(not_verified()),
+            Verdict::TooCoarse => Err(too_coarse()),
+        }
     }
 }

@@ -122,9 +122,10 @@ to feed "people you may know" from another domain, and
 `DiscoverNearby` and `Bump` are matched on a position the client sends. It
 is checked first by a `claims::PositionCheck`, which the geo domain plugs in
 (`Geo::new` calls `Social::set_position_check`): does the account's own
-latest real fix (recent, accurate to 100 m, not mocked, reached at a
-plausible speed) put it there? The check answers yes or no, never a
-position or distance, so social holds nothing derived from a true position.
+latest real fix (recent, accurate to 100 m, not mocked, moving at ground
+speed or settled after a jump) put it there? The check answers plausible,
+not verified or too coarse about the caller's own claim, never a position
+or distance, so social holds nothing derived from a true position.
 What others are shown stays computed from the claim (distance bands, one's
 own shake position, the point between two friends' shakes); the true
 position only decides whether the claimer takes part.
@@ -137,8 +138,8 @@ precisely.
 
 | Feature | A claim that fails the check |
 |---|---|
-| `DiscoverNearby` | The stream is refused with `LOCATION_NOT_VERIFIED`; the user never appears on the nearby map. |
-| `Bump` | The shake is refused with `LOCATION_NOT_VERIFIED` before it is published, so nobody can match it; the other phone sees no bump. |
+| `DiscoverNearby` | The stream is refused with `LOCATION_NOT_VERIFIED` (`LOCATION_TOO_COARSE` while the device only gives approximate locations); the user never appears on the nearby map. |
+| `Bump` | The shake is refused with the same reasons before it is published, so nobody can match it; the other phone sees no bump. |
 
 Without a check plugged in, every claim is refused (fail closed). The geo
 side and the two-world test showing that what Ren sees does not depend on

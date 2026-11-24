@@ -14,7 +14,7 @@ use tokuly_core::prelude::*;
 
 use crate::{
     Geo,
-    claims::TrustedFix,
+    claims::Trust,
     detect::{ProximityTracker, StayTracker},
     math::Point,
     odometer::Odometer,
@@ -140,7 +140,7 @@ pub struct LiveState {
     /// The latest fix that is the account's real position, for checking
     /// positions claimed in other domains (see [`crate::claims`]).
     #[serde(default)]
-    pub trusted: Option<TrustedFix>,
+    pub trust: Trust,
     pub stay: StayTracker,
     /// The ongoing visit row, when history is recorded.
     pub visit_id: Option<Uuid>,

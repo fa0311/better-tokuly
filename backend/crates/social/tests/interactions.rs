@@ -584,6 +584,14 @@ async fn a_shake_where_the_shaker_is_not_is_refused_before_anyone_can_match_it()
 }
 
 #[tokio::test]
+async fn a_device_with_only_approximate_locations_is_told_so() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    ctx.claims.coarse(alice.id);
+    assert_eq!(shake(&ctx, &alice, somewhere()).await.unwrap_err().reason, "LOCATION_TOO_COARSE");
+}
+
+#[tokio::test]
 async fn without_a_position_check_no_shake_is_taken() {
     let ctx = start_unchecked().await;
     let alice = ctx.app.user("alice").await;
