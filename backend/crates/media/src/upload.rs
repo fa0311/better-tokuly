@@ -41,6 +41,21 @@ pub(crate) struct NewUpload<'a> {
     pub sha256: &'a str,
 }
 
+/// A validated upload, ready to be recorded.
+struct NewRow<'a> {
+    asset_id: Uuid,
+    owner_id: Uuid,
+    purpose: AssetPurpose,
+    kind: AssetKind,
+    upload: &'a NewUpload<'a>,
+    content_type: &'a str,
+    file_name: &'a str,
+    key: &'a str,
+    multipart_id: Option<&'a str>,
+    part_size: i64,
+    part_count: i32,
+}
+
 fn is_sha256_hex(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -75,12 +90,6 @@ impl Media {
         ensure!(upload.sha256.is_empty() || is_sha256_hex(upload.sha256), invalid, "SHA256_INVALID", "sha256 must be 64 hex characters");
 
         core.cache.rate_limit(&format!("media:upload:{owner_id}"), UPLOADS_PER_WINDOW, UPLOAD_WINDOW).await?;
-        let open: i64 = sqlx::query_scalar("SELECT count(*) FROM media_assets WHERE owner_id = $1 AND status = $2 AND deleted_at IS NULL")
-            .bind(owner_id)
-            .bind(AssetStatus::ASSET_STATUS_UPLOADING as i32)
-            .fetch_one(&core.db)
-            .await?;
-        ensure!(open < MAX_OPEN_UPLOADS, rate_limited, "TOO_MANY_UPLOADS", "finish or abort your unfinished uploads first");
 
         let asset_id = new_id();
         let key = store::original_key(asset_id, &recipe::extension_of(&file_name));
@@ -94,35 +103,27 @@ impl Media {
             (None, 0, 0, url)
         };
 
-        let inserted: Result<chrono::DateTime<chrono::Utc>, sqlx::Error> = sqlx::query_scalar(
-            "INSERT INTO media_assets
-                 (id, owner_id, purpose, kind, status, content_type, size_bytes, file_name, sha256, original_key, multipart_id, part_size, part_count)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-             RETURNING created_at",
-        )
-        .bind(asset_id)
-        .bind(owner_id)
-        .bind(purpose as i32)
-        .bind(kind as i32)
-        .bind(AssetStatus::ASSET_STATUS_UPLOADING as i32)
-        .bind(&declared.content_type)
-        .bind(upload.size_bytes)
-        .bind(&file_name)
-        .bind(upload.sha256.to_ascii_lowercase())
-        .bind(&key)
-        .bind(&multipart_id)
-        .bind(part_size)
-        .bind(part_count)
-        .fetch_one(&core.db)
-        .await;
-        let created_at = match inserted {
+        let row = NewRow {
+            asset_id,
+            owner_id,
+            purpose,
+            kind,
+            upload: &upload,
+            content_type: &declared.content_type,
+            file_name: &file_name,
+            key: &key,
+            multipart_id: multipart_id.as_deref(),
+            part_size,
+            part_count,
+        };
+        let created_at = match self.insert_upload(row).await {
             Ok(created_at) => created_at,
             Err(error) => {
                 // Without a row nobody would ever abort the multipart upload.
                 if let Some(multipart_id) = &multipart_id {
                     let _ = core.storage.abort_multipart(Bucket::Private, &key, multipart_id).await;
                 }
-                return Err(error.into());
+                return Err(error);
             }
         };
 
@@ -138,6 +139,61 @@ impl Media {
             expires_at: ts(created_at + self.cfg.upload_ttl()),
             ..Default::default()
         })
+    }
+
+    /// Records a new upload, unless the owner is over their limits: at most
+    /// [`MAX_OPEN_UPLOADS`] unfinished uploads, and at most
+    /// `TOKULY_MEDIA_MAX_UNUSED_GB` in uploads nothing uses yet (unfinished,
+    /// processing, or finished and not attached anywhere). The owner's
+    /// uploads are counted and the row is inserted under a per-owner lock,
+    /// so requests at the same moment cannot pass the check together.
+    async fn insert_upload(&self, row: NewRow<'_>) -> AppResult<chrono::DateTime<chrono::Utc>> {
+        let mut tx = self.core.db.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('media:uploads:' || $1::text, 0))")
+            .bind(row.owner_id)
+            .execute(&mut *tx)
+            .await?;
+        let (open, unused_bytes): (i64, i64) = sqlx::query_as(
+            "SELECT count(*) FILTER (WHERE status = $2), COALESCE(sum(size_bytes) FILTER (WHERE holder_count = 0), 0)::bigint
+             FROM media_assets
+             WHERE owner_id = $1 AND deleted_at IS NULL AND status IN ($2, $3, $4) AND (holder_count = 0 OR status = $2)",
+        )
+        .bind(row.owner_id)
+        .bind(AssetStatus::ASSET_STATUS_UPLOADING as i32)
+        .bind(AssetStatus::ASSET_STATUS_PROCESSING as i32)
+        .bind(AssetStatus::ASSET_STATUS_READY as i32)
+        .fetch_one(&mut *tx)
+        .await?;
+        ensure!(open < MAX_OPEN_UPLOADS, rate_limited, "TOO_MANY_UPLOADS", "finish or abort your unfinished uploads first");
+        ensure!(
+            unused_bytes.saturating_add(row.upload.size_bytes) <= self.cfg.max_unused_bytes(),
+            rate_limited,
+            "UNUSED_QUOTA_EXCEEDED",
+            "use or delete some of your uploads first"
+        );
+        let created_at = sqlx::query_scalar(
+            "INSERT INTO media_assets
+                 (id, owner_id, purpose, kind, status, content_type, size_bytes, file_name, sha256, original_key, multipart_id, part_size, part_count)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             RETURNING created_at",
+        )
+        .bind(row.asset_id)
+        .bind(row.owner_id)
+        .bind(row.purpose as i32)
+        .bind(row.kind as i32)
+        .bind(AssetStatus::ASSET_STATUS_UPLOADING as i32)
+        .bind(row.content_type)
+        .bind(row.upload.size_bytes)
+        .bind(row.file_name)
+        .bind(row.upload.sha256.to_ascii_lowercase())
+        .bind(row.key)
+        .bind(row.multipart_id)
+        .bind(row.part_size)
+        .bind(row.part_count)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(created_at)
     }
 
     /// The caller's upload, whatever state it is in.

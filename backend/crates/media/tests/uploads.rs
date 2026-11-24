@@ -1067,3 +1067,44 @@ async fn private_downloads_are_never_cached_by_shared_caches() {
     let cache_control = download.headers().get("cache-control").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
     assert!(cache_control.contains("private") && cache_control.contains("no-store") && !cache_control.contains("public"), "{cache_control:?}");
 }
+
+#[tokio::test]
+async fn unused_uploads_are_capped_in_bytes_per_user() {
+    let h = start_with(MediaConfig { max_unused_gb: 50, ..Default::default() }).await;
+    let alice = h.app.user("alice").await;
+    let video = |size_bytes: i64| CreateUploadRequest {
+        purpose: AssetPurpose::ASSET_PURPOSE_VIDEO.into(),
+        file_name: "long.mp4".into(),
+        content_type: "video/mp4".into(),
+        size_bytes,
+        ..Default::default()
+    };
+    const GB: i64 = 1024 * 1024 * 1024;
+    // Two 20 GB videos are fine, a third would put 60 GB in flight.
+    for _ in 0..2 {
+        let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(20 * GB)).await.unwrap();
+    }
+    let error = h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &video(20 * GB)).await.unwrap_err();
+    assert_eq!((error.code.as_str(), error.reason.as_str()), ("resource_exhausted", "UNUSED_QUOTA_EXCEEDED"));
+    // What fits still fits, and other people have their own allowance.
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(5 * GB)).await.unwrap();
+    let bob = h.app.user("bob").await;
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&bob), &video(20 * GB)).await.unwrap();
+
+    // Uploads that are in use no longer count.
+    let carol = h.app.user("carol").await;
+    let held = h.upload(&carol, AssetPurpose::ASSET_PURPOSE_CHAT_FILE, "a.bin", "application/octet-stream", vec![1u8; 1000]).await;
+    sqlx::query("UPDATE media_assets SET size_bytes = $2 WHERE id = $1").bind(asset_id(&held)).bind(45 * GB).execute(&h.app.core.db).await.unwrap();
+    assert_eq!(
+        reason(h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&carol), &video(10 * GB)).await),
+        "UNUSED_QUOTA_EXCEEDED"
+    );
+    assets::attach(&h.app.core.db, asset_id(&held), "test:holder").await.unwrap();
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&carol), &video(10 * GB)).await.unwrap();
+
+    // Requests at the same moment cannot squeeze past the limit together.
+    let dave = h.app.user("dave").await;
+    let large = video(20 * GB);
+    let attempts = futures::future::join_all((0..6).map(|_| h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&dave), &large))).await;
+    assert_eq!(attempts.iter().filter(|a| a.is_ok()).count(), 2, "{attempts:?}");
+}

@@ -50,6 +50,11 @@ pub struct MediaConfig {
     /// deletes it. 0 keeps unused uploads forever.
     #[arg(long, env = "TOKULY_MEDIA_UNATTACHED_TTL_HOURS", default_value_t = 48)]
     pub unattached_ttl_hours: i64,
+    /// Gigabytes one account may have in uploads that nothing uses yet
+    /// (unfinished, processing, or finished but not attached anywhere).
+    /// Bounds the storage one account can claim without publishing anything.
+    #[arg(long, env = "TOKULY_MEDIA_MAX_UNUSED_GB", default_value_t = 100)]
+    pub max_unused_gb: i64,
 
     // ── processing ──
     /// Images, animations and voice messages processed in parallel per worker process.
@@ -99,6 +104,7 @@ impl Default for MediaConfig {
             part_size_mb: 16,
             upload_ttl_hours: 24,
             unattached_ttl_hours: 48,
+            max_unused_gb: 100,
             image_concurrency: 4,
             video_concurrency: 1,
             ffmpeg_threads: 0,
@@ -127,6 +133,11 @@ impl MediaConfig {
 
     pub fn multipart_threshold_bytes(&self) -> i64 {
         self.multipart_threshold_mb * MB
+    }
+
+    /// Bytes one account may have in uploads nothing uses yet.
+    pub fn max_unused_bytes(&self) -> i64 {
+        self.max_unused_gb.max(0).saturating_mul(1024 * MB)
     }
 
     pub fn upload_ttl(&self) -> Duration {

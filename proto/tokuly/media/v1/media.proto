@@ -23,7 +23,9 @@ service MediaService {
   // Errors: PURPOSE_INVALID, PURPOSE_NOT_ALLOWED (purposes only the server
   // creates, e.g. live archives), FILE_EMPTY, FILE_TOO_LARGE,
   // UNSUPPORTED_CONTENT_TYPE, SHA256_INVALID, TOO_MANY_UPLOADS (too many
-  // unfinished uploads), RATE_LIMITED.
+  // unfinished uploads), UNUSED_QUOTA_EXCEEDED (the caller's uploads that
+  // nothing uses yet, this one included, would exceed the per-account
+  // allowance: attach or delete some first), RATE_LIMITED.
   rpc CreateUpload(CreateUploadRequest) returns (CreateUploadResponse);
   // Signs part URLs of a multipart upload and reports which parts the store
   // already holds, so an interrupted upload resumes where it stopped.
