@@ -833,3 +833,51 @@ async fn the_audit_log_does_not_name_a_hidden_author_to_an_involved_admin() {
         assert!(!audit(&neutral, request).await.is_empty());
     }
 }
+
+/// Every community thread is an anonymous post by `author`, and nobody is involved.
+struct EveryThreadBy {
+    author: Uuid,
+}
+
+#[async_trait]
+impl HiddenOwners for EveryThreadBy {
+    async fn owner_for_moderation(&self, subject_type: SubjectType, _subject_id: Uuid) -> AppResult<Option<Uuid>> {
+        Ok((subject_type == THREAD).then_some(self.author))
+    }
+
+    async fn is_party(&self, _subject_type: SubjectType, _subject_id: Uuid, _user_id: Uuid) -> AppResult<bool> {
+        Ok(false)
+    }
+}
+
+#[tokio::test]
+async fn a_moderator_can_unmask_only_so_many_anonymous_authors_an_hour() {
+    let (app, admin) = start_with(tokuly_admin::AdminConfig { moderator_reveals_per_hour: 2, ..Default::default() }).await;
+    let moderator = app.user_with_roles("mod", &["moderator"]).await;
+    let (author, reporter) = (app.user("author").await, app.user("rep").await);
+    admin.set_hidden_owners(Arc::new(EveryThreadBy { author: author.id }));
+    let mut cases = Vec::new();
+    for _ in 0..3 {
+        let thread = Uuid::now_v7();
+        admin.handle_event(report_event(reporter.id, (THREAD, thread), Uuid::nil(), "SPAM", "")).await.unwrap();
+        let case_id: Uuid = sqlx::query_scalar("SELECT id FROM moderation_cases WHERE subject_id = $1").bind(thread).fetch_one(&app.core.db).await.unwrap();
+        cases.push(case_id.to_string());
+    }
+    let open = |case_id: &str| {
+        let (app, moderator, request) = (&app, moderator.clone(), GetCaseRequest { case_id: case_id.to_owned(), ..Default::default() });
+        async move { app.call::<_, GetCaseResponse>(&format!("{MODERATION}/GetCase"), Some(&moderator), &request).await }
+    };
+
+    // Opening the same case again does not count twice.
+    for case_id in [&cases[0], &cases[0], &cases[1]] {
+        let opened = open(case_id).await.unwrap();
+        assert_eq!(opened.moderation_case.subject_owner.id, author.id.to_string());
+    }
+    let refused = open(&cases[2]).await.unwrap_err();
+    assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("resource_exhausted", "RATE_LIMITED"));
+    assert!(audit_of_case(&app, &cases[2], "case.author_revealed").await.is_empty());
+    // Cases already opened, and cases that hide nobody, still open.
+    assert!(open(&cases[1]).await.is_ok());
+    let ordinary = open_case(&app, &admin, &moderator, &reporter, &author).await;
+    assert!(open(&ordinary.id).await.is_ok());
+}

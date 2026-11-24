@@ -31,6 +31,12 @@ pub struct AdminConfig {
     /// moderator account.
     #[arg(long, env = "TOKULY_MODERATOR_SANCTIONS_PER_HOUR", default_value_t = 120)]
     pub moderator_sanctions_per_hour: u32,
+
+    /// Authors of anonymous posts one staff member (admins included) may be
+    /// shown per hour, counted once per case. Guards the anonymity of every
+    /// such post against a compromised or curious staff account.
+    #[arg(long, env = "TOKULY_MODERATOR_REVEALS_PER_HOUR", default_value_t = 30)]
+    pub moderator_reveals_per_hour: u32,
 }
 
 impl Default for AdminConfig {
@@ -41,6 +47,7 @@ impl Default for AdminConfig {
             announcement_notify_active_days: 30,
             announcement_notify_chunk: 500,
             moderator_sanctions_per_hour: 120,
+            moderator_reveals_per_hour: 30,
         }
     }
 }

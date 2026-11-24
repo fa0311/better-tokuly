@@ -19,6 +19,9 @@ use crate::{Admin, audit::Audit, staff::Staff};
 pub(crate) const STATUS_OPEN: &str = "open";
 pub(crate) const STATUS_RESOLVED: &str = "resolved";
 
+/// Window of the limit on anonymous authors shown (`moderator_reveals_per_hour`).
+const REVEAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(3600);
+
 macro_rules! case_columns {
     () => {
         "id, subject_type, subject_id, subject_owner_id, owner_hidden, subject_title, subject_path, status, report_count, categories, \
@@ -258,6 +261,7 @@ impl Admin {
         let involved = row.owner_hidden && self.is_party_to_hidden(staff.id, row.subject_type, row.subject_id).await?;
         let reveal = !involved;
         if row.owner_hidden && reveal && row.subject_owner_id.is_some() {
+            self.limit_reveals(staff, row.id).await?;
             Audit::by(staff, "case.author_revealed").case(row).record(&self.core.db).await?;
         }
         let ids: Vec<Uuid> = row.people(reveal).collect();
@@ -265,6 +269,18 @@ impl Admin {
         let mut case = row.to_proto(&people, reveal);
         case.conflict_of_interest = involved;
         Ok((case, reveal && row.subject_owner_id.is_some()))
+    }
+
+    /// Caps how many anonymous authors one staff member is shown per hour.
+    /// A case counts once an hour, however often it is opened.
+    async fn limit_reveals(&self, staff: &Staff, case_id: Uuid) -> AppResult<()> {
+        let seen = format!("admin-revealed:{}:{case_id}", staff.id);
+        if self.core.cache.exists(&seen).await? {
+            return Ok(());
+        }
+        self.core.cache.rate_limit(&format!("admin-reveals:{}", staff.id), self.cfg.moderator_reveals_per_hour, REVEAL_WINDOW).await?;
+        self.core.cache.set_nx(&seen, "1", REVEAL_WINDOW).await?;
+        Ok(())
     }
 
     /// One page of a case's reports, newest first.
