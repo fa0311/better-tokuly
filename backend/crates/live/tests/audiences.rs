@@ -109,6 +109,21 @@ async fn followers_close_friends_and_circles_watch_what_is_shared_with_them() {
     assert_eq!(last.data["visible_to"], serde_json::json!([friend.id.to_string()]));
 }
 
+/// The channel header as `viewer` sees it: what a page shows of a channel.
+async fn channel_header(ctx: &Ctx, viewer: Option<&TestUser>, channel: &Channel) -> serde_json::Value {
+    let request =
+        tokuly_proto::video::GetChannelRequest { channel_id: channel.summary.id.clone(), ..Default::default() };
+    let page: tokuly_proto::video::GetChannelResponse =
+        ctx.app.call("tokuly.video.v1.ChannelService/GetChannel", viewer, &request).await.unwrap();
+    let page = page.channel.as_option().cloned().unwrap();
+    serde_json::json!({
+        "video_count": page.video_count,
+        "view_count": page.view_count,
+        "trailer": page.trailer_video_id,
+        "subscribers": page.summary.as_option().map(|summary| summary.subscriber_count).unwrap_or_default(),
+    })
+}
+
 /// What a viewer can tell about a locked account's channel from outside.
 async fn what_one_learns(ctx: &Ctx, viewer: Option<&TestUser>, channel: &Channel) -> serde_json::Value {
     let upcoming: ListUpcomingStreamsResponse =
@@ -120,6 +135,7 @@ async fn what_one_learns(ctx: &Ctx, viewer: Option<&TestUser>, channel: &Channel
         .map(|stream| stream.title)
         .collect();
     serde_json::json!({
+        "header": channel_header(ctx, viewer, channel).await,
         "channel": channel_streams(ctx, viewer, channel).await,
         "live": live_now(ctx, viewer, channel).await,
         "upcoming": upcoming,
@@ -131,12 +147,16 @@ async fn a_stranger_learns_nothing_from_a_locked_accounts_streams() {
     let ctx = start().await;
     let stranger = ctx.app.user("stranger").await;
     let follower = ctx.app.user("follower").await;
-    // Two worlds that differ only in what a locked account streams publicly.
+    // Two worlds: a locked account that streams publicly, and an empty channel.
     let (posted, silent) = (ctx.app.user("posted").await, ctx.app.user("silent").await);
     let mut channels = Vec::new();
+    // The other world is an account that is not locked and has a channel
+    // with nothing on it.
     for world in [&posted, &silent] {
         ctx.follow(&follower, world).await;
-        ctx.set_locked(world, true).await;
+        if world.id == posted.id {
+            ctx.set_locked(world, true).await;
+        }
         channels.push(ctx.channel(world, "鍵チャンネル").await);
     }
     let on_air = ctx.on_air(&posted, &channels[0], "鍵アカの配信").await;
@@ -146,6 +166,9 @@ async fn a_stranger_learns_nothing_from_a_locked_accounts_streams() {
         })
         .await;
     assert_eq!(card(&on_air).visibility, buffa::EnumValue::from(Visibility::VISIBILITY_PUBLIC), "still public");
+    for world in &channels {
+        ctx.subscribe(&stranger, world, tokuly_proto::video::NotificationLevel::NOTIFICATION_LEVEL_ALL).await;
+    }
 
     for viewer in [Some(&stranger), None] {
         let seen = what_one_learns(&ctx, viewer, &channels[0]).await;
@@ -204,4 +227,98 @@ async fn locking_an_account_applies_at_the_next_read_and_takes_streams_off_the_d
     assert_eq!(ctx.live.authorize_media(&read(&stream)).await.unwrap(), Ok(()));
     let last = ctx.app.events_by("live.stream.visibility_changed", owner.id).await.pop().unwrap();
     assert!(last.data["visible_to"].is_null());
+}
+
+#[tokio::test]
+async fn clips_of_a_locked_accounts_stream_and_video_leave_search() {
+    let ctx = start().await;
+    let owner = ctx.app.user("owner").await;
+    let fan = ctx.app.user("fan").await;
+    let channel = ctx.channel(&owner, "ch").await;
+    let stream = ctx.on_air(&owner, &channel, "クリップされる配信").await;
+    sqlx::query("UPDATE live_streams SET started_at = now() - interval '100 seconds' WHERE id = $1")
+        .bind(sid(&stream))
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let asset = tokuly_media::testing::ready_video(
+        &ctx.app.core,
+        owner.id,
+        tokuly_proto::media::AssetPurpose::ASSET_PURPOSE_VIDEO,
+    )
+    .await
+    .unwrap();
+    let video_id = tokuly_video::videos::create_from_asset(
+        &ctx.app.core,
+        tokuly_video::videos::NewVideo {
+            visibility: Visibility::VISIBILITY_PUBLIC,
+            publish: true,
+            ..tokuly_video::videos::NewVideo::new(id(&channel.summary.id), asset.id, "元動画")
+        },
+    )
+    .await
+    .unwrap();
+    let mut clip_ids = Vec::new();
+    for request in [
+        CreateClipRequest {
+            stream_id: card(&stream).id.clone(),
+            title: "配信の".into(),
+            start_seconds: 60.0,
+            duration_seconds: 10.0,
+            ..Default::default()
+        },
+        CreateClipRequest {
+            video_id: video_id.to_string(),
+            title: "動画の".into(),
+            start_seconds: 0.0,
+            duration_seconds: 5.0,
+            ..Default::default()
+        },
+    ] {
+        let created: CreateClipResponse = ctx.call(CLIPS, "CreateClip", Some(&fan), &request).await.unwrap();
+        let clip_id = created.clip.id.clone();
+        // Ready, and in search, as processing would leave it.
+        sqlx::query("UPDATE live_clips SET status = 2 WHERE id = $1")
+            .bind(id(&clip_id))
+            .execute(&ctx.app.core.db)
+            .await
+            .unwrap();
+        clip_ids.push(clip_id);
+    }
+    ctx.live.reindex_clips_of_stream(sid(&stream)).await.unwrap();
+    ctx.live.reindex_clips_of_video(video_id).await.unwrap();
+    for clip_id in &clip_ids {
+        assert!(ctx.search_docs(clip_id).await.last().unwrap().is_some(), "{clip_id} searchable");
+    }
+
+    ctx.set_locked(&owner, true).await;
+    ctx.deliver_lock_change(&owner).await;
+    assert!(ctx.search_docs(&clip_ids[0]).await.last().unwrap().is_none(), "the stream's clip leaves search");
+    // The video domain's pass tells this one through video.video.visibility_changed.
+    tokuly_video::locks::sync_owner(&ctx.app.core, owner.id).await.unwrap();
+    for event in ctx.app.events_by("video.video.visibility_changed", owner.id).await {
+        ctx.live.handle_event(event).await.unwrap();
+    }
+    assert!(ctx.search_docs(&clip_ids[1]).await.last().unwrap().is_none(), "the video's clip leaves search");
+}
+
+#[tokio::test]
+async fn a_lock_never_widens_a_stream_that_was_announced_to_nobody() {
+    let ctx = start().await;
+    let owner = ctx.app.user("owner").await;
+    let channel = ctx.channel(&owner, "ch").await;
+    let public = ctx.on_air(&owner, &channel, "公開").await;
+    let unlisted =
+        ctx.on_air_with(&owner, &channel, "限定", |r| r.visibility = Visibility::VISIBILITY_UNLISTED.into()).await;
+    ctx.set_locked(&owner, true).await;
+    ctx.deliver_lock_change(&owner).await;
+    let events = ctx.app.events_by("live.stream.visibility_changed", owner.id).await;
+    let visibility_of = |stream: &Stream| {
+        events
+            .iter()
+            .find(|event| event.data["stream_id"] == card(stream).id)
+            .map(|event| event.data["visibility"].clone())
+    };
+    assert_eq!(visibility_of(&public), Some(serde_json::json!(6)));
+    assert_eq!(visibility_of(&unlisted), Some(serde_json::json!(3)), "not widened to friends in the feed");
 }

@@ -79,12 +79,13 @@ pub async fn shorts(core: &Core, viewer: &Viewer, rows: &[ShortRow]) -> AppResul
     original_ids.sort_unstable();
     original_ids.dedup();
     // Only originals the viewer may open are shown.
-    let originals: HashMap<Uuid, ShortRow> = shorts::find_many(core, &original_ids)
+    let mut originals: Vec<ShortRow> = shorts::find_many(core, &original_ids)
         .await?
         .into_iter()
         .filter(|original| access::can_watch(viewer, &original.facts()))
-        .map(|original| (original.id, original))
         .collect();
+    viewer.drop_newly_locked(core, &mut originals, ShortRow::lock_facts).await?;
+    let originals: HashMap<Uuid, ShortRow> = originals.into_iter().map(|original| (original.id, original)).collect();
 
     let mut channel_ids: Vec<Uuid> = rows
         .iter()

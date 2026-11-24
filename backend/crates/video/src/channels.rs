@@ -281,11 +281,12 @@ struct SubscriptionState {
 /// A channel of a locked account stays visible as a channel (it never
 /// reveals its owner), but to anyone who is neither the owner nor one of
 /// their followers or friends it looks like a channel without videos: no
-/// video count, no views, no trailer.
+/// video count and no trailer. Its view count is the real one (a channel
+/// that shows 0 whatever happened would stand out as a locked account's).
 pub async fn to_proto(core: &Core, viewer: &Viewer, channel: &ChannelRow) -> AppResult<Channel> {
     if shut_for(core, viewer, channel.owner_id).await? {
         let page = page(core, viewer, channel).await?;
-        return Ok(Channel { video_count: 0, view_count: 0, trailer_video_id: String::new(), ..page });
+        return Ok(Channel { video_count: 0, trailer_video_id: String::new(), ..page });
     }
     page(core, viewer, channel).await
 }

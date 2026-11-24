@@ -60,7 +60,9 @@ impl Shorts {
                     let audience = after.audience(context.locked);
                     let visible_to = match audience {
                         ContentAudience::Public => None,
-                        audience => context.members(audience),
+                        audience => context
+                            .members(audience)
+                            .map(|members| tokuly_core::events::bounded_audience(members, None)),
                     };
                     listing::emit_visibility_changed_in(&mut tx, &after, visible_to).await?;
                     changed += 1;

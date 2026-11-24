@@ -107,9 +107,28 @@ async fn followers_close_friends_and_circles_see_what_is_shared_with_them() {
     assert!(last.data["changed_at"].is_string());
 }
 
+/// The channel header as `viewer` sees it: what a page shows of a channel.
+async fn channel_header(ctx: &Ctx, viewer: Option<&TestUser>, channel: &Channel) -> serde_json::Value {
+    let request =
+        tokuly_proto::video::GetChannelRequest { channel_id: channel.summary.id.clone(), ..Default::default() };
+    let page: tokuly_proto::video::GetChannelResponse =
+        ctx.app.call("tokuly.video.v1.ChannelService/GetChannel", viewer, &request).await.unwrap();
+    let page = page.channel.as_option().cloned().unwrap();
+    serde_json::json!({
+        "video_count": page.video_count,
+        "view_count": page.view_count,
+        "trailer": page.trailer_video_id,
+        "subscribers": page.summary.as_option().map(|summary| summary.subscriber_count).unwrap_or_default(),
+    })
+}
+
 /// What a viewer can tell about a locked account's channel from outside.
 async fn what_one_learns(ctx: &Ctx, viewer: Option<&TestUser>, channel: &Channel, tag: &str) -> serde_json::Value {
-    serde_json::json!({ "grid": grid(ctx, viewer, channel).await, "hashtag": hashtag(ctx, viewer, tag).await })
+    serde_json::json!({
+        "header": channel_header(ctx, viewer, channel).await,
+        "grid": grid(ctx, viewer, channel).await,
+        "hashtag": hashtag(ctx, viewer, tag).await,
+    })
 }
 
 #[tokio::test]
@@ -117,12 +136,16 @@ async fn a_stranger_learns_nothing_from_a_locked_accounts_shorts() {
     let ctx = start().await;
     let stranger = ctx.app.user("stranger").await;
     let follower = ctx.app.user("follower").await;
-    // Two worlds that differ only in what a locked account posted publicly.
+    // Two worlds: a locked account that posted publicly, and an empty channel.
     let (posted, silent) = (ctx.app.user("posted").await, ctx.app.user("silent").await);
     let mut channels = Vec::new();
+    // The other world is an account that is not locked and has a channel
+    // with nothing on it.
     for world in [&posted, &silent] {
         ctx.follow(&follower, world).await;
-        ctx.set_locked(world, true).await;
+        if world.id == posted.id {
+            ctx.set_locked(world, true).await;
+        }
         channels.push(ctx.channel(world, "鍵チャンネル").await);
     }
     let (posted_tag, silent_tag) = (unique("locked"), unique("locked"));
@@ -133,6 +156,9 @@ async fn a_stranger_learns_nothing_from_a_locked_accounts_shorts() {
         })
         .await;
     assert_eq!(public.visibility, buffa::EnumValue::from(Visibility::VISIBILITY_PUBLIC), "still shared publicly");
+    for world in &channels {
+        ctx.subscribe(&stranger, world, tokuly_proto::video::NotificationLevel::NOTIFICATION_LEVEL_ALL).await;
+    }
 
     for viewer in [Some(&stranger), None] {
         let seen = what_one_learns(&ctx, viewer, &channels[0], &posted_tag).await;
@@ -167,6 +193,25 @@ async fn locking_an_account_applies_at_the_next_read_and_unlists_its_shorts() {
     assert_eq!(ctx.get(Some(&stranger), &short.id).await.unwrap_err().reason, "SHORT_NOT_FOUND");
     assert!(grid(&ctx, None, &channel).await.is_empty());
     assert_eq!(hashtag(&ctx, Some(&stranger), &tag).await[1], "0", "the page leaves it out at once");
+    // Nor is it remixed, or shown behind its sound.
+    let remix = CreateShortRequest {
+        channel_id: ctx.channel(&stranger, "リミックス").await.summary.id.clone(),
+        asset_id: ctx.upload(&stranger).await,
+        remix: RemixInput {
+            short_id: short.id.clone(),
+            kind: RemixKind::REMIX_KIND_REMIX.into(),
+            ..Default::default()
+        }
+        .into(),
+        ..Default::default()
+    };
+    assert_eq!(ctx.create(&stranger, &remix).await.unwrap_err().reason, "REMIX_NOT_FOUND");
+    let sound_id = short.sound.as_option().map(|sound| sound.id.clone()).expect("its own sound");
+    let sound: GetSoundResponse = ctx
+        .call(DISCOVERY, "GetSound", Some(&stranger), &GetSoundRequest { sound_id, ..Default::default() })
+        .await
+        .unwrap();
+    assert!(sound.sound.origin_short_id.is_empty(), "the sound does not lead to the short");
     assert!(ctx.get(Some(&follower), &short.id).await.is_ok());
 
     ctx.deliver_lock_change(&owner).await;
@@ -201,4 +246,51 @@ async fn passes_of_one_lock_running_at_once_change_each_short_once() {
     let changed: u64 = passes.into_iter().map(|pass| pass.expect("a pass")).sum();
     assert_eq!(changed, 3, "each short changes once, whichever pass gets it");
     assert_eq!(ctx.app.events_by("shorts.short.visibility_changed", owner.id).await.len(), 3);
+}
+
+#[tokio::test]
+async fn a_lock_with_more_followers_than_an_event_can_name_names_nobody() {
+    let ctx = start().await;
+    let owner = ctx.app.user("owner").await;
+    // More followers than `visible_to` may list (made directly, as the social API would).
+    let prefix = unique("crowd");
+    sqlx::query(
+        "WITH crowd AS (
+             INSERT INTO users (handle, display_name)
+             SELECT $1 || n, 'crowd' FROM generate_series(1, $2) AS n RETURNING id
+         )
+         INSERT INTO follows (follower_id, followee_id) SELECT id, $3 FROM crowd",
+    )
+    .bind(&prefix)
+    .bind(tokuly_core::events::MAX_VISIBLE_TO as i32 + 1)
+    .bind(owner.id)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+    let channel = ctx.channel(&owner, "ch").await;
+    let short = ctx.short(&owner, &channel, "みんなへ").await;
+    ctx.set_locked(&owner, true).await;
+    ctx.deliver_lock_change(&owner).await;
+    let last = ctx.app.events_by("shorts.short.visibility_changed", owner.id).await.pop().expect("announced");
+    assert_eq!(last.data["id"], short.id);
+    assert_eq!(last.data["visible_to"], serde_json::json!([]), "too many to name: withdraws from everyone");
+}
+
+#[tokio::test]
+async fn a_lock_never_widens_a_short_that_was_announced_to_nobody() {
+    let ctx = start().await;
+    let owner = ctx.app.user("owner").await;
+    let channel = ctx.channel(&owner, "ch").await;
+    let public = ctx.short(&owner, &channel, "公開").await;
+    let unlisted = ctx
+        .short_with(&owner, &channel, "限定", |request| request.visibility = Visibility::VISIBILITY_UNLISTED.into())
+        .await;
+    ctx.set_locked(&owner, true).await;
+    ctx.deliver_lock_change(&owner).await;
+    let events = ctx.app.events_by("shorts.short.visibility_changed", owner.id).await;
+    let visibility_of = |short: &Short| {
+        events.iter().find(|event| event.data["id"] == short.id).map(|event| event.data["visibility"].clone())
+    };
+    assert_eq!(visibility_of(&public), Some(serde_json::json!(6)));
+    assert_eq!(visibility_of(&unlisted), Some(serde_json::json!(3)), "not widened to friends in the feed");
 }

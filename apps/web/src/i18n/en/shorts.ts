@@ -190,6 +190,7 @@ export default {
     visibility: "Who can see it",
     circle: "Which circle?",
     circleNone: "No circles yet. Make one on the friends screen!",
+    circleMissing: "The circle you picked is gone. Pick another one",
     lockedNote:
       "Your account is locked, so even public shorts reach only your followers and friends",
     comments: "Allow comments and likes",

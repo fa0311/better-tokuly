@@ -86,8 +86,10 @@ never reveals which account owns it, and hiding it would tell everyone
 who knows the account's state which channel is theirs. To anyone who is
 neither the owner nor a follower or friend it looks like a channel
 without content: no videos, shorts or streams on its pages, no video
-count, no views, no trailer, no playlists, not among recommended channels
-(which need a public video of an unlocked owner). Followers and friends
+count, no trailer, no playlists, not among recommended channels (which
+need a public video of an unlocked owner). Its view and subscriber counts
+are the real ones: a fixed 0 would mark it as a locked account's
+channel. Followers and friends
 see it as before. A stranger who subscribed keeps the subscription and
 hears about nothing until the account is unlocked.
 
@@ -109,7 +111,7 @@ transaction of the change they describe.
 | `video.video.created` | `VideoEvent` | A draft was created. |
 | `video.video.published` | `VideoEvent` | A video went live, or a live video became visible to an audience for the first time. `first_publication` is true exactly once per video: when it is first both PUBLISHED and PUBLIC or FRIENDS. |
 | `video.video.unpublished` | `VideoEvent` | A published video went back to draft. |
-| `video.video.visibility_changed` | `VideoEvent` + `{ visible_to, changed_at }` | A published video got another audience and stays published, or (once per published open video) its owner locked or unlocked their account. `visibility` is the audience now in effect (an open video of a locked owner reads as 6, followers). `visible_to`: who besides the owner may still watch it — `null` when everyone may; otherwise everyone in the audience as the social graph gives it, people in a block with the owner left out; for a lock only the channel's subscribers and the video's raters among the owner's followers and friends (who may have something about it in their inbox). A concurrent change in between names nobody. `changed_at`: when the change was made, taken while the row was locked. Not emitted when nothing changed, nor with a publication (that is `video.video.published`). **Never forward to outside parties: `visible_to` is the owner's follower list.** |
+| `video.video.visibility_changed` | `VideoEvent` + `{ visible_to, changed_at }` | A published video got another audience and stays published, or (once per published open video) its owner locked or unlocked their account. `visibility` is the audience now in effect (a PUBLIC video, or a FRIENDS one with a link, of a locked owner reads as 6, followers; NO_FEED and UNLISTED keep their number, so the feed never shows their entries to friends because of a lock). `visible_to`: who besides the owner may still watch it — `null` when everyone may; otherwise everyone in the audience as the social graph gives it, people in a block with the owner left out; for a lock only the channel's subscribers and the video's raters among the owner's followers and friends (who may have something about it in their inbox). A concurrent change in between names nobody. At most 5 000 people are named (`tokuly_core::events::MAX_VISIBLE_TO`): a longer list is narrowed to the people this domain may have told about it, or to nobody (`[]`), which withdraws too much, never too little. `changed_at`: when the change was made, taken while the row was locked. Not emitted when nothing changed, nor with a publication (that is `video.video.published`). **Never forward to outside parties: `visible_to` is the owner's follower list.** |
 | `video.video.deleted` | `VideoEvent` | A video is gone: deleted by the owner, with its channel or account, by a takedown, or because its upload was deleted. Consumers drop what they keep about it (comments, clips). |
 | `video.playlist.deleted` | `{ playlist_id, owner_id }` | A custom playlist is gone. |
 

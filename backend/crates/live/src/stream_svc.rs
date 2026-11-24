@@ -257,6 +257,10 @@ impl LiveStreamService for Live {
                 self.push_stream_updated(&updated).await;
             }
             let (was, now) = (stream.audience(stream.owner_locked), updated.audience(updated.owner_locked));
+            if was != now {
+                // Its clips are searchable only while it is public.
+                self.reindex_clips_of_stream(updated.id).await?;
+            }
             if access::narrower(was, now) {
                 // Whoever the new visibility leaves out stops following the stream.
                 // (Widening, or moving between the ones open to everyone, leaves nobody out.)

@@ -94,11 +94,9 @@ async fn sync_to(core: &Core, owner_id: Uuid, locked: bool) -> AppResult<u64> {
             }
             if after.is_published() && after.is_open() {
                 let visible_to = locked.then(|| {
-                    let mut people: Vec<Uuid> =
+                    let people: Vec<Uuid> =
                         told.get(&after.id).into_iter().flatten().copied().filter(|id| tied.contains(id)).collect();
-                    people.sort_unstable();
-                    people.dedup();
-                    people
+                    tokuly_core::events::bounded_audience(people, None)
                 });
                 videos::emit_visibility_changed_in(&mut tx, &after, visible_to).await?;
                 if locked {

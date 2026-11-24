@@ -133,6 +133,53 @@ pub async fn run_outbox_relay(db: PgPool, bus: Bus, cancel: CancellationToken) {
 
 const BATCH: usize = 200;
 
+/// The largest message NATS takes when the server does not say (its default).
+const DEFAULT_MAX_PAYLOAD: usize = 1024 * 1024;
+/// Room left for the headers that go with a message.
+const HEADER_ROOM: usize = 4096;
+
+/// Who besides an owner may still see content, as producers name them in
+/// events that withdraw notifications and feed entries (`visible_to`), at
+/// most this many: longer lists are narrowed by the producer (see
+/// [`bounded_audience`]), so no event approaches the bus's message limit.
+pub const MAX_VISIBLE_TO: usize = 5_000;
+
+/// `members` as a `visible_to` list: unchanged up to [`MAX_VISIBLE_TO`]
+/// people; otherwise narrowed to the ones in `told` (who may have something
+/// about the content in their inbox; `None` when the producer cannot say),
+/// and when even that is too long, nobody. Naming fewer people withdraws
+/// more than needed, never less. Sorted.
+pub fn bounded_audience(members: Vec<Uuid>, told: Option<&[Uuid]>) -> Vec<Uuid> {
+    let mut members = members;
+    if members.len() > MAX_VISIBLE_TO {
+        members = match told {
+            Some(told) => {
+                let told: std::collections::HashSet<&Uuid> = told.iter().collect();
+                members.into_iter().filter(|id| told.contains(id)).collect()
+            }
+            None => Vec::new(),
+        };
+        if members.len() > MAX_VISIBLE_TO {
+            members = Vec::new();
+        }
+    }
+    members.sort_unstable();
+    members.dedup();
+    members
+}
+
+/// Whether an encoded event is too large for the bus to take: such a row
+/// can never be published, and retrying it would hold back every row after
+/// it.
+fn too_large(payload_len: usize, max_payload: usize) -> bool {
+    let max = if max_payload == 0 {
+        DEFAULT_MAX_PAYLOAD
+    } else {
+        max_payload
+    };
+    payload_len > max.saturating_sub(HEADER_ROOM)
+}
+
 async fn relay_batch(db: &PgPool, bus: &Bus) -> AppResult<usize> {
     let mut tx = db.begin().await?;
     let rows: Vec<OutboxRow> = sqlx::query_as(
@@ -149,6 +196,7 @@ async fn relay_batch(db: &PgPool, bus: &Bus) -> AppResult<usize> {
     let mut rows = rows;
     rows.sort_by_key(|r| r.id);
     let count = rows.len();
+    let max_payload = bus.client.server_info().max_payload;
     for row in rows {
         let event = Event {
             id: row.id,
@@ -159,6 +207,17 @@ async fn relay_batch(db: &PgPool, bus: &Bus) -> AppResult<usize> {
         };
         let payload = serde_json::to_vec(&event)
             .map_err(|e| AppError::internal(anyhow::anyhow!("event encode: {e}")))?;
+        if too_large(payload.len(), max_payload) {
+            // Recorded and dropped: it would fail every time and stop the relay.
+            tracing::error!(
+                event_id = %event.id,
+                topic = %event.topic,
+                bytes = payload.len(),
+                max_payload,
+                "dropping an event too large for the bus"
+            );
+            continue;
+        }
         // If publishing fails the transaction rolls back and the rows are retried.
         bus.publish_durable(
             format!("evt.{}", event.topic),
@@ -303,5 +362,36 @@ async fn handle_message<F, Fut>(
             tracing::warn!(durable, %topic, %id, delivered, error = %e, "event handler failed; will retry");
             let _ = message.ack_with(AckKind::Nak(Some(delay))).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn events_too_large_for_the_bus_are_told_apart() {
+        assert!(!too_large(1_000, 0), "an unknown limit is the NATS default");
+        assert!(too_large(DEFAULT_MAX_PAYLOAD, 0));
+        assert!(!too_large(500_000, 1024 * 1024));
+        assert!(too_large(1024 * 1024 - 10, 1024 * 1024), "headers need room too");
+        assert!(too_large(9 * 1024 * 1024, 8 * 1024 * 1024));
+    }
+
+    #[test]
+    fn long_audiences_are_narrowed_to_who_was_told_or_to_nobody() {
+        let few: Vec<Uuid> = (0..3).map(|_| Uuid::now_v7()).collect();
+        assert_eq!(bounded_audience(few.clone(), None).len(), 3);
+        let many: Vec<Uuid> = (0..MAX_VISIBLE_TO + 1).map(|_| Uuid::now_v7()).collect();
+        let told = vec![many[7], many[42], Uuid::now_v7()];
+        let mut kept = vec![many[7], many[42]];
+        kept.sort_unstable();
+        assert_eq!(bounded_audience(many.clone(), Some(&told)), kept, "only the told among them");
+        assert!(bounded_audience(many.clone(), None).is_empty(), "nobody: withdraws too much, never too little");
+        assert!(bounded_audience(many.clone(), Some(&many)).is_empty(), "still too many: nobody");
+        // An event naming the most people allowed stays far under the bus limit.
+        let longest: Vec<String> = many[..MAX_VISIBLE_TO].iter().map(Uuid::to_string).collect();
+        let bytes = serde_json::to_vec(&serde_json::json!({ "visible_to": longest })).unwrap().len();
+        assert!(!too_large(bytes, DEFAULT_MAX_PAYLOAD), "{bytes} bytes");
     }
 }

@@ -35,6 +35,7 @@ use crate::{
         FOLLOW_REMOVED, FOLLOW_SETTINGS_CHANGED, FRIEND_REMOVED, FollowRemoved, FriendRemoved, JOB_ANNOUNCE,
         JOB_ARCHIVE, JOB_CLIP, STREAM_ENDED, STREAM_STARTED, StreamEvent, USER_BANNED, USER_BLOCKED, USER_DELETED,
         USER_UNBANNED, UserBlocked, UserRef, VIDEO_DELETED, VIDEO_PUBLISHED, VIDEO_UNPUBLISHED,
+        VIDEO_VISIBILITY_CHANGED,
     },
     overlays, search,
     streams::{self, ARCHIVE_FAILED, ARCHIVE_NONE, ARCHIVE_PENDING, Aftermath, StreamRow, stream_columns},
@@ -73,6 +74,7 @@ impl Live {
                     CHANNEL_SUBSCRIBED,
                     VIDEO_PUBLISHED,
                     VIDEO_UNPUBLISHED,
+                    VIDEO_VISIBILITY_CHANGED,
                     VIDEO_DELETED,
                     STREAM_STARTED,
                     STREAM_ENDED,
@@ -220,7 +222,7 @@ impl Live {
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
             CHANNEL_DELETED => self.on_channel_deleted(event.data::<ChannelEvent>()?.channel_id).await,
             CHANNEL_SUBSCRIBED => self.on_channel_subscribed(event.data()?).await,
-            VIDEO_PUBLISHED | VIDEO_UNPUBLISHED => {
+            VIDEO_PUBLISHED | VIDEO_UNPUBLISHED | VIDEO_VISIBILITY_CHANGED => {
                 self.reindex_clips_of_video(event.data::<VideoEvent>()?.video_id).await
             }
             VIDEO_DELETED => self.on_video_deleted(event.data::<VideoEvent>()?.video_id).await,
@@ -436,12 +438,20 @@ impl Live {
             let channel = channels_of.get(&updated.channel_id).and_then(Option::as_ref);
             search::sync_stream(&mut tx, &updated, channel).await?;
             if crate::access::is_open(updated.visibility) {
-                let visible_to = if locked { tied.clone() } else { None };
+                let visible_to = if locked {
+                    tied.clone().map(|members| tokuly_core::events::bounded_audience(members, None))
+                } else {
+                    None
+                };
                 streams::emit_visibility_changed_in(&mut tx, &updated, visible_to).await?;
                 changed.push(updated);
             }
         }
         tx.commit().await?;
+        // Clips of these streams leave (or rejoin) search with them.
+        for stream in &changed {
+            self.reindex_clips_of_stream(stream.id).await?;
+        }
         if locked && !changed.is_empty() {
             // Strangers stop following and watching the streams at once.
             for stream in &changed {

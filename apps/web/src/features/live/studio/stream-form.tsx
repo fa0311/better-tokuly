@@ -307,6 +307,7 @@ function StreamForm({ stream, channelId }: { stream?: live.Stream; channelId: st
           <CircleField
             label={t("visibility.circlePick")}
             emptyText={t("visibility.circleNone")}
+            missingText={t("visibility.circleMissing")}
             value={draft.circleId}
             onChange={(circleId) => set({ circleId })}
           />

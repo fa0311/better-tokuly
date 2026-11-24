@@ -58,6 +58,7 @@ export default {
     privateListHint: "見られるのはあなただけ",
     circlePick: "どのサークル？",
     circleNone: "サークルがまだないよ。ともだちの画面で作れるよ！",
+    circleMissing: "えらんでいたサークルはもうないよ。サークルをえらびなおしてね",
     lockedNote: "鍵アカウントなので、公開・リンク限定でもフォロワーとともだちにだけ届くよ",
   },
   card: {

@@ -36,28 +36,54 @@ export function useAccountLocked(): boolean {
 }
 
 /**
- * Picks one of the caller's circles for a CIRCLE audience. Picks the first
- * circle when none is chosen yet, so the form never sends a circle audience
- * without its circle.
+ * What the circle field does with the chosen `value` given the caller's
+ * circles (`undefined` while they load): the circle to pick by itself (only
+ * for an empty choice), what the select shows, and whether the chosen
+ * circle is gone.
+ */
+export function circleChoice(
+  value: string,
+  circleIds: string[] | undefined,
+): { autoPick?: string; selected: string; missing: boolean } {
+  if (!circleIds) return { selected: value, missing: false };
+  const known = circleIds.includes(value);
+  return {
+    autoPick: value === "" ? circleIds[0] : undefined,
+    selected: known ? value : "",
+    missing: value !== "" && !known,
+  };
+}
+
+/**
+ * Picks one of the caller's circles for a CIRCLE audience. Only a choice
+ * that is still empty gets the first circle; a circle that is gone (deleted
+ * since it was chosen) is never swapped for another one behind the
+ * creator's back: the field says so and waits for a new choice.
  */
 export function CircleField({
   value,
   onChange,
   label,
   emptyText,
+  missingText,
 }: {
   value: string;
   onChange(circleId: string): void;
   label: string;
   emptyText: string;
+  /** Shown when `value` names a circle the caller no longer has. */
+  missingText: string;
 }) {
   const circles = useOwnCircles();
   const list = circles.data ?? [];
-  const first = list[0]?.id;
-  const known = list.some((circle) => circle.id === value);
+  const choice = circleChoice(
+    value,
+    circles.isSuccess ? list.map((circle) => circle.id) : undefined,
+  );
+  const autoPick = choice.autoPick;
   useEffect(() => {
-    if (!known && first) onChange(first);
-  }, [known, first, onChange]);
+    if (autoPick) onChange(autoPick);
+  }, [autoPick, onChange]);
   if (circles.isSuccess && list.length === 0) {
     return (
       <p role="alert" className="text-sm font-medium text-danger">
@@ -66,15 +92,22 @@ export function CircleField({
     );
   }
   return (
-    <SelectField
-      label={label}
-      value={known ? value : (first ?? "")}
-      onChange={onChange}
-      options={list.map((circle) => ({
-        value: circle.id,
-        label: `${circle.emoji ? `${circle.emoji} ` : ""}${circle.name}`,
-      }))}
-    />
+    <div className="flex flex-col gap-1">
+      <SelectField
+        label={label}
+        value={choice.selected}
+        onChange={onChange}
+        options={list.map((circle) => ({
+          value: circle.id,
+          label: `${circle.emoji ? `${circle.emoji} ` : ""}${circle.name}`,
+        }))}
+      />
+      {choice.missing && (
+        <p role="alert" className="text-sm font-medium text-danger" data-testid="circle-missing">
+          {missingText}
+        </p>
+      )}
+    </div>
   );
 }
 

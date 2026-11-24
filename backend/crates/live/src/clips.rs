@@ -726,17 +726,38 @@ impl Live {
     }
 
     /// Rewrites the search documents of the clips of a video after its
-    /// visibility changed.
-    pub(crate) async fn reindex_clips_of_video(&self, video_id: Uuid) -> AppResult<()> {
-        let core = &self.core;
+    /// visibility changed (or its owner was locked or unlocked).
+    pub async fn reindex_clips_of_video(&self, video_id: Uuid) -> AppResult<()> {
         let clips: Vec<ClipRow> = sqlx::query_as(concat!(
             "SELECT ",
             clip_columns!(),
             " FROM live_clips c WHERE c.video_id = $1 AND c.status = 2"
         ))
         .bind(video_id)
-        .fetch_all(&core.db)
+        .fetch_all(&self.core.db)
         .await?;
+        self.reindex_clips(clips).await
+    }
+
+    /// The same for the clips cut from a stream (its owner was locked or
+    /// unlocked, or its audience changed).
+    pub async fn reindex_clips_of_stream(&self, stream_id: Uuid) -> AppResult<()> {
+        let clips: Vec<ClipRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            clip_columns!(),
+            " FROM live_clips c WHERE c.stream_id = $1 AND c.status = 2"
+        ))
+        .bind(stream_id)
+        .fetch_all(&self.core.db)
+        .await?;
+        self.reindex_clips(clips).await
+    }
+
+    async fn reindex_clips(&self, clips: Vec<ClipRow>) -> AppResult<()> {
+        let core = &self.core;
+        if clips.is_empty() {
+            return Ok(());
+        }
         // The sources are read first; the transaction only writes.
         let mut sources = Sources::default();
         let mut public = Vec::with_capacity(clips.len());

@@ -116,8 +116,10 @@ impl LiveChatService for Live {
                 streams::find_watchable(core, &viewer, request.stream_id).await?
             } else {
                 // Whoever may watch the archive may read the chat that went with it.
-                let video =
-                    videos::find_ref(core, request.video_id).await?.filter(|video| viewer.can_watch(&video.facts()));
+                let video = match videos::find_ref(core, request.video_id).await? {
+                    Some(video) if viewer.can_watch_now(core, &video.facts()).await? => Some(video),
+                    _ => None,
+                };
                 let stream_id = video.and_then(|video| video.origin_id).ok_or_else(streams::not_found)?;
                 streams::find_by_id(core, stream_id).await?.ok_or_else(streams::not_found)?
             };

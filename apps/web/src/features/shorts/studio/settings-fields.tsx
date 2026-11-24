@@ -79,6 +79,7 @@ export function SettingsFields({
         <CircleField
           label={t("form.circle")}
           emptyText={t("form.circleNone")}
+          missingText={t("form.circleMissing")}
           value={value.circleId}
           onChange={(circleId) => onChange({ ...value, circleId })}
         />

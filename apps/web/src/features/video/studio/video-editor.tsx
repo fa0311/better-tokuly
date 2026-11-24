@@ -579,6 +579,7 @@ function PublishDialog({
           <CircleField
             label={t("visibility.circlePick")}
             emptyText={t("visibility.circleNone")}
+            missingText={t("visibility.circleMissing")}
             value={circle}
             onChange={setCircle}
           />

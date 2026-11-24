@@ -45,6 +45,7 @@ export default {
     privateHint: "見られるのはあなただけ（テスト配信にどうぞ）",
     circlePick: "どのサークル？",
     circleNone: "サークルがまだないよ。ともだちの画面で作れるよ！",
+    circleMissing: "えらんでいたサークルはもうないよ。サークルをえらびなおしてね",
     lockedNote: "鍵アカウントなので、公開・リンク限定でもフォロワーとともだちにだけ届くよ",
   },
   chatRole: { subscriber: "登録者", moderator: "モデレーター", owner: "配信者" },

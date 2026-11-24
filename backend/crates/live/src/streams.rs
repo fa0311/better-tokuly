@@ -147,7 +147,8 @@ impl StreamRow {
     /// The visibility in effect, as `live.stream.visibility_changed` names
     /// it: an open stream of a locked owner reads as FOLLOWERS.
     pub fn effective_visibility(&self) -> i32 {
-        if self.owner_locked && access::is_open(self.visibility) { access::FOLLOWERS } else { self.visibility }
+        // NO_FEED and UNLISTED keep their number: a lock never widens them.
+        if self.owner_locked && self.visibility == access::PUBLIC { access::FOLLOWERS } else { self.visibility }
     }
 
     pub fn is_live(&self) -> bool {
@@ -705,7 +706,11 @@ pub async fn update(core: &Core, stream: &StreamRow, edit: StreamEdit) -> AppRes
         && was != now
     {
         // Another change in between: name nobody (withdraws too much, never too little).
-        let visible_to = if planned == now { members } else { Some(Vec::new()) };
+        let visible_to = if planned == now {
+            members.map(|members| tokuly_core::events::bounded_audience(members, None))
+        } else {
+            Some(Vec::new())
+        };
         emit_visibility_changed_in(&mut tx, &updated, visible_to).await?;
     }
     tx.commit().await?;

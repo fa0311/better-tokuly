@@ -147,7 +147,8 @@ pub(crate) async fn announce_audience_in(
     if !(before.is_published() && after.is_published() && was != now) {
         return Ok(());
     }
-    emit_visibility_changed_in(tx, after, context.members(now)).await
+    let visible_to = context.members(now).map(|members| tokuly_core::events::bounded_audience(members, None));
+    emit_visibility_changed_in(tx, after, visible_to).await
 }
 
 /// Emits `shorts.short.visibility_changed` for `row` as it is now.

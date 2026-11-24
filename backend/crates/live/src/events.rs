@@ -40,6 +40,7 @@ pub const CHANNEL_DELETED: &str = tokuly_video::events::CHANNEL_DELETED;
 pub const CHANNEL_SUBSCRIBED: &str = tokuly_video::events::CHANNEL_SUBSCRIBED;
 pub const VIDEO_PUBLISHED: &str = tokuly_video::events::VIDEO_PUBLISHED;
 pub const VIDEO_UNPUBLISHED: &str = tokuly_video::events::VIDEO_UNPUBLISHED;
+pub const VIDEO_VISIBILITY_CHANGED: &str = tokuly_video::events::VIDEO_VISIBILITY_CHANGED;
 pub const VIDEO_DELETED: &str = tokuly_video::events::VIDEO_DELETED;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

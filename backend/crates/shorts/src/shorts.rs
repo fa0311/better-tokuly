@@ -188,11 +188,8 @@ impl ShortRow {
     /// The visibility in effect (as `shorts.short.visibility_changed` names
     /// it): an open short of a locked owner reads as FOLLOWERS.
     pub fn effective_visibility(&self) -> i32 {
-        if self.owner_locked && tokuly_video::access::is_open(self.visibility) {
-            access::FOLLOWERS
-        } else {
-            self.visibility
-        }
+        // NO_FEED and UNLISTED keep their number: a lock never widens them.
+        if self.owner_locked && self.visibility == access::PUBLIC { access::FOLLOWERS } else { self.visibility }
     }
 
     pub fn is_published(&self) -> bool {
@@ -770,10 +767,14 @@ async fn resolve_remix(core: &Core, creator: &Viewer, reference: &str, kind: i32
         "REMIX_KIND_INVALID",
         "say whether this is a remix or a duet"
     );
-    let original = find_ref(core, reference)
-        .await?
-        .filter(|short| short.is_published() && access::can_watch(creator, &short.facts()))
-        .ok_or_else(|| AppError::not_found("REMIX_NOT_FOUND", "the short to remix does not exist"))?;
+    let missing = || AppError::not_found("REMIX_NOT_FOUND", "the short to remix does not exist");
+    let original = find_ref(core, reference).await?.filter(|short| short.is_published()).ok_or_else(missing)?;
+    ensure!(
+        can_watch_now(core, creator, &original).await?,
+        not_found,
+        "REMIX_NOT_FOUND",
+        "the short to remix does not exist"
+    );
     let allowed =
         creator.is(original.owner_id) || if kind == duet { original.allow_duet } else { original.allow_remix };
     ensure!(allowed, denied, "REMIX_NOT_ALLOWED", "the creator of that short does not allow this");

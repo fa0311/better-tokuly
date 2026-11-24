@@ -190,6 +190,7 @@ export default {
     visibility: "公開範囲",
     circle: "どのサークル？",
     circleNone: "サークルがまだないよ。ともだちの画面で作れるよ！",
+    circleMissing: "えらんでいたサークルはもうないよ。サークルをえらびなおしてね",
     lockedNote: "鍵アカウントなので、全体に公開してもフォロワーとともだちにだけ届くよ",
     comments: "コメントといいねを受けつける",
     commentsHint: "オフにすると、新しいコメントといいねがつかなくなるよ",

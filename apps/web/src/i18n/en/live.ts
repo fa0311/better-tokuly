@@ -45,6 +45,7 @@ export default {
     privateHint: "Only you can watch (good for a test stream)",
     circlePick: "Which circle?",
     circleNone: "No circles yet. Make one on the friends screen!",
+    circleMissing: "The circle you picked is gone. Pick another one",
     lockedNote:
       "Your account is locked, so even public and unlisted streams reach only your followers and friends",
   },

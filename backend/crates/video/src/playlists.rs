@@ -411,6 +411,15 @@ pub(crate) async fn delete_in(
     Ok(())
 }
 
+#[derive(sqlx::FromRow)]
+struct ThumbnailRow {
+    id: Uuid,
+    thumbnail: Option<serde_json::Value>,
+    owner_id: Option<Uuid>,
+    open: Option<bool>,
+    owner_locked: Option<bool>,
+}
+
 /// Playlists as `viewer` sees them, in order. `contains_video` fills
 /// `Playlist.contains_video` for that video.
 pub async fn to_protos(
@@ -424,20 +433,39 @@ pub async fn to_protos(
     }
     let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
     // The thumbnail is that of the first video the viewer may watch.
-    // (The owner's lock is the copy's here: a picture, not the video.)
-    let thumbnails: Vec<(Uuid, Option<serde_json::Value>)> = viewer
-        .query_as(concat!(
-            "SELECT p.id, t.thumbnail FROM unnest($7::uuid[]) AS p(id)
-             LEFT JOIN LATERAL (
-                 SELECT v.thumbnail FROM playlist_items i JOIN videos v ON v.id = i.video_id
-                 WHERE i.playlist_id = p.id AND v.thumbnail IS NOT NULL AND ",
-            watchable!(),
-            " ORDER BY i.position, i.video_id LIMIT 1
-             ) t ON true"
-        ))
-        .bind(&ids)
-        .fetch_all(&core.db)
-        .await?;
+    // The picture comes from the first video the viewer may watch. Owners
+    // whose lock this domain has not heard of yet are asked about, and their
+    // videos passed over ($8).
+    let mut passed_over: Vec<Uuid> = Vec::new();
+    let thumbnails = loop {
+        let found: Vec<ThumbnailRow> = viewer
+            .query_as(concat!(
+                "SELECT p.id, t.thumbnail, t.owner_id, t.open, t.owner_locked FROM unnest($7::uuid[]) AS p(id)
+                 LEFT JOIN LATERAL (
+                     SELECT v.thumbnail, v.owner_id, v.owner_locked,
+                            (v.visibility IN (1, 2, 3) OR (v.visibility = 4 AND v.allow_link)) AS open
+                     FROM playlist_items i JOIN videos v ON v.id = i.video_id
+                     WHERE i.playlist_id = p.id AND v.thumbnail IS NOT NULL AND NOT (v.owner_id = ANY($8)) AND ",
+                watchable!(),
+                " ORDER BY i.position, i.video_id LIMIT 1
+                 ) t ON true"
+            ))
+            .bind(&ids)
+            .bind(&passed_over)
+            .fetch_all(&core.db)
+            .await?;
+        let doubtful = found.iter().filter_map(|row| {
+            let owner = row.owner_id?;
+            viewer.doubts_lock(owner, row.open.unwrap_or(false), row.owner_locked.unwrap_or(false)).then_some(owner)
+        });
+        let locked = viewer.newly_locked(core, doubtful).await?;
+        if locked.is_empty() {
+            break found;
+        }
+        passed_over.extend(locked);
+    };
+    let thumbnails: Vec<(Uuid, Option<serde_json::Value>)> =
+        thumbnails.into_iter().map(|row| (row.id, row.thumbnail)).collect();
     let thumbnails: HashMap<Uuid, Option<serde_json::Value>> = thumbnails.into_iter().collect();
     let containing: Vec<Uuid> = match contains_video {
         Some(video_id) => {

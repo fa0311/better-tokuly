@@ -8,6 +8,7 @@ import jaShorts from "#/i18n/ja/shorts";
 import jaVideo from "#/i18n/ja/video";
 import { VISIBILITIES as STREAM_VISIBILITIES } from "../live/labels";
 import { circleOf, DEFAULT_SETTINGS, visibilityKey } from "../shorts/studio/settings-fields";
+import { circleChoice } from "./audience";
 import { audienceNote } from "./description";
 import { VIDEO_VISIBILITIES, visibilityOption } from "./labels";
 
@@ -52,5 +53,20 @@ describe("the social graph's audiences in the studios", () => {
     expect(audienceNote(Visibility.CLOSE_FRIENDS, false, t)).toBe("watch.audience.closeFriends");
     expect(audienceNote(99 as common.Visibility, false, t)).toBe("watch.audience.private");
     expect(jaVideo.watch.audience.followers).toBeTruthy();
+  });
+
+  it("never swaps a deleted circle for another one", () => {
+    expect(circleChoice("", ["a", "b"])).toEqual({ autoPick: "a", selected: "", missing: false });
+    expect(circleChoice("b", ["a", "b"])).toEqual({
+      autoPick: undefined,
+      selected: "b",
+      missing: false,
+    });
+    expect(circleChoice("gone", ["a", "b"])).toEqual({
+      autoPick: undefined,
+      selected: "",
+      missing: true,
+    });
+    expect(circleChoice("gone", undefined)).toEqual({ selected: "gone", missing: false });
   });
 });

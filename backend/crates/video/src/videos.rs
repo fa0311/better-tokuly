@@ -150,9 +150,13 @@ impl VideoRow {
         }
     }
 
-    /// The visibility in effect, as `video.video.visibility_changed` names it.
+    /// The visibility in effect, as `video.video.visibility_changed` names it:
+    /// a PUBLIC video (or a FRIENDS one with a link) of a locked owner reads
+    /// as FOLLOWERS. NO_FEED and UNLISTED keep their number: they were never
+    /// announced to friends, and a lock must not widen what the feed shows.
     pub fn effective_visibility(&self) -> i32 {
-        if self.is_open() && self.owner_locked { access::FOLLOWERS } else { self.visibility }
+        let widest = self.visibility == PUBLIC || (self.visibility == access::FRIENDS && self.allow_link);
+        if widest && self.owner_locked { access::FOLLOWERS } else { self.visibility }
     }
 
     pub fn is_published(&self) -> bool {
@@ -817,9 +821,22 @@ impl PlannedAudience {
         let members = match audience {
             ContentAudience::Public | ContentAudience::Private => Vec::new(),
             audience => {
-                let mut members = tokuly_social::graph::audience_member_ids(core, video.owner_id, audience).await?;
-                members.sort_unstable();
-                members
+                let members = tokuly_social::graph::audience_member_ids(core, video.owner_id, audience).await?;
+                if members.len() > core_events::MAX_VISIBLE_TO {
+                    // Too many to name on the bus: only the ones who may have
+                    // something about the video in their inbox.
+                    let told: Vec<Uuid> = sqlx::query_scalar(
+                        "SELECT user_id FROM channel_subscriptions WHERE channel_id = $1
+                         UNION SELECT user_id FROM video_reactions WHERE video_id = $2",
+                    )
+                    .bind(video.channel_id)
+                    .bind(video.id)
+                    .fetch_all(&core.db)
+                    .await?;
+                    core_events::bounded_audience(members, Some(&told))
+                } else {
+                    core_events::bounded_audience(members, None)
+                }
             }
         };
         Ok(Self { audience, members })

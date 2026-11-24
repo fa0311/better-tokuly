@@ -147,6 +147,7 @@ async fn narrowing_a_video_names_who_may_still_watch_it() {
 /// What a viewer can tell about a locked account's channel from outside.
 async fn what_one_learns(ctx: &Ctx, viewer: Option<&TestUser>, channel: &Channel) -> serde_json::Value {
     let page = ctx.get_channel(viewer, &channel.summary.id).await.unwrap();
+    let subscribers = page.summary.as_option().map(|summary| summary.subscriber_count).unwrap_or_default();
     let request = ListChannelPlaylistsRequest { channel_id: channel.summary.id.clone(), ..Default::default() };
     let playlists: ListChannelPlaylistsResponse =
         ctx.call(PLAYLISTS, "ListChannelPlaylists", viewer, &request).await.unwrap();
@@ -154,6 +155,7 @@ async fn what_one_learns(ctx: &Ctx, viewer: Option<&TestUser>, channel: &Channel
         "video_count": page.video_count,
         "view_count": page.view_count,
         "trailer": page.trailer_video_id,
+        "subscribers": subscribers,
         "videos": channel_titles(ctx, viewer, channel).await,
         "playlists": playlists.playlists.len(),
     })
@@ -164,12 +166,16 @@ async fn a_stranger_learns_nothing_from_a_locked_accounts_channel() {
     let ctx = start().await;
     let stranger = ctx.app.user("stranger").await;
     let follower = ctx.app.user("follower").await;
-    // Two worlds that differ only in what a locked account published.
+    // Two worlds: a locked account that published, and an empty channel.
     let (posted, silent) = (ctx.app.user("posted").await, ctx.app.user("silent").await);
     let mut channels = Vec::new();
+    // The other world is an account that is not locked and has a channel
+    // with nothing on it.
     for world in [&posted, &silent] {
         ctx.follow(&follower, world).await;
-        ctx.set_locked(world, true).await;
+        if world.id == posted.id {
+            ctx.set_locked(world, true).await;
+        }
         channels.push(ctx.channel(world, "鍵チャンネル").await);
     }
     let channel = &channels[0];
@@ -192,8 +198,10 @@ async fn a_stranger_learns_nothing_from_a_locked_accounts_channel() {
     };
     let created: CreatePlaylistResponse =
         ctx.call(PLAYLISTS, "CreatePlaylist", Some(&posted), &playlist).await.unwrap();
-    // A stranger who subscribed before the lock.
-    ctx.subscribe(&stranger, &channel.summary.id, NotificationLevel::NOTIFICATION_LEVEL_ALL).await;
+    // A stranger subscribed to both channels.
+    for world in &channels {
+        ctx.subscribe(&stranger, &world.summary.id, NotificationLevel::NOTIFICATION_LEVEL_ALL).await;
+    }
     assert_eq!(card(&public).visibility, Visibility::VISIBILITY_PUBLIC, "still shared publicly");
 
     for viewer in [Some(&stranger), None] {
@@ -278,4 +286,28 @@ async fn passes_of_one_lock_running_at_once_change_each_video_once() {
     let changed: u64 = [a, b, c, d].into_iter().map(|pass| pass.expect("a pass")).sum();
     assert_eq!(changed, 3, "each video changes once, whichever pass gets it");
     assert_eq!(ctx.app.events_by("video.video.visibility_changed", alice.id).await.len(), 3);
+}
+
+#[tokio::test]
+async fn a_lock_never_widens_a_video_that_was_announced_to_nobody() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let channel = ctx.channel(&alice, "ch").await;
+    let public = ctx.public_video(&alice, &channel, "公開").await;
+    let unlisted = ctx.published(&alice, &channel, "限定", Visibility::VISIBILITY_UNLISTED).await;
+    let no_feed = ctx.published(&alice, &channel, "フィード外", Visibility::VISIBILITY_NO_FEED).await;
+    ctx.set_locked(&alice, true).await;
+    ctx.deliver_lock_change(&alice).await;
+    let events = ctx.app.events_by("video.video.visibility_changed", alice.id).await;
+    let visibility_of = |video: &Video| {
+        events
+            .iter()
+            .find(|event| event.data["video_id"] == card(video).id)
+            .map(|event| event.data["visibility"].clone())
+    };
+    // The feed shows the owner's entries to friends for 6 (followers); an
+    // unlisted or no-feed video's entry stays the owner's own.
+    assert_eq!(visibility_of(&public), Some(serde_json::json!(6)));
+    assert_eq!(visibility_of(&unlisted), Some(serde_json::json!(3)));
+    assert_eq!(visibility_of(&no_feed), Some(serde_json::json!(2)));
 }
