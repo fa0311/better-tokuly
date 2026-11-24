@@ -258,7 +258,7 @@ impl Admin {
         let involved = row.owner_hidden && self.is_party_to_hidden(staff.id, row.subject_type, row.subject_id).await?;
         let reveal = !involved;
         if row.owner_hidden && reveal && row.subject_owner_id.is_some() {
-            Audit::by(staff, "case.author_revealed").case(row.id, row.subject_owner_id).record(&self.core.db).await?;
+            Audit::by(staff, "case.author_revealed").case(row).record(&self.core.db).await?;
         }
         let ids: Vec<Uuid> = row.people(reveal).collect();
         let people = tokuly_identity::summaries(&self.core, &ids).await?;

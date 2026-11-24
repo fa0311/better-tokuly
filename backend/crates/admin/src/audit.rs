@@ -4,13 +4,15 @@
 //! transaction as the change, so the log can never disagree with what
 //! happened. Entries record who acted, on what, why, and (where it is
 //! meaningful) the state before and after as JSON.
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{PgExecutor, Postgres, QueryBuilder};
 use tokuly_core::prelude::*;
 use tokuly_proto::admin::AuditEntry;
 
-use crate::{Admin, staff::Staff};
+use crate::{Admin, cases::CaseRow, staff::Staff};
 
 /// An audit entry under construction: `Audit::by(&staff, "user.suspended").user(id).reason(..).record(&mut *tx)`.
 #[derive(Debug)]
@@ -21,6 +23,9 @@ pub(crate) struct Audit {
     target_type: &'static str,
     target_id: String,
     target_user_id: Option<Uuid>,
+    /// `(SubjectType as i32, id)` of the anonymous post the entry is about,
+    /// whose author `target_user_id` is.
+    hidden_subject: Option<(i32, Uuid)>,
     reason: String,
     before: Option<Value>,
     after: Option<Value>,
@@ -39,7 +44,18 @@ impl Audit {
     }
 
     fn new(actor_id: Option<Uuid>, ip: String, action: &'static str) -> Self {
-        Self { actor_id, ip, action, target_type: "", target_id: String::new(), target_user_id: None, reason: String::new(), before: None, after: None }
+        Self {
+            actor_id,
+            ip,
+            action,
+            target_type: "",
+            target_id: String::new(),
+            target_user_id: None,
+            hidden_subject: None,
+            reason: String::new(),
+            before: None,
+            after: None,
+        }
     }
 
     /// The action targets an account.
@@ -50,19 +66,30 @@ impl Audit {
         self
     }
 
-    /// The action targets a moderation case about `owner`'s content.
-    pub fn case(mut self, case_id: Uuid, owner: Option<Uuid>) -> Self {
+    /// The action targets a moderation case (and the owner of its content).
+    pub fn case(mut self, case: &CaseRow) -> Self {
         self.target_type = "case";
-        self.target_id = case_id.to_string();
-        self.target_user_id = owner;
-        self
+        self.target_id = case.id.to_string();
+        self.target_user_id = case.subject_owner_id;
+        self.for_case(Some(case))
     }
 
-    /// The action targets a piece of content owned by `owner`.
-    pub fn subject(mut self, subject_type: i32, subject_id: Uuid, owner: Option<Uuid>) -> Self {
+    /// The action targets a piece of content owned by `owner`, who is its
+    /// hidden author when `owner_hidden`.
+    pub fn subject(mut self, subject_type: i32, subject_id: Uuid, owner: Option<Uuid>, owner_hidden: bool) -> Self {
         self.target_type = "subject";
         self.target_id = format!("{subject_type}:{subject_id}");
         self.target_user_id = owner;
+        self.hidden_subject = owner_hidden.then_some((subject_type, subject_id));
+        self
+    }
+
+    /// The action is the outcome of `case`: when its content hides its
+    /// author, the entry is marked as being about them.
+    pub fn for_case(mut self, case: Option<&CaseRow>) -> Self {
+        if let Some(case) = case.filter(|case| case.owner_hidden) {
+            self.hidden_subject = Some((case.subject_type, case.subject_id));
+        }
         self
     }
 
@@ -105,8 +132,8 @@ impl Audit {
     /// Writes the entry. Pass the open transaction of the change it describes.
     pub async fn record<'e, E: PgExecutor<'e>>(self, executor: E) -> AppResult<()> {
         sqlx::query(
-            "INSERT INTO admin_audit_log (actor_id, action, target_type, target_id, target_user_id, reason, before, after, ip)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            "INSERT INTO admin_audit_log (actor_id, action, target_type, target_id, target_user_id, reason, before, after, ip, target_hidden, subject_type, subject_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         )
         .bind(self.actor_id)
         .bind(self.action)
@@ -117,6 +144,9 @@ impl Audit {
         .bind(self.before)
         .bind(self.after)
         .bind(self.ip)
+        .bind(self.hidden_subject.is_some())
+        .bind(self.hidden_subject.map(|s| s.0))
+        .bind(self.hidden_subject.map(|s| s.1))
         .execute(executor)
         .await?;
         Ok(())
@@ -144,11 +174,22 @@ pub(crate) struct AuditRow {
     pub target_type: String,
     pub target_id: String,
     pub target_user_id: Option<Uuid>,
+    pub target_hidden: bool,
+    pub subject_type: Option<i32>,
+    pub subject_id: Option<Uuid>,
     pub reason: String,
     pub before: Option<Value>,
     pub after: Option<Value>,
     pub ip: String,
     pub created_at: DateTime<Utc>,
+}
+
+impl AuditFilter {
+    /// Whether the filter asks for the history of one account, where an
+    /// entry about an anonymous post would say whose post it was.
+    fn names_account(&self, row: &AuditRow) -> bool {
+        self.target_user_id.is_some() || (!self.target_id.is_empty() && row.target_type == "user")
+    }
 }
 
 /// Escapes `%`, `_` and `\` so user input matches literally inside LIKE.
@@ -160,7 +201,7 @@ impl Admin {
     /// One page of the audit log, newest first.
     pub(crate) async fn list_audit(&self, filter: &AuditFilter, page: &Page) -> AppResult<Vec<AuditRow>> {
         let mut query: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT id, actor_id, action, target_type, target_id, target_user_id, reason, before, after, ip, created_at
+            "SELECT id, actor_id, action, target_type, target_id, target_user_id, target_hidden, subject_type, subject_id, reason, before, after, ip, created_at
              FROM admin_audit_log WHERE true",
         );
         if let Some(actor_id) = filter.actor_id {
@@ -193,20 +234,45 @@ impl Admin {
         Ok(query.build_query_as().fetch_all(&self.core.db).await?)
     }
 
-    /// Audit rows as API messages, with the people involved resolved.
-    pub(crate) async fn audit_entries(&self, rows: Vec<AuditRow>) -> AppResult<Vec<AuditEntry>> {
-        let ids: Vec<Uuid> = rows.iter().flat_map(|r| [r.actor_id, r.target_user_id]).flatten().collect();
+    /// Audit rows as `staff` may read them, with the people involved
+    /// resolved. An entry about an anonymous post `staff` is involved in
+    /// comes without its author, and not at all when `filter` asks for one
+    /// account's history (the same rule as the moderation log, `actions.rs`).
+    pub(crate) async fn audit_entries(&self, staff: &Staff, filter: &AuditFilter, rows: Vec<AuditRow>) -> AppResult<Vec<AuditEntry>> {
+        let mut involved: HashMap<(i32, Uuid), bool> = HashMap::new();
+        let mut shown = Vec::with_capacity(rows.len());
+        for row in rows {
+            let withheld = match (row.target_hidden, row.subject_type, row.subject_id) {
+                (false, _, _) => false,
+                (true, Some(subject_type), Some(subject_id)) => match involved.get(&(subject_type, subject_id)) {
+                    Some(involved) => *involved,
+                    None => {
+                        let answer = self.is_party_to_hidden(staff.id, subject_type, subject_id).await?;
+                        involved.insert((subject_type, subject_id), answer);
+                        answer
+                    }
+                },
+                (true, _, _) => true,
+            };
+            if withheld && filter.names_account(&row) {
+                continue;
+            }
+            shown.push((row, withheld));
+        }
+        let ids: Vec<Uuid> =
+            shown.iter().flat_map(|(r, withheld)| [r.actor_id, r.target_user_id.filter(|_| !withheld)]).flatten().collect();
         let people = tokuly_identity::summaries(&self.core, &ids).await?;
         let json = |value: Option<Value>| value.map(|v| v.to_string()).unwrap_or_default();
-        Ok(rows
+        Ok(shown
             .into_iter()
-            .map(|row| AuditEntry {
+            .map(|(row, withheld)| AuditEntry {
                 id: row.id.to_string(),
                 actor: row.actor_id.and_then(|id| people.get(&id).cloned()).into(),
                 action: row.action,
+                target_id: if withheld && row.target_type == "user" { String::new() } else { row.target_id },
                 target_type: row.target_type,
-                target_id: row.target_id,
-                target_user: row.target_user_id.and_then(|id| people.get(&id).cloned()).into(),
+                target_user: row.target_user_id.filter(|_| !withheld).and_then(|id| people.get(&id).cloned()).into(),
+                target_withheld: withheld,
                 reason: row.reason,
                 before_json: json(row.before),
                 after_json: json(row.after),
@@ -237,7 +303,7 @@ mod tests {
         assert_eq!(entry.ip, "203.0.113.9");
 
         let subject = Uuid::now_v7();
-        let entry = Audit::system("content.removed").subject(5, subject, None);
+        let entry = Audit::system("content.removed").subject(5, subject, None, false);
         assert_eq!(entry.target_id, format!("5:{subject}"));
         assert!(entry.actor_id.is_none() && entry.target_user_id.is_none());
 

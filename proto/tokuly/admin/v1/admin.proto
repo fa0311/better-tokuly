@@ -1022,8 +1022,14 @@ message AuditEntry {
   string target_type = 4;
   // Its ID (a flag's name; `<subject type number>:<id>` for subjects).
   string target_id = 5;
-  // The account affected, when there is one.
+  // The account affected, when there is one. Unset while `target_withheld`
+  // is set.
   tokuly.common.v1.UserSummary target_user = 6;
+  // The entry is about an anonymous post the caller is involved in, and
+  // leaves out its author: `target_user` is unset and so is `target_id` when
+  // it names that account. Such entries are left out altogether when the
+  // log is filtered by an account.
+  bool target_withheld = 12;
   // The reason or note the staff member gave.
   string reason = 7;
   // JSON snapshots of the relevant state before and after; empty when not applicable.

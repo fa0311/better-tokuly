@@ -139,7 +139,7 @@ impl ModerationService for Admin {
             .fetch_one(&mut *tx)
             .await?;
             Audit::by(&staff, if assignee.is_some() { "case.assigned" } else { "case.unassigned" })
-                .case(case.id, case.subject_owner_id)
+                .case(&case)
                 .before(serde_json::json!({ "assignee_id": case.assignee_id }))
                 .after(serde_json::json!({ "assignee_id": assignee }))
                 .record(&mut *tx)
@@ -165,7 +165,7 @@ impl ModerationService for Admin {
                     .bind(&body)
                     .fetch_one(&mut *tx)
                     .await?;
-            Audit::by(&staff, "case.note_added").case(case.id, case.subject_owner_id).after(serde_json::json!({ "note_id": note.id })).record(&mut *tx).await?;
+            Audit::by(&staff, "case.note_added").case(&case).after(serde_json::json!({ "note_id": note.id })).record(&mut *tx).await?;
             tx.commit().await?;
             let people = tokuly_identity::summaries(&self.core, &[staff.id]).await?;
             ok(AddCaseNoteResponse { note: note_to_proto(note, &people).into(), ..Default::default() })
@@ -224,7 +224,7 @@ impl ModerationService for Admin {
                     .await?;
             }
             Audit::by(&staff, "case.reopened")
-                .case(case.id, case.subject_owner_id)
+                .case(&case)
                 .reason(note)
                 .before(serde_json::json!({
                     "status": case.status,

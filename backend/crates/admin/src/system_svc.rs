@@ -22,7 +22,7 @@ impl SystemService for Admin {
 
     async fn list_audit_log(&self, ctx: RequestContext, request: ServiceRequest<'_, ListAuditLogRequest>) -> ServiceResult<ListAuditLogResponse> {
         handle(async {
-            Staff::admin(&ctx)?;
+            let staff = Staff::admin(&ctx)?;
             let request = request.to_owned_message();
             let filter = AuditFilter {
                 actor_id: parse_opt_id(&request.actor_id)?,
@@ -39,7 +39,7 @@ impl SystemService for Admin {
             let page = Page::from_request(request.page.as_option(), 200);
             let mut rows = self.list_audit(&filter, &page).await?;
             let info = page.finish(&mut rows, |r| r.id);
-            ok(ListAuditLogResponse { entries: self.audit_entries(rows).await?, page: info.into(), ..Default::default() })
+            ok(ListAuditLogResponse { entries: self.audit_entries(&staff, &filter, rows).await?, page: info.into(), ..Default::default() })
         })
         .await
     }

@@ -291,6 +291,11 @@ function Target({ entry }: { entry: admin.AuditEntry }) {
       {/* For an account, the person is the reference. */}
       {entry.targetUser ? (
         <UserCell user={entry.targetUser} />
+      ) : entry.targetWithheld ? (
+        // An anonymous post you are involved in: its author stays hidden here too.
+        <span data-testid="audit-target-withheld" className="text-xs text-ink-soft">
+          {t("moderation.targetWithheld")}
+        </span>
       ) : (
         type === "user" && (
           <code className="font-mono text-xs break-all text-ink-soft">{entry.targetId}</code>

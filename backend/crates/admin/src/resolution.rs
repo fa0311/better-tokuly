@@ -180,7 +180,7 @@ impl Admin {
         .fetch_one(&mut *tx)
         .await?;
         Audit::by(staff, "case.resolved")
-            .case(case.id, case.subject_owner_id)
+            .case(&case)
             .reason(resolution.reason.clone())
             .before(serde_json::json!({ "status": case.status, "report_count": case.report_count, "assignee_id": case.assignee_id }))
             .after(serde_json::json!({
@@ -305,7 +305,7 @@ impl Admin {
             .insert(&mut *conn)
             .await?;
         Audit::by(staff, "content.removed")
-            .subject(removal.subject_type, removal.subject_id, removal.owner_id)
+            .subject(removal.subject_type, removal.subject_id, removal.owner_id, removal.owner_hidden)
             .reason(removal.reason)
             .after(serde_json::json!({ "title": removal.title, "case_id": removal.case_id, "note": removal.note }))
             .record(&mut *conn)

@@ -790,3 +790,46 @@ async fn an_involved_moderator_is_not_told_which_case_suspended_a_hidden_author(
     let withheld = suspension(searched.users.first());
     assert!(withheld.case_id.is_empty() && withheld.reason.is_empty(), "{withheld:?}");
 }
+
+#[tokio::test]
+async fn the_audit_log_does_not_name_a_hidden_author_to_an_involved_admin() {
+    let (app, admin) = start().await;
+    let author = app.user("author").await;
+    let involved = app.user_with_roles("involved", &["admin"]).await;
+    let neutral = app.user_with_roles("neutral", &["admin"]).await;
+    let case_id = anonymous_case(&app, &admin, author.id, vec![involved.id]).await;
+    let case = get_case(&app, &neutral, &case_id).await.moderation_case.into_option().unwrap();
+    resolve(&app, &neutral, ResolveCaseRequest { remove_content: true, suspension_seconds: 86_400, ..resolution(&case, SUSPEND, "嫌がらせ") }).await.unwrap();
+
+    let audit = |staff: &tokuly_testkit::TestUser, request: ListAuditLogRequest| {
+        let (app, staff) = (&app, staff.clone());
+        async move {
+            let listed: ListAuditLogResponse = app.call(&format!("{SYSTEM}/ListAuditLog"), Some(&staff), &request).await.unwrap();
+            listed.entries
+        }
+    };
+    let by_neutral = ListAuditLogRequest { actor_id: neutral.id.to_string(), ..Default::default() };
+    // The reveal, the suspension, the takedown and the resolution, each naming the author.
+    let full = audit(&neutral, by_neutral.clone()).await;
+    let actions: Vec<&str> = full.iter().map(|entry| entry.action.as_str()).collect();
+    for action in ["case.author_revealed", "user.suspended", "content.removed", "case.resolved"] {
+        assert!(actions.contains(&action), "{actions:?}");
+    }
+    assert!(full.iter().all(|entry| entry.target_user.id == author.id.to_string() && !entry.target_withheld));
+
+    // The admin who took part in the thread reads the same entries without the author.
+    let withheld = audit(&involved, by_neutral).await;
+    assert_eq!(withheld.len(), full.len());
+    for entry in &withheld {
+        assert!(entry.target_user.is_unset() && entry.target_withheld, "{entry:?}");
+        assert!(!entry.target_id.contains(&author.id.to_string()), "{entry:?}");
+    }
+    // And the author's own history has none of them.
+    for request in [
+        ListAuditLogRequest { target_user_id: author.id.to_string(), ..Default::default() },
+        ListAuditLogRequest { target_type: "user".into(), target_id: author.id.to_string(), ..Default::default() },
+    ] {
+        assert!(audit(&involved, request.clone()).await.is_empty(), "{request:?}");
+        assert!(!audit(&neutral, request).await.is_empty());
+    }
+}

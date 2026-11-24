@@ -189,6 +189,12 @@ CREATE TABLE admin_audit_log (
     target_id      text        NOT NULL DEFAULT '',
     -- The account affected, when there is one.
     target_user_id uuid REFERENCES users (id) ON DELETE SET NULL,
+    -- The entry is about content that hides its author (see
+    -- moderation_cases.owner_hidden), named here: the account above is that
+    -- author, and is not shown to an admin who is involved in the content.
+    target_hidden  boolean     NOT NULL DEFAULT false,
+    subject_type   integer,
+    subject_id     uuid,
     reason         text        NOT NULL DEFAULT '',
     before         jsonb,
     after          jsonb,

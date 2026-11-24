@@ -110,6 +110,7 @@ impl Admin {
         let action = sanction.action(ModerationActionKind::MODERATION_ACTION_KIND_WARN, staff, target).insert(conn).await?;
         Audit::by(staff, "user.warned")
             .user(target.id)
+            .for_case(sanction.case)
             .reason(sanction.reason)
             .after(serde_json::json!({ "note": sanction.note, "case_id": sanction.case.map(|c| c.id) }))
             .record(&mut *conn)
@@ -157,6 +158,7 @@ impl Admin {
         let action = sanction.action(kind, staff, target).expires(expires_at).insert(conn).await?;
         Audit::by(staff, "user.suspended")
             .user(target.id)
+            .for_case(sanction.case)
             .reason(sanction.reason)
             .before(serde_json::json!({ "suspended": target.banned_at.is_some(), "replaced_suspension_id": replaced }))
             .after(serde_json::json!({
