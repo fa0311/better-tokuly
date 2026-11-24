@@ -267,6 +267,28 @@ impl Stamp {
         Ok((pack, holding))
     }
 
+    /// The pack `pack_ref` names, whatever its state, if `user_id` has an
+    /// unfinished purchase of it (see `purchases`).
+    pub(crate) async fn pack_being_bought(
+        &self,
+        user_id: Uuid,
+        pack_ref: &str,
+    ) -> AppResult<Option<(PackRow, Holding)>> {
+        let Some(pack) = find(&self.core, pack_ref).await? else { return Ok(None) };
+        let buying: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM stamp_purchase_intents WHERE user_id = $1 AND pack_id = $2)",
+        )
+        .bind(user_id)
+        .bind(pack.id)
+        .fetch_one(&self.core.db)
+        .await?;
+        if !buying {
+            return Ok(None);
+        }
+        let holding = holding(&self.core, Some(user_id), pack.id).await?;
+        Ok(Some((pack, holding)))
+    }
+
     /// The pack `pack_ref` names, if `viewer` may edit it.
     pub(crate) async fn managed_pack(&self, viewer: &Viewer, pack_ref: &str) -> AppResult<PackRow> {
         let pack = find(&self.core, pack_ref).await?.ok_or_else(not_found)?;

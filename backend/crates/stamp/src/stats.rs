@@ -221,16 +221,14 @@ pub async fn refresh_rankings(core: &Core) -> AppResult<u64> {
     Ok(refreshed + faded)
 }
 
-/// Deletes usage log rows older than the retention period and purchase
-/// intents nobody came back to. Returns the number of log rows deleted.
+/// Deletes usage log rows older than the retention period. Returns the
+/// number of rows deleted. (Purchase intents are settled, never swept:
+/// `Stamp::settle_unfinished_purchases`.)
 pub async fn prune(core: &Core, usage_retention_days: i64) -> AppResult<u64> {
     let pruned = sqlx::query("DELETE FROM stamp_usage WHERE created_at < now() - make_interval(days => $1::int)")
         .bind(usage_retention_days)
         .execute(&core.db)
         .await?
         .rows_affected();
-    sqlx::query("DELETE FROM stamp_purchase_intents WHERE created_at < now() - interval '1 day'")
-        .execute(&core.db)
-        .await?;
     Ok(pruned)
 }

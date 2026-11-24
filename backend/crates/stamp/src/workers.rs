@@ -14,8 +14,10 @@ use crate::{
     stats,
 };
 
-/// How often the usage log is pruned and stale purchase intents are swept.
+/// How often the usage log is pruned.
 const PRUNE_INTERVAL: Duration = Duration::from_secs(3600);
+/// How often purchases nobody finished are settled.
+const SETTLE_INTERVAL: Duration = Duration::from_secs(300);
 
 impl Stamp {
     /// Starts the stamp workers (worker processes only):
@@ -23,6 +25,7 @@ impl Stamp {
     ///   `admin.content.removed`;
     /// - the ranking refresh, every `ranking_interval_seconds`;
     /// - the hourly pruning of the usage log;
+    /// - every five minutes, the settling of unfinished purchases;
     /// - once at startup, the seeding of the official packs.
     pub fn spawn_workers(&self) {
         let stamp = self.clone();
@@ -68,6 +71,21 @@ impl Stamp {
                             Ok(0) => {}
                             Ok(rows) => tracing::info!(rows, "pruned the stamp usage log"),
                             Err(e) => tracing::error!(error = %e, "stamp usage log pruning failed"),
+                        }
+                    }
+                }
+            }
+        });
+
+        let stamp = self.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(SETTLE_INTERVAL);
+            loop {
+                tokio::select! {
+                    _ = stamp.core.shutdown.cancelled() => break,
+                    _ = tick.tick() => {
+                        if let Err(e) = stamp.settle_unfinished_purchases().await {
+                            tracing::error!(error = %e, "settling unfinished stamp purchases failed");
                         }
                     }
                 }

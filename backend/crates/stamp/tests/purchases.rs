@@ -97,7 +97,7 @@ async fn a_retried_purchase_recognises_the_earlier_payment() {
     )
     .await
     .unwrap();
-    sqlx::query("INSERT INTO stamp_purchase_intents (user_id, pack_id) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO stamp_purchase_intents (user_id, pack_id, price) VALUES ($1, $2, 300)")
         .bind(buyer.id)
         .bind(pack_uuid)
         .execute(&ctx.app.core.db)
@@ -171,4 +171,119 @@ async fn official_paid_packs_are_paid_to_the_platform() {
     let purchases = ctx.app.events_by("stamp.pack.purchased", buyer.id).await;
     assert!(purchases[0].data["creator_id"].is_null());
     assert_eq!(purchases[0].data["net"].as_i64(), Some(0));
+}
+
+/// The state a crash between the payment and the purchase row leaves: the
+/// ledger has moved `price`, the stamp domain only holds the intent, made
+/// `minutes_ago`.
+async fn paid_but_unrecorded(
+    ctx: &Ctx,
+    buyer: &tokuly_testkit::TestUser,
+    creator: &tokuly_testkit::TestUser,
+    pack_id: &str,
+    price: i32,
+    minutes_ago: i32,
+) {
+    let pack_uuid: uuid::Uuid = pack_id.parse().unwrap();
+    tokuly_wallet::ledger::transfer(
+        &ctx.app.core,
+        buyer.id,
+        creator.id,
+        price as i64,
+        30,
+        "stamp.pack",
+        &format!("stamp-pack:{pack_id}:{}", buyer.id),
+        serde_json::json!({}),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO stamp_purchase_intents (user_id, pack_id, price, created_at)
+         VALUES ($1, $2, $3, now() - make_interval(mins => $4))",
+    )
+    .bind(buyer.id)
+    .bind(pack_uuid)
+    .bind(price)
+    .bind(minutes_ago)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+}
+
+async fn recorded_price(ctx: &Ctx, buyer: &tokuly_testkit::TestUser, pack_id: &str) -> Option<i32> {
+    sqlx::query_scalar("SELECT price FROM stamp_pack_purchases WHERE user_id = $1 AND pack_id = $2")
+        .bind(buyer.id)
+        .bind(pack_id.parse::<uuid::Uuid>().unwrap())
+        .fetch_optional(&ctx.app.core.db)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_paid_purchase_is_finished_at_the_price_paid_after_the_pack_changed() {
+    let ctx = start().await;
+    let (creator, buyer, other) =
+        (ctx.app.user("creator").await, ctx.app.user("buyer").await, ctx.app.user("other").await);
+
+    // The price went up after the payment: the retry finishes at the old one.
+    let id = id_of(&ctx.published(&creator, "ねあげ", 300, &[], 1).await);
+    ctx.grant_coins(&buyer, 1000).await;
+    paid_but_unrecorded(&ctx, &buyer, &creator, &id, 300, 0).await;
+    sqlx::query("UPDATE stamp_packs SET price = 500 WHERE id = $1")
+        .bind(id.parse::<uuid::Uuid>().unwrap())
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let retry = PurchasePackRequest { pack_id: id.clone(), expected_price: 500, ..Default::default() };
+    let bought: PurchasePackResponse = ctx.call("Library", "PurchasePack", Some(&buyer), &retry).await.unwrap();
+    assert_eq!(bought.charged, 0);
+    assert!(bought.pack.viewer.owned);
+    assert_eq!(recorded_price(&ctx, &buyer, &id).await, Some(300), "what was paid, not today's price");
+    assert_eq!(ctx.balance(&buyer).await.coins, 700);
+
+    // The pack left the store after the payment: the buyer still gets it.
+    let id = id_of(&ctx.published(&creator, "うりきれ", 200, &[], 1).await);
+    paid_but_unrecorded(&ctx, &buyer, &creator, &id, 200, 0).await;
+    ctx.unpublish(&creator, &id).await;
+    let retry = PurchasePackRequest { pack_id: id.clone(), expected_price: 200, ..Default::default() };
+    let bought: PurchasePackResponse = ctx.call("Library", "PurchasePack", Some(&buyer), &retry).await.unwrap();
+    assert!(bought.pack.viewer.owned && bought.charged == 0);
+    assert_eq!(ctx.balance(&buyer).await.coins, 500);
+    // Nobody else can buy it, though.
+    ctx.grant_coins(&other, 500).await;
+    assert_eq!(ctx.reason("Library", "PurchasePack", Some(&other), &retry).await, "PACK_NOT_FOUND");
+}
+
+#[tokio::test]
+async fn an_unfinished_purchase_is_finished_without_the_buyer_and_keeps_the_pack() {
+    let ctx = start().await;
+    let (creator, buyer, broke) =
+        (ctx.app.user("creator").await, ctx.app.user("buyer").await, ctx.app.user("broke").await);
+    let id = id_of(&ctx.published(&creator, "ほうちされた", 300, &[], 1).await);
+    ctx.grant_coins(&buyer, 300).await;
+    paid_but_unrecorded(&ctx, &buyer, &creator, &id, 300, 120).await;
+    // An intent whose payment never went through (the buyer had no coins).
+    sqlx::query("INSERT INTO stamp_purchase_intents (user_id, pack_id, price, created_at) VALUES ($1, $2, 300, now() - interval '2 hours')")
+        .bind(broke.id)
+        .bind(id.parse::<uuid::Uuid>().unwrap())
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+
+    // Hours later, the paid purchase still keeps the pack from being deleted.
+    let delete = DeletePackRequest { pack_id: id.clone(), ..Default::default() };
+    assert_eq!(ctx.reason("Studio", "DeletePack", Some(&creator), &delete).await, "PACK_HAS_BUYERS");
+
+    ctx.stamp.settle_unfinished_purchases().await.unwrap();
+    let pack = ctx.get_pack(Some(&buyer), &id).await.unwrap();
+    assert!(pack.summary.viewer.owned && pack.summary.viewer.installed);
+    assert_eq!(ctx.balance(&buyer).await.coins, 0, "charged once");
+    assert!(!ctx.get_pack(Some(&broke), &id).await.unwrap().summary.viewer.owned);
+    assert_eq!(ctx.balance(&broke).await.coins, 0);
+    let intents: i64 = sqlx::query_scalar("SELECT count(*) FROM stamp_purchase_intents WHERE pack_id = $1")
+        .bind(id.parse::<uuid::Uuid>().unwrap())
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(intents, 0, "both are settled");
 }

@@ -335,7 +335,9 @@ service StampLibraryService {
 
   // Buys a paid pack with coins and installs it. Safe to retry: a pack is
   // never charged twice, and buying a pack that is already owned succeeds
-  // without charging. Errors: `PACK_NOT_FOUND`, `PACK_NOT_FOR_SALE` (free or
+  // without charging. A purchase that started earlier and did not finish is
+  // finished at the price agreed then (`charged` 0 when it was paid then),
+  // also when the pack's price changed or it left the store since. Errors: `PACK_NOT_FOUND`, `PACK_NOT_FOR_SALE` (free or
   // the caller's own), `PRICE_CHANGED` (`expected_price` is stale),
   // `INSUFFICIENT_COINS`, `INSTALL_LIMIT_REACHED`, `RATE_LIMITED`.
   rpc PurchasePack(PurchasePackRequest) returns (PurchasePackResponse);

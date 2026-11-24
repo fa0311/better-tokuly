@@ -161,13 +161,17 @@ CREATE TABLE stamp_pack_purchases (
 CREATE INDEX stamp_pack_purchases_recent ON stamp_pack_purchases (user_id, purchased_at DESC, pack_id DESC);
 CREATE INDEX stamp_pack_purchases_pack ON stamp_pack_purchases (pack_id);
 
--- A purchase that has started but whose payment is not recorded yet. It keeps
--- the creator from deleting the pack between the payment and the purchase
--- row. Rows are removed when the purchase completes or fails, and swept after
--- a day (a retry recreates them and recognises an earlier payment).
+-- A purchase that has started but whose payment is not recorded yet: an
+-- order the buyer confirmed. It keeps the creator from deleting the pack
+-- until the purchase is settled. A row is removed when the purchase is
+-- recorded or the ledger refused the payment; any other failure leaves it,
+-- and the buyer's retry or the worker (after 15 minutes) settles it at
+-- `price`, recognising a payment that did happen.
 CREATE TABLE stamp_purchase_intents (
     user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     pack_id    uuid        NOT NULL REFERENCES stamp_packs (id) ON DELETE CASCADE,
+    -- The price the buyer agreed to; a retry pays (or recognises) exactly this.
+    price      integer     NOT NULL CHECK (price > 0),
     created_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, pack_id)
 );

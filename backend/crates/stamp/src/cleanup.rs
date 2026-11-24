@@ -108,11 +108,8 @@ impl Stamp {
     /// could see.
     async fn erase_pack_of_deleted_creator(&self, tx: &mut Transaction<'_, Postgres>, pack_id: Uuid) -> AppResult<()> {
         let pack = packs::lock(tx, pack_id).await?;
-        let sold: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM stamp_pack_purchases WHERE pack_id = $1)")
-            .bind(pack.id)
-            .fetch_one(&mut **tx)
-            .await?;
-        if !sold {
+        // A purchase not settled yet counts: its buyer may have paid.
+        if !crate::studio_svc::has_buyers(tx, pack.id).await? {
             return packs::delete(tx, &pack).await;
         }
         let unreviewed: Vec<Uuid> =

@@ -4,15 +4,20 @@
 //! cannot be one atomic step. It is three, ordered so that nothing is lost
 //! whichever one fails:
 //!
-//! 1. an *intent* row is written. From then on the creator cannot delete the
-//!    pack (see `StampStudioService.DeletePack`);
-//! 2. the ledger moves the coins, idempotently on the key
+//! 1. an *intent* row is written with the price the buyer confirmed. From
+//!    then on the creator cannot delete the pack (see
+//!    `StampStudioService.DeletePack`);
+//! 2. the ledger moves that price, idempotently on the key
 //!    `stamp-pack:<pack_id>:<user_id>`;
 //! 3. the purchase row is written, the intent removed, the pack installed.
 //!
-//! If step 3 fails the user has paid without owning the pack — until they
-//! try again: the ledger recognises the key, moves nothing and step 3 runs.
-//! `PurchasePack` is therefore safe to retry, and never charges twice.
+//! If step 3 fails (or step 2 fails in a way that leaves open whether it
+//! committed) the intent stays, and the purchase is settled at its stored
+//! price by the buyer's next `PurchasePack` or by the worker after 15
+//! minutes: the ledger recognises the key, moves nothing and step 3 runs —
+//! also when the pack's price changed or it left the store meanwhile. Only
+//! a refused payment removes the intent. `PurchasePack` is therefore safe
+//! to retry, and never charges twice.
 use std::time::Duration;
 
 use sqlx::{Postgres, Transaction};
@@ -41,6 +46,36 @@ fn idempotency_key(pack_id: Uuid, user_id: Uuid) -> String {
     format!("stamp-pack:{pack_id}:{user_id}")
 }
 
+/// Age after which the worker settles a purchase the buyer did not finish.
+/// Also how long a purchase takes at most when nothing fails.
+const UNFINISHED_AFTER: &str = "15 minutes";
+
+/// The price of `user_id`'s unfinished purchase of a pack, if they started one.
+async fn unfinished_price(db: &sqlx::PgPool, user_id: Uuid, pack_id: Uuid) -> AppResult<Option<i32>> {
+    Ok(sqlx::query_scalar("SELECT price FROM stamp_purchase_intents WHERE user_id = $1 AND pack_id = $2")
+        .bind(user_id)
+        .bind(pack_id)
+        .fetch_optional(db)
+        .await?)
+}
+
+async fn forget_intent(db: &sqlx::PgPool, user_id: Uuid, pack_id: Uuid) -> AppResult<()> {
+    sqlx::query("DELETE FROM stamp_purchase_intents WHERE user_id = $1 AND pack_id = $2")
+        .bind(user_id)
+        .bind(pack_id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Whether the ledger turned a payment down (no coins moved), as opposed
+/// to a failure that may have happened after it committed. (A key used for
+/// a different amount, `IDEMPOTENCY_KEY_REUSED`, means coins did move.)
+fn refused(error: &AppError) -> bool {
+    use connectrpc::ErrorCode;
+    matches!(error.code, ErrorCode::InvalidArgument | ErrorCode::FailedPrecondition | ErrorCode::NotFound)
+}
+
 /// A payment as recorded by the ledger.
 struct Payment {
     entry_id: Uuid,
@@ -53,6 +88,10 @@ struct Payment {
 impl Stamp {
     /// Buys `pack` for `user_id` and installs it. Returns the coins charged
     /// by this call (0 when the pack was already owned or already paid for).
+    ///
+    /// A purchase that started before (its intent is stored) is finished at
+    /// the price agreed then, whether or not the pack is still sold or costs
+    /// the same: the earlier attempt may have paid already.
     pub(crate) async fn purchase(
         &self,
         viewer: &Viewer,
@@ -72,52 +111,74 @@ impl Stamp {
             tx.commit().await?;
             return Ok(0);
         }
-        ensure!(
-            pack.is_published() && pack.price > 0,
-            precondition,
-            "PACK_NOT_FOR_SALE",
-            "this pack is not sold for coins"
-        );
-        ensure!(
-            expected_price == pack.price,
-            precondition,
-            "PRICE_CHANGED",
-            "the price changed to {} coins; confirm the new price",
-            pack.price
-        );
         core.cache.rate_limit(&format!("stamp-buy:{user_id}"), 20, Duration::from_secs(60)).await?;
+        let price = match unfinished_price(&core.db, user_id, pack.id).await? {
+            Some(price) => price,
+            None => {
+                ensure!(
+                    pack.is_published() && pack.price > 0,
+                    precondition,
+                    "PACK_NOT_FOR_SALE",
+                    "this pack is not sold for coins"
+                );
+                ensure!(
+                    expected_price == pack.price,
+                    precondition,
+                    "PRICE_CHANGED",
+                    "the price changed to {} coins; confirm the new price",
+                    pack.price
+                );
+                // The order, at the price the buyer confirmed. A concurrent
+                // first attempt that stored one already keeps its price.
+                sqlx::query_scalar(
+                    "INSERT INTO stamp_purchase_intents (user_id, pack_id, price) VALUES ($1, $2, $3)
+                     ON CONFLICT (user_id, pack_id) DO UPDATE SET price = stamp_purchase_intents.price
+                     RETURNING price",
+                )
+                .bind(user_id)
+                .bind(pack.id)
+                .bind(pack.price)
+                .fetch_one(&core.db)
+                .await
+                .map_err(|e| match AppError::from(e) {
+                    // A foreign key failure: the pack was deleted a moment ago.
+                    e if e.is_not_found() => AppError::not_found("PACK_NOT_FOUND", "stamp pack not found"),
+                    e => e,
+                })?
+            }
+        };
+        self.settle(user_id, pack, price).await
+    }
 
-        sqlx::query(
-            "INSERT INTO stamp_purchase_intents (user_id, pack_id) VALUES ($1, $2)
-             ON CONFLICT (user_id, pack_id) DO UPDATE SET created_at = now()",
-        )
-        .bind(user_id)
-        .bind(pack.id)
-        .execute(&core.db)
-        .await
-        .map_err(|e| match AppError::from(e) {
-            // A foreign key failure: the pack was deleted a moment ago.
-            e if e.is_not_found() => AppError::not_found("PACK_NOT_FOUND", "stamp pack not found"),
-            e => e,
-        })?;
-
-        let payment = match self.pay(user_id, pack).await {
+    /// Pays for (or recognises the payment of) the purchase whose intent at
+    /// `price` is stored, and records it. `pack` is the pack as it is now.
+    async fn settle(&self, user_id: Uuid, pack: &PackRow, price: i32) -> AppResult<i32> {
+        let core = &self.core;
+        let payment = match self.pay(user_id, pack, price).await {
             Ok(payment) => payment,
             Err(e) => {
-                // Nothing was charged, so the pack need not be protected any longer.
-                let _ = sqlx::query("DELETE FROM stamp_purchase_intents WHERE user_id = $1 AND pack_id = $2")
-                    .bind(user_id)
-                    .bind(pack.id)
-                    .execute(&core.db)
-                    .await;
+                // The ledger refused: nothing moved, and the order is over.
+                // Any other failure (the database, a timeout) may have come
+                // after the payment committed: the intent stays, so the pack
+                // stays protected and the purchase is settled later.
+                if refused(&e) {
+                    forget_intent(&core.db, user_id, pack.id).await?;
+                }
                 return Err(e);
             }
         };
+        // Charged just now for a pack that is no longer sold: the earlier
+        // attempt never paid, so there is nothing to finish. Give it back.
+        if payment.applied && !(pack.is_published() && pack.price > 0) {
+            ledger::refund(core, payment.entry_id, "stamp.pack.refund").await?;
+            forget_intent(&core.db, user_id, pack.id).await?;
+            bail!(precondition, "PACK_NOT_FOR_SALE", "this pack is not sold any more");
+        }
 
-        if let Err(e) = self.complete_purchase(user_id, pack, &payment).await {
-            // The one way to pay for a pack that no longer exists: its creator's
-            // account was purged between the payment and now. Give the coins back.
-            if payment.applied && packs::find_by_id(&core.db, pack.id).await?.is_none() {
+        if let Err(e) = self.complete_purchase(user_id, pack, &payment, price).await {
+            // Paid for a pack that no longer exists (its intent went with it):
+            // give the coins back.
+            if packs::find_by_id(&core.db, pack.id).await?.is_none() {
                 ledger::refund(core, payment.entry_id, "stamp.pack.refund").await?;
             }
             return Err(e);
@@ -126,20 +187,46 @@ impl Stamp {
         let mut event = AnalyticsEvent::new("stamp.pack.purchase")
             .user(Some(user_id))
             .subject("stamp_pack", pack.id)
-            .value(pack.price as f64);
+            .value(price as f64);
         if let Some(creator_id) = pack.creator_id {
             event = event.owner(creator_id);
         }
         core.analytics.track(event).await;
-        Ok(if payment.applied { pack.price } else { 0 })
+        Ok(if payment.applied { price } else { 0 })
+    }
+
+    /// Settles the purchases nobody came back to (worker, every few
+    /// minutes): an intent older than [`UNFINISHED_AFTER`] is paid, or its
+    /// earlier payment recognised, at its price and recorded. Returns how
+    /// many were looked at.
+    pub async fn settle_unfinished_purchases(&self) -> AppResult<usize> {
+        let unfinished: Vec<(Uuid, Uuid, i32)> = sqlx::query_as(
+            "SELECT user_id, pack_id, price FROM stamp_purchase_intents
+             WHERE created_at < now() - $1::interval
+             ORDER BY created_at LIMIT 100",
+        )
+        .bind(UNFINISHED_AFTER)
+        .fetch_all(&self.core.db)
+        .await?;
+        for (user_id, pack_id, price) in &unfinished {
+            let Some(pack) = packs::find_by_id(&self.core.db, *pack_id).await? else { continue };
+            match self.settle(*user_id, &pack, *price).await {
+                Ok(_) => {}
+                Err(e) if refused(&e) => {
+                    tracing::info!(%user_id, %pack_id, reason = %e.reason, "an unfinished stamp purchase was not paid")
+                }
+                Err(e) => tracing::warn!(%user_id, %pack_id, error = %e, "an unfinished stamp purchase is still open"),
+            }
+        }
+        Ok(unfinished.len())
     }
 
     /// Moves the coins: to the creator's earnings minus the platform fee,
     /// or to the platform for official packs.
-    async fn pay(&self, user_id: Uuid, pack: &PackRow) -> AppResult<Payment> {
+    async fn pay(&self, user_id: Uuid, pack: &PackRow, price: i32) -> AppResult<Payment> {
         let key = idempotency_key(pack.id, user_id);
         let memo = serde_json::json!({ "pack_id": pack.id, "pack_name": pack.name });
-        let price = pack.price as i64;
+        let price = price as i64;
         match pack.creator_id {
             Some(creator_id) => {
                 let receipt = ledger::transfer(
@@ -163,7 +250,7 @@ impl Stamp {
     }
 
     /// Records the purchase and everything that follows from it, atomically.
-    async fn complete_purchase(&self, user_id: Uuid, pack: &PackRow, payment: &Payment) -> AppResult<()> {
+    async fn complete_purchase(&self, user_id: Uuid, pack: &PackRow, payment: &Payment, price: i32) -> AppResult<()> {
         let mut tx = self.core.db.begin().await?;
         let recorded = sqlx::query(
             "INSERT INTO stamp_pack_purchases (user_id, pack_id, price, net, entry_id) VALUES ($1, $2, $3, $4, $5)
@@ -171,7 +258,7 @@ impl Stamp {
         )
         .bind(user_id)
         .bind(pack.id)
-        .bind(pack.price)
+        .bind(price)
         .bind(payment.net as i32)
         .bind(payment.entry_id)
         .execute(&mut *tx)
@@ -185,7 +272,7 @@ impl Stamp {
             .await?;
         // A concurrent retry may have recorded it already; count the sale once.
         if recorded {
-            self.announce_sale(&mut tx, user_id, pack, payment).await?;
+            self.announce_sale(&mut tx, user_id, pack, payment, price).await?;
         }
         installs::install(&mut tx, user_id, pack, true).await?;
         tx.commit().await?;
@@ -198,6 +285,7 @@ impl Stamp {
         buyer_id: Uuid,
         pack: &PackRow,
         payment: &Payment,
+        price: i32,
     ) -> AppResult<()> {
         sqlx::query("UPDATE stamp_packs SET purchase_count = purchase_count + 1 WHERE id = $1")
             .bind(pack.id)
@@ -208,7 +296,7 @@ impl Stamp {
             pack_id: pack.id,
             buyer_id,
             creator_id: pack.creator_id,
-            price: pack.price as i64,
+            price: price as i64,
             net: payment.net,
             entry_id: payment.entry_id,
         };

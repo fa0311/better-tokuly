@@ -147,7 +147,8 @@ No jobs. `Stamp::spawn_workers` starts:
 |---|---|---|
 | event consumer `stamp` | — | See "Events consumed". |
 | ranking refresh | `TOKULY_STAMP_RANKING_INTERVAL_SECONDS` | Recomputes each active pack's popularity score (7 days; send ×1, install ×5, sale ×20; −20% per day of age) and its send counter. |
-| pruning | hourly | Deletes usage log rows older than the retention period and purchase intents older than a day. |
+| pruning | hourly | Deletes usage log rows older than the retention period. |
+| unfinished purchases | every 5 minutes | `Stamp::settle_unfinished_purchases()`: a purchase intent older than 15 minutes is paid at its stored price (or its earlier payment recognised by the ledger key) and recorded; a refused payment ends it. Intents are never swept, and a pack with one cannot be deleted. |
 | official seeding | once at startup | `Stamp::seed_official_packs()` when `TOKULY_STAMP_SEED_OFFICIAL` is true. Idempotent; safe to run from several processes. |
 
 Statistics days are counted in Japan time (`Asia/Tokyo`). The numbers
