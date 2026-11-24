@@ -22,7 +22,7 @@ use crate::{
     audit::Audit,
     cases::CaseRow,
     notices::{self, Mail},
-    staff::Staff,
+    staff::{self, Staff},
 };
 
 /// Why a suspension stopped applying (`user_suspensions.end_cause`).
@@ -88,6 +88,38 @@ async fn lock_sanctions(conn: &mut PgConnection, user_id: Uuid) -> AppResult<()>
     Ok(())
 }
 
+/// Locks staff out of the deployment only one change at a time, on the lock
+/// role changes take (`SetUserRoles`): the caller must still be an active
+/// admin at that moment, and the target must not be the last one. Without
+/// it two admins suspending each other at once would both succeed.
+async fn guard_staff_sanction(conn: &mut PgConnection, staff: &Staff, target: &Target) -> AppResult<()> {
+    lock_admin_roles(conn).await?;
+    let (caller_active, others_active): (bool, bool) = sqlx::query_as(
+        "SELECT
+             EXISTS(SELECT 1 FROM users WHERE id = $1 AND 'admin' = ANY(roles) AND deleted_at IS NULL AND banned_at IS NULL),
+             EXISTS(SELECT 1 FROM users WHERE id <> $2 AND 'admin' = ANY(roles) AND deleted_at IS NULL AND banned_at IS NULL)",
+    )
+    .bind(staff.id)
+    .bind(target.id)
+    .fetch_one(&mut *conn)
+    .await?;
+    ensure!(caller_active, denied, "FORBIDDEN", "requires role admin");
+    ensure!(
+        others_active || !target.roles.iter().any(|r| r == "admin"),
+        precondition,
+        "LAST_ADMIN",
+        "this is the last active admin of the deployment"
+    );
+    Ok(())
+}
+
+/// Serializes changes that could leave the deployment without an admin
+/// (role changes, sanctions on staff) for the rest of the transaction.
+pub(crate) async fn lock_admin_roles(conn: &mut PgConnection) -> AppResult<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(1600, hashtext('admin.roles'))").execute(conn).await?;
+    Ok(())
+}
+
 impl Admin {
     /// An existing (not deleted) account, or `USER_NOT_FOUND`.
     pub(crate) async fn target(&self, user_id: Uuid) -> AppResult<Target> {
@@ -137,6 +169,9 @@ impl Admin {
         sanction: Sanction<'_>,
         expires_at: Option<DateTime<Utc>>,
     ) -> AppResult<ActionRow> {
+        if staff::is_staff(&target.roles) {
+            guard_staff_sanction(conn, staff, target).await?;
+        }
         lock_sanctions(conn, target.id).await?;
         self.identity.set_banned(target.id, Some(sanction.reason)).await?;
 

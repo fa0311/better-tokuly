@@ -60,7 +60,7 @@ service ModerationService {
   // SUSPENSION_DURATION_INVALID, CONFLICT_OF_INTEREST (the case is about the
   // caller's own content or account, or the caller is involved in an
   // anonymous post), TARGET_IS_STAFF (only admins sanction staff),
-  // RATE_LIMITED.
+  // RATE_LIMITED, FORBIDDEN and LAST_ADMIN (as SuspendUser).
   rpc ResolveCase(ResolveCaseRequest) returns (ResolveCaseResponse);
   // Puts a resolved case back into the queue (e.g. after a mistaken
   // dismissal). Actions already taken are not undone. Role: `moderator`.
@@ -407,10 +407,14 @@ service UserAdminService {
   // Suspends the account for a period or bans it permanently. The user is
   // signed out everywhere and cannot sign in; a timed suspension is lifted
   // automatically. Suspending an already suspended account replaces the
-  // current suspension. Role: `moderator`.
+  // current suspension. Suspending staff (admins only) takes turns with role
+  // changes and needs the caller to still be an active admin at that
+  // moment, so two admins suspending each other leave one of them in.
+  // Role: `moderator`.
   // Errors: USER_NOT_FOUND, REASON_REQUIRED, REASON_TOO_LONG, NOTE_INVALID,
   // SUSPENSION_DURATION_INVALID, CANNOT_SANCTION_SELF, TARGET_IS_STAFF,
-  // RATE_LIMITED.
+  // RATE_LIMITED, FORBIDDEN (the caller's admin role or account was taken a
+  // moment ago), LAST_ADMIN (the target is the last active admin).
   rpc SuspendUser(SuspendUserRequest) returns (SuspendUserResponse);
   // Lifts a suspension or ban. Role: `moderator`.
   // Errors: USER_NOT_FOUND, USER_NOT_SUSPENDED, NOTE_INVALID, TARGET_IS_STAFF.

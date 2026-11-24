@@ -100,3 +100,21 @@ async fn two_admins_demoting_each_other_at_once_leave_one_of_them_admin() {
         assert_eq!(admins, 1, "round {round}");
     }
 }
+
+#[tokio::test]
+async fn two_admins_banning_each_other_at_once_leave_one_of_them_in() {
+    let (app, _admin) = start().await;
+    for round in 0..5 {
+        let a = app.user_with_roles("a", &["admin"]).await;
+        let b = app.user_with_roles("b", &["admin"]).await;
+        let ban = |by: &tokuly_testkit::TestUser, whom: &tokuly_testkit::TestUser| {
+            let request = SuspendUserRequest { user_id: whom.id.to_string(), reason: "乗っ取り".into(), permanent: true, ..Default::default() };
+            let (app, by) = (&app, by.clone());
+            async move { app.call::<_, SuspendUserResponse>(&format!("{USERS}/SuspendUser"), Some(&by), &request).await }
+        };
+        let (a_bans_b, b_bans_a) = tokio::join!(ban(&a, &b), ban(&b, &a));
+        assert!(!(a_bans_b.is_ok() && b_bans_a.is_ok()), "round {round}: both admins were banned");
+        let banned = (is_banned(&app, a.id).await, is_banned(&app, b.id).await);
+        assert!(banned != (true, true), "round {round}");
+    }
+}

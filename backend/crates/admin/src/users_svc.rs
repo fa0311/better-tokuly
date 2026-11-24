@@ -11,7 +11,7 @@ use crate::{
     actions::ActionFilter,
     audit::Audit,
     first_page,
-    sanctions::{Sanction, Target},
+    sanctions::{Sanction, Target, lock_admin_roles},
     staff::{Staff, note_text, reason_text, suspension_duration},
 };
 
@@ -152,7 +152,7 @@ impl UserAdminService for Admin {
             // succeed and leave nobody to manage the deployment.
             let slot = self.identity_slot().await?;
             let mut tx = self.core.db.begin().await?;
-            sqlx::query("SELECT pg_advisory_xact_lock(1600, hashtext('admin.roles'))").execute(&mut *tx).await?;
+            lock_admin_roles(&mut tx).await?;
             let still_admin: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND 'admin' = ANY(roles) AND deleted_at IS NULL AND banned_at IS NULL)",
             )
