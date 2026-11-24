@@ -193,3 +193,201 @@ async fn an_unsend_handled_at_the_same_time_as_the_message_leaves_nothing() {
     }
     assert!(ctx.inbox(&alice).await.notifications.is_empty());
 }
+
+/// A notification about `subject` as its producer writes it.
+fn about(to: &TestUser, kind: &str, subject: (SubjectType, Uuid), data: serde_json::Value) -> NotificationRequest {
+    NotificationRequest::new(to.id, kind, Localized::same(kind), Localized::same("…"), "/somewhere")
+        .subject(subject.0, subject.1)
+        .data(data)
+}
+
+async fn withdraw_event(ctx: &Ctx, topic: &str, data: serde_json::Value) {
+    ctx.notify.handle_event(event(topic, data)).await.unwrap();
+}
+
+#[tokio::test]
+async fn deleted_videos_shorts_streams_and_answers_are_withdrawn() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let (video, short, stream, question) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    // As video, shorts and live write them.
+    ctx.deliver_to_inbox(&about(
+        &alice,
+        "video.published",
+        (SubjectType::SUBJECT_TYPE_VIDEO, video),
+        serde_json::json!({ "video_id": video, "short_id": "abc", "channel_id": Uuid::now_v7() }),
+    ))
+    .await;
+    ctx.deliver_to_inbox(&about(
+        &alice,
+        "shorts.published",
+        (SubjectType::SUBJECT_TYPE_SHORT, short),
+        serde_json::json!({ "id": short, "short_id": "def" }),
+    ))
+    .await;
+    ctx.deliver_to_inbox(&about(
+        &alice,
+        "live.started",
+        (SubjectType::SUBJECT_TYPE_LIVE_STREAM, stream),
+        serde_json::json!({ "channel_id": Uuid::now_v7() }),
+    ))
+    .await;
+    // Ask: the asker hears about the answer; the box owner had heard about the question.
+    let answered = NotificationRequest::new(
+        alice.id,
+        "ask.answered",
+        Localized::same("bobさんが質問に答えたよ!"),
+        Localized::same("the answer text"),
+        format!("/ask/q/{question}"),
+    )
+    .actor(bob.id)
+    .collapse(format!("ask.answered:{question}"))
+    .data(serde_json::json!({ "question_id": question }));
+    ctx.deliver_to_inbox(&answered).await;
+    let asked = NotificationRequest::new(
+        bob.id,
+        "ask.question",
+        Localized::same("質問が届いたよ!"),
+        Localized::same("?"),
+        "/ask",
+    )
+    .data(serde_json::json!({ "question_id": question }));
+    ctx.deliver_to_inbox(&asked).await;
+    assert_eq!(ctx.inbox(&alice).await.notifications.len(), 4);
+
+    withdraw_event(&ctx, "video.video.deleted", serde_json::json!({ "video_id": video, "owner_id": bob.id })).await;
+    assert_eq!(ctx.inbox(&alice).await.notifications.len(), 3);
+    withdraw_event(
+        &ctx,
+        "shorts.short.deleted",
+        serde_json::json!({ "id": short, "short_id": "def", "owner_id": bob.id }),
+    )
+    .await;
+    assert_eq!(ctx.inbox(&alice).await.notifications.len(), 2);
+    withdraw_event(&ctx, "live.stream.deleted", serde_json::json!({ "stream_id": stream, "owner_id": bob.id })).await;
+    assert_eq!(kinds(&ctx, &alice).await, ["ask.answered"]);
+    withdraw_event(&ctx, "ask.answer.deleted", serde_json::json!({ "question_id": question, "owner_id": bob.id }))
+        .await;
+    assert!(kinds(&ctx, &alice).await.is_empty());
+    assert_eq!(kinds(&ctx, &bob).await, ["ask.question"], "the question itself is still there");
+    // The question can be answered again, and that is announced.
+    ctx.deliver_to_inbox(&answered).await;
+}
+
+#[tokio::test]
+async fn hidden_content_leaves_everyone_but_its_owner() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let (video, note) = (Uuid::now_v7(), Uuid::now_v7());
+    ctx.deliver_to_inbox(&about(
+        &alice,
+        "video.published",
+        (SubjectType::SUBJECT_TYPE_VIDEO, video),
+        serde_json::json!({ "video_id": video }),
+    ))
+    .await;
+    // The owner's own notice about the video.
+    ctx.deliver_to_inbox(&about(
+        &bob,
+        "video.processing_done",
+        (SubjectType::SUBJECT_TYPE_VIDEO, video),
+        serde_json::json!({ "video_id": video, "published": true }),
+    ))
+    .await;
+    ctx.deliver_to_inbox(&about(&alice, "notes.like", (SubjectType::SUBJECT_TYPE_NOTE, note), serde_json::json!({})))
+        .await;
+    ctx.deliver_to_inbox(&about(&bob, "notes.like", (SubjectType::SUBJECT_TYPE_NOTE, note), serde_json::json!({})))
+        .await;
+
+    withdraw_event(&ctx, "video.video.unpublished", serde_json::json!({ "video_id": video, "owner_id": bob.id })).await;
+    assert_eq!(kinds(&ctx, &alice).await, ["notes.like"]);
+    // Narrowed to friends: who still sees it is not known here.
+    withdraw_event(
+        &ctx,
+        "notes.note.visibility_changed",
+        serde_json::json!({ "note_id": note, "author_id": bob.id, "visibility": 4 }),
+    )
+    .await;
+    assert_eq!(kinds(&ctx, &alice).await, ["notes.like"]);
+    withdraw_event(
+        &ctx,
+        "notes.note.visibility_changed",
+        serde_json::json!({ "note_id": note, "author_id": bob.id, "visibility": 5 }),
+    )
+    .await;
+    assert!(kinds(&ctx, &alice).await.is_empty());
+    assert_eq!(ctx.inbox(&bob).await.notifications.len(), 2, "the owner keeps theirs");
+    // Hidden is not gone: published again, it is announced again.
+    ctx.deliver_to_inbox(&about(
+        &alice,
+        "video.published",
+        (SubjectType::SUBJECT_TYPE_VIDEO, video),
+        serde_json::json!({ "video_id": video }),
+    ))
+    .await;
+}
+
+#[tokio::test]
+async fn a_grouped_entry_loses_only_the_deleted_comment() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let note_id = Uuid::now_v7();
+    let comments = [Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()];
+    let start = Utc::now() - chrono::Duration::seconds(10);
+    for (i, comment) in comments.iter().enumerate() {
+        let request = comment_on(&alice, &bob, note_id, *comment).collapse(format!("comments:{note_id}"));
+        let event = event_at(NOTIFY_TOPIC, request, start + chrono::Duration::seconds(i as i64));
+        ctx.notify.handle_request(&event).await.unwrap();
+    }
+    let entry = |inbox: ListNotificationsResponse| inbox.notifications.into_iter().next();
+    assert_eq!(entry(ctx.inbox(&alice).await).unwrap().group_count, 3);
+
+    // The latest comment, the one the entry quotes, is deleted.
+    withdraw_event(&ctx, "engagement.comment.deleted", serde_json::json!({ "comment_id": comments[2] })).await;
+    let shrunk = entry(ctx.inbox(&alice).await).expect("the group stays");
+    assert_eq!(shrunk.group_count, 2);
+    assert!(shrunk.body.is_empty(), "the deleted text is gone: {:?}", shrunk.body);
+    // An older one: the entry keeps what it shows.
+    withdraw_event(&ctx, "engagement.comment.deleted", serde_json::json!({ "comment_id": comments[0] })).await;
+    assert_eq!(entry(ctx.inbox(&alice).await).unwrap().group_count, 1);
+    // The last one takes the entry with it.
+    withdraw_event(&ctx, "engagement.comment.deleted", serde_json::json!({ "comment_id": comments[1] })).await;
+    assert!(entry(ctx.inbox(&alice).await).is_none());
+}
+
+#[tokio::test]
+async fn content_with_thousands_of_recipients_is_withdrawn_in_batches() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    let video = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO notifications (user_id, kind, category, title_ja, title_en, body_ja, body_en, path,
+                                    subject_type, subject_id, refs)
+         SELECT $1, 'video.published', 'video', 't', 't', 'b', 'b', '/', 5, $2, ARRAY[$2]::uuid[]
+         FROM generate_series(1, 2500)",
+    )
+    .bind(alice.id)
+    .bind(video)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+    let mut frames = ctx.app.listen_user(alice.id).await;
+    withdraw_event(&ctx, "video.video.deleted", serde_json::json!({ "video_id": video })).await;
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications WHERE user_id = $1")
+        .bind(alice.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
+    // One `removed` per batch, each with the count after it.
+    let mut batches = 0;
+    while let Some(frame) = frames.next(Duration::from_millis(500)).await {
+        if let Some(NotifyEvent { event: Some(notify_event::Event::Removed(removed)), .. }) =
+            frame.event::<NotifyEvent>()
+        {
+            batches += 1;
+            assert!(removed.bulk, "more than 200 per batch");
+        }
+    }
+    assert_eq!(batches, 3);
+}

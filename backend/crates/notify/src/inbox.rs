@@ -130,7 +130,13 @@ pub async fn upsert(
             body_ja = EXCLUDED.body_ja, body_en = EXCLUDED.body_en,
             image_url = EXCLUDED.image_url, path = EXCLUDED.path,
             subject_type = EXCLUDED.subject_type, subject_id = EXCLUDED.subject_id,
-            data = EXCLUDED.data, refs = EXCLUDED.refs, urgent = EXCLUDED.urgent, occurred_at = EXCLUDED.occurred_at,
+            data = EXCLUDED.data,
+            -- Unread, the entry stands for every event folded in since it was
+            -- read, so it refers to what all of them refer to.
+            refs = CASE WHEN notifications.read_at IS NULL
+                        THEN ARRAY(SELECT DISTINCT r FROM unnest(notifications.refs || EXCLUDED.refs) AS r ORDER BY r)
+                        ELSE EXCLUDED.refs END,
+            urgent = EXCLUDED.urgent, occurred_at = EXCLUDED.occurred_at,
             -- The count restarts once the user has seen the entry.
             group_count = CASE WHEN notifications.read_at IS NULL THEN notifications.group_count + 1 ELSE 1 END,
             read_at = NULL

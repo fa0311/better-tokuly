@@ -48,10 +48,18 @@ carries `urgent = true`.
 
 **Withdrawn content.** Every inbox entry records the IDs it refers to: its
 subject and every `*_id` value at the top level of its `data` (`comment_id`,
-`message_id`...). When one of them is deleted or taken down (events below),
-every entry referring to it leaves every inbox (`NotifyEvent.removed` to the
-owners' clients), the ID is remembered for 8 days, and a request about it
-that arrives late, or a push job still queued for it, is dropped. Entries of
+`message_id`...), and while it is unread, those of every event folded into
+it. When one of them is deleted or taken down (events below), every entry
+referring to it leaves every inbox (`NotifyEvent.removed` to the owners'
+clients, in batches of 1000 entries). A grouped entry that still stands for
+other events stays with one event less, and without its body and image when
+it was showing the withdrawn one (clients see that change on their next
+read; no event is sent for it). Content that is gone is remembered for
+8 days: a request about it that arrives late, or a push job still queued for
+it, is dropped. Content that is only hidden (unpublished, made private) is
+withdrawn from everyone but its owner and not remembered, since it can come
+back. A note narrowed to friends is not withdrawn: this domain does not know
+who is a friend. Entries of
 the `system` category are never withdrawn: the notice telling an owner that
 their content was taken down refers to that content. A withdrawal and a
 request about the same ID serialize on an advisory lock, so an entry stored
@@ -79,6 +87,12 @@ account's) for push.
 | `notes.note.deleted` / `notes.story.deleted` | `{ note_id, … }` / `{ story_id, … }` | withdraws the note / story |
 | `community.thread.deleted` | `{ community_id, thread_id }` | withdraws `thread_id` |
 | `video.playlist.deleted` | `{ playlist_id, owner_id }` | withdraws `playlist_id` |
+| `video.video.deleted` | `VideoEvent` `{ video_id, … }` | withdraws `video_id` |
+| `shorts.short.deleted` | `ShortEvent` `{ id, … }` | withdraws `id` |
+| `live.stream.deleted` | `StreamEvent` `{ stream_id, … }` | withdraws `stream_id` |
+| `ask.answer.deleted` | `{ question_id, owner_id }` | withdraws the asker's `ask.answered` entries for `question_id` (the question itself stays; not remembered, it can be answered again) |
+| `video.video.unpublished` | `VideoEvent` | hides `video_id` from everyone but `owner_id` |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility }` | `visibility` = 5 (private): hides `note_id` from everyone but `author_id`. Other values change nothing |
 | `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, and mutes on them |
 
 ## Events emitted
@@ -151,7 +165,7 @@ Sent to every connection of the user:
 | What | Name | Notes |
 |---|---|---|
 | Event consumer | durable `notify` | topics above |
-| Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; up to 5 attempts with the job queue's backoff; devices already reached are remembered in Valkey (`notify:push:delivered:{job}`) so a retry only reaches the rest |
+| Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; dropped at delivery when its content was withdrawn, or when the recipient blocked, was blocked by or muted its actor in the meantime (not for `system` notices); up to 5 attempts with the job queue's backoff; devices already reached are remembered in Valkey (`notify:push:delivered:{job}`) so a retry only reaches the rest |
 | Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers and withdrawn-content markers older than 8 days; push registrations of revoked or expired sessions |
 
 Push outcomes: accepted → `last_delivered_at`; token gone (Web Push 404/410,

@@ -50,13 +50,19 @@ pub const TOPICS: &[&str] = &[
     USER_BLOCKED_TOPIC,
     USER_UNBLOCKED_TOPIC,
     CONTENT_REMOVED_TOPIC,
-    // `withdraw::DELETION_TOPICS`
+    // `withdraw::RULES`
     "chat.message.deleted",
     "engagement.comment.deleted",
     "notes.note.deleted",
     "notes.story.deleted",
     "community.thread.deleted",
     "video.playlist.deleted",
+    "video.video.deleted",
+    "shorts.short.deleted",
+    "live.stream.deleted",
+    "ask.answer.deleted",
+    "video.video.unpublished",
+    "notes.note.visibility_changed",
 ];
 
 /// Why a notification was not pushed.
@@ -227,8 +233,8 @@ impl Notify {
                 let deleted: UserDeleted = event.data()?;
                 self.purge_user(deleted.user_id).await
             }
-            _ => match withdraw::withdrawn_by(&event)? {
-                Some(ref_id) => self.withdraw(ref_id).await,
+            _ => match withdraw::withdrawal_of(&event)? {
+                Some(withdrawal) => self.withdraw(&withdrawal).await,
                 None => Ok(()),
             },
         }
@@ -428,8 +434,8 @@ mod tests {
 
     #[test]
     fn every_deletion_topic_is_consumed() {
-        for (topic, _) in withdraw::DELETION_TOPICS {
-            assert!(TOPICS.contains(topic), "{topic}");
+        for rule in withdraw::RULES {
+            assert!(TOPICS.contains(&rule.topic), "{}", rule.topic);
         }
     }
     use tokuly_core::outbound::Localized;
