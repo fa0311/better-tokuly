@@ -1,4 +1,4 @@
-import { type common, toMillis, type video } from "@tokuly/api";
+import { common, toMillis, type video } from "@tokuly/api";
 import { ChevronDown, ChevronUp, Gamepad2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -207,17 +207,21 @@ function Chapters({
   );
 }
 
-/** One line under a title saying who can see the video, for anything that is not plainly public. */
+/**
+ * One line under a title saying who can see the video, for anything that is not plainly
+ * public. An audience this client does not know reads as private.
+ */
 export function audienceNote(
   visibility: common.Visibility,
   allowLink: boolean,
   t: (key: string) => string,
 ): string {
+  if (visibility === common.Visibility.PUBLIC) return "";
   const key = {
     2: "noFeed",
     3: "unlisted",
     4: allowLink ? "friendsOrLink" : "friends",
     5: "private",
   }[visibility as number];
-  return key ? t(`watch.audience.${key}`) : "";
+  return t(`watch.audience.${key ?? "private"}`);
 }

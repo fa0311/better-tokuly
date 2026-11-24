@@ -21,6 +21,7 @@ import { SubjectMoreButton } from "#/features/engagement";
 import { errorMessage } from "#/lib/errors";
 import { nextCursor, playlistClient, videoKeys } from "../api";
 import { formatAge } from "../format";
+import { visibilityOption } from "../labels";
 import { announceTrafficSource } from "../playback-session";
 import { playlistTitle } from "../save-dialog";
 import { ChannelName, imageUrl, VideoCard, VideoCardSkeleton, VisibilityChip } from "../video-card";
@@ -248,7 +249,7 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
                 subject={{ type: common.SubjectType.PLAYLIST, id: playlist.id }}
                 title={name}
                 label={name}
-                share={playlist.visibility !== common.Visibility.PRIVATE}
+                share={visibilityOption(playlist.visibility).value !== common.Visibility.PRIVATE}
                 report={!playlist.isOwner}
               />
             )}

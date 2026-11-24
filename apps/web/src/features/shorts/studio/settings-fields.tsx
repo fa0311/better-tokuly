@@ -29,9 +29,12 @@ const VISIBILITIES = [
   [Visibility.PRIVATE, "private"],
 ] as const;
 
-/** The name of a visibility in the `shorts` strings (`visibility.<key>.label`). */
+/**
+ * The name of a visibility in the `shorts` strings (`visibility.<key>.label`). An audience
+ * this client does not know reads as the narrowest one, never as something wider.
+ */
 export function visibilityKey(visibility: common.Visibility): string {
-  return VISIBILITIES.find(([value]) => value === visibility)?.[1] ?? "friends";
+  return VISIBILITIES.find(([value]) => value === visibility)?.[1] ?? "private";
 }
 
 /** The audience and the switches of a short, for the post form and the editor. */
@@ -51,7 +54,7 @@ export function SettingsFields({
         onChange={(key) =>
           onChange({
             ...value,
-            visibility: VISIBILITIES.find(([, name]) => name === key)?.[0] ?? Visibility.FRIENDS,
+            visibility: VISIBILITIES.find(([, name]) => name === key)?.[0] ?? Visibility.PRIVATE,
           })
         }
         options={VISIBILITIES.map(([, key]) => ({
