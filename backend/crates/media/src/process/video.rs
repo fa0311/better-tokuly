@@ -383,7 +383,7 @@ impl Media {
         }
         self.upload_files(uploads, progress, stage::EXTRAS, 99).await?;
         let master_key = format!("{prefix}hls/master.m3u8");
-        core.storage.put_file(Bucket::Media, &master_key, &hls_dir.join("master.m3u8"), content_type_of(Path::new("master.m3u8")), Some(store::IMMUTABLE)).await?;
+        core.storage.put_file(Bucket::Media, &master_key, &hls_dir.join("master.m3u8"), content_type_of(Path::new("master.m3u8")), Some(store::PUBLIC_CACHE)).await?;
 
         // ── describe ──
         let url = |key: String| core.storage.media_url(&key);
@@ -471,7 +471,7 @@ impl Media {
         let total = files.len().max(1);
         let storage = &self.core.storage;
         let mut uploads = futures::stream::iter(files)
-            .map(|(path, key)| async move { storage.put_file(Bucket::Media, &key, &path, content_type_of(&path), Some(store::IMMUTABLE)).await })
+            .map(|(path, key)| async move { storage.put_file(Bucket::Media, &key, &path, content_type_of(&path), Some(store::PUBLIC_CACHE)).await })
             .buffer_unordered(UPLOAD_CONCURRENCY);
         let mut done = 0usize;
         while uploads.try_next().await?.is_some() {

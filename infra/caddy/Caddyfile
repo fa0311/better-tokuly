@@ -36,10 +36,26 @@
 	}
 
 	# Public media: /media/<key> is the object <key> of the public bucket.
+	#
+	# Any of it can be removed (its owner deletes it, a moderator takes it
+	# down) and must then stop being served at once. The object store answers
+	# 404 as soon as the asset's objects are purged, right after the deletion
+	# is committed; so no cache may answer without asking here first. Shared
+	# caches (a CDN in front of this edge) revalidate every request
+	# (s-maxage=0: an unchanged object costs a 304 and no body), browsers keep
+	# a copy for five minutes. A CDN that caches longer must purge on
+	# `media.asset.deleted`: docs/events/media.md, "Caches and CDNs". The
+	# value is the media domain's `store::PUBLIC_CACHE` (a test keeps them
+	# equal); it replaces whatever an object was stored with.
 	handle_path /media/* {
+		# The asset an object belongs to, for CDNs that purge by tag.
+		@asset path_regexp asset ^/(?:img|anim|video|audio|file)/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/
+		header @asset Cache-Tag "asset-{re.asset.1}"
+		header @asset Surrogate-Key "asset-{re.asset.1}"
 		rewrite * /tokuly-media{uri}
-		reverse_proxy storage:9000
-		header Cache-Control "public, max-age=31536000, immutable"
+		reverse_proxy storage:9000 {
+			header_down Cache-Control "public, max-age=300, s-maxage=0, must-revalidate"
+		}
 	}
 
 	# Vector map tiles, and the fonts and icons the map style refers to.

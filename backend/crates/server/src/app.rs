@@ -369,6 +369,8 @@ pub fn api_router(core: Core, domains: &Domains, cors_origins: Vec<String>) -> a
         // The OAuth endpoints and the API descriptor; they read the client
         // address the auth middleware works out.
         .merge(domains.dev.http_routes())
+        // The pictures of link previews, fetched on the viewers' behalf.
+        .merge(domains.media.http_routes())
         .fallback_service(connect.into_axum_service())
         .layer(axum::middleware::from_fn_with_state(core.auth_layer.clone(), auth_middleware))
         // Our own infrastructure calling in. Both prove who they are in
@@ -401,16 +403,16 @@ pub async fn serve_api(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use clap::Parser;
+    use tokuly_media::link_preview::image_proxy::{Kind, proxy_url};
     use tokuly_proto::{
         geo::{LocationSample, ReportLocationsRequest, ReportLocationsResponse},
         social::{DiscoverNearbyRequest, DiscoverNearbyResponse},
     };
     use tokuly_testkit::TestApp;
+    use tower::ServiceExt as _;
 
-    use super::{DomainConfigs, Domains};
+    use super::*;
 
     #[derive(Parser)]
     struct Settings {
@@ -418,16 +420,57 @@ mod tests {
         domains: DomainConfigs,
     }
 
-    const ALL_MIGRATIONS: &[&str] = &[
+    const MIGRATIONS: &[&str] = &[
         "0001", "0100", "0200", "0300", "0400", "0500", "0600", "0700", "0800", "0900", "1000", "1100", "1200", "1300",
         "1400", "1500", "1600", "1700", "1800", "1900", "2000", "2100", "2200", "2300", "2400",
     ];
+
+    /// The pictures of link previews are served by the API's router, behind
+    /// the auth layer: it is what tells the route the client's address.
+    #[tokio::test]
+    async fn link_preview_pictures_are_routed_with_the_client_address() {
+        let app = tokuly_testkit::TestApp::start(MIGRATIONS, |_, _, router| router).await;
+        let core = app.core.clone();
+        let domains = Domains::new(core.clone(), Settings::parse_from(["tokuly"]).domains).expect("domains");
+        let router = api_router(core.clone(), &domains, Vec::new());
+        let get = |path: String, peer: std::net::IpAddr| {
+            let router = router.clone();
+            async move {
+                let request = axum::http::Request::get(path)
+                    .extension(axum::extract::ConnectInfo(SocketAddr::new(peer, 4000)))
+                    .body(axum::body::Body::empty())
+                    .unwrap();
+                let response = router.oneshot(request).await.unwrap();
+                let cache = response.headers().get("cache-control").map(|v| v.to_str().unwrap().to_owned());
+                (response.status().as_u16(), cache)
+            }
+        };
+        // A signed URL of a picture on an address the egress guard refuses:
+        // answered by the route ("nothing to show", remembered for a while),
+        // not by the Connect fallback.
+        let target = format!("http://169.254.169.254/{}.png", uuid::Uuid::now_v7());
+        let proxied = proxy_url(&core, Kind::Image, &target);
+        let path = proxied[proxied.find("/media/link-image/").unwrap()..].to_owned();
+        let peer = std::net::IpAddr::from([198, 51, 100, (uuid::Uuid::now_v7().as_u128() % 250) as u8 + 1]);
+        assert_eq!(get(path.clone(), peer).await, (404, Some("public, max-age=1800".to_owned())));
+
+        // The client's address reaches the per-client limit: once it is used
+        // up, a miss is turned away (and not remembered).
+        for _ in 0..120 {
+            let _ = core.cache.rate_limit(&format!("media:link-image-client:{peer}"), 120, Duration::from_secs(60)).await;
+        }
+        let other = format!("http://169.254.169.254/{}.png", uuid::Uuid::now_v7());
+        let proxied = proxy_url(&core, Kind::Image, &other);
+        let busy = proxied[proxied.find("/media/link-image/").unwrap()..].to_owned();
+        assert_eq!(get(busy, peer).await, (503, Some("no-store".to_owned())));
+        core.cache.del(&format!("rl:media:link-image-client:{peer}")).await.unwrap();
+    }
 
     /// The server plugs the geo domain's check of claimed positions into the
     /// social domain: without it every nearby session and bump is refused.
     #[tokio::test]
     async fn a_real_fix_lets_a_nearby_session_open_there() {
-        let app = TestApp::start(ALL_MIGRATIONS, |core, _identity, _router| {
+        let app = TestApp::start(MIGRATIONS, |core, _identity, _router| {
             let cfg = Settings::try_parse_from(["tokuly"]).expect("default settings").domains;
             Domains::new(core.clone(), cfg).expect("domains").connect_router()
         })

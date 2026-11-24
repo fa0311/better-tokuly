@@ -25,7 +25,7 @@ impl Media {
             return Err(ProcessError::rejected("UNSUPPORTED_CONTENT", "the archive is not a dotLottie animation"));
         }
         let key = store::public_file_key(asset.id, &store::content_hash(&bytes), "lottie");
-        core.storage.put_with_cache(Bucket::Media, &key, bytes, recipe::LOTTIE_CONTENT_TYPE, Some(store::IMMUTABLE)).await?;
+        core.storage.put_with_cache(Bucket::Media, &key, bytes, recipe::LOTTIE_CONTENT_TYPE, Some(store::PUBLIC_CACHE)).await?;
         Ok(Processed { url: core.storage.media_url(&key), content_type: Some(recipe::LOTTIE_CONTENT_TYPE.to_owned()), ..Default::default() })
     }
 }

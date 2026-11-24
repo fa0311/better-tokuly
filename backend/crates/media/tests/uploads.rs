@@ -132,7 +132,7 @@ async fn image_upload_becomes_webp_variants_without_metadata() {
     }
     let served = h.media_response(&image.url).await;
     assert_eq!(served.status(), 200, "renditions are publicly readable");
-    assert_eq!(served.headers()["cache-control"], "public, max-age=31536000, immutable");
+    assert_eq!(served.headers()["cache-control"], "public, max-age=300, s-maxage=0, must-revalidate", "removable: never immutable");
     assert_eq!(served.headers()["content-type"], "image/webp");
 
     // One ready event, and realtime pushes to the owner and the asset topic.

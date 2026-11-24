@@ -93,7 +93,7 @@ async fn video_becomes_hls_with_poster_storyboard_preview_and_mp4() {
     assert_eq!(info.renditions[0].url, sibling(&info.hls_url, "360p/index.m3u8"));
     let served = h.media_response(&info.hls_url).await;
     assert_eq!(served.headers()["content-type"], "application/vnd.apple.mpegurl");
-    assert_eq!(served.headers()["cache-control"], "public, max-age=31536000, immutable");
+    assert_eq!(served.headers()["cache-control"], "public, max-age=300, s-maxage=0, must-revalidate", "removable: never immutable");
 
     // ── poster: an image like any other ──
     let poster = info.poster.as_option().expect("poster");

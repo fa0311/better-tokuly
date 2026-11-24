@@ -122,3 +122,18 @@ CREATE TABLE link_previews (
 );
 
 CREATE INDEX link_previews_fetched_at ON link_previews (fetched_at);
+
+-- Pictures of link previews, re-encoded and kept for a day
+-- (link_preview::image_proxy). The WebP itself is the object
+-- `link-images/<cache_key>.webp` of the private bucket; the janitor removes
+-- expired rows together with their objects.
+CREATE TABLE link_preview_images (
+    -- `<kind>/<hex SHA-256 of the picture's URL>`.
+    cache_key  text PRIMARY KEY,
+    -- false: there was nothing to show (negative cache, no object).
+    found      boolean     NOT NULL,
+    size_bytes integer     NOT NULL DEFAULT 0,
+    fetched_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX link_preview_images_fetched_at ON link_preview_images (fetched_at);

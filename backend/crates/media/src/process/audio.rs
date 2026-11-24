@@ -162,8 +162,8 @@ impl Media {
         let prefix = store::audio_prefix(asset.id);
         let (m4a_key, webm_key) = (format!("{prefix}voice.m4a"), format!("{prefix}voice.webm"));
         let storage = &core.storage;
-        storage.put_file(Bucket::Media, &m4a_key, &m4a, "audio/mp4", Some(store::IMMUTABLE)).await?;
-        storage.put_file(Bucket::Media, &webm_key, &webm, "audio/webm", Some(store::IMMUTABLE)).await?;
+        storage.put_file(Bucket::Media, &m4a_key, &m4a, "audio/mp4", Some(store::PUBLIC_CACHE)).await?;
+        storage.put_file(Bucket::Media, &webm_key, &webm, "audio/webm", Some(store::PUBLIC_CACHE)).await?;
 
         let m4a_url = storage.media_url(&m4a_key);
         let rendition = |name: &str, kbps: u32, url: String| Rendition {

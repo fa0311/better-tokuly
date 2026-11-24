@@ -7,6 +7,7 @@ import { CommunityLinkCard } from "#/features/community";
 import { EmojiText } from "#/features/emoji";
 import { resolveTargetPath, useOpenTargetPath } from "#/features/notifications";
 import { cn } from "#/lib/cn";
+import { linkPreviewImage } from "#/lib/link-preview-image";
 import { useConversationContext } from "./conversation-context";
 import { FileRow, isVisual, VisualTile, VoicePlayer } from "./media-parts";
 import { displayName } from "./people";
@@ -278,6 +279,8 @@ export function LinkPreviewCard({ preview, tone }: { preview: media.LinkPreview;
   const { t } = useTranslation("chat");
   const open = useOpenTargetPath();
   const [playing, setPlaying] = useState(false);
+  // A picture that does not load leaves no empty frame behind.
+  const [imageFailed, setImageFailed] = useState(false);
   const youtube = preview.embedProvider === "youtube" && preview.embedId;
   const spotify = preview.embedProvider === "spotify" && preview.embedId;
   const frame = "mt-2 block w-72 max-w-full overflow-hidden rounded-2xl border-2 text-left";
@@ -317,16 +320,23 @@ export function LinkPreviewCard({ preview, tone }: { preview: media.LinkPreview;
     );
   }
 
+  const image = imageFailed ? undefined : linkPreviewImage(preview.imageUrl);
   const body = (
     <>
-      {preview.imageUrl && (
+      {image && (
         <span
           className={cn(
             "relative block overflow-hidden bg-surface-3",
             spotify ? "float-left mr-3 size-20" : "aspect-[1.91/1] w-full",
           )}
         >
-          <img src={preview.imageUrl} alt="" className="size-full object-cover" loading="lazy" />
+          <img
+            src={image}
+            alt=""
+            className="size-full object-cover"
+            loading="lazy"
+            onError={() => setImageFailed(true)}
+          />
           {(youtube || spotify) && (
             <span className="absolute inset-0 grid place-items-center bg-black/20">
               <span

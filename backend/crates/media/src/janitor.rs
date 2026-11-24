@@ -10,7 +10,8 @@
 //! - what a late PUT stored under the upload key of a completed upload is
 //!   removed once the URL has expired;
 //! - assets stuck in PROCESSING without a live worker are queued again;
-//! - stale link preview cache rows are dropped;
+//! - stale link preview cache rows are dropped, and cached preview pictures
+//!   older than a day are removed with their objects;
 //! - when an account is deleted, its assets that nothing holds go at once;
 //!   the rest follow when their holders let go.
 use serde::Deserialize;
@@ -37,6 +38,8 @@ pub struct Sweep {
     pub unattached_assets: u64,
     pub purged_assets: u64,
     pub requeued_assets: u64,
+    /// Cached link preview pictures that expired.
+    pub expired_link_images: u64,
 }
 
 #[derive(Deserialize)]
@@ -106,6 +109,20 @@ impl Media {
             .bind(link_preview::CACHE_RETENTION_DAYS)
             .execute(&core.db)
             .await?;
+        loop {
+            match link_preview::image_proxy::expire(core, BATCH).await {
+                Ok(expired) => {
+                    sweep.expired_link_images += expired;
+                    if (expired as i64) < BATCH {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "expiring link preview pictures failed; will retry");
+                    break;
+                }
+            }
+        }
         Ok(sweep)
     }
 
