@@ -34,10 +34,12 @@ export function useSubjectTopic(
       const count = followed.get(topic) ?? 0;
       if (count === 0 && followed.size >= TOPIC_BUDGET) return;
       followed.set(topic, count + 1);
-      const unsubscribe = realtime().subscribe(topic);
+      // No read after it is in effect: every card would read its numbers twice, and the
+      // counters a card missed meanwhile come right with the next push.
+      const subscription = realtime().subscribe(topic);
       realtime().start();
       release = () => {
-        unsubscribe();
+        subscription.release();
         const remaining = (followed.get(topic) ?? 1) - 1;
         if (remaining > 0) followed.set(topic, remaining);
         else followed.delete(topic);

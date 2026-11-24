@@ -22,15 +22,10 @@ export default function EmojiBackground() {
     bindUseReporting(queryClient);
     void syncCatalog();
     const client = realtime();
-    const unsubscribe = client.subscribe(CATALOG_TOPIC);
-    let connectedBefore = false;
+    // In effect (first, or back after a gap): announcements made before were missed, including
+    // while the catalogue was first being read, so ask for changes (cheap when there are none).
+    const { release } = client.subscribe(CATALOG_TOPIC, { onSubscribed: () => void syncCatalog() });
     const off = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Announcements made while the connection was down were missed: ask for changes.
-        if (connectedBefore) void syncCatalog();
-        connectedBefore = true;
-        return;
-      }
       if (frame.body.case !== "emoji") return;
       const event = frame.body.value.event;
       if (event.case === "catalogChanged") {
@@ -62,7 +57,7 @@ export default function EmojiBackground() {
     client.start();
     return () => {
       off();
-      unsubscribe();
+      release();
     };
   }, [queryClient]);
 

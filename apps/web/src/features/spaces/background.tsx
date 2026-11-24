@@ -4,7 +4,7 @@ import { spaces } from "@tokuly/api";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { realtime } from "#/lib/realtime";
+import { realtime, rereadListsAfterReconnect } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
 import { keys } from "./api";
 import { EndCallPrompt } from "./end-call-prompt";
@@ -47,16 +47,9 @@ export default function SpacesBackground() {
   useEffect(() => {
     if (!myId) return;
     const client = realtime();
-    let connectedBefore = false;
     /** When this person was last seen entering a room or hangout other than this session's. */
     let enteredElsewhereAt = 0;
     const off = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Whatever changed while the connection was down was not announced.
-        if (connectedBefore) void queryClient.invalidateQueries({ queryKey: keys.all });
-        connectedBefore = true;
-        return;
-      }
       if (frame.body.case !== "spaces") return;
       const event = frame.body.value.event;
       const active = useAudioSession.getState().active;
@@ -132,8 +125,21 @@ export default function SpacesBackground() {
       }
       applySpacesEvent(queryClient, event, myId);
     });
+    // What changed while the connection was down was not announced: the lists on screen
+    // (hangouts, rooms live and upcoming, friends in rooms) are read again. A followed room reads
+    // itself and its participants again when its topic is back (`useSpaceTopic`).
+    const stop = rereadListsAfterReconnect(
+      queryClient,
+      keys.all,
+      (key) =>
+        (key[1] === "space" || key[1] === "participants") &&
+        client.isSubscribed(`space:${String(key[2])}`),
+    );
     client.start();
-    return off;
+    return () => {
+      off();
+      stop();
+    };
   }, [queryClient, router, t, myId]);
 
   // Being put outside is said wherever the person is; the venue's page then shows the details.

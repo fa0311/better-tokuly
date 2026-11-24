@@ -76,8 +76,18 @@ a typing/presence signal; the chat domain must.
   connection signed in as one of them. The header is never forwarded; an
   anonymous connection is never left out. One publish serves the whole
   topic whatever the list holds (live chat uses it for blocks).
-- `Welcome` is sent after the user's subscription is in place: a client
-  that fetches a snapshot after `Welcome` misses no event.
+- `Welcome` is sent after the user's subscription is in place, and after
+  the topics named in `Hello` are (the refused ones are announced with
+  `Unsubscribed` before it): a client that fetches a snapshot after
+  `Welcome` misses no event of the user or of those topics.
+- A `Subscribe` sent with an ID is answered once it is in effect: `Ack`
+  when its topics are subscribed (a snapshot fetched after it misses no
+  event of them), `Error` when it was refused as a whole (`TOPIC_FORBIDDEN`
+  when a guard said no, the reason `Unsubscribed` gives too;
+  `TOPIC_CHECK_FAILED` / `BUS_UNAVAILABLE` when it could not be decided
+  now). `@tokuly/realtime` waits for that answer: `subscribe(topic).ready`
+  settles with it, and `onSubscribed` runs each time the topic is in effect
+  again after a reconnect, which is where a feature reads its snapshot.
 - Delivery is at most once. Anything that must not be lost has to be
   fetchable from the owning domain.
 
@@ -95,8 +105,11 @@ On `Subscribe`, `Ok(false)` is answered with `TOPIC_FORBIDDEN`, an error
 with `TOPIC_CHECK_FAILED`; either way nothing of that request is
 subscribed. In `Hello` a refused topic does not refuse the Hello (a client
 reconnecting with a topic it lost access to meanwhile would never be
-welcomed again): the connection is welcomed with the other topics and gets
-`Unsubscribed { topic, reason: TOPIC_FORBIDDEN }` for that one.
+welcomed again): the connection gets
+`Unsubscribed { topic, reason: TOPIC_FORBIDDEN }` for that one and is then
+welcomed with the other topics. (Gateways before the subscribe
+acknowledgement sent those `Unsubscribed` frames after `Welcome`; clients
+handle either order, the protocol version stays 2.)
 
 ## Ending subscriptions
 

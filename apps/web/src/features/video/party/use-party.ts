@@ -1,6 +1,7 @@
 import { errorReason, type Timestamp, toMillis, video } from "@tokuly/api";
 import { useEffect, useRef, useState } from "react";
 import { API_PATH, api } from "#/lib/api";
+import { pushesDuringRead } from "#/lib/pushes-during-read";
 import { realtime } from "#/lib/realtime";
 import { partyClient } from "../api";
 import type { SharedPlayback } from "./sync";
@@ -92,6 +93,8 @@ function latest<T>(entries: T[]): T[] {
  */
 export function usePartyRoom(initial: video.PartySession, guestToken: string) {
   const [state, setState] = useState<PartyRoomState>(() => fromSession(initial));
+  /** What pushes changed while the party is being read (see `pushesDuringRead`). */
+  const [duringRead] = useState(() => pushesDuringRead<PartyRoomState>());
   const partyId = state.party.id;
   const selfId = state.self.id;
   const topic = initial.realtimeTopic;
@@ -113,10 +116,15 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
     });
 
   const reload = async () => {
+    const read = duringRead.begin();
     try {
       const { session } = await partyClient().getParty({ partyId, guestToken });
-      if (session?.party && session.self) setState((current) => fromSession(session, current));
+      read.cancel();
+      // What was pushed while it was read may be newer than the answer: it is applied again.
+      if (session?.party && session.self)
+        setState((current) => read.finish(fromSession(session, current)));
     } catch (error) {
+      read.cancel();
       const reason = errorReason(error);
       if (reason === "NOT_A_PARTY_MEMBER")
         setState((current) => ({ ...current, exit: current.exit ?? { kind: "timedOut" } }));
@@ -135,17 +143,17 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
   useEffect(() => {
     if (gone) return;
     const client = realtime();
+    // Every pushed change is kept while the party is being read, and applied to the answer again.
+    const push = (update: (current: PartyRoomState) => PartyRoomState) => {
+      duringRead.record(update);
+      setState(update);
+    };
     const offFrame = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Back after a gap: whatever was pushed meanwhile is read in one go.
-        void reloadRef.current();
-        return;
-      }
       if (frame.body.case !== "video" || frame.topic !== topic) return;
       const event = frame.body.value.event;
       switch (event.case) {
         case "partyPlayback":
-          setState((current) => {
+          push((current) => {
             const next = shared(event.value);
             return next.sequence > current.playback.sequence
               ? { ...current, playback: next }
@@ -154,8 +162,13 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
           break;
         case "partyMemberJoined": {
           const member = event.value;
-          setState((current) => {
-            const known = current.members.some((existing) => existing.id === member.id);
+          // Stamped here, so that the update gives the same notice when it is applied again.
+          const noticeId = `joined:${member.id}:${Date.now()}`;
+          const atMs = Date.now();
+          push((current) => {
+            const known =
+              current.members.some((existing) => existing.id === member.id) ||
+              current.notices.some((notice) => notice.id === noticeId);
             const members = ordered([
               ...current.members.filter((existing) => existing.id !== member.id),
               member,
@@ -169,10 +182,10 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
                 : latest([
                     ...current.notices,
                     {
-                      id: `joined:${member.id}:${Date.now()}`,
+                      id: noticeId,
                       kind: "joined" as const,
                       name: member.name,
-                      atMs: Date.now() + current.clockOffsetMs,
+                      atMs: atMs + current.clockOffsetMs,
                     },
                   ]),
             };
@@ -181,7 +194,9 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
         }
         case "partyMemberLeft": {
           const { memberId, reason, memberCount } = event.value;
-          setState((current) => {
+          const noticeId = `left:${memberId}:${Date.now()}`;
+          const atMs = Date.now();
+          push((current) => {
             if (memberId === current.self.id) {
               const exit: PartyExit =
                 reason === PartyLeaveReason.REMOVED
@@ -191,7 +206,9 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
                     : { kind: "left" };
               return { ...current, exit: current.exit ?? exit };
             }
-            const leaver = current.members.find((member) => member.id === memberId);
+            const leaver = current.notices.some((notice) => notice.id === noticeId)
+              ? undefined
+              : current.members.find((member) => member.id === memberId);
             return {
               ...current,
               members: current.members.filter((member) => member.id !== memberId),
@@ -200,13 +217,13 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
                 ? latest([
                     ...current.notices,
                     {
-                      id: `left:${memberId}:${Date.now()}`,
+                      id: noticeId,
                       kind:
                         reason === PartyLeaveReason.REMOVED
                           ? ("removed" as const)
                           : ("left" as const),
                       name: leaver.name,
-                      atMs: Date.now() + current.clockOffsetMs,
+                      atMs: atMs + current.clockOffsetMs,
                     },
                   ])
                 : current.notices,
@@ -216,7 +233,7 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
         }
         case "partyMemberUpdated": {
           const member = event.value;
-          setState((current) => ({
+          push((current) => ({
             ...current,
             self: member.id === current.self.id ? member : current.self,
             members: ordered(
@@ -227,7 +244,7 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
         }
         case "partyMessage": {
           const message = event.value;
-          setState((current) =>
+          push((current) =>
             current.messages.some((existing) => existing.id === message.id)
               ? current
               : { ...current, messages: latest([...current.messages, message]) },
@@ -236,14 +253,14 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
         }
         case "partyUpdated":
           // The push leaves the video card out for friends-only videos: read the party as this member sees it.
-          setState((current) => ({
+          push((current) => ({
             ...current,
             party: { ...current.party, allowGuests: event.value.allowGuests },
           }));
           void reloadRef.current();
           break;
         case "partyEnded":
-          setState((current) => ({
+          push((current) => ({
             ...current,
             exit: { kind: "ended", reason: event.value.reason },
           }));
@@ -252,8 +269,11 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
           break;
       }
     });
-    // The seat went (removed, timed out) or the party ended without this page hearing why.
-    const release = client.subscribe(topic, {
+    const { release } = client.subscribe(topic, {
+      // In effect (first, or back after a gap): whatever was pushed before that, including
+      // while the party was first being read, is read in one go.
+      onSubscribed: () => void reloadRef.current(),
+      // The seat went (removed, timed out) or the party ended without this page hearing why.
       onRevoked: (reason) =>
         setState((current) => ({
           ...current,
@@ -269,7 +289,7 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
       offFrame();
       release();
     };
-  }, [topic, gone]);
+  }, [topic, gone, duringRead]);
 
   useEffect(() => {
     if (gone) return;

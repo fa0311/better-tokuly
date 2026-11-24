@@ -1,6 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, live } from "@tokuly/api";
 import { useEffect, useRef, useState } from "react";
+import { pushesDuringReadByKey } from "#/lib/pushes-during-read";
 import { deviceId, realtime } from "#/lib/realtime";
 import {
   chatClient,
@@ -14,14 +15,30 @@ import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from ".
 
 const { ChatMessageKind, StreamStatus } = live;
 
+/**
+ * What pushes did to a stream's chat while it was being read (lines added,
+ * deleted, cleared): the answer may predate them, so they are applied to it
+ * again (see `pushesDuringRead`).
+ */
+const chatPushesDuringRead = pushesDuringReadByKey<live.ChatMessage[]>();
+
+/** Reads the latest page of a stream's chat, with what was pushed while it was read. */
+export async function readChat(streamId: string): Promise<live.ChatMessage[]> {
+  const read = chatPushesDuringRead.begin(streamId);
+  try {
+    const { messages } = await chatClient().listChatMessages({ streamId });
+    return read.finish(addChatMessages([], messages));
+  } catch (error) {
+    read.cancel();
+    throw error;
+  }
+}
+
 /** The chat of a stream, oldest first: the latest page, then whatever is pushed. */
 export function useChatMessages(streamId: string) {
   return useQuery({
     queryKey: liveKeys.chat(streamId),
-    queryFn: async () => {
-      const { messages } = await chatClient().listChatMessages({ streamId });
-      return addChatMessages([], messages);
-    },
+    queryFn: () => readChat(streamId),
     // Pushes keep it current; reading it again would only drop what the page did not hold.
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 0,
@@ -33,6 +50,7 @@ function updateChat(
   streamId: string,
   update: (messages: live.ChatMessage[]) => live.ChatMessage[],
 ): void {
+  chatPushesDuringRead.record(streamId, update);
   queryClient.setQueryData<live.ChatMessage[]>(liveKeys.chat(streamId), (messages) =>
     messages ? update(messages) : messages,
   );
@@ -159,20 +177,7 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
   useEffect(() => {
     if (!topic || !streamId) return;
     const client = realtime();
-    let welcomed = false;
     const offFrame = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Back after a gap: whatever was pushed meanwhile is read in one go.
-        if (welcomed) {
-          refreshStream(queryClient, streamId);
-          void queryClient.invalidateQueries({
-            queryKey: liveKeys.chat(streamId),
-            refetchType: "all",
-          });
-        }
-        welcomed = true;
-        return;
-      }
       if (frame.body.case === "social") {
         // A block (or an ended friendship) on this account: read the block list again.
         if (frame.body.value.event.case === "friendRemovedUserId")
@@ -205,9 +210,18 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
         applyLiveEvent(queryClient, streamId, event);
       }
     });
-    // Blocked by the streamer, unfriended, narrowed to members, deleted: the page reads the
-    // stream again and lands where a stranger would (as when a watching report says so).
-    const release = client.subscribe(topic, {
+    const { release } = client.subscribe(topic, {
+      // In effect (first, or back after a gap): the stream and its chat as read before may lack
+      // what was pushed in between (the user's own events too, which a reconnect also missed).
+      onSubscribed: () => {
+        refreshStream(queryClient, streamId);
+        void queryClient.invalidateQueries({
+          queryKey: liveKeys.chat(streamId),
+          refetchType: "all",
+        });
+      },
+      // Blocked by the streamer, unfriended, narrowed to members, deleted: the page reads the
+      // stream again and lands where a stranger would (as when a watching report says so).
       onRevoked: () => refreshStream(queryClient, streamId),
     });
     client.start();

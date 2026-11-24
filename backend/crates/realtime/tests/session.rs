@@ -441,13 +441,13 @@ async fn guarded_topics_are_only_open_to_those_the_domain_admits() {
     assert!(is_ack(&client.request(subscribe_body(&[&topic])).await));
     // The guard also covers topics named in Hello. A refusal there does not
     // refuse the Hello (a client reconnecting with a topic it lost access to
-    // would never be welcomed again): it is welcomed and told.
+    // would never be welcomed again): it is told, then welcomed with the rest.
     let mut anonymous = harness.ws().await;
     let open = unique_topic("live");
-    let reply = anonymous.request(hello_body("", true, &[&topic, &open])).await;
-    assert!(matches!(reply.body, Some(Body::Welcome(_))));
-    let told = anonymous.next_where(|frame| matches!(frame.body, Some(Body::Unsubscribed(_)))).await;
-    let Some(Body::Unsubscribed(unsubscribed)) = told.body else { unreachable!() };
+    let id = anonymous.send(hello_body("", true, &[&topic, &open])).await;
+    let told = anonymous.next_where(|frame| !is_topic_stats(frame)).await;
+    let Some(Body::Unsubscribed(unsubscribed)) = told.body else { panic!("Unsubscribed first, got {told:?}") };
+    assert!(matches!(anonymous.reply_to(id).await.body, Some(Body::Welcome(_))));
     assert_eq!(
         (told.topic.as_str(), unsubscribed.topic.as_str(), unsubscribed.reason.as_str()),
         (topic.as_str(), topic.as_str(), "TOPIC_FORBIDDEN")

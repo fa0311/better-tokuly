@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Outlet } from "@tanstack/react-router";
 import { errorReason } from "@tokuly/api";
 import { useEffect } from "react";
@@ -8,7 +9,7 @@ import { PaneSpinner } from "#/components/ui/spinner";
 import { errorMessage } from "#/lib/errors";
 import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
-import { NS, useCommunity } from "./api";
+import { keys, NS, useCommunity } from "./api";
 import { CommunityContext } from "./context";
 import { FrontDoor } from "./front-door";
 import { canRead } from "./model";
@@ -20,6 +21,7 @@ import { canRead } from "./model";
  */
 export function CommunityLayout({ handle }: { handle: string }) {
   const { t } = useTranslation(NS);
+  const queryClient = useQueryClient();
   const query = useCommunity(handle);
   const community = query.data;
   const roles = useMe()?.roles;
@@ -30,14 +32,17 @@ export function CommunityLayout({ handle }: { handle: string }) {
   // Board and calendar events of this community arrive while one of its pages is open.
   useEffect(() => {
     if (!communityId || !readable) return;
-    // Removed, banned, or the community closed: read it again, which shows the front door
-    // (or "not found") instead of the board.
-    const unsubscribe = realtime().subscribe(`community:${communityId}`, {
+    const { release } = realtime().subscribe(`community:${communityId}`, {
+      // In effect (first, or again after a gap): its board as read before may lack what was
+      // posted in between.
+      onSubscribed: () => void queryClient.invalidateQueries({ queryKey: keys.of(communityId) }),
+      // Removed, banned, or the community closed: read it again, which shows the front door
+      // (or "not found") instead of the board.
       onRevoked: () => void refetch(),
     });
     realtime().start();
-    return unsubscribe;
-  }, [communityId, readable, refetch]);
+    return release;
+  }, [communityId, readable, refetch, queryClient]);
 
   if (query.isPending) return <PaneSpinner />;
   if (!community) {

@@ -14,16 +14,54 @@ import {
 
 type Event = spaces.SpacesEvent["event"];
 
+/**
+ * The rooms followed in this app, each subscribed once however many components
+ * follow it (the room's screen and the audio session in the background), so a
+ * room is read again once per confirmation, not once per follower.
+ */
+const followedRooms = new Map<string, { holders: number; release(): void }>();
+
+function followRoom(queryClient: QueryClient, spaceId: string): () => void {
+  let room = followedRooms.get(spaceId);
+  if (!room) {
+    const reread = () => {
+      void queryClient.invalidateQueries({ queryKey: keys.space(spaceId) });
+      void queryClient.invalidateQueries({ queryKey: keys.everyParticipants(spaceId) });
+    };
+    const { release } = realtime().subscribe(`space:${spaceId}`, {
+      // In effect (first, or again after a gap): the room as read before may lack what was
+      // pushed in between.
+      onSubscribed: reread,
+      // Banned, removed, blocked, the room deleted: reading it again shows what is left to see
+      // (for a ban, "not found").
+      onRevoked: reread,
+    });
+    room = { holders: 0, release };
+    followedRooms.set(spaceId, room);
+  }
+  const held = room;
+  held.holders++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    held.holders--;
+    // Let go a moment later: one follower leaving as another arrives (the screen closing while
+    // the session goes on) does not unsubscribe and subscribe again.
+    queueMicrotask(() => {
+      if (held.holders > 0 || followedRooms.get(spaceId) !== held) return;
+      followedRooms.delete(spaceId);
+      held.release();
+    });
+  };
+}
+
 /** Follows a room's realtime topic for as long as the calling component is mounted. */
 export function useSpaceTopic(spaceId: string | undefined): void {
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!spaceId) return;
-    // Banned, removed, blocked, the room deleted: reading it again shows what is left to see
-    // (for a ban, "not found").
-    const release = realtime().subscribe(`space:${spaceId}`, {
-      onRevoked: () => void queryClient.invalidateQueries({ queryKey: keys.space(spaceId) }),
-    });
+    const release = followRoom(queryClient, spaceId);
     realtime().start();
     return release;
   }, [queryClient, spaceId]);
