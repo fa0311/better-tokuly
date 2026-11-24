@@ -1108,3 +1108,50 @@ async fn unused_uploads_are_capped_in_bytes_per_user() {
     let attempts = futures::future::join_all((0..6).map(|_| h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&dave), &large))).await;
     assert_eq!(attempts.iter().filter(|a| a.is_ok()).count(), 2, "{attempts:?}");
 }
+
+/// A gzip stream holding `data` in one stored (uncompressed) deflate block.
+fn gzip_stored(data: &[u8]) -> Vec<u8> {
+    let crc = data.iter().fold(!0u32, |mut crc, byte| {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 { (crc >> 1) ^ 0xedb8_8320 } else { crc >> 1 };
+        }
+        crc
+    });
+    let len = data.len() as u16;
+    let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff, 1];
+    out.extend_from_slice(&len.to_le_bytes());
+    out.extend_from_slice(&(!len).to_le_bytes());
+    out.extend_from_slice(data);
+    out.extend_from_slice(&(!crc).to_le_bytes());
+    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    out
+}
+
+#[tokio::test]
+async fn private_downloads_serve_the_stored_bytes_as_they_are() {
+    let h = start().await;
+    let alice = h.app.user("alice").await;
+    // What was checked is a gzip file; announced as `Content-Encoding: gzip`
+    // the recipient's browser would unpack it on the fly (unchecked bytes,
+    // or a decompression bomb from a large chat file).
+    let inner = b"<html><script>alert(document.cookie)</script></html>".repeat(20);
+    let gzip = gzip_stored(&inner);
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_CHAT_FILE, "notes.gz", "application/gzip", &gzip).await;
+    let mut request = h.http.put(&upload.put_url).body(gzip.clone()).header("Content-Encoding", "gzip").header("Content-Language", "de");
+    for (name, value) in &upload.put_headers {
+        request = request.header(name, value);
+    }
+    assert!(request.send().await.unwrap().status().is_success());
+    let asset = h.complete(&alice, &upload.upload_id).await.unwrap();
+    assert_eq!(asset.content_type, "application/gzip");
+
+    // The test client unpacks gzip transparently, like a browser does.
+    let download = h.http.get(&asset.url).send().await.unwrap();
+    assert_eq!(download.status(), 200);
+    let headers = download.headers().clone();
+    let encoding = headers.get("content-encoding").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+    assert!(encoding.is_empty() || encoding == "identity", "{encoding:?}");
+    assert!(headers.get("content-language").is_none_or(|v| v.to_str().unwrap() != "de"), "{headers:?}");
+    assert_eq!(download.bytes().await.unwrap(), gzip, "the file downloads as the gzip file it is");
+}

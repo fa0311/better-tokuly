@@ -197,6 +197,10 @@ impl Presigner {
             // Whatever the uploader sent along with the PUT, a private file
             // is never kept by a shared cache (or by the browser).
             .response_cache_control(PRIVATE_NO_STORE)
+            // The bytes are served as stored: never unpacked by the browser
+            // (they were checked packed), and in no language the uploader picked.
+            .response_content_encoding("identity")
+            .response_content_language("und")
             .presigned(presigning(ttl)?)
             .await
             .map_err(|e| s3_err("presign get", e))?;

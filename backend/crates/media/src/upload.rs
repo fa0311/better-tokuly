@@ -260,7 +260,10 @@ impl Media {
             Some(_) => None,
             None => {
                 let key = store::stored_key(row.id, new_id(), &recipe::extension_of(&row.file_name));
-                core.storage.copy((Bucket::Private, &row.original_key), (Bucket::Private, &key)).await?;
+                // Fresh metadata: nothing the uploader sent with the PUT
+                // (Content-Encoding, Content-Language, Cache-Control…) is
+                // kept. Downloads state the detected type themselves.
+                core.storage.copy((Bucket::Private, &row.original_key), (Bucket::Private, &key), Some("application/octet-stream")).await?;
                 Some(key)
             }
         };

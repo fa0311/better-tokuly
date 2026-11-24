@@ -334,13 +334,23 @@ impl Storage {
         Ok(deleted)
     }
 
-    /// Server-side copy between buckets/keys.
-    pub async fn copy(&self, from: (Bucket, &str), to: (Bucket, &str)) -> AppResult<()> {
-        self.internal
+    /// Server-side copy between buckets/keys. With `content_type` the copy
+    /// gets fresh metadata (that type and nothing else: no encoding,
+    /// language, cache or user headers of the source); without, it keeps
+    /// the source's.
+    pub async fn copy(&self, from: (Bucket, &str), to: (Bucket, &str), content_type: Option<&str>) -> AppResult<()> {
+        let mut request = self
+            .internal
             .copy_object()
             .copy_source(format!("{}/{}", self.bucket_name(from.0), from.1))
             .bucket(self.bucket_name(to.0))
-            .key(to.1)
+            .key(to.1);
+        if let Some(content_type) = content_type {
+            request = request
+                .metadata_directive(aws_sdk_s3::types::MetadataDirective::Replace)
+                .content_type(content_type);
+        }
+        request
             .send()
             .await
             .map_err(|e| s3_err("copy", format!("{e:?}")))?;
