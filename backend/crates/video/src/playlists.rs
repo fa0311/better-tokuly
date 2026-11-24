@@ -16,7 +16,7 @@ use tokuly_proto::{
 use crate::{
     access::{self, Viewer, watchable},
     channels,
-    events::{PLAYLIST_DELETED, PlaylistEvent},
+    events::{PLAYLIST_DELETED, PLAYLISTS_STALE, PlaylistEvent, PlaylistSearchJob, PlaylistsStale},
     search,
 };
 
@@ -270,6 +270,10 @@ pub(crate) async fn sync_search_in(tx: &mut Tx<'_>, was_public: bool, playlist_i
     Ok(())
 }
 
+/// Playlists one `video.playlists.search` job refreshes, and IDs one
+/// `video.playlists.stale` event names.
+pub const SEARCH_BATCH: usize = 200;
+
 /// The public playlists that list `video_id`, whose search documents show
 /// the thumbnail of their first public video.
 pub(crate) async fn public_lists_of_video_in(tx: &mut Tx<'_>, video_id: Uuid) -> AppResult<Vec<Uuid>> {
@@ -283,20 +287,89 @@ pub(crate) async fn public_lists_of_video_in(tx: &mut Tx<'_>, video_id: Uuid) ->
     .await?)
 }
 
-/// Refreshes the search documents of `playlist_ids` (see [`public_lists_of_video_in`]).
+/// After a video stopped (or started) being public or changed its
+/// thumbnail: the playlists listing it get their search picture again, so
+/// it never shows a video that left the public. Only an event is written
+/// here; the `video.playlists.search` job does the work, in batches and
+/// without locking the playlists.
+pub(crate) async fn sync_search_of_video_in(tx: &mut Tx<'_>, video_id: Uuid) -> AppResult<()> {
+    let stale = PlaylistsStale { video_id: Some(video_id), playlist_ids: Vec::new() };
+    core_events::emit(&mut **tx, PLAYLISTS_STALE, None, &stale).await
+}
+
+/// [`sync_search_of_video_in`] for playlists named by ID (the lists of a
+/// video about to be deleted).
 pub(crate) async fn sync_search_of_lists_in(tx: &mut Tx<'_>, playlist_ids: &[Uuid]) -> AppResult<()> {
-    for playlist_id in playlist_ids {
-        sync_search_in(tx, false, *playlist_id).await?;
+    for chunk in playlist_ids.chunks(SEARCH_BATCH) {
+        let stale = PlaylistsStale { video_id: None, playlist_ids: chunk.to_vec() };
+        core_events::emit(&mut **tx, PLAYLISTS_STALE, None, &stale).await?;
     }
     Ok(())
 }
 
-/// After a video stopped (or started) being public or changed its
-/// thumbnail: the playlists listing it get their search picture again, so
-/// it never shows a video that left the public.
-pub(crate) async fn sync_search_of_video_in(tx: &mut Tx<'_>, video_id: Uuid) -> AppResult<()> {
-    let lists = public_lists_of_video_in(tx, video_id).await?;
-    sync_search_of_lists_in(tx, &lists).await
+/// Handles one `video.playlists.search` job: rewrites the search documents
+/// of one batch of playlists from their current state, read without locks.
+/// Returns the job of the next batch, if there is one.
+pub async fn refresh_search(core: &Core, job: &PlaylistSearchJob) -> AppResult<Option<PlaylistSearchJob>> {
+    let (ids, next): (Vec<Uuid>, Option<PlaylistSearchJob>) = match job.video_id {
+        Some(video_id) if job.playlist_ids.is_empty() => {
+            let ids: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT i.playlist_id FROM playlist_items i JOIN playlists p ON p.id = i.playlist_id
+                 WHERE i.video_id = $1 AND p.kind = 1 AND p.visibility = 1 AND ($2::uuid IS NULL OR i.playlist_id > $2)
+                 ORDER BY i.playlist_id LIMIT $3",
+            )
+            .bind(video_id)
+            .bind(job.after)
+            .bind(SEARCH_BATCH as i64)
+            .fetch_all(&core.db)
+            .await?;
+            let next = (ids.len() == SEARCH_BATCH).then(|| PlaylistSearchJob {
+                video_id: Some(video_id),
+                playlist_ids: Vec::new(),
+                after: ids.last().copied(),
+            });
+            (ids, next)
+        }
+        _ => (job.playlist_ids.clone(), None),
+    };
+    let rows: Vec<PlaylistRow> =
+        sqlx::query_as(concat!("SELECT ", playlist_columns!(), " FROM playlists p WHERE p.id = ANY($1)"))
+            .bind(&ids)
+            .fetch_all(&core.db)
+            .await?;
+    let mut pictured = Vec::with_capacity(rows.len());
+    for row in rows.into_iter().filter(PlaylistRow::is_public) {
+        let image = public_thumbnail(core, row.id).await?;
+        pictured.push((row, image));
+    }
+    // Only the write holds the rows, briefly and shared: a playlist that
+    // stopped being public since it was read is left to its own change,
+    // whose document then comes after this one.
+    let mut tx = core.db.begin().await?;
+    let ids: Vec<Uuid> = pictured.iter().map(|(row, _)| row.id).collect();
+    let still_public: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM playlists WHERE id = ANY($1) AND kind = 1 AND visibility = 1 FOR SHARE")
+            .bind(&ids)
+            .fetch_all(&mut *tx)
+            .await?;
+    for (row, image) in pictured.iter().filter(|(row, _)| still_public.contains(&row.id)) {
+        search::sync_playlist(&mut tx, false, row, image.clone()).await?;
+    }
+    tx.commit().await?;
+    Ok(next)
+}
+
+/// Thumbnail URL of the first public video in a playlist, read without locks.
+async fn public_thumbnail(core: &Core, playlist_id: Uuid) -> AppResult<Option<String>> {
+    let thumbnail: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT v.thumbnail FROM playlist_items i JOIN videos v ON v.id = i.video_id
+         WHERE i.playlist_id = $1 AND v.status = 3 AND v.visibility = 1 AND NOT v.suspended AND v.thumbnail IS NOT NULL
+         ORDER BY i.position, i.video_id LIMIT 1",
+    )
+    .bind(playlist_id)
+    .fetch_optional(&core.db)
+    .await?;
+    Ok(image_from_json(thumbnail.as_ref()).map(|image| image.url).filter(|url| !url.is_empty()))
 }
 
 /// Deletes a playlist inside `tx`.

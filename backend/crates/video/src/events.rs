@@ -26,6 +26,9 @@ pub const VIDEO_UNPUBLISHED: &str = "video.video.unpublished";
 pub const VIDEO_VISIBILITY_CHANGED: &str = "video.video.visibility_changed";
 pub const VIDEO_DELETED: &str = "video.video.deleted";
 pub const PLAYLIST_DELETED: &str = "video.playlist.deleted";
+/// Internal: the search pictures of some public playlists may show a video
+/// that changed (see [`PlaylistsStale`]). Consumed by this domain only.
+pub const PLAYLISTS_STALE: &str = "video.playlists.stale";
 
 // Topics of other domains this one consumes.
 pub const USER_DELETED: &str = "identity.user.deleted";
@@ -109,3 +112,30 @@ pub struct AnnounceJob {
 }
 
 pub const JOB_ANNOUNCE: &str = "video.announce";
+
+/// Payload of `video.playlists.stale`, emitted in the transaction of the
+/// change: the public playlists listing `video_id`, or the `playlist_ids`
+/// given (for a deleted video, whose list entries went with it), get their
+/// search document again.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlaylistsStale {
+    #[serde(default)]
+    pub video_id: Option<Uuid>,
+    #[serde(default)]
+    pub playlist_ids: Vec<Uuid>,
+}
+
+/// Payload of the `video.playlists.search` job: one batch of
+/// [`PlaylistsStale`]. With `video_id`, the public playlists listing it
+/// after `after` (by ID); `playlist_ids` are refreshed as they are.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlaylistSearchJob {
+    #[serde(default)]
+    pub video_id: Option<Uuid>,
+    #[serde(default)]
+    pub playlist_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub after: Option<Uuid>,
+}
+
+pub const JOB_PLAYLIST_SEARCH: &str = "video.playlists.search";

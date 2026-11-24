@@ -491,6 +491,18 @@ async fn a_playlists_search_picture_never_shows_a_video_that_left_the_public() {
     let channel = ctx.channel(&alice, "ch").await;
     let image_of = |video: &Video| card(video).thumbnail.as_option().unwrap().url.clone();
     let picture = async |playlist: &Playlist| {
+        // What the worker does: the stale events become refresh jobs.
+        for event in ctx.app.events("video.playlists.stale").await {
+            let stale: tokuly_video::events::PlaylistsStale = serde_json::from_value(event.data).unwrap();
+            let mut job = Some(tokuly_video::events::PlaylistSearchJob {
+                video_id: stale.video_id,
+                playlist_ids: stale.playlist_ids,
+                after: None,
+            });
+            while let Some(next) = job {
+                job = tokuly_video::playlists::refresh_search(&ctx.app.core, &next).await.unwrap();
+            }
+        }
         let docs = search_docs(&ctx, &playlist.id).await;
         let doc = docs.last().cloned().flatten().expect("a public playlist is searchable");
         doc["image_url"].as_str().map(str::to_owned)

@@ -25,7 +25,8 @@ use crate::{
     channels::{self, ChannelRow, channel_columns},
     events::{
         ASSET_DELETED, ASSET_FAILED, ASSET_READY, AnnounceJob, CONTENT_REMOVED, ContentRemoved, JOB_ANNOUNCE,
-        USER_BANNED, USER_BLOCKED, USER_DELETED, USER_UNBANNED, UserBlocked, UserRef, VIDEO_PUBLISHED, VideoEvent,
+        JOB_PLAYLIST_SEARCH, PLAYLISTS_STALE, PlaylistSearchJob, PlaylistsStale, USER_BANNED, USER_BLOCKED,
+        USER_DELETED, USER_UNBANNED, UserBlocked, UserRef, VIDEO_PUBLISHED, VideoEvent,
     },
     feeds, party, playlists, search,
     videos::{self, VideoRow, video_columns},
@@ -58,6 +59,7 @@ impl Video {
                     USER_BLOCKED,
                     CONTENT_REMOVED,
                     VIDEO_PUBLISHED,
+                    PLAYLISTS_STALE,
                 ],
                 // Deleting a creator's whole catalogue takes a while.
                 ConsumeOptions { ack_wait: Duration::from_secs(300), ..Default::default() },
@@ -83,6 +85,31 @@ impl Video {
                     move |job: AnnounceJob| {
                         let video = handler.clone();
                         async move { video.announce(job).await.map(|_| ()) }
+                    },
+                )
+                .await;
+        });
+
+        let video = self.clone();
+        tokio::spawn(async move {
+            let core = video.core.clone();
+            video
+                .core
+                .jobs
+                .run(
+                    JOB_PLAYLIST_SEARCH,
+                    JobOptions { concurrency: 2, lease: Duration::from_secs(120), max_deliver: 5 },
+                    video.core.shutdown.clone(),
+                    move |job: PlaylistSearchJob| {
+                        let core = core.clone();
+                        async move {
+                            if let Some(next) = playlists::refresh_search(&core, &job).await? {
+                                let key =
+                                    format!("{}:{}", next.video_id.unwrap_or_default(), next.after.unwrap_or_default());
+                                core.jobs.enqueue_unique(JOB_PLAYLIST_SEARCH, &key, &next).await?;
+                            }
+                            Ok(())
+                        }
                     },
                 )
                 .await;
@@ -162,6 +189,12 @@ impl Video {
             }
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
             VIDEO_PUBLISHED => self.on_video_published(event.data()?).await,
+            PLAYLISTS_STALE => {
+                let stale: PlaylistsStale = event.data()?;
+                let job = PlaylistSearchJob { video_id: stale.video_id, playlist_ids: stale.playlist_ids, after: None };
+                // Unique per event: a redelivery does not queue the work twice.
+                self.core.jobs.enqueue_unique(JOB_PLAYLIST_SEARCH, &event.id.to_string(), &job).await
+            }
             _ => Ok(()),
         }
     }
