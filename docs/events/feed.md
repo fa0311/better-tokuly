@@ -199,6 +199,8 @@ Recaps are computed on demand and cached in Valkey (`feed:recap:…`):
 `TOKULY_FEED_RECAP_CACHE_SECONDS` for a period that is still running, 6 hours
 for a finished one. Deleting or clearing entries invalidates the user's
 recaps at once; names and blocked people are resolved on every request.
+Computing a recap that is not cached is limited to 20 per user and minute
+(`RATE_LIMITED`); cached ones are always served.
 
 ## Configuration
 

@@ -32,6 +32,8 @@ use crate::{Feed, activity::Reader, events::RECAP_READY_KIND, kinds};
 
 /// Entries read for one recap (a year of a very active user fits).
 const MAX_RECAP_ROWS: i64 = 100_000;
+/// Recaps one user may have computed (not served from the cache) per minute.
+const RECAP_COMPUTATIONS_PER_MINUTE: u32 = 20;
 /// How long the recap of a finished period is cached.
 const COMPLETE_CACHE: Duration = Duration::from_secs(6 * 3600);
 const TOP_BUMP_FRIENDS: usize = 5;
@@ -386,6 +388,17 @@ impl Feed {
         if let Some(cached) = self.core.cache.get_json::<RecapData>(&key).await? {
             return Ok(cached);
         }
+        // Reading a period can mean a whole year of the log, and deleting one
+        // entry makes every cached recap stale: one account must not keep
+        // the database busy recomputing.
+        self.core
+            .cache
+            .rate_limit(
+                &format!("feed:recap-compute:{user_id}"),
+                RECAP_COMPUTATIONS_PER_MINUTE,
+                Duration::from_secs(60),
+            )
+            .await?;
         let (from, to) = period.bounds(tz);
         let rows: Vec<RecapRow> = sqlx::query_as(
             "SELECT kind, subject_type, subject_id, with_user_ids, lat, lng,

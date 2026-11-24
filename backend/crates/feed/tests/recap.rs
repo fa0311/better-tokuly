@@ -449,3 +449,42 @@ async fn decembers_notice_announces_the_year() {
     let recap = recap(&ctx, Some(&user), RecapPeriod::RECAP_PERIOD_YEAR, &format!("{year}-12-31")).await.unwrap();
     assert_eq!((recap.activity_count, recap.complete), (5, true));
 }
+
+#[tokio::test]
+async fn recomputing_recaps_is_limited_but_cached_ones_are_free() {
+    let ctx = start().await;
+    let user = ctx.app.user("busy").await;
+    for minutes_ago in 0..3 {
+        ctx.record(note(&user), minutes_ago * 10 + 1).await;
+    }
+    let today = Utc::now().with_timezone(&TOKYO).date_naive().to_string();
+    // Deleting an entry invalidates the cache: delete-then-recompute in a
+    // loop would read a whole year of the log every time.
+    let mut refused = None;
+    for round in 0..40 {
+        recap(&ctx, Some(&user), RecapPeriod::RECAP_PERIOD_YEAR, &today).await.expect("a recap");
+        let id = ctx.record(note(&user), 1).await;
+        let _: DeleteActivityResponse = ctx
+            .call(
+                ACTIVITY,
+                "DeleteActivity",
+                Some(&user),
+                &DeleteActivityRequest { activity_id: id.to_string(), ..Default::default() },
+            )
+            .await
+            .unwrap();
+        if let Err(error) = recap(&ctx, Some(&user), RecapPeriod::RECAP_PERIOD_YEAR, &today).await {
+            refused = Some((round, error.reason));
+            break;
+        }
+    }
+    let (round, reason) = refused.expect("recomputing is limited");
+    assert_eq!(reason, "RATE_LIMITED");
+    assert!(round >= 10, "a person browsing their recaps is not refused (after {round} rounds)");
+    // What is cached is still served.
+    let cached = ctx.app.user("cached").await;
+    ctx.record(note(&cached), 1).await;
+    for _ in 0..50 {
+        recap(&ctx, Some(&cached), RecapPeriod::RECAP_PERIOD_YEAR, &today).await.expect("cached recaps are served");
+    }
+}
