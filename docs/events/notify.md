@@ -31,11 +31,16 @@ Rules the consumer applies, in order:
 4. Global push pause and quiet hours (in `users.time_zone`) suppress the push
    only. The inbox still records.
 5. No push registration → no push job. More than
-   `TOKULY_PUSH_RATE_PER_MINUTE` pushes for one user in a minute → the push is
-   skipped, the inbox still records.
+   `TOKULY_PUSH_RATE_PER_SENDER_PER_MINUTE` pushes caused by one person for
+   one recipient in a minute, or more than `TOKULY_PUSH_RATE_PER_MINUTE`
+   pushes for one user in a minute → the push is skipped, the inbox still
+   records. The sender's budget is checked first, so one person's flood
+   spends only their own and cannot silence everybody else's pushes.
 
 **Urgent requests** (`NotificationRequest::urgent()`: incoming calls, SOS)
-skip rule 4 and the per-minute cap of rule 5: they are pushed during quiet
+skip rule 4 and the recipient's per-minute cap of rule 5 (they have a
+per-sender budget of their own, so nobody can ring through quiet hours
+without end): they are pushed during quiet
 hours and while pushes are paused. Rules 2 and 3 still apply — a muted person
 and a category whose push is switched off stay silent. They are delivered at
 the highest priority of every channel (table below), and the inbox entry
@@ -210,6 +215,7 @@ alert.
 | `TOKULY_APNS_KEY_P8`, `TOKULY_APNS_KEY_ID`, `TOKULY_APNS_TEAM_ID`, `TOKULY_APNS_TOPIC` | empty | APNs token-auth key (`.p8` content, `\n` escapes accepted), key ID, team ID, bundle ID; all four enable APNs |
 | `TOKULY_PUSH_TTL_SECONDS` | `86400` | How long push services keep a notification for an offline device |
 | `TOKULY_PUSH_RATE_PER_MINUTE` | `30` | Pushes per user per minute; 0 = no cap |
+| `TOKULY_PUSH_RATE_PER_SENDER_PER_MINUTE` | `10` | Pushes one person may cause for one recipient per minute, and urgent pushes likewise; 0 = no cap |
 | `TOKULY_NOTIFY_RETENTION_DAYS` | `90` | Days an inbox entry is kept |
 
 FCM and APNs are implemented against the documented wire formats and tested

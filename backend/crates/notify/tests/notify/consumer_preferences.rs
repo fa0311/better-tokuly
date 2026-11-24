@@ -468,3 +468,48 @@ async fn mirrored_mutes_end_in_the_latest_state_whatever_the_order() {
         Some(DropReason::Muted)
     );
 }
+
+#[tokio::test]
+async fn one_person_cannot_use_up_the_push_budget() {
+    let ctx = start().await;
+    let (alice, bob, carol) = (
+        ctx.app.user("alice").await,
+        ctx.app.user("bob").await,
+        ctx.app.user("carol").await,
+    );
+    ctx.register_browser(&alice).await;
+    let mut queued = 0;
+    for _ in 0..40 {
+        if let RequestOutcome::Handled {
+            push: PushDecision::Queued(_),
+            ..
+        } = ctx.deliver(&chat_message(&alice, &bob)).await
+        {
+            queued += 1;
+        }
+    }
+    assert!(
+        queued <= 10,
+        "one sender got {queued} pushes through in a minute"
+    );
+    // Carol's message is still pushed: Bob's flood did not use up Alice's budget.
+    assert!(matches!(
+        ctx.deliver(&chat_message(&alice, &carol)).await,
+        RequestOutcome::Handled {
+            push: PushDecision::Queued(_),
+            ..
+        }
+    ));
+    // Nor can a flooder ring through with urgent requests forever.
+    let mut rung = 0;
+    for _ in 0..40 {
+        if let RequestOutcome::Handled {
+            push: PushDecision::Queued(_),
+            ..
+        } = ctx.deliver(&chat_message(&alice, &bob).urgent()).await
+        {
+            rung += 1;
+        }
+    }
+    assert!(rung <= 10, "{rung} urgent pushes from one sender in a minute");
+}

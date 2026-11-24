@@ -307,9 +307,7 @@ impl Notify {
 
         let push = match plan.push {
             Err(skip) => PushDecision::Skipped(skip),
-            // An urgent push is never the one a storm of ordinary ones crowds
-            // out, so it neither checks nor uses up the per-minute budget.
-            Ok(()) if !request.urgent && !self.push_budget_left(request.user_id).await? => {
+            Ok(()) if !self.push_budget_left(&request).await? => {
                 PushDecision::Skipped(PushSkip::RateLimited)
             }
             Ok(()) => {
@@ -362,21 +360,45 @@ impl Notify {
             .await;
     }
 
-    /// The per-user push cap: a burst of events (a busy group chat, a viral
-    /// post) must not turn into a buzzing phone. Returns whether one more
-    /// push fits this minute; notifications over the cap still reach the inbox.
-    async fn push_budget_left(&self, user_id: Uuid) -> AppResult<bool> {
-        if self.cfg.push_rate_per_minute == 0 {
-            return Ok(true); // no cap configured
+    /// The push caps: a burst of events (a busy group chat, a viral post)
+    /// must not turn into a buzzing phone, and one person must not use up
+    /// the recipient's budget so that nobody else's pushes get through.
+    /// Returns whether one more push fits; notifications over a cap still
+    /// reach the inbox.
+    ///
+    /// Each sender has a per-recipient budget, checked first so that a
+    /// flood only spends its own. An urgent push is never the one a storm of
+    /// ordinary ones crowds out: it has a sender budget of its own (so
+    /// nobody can ring through quiet hours without end) and neither checks
+    /// nor uses up the recipient's overall budget.
+    async fn push_budget_left(&self, request: &NotificationRequest) -> AppResult<bool> {
+        let user_id = request.user_id;
+        if let Some(actor_id) = request.actor_id {
+            let kind = if request.urgent { "urgent" } else { "push" };
+            let key = format!("notify-{kind}:{user_id}:{actor_id}");
+            if !self
+                .within_rate(&key, self.cfg.push_rate_per_sender_per_minute)
+                .await?
+            {
+                return Ok(false);
+            }
+        }
+        if request.urgent {
+            return Ok(true);
+        }
+        self.within_rate(&format!("notify-push:{user_id}"), self.cfg.push_rate_per_minute)
+            .await
+    }
+
+    /// Counts one push against a per-minute budget of `max` (0 = no cap).
+    async fn within_rate(&self, key: &str, max: u32) -> AppResult<bool> {
+        if max == 0 {
+            return Ok(true);
         }
         match self
             .core
             .cache
-            .rate_limit(
-                &format!("notify-push:{user_id}"),
-                self.cfg.push_rate_per_minute,
-                std::time::Duration::from_secs(60),
-            )
+            .rate_limit(key, max, std::time::Duration::from_secs(60))
             .await
         {
             Ok(()) => Ok(true),
