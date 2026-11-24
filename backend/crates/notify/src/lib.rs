@@ -95,7 +95,7 @@ impl Notify {
         let endpoint_policy = EndpointPolicy::from_config(&cfg);
 
         let mut channels: Vec<Arc<dyn PushChannel>> = vec![Arc::new(WebPush::new(
-            http.clone(),
+            push::web_push_client(cfg.webpush_allow_insecure)?,
             vapid.clone(),
             endpoint_policy.clone(),
         ))];

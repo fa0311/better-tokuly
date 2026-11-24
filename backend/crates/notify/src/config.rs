@@ -28,8 +28,8 @@ pub struct NotifyConfig {
     /// Hosts a Web Push endpoint may point to, comma separated; subdomains are
     /// included. The server POSTs to these URLs, so the list is what keeps a
     /// crafted subscription from reaching internal services. `*` allows any
-    /// https host with a public-looking name; names are not resolved, so
-    /// prefer the list wherever the server can reach private networks.
+    /// https host with a public-looking name. Either way the server only
+    /// connects to public addresses of those names.
     #[arg(long, env = "TOKULY_WEBPUSH_ALLOWED_HOSTS", default_value = DEFAULT_WEBPUSH_HOSTS)]
     pub webpush_allowed_hosts: String,
 

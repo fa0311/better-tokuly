@@ -209,7 +209,7 @@ alert.
 |---|---|---|
 | `TOKULY_VAPID_PRIVATE_KEY` | empty | Web Push application-server key (raw P-256 scalar, base64url). Empty derives it from `TOKULY_SECRET` (`keys.derive("webpush/vapid")`) |
 | `TOKULY_VAPID_SUBJECT` | empty | Contact URI in VAPID tokens. Empty: the public URL when https, else `mailto:` + the `TOKULY_MAIL_FROM` address |
-| `TOKULY_WEBPUSH_ALLOWED_HOSTS` | `fcm.googleapis.com,updates.push.services.mozilla.com,notify.windows.com,push.apple.com` | Hosts (and their subdomains) a Web Push endpoint may point to; `*` = any public https host |
+| `TOKULY_WEBPUSH_ALLOWED_HOSTS` | `fcm.googleapis.com,updates.push.services.mozilla.com,notify.windows.com,push.apple.com` | Hosts (and their subdomains) a Web Push endpoint may point to; `*` = any public https host. Whatever the list, Web Push requests only connect to public addresses: a name resolving to a loopback, private or link-local address fails |
 | `TOKULY_WEBPUSH_ALLOW_INSECURE` | `false` | Development/tests: accept `http://` endpoints on any host. Startup fails if set in production |
 | `TOKULY_FCM_SERVICE_ACCOUNT_JSON` | empty | Firebase service-account JSON; empty disables FCM |
 | `TOKULY_APNS_KEY_P8`, `TOKULY_APNS_KEY_ID`, `TOKULY_APNS_TEAM_ID`, `TOKULY_APNS_TOPIC` | empty | APNs token-auth key (`.p8` content, `\n` escapes accepted), key ID, team ID, bundle ID; all four enable APNs |
