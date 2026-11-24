@@ -25,6 +25,10 @@ pub(crate) const KIND_REPLY: &str = "engagement.reply";
 pub(crate) const KIND_MENTION: &str = "engagement.mention";
 pub(crate) const KIND_HEART: &str = "engagement.heart";
 
+/// How long being mentioned in the same comment again (an edit that takes
+/// the mention out and puts it back) sends no second notification.
+const MENTION_NOTICE_WINDOW: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+
 /// Why someone is told about a comment. One person, one notification: the
 /// first reason that applies, in this order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,7 +216,8 @@ impl Engagement {
     }
 
     /// Sends one notification per member of `audience`. Runs on the
-    /// caller's transaction and touches nothing else.
+    /// caller's transaction and touches nothing else in the database. A
+    /// mention is announced at most once a day per comment and person.
     pub(crate) async fn announce(
         &self,
         conn: &mut PgConnection,
@@ -223,6 +228,12 @@ impl Engagement {
     ) -> AppResult<()> {
         let path = comment_path(&subject.info.path, row.id);
         for (user_id, reason) in audience {
+            if *reason == Reason::Mention {
+                let notice_key = format!("engagement:mentioned:{}:{user_id}", row.id);
+                if !self.core.cache.set_nx(&notice_key, "1", MENTION_NOTICE_WINDOW).await.unwrap_or(true) {
+                    continue;
+                }
+            }
             let mut request = about(
                 NotificationRequest::new(
                     *user_id,

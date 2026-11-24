@@ -103,6 +103,19 @@ async fn a_late_block_event_does_not_hide_comments_again() {
 }
 
 #[tokio::test]
+async fn editing_a_mention_in_and_out_notifies_once() {
+    let ctx = start().await;
+    let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, &format!("やあ @{}", bob.handle)).await;
+    for round in 0..3 {
+        ctx.edit(&alice, &comment.id, &format!("やあ{round}")).await.unwrap();
+        ctx.edit(&alice, &comment.id, &format!("やあ{round} @{}", bob.handle)).await.unwrap();
+    }
+    assert_eq!(ctx.notifications(bob.id, "engagement.mention").await.len(), 1);
+}
+
+#[tokio::test]
 async fn comments_cannot_be_edited_while_they_are_turned_off() {
     let ctx = start().await;
     let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);

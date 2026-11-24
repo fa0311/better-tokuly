@@ -119,7 +119,7 @@ block, or as the owner of content that belongs to nobody.
 | `engagement.comment` | subject owner | a top-level comment entered public view | actor = commenter (none for a channel identity; channel icon as image). Path `<subject path>?comment=<id>`. |
 | `engagement.comment` | subject owner | a comment is waiting for review | no actor; collapse key `engagement.review:<type>:<subject>`. Not sent for comments of blocked commenters. |
 | `engagement.reply` | author of the thread; author of the reply answered | a reply entered public view | |
-| `engagement.mention` | users `@mentioned` | the comment entered public view, or an edit added the mention | only users who can see the subject |
+| `engagement.mention` | users `@mentioned` | the comment entered public view, or an edit added the mention | only users who can see the subject; at most once a day per comment and user (editing a mention out and back in is not news) |
 | `engagement.heart` | comment author | the owner gave the comment a heart | no actor; collapse key `engagement.heart:<comment>`; at most once a day per comment |
 | `engagement.like` | subject owner (for a comment: its author) | someone liked or emoji-reacted | actor = the user; collapse key `engagement.like:<type>:<subject>`; at most once a day per user and subject; never for dislikes |
 
@@ -184,6 +184,7 @@ transaction that changes what they count).
 | `engagement:push:lead:<type>:<subject>` / `…:trail:…` | markers, 1 s / 3 s | throttle of `counters_changed` |
 | `engagement:liked:<user>:<type>:<subject>` | marker, 24 h | one like notification per user and subject per day |
 | `engagement:heart:<comment>` | marker, 24 h | one heart notification per comment per day |
+| `engagement:mentioned:<comment>:<user>` | marker, 24 h | one mention notification per comment and user per day |
 
 ## Configuration
 
