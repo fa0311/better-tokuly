@@ -533,7 +533,7 @@ impl Notes {
             None => input.channel_id,
         };
         if let Some(channel_id) = channel_id {
-            channels::require_open(core, channel_id).await?;
+            channels::require_open(core, channel_id, author).await?;
             ensure!(
                 input.audience.as_ref().is_none_or(|audience| audience.visibility == visibility::PUBLIC),
                 invalid,

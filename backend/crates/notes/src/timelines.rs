@@ -71,7 +71,7 @@ fn with_renotes(filter: &str, renoters: &str) -> String {
 
 impl Notes {
     /// Runs a timeline query and hydrates its page.
-    async fn entries<P>(
+    pub(crate) async fn entries<P>(
         &self,
         viewer: &Viewer,
         page: &Page,

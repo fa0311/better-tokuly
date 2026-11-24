@@ -25,7 +25,10 @@
 //! | [`hashtags`] | the hashtag directory, trending, completion |
 //! | `hydrate` | note rows → the `Note` messages one viewer gets |
 //! | [`stories`], [`highlights`] | stories, their viewers and reactions, the archive, highlights |
+//! | [`channels`] | channels: posting into them, followers, moderators, pins, the channel timeline |
+//! | [`clips`] | clips: collections of notes and the public clip count of notes |
 //! | `note_svc`, `story_svc` | the two Connect services: thin handlers over the modules above |
+//! | `channel_svc`, `clip_svc` | `NoteChannelService` and `ClipService`, likewise |
 //! | `copy` | notification and activity texts |
 //! | `subjects` | subject resolvers, data export, note count on profiles |
 //! | `cleanup`, `workers` | reactions to other domains' events; background workers |
@@ -36,8 +39,11 @@ use tokuly_identity::Identity;
 use tokuly_proto::notes::{NotesEvent, notes_event::Event as Push};
 
 mod authors;
+mod channel_svc;
 pub mod channels;
 mod cleanup;
+mod clip_svc;
+pub mod clips;
 pub mod config;
 mod copy;
 pub mod events;
@@ -90,11 +96,14 @@ impl Notes {
         Ok(notes)
     }
 
-    /// Registers `NoteService` and `StoryService` on the Connect router.
+    /// Registers `NoteService`, `StoryService`, `NoteChannelService` and
+    /// `ClipService` on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::notes::{NoteServiceExt, StoryServiceExt};
+        use tokuly_proto::notes::{ClipServiceExt, NoteChannelServiceExt, NoteServiceExt, StoryServiceExt};
         let me = Arc::new(self.clone());
         let router = NoteServiceExt::register(me.clone(), router);
+        let router = NoteChannelServiceExt::register(me.clone(), router);
+        let router = ClipServiceExt::register(me.clone(), router);
         StoryServiceExt::register(me, router)
     }
 

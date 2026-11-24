@@ -173,7 +173,11 @@ impl DataExporter for NotesExporter {
                 .bind(user_id)
                 .fetch_optional(db)
                 .await?;
+        let (channels, channel_follows) = crate::channels::export(db, user_id).await?;
         Ok(serde_json::json!({
+            "channels": channels,
+            "channel_follows": channel_follows,
+            "clips": crate::clips::export(db, user_id).await?,
             "rules_agreement": rules,
             "notes": section(
                 "SELECT jsonb_build_object('id', id, 'text', text, 'attachments', attachments, 'stamp_id', stamp_id,
