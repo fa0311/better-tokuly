@@ -33,6 +33,7 @@ Durable consumer `social`. Every handler is idempotent.
 | `identity.user.created` | If `invite_code` belongs to someone: records the intro, suggests the two to each other, and sends a friend request from the newcomer to the inviter (source `INVITE_LINK`; the inviter's "who may send me requests" audience does not apply, since they handed out the link). |
 | `identity.user.deleted` | Deletes every row about the user (friendships, requests, blocks, suggestions, invite, intros, shared history, bumps, map reactions, map views), drops cached lists, and pushes `friend_removed_user_id` to their former friends. |
 | `identity.user.privacy_changed` | Re-syncs friends' view of the user's online state with `share_online_status`: hidden → pushed as offline (no "last seen"); shown again while online → pushed as online. |
+| `social.friend.accepted`, `social.friend.removed`, `social.user.blocked`, `social.user.unblocked` | Our own: drops the two users' cached friend / hidden lists. The request that made the change does this right after its commit too, but it can be cut off there (deadline, lost connection); these events come from the same transaction and arrive at least once. |
 | `notify.mute.changed` | `{ user_id, muted_user_id, muted }`: mirrors a mute made in the notification settings onto the friendship's `muted` flag (when the two are friends). Not re-announced as `social.friend.prefs_changed`. |
 
 ## Bus subjects (core NATS)
