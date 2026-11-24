@@ -3,7 +3,6 @@ import { common } from "@tokuly/api";
 import { useEffect } from "react";
 import { registerSubjectCard } from "#/features/engagement";
 import { realtime } from "#/lib/realtime";
-import { keys } from "./api";
 import { applyCommunityEvent } from "./live";
 import { CommunitySubjectCard } from "./subject-card";
 
@@ -27,14 +26,9 @@ export default function CommunityBackground() {
 
   useEffect(() => {
     const client = realtime();
-    let connectedBefore = false;
+    // An open community reads its boards again when its topic is back after a gap
+    // (`CommunityLayout`).
     const off = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Whatever changed while the connection was down was not announced.
-        if (connectedBefore) void queryClient.invalidateQueries({ queryKey: keys.all });
-        connectedBefore = true;
-        return;
-      }
       if (frame.body.case === "community") applyCommunityEvent(queryClient, frame.body.value.event);
     });
     client.start();

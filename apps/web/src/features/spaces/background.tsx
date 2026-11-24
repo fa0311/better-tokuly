@@ -6,7 +6,6 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
-import { keys } from "./api";
 import { EndCallPrompt } from "./end-call-prompt";
 import { applySpacesEvent, useSpaceTopic } from "./live";
 import { MiniPlayer } from "./mini-player";
@@ -47,16 +46,10 @@ export default function SpacesBackground() {
   useEffect(() => {
     if (!myId) return;
     const client = realtime();
-    let connectedBefore = false;
     /** When this person was last seen entering a room or hangout other than this session's. */
     let enteredElsewhereAt = 0;
+    // A room that is open reads itself again when its topic is back after a gap (`useSpaceTopic`).
     const off = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Whatever changed while the connection was down was not announced.
-        if (connectedBefore) void queryClient.invalidateQueries({ queryKey: keys.all });
-        connectedBefore = true;
-        return;
-      }
       if (frame.body.case !== "spaces") return;
       const event = frame.body.value.event;
       const active = useAudioSession.getState().active;
