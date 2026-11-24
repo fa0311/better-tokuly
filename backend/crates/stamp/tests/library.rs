@@ -404,3 +404,27 @@ async fn the_library_opens_in_one_call() {
     );
     assert_eq!(ctx.reason("Library", "GetLibrary", None, &GetLibraryRequest::default()).await, "SIGN_IN_REQUIRED");
 }
+
+#[tokio::test]
+async fn installing_in_a_loop_is_rate_limited() {
+    let ctx = start().await;
+    let (creator, user) = (ctx.app.user("creator").await, ctx.app.user("looper").await);
+    let id = id_of(&ctx.published(&creator, "ぐるぐる", 0, &[], 1).await);
+    let install = InstallPackRequest { pack_id: id.clone(), ..Default::default() };
+    let uninstall = UninstallPackRequest { pack_id: id.clone(), ..Default::default() };
+    let mut limited = None;
+    for round in 0..100 {
+        if let Err(e) = ctx.call::<_, InstallPackResponse>("Library", "InstallPack", Some(&user), &install).await {
+            limited = Some((round, e.reason));
+            break;
+        }
+        if let Err(e) = ctx.call::<_, UninstallPackResponse>("Library", "UninstallPack", Some(&user), &uninstall).await
+        {
+            limited = Some((round, e.reason));
+            break;
+        }
+    }
+    let (round, reason) = limited.expect("a hundred install/uninstall rounds in a row are refused at some point");
+    assert_eq!(reason, "RATE_LIMITED");
+    assert!(round >= 30, "normal use is not limited (stopped at round {round})");
+}

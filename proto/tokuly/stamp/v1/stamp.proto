@@ -324,9 +324,11 @@ service StampLibraryService {
   // Installed packs in the user's order (new installs go first).
   rpc ListInstalledPacks(ListInstalledPacksRequest) returns (ListInstalledPacksResponse);
   // Adds a pack to the library. Idempotent. Paid packs must be bought first.
-  // Errors: `PACK_NOT_FOUND`, `PURCHASE_REQUIRED`, `INSTALL_LIMIT_REACHED`.
+  // Errors: `PACK_NOT_FOUND`, `PURCHASE_REQUIRED`, `INSTALL_LIMIT_REACHED`,
+  // `RATE_LIMITED` (installs and uninstalls together, 60 a minute).
   rpc InstallPack(InstallPackRequest) returns (InstallPackResponse);
   // Removes a pack from the library; a purchase stays valid. Idempotent.
+  // Errors: `RATE_LIMITED` (see `InstallPack`).
   rpc UninstallPack(UninstallPackRequest) returns (UninstallPackResponse);
   // Puts the listed packs first, in the given order; packs not listed keep
   // their relative order after them. Errors: `ORDER_MISMATCH` (a listed pack
