@@ -287,3 +287,27 @@ async fn an_unfinished_purchase_is_finished_without_the_buyer_and_keeps_the_pack
         .unwrap();
     assert_eq!(intents, 0, "both are settled");
 }
+
+#[tokio::test]
+async fn a_pack_whose_creator_just_left_is_not_for_sale() {
+    let ctx = start().await;
+    let (creator, buyer) = (ctx.app.user("creator").await, ctx.app.user("buyer").await);
+    let id = id_of(&ctx.published(&creator, "さよなら", 100, &[], 1).await);
+    ctx.grant_coins(&buyer, 100).await;
+    // The account is erased; the stamp domain has not heard of it yet.
+    sqlx::query("UPDATE users SET deleted_at = now() WHERE id = $1")
+        .bind(creator.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+
+    let buy = PurchasePackRequest { pack_id: id.clone(), expected_price: 100, ..Default::default() };
+    assert_eq!(ctx.reason("Library", "PurchasePack", Some(&buyer), &buy).await, "PACK_NOT_FOR_SALE");
+    assert_eq!(ctx.balance(&buyer).await.coins, 100);
+    let intents: i64 = sqlx::query_scalar("SELECT count(*) FROM stamp_purchase_intents WHERE user_id = $1")
+        .bind(buyer.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(intents, 0, "nothing was paid, so nothing is left to settle");
+}

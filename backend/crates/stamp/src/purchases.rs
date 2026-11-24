@@ -164,6 +164,11 @@ impl Stamp {
                 if refused(&e) {
                     forget_intent(&core.db, user_id, pack.id).await?;
                 }
+                // The creator's account was erased a moment ago: their packs
+                // leave the store as soon as the stamp domain hears of it.
+                if e.reason == "ACCOUNT_CLOSED" {
+                    bail!(precondition, "PACK_NOT_FOR_SALE", "this pack is not sold any more");
+                }
                 return Err(e);
             }
         };
