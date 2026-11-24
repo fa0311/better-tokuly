@@ -19,10 +19,14 @@ export function useSpaceTopic(spaceId: string | undefined): void {
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!spaceId) return;
-    // Banned, removed, blocked, the room deleted: reading it again shows what is left to see
-    // (for a ban, "not found").
-    const release = realtime().subscribe(`space:${spaceId}`, {
-      onRevoked: () => void queryClient.invalidateQueries({ queryKey: keys.space(spaceId) }),
+    const reread = () => void queryClient.invalidateQueries({ queryKey: keys.space(spaceId) });
+    const { release } = realtime().subscribe(`space:${spaceId}`, {
+      // In effect (first, or again after a gap): the room as read before may lack what was
+      // pushed in between.
+      onSubscribed: reread,
+      // Banned, removed, blocked, the room deleted: reading it again shows what is left to see
+      // (for a ban, "not found").
+      onRevoked: reread,
     });
     realtime().start();
     return release;

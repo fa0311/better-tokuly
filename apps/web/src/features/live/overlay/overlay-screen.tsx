@@ -129,13 +129,6 @@ export function OverlayScreen({ token }: { token: string }) {
       }, latest.current.duration * 1000);
     };
     const offFrame = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // The connection is up with the topic subscribed (the first time, or back after a
-        // gap): whatever was pushed before that, including while the widget was first
-        // being read, is read in one go.
-        setVersion((value) => value + 1);
-        return;
-      }
       if (frame.body.case !== "live" || frame.topic !== topic) return;
       const event = frame.body.value.event;
       const patch = (update: (current: WidgetState) => WidgetState) =>
@@ -187,19 +180,17 @@ export function OverlayScreen({ token }: { token: string }) {
           break;
       }
     });
-    // The widget was deleted or its token renewed while this page was not listening.
-    const release = client.subscribe(topic, {
+    const { release } = client.subscribe(topic, {
+      // The server has the subscription in place (the first time, or back after a gap):
+      // whatever was pushed before that, including while the widget was first being read,
+      // is read in one go.
+      onSubscribed: () => setVersion((value) => value + 1),
+      // The widget was deleted or its token renewed while this page was not listening.
       onRevoked: () => {
         setState(null);
         setGone(true);
       },
     });
-    // Already connected, so no welcome follows: the subscription starts now, after the
-    // widget was read, and a line sent in between is only in a second read. Not airtight:
-    // `subscribe()` is not acknowledged, so this re-read (HTTP) can still reach the server
-    // before the subscription (realtime) does, and a line sent in that gap is missed until
-    // the next read. Closing it needs a subscribe acknowledgement in the realtime protocol.
-    if (client.connectionStatus === "connected") setVersion((value) => value + 1);
     client.start();
     return () => {
       clearTimeout(timer);

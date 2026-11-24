@@ -153,11 +153,6 @@ export function useThreadRealtime(
     };
 
     const offFrame = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Whatever happened while the connection was down is caught up by reading again.
-        void queryClient.invalidateQueries({ queryKey: commentKeys.subject(key) });
-        return;
-      }
       if (frame.body.case !== "engagement") return;
       const event = frame.body.value;
       if (event.subject?.type !== type || event.subject.id !== uuid) return;
@@ -165,7 +160,12 @@ export function useThreadRealtime(
         // A failed catch-up read only delays the update until the next refetch.
       });
     });
-    const release = client.subscribe(topic);
+    const { release } = client.subscribe(topic, {
+      // In effect (first, or back after a gap): whatever happened before, including while the
+      // comments were first being read, is caught up by reading again.
+      onSubscribed: () =>
+        void queryClient.invalidateQueries({ queryKey: commentKeys.subject(key) }),
+    });
     client.start();
     return () => {
       offFrame();

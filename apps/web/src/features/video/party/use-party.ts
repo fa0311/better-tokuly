@@ -136,11 +136,6 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
     if (gone) return;
     const client = realtime();
     const offFrame = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Back after a gap: whatever was pushed meanwhile is read in one go.
-        void reloadRef.current();
-        return;
-      }
       if (frame.body.case !== "video" || frame.topic !== topic) return;
       const event = frame.body.value.event;
       switch (event.case) {
@@ -252,8 +247,11 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
           break;
       }
     });
-    // The seat went (removed, timed out) or the party ended without this page hearing why.
-    const release = client.subscribe(topic, {
+    const { release } = client.subscribe(topic, {
+      // In effect (first, or back after a gap): whatever was pushed before that, including
+      // while the party was first being read, is read in one go.
+      onSubscribed: () => void reloadRef.current(),
+      // The seat went (removed, timed out) or the party ended without this page hearing why.
       onRevoked: (reason) =>
         setState((current) => ({
           ...current,

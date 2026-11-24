@@ -159,20 +159,7 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
   useEffect(() => {
     if (!topic || !streamId) return;
     const client = realtime();
-    let welcomed = false;
     const offFrame = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Back after a gap: whatever was pushed meanwhile is read in one go.
-        if (welcomed) {
-          refreshStream(queryClient, streamId);
-          void queryClient.invalidateQueries({
-            queryKey: liveKeys.chat(streamId),
-            refetchType: "all",
-          });
-        }
-        welcomed = true;
-        return;
-      }
       if (frame.body.case === "social") {
         // A block (or an ended friendship) on this account: read the block list again.
         if (frame.body.value.event.case === "friendRemovedUserId")
@@ -205,9 +192,18 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
         applyLiveEvent(queryClient, streamId, event);
       }
     });
-    // Blocked by the streamer, unfriended, narrowed to members, deleted: the page reads the
-    // stream again and lands where a stranger would (as when a watching report says so).
-    const release = client.subscribe(topic, {
+    const { release } = client.subscribe(topic, {
+      // In effect (first, or back after a gap): the stream and its chat as read before may lack
+      // what was pushed in between (the user's own events too, which a reconnect also missed).
+      onSubscribed: () => {
+        refreshStream(queryClient, streamId);
+        void queryClient.invalidateQueries({
+          queryKey: liveKeys.chat(streamId),
+          refetchType: "all",
+        });
+      },
+      // Blocked by the streamer, unfriended, narrowed to members, deleted: the page reads the
+      // stream again and lands where a stranger would (as when a watching report says so).
       onRevoked: () => refreshStream(queryClient, streamId),
     });
     client.start();

@@ -27,7 +27,7 @@ vi.mock("./transport.js", () => ({
   },
 }));
 
-const { RealtimeClient } = await import("./client.js");
+const { RealtimeClient, SubscriptionRefused } = await import("./client.js");
 
 function sentFrames(): realtime.ClientFrame[] {
   return wire.sent.map((bytes) => fromBinary(realtime.ClientFrameSchema, bytes));
@@ -37,8 +37,8 @@ function serverSends(frame: Parameters<typeof create<typeof realtime.ServerFrame
   wire.deliver?.(toBinary(realtime.ServerFrameSchema, create(realtime.ServerFrameSchema, frame)));
 }
 
-async function connectedClient() {
-  const client = new RealtimeClient({
+function newClient() {
+  return new RealtimeClient({
     getEndpoints: async () => ({
       webtransportUrl: "",
       webtransportCertHashes: [],
@@ -49,17 +49,40 @@ async function connectedClient() {
     appVersion: "test",
     deviceId: "device",
   });
-  client.start();
-  await vi.waitFor(() =>
-    expect(sentFrames().some((frame) => frame.body.case === "hello")).toBe(true),
+}
+
+/** The next Hello the client sends (waiting for the connection to be made). */
+async function nextHello(): Promise<realtime.ClientFrame & { body: { case: "hello" } }> {
+  await vi.waitFor(
+    () => expect(sentFrames().some((frame) => frame.body.case === "hello")).toBe(true),
+    { timeout: 3_000 },
   );
-  const hello = sentFrames().find((frame) => frame.body.case === "hello");
-  serverSends({
-    replyTo: hello?.id ?? 0n,
-    body: { case: "welcome", value: { protocolVersion: 2 } },
-  });
+  return sentFrames().find((frame) => frame.body.case === "hello") as realtime.ClientFrame & {
+    body: { case: "hello" };
+  };
+}
+
+function welcome(replyTo: bigint): void {
+  serverSends({ replyTo, body: { case: "welcome", value: { protocolVersion: 2 } } });
+}
+
+async function connectedClient() {
+  const client = newClient();
+  client.start();
+  welcome((await nextHello()).id);
   wire.sent.length = 0;
   return client;
+}
+
+/** Whether the promise has settled, and how, without waiting for it. */
+async function stateOf(promise: Promise<unknown>): Promise<"pending" | "resolved" | "rejected"> {
+  const pending = Symbol("pending");
+  try {
+    const value = await Promise.race([promise, Promise.resolve().then(() => pending)]);
+    return value === pending ? "pending" : "resolved";
+  } catch {
+    return "rejected";
+  }
 }
 
 function subscribeFrames(topic: string): realtime.ClientFrame[] {
@@ -80,8 +103,8 @@ describe("subscriptions the server ends", () => {
     const second = vi.fn();
     const everywhere = vi.fn();
     client.onRevoked(everywhere);
-    const releaseFirst = client.subscribe("space:1", { onRevoked: first });
-    const releaseSecond = client.subscribe("space:1", { onRevoked: second });
+    const { release: releaseFirst } = client.subscribe("space:1", { onRevoked: first });
+    const { release: releaseSecond } = client.subscribe("space:1", { onRevoked: second });
     expect(subscribeFrames("space:1")).toHaveLength(1);
 
     serverSends({
@@ -141,12 +164,12 @@ describe("subscriptions the server ends", () => {
 
   it("lets a component follow the topic anew after a revocation", async () => {
     const client = await connectedClient();
-    const releaseOld = client.subscribe("live:3");
+    const { release: releaseOld } = client.subscribe("live:3");
     serverSends({
       topic: "live:3",
       body: { case: "unsubscribed", value: { topic: "live:3", reason: "TOPIC_CLOSED" } },
     });
-    const releaseNew = client.subscribe("live:3");
+    const { release: releaseNew } = client.subscribe("live:3");
     expect(subscribeFrames("live:3")).toHaveLength(2);
     // The old holder's release must not end the new interest.
     releaseOld();
@@ -189,5 +212,146 @@ describe("refusals that are not revocations", () => {
     );
     const hello = sentFrames().find((frame) => frame.body.case === "hello");
     expect(hello?.body.case === "hello" && hello.body.value.topics).toContain("overlay:k");
+  });
+});
+
+describe("the answer to a subscription", () => {
+  beforeEach(() => {
+    wire.sent.length = 0;
+    vi.spyOn(console, "info").mockImplementation(() => {});
+  });
+
+  it("resolves when the server acknowledges the subscribe, and not before", async () => {
+    const client = await connectedClient();
+    const subscribed = vi.fn();
+    const { ready } = client.subscribe("live:1", { onSubscribed: subscribed });
+    const [subscribe] = subscribeFrames("live:1");
+    expect(subscribe?.id).not.toBe(0n);
+    expect(await stateOf(ready)).toBe("pending");
+    expect(subscribed).not.toHaveBeenCalled();
+
+    serverSends({ replyTo: subscribe?.id ?? 0n, body: { case: "ack", value: {} } });
+    expect(await stateOf(ready)).toBe("resolved");
+    expect(subscribed).toHaveBeenCalledTimes(1);
+    // A second follower of a topic in effect is told right away, without another frame.
+    const later = vi.fn();
+    const second = client.subscribe("live:1", { onSubscribed: later });
+    expect(await stateOf(second.ready)).toBe("resolved");
+    await Promise.resolve();
+    expect(later).toHaveBeenCalledTimes(1);
+    expect(subscribed).toHaveBeenCalledTimes(1);
+    expect(subscribeFrames("live:1")).toHaveLength(1);
+  });
+
+  it("rejects with the guard's reason, as a revocation when access is refused", async () => {
+    const client = await connectedClient();
+    const revoked = vi.fn();
+    const { ready } = client.subscribe("space:2", { onRevoked: revoked });
+    const [subscribe] = subscribeFrames("space:2");
+    serverSends({
+      replyTo: subscribe?.id ?? 0n,
+      body: {
+        case: "error",
+        value: { code: "permission_denied", message: "TOPIC_FORBIDDEN", fatal: false },
+      },
+    });
+    const refusal = await ready.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(refusal).toBeInstanceOf(SubscriptionRefused);
+    expect(refusal).toMatchObject({ topic: "space:2", reason: "TOPIC_FORBIDDEN", revoked: true });
+    expect(revoked).toHaveBeenCalledWith("TOPIC_FORBIDDEN");
+  });
+
+  it("rejects without giving the topic up when the guard could not decide", async () => {
+    const client = await connectedClient();
+    const subscribed = vi.fn();
+    const { ready } = client.subscribe("community:3", { onSubscribed: subscribed });
+    const [subscribe] = subscribeFrames("community:3");
+    serverSends({
+      replyTo: subscribe?.id ?? 0n,
+      body: {
+        case: "error",
+        value: { code: "unavailable", message: "TOPIC_CHECK_FAILED", fatal: false },
+      },
+    });
+    await expect(ready).rejects.toMatchObject({ reason: "TOPIC_CHECK_FAILED", revoked: false });
+    expect(client.isSubscribed("community:3")).toBe(true);
+
+    // The next connection asks for it again, and its Welcome puts it in effect.
+    wire.sent.length = 0;
+    wire.close?.("gone");
+    const hello = await nextHello();
+    expect(hello.body.value.topics).toContain("community:3");
+    welcome(hello.id);
+    expect(subscribed).toHaveBeenCalledTimes(1);
+  });
+
+  it("is answered by the Welcome when the topic went out with the Hello", async () => {
+    const client = newClient();
+    const subscribed = vi.fn();
+    const open = client.subscribe("live:4", { onSubscribed: subscribed });
+    const closed = client.subscribe("space:4");
+    client.start();
+    const hello = await nextHello();
+    expect(hello.body.value.topics).toEqual(["live:4", "space:4"]);
+    // Nothing was sent on its own before the Hello.
+    expect(sentFrames().filter((frame) => frame.body.case === "subscribe")).toHaveLength(0);
+    expect(await stateOf(open.ready)).toBe("pending");
+
+    // A refused topic is told before the Welcome, which then confirms the rest.
+    serverSends({
+      topic: "space:4",
+      body: { case: "unsubscribed", value: { topic: "space:4", reason: "TOPIC_FORBIDDEN" } },
+    });
+    welcome(hello.id);
+    expect(await stateOf(open.ready)).toBe("resolved");
+    await expect(closed.ready).rejects.toMatchObject({ reason: "TOPIC_FORBIDDEN", revoked: true });
+    expect(subscribed).toHaveBeenCalledTimes(1);
+  });
+
+  it("is told again after every reconnect, and waits across one", async () => {
+    const client = await connectedClient();
+    const subscribed = vi.fn();
+    client.subscribe("party:5", { onSubscribed: subscribed });
+    const [subscribe] = subscribeFrames("party:5");
+    serverSends({ replyTo: subscribe?.id ?? 0n, body: { case: "ack", value: {} } });
+    expect(subscribed).toHaveBeenCalledTimes(1);
+
+    // The connection drops: a topic subscribed meanwhile waits for the next Welcome.
+    wire.close?.("gone");
+    wire.sent.length = 0;
+    const meanwhile = client.subscribe("live:5");
+    const hello = await nextHello();
+    expect(hello.body.value.topics).toEqual(["party:5", "live:5"]);
+    expect(await stateOf(meanwhile.ready)).toBe("pending");
+    // A late Ack from the old connection is not an answer for the new one.
+    serverSends({ replyTo: subscribe?.id ?? 0n, body: { case: "ack", value: {} } });
+    expect(subscribed).toHaveBeenCalledTimes(1);
+
+    welcome(hello.id);
+    expect(subscribed).toHaveBeenCalledTimes(2);
+    expect(await stateOf(meanwhile.ready)).toBe("resolved");
+    // Welcome again on the same connection (a refreshed token) is no new start.
+    welcome(hello.id);
+    expect(subscribed).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not take the answer for a subscription that was let go for this one", async () => {
+    const client = await connectedClient();
+    const old = client.subscribe("study:6");
+    const [first] = subscribeFrames("study:6");
+    old.release();
+    const subscribed = vi.fn();
+    const renewed = client.subscribe("study:6", { onSubscribed: subscribed });
+    const [, second] = subscribeFrames("study:6");
+    // The first Subscribe's Ack came before the Unsubscribe was handled: it says nothing of the new one.
+    serverSends({ replyTo: first?.id ?? 0n, body: { case: "ack", value: {} } });
+    expect(await stateOf(renewed.ready)).toBe("pending");
+    expect(subscribed).not.toHaveBeenCalled();
+    serverSends({ replyTo: second?.id ?? 0n, body: { case: "ack", value: {} } });
+    expect(await stateOf(renewed.ready)).toBe("resolved");
+    expect(subscribed).toHaveBeenCalledTimes(1);
   });
 });

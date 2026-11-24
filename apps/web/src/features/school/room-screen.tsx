@@ -97,15 +97,15 @@ export function RoomScreen({ roomId }: { roomId: string }) {
   useEffect(() => {
     const client = realtime();
     const topic = `study:${roomId}`;
-    // Removed, uninvited, unfriended or the room closed: reading it again shows where things stand.
-    const unsubscribe = client.subscribe(topic, {
-      onRevoked: () => void queryClient.invalidateQueries({ queryKey: keys.room(roomId) }),
+    const reread = () => void queryClient.invalidateQueries({ queryKey: keys.room(roomId) });
+    const { release } = client.subscribe(topic, {
+      // In effect (first, or back after a gap): the room as read before may lack a timer change
+      // pushed in between.
+      onSubscribed: reread,
+      // Removed, uninvited, unfriended or the room closed: reading it again shows where things stand.
+      onRevoked: reread,
     });
     const off = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        void queryClient.invalidateQueries({ queryKey: keys.room(roomId) });
-        return;
-      }
       if (frame.body.case !== "school" || frame.topic !== topic) return;
       const event = frame.body.value.event;
       if (event.case === "roomTimer") {
@@ -137,7 +137,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
     client.start();
     return () => {
       off();
-      unsubscribe();
+      release();
     };
   }, [roomId, queryClient, t]);
 

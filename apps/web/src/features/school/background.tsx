@@ -109,9 +109,9 @@ export default function SchoolBackground() {
   // Whoever is in a room hears its timer wherever they are in the app.
   useEffect(() => {
     if (!roomId) return;
-    const unsubscribe = realtime().subscribe(`study:${roomId}`);
+    const { release } = realtime().subscribe(`study:${roomId}`);
     realtime().start();
-    return unsubscribe;
+    return release;
   }, [roomId]);
 
   // "Still here": the server counts study time up to the last heartbeat only.
