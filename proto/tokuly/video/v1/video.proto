@@ -1527,6 +1527,14 @@ message DateRange {
   string time_zone = 3;
 }
 
+// Reports describe an audience only from a minimum size (the deployment's
+// TOKULY_VIDEO_ANALYTICS_MIN_AUDIENCE, default 5 distinct viewers): below it,
+// and when the range differs by fewer than that many viewers from the same
+// range one day shorter at either end, `unique_viewers`, the watch times,
+// traffic sources, retention and the watch time of top videos are 0 or
+// empty; a day with fewer viewers than the minimum has all its numbers at 0
+// (subscriber changes excepted). Views are always counted. Best effort: it
+// rules out the obvious comparisons, not every one.
 message AnalyticsTotals {
   int64 views = 1;
   // Distinct viewers (accounts, and network addresses of anonymous viewers).

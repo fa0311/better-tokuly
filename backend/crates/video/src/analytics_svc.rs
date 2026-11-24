@@ -45,10 +45,47 @@ impl Video {
 }
 
 impl Video {
-    /// Whether a report's audience is large enough to be broken down
-    /// (`TOKULY_VIDEO_ANALYTICS_MIN_AUDIENCE`).
-    fn broken_down(&self, totals: &AnalyticsTotals) -> bool {
-        totals.unique_viewers >= self.cfg.analytics_min_audience
+    /// Whether a report may describe its audience beyond the number of views
+    /// (`TOKULY_VIDEO_ANALYTICS_MIN_AUDIENCE`): at least that many distinct
+    /// viewers, and not a range that differs from the same range one day
+    /// shorter (at either end) by fewer than that many — otherwise the two
+    /// reports side by side describe the few people of that one day.
+    ///
+    /// Best effort: two arbitrary ranges (or a report and the public view
+    /// counter) can still be compared; what this rules out is the step of
+    /// one day that an owner would take first.
+    async fn audience_shown(&self, scope: Scope, range: &Range, totals: &AnalyticsTotals) -> AppResult<bool> {
+        let min = self.cfg.analytics_min_audience;
+        if totals.unique_viewers < min {
+            return Ok(false);
+        }
+        for (from_ms, until_ms) in range.neighbours() {
+            let left = totals.unique_viewers - analytics::unique_viewers(&self.core, scope, from_ms, until_ms).await?;
+            if left > 0 && left < min {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Takes out of a report what describes its viewers rather than counts
+    /// views: unique viewers and watch time of the whole range unless
+    /// `shown`, and every field of a day with fewer viewers than the minimum.
+    fn mask(&self, shown: bool, totals: &mut AnalyticsTotals, daily: &mut [DailyAnalytics]) {
+        if !shown {
+            totals.unique_viewers = 0;
+            totals.watch_time_seconds = 0.0;
+            totals.average_view_duration_seconds = 0.0;
+        }
+        for day in daily {
+            if !shown || day.unique_viewers < self.cfg.analytics_min_audience {
+                day.watch_time_seconds = 0.0;
+                day.unique_viewers = 0;
+            }
+            if day.unique_viewers == 0 {
+                day.views = 0;
+            }
+        }
     }
 }
 
@@ -66,13 +103,18 @@ impl StudioAnalyticsService for Video {
             let range = Range::parse(req.range.as_option())?;
             let scope = Scope::channel(&channel);
             let owner = Viewer { user_id: Some(user_id), ..Default::default() };
-            let (totals, daily, traffic_sources, top_videos) = tokio::try_join!(
+            let (mut totals, mut daily, traffic_sources, mut top_videos) = tokio::try_join!(
                 analytics::totals(core, scope, &range),
                 analytics::daily(core, scope, &range),
                 analytics::traffic_sources(core, scope, &range),
                 self.top_videos(&owner, &channel, range.from_ms, range.until_ms),
             )?;
-            let traffic_sources = if self.broken_down(&totals) { traffic_sources } else { Vec::new() };
+            let shown = self.audience_shown(scope, &range, &totals).await?;
+            self.mask(shown, &mut totals, &mut daily);
+            let traffic_sources = if shown { traffic_sources } else { Vec::new() };
+            if !shown {
+                top_videos.iter_mut().for_each(|stats| stats.watch_time_seconds = 0.0);
+            }
             ok(GetChannelAnalyticsResponse {
                 totals: totals.into(),
                 daily,
@@ -97,14 +139,16 @@ impl StudioAnalyticsService for Video {
             let video = videos::find_owned(core, user_id, &req.video_id).await?;
             let range = Range::parse(req.range.as_option())?;
             let scope = Scope::video(&video);
-            let (totals, daily, traffic_sources, retention) = tokio::try_join!(
+            let (mut totals, mut daily, traffic_sources, retention) = tokio::try_join!(
                 analytics::totals(core, scope, &range),
                 analytics::daily(core, scope, &range),
                 analytics::traffic_sources(core, scope, &range),
                 analytics::retention(core, &video, &range),
             )?;
+            let shown = self.audience_shown(scope, &range, &totals).await?;
+            self.mask(shown, &mut totals, &mut daily);
             let (traffic_sources, retention) =
-                if self.broken_down(&totals) { (traffic_sources, retention) } else { (Vec::new(), Vec::new()) };
+                if shown { (traffic_sources, retention) } else { (Vec::new(), Vec::new()) };
             ok(GetVideoAnalyticsResponse {
                 totals: totals.into(),
                 daily,

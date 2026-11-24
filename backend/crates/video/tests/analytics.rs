@@ -263,7 +263,9 @@ async fn an_audience_of_one_is_not_broken_down() {
     let report: GetVideoAnalyticsResponse =
         ctx.call(ANALYTICS, "GetVideoAnalytics", Some(&alice), &request).await.unwrap();
     let totals = report.totals.as_option().unwrap();
-    assert_eq!((totals.views, totals.unique_viewers), (1, 1), "the totals stay");
+    assert_eq!(totals.views, 1, "views are counted");
+    assert_eq!((totals.unique_viewers, totals.watch_time_seconds, totals.average_view_duration_seconds), (0, 0.0, 0.0));
+    assert!(report.daily.iter().all(|day| day.views == 0 && day.unique_viewers == 0 && day.watch_time_seconds == 0.0));
     assert!(report.retention.is_empty(), "no retention curve of a single viewer");
     assert!(report.traffic_sources.is_empty(), "no word on where a single viewer came from");
 
@@ -274,6 +276,8 @@ async fn an_audience_of_one_is_not_broken_down() {
     };
     let report: GetChannelAnalyticsResponse =
         ctx.call(ANALYTICS, "GetChannelAnalytics", Some(&alice), &request).await.unwrap();
-    assert_eq!(report.totals.as_option().unwrap().views, 1);
+    let totals = report.totals.as_option().unwrap();
+    assert_eq!((totals.views, totals.watch_time_seconds), (1, 0.0));
     assert!(report.traffic_sources.is_empty());
+    assert!(report.top_videos.iter().all(|stats| stats.watch_time_seconds == 0.0));
 }
