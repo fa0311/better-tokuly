@@ -1,7 +1,40 @@
 # social — events, jobs and configuration
 
 Crate `tokuly-social`, migration `0200_social.sql`, API `tokuly.social.v1`
-(`FriendService`, `InteractionService`, realtime `SocialEvent`).
+(`FriendService`, `InteractionService`, `FollowService`, `CircleService`,
+realtime `SocialEvent`).
+
+## Friends, follows and circles
+
+Three relationships, none of which implies another:
+
+- **Friendship**: mutual, requested and accepted, with the map, location
+  and everything private. Becoming friends follows nobody.
+- **Follow**: one way, for public content (notes, shorts, videos, lives,
+  communities). Following someone gives no access to their location.
+  A **locked** account approves its followers (requests, declined silently;
+  unlocking approves every request still waiting). Without a stored setting
+  an account is locked exactly when its owner is a minor by birthdate.
+- **Circles**: the built-in close-friends list and up to 20 custom ones
+  (name, one emoji, colour, order; 1000 members each). Members are the
+  owner's friends and followers only — a circle is an audience for what the
+  owner shares, so only people with a tie to the owner belong in it, and
+  that rules out lists of strangers. Someone whose tie ends (unfriended and
+  not following, unfollowed, removed as a follower, a block, a deleted
+  account) is taken out of all of the owner's circles in the same
+  transaction. Members are never told and no RPC answers "which circles am
+  I in"; only content shared with close friends may show its viewers a mark.
+
+Blocks end friendships, follows (both ways), follow requests (both ways)
+and circle memberships (both ways), and keep new ones out. Follow lists and
+counts show active accounts only (not deleted, not suspended) and leave out
+people in a block with the viewer, so a count always matches its list. The
+lists of a locked account are shown to the owner, its followers and its
+friends.
+
+As audiences (see `tokuly_social::audience`, below): `Followers` means
+followers **and** friends, the closer tier; a locked owner's `Public`
+content only reaches their followers and friends.
 
 ## Events emitted
 
@@ -18,11 +51,21 @@ transaction as the change they describe.
 | `social.user.unblocked` | `{ user_id, blocked_id }` | The block was lifted. |
 | `social.bump.created` | `{ bump_id, user_ids: [first, second], friends, lat, lng }` | Two users bumped. `user_ids[0]` shook first. `friends` is false for strangers (a friend request may have been sent). The geo domain may answer with `tokuly_social::bumps::set_bump_place`. |
 | `social.intro.created` | `{ inviter_id, user_id }` | `user_id` signed up through `inviter_id`'s invite. |
+| `social.follow.created` | `{ follower_id, followee_id, approved }` | A follow began. `approved`: through an approved request (or unlocking). |
+| `social.follow.removed` | `{ follower_id, followee_id, reason }` | A follow ended. `reason`: `unfollowed`, `removed` (the followee removed the follower) or `blocked` (one blocked the other; one event per direction that existed). |
+| `social.follow.requested` | `{ request_id, follower_id, followee_id }` | Someone asked to follow a locked account. |
+| `social.follow.request_withdrawn` | `{ request_id, follower_id, followee_id }` | A request the followee could still answer is gone unanswered (withdrawn, unfollowed, or dropped by a block). Not emitted for declined requests (declining is silent) or approvals (`social.follow.created`). |
+| `social.follow.prefs_changed` | `{ follower_id, followee_id, muted, muted_until, notify_level }` | The follower changed their mute (optionally timed: `muted_until`) or post notifications (`FollowNotifyLevel` number) for one account. Private to the follower. A timed mute ends by itself without an event. |
+| `social.follow.settings_changed` | `{ user_id, locked }` | The account was locked or unlocked. |
+| `social.circle.created` / `social.circle.updated` | `{ circle_id, owner_id, kind }` | A custom circle was made; a circle was renamed or recoloured. `kind` is `CircleKind` as its number. The close-friends circle is made silently on first use. |
+| `social.circle.deleted` | `{ circle_id, owner_id, member_ids }` | A custom circle was deleted; content shared with it is the owner's alone. |
+| `social.circle.members_changed` | `{ circle_id, owner_id, added, removed }` | People were added or taken out (by the owner, or because their tie ended). Never shown to members. |
 
 `source` is `tokuly.social.v1.FriendSource` as its number.
 
-Account deletion does not emit one `social.friend.removed` per friend: every
-domain already reacts to `identity.user.deleted` itself.
+Account deletion does not emit one `social.friend.removed` per friend (nor
+`social.follow.removed` per follow): every domain already reacts to
+`identity.user.deleted` itself.
 
 ## Events consumed
 
@@ -31,9 +74,9 @@ Durable consumer `social`. Every handler is idempotent.
 | Topic | Reaction |
 |---|---|
 | `identity.user.created` | If `invite_code` belongs to someone: records the intro, suggests the two to each other, and sends a friend request from the newcomer to the inviter (source `INVITE_LINK`; the inviter's "who may send me requests" audience does not apply, since they handed out the link). |
-| `identity.user.deleted` | Deletes every row about the user (friendships, requests, blocks, suggestions, invite, intros, shared history, bumps, map reactions, map views), drops cached lists, and pushes `friend_removed_user_id` to their former friends. |
+| `identity.user.deleted` | Deletes every row about the user (friendships, requests, blocks, suggestions, invite, intros, shared history, bumps, map reactions, map views, follows, follow requests, follow settings, dismissed follow suggestions, their circles and their memberships in others'), drops cached lists, and pushes `friend_removed_user_id` to their former friends. |
 | `identity.user.privacy_changed` | Re-syncs friends' view of the user's online state with `share_online_status`: hidden → pushed as offline (no "last seen"); shown again while online → pushed as online. With `nearby_discoverable` off, ends the user's open nearby session and takes them off the nearby map at once. |
-| `social.friend.accepted`, `social.friend.removed`, `social.user.blocked`, `social.user.unblocked` | Our own: drops the two users' cached friend / hidden lists. The request that made the change does this right after its commit too, but it can be cut off there (deadline, lost connection); these events come from the same transaction and arrive at least once. |
+| `social.friend.accepted`, `social.friend.removed`, `social.friend.prefs_changed`, `social.user.blocked`, `social.user.unblocked`, `social.follow.created`, `social.follow.removed`, `social.circle.members_changed`, `social.circle.deleted` | Our own: drops the cached lists they changed (friends and friendship details, hidden, followers / following, circle members and memberships). The request that made the change does this right after its commit too, but it can be cut off there (deadline, lost connection); these events come from the same transaction and arrive at least once. |
 | `notify.mute.changed` | `{ user_id, muted_user_id, muted }`: mirrors a mute made in the notification settings onto the friendship's `muted` flag (when the two are friends). Not re-announced as `social.friend.prefs_changed`. |
 
 ## Bus subjects (core NATS)
@@ -58,6 +101,13 @@ Durable consumer `social`. Every handler is idempotent.
 | `buzz`, `knock` | the friend | Buzz / knock. |
 | `map_reaction` | each recipient | A map reaction was sent. Also stored until acknowledged. |
 | `map_view` | the viewed user | A friend opened their pin (the viewer is named only if they share views). |
+| `new_follower` | the followee | Someone started following them (an open account). |
+| `follow_request_received` | the followee | Someone asked to follow their locked account. |
+| `follow_request_cancelled_id` | the followee | A request they could still answer was withdrawn (also when they blocked its sender). |
+| `follow_request_approved` | the requester | Their request was approved (or the account was unlocked). |
+
+Removing a follower, declining a request and every circle change push
+nothing to the other side.
 
 `ServerFrame.presence` (`PresenceEvent`) goes to the friends of a user whose
 online state changed (see above).
@@ -76,6 +126,9 @@ other user, so the notify domain can apply per-friend mutes.
 | `social.buzz` | the friend | push only | Collapsed per sender. |
 | `social.knock` | the friend | inbox + push | Collapsed per sender; `data = { count }`. |
 | `social.map_reaction` | each recipient | inbox + push | Collapsed per sender. |
+| `social.new_follower` | the followee | inbox + push | Collapsed per follower; leads to the follower's profile. |
+| `social.follow_request` | the locked account | inbox + push | Collapsed per requester; leads to `/friends/follow-requests`. |
+| `social.follow_approved` | the requester | inbox + push | Leads to the approver's profile. |
 
 ## Activity entries
 
@@ -85,6 +138,9 @@ Through `tokuly_core::outbound::activity`:
 |---|---|---|---|
 | `social.friend_added` | each of the two new friends | friends — private for a user whose friend list is visible to nobody | `with_user_ids = [the new friend]` |
 | `social.bumped` | each of two friends who bumped | friends | `with_user_ids = [the other]`, `data = { bump_id }`. No location: ghost mode is the geo domain's to apply. |
+
+Follows and circles write no activity entries: who follows whom is shown on
+lists people choose to look at, not announced to friends.
 
 ## Public Rust API
 
@@ -100,6 +156,66 @@ pub async fn allows(core: &Core, owner: Uuid, viewer: Option<Uuid>, audience: Au
 pub async fn mutual_friend_count(core: &Core, a: Uuid, b: Uuid) -> AppResult<i32>;
 pub async fn record_interaction(core: &Core, from: Uuid, to: Uuid, kind: InteractionKind, weight: i32) -> AppResult<()>;
 ```
+
+Friendship details (cached per user, dropped on every friendship,
+preference or rank change):
+
+```rust
+pub struct FriendLink { pub friend_id: Uuid, pub since: DateTime<Utc>, pub best_friend_rank: i32, pub favorite: bool, pub muted: bool }
+pub async fn friend_links(core: &Core, user_id: Uuid) -> AppResult<Vec<FriendLink>>;
+pub async fn friend_link(core: &Core, user_id: Uuid, friend_id: Uuid) -> AppResult<Option<FriendLink>>;
+pub async fn friends_since(core: &Core, a: Uuid, b: Uuid) -> AppResult<Option<DateTime<Utc>>>;
+pub async fn friends_since_many(core: &Core, user_id: Uuid, others: &[Uuid]) -> AppResult<HashMap<Uuid, DateTime<Utc>>>;
+pub async fn best_friend_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>>;   // ranked in order, then starred
+pub async fn muted_friend_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>>;
+pub async fn muted_by(core: &Core, friend_id: Uuid, user_ids: &[Uuid]) -> AppResult<Vec<Uuid>>;  // reverse direction, one query
+```
+
+Follows:
+
+```rust
+pub async fn follows(core: &Core, follower: Uuid, followee: Uuid) -> AppResult<bool>;   // PostgreSQL
+pub async fn follower_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>>;         // cached; any account state
+pub async fn following_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>>;        // cached
+pub async fn muted_followee_ids(core: &Core, user_id: Uuid) -> AppResult<Vec<Uuid>>;   // for following timelines
+pub async fn post_notification_recipients(core: &Core, owner: Uuid) -> AppResult<Vec<Uuid>>; // bell on, not muted, active, no block
+```
+
+Audiences (`tokuly_social::audience`, re-exported from `graph`) — what content
+domains ask instead of each writing their own rules:
+
+```rust
+pub enum ContentAudience { Public, Followers, Friends, CloseFriends, Circle(Uuid), Private }
+impl ContentAudience { pub fn from_visibility(v: Visibility) -> Self }   // PUBLIC/NO_FEED/UNLISTED → Public, FRIENDS, PRIVATE
+pub async fn may_see(core: &Core, owner: Uuid, viewer: Option<Uuid>, audience: ContentAudience) -> AppResult<bool>;  // PostgreSQL
+pub async fn may_see_many(core: &Core, viewer: Option<Uuid>, items: &[(Uuid, ContentAudience)]) -> AppResult<Vec<bool>>;
+pub struct AudienceViewer;  // load(core, viewer) once, then sees(owner, audience, owner_locked); friend_ids(), following_ids(), hidden_ids(), circle_ids(), close_friend_of() for SQL
+pub async fn locked_among(core: &Core, owners: &[Uuid]) -> AppResult<HashSet<Uuid>>;
+pub async fn audience_member_ids(core: &Core, owner: Uuid, audience: ContentAudience) -> AppResult<Vec<Uuid>>;  // fan-out
+pub async fn ensure_circle_of(core: &Core, owner: Uuid, circle_id: Uuid) -> AppResult<()>;  // CIRCLE_NOT_FOUND; check when saving
+pub async fn is_close_friend(core: &Core, owner: Uuid, viewer: Uuid) -> AppResult<bool>;    // for the close-friends mark
+```
+
+| audience | who sees it (besides the owner; never across a block) |
+|---|---|
+| `Public` | everyone, signed in or not; for a locked owner only followers and friends |
+| `Followers` | followers and friends |
+| `Friends` | friends |
+| `CloseFriends` / `Circle(id)` | members of that circle of the owner who are still a friend or follower |
+| `Private` | nobody |
+
+The owner's account state (suspended, deleted), link-only access and age
+limits stay with the content domain. `tokuly.common.v1.Visibility` has no
+values for followers or circles yet; until it does, content domains map
+their own fields onto `ContentAudience`.
+
+Follow suggestions take more signals through
+`Social::add_follow_signal(Arc<dyn tokuly_social::follow_suggestions::FollowSignal>)`:
+a reason string, a weight and `candidates(core, user_id) -> Vec<(Uuid, strength)>`;
+the score is `Σ weight × ln(1 + strength)`. Built in: `FOLLOWS_YOU` (3),
+`FRIEND_OF_FRIEND` (2), `FOLLOWED_BY_FOLLOWING` (1.5), `POPULAR_AT_SCHOOL` (1,
+at least 3 unlocked schoolmates). The community domain's
+`POPULAR_IN_COMMUNITY` is meant to be plugged in by the server.
 
 - `allows`: the owner always passes; a block in either direction never does;
   anonymous viewers pass only `EVERYONE`; an unset audience counts as friends-only.
@@ -148,8 +264,13 @@ where the claimer really is: `docs/events/geo.md` ("Claimed positions") and
 
 `Social::new` registers a `tokuly_identity::ProfileExtension` (relationship,
 mutual friends, friendship details, friend/intro/bump counters, relationships
-in user search, profiles hidden by blocks) and a `DataExporter` named
-`social`. It does not set `Profile.distance_meters`: the geo domain fills
+in user search, profiles hidden by blocks, and for signed-in viewers a
+`social.follow` card: `data = { follower_count, following_count, following:
+NONE|FOLLOWING|REQUESTED, follows_you, locked, known_follower_count }`, path
+`/u/<handle>/followers`) and a `DataExporter` named `social` (which also
+holds follows both ways, follow requests, follow settings, dismissed follow
+suggestions and the user's own circles with their members — not the circles
+of others the user is in). It does not set `Profile.distance_meters`: the geo domain fills
 that, with ghost mode applied.
 
 ## Background work
@@ -161,7 +282,7 @@ No job-queue jobs. `Social::spawn_workers` starts:
 | presence fan-out | on every `sys.presence` message | See above. |
 | event consumer | on events | See "Events consumed". |
 | best-friend ranking (`Social::rescore_pending`) | every `TOKULY_SOCIAL_RANKING_INTERVAL_SECONDS` | Rescores pairs with new interactions, and pairs whose score is older than 6 hours (decay): 30-day window, half-life 10 days, per-side daily caps. Stores score, `interaction_score` and window titles on `friend_pairs`, then re-ranks the friends of the users involved (`friendships.best_friend_rank`). Safe to run in several processes. |
-| maintenance (`Social::prune`) | every 5 minutes | Deletes interaction buckets older than 45 days, map views older than 48 hours, map reactions older than 7 days, friend requests declined more than 90 days ago, and stale members of the nearby / bump GEO sets. |
+| maintenance (`Social::prune`) | every 5 minutes | Deletes interaction buckets older than 45 days, map views older than 48 hours, map reactions older than 7 days, friend and follow requests declined more than 90 days ago (counted from the decline), and stale members of the nearby / bump GEO sets. |
 
 ## Valkey keys
 
@@ -176,18 +297,25 @@ No job-queue jobs. `Social::spawn_workers` starts:
 | `social:bump:pair:<lo>:<hi>` | bump ID, cool-down | Makes two racing requests record one bump; later shakes within the cool-down return it. |
 | `social:bump:announced:<lo>:<hi>` | marker, 10 min | Throttles "A and B bumped!" to mutual friends. |
 | `social:map-view:<viewer>:<viewed>` | marker, 60 s | De-duplicates repeated map views. |
+| `social:friend-links:<user>` | 29 bytes per friend, 10 min | Friendship details for `graph::friend_links`. Generation counter like the others. |
+| `social:followers:<user>` / `social:following:<user>` | bytes (16 per ID), 10 min | Cached follower / followee IDs. |
+| `social:circle-members:<circle>` / `social:member-of:<user>` | bytes, 10 min | Members of a circle; the circles a user is in (33 bytes each: circle, owner, close-friends flag). Server-side only. |
 
 Rate limits (`rl:` keys): friend requests 60/h and 200/day per sender and
 5/day per sender→recipient; contact matching 6/h and 30/day and 5000 distinct hashes a day (counted in a HyperLogLog, `rl:match-contacts-distinct:<user>`, so no hash is kept); blocks 100/h; invite
 resets 10/day; invite lookups 60/min per user or IP; suggestions 60/min;
 nearby sessions 20 per 10 min; bumps 30/min; buzz 10/min per pair and 60/10 min per
-sender; knocks 20/min per pair and 60/10 min per sender; map reactions 120 calls/min per sender and 60/min per sender→recipient; map views 120 new views/min per viewer.
+sender; knocks 20/min per pair and 60/10 min per sender; map reactions 120 calls/min per sender and 60/min per sender→recipient; map views 120 new views/min per viewer; follows 200/h and 1000/day per
+follower and 10/day per follower→followee; removing followers 300/h; follow
+preferences 600/h; follow settings 30/h; follow suggestions 60/min; creating
+circles 30/day; circle member changes 600 calls/h; other circle edits 300/h.
 
 ## Configuration
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `TOKULY_SOCIAL_MAX_FRIENDS` | `1000` | Most friends per account (bounds every per-friend fan-out). |
+| `TOKULY_SOCIAL_MAX_FOLLOWING` | `5000` | Most accounts one user can follow, pending follow requests included (so an approval never goes over). |
 | `TOKULY_SOCIAL_BEST_FRIEND_COUNT` | `8` | Friends ranked automatically per user. |
 | `TOKULY_SOCIAL_RANKING_INTERVAL_SECONDS` | `300` | Pause between ranking passes. |
 | `TOKULY_SOCIAL_NEARBY_RADIUS_METERS` | `50` | Nearby discovery radius (plus up to 25 m of reported GPS error). |

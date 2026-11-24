@@ -245,6 +245,11 @@ async fn lock_circles_of(tx: &mut Transaction<'_, Postgres>, owner: Uuid) -> App
 }
 
 impl Social {
+    /// Renames, deletions and reorders: each writes and announces a change.
+    async fn limit_circle_edits(&self, owner: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("circle-edit:{owner}"), 300, HOUR).await
+    }
+
     /// `owner`'s close-friends circle, made on first use.
     async fn ensure_close_friends(&self, owner: Uuid) -> AppResult<Uuid> {
         if let Some(id) = close_friends_id(&self.core, owner).await? {
@@ -346,6 +351,7 @@ impl Social {
         color: Option<CircleColor>,
     ) -> AppResult<Circle> {
         let current = self.circle_row(owner, circle_id).await?;
+        self.limit_circle_edits(owner).await?;
         if current.kind == CLOSE_FRIENDS {
             ensure!(
                 name.is_none() && emoji.is_none(),
@@ -381,6 +387,7 @@ impl Social {
     }
 
     pub(crate) async fn delete_circle(&self, owner: Uuid, circle_id: Uuid) -> AppResult<()> {
+        self.limit_circle_edits(owner).await?;
         let mut tx = self.core.db.begin().await?;
         lock_circles_of(&mut tx, owner).await?;
         let kind: Option<i16> =
@@ -410,6 +417,7 @@ impl Social {
     }
 
     pub(crate) async fn reorder_circles(&self, owner: Uuid, order: &[Uuid]) -> AppResult<Vec<Circle>> {
+        self.limit_circle_edits(owner).await?;
         let mut tx = self.core.db.begin().await?;
         lock_circles_of(&mut tx, owner).await?;
         let mut custom: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM circles WHERE owner_id = $1 AND kind = $2")

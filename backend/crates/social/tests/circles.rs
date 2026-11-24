@@ -219,6 +219,32 @@ async fn members_are_friends_or_followers_and_are_never_told() {
 }
 
 #[tokio::test]
+async fn many_member_changes_at_once_from_one_account_go_through() {
+    let ctx = start().await;
+    let owner = ctx.app.user("owner").await;
+    let mut fans = Vec::new();
+    for i in 0..12 {
+        let fan = ctx.app.user(&format!("fan{i}")).await;
+        ctx.follow(&fan, &owner).await;
+        fans.push(fan);
+    }
+    let close = ctx.close_friends(&owner).await;
+    // More concurrent calls than the test pool has connections, each holding locks.
+    let results = futures::future::join_all(fans.iter().map(|fan| async { ctx.add_to_circle(&owner, &close.id, &[fan]).await })).await;
+    assert!(results.iter().all(|r| r.is_ok()), "{results:?}");
+    assert_eq!(member_ids(&ctx, &owner, &close.id).await.len(), 12);
+    // Unfollows racing with adds leave no member without a tie.
+    let late = ctx.app.user("late").await;
+    ctx.follow(&late, &owner).await;
+    let unfollow = UnfollowRequest { user_id: owner.id.to_string(), ..Default::default() };
+    let (added, _) = tokio::join!(async { ctx.add_to_circle(&owner, &close.id, &[&late]).await }, async {
+        ctx.follows::<_, UnfollowResponse>("Unfollow", &late, &unfollow).await.unwrap()
+    });
+    let members = member_ids(&ctx, &owner, &close.id).await;
+    assert!(!members.contains(&late.id), "added: {:?}", added.map(|_| ()));
+}
+
+#[tokio::test]
 async fn members_leave_circles_when_their_tie_ends() {
     let ctx = start().await;
     let (owner, friend, both, follower, blocker) = (
