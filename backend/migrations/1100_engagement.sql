@@ -164,7 +164,12 @@ CREATE INDEX comment_blocks_blocked ON comment_blocks (blocked_user_id);
 
 -- ───────────────────────────── reactions ─────────────────────────────
 
--- A user's one reaction to a subject: a like, a dislike or an emoji.
+-- The reactions of users to subjects. A like or a dislike is a row with an
+-- empty `emoji`, so a user holds at most one of the two per subject; an
+-- emoji is a row of its own: a Unicode emoji, or a custom emoji as
+-- `:name:` (lowercase). Whether a user may hold one reaction per subject or
+-- several distinct emoji depends on the subject type and is enforced by the
+-- code that writes here (under a lock per user and subject).
 CREATE TABLE reactions (
     user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     subject_type integer     NOT NULL,
@@ -173,13 +178,46 @@ CREATE TABLE reactions (
     kind         integer     NOT NULL CHECK (kind BETWEEN 1 AND 3),
     emoji        text        NOT NULL DEFAULT '',
     created_at   timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, subject_type, subject_id),
+    PRIMARY KEY (user_id, subject_type, subject_id, emoji),
     CONSTRAINT reactions_emoji_iff_kind CHECK ((kind = 3) = (emoji <> ''))
 );
 
--- Who reacted to a subject, and what a user reacted to.
+-- Who reacted to a subject (with one emoji), and what a user reacted to.
 CREATE INDEX reactions_subject ON reactions (subject_type, subject_id, created_at DESC, user_id DESC);
+CREATE INDEX reactions_subject_emoji ON reactions (subject_type, subject_id, emoji, created_at DESC, user_id DESC);
 CREATE INDEX reactions_mine ON reactions (user_id, created_at DESC, subject_id DESC);
+
+-- How a user wants reactions to their own subjects. No row: the defaults.
+CREATE TABLE reaction_settings (
+    user_id         uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    -- Custom emoji may be used.
+    custom_emoji    boolean     NOT NULL DEFAULT true,
+    -- Custom emoji flagged sensitive may be used too.
+    sensitive_emoji boolean     NOT NULL DEFAULT false,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TRIGGER reaction_settings_updated_at
+    BEFORE UPDATE ON reaction_settings
+    FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- Who muted whom, mirrored from `social.friend.prefs_changed` and
+-- `notify.mute.changed` (the mute lists are not part of those domains'
+-- public API). Applied to what the muter is shown ("who reacted"). A row
+-- with `muted = false` remembers an unmute, so that an older event handled
+-- later cannot bring the mute back.
+CREATE TABLE engagement_mutes (
+    user_id       uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    muted_user_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    muted         boolean     NOT NULL,
+    -- When the change happened (the event's time): only newer changes apply.
+    changed_at    timestamptz NOT NULL,
+    PRIMARY KEY (user_id, muted_user_id)
+);
+
+CREATE INDEX engagement_mutes_muted ON engagement_mutes (muted_user_id);
 
 -- Every number of a subject, kept in step with the rows it counts in the
 -- transaction that changes them.
@@ -210,6 +248,8 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE INDEX subject_stats_owner ON subject_stats (owner_id);
 
+-- How many reacted to a subject with each emoji (as in `reactions.emoji`).
+-- The number of rows of a subject is its number of distinct emoji.
 CREATE TABLE reaction_emoji_counts (
     subject_type integer NOT NULL,
     subject_id   uuid    NOT NULL,

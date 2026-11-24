@@ -226,8 +226,8 @@ impl Engagement {
 
     /// `identity.user.deleted`: erases what the account left in this
     /// domain — its comments (with the replies below them) and the texts
-    /// kept of them, reactions, bookmarks, reports, moderation rules and
-    /// blocks — and everything
+    /// kept of them, reactions and reaction settings, bookmarks, reports,
+    /// moderation rules, blocks and mutes — and everything
     /// other people left on the subjects it owned, which the owning domains
     /// delete at the same moment.
     ///
@@ -249,6 +249,8 @@ impl Engagement {
             "DELETE FROM comment_settings WHERE user_id = $1",
             "DELETE FROM comment_blocks WHERE owner_id = $1 OR blocked_user_id = $1",
             "DELETE FROM comment_removed_texts WHERE author_id = $1",
+            "DELETE FROM reaction_settings WHERE user_id = $1",
+            "DELETE FROM engagement_mutes WHERE user_id = $1 OR muted_user_id = $1",
         ] {
             sqlx::query(sql).bind(user_id).execute(&mut *tx).await?;
         }
@@ -287,7 +289,7 @@ impl Engagement {
             let mut effects = Effects::default();
             // Subjects are handled in one order by everyone who handles several.
             let batch: Vec<(i32, Uuid)> = sqlx::query_as(
-                "SELECT subject_type, subject_id FROM reactions WHERE user_id = $1 ORDER BY subject_type, subject_id LIMIT $2",
+                "SELECT DISTINCT subject_type, subject_id FROM reactions WHERE user_id = $1 ORDER BY subject_type, subject_id LIMIT $2",
             )
             .bind(user_id)
             .bind(ERASE_BATCH)
@@ -318,10 +320,13 @@ impl Engagement {
             .bind(&ids)
             .fetch_all(&mut *tx)
             .await?;
+            // Subject by subject, each in one go: its per-emoji counts in name order, its statistics row last.
             removed.sort();
-            for (kind, id, reaction_kind, emoji) in removed {
-                let key = SubjectKey { kind, id };
-                reactions::uncount(&mut tx, &mut effects, key, &Stored { kind: reaction_kind, emoji }).await?;
+            for group in removed.chunk_by(|a, b| (a.0, a.1) == (b.0, b.1)) {
+                let key = SubjectKey { kind: group[0].0, id: group[0].1 };
+                let gone: Vec<Stored> =
+                    group.iter().map(|(_, _, kind, emoji)| Stored { kind: *kind, emoji: emoji.clone() }).collect();
+                reactions::uncount(&mut tx, &mut effects, key, &gone).await?;
             }
             tx.commit().await?;
             self.apply(effects).await;

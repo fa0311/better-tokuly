@@ -36,10 +36,21 @@ export interface EmojiPickerProps {
   onOpenChange?(open: boolean): void;
   /**
    * Offer Unicode emoji only: for a field or an RPC that does not take
-   * `:shortcode:`s (reactions do not yet).
+   * `:shortcode:`s (a field that holds one Unicode emoji).
    */
   unicodeOnly?: boolean;
+  /** Leave out custom emoji marked sensitive: for a place that does not take them. */
+  hideSensitive?: boolean;
+  /**
+   * Offer only these emoji (as written in text: `:name:` or the character),
+   * in this order, without tabs: a reaction on a subject that carries as many
+   * different emoji as it may can only join one that is there.
+   */
+  only?: string[];
 }
+
+/** What a picker may offer, from its props. */
+type Offer = Pick<EmojiPickerProps, "unicodeOnly" | "hideSensitive" | "only">;
 
 /**
  * The inside of the picker (search, tabs, grids) for a surface that brings
@@ -50,13 +61,13 @@ export interface EmojiPickerProps {
  */
 export function EmojiPickerPanel({
   onPick,
-  unicodeOnly,
   autoFocusSearch = false,
-}: Pick<EmojiPickerProps, "onPick" | "unicodeOnly"> & { autoFocusSearch?: boolean }) {
+  ...offer
+}: Pick<EmojiPickerProps, "onPick"> & Offer & { autoFocusSearch?: boolean }) {
   return (
     <PickerPanel
       autoFocusSearch={autoFocusSearch}
-      unicodeOnly={unicodeOnly}
+      {...offer}
       onPick={(choice) => {
         recordEmojiUse([choice.emoji]);
         onPick(choice.emoji, choice);
@@ -81,7 +92,7 @@ export function EmojiPicker({
   side = "top",
   keepOpen,
   onOpenChange,
-  unicodeOnly,
+  ...offer
 }: EmojiPickerProps) {
   const { t } = useTranslation("emoji");
   const [open, setOpenState] = useState(false);
@@ -94,7 +105,7 @@ export function EmojiPicker({
   const panel = open && (
     <PickerPanel
       autoFocusSearch={wide}
-      unicodeOnly={unicodeOnly}
+      {...offer}
       onPick={(choice) => {
         recordEmojiUse([choice.emoji]);
         if (!keepOpen) setOpen(false);
@@ -198,10 +209,11 @@ function PickerPanel({
   onPick,
   autoFocusSearch,
   unicodeOnly = false,
-}: {
+  hideSensitive = false,
+  only,
+}: Offer & {
   onPick(choice: EmojiChoice): void;
   autoFocusSearch: boolean;
-  unicodeOnly?: boolean;
 }) {
   const { t } = useTranslation("emoji");
   const catalog = useCatalog();
@@ -215,10 +227,30 @@ function PickerPanel({
   const search = useRef<HTMLInputElement>(null);
 
   const query = text.trim();
-  const custom = unicodeOnly ? [] : catalog.emojis;
+  const offered = only ? new Set(only) : undefined;
+  const custom = unicodeOnly
+    ? []
+    : catalog.emojis.filter(
+        (entry) =>
+          !(hideSensitive && entry.sensitive) && (!offered || offered.has(`:${entry.name}:`)),
+      );
   const allowed = (choices: EmojiChoice[]) =>
-    unicodeOnly ? choices.filter((choice) => choice.kind === "unicode") : choices;
-  const results = query ? searchEmoji(query, custom, unicode?.all ?? [], 96) : [];
+    choices.filter(
+      (choice) =>
+        (!unicodeOnly || choice.kind === "unicode") &&
+        !(hideSensitive && choice.kind === "custom" && choice.custom.sensitive) &&
+        (!offered || offered.has(choice.emoji)),
+    );
+  const results = query ? allowed(searchEmoji(query, custom, unicode?.all ?? [], 96)) : [];
+  // With `only`, the emoji named there (custom ones the catalogue still has), in their order.
+  const onlyChoices: EmojiChoice[] = allowed(
+    (only ?? []).flatMap((emoji): EmojiChoice[] => {
+      const name = /^:(.+):$/.exec(emoji)?.[1];
+      if (!name) return [{ kind: "unicode", emoji, name: emoji }];
+      const entry = catalog.byName.get(name);
+      return entry ? [customChoice(entry)] : [];
+    }),
+  );
 
   const uncategorized = custom.filter((entry) => !entry.category);
   const customTabs = [
@@ -329,7 +361,7 @@ function PickerPanel({
         </label>
       </div>
 
-      {!query && (
+      {!query && !only && (
         <div
           role="tablist"
           aria-label={t("picker.title")}
@@ -388,6 +420,8 @@ function PickerPanel({
               {t(unicode && catalog.status !== "loading" ? "picker.noResults" : "picker.loading")}
             </p>
           )
+        ) : only ? (
+          <Grid label={t("picker.onlyThese")} choices={onlyChoices} first {...cellProps} />
         ) : tab === HOME ? (
           <>
             <Grid label={t("picker.deck")} choices={deckChoices} first {...cellProps} />
@@ -405,11 +439,13 @@ function PickerPanel({
         ) : unicodeGroup ? (
           <Grid
             label={t(`picker.groups.${unicodeGroup.id}`)}
-            choices={unicodeGroup.emoji.map((entry) => ({
-              kind: "unicode",
-              emoji: entry.emoji,
-              name: entry.en[0] ?? entry.emoji,
-            }))}
+            choices={allowed(
+              unicodeGroup.emoji.map((entry) => ({
+                kind: "unicode" as const,
+                emoji: entry.emoji,
+                name: entry.en[0] ?? entry.emoji,
+              })),
+            )}
             first
             {...cellProps}
           />

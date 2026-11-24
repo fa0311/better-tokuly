@@ -8,12 +8,13 @@ use tokuly_core::{
     prelude::*,
 };
 use tokuly_identity::maintenance::UserRef;
-use tokuly_social::events::{BlockChanged, FriendRemoved};
+use tokuly_social::events::{BlockChanged, FriendPrefsChanged, FriendRemoved};
 
 use crate::{
     Engagement,
     events::{
-        ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, FRIEND_REMOVED, REPORT_RESOLVED, USER_BLOCKED, USER_DELETED,
+        ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, FRIEND_PREFS_CHANGED, FRIEND_REMOVED, MUTE_CHANGED, MuteChanged,
+        REPORT_RESOLVED, USER_BLOCKED, USER_DELETED,
     },
 };
 
@@ -23,8 +24,10 @@ const REMOVED_TEXT_PURGE_INTERVAL: Duration = Duration::from_secs(3600);
 impl Engagement {
     /// Starts the engagement workers (worker processes only): the durable
     /// consumer `engagement` of `identity.user.deleted`,
-    /// `social.user.blocked`, `social.friend.removed`, `media.asset.deleted`,
-    /// `admin.content.removed` and `admin.report.resolved`, and the hourly
+    /// `social.user.blocked`, `social.friend.removed`,
+    /// `social.friend.prefs_changed`, `notify.mute.changed`,
+    /// `media.asset.deleted`, `admin.content.removed` and
+    /// `admin.report.resolved`, and the hourly
     /// purge of removed comment texts.
     pub fn spawn_workers(&self) {
         let purging = self.clone();
@@ -48,7 +51,16 @@ impl Engagement {
             events::consume(
                 engagement.core.bus.clone(),
                 "engagement",
-                &[USER_DELETED, USER_BLOCKED, FRIEND_REMOVED, ASSET_DELETED, CONTENT_REMOVED, REPORT_RESOLVED],
+                &[
+                    USER_DELETED,
+                    USER_BLOCKED,
+                    FRIEND_REMOVED,
+                    FRIEND_PREFS_CHANGED,
+                    MUTE_CHANGED,
+                    ASSET_DELETED,
+                    CONTENT_REMOVED,
+                    REPORT_RESOLVED,
+                ],
                 // Erasing an account or purging a busy subject takes a while.
                 ConsumeOptions { ack_wait: Duration::from_secs(120), ..Default::default() },
                 engagement.core.shutdown.clone(),
@@ -74,6 +86,14 @@ impl Engagement {
                 let removed: FriendRemoved = event.data()?;
                 self.on_friend_removed(removed.user_id, removed.friend_id).await;
                 Ok(())
+            }
+            FRIEND_PREFS_CHANGED => {
+                let changed: FriendPrefsChanged = event.data()?;
+                self.on_mute_changed(changed.user_id, changed.friend_id, changed.muted, event.occurred_at).await
+            }
+            MUTE_CHANGED => {
+                let changed: MuteChanged = event.data()?;
+                self.on_mute_changed(changed.user_id, changed.muted_user_id, changed.muted, event.occurred_at).await
             }
             ASSET_DELETED => self.on_asset_deleted(event.data::<AssetDeleted>()?.asset_id).await,
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,

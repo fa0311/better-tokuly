@@ -18,7 +18,7 @@ interface Shot {
 }
 
 /** How lively script-driven motion may be: the ドパガキ度 factor, 0 when the device asks for reduced motion. */
-function motionFactor(): number {
+export function motionFactor(): number {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return 0;
   return dopamineFactor();
 }

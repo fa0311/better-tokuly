@@ -160,10 +160,13 @@ const DOMAINS: &[Domain] = &[
     Domain {
         name: "engagement",
         sensitive: false,
-        read: ("コメント・リアクション・ブックマークを見る", "See comments, reactions and your bookmarks"),
+        read: (
+            "コメント・リアクション・ブックマーク・リアクションの設定を見る",
+            "See comments, reactions, your bookmarks and your reaction settings",
+        ),
         write: Some((
-            "あなたとしてコメント・リアクション・ブックマーク・通報をする",
-            "Comment, react, bookmark and report as you",
+            "あなたとしてコメント・リアクション・ブックマーク・通報をし、あなたの投稿へのリアクションの設定を変える",
+            "Comment, react, bookmark and report as you, and change which reactions your posts take",
         )),
     },
     Domain {

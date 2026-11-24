@@ -22,14 +22,15 @@ import {
   useBookmarks,
   useCollections,
   useMyReactions,
-  useReact,
+  useUnreact,
 } from "./api";
 import {
   COLLECTION_NAME_MAX,
   openCollectionChooser,
   useCollectionName,
 } from "./collection-chooser";
-import type { Subject } from "./model";
+import { readReaction, type Subject } from "./model";
+import { ReactionEmoji } from "./reaction-emoji";
 import { SubjectCard } from "./subject-card";
 
 export type BookmarksTab = "saved" | "reactions";
@@ -434,16 +435,20 @@ function ReactedRow({ entry }: { entry: engagement.ReactedSubject }) {
   const queryClient = useQueryClient();
   const preview = entry.subject!;
   const subject: Subject = { type: preview.subject!.type, id: preview.subject!.id };
-  const react = useReact(subject);
+  const unreact = useUnreact(subject);
   const reactedAt = toDate(entry.reactedAt);
+  const reaction = readReaction(entry.reaction);
   const glyph =
-    entry.reaction?.kind === engagement.ReactionKind.EMOJI
-      ? entry.reaction.emoji
-      : entry.reaction?.kind === engagement.ReactionKind.DISLIKE
-        ? "👎"
-        : "💜";
+    reaction?.kind === engagement.ReactionKind.EMOJI ? (
+      <ReactionEmoji emoji={reaction.emoji} custom={reaction.custom} />
+    ) : reaction?.kind === engagement.ReactionKind.DISLIKE ? (
+      "👎"
+    ) : (
+      "💜"
+    );
   const takeBack = async () => {
-    await react(undefined);
+    // Just this one: on a subject that takes several, the others stay.
+    if (reaction) await unreact(reaction);
     // The server forgets a reaction by UUID even when the subject is gone; the list is the only place to see that.
     await queryClient.invalidateQueries({ queryKey: engagementKeys.myReactions });
   };
@@ -452,7 +457,11 @@ function ReactedRow({ entry }: { entry: engagement.ReactedSubject }) {
     <li data-testid="reacted">
       <SubjectCard preview={preview} />
       <div className="mt-1.5 flex items-center gap-2 px-1 text-xs font-bold text-ink-faint">
-        <span className="text-base leading-none" role="img" aria-label={t("reactions.yours")}>
+        <span
+          className="inline-flex items-center text-base leading-none"
+          role="img"
+          aria-label={t("reactions.yours")}
+        >
           {glyph}
         </span>
         {reactedAt && (

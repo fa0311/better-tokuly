@@ -12,11 +12,13 @@ workspace = true
 
 [dependencies]
 tokuly-core.workspace = true
-tokuly-proto = { workspace = true, features = ["common", "engagement", "media"] }
+tokuly-proto = { workspace = true, features = ["common", "emoji", "engagement", "media"] }
 tokuly-identity.workspace = true
 tokuly-media.workspace = true
 tokuly-social.workspace = true
 tokuly-stamp.workspace = true
+# Custom emoji as reactions: the catalogue, and reporting their use.
+tokuly-emoji.workspace = true
 tokio.workspace = true
 futures.workspace = true
 async-trait.workspace = true
@@ -31,6 +33,7 @@ clap.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 parking_lot.workspace = true
+redis.workspace = true
 unicode-segmentation.workspace = true
 unicode-normalization.workspace = true
 

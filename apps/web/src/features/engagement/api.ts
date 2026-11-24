@@ -10,15 +10,16 @@ import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import {
   type Engagement,
+  type ReactionChange,
   reactionFields,
   type Subject,
-  sameReaction,
   subjectKey,
   toEngagement,
   type ViewerReaction,
   withCounters,
-  withViewerReaction,
+  withReactionChange,
 } from "./model";
+import { noteOwnReaction } from "./pops";
 
 export const reactionClient = () => api().service(engagement.ReactionService);
 export const bookmarkClient = () => api().service(engagement.BookmarkService);
@@ -33,6 +34,7 @@ export const engagementKeys = {
   reactors: (subject: Subject, emoji: string) =>
     ["engagement", "reactors", subject.type, subject.id, emoji] as const,
   myReactions: ["engagement", "my-reactions"] as const,
+  reactionSettings: ["engagement", "reaction-settings"] as const,
   collections: ["engagement", "collections"] as const,
   collectionsFor: (subject: Subject) =>
     ["engagement", "collections", "for", subject.type, subject.id] as const,
@@ -165,23 +167,33 @@ export function applyCounters(
 
 // ───────────────────────────── Reactions ─────────────────────────────
 
+/** A reaction as a request names it: its kind and emoji, nothing the server described. */
+const asRequest = (reaction: ViewerReaction) => ({ kind: reaction.kind, emoji: reaction.emoji });
+
 /**
- * Sets, changes or takes back (`undefined`) the caller's reaction. The
- * controls show the result at once; the server's totals replace the guess
- * when they arrive, and a refusal puts things back with a toast.
+ * Changes the caller's reactions to a subject: adds one (under the subject's
+ * rules a new one may replace the old), takes one back, or takes all back.
+ * The controls show the result at once; the server's totals replace the
+ * guess when they arrive, and a refusal puts things back with a toast.
  */
-export function useReact(subject: Subject): (next: ViewerReaction | undefined) => Promise<void> {
+export function useReactionChange(subject: Subject): (change: ReactionChange) => Promise<void> {
   const queryClient = useQueryClient();
-  return async (next) => {
+  return async (change) => {
     const key = engagementKeys.subject(subject);
     await queryClient.cancelQueries({ queryKey: key, exact: true });
     const before = queryClient.getQueryData<Engagement | null>(key);
-    if (before && sameReaction(before.viewerReaction, next)) return;
-    patch(queryClient, subject, (current) => withViewerReaction(current, next));
+    if (before && withReactionChange(before, change) === before) return;
+    patch(queryClient, subject, (current) => withReactionChange(current, change));
+    // Realtime names the subject by UUID; a short ID is resolved through the cached engagement.
+    if ("add" in change) noteOwnReaction(subject.type, before?.subjectId || subject.id, change.add);
     try {
-      const response = next
-        ? await reactionClient().setReaction({ subject, reaction: next })
-        : await reactionClient().removeReaction({ subject });
+      const response =
+        "add" in change
+          ? await reactionClient().setReaction({ subject, reaction: asRequest(change.add) })
+          : await reactionClient().removeReaction({
+              subject,
+              reaction: "remove" in change ? asRequest(change.remove) : undefined,
+            });
       patch(queryClient, subject, (current) => ({
         ...current,
         ...reactionFields(response.reactions),
@@ -193,7 +205,54 @@ export function useReact(subject: Subject): (next: ViewerReaction | undefined) =
     } catch (error) {
       queryClient.setQueryData(key, before);
       void queryClient.invalidateQueries({ queryKey: key, exact: true });
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "engagement" }));
+    }
+  };
+}
+
+/**
+ * Reacts (`next`) or takes every reaction back (`undefined`). On a subject
+ * that takes one reaction per person — most of them — that is all a control
+ * needs; `useUnreact` takes back one of several.
+ */
+export function useReact(subject: Subject): (next: ViewerReaction | undefined) => Promise<void> {
+  const change = useReactionChange(subject);
+  return (next) => change(next ? { add: next } : { removeAll: true });
+}
+
+/** Takes back one reaction of the caller (one emoji of several). */
+export function useUnreact(subject: Subject): (reaction: ViewerReaction) => Promise<void> {
+  const change = useReactionChange(subject);
+  return (reaction) => change({ remove: reaction });
+}
+
+/** The caller's settings for reactions to their own content. */
+export function useReactionSettings() {
+  return useQuery({
+    queryKey: engagementKeys.reactionSettings,
+    queryFn: async () => (await reactionClient().getReactionSettings({})).settings,
+  });
+}
+
+/** Saves the caller's reaction settings; a refusal puts the switches back with a toast. */
+export function useChangeReactionSettings(): (
+  next: Pick<engagement.ReactionSettings, "customEmoji" | "sensitiveEmoji">,
+) => Promise<void> {
+  const queryClient = useQueryClient();
+  return async (next) => {
+    const key = engagementKeys.reactionSettings;
+    const before = queryClient.getQueryData<engagement.ReactionSettings>(key);
+    queryClient.setQueryData(key, (current: engagement.ReactionSettings | undefined) =>
+      current ? { ...current, ...next } : current,
+    );
+    try {
+      const response = await reactionClient().updateReactionSettings({ settings: next });
+      queryClient.setQueryData(key, response.settings);
+      // Rules of the caller's own content follow.
+      void queryClient.invalidateQueries({ queryKey: engagementKeys.subjects });
+    } catch (error) {
+      queryClient.setQueryData(key, before);
+      toast.error(errorMessage(error, { namespace: "engagement" }));
     }
   };
 }

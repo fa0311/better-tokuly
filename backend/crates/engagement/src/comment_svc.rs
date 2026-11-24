@@ -73,7 +73,10 @@ impl CommentService for Engagement {
             ok(ListCommentsResponse {
                 comments: self.render_comments(&rows, viewer, &owners).await?,
                 page: info.into(),
-                total_count: stats::load(&self.core, &[subject.key]).await?.of(subject.key).comment_count,
+                total_count: stats::load(&self.core, &[subject.key], self.cfg.reaction_emoji_per_subject)
+                    .await?
+                    .of(subject.key)
+                    .comment_count,
                 comments_enabled,
                 viewer_can_moderate,
                 ..Default::default()

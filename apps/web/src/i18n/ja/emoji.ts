@@ -16,6 +16,7 @@ export default {
   },
   preview: { light: "ライト", dark: "ダーク" },
   picker: {
+    onlyThese: "ここにある絵文字（これ以上種類はふやせないよ）",
     title: "絵文字をえらぶ",
     open: "絵文字をえらぶ",
     search: "絵文字をさがす（ねこ / cat）",

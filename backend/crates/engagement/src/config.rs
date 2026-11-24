@@ -60,6 +60,70 @@ pub struct EngagementConfig {
         default_value_t = 5000
     )]
     pub max_bookmarks: i32,
+
+    /// Distinct emoji one subject may carry. Once reached, only emoji
+    /// already on it can be added (Discord's rule for messages).
+    #[arg(
+        id = "engagement_reaction_emoji_per_subject",
+        long = "engagement-reaction-emoji-per-subject",
+        env = "TOKULY_ENGAGEMENT_REACTION_EMOJI_PER_SUBJECT",
+        default_value_t = 50
+    )]
+    pub reaction_emoji_per_subject: i32,
+
+    /// Emoji one person may hold at once on a subject that takes several.
+    #[arg(
+        id = "engagement_reactions_per_person",
+        long = "engagement-reactions-per-person",
+        env = "TOKULY_ENGAGEMENT_REACTIONS_PER_PERSON",
+        default_value_t = 20
+    )]
+    pub reactions_per_person: i32,
+
+    /// Subject types on which one person may hold several distinct emoji
+    /// (`SubjectType` names without the `SUBJECT_TYPE_` prefix, comma
+    /// separated). Every other type takes one reaction per person.
+    #[arg(
+        id = "engagement_multi_reaction_types",
+        long = "engagement-multi-reaction-types",
+        env = "TOKULY_ENGAGEMENT_MULTI_REACTION_TYPES",
+        value_delimiter = ',',
+        default_values_t = MULTI_REACTION_TYPES.iter().map(|name| name.to_string()).collect::<Vec<_>>()
+    )]
+    pub multi_reaction_types: Vec<String>,
+}
+
+/// The default of `TOKULY_ENGAGEMENT_MULTI_REACTION_TYPES`: the subjects of
+/// group conversation. See [`EngagementConfig::multi_reaction_types`].
+pub const MULTI_REACTION_TYPES: &[&str] = &["COMMUNITY_THREAD", "COMMUNITY_REPLY", "COMMUNITY_EVENT", "PLAN"];
+
+impl EngagementConfig {
+    /// The subject type numbers of [`Self::multi_reaction_types`]; an error
+    /// names an entry that is no subject type.
+    pub fn multi_reaction_type_numbers(&self) -> anyhow::Result<Vec<i32>> {
+        use buffa::Enumeration as _;
+        use tokuly_proto::common::SubjectType;
+        self.multi_reaction_types
+            .iter()
+            .map(|name| name.trim())
+            .filter(|name| !name.is_empty())
+            .map(|name| {
+                let upper = name.to_ascii_uppercase();
+                let full = if upper.starts_with("SUBJECT_TYPE_") { upper } else { format!("SUBJECT_TYPE_{upper}") };
+                match SubjectType::from_proto_name(&full) {
+                    Some(kind)
+                        if kind != SubjectType::SUBJECT_TYPE_UNSPECIFIED
+                            && kind != SubjectType::SUBJECT_TYPE_COMMENT =>
+                    {
+                        Ok(kind as i32)
+                    }
+                    _ => Err(anyhow::anyhow!(
+                        "TOKULY_ENGAGEMENT_MULTI_REACTION_TYPES: {name:?} is not a subject type that takes emoji"
+                    )),
+                }
+            })
+            .collect()
+    }
 }
 
 impl Default for EngagementConfig {
@@ -71,6 +135,9 @@ impl Default for EngagementConfig {
             report_repeat_days: 7,
             max_collections: 100,
             max_bookmarks: 5000,
+            reaction_emoji_per_subject: 50,
+            reactions_per_person: 20,
+            multi_reaction_types: MULTI_REACTION_TYPES.iter().map(|name| name.to_string()).collect(),
         }
     }
 }
@@ -100,7 +167,10 @@ mod tests {
                 parsed.reports_per_hour,
                 parsed.report_repeat_days,
                 parsed.max_collections,
-                parsed.max_bookmarks
+                parsed.max_bookmarks,
+                parsed.reaction_emoji_per_subject,
+                parsed.reactions_per_person,
+                parsed.multi_reaction_types
             ),
             (
                 default.comments_per_minute,
@@ -108,7 +178,10 @@ mod tests {
                 default.reports_per_hour,
                 default.report_repeat_days,
                 default.max_collections,
-                default.max_bookmarks
+                default.max_bookmarks,
+                default.reaction_emoji_per_subject,
+                default.reactions_per_person,
+                default.multi_reaction_types
             )
         );
     }
@@ -119,5 +192,21 @@ mod tests {
             Cli::parse_from(["tokuly", "--engagement-comments-per-minute", "3", "--engagement-max-bookmarks", "9"])
                 .engagement;
         assert_eq!((parsed.comments_per_minute, parsed.max_bookmarks), (3, 9));
+    }
+
+    #[test]
+    fn multi_reaction_types_are_subject_type_names() {
+        use tokuly_proto::common::SubjectType;
+        let parsed =
+            Cli::parse_from(["tokuly", "--engagement-multi-reaction-types", "plan, subject_type_space,"]).engagement;
+        assert_eq!(
+            parsed.multi_reaction_type_numbers().unwrap(),
+            [SubjectType::SUBJECT_TYPE_PLAN as i32, SubjectType::SUBJECT_TYPE_SPACE as i32]
+        );
+        assert_eq!(EngagementConfig::default().multi_reaction_type_numbers().unwrap().len(), 4);
+        for wrong in ["videos", "COMMENT", "UNSPECIFIED"] {
+            let cfg = EngagementConfig { multi_reaction_types: vec![wrong.into()], ..Default::default() };
+            assert!(cfg.multi_reaction_type_numbers().is_err(), "{wrong}");
+        }
     }
 }

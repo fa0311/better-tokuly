@@ -11,7 +11,19 @@ export default {
     nobody: "Nobody has reacted yet",
     listPrivate: "Only the author can see who liked this",
     yours: "Your reaction",
+    unavailable: "This emoji can't be used anymore",
     takeBack: "Take back",
+  },
+  reactionSettings: {
+    rowTitle: "Reactions",
+    rowHint: "The emoji people can put on your posts",
+    title: "Reaction settings",
+    lead: "Choose which emoji people can react with on your posts, videos and notes. Reactions already given stay.",
+    custom: "Allow custom emoji",
+    customHint: "Turn off to allow standard emoji only",
+    sensitive: "Allow sensitive emoji too",
+    sensitiveHint:
+      "Custom emoji marked sensitive. People who don't want to see them get them blurred",
   },
   bookmarks: {
     title: "Bookmarks",
@@ -144,5 +156,10 @@ export default {
     CANNOT_REPORT_OWN: "You can't report your own content",
     ALREADY_REPORTED: "You already reported this. The team is on it",
     TOO_MANY_SUBJECTS: "Too many items at once",
+    EMOJI_UNAVAILABLE: "This emoji isn't available anymore",
+    CUSTOM_EMOJI_NOT_ALLOWED: "Custom emoji aren't allowed here",
+    SENSITIVE_EMOJI_NOT_ALLOWED: "Sensitive emoji aren't allowed here",
+    REACTION_EMOJI_LIMIT: "No room for another kind of emoji! React with one that's already there",
+    REACTION_LIMIT: "That's as many reactions as you can add here!",
   },
 } as const;

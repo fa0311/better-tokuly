@@ -5,7 +5,9 @@ use tokuly_core::prelude::*;
 use tokuly_proto::engagement::*;
 
 use crate::{
-    Engagement, reactions, shares, stats,
+    Engagement,
+    reactions::{self, Pictures},
+    shares, stats,
     subjects::{Subject, SubjectKey, requested_type},
 };
 
@@ -23,22 +25,36 @@ impl Engagement {
         viewer: Option<Uuid>,
     ) -> AppResult<Vec<SubjectEngagement>> {
         let keys: Vec<SubjectKey> = subjects.iter().map(|(_, subject)| subject.key).collect();
-        let numbers = stats::load(&self.core, &keys).await?;
+        let numbers = stats::load(&self.core, &keys, self.cfg.reaction_emoji_per_subject).await?;
         let (mut own_reactions, saved) = match viewer {
             Some(viewer) => {
                 (reactions::of_user(&self.core, viewer, &keys).await?, self.saved_among(viewer, &keys).await?)
             }
             None => Default::default(),
         };
+        let resolved: Vec<&Subject> = subjects.iter().map(|(_, subject)| subject).collect();
+        let rules = self.rules_of(&resolved).await?;
+        let mut summaries: Vec<ReactionSummary> = subjects
+            .iter()
+            .map(|(_, subject)| {
+                let key = subject.key;
+                let mut summary = numbers.reactions(key, &own_reactions.remove(&key).unwrap_or_default());
+                summary.rules = rules.get(&key).map(|rules| rules.to_proto()).into();
+                summary
+            })
+            .collect();
+        let pictures = Pictures::for_summaries(&self.core, &summaries.iter().collect::<Vec<_>>()).await?;
+        summaries.iter_mut().for_each(|summary| pictures.dress_summary(summary));
         Ok(subjects
             .into_iter()
-            .map(|(requested_id, subject)| {
+            .zip(summaries)
+            .map(|((requested_id, subject), reactions)| {
                 let key = subject.key;
                 let row = numbers.of(key);
                 SubjectEngagement {
                     subject: key.to_ref().into(),
                     requested_id,
-                    reactions: numbers.reactions(key, own_reactions.remove(&key)).into(),
+                    reactions: reactions.into(),
                     comment_count: row.comment_count,
                     bookmark_count: row.bookmark_count,
                     share_count: row.share_count,

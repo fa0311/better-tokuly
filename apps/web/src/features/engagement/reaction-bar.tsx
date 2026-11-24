@@ -10,14 +10,28 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
-import { useEngagement, useReact, useReactors } from "./api";
+import { useEngagement, useReact, useReactors, useUnreact } from "./api";
 import { useBurst } from "./burst";
 import { EmojiPicker } from "./emoji-picker";
 import { useSubjectLive } from "./live";
-import { compactCount, emojiReaction, LIKE, type Subject } from "./model";
+import {
+  compactCount,
+  emojiReaction,
+  isCustomEmoji,
+  LIKE,
+  type ReactionPicture,
+  type Subject,
+  sameReaction,
+  toPicture,
+} from "./model";
+import { useReactionPops } from "./pops";
+import { ReactionEmoji, reactionLabel } from "./reaction-emoji";
 
 /** Chips beyond this many are folded into the "who reacted" button. */
 const VISIBLE_CHIPS = 8;
+
+/** What flies out of a control for an emoji: the emoji itself, sparkles for a custom one (a picture is no glyph). */
+const burstGlyph = (emoji: string) => (isCustomEmoji(emoji) ? "✨" : emoji);
 
 export interface ReactionBarProps {
   subject: Subject;
@@ -31,9 +45,10 @@ export interface ReactionBarProps {
 
 /**
  * Reactions of any subject: a like with its count, the emoji people reacted
- * with (tap one to join in, tap yours to take it back), a picker to add
- * another, and the list of who reacted. Counts move live while it is on
- * screen. Renders nothing for a subject the viewer cannot see.
+ * with — Unicode and custom, drawn with their pictures (tap one to join in,
+ * tap yours to take it back), a picker to add another, and the list of who
+ * reacted. Counts move live while it is on screen, and what others add pops
+ * up over it. Renders nothing for a subject the viewer cannot see.
  */
 export function ReactionBar({ subject, like = true, className }: ReactionBarProps) {
   const { data } = useEngagement(subject);
@@ -43,7 +58,7 @@ export function ReactionBar({ subject, like = true, className }: ReactionBarProp
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {like && <LikeButton subject={subject} />}
       <ReactionChips subject={subject} className="contents" />
-      <AddReactionButton subject={subject} />
+      {data?.rules.emoji !== false && <AddReactionButton subject={subject} />}
     </div>
   );
 }
@@ -53,8 +68,11 @@ export function LikeButton({ subject, className }: { subject: Subject; className
   const { t, i18n } = useTranslation("engagement");
   const { data } = useEngagement(subject);
   const react = useReact(subject);
+  const unreact = useUnreact(subject);
   const { fire, burst } = useBurst(["💜", "✨", "💖"]);
-  const liked = data?.viewerReaction?.kind === engagement.ReactionKind.LIKE;
+  const liked = Boolean(
+    data?.viewerReactions.some((reaction) => reaction.kind === engagement.ReactionKind.LIKE),
+  );
   const disabled = !data?.interactionsEnabled;
 
   return (
@@ -65,7 +83,8 @@ export function LikeButton({ subject, className }: { subject: Subject; className
       disabled={disabled}
       onClick={() => {
         if (!liked) fire();
-        void react(liked ? undefined : LIKE);
+        // Only the like: on a subject that takes several reactions the emoji stay.
+        void (liked ? unreact(LIKE) : react(LIKE));
       }}
       className={cn(
         "relative inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-black transition-colors disabled:opacity-50",
@@ -89,31 +108,42 @@ export function LikeButton({ subject, className }: { subject: Subject; className
 
 /**
  * The emoji people reacted with, most used first, each with its count. A tap
- * reacts with that emoji (or takes the viewer's own back). Renders nothing
- * while nobody reacted, so it can sit in a card without taking a row.
+ * reacts with that emoji (or takes the viewer's own back): on a subject that
+ * takes one reaction per person it replaces theirs, on one that takes
+ * several it joins them. An emoji that was taken down shows its shortcode
+ * and can only be taken back. Renders nothing while nobody reacted, so it
+ * can sit in a card without taking a row.
  */
 export function ReactionChips({ subject, className }: { subject: Subject; className?: string }) {
   const { t } = useTranslation("engagement");
   const { data } = useEngagement(subject);
   const react = useReact(subject);
+  const unreact = useUnreact(subject);
   const [listOpen, setListOpen] = useState(false);
   if (!data || data.emojiCounts.length === 0) return null;
 
-  const mine =
-    data.viewerReaction?.kind === engagement.ReactionKind.EMOJI ? data.viewerReaction.emoji : "";
+  const mine = (emoji: string) =>
+    data.viewerReactions.some((reaction) => sameReaction(reaction, emojiReaction(emoji)));
   const shown = data.emojiCounts.slice(0, VISIBLE_CHIPS);
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
-      {shown.map((entry) => (
-        <ReactionChip
-          key={entry.emoji}
-          emoji={entry.emoji}
-          count={entry.count}
-          mine={entry.emoji === mine}
-          disabled={!data.interactionsEnabled}
-          onToggle={() => void react(entry.emoji === mine ? undefined : emojiReaction(entry.emoji))}
-        />
-      ))}
+      {shown.map((entry) => {
+        const held = mine(entry.emoji);
+        const gone = entry.custom?.available === false;
+        return (
+          <ReactionChip
+            key={entry.emoji}
+            emoji={entry.emoji}
+            custom={entry.custom}
+            count={entry.count}
+            mine={held}
+            disabled={!data.interactionsEnabled || (gone && !held)}
+            onToggle={() =>
+              void (held ? unreact(emojiReaction(entry.emoji)) : react(emojiReaction(entry.emoji)))
+            }
+          />
+        );
+      })}
       <button
         type="button"
         aria-label={t("reactions.who")}
@@ -132,24 +162,27 @@ export function ReactionChips({ subject, className }: { subject: Subject; classN
 
 function ReactionChip({
   emoji,
+  custom,
   count,
   mine,
   disabled,
   onToggle,
 }: {
   emoji: string;
+  custom?: ReactionPicture;
   count: number;
   mine: boolean;
   disabled: boolean;
   onToggle(): void;
 }) {
   const { t, i18n } = useTranslation("engagement");
-  const { fire, burst } = useBurst([emoji]);
+  const { fire, burst } = useBurst([burstGlyph(emoji)]);
   return (
     <button
       type="button"
       aria-pressed={mine}
-      aria-label={t("reactions.chip", { emoji, count })}
+      aria-label={t("reactions.chip", { emoji: reactionLabel(emoji, custom), count })}
+      data-emoji={emoji}
       disabled={disabled}
       onClick={() => {
         if (!mine) fire();
@@ -162,8 +195,8 @@ function ReactionChip({
           : "border-line bg-surface text-ink-soft hover:border-ink-faint",
       )}
     >
-      <span aria-hidden className="text-base leading-none">
-        {emoji}
+      <span aria-hidden className="inline-flex items-center text-base leading-none">
+        <ReactionEmoji emoji={emoji} custom={custom} />
       </span>
       <span className="tabular-nums">{compactCount(count, i18n.language)}</span>
       {burst}
@@ -171,7 +204,12 @@ function ReactionChip({
   );
 }
 
-/** The "add a reaction" button: opens the emoji picker and reacts with the pick. */
+/**
+ * The "add a reaction" button: opens the emoji picker — the person's deck,
+ * recently used, custom and Unicode emoji (custom ones only where the
+ * subject takes them) — and reacts with the pick. What others add pops up
+ * out of it while it is on screen.
+ */
 export function AddReactionButton({
   subject,
   className,
@@ -183,11 +221,20 @@ export function AddReactionButton({
   const { data } = useEngagement(subject);
   const react = useReact(subject);
   const { fire, burst } = useBurst(["✨", "🎉", "💫"]);
+  const pops = useReactionPops(subject.type, data?.subjectId);
   const disabled = !data?.interactionsEnabled;
+  // A subject full of different emoji takes only the ones it carries (the server lists them all then).
+  const full = Boolean(data && data.distinctEmoji >= data.rules.maxDistinctEmoji);
+  const present = data?.emojiCounts
+    .filter((entry) => entry.custom?.available !== false)
+    .map((entry) => entry.emoji);
   return (
     <EmojiPicker
+      custom={data?.rules.customEmoji ?? true}
+      hideSensitive={!data?.rules.sensitiveEmoji}
+      only={full ? present : undefined}
       onPick={(emoji) => {
-        fire([emoji, "✨"]);
+        fire([burstGlyph(emoji), "✨"]);
         void react(emojiReaction(emoji));
       }}
       trigger={
@@ -202,6 +249,7 @@ export function AddReactionButton({
         >
           <SmilePlus className="size-[18px]" />
           {burst}
+          {pops}
         </button>
       }
     />
@@ -230,7 +278,10 @@ export function ReactorsDialog({ subject, onClose }: { subject: Subject; onClose
               active={emoji === entry.emoji}
               onClick={() => setEmoji(entry.emoji)}
             >
-              {entry.emoji} {entry.count}
+              <span className="inline-flex items-center gap-1">
+                <ReactionEmoji emoji={entry.emoji} custom={entry.custom} size={18} />
+                {entry.count}
+              </span>
             </FilterChip>
           ))}
         </div>
@@ -269,11 +320,24 @@ export function ReactorsDialog({ subject, onClose }: { subject: Subject; onClose
                     <span
                       className="text-2xl leading-none"
                       role="img"
-                      aria-label={reactor.reaction?.emoji || t("reactions.like")}
+                      aria-label={
+                        reactor.reaction?.kind === engagement.ReactionKind.EMOJI
+                          ? reactionLabel(
+                              reactor.reaction.emoji,
+                              toPicture(reactor.reaction.custom),
+                            )
+                          : t("reactions.like")
+                      }
                     >
-                      {reactor.reaction?.kind === engagement.ReactionKind.EMOJI
-                        ? reactor.reaction.emoji
-                        : "💜"}
+                      {reactor.reaction?.kind === engagement.ReactionKind.EMOJI ? (
+                        <ReactionEmoji
+                          emoji={reactor.reaction.emoji}
+                          custom={toPicture(reactor.reaction.custom)}
+                          size={28}
+                        />
+                      ) : (
+                        "💜"
+                      )}
                     </span>
                   </Link>
                 </li>

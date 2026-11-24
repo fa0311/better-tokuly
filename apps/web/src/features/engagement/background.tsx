@@ -3,12 +3,15 @@ import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { applyCounters, engagementKeys } from "./api";
 import { CollectionChooserHost } from "./collection-chooser";
+import { readReaction } from "./model";
+import { emitPop } from "./pops";
 
 /**
  * Runs while someone is signed in: applies the counters the realtime
  * connection pushes for subjects on screen (see `useSubjectTopic`) to the
  * cached engagement, so reaction chips, save and share counts move by
- * themselves. It also hosts the collection chooser, which any save button
+ * themselves, and lets the reactions others add pop over the subject's
+ * reaction bar (`reaction_added`). It also hosts the collection chooser, which any save button
  * (or the toast after saving) opens.
  */
 export default function EngagementBackground() {
@@ -29,6 +32,10 @@ export default function EngagementBackground() {
       const { subject, event } = frame.body.value;
       if (subject && event.case === "countersChanged")
         applyCounters(queryClient, subject.type, subject.id, event.value);
+      if (subject && event.case === "reactionAdded") {
+        const reaction = readReaction(event.value.reaction);
+        if (reaction) emitPop(subject.type, subject.id, reaction);
+      }
     });
     client.start();
     return off;
