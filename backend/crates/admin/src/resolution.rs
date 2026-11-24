@@ -117,6 +117,11 @@ impl Admin {
         if resolution.action != DISMISS {
             self.limit_sanctions(staff).await?;
         }
+        // Suspending the owner has identity lock the account while the case row is locked.
+        let slot = match resolution.action {
+            SUSPEND | BAN => Some(self.identity_slot().await?),
+            _ => None,
+        };
 
         let mut tx = self.core.db.begin().await?;
         let case = self.lock_case(&mut tx, case_id).await?;
@@ -187,6 +192,7 @@ impl Admin {
             .record(&mut *tx)
             .await?;
         tx.commit().await?;
+        drop(slot);
 
         if let (Some(expires_at), Some(owner)) = (suspended_until, &owner) {
             self.mail_suspension(owner, &resolution.reason, expires_at);

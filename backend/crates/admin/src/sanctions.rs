@@ -118,8 +118,9 @@ impl Admin {
     }
 
     /// Suspends an account until `expires_at`, or bans it when `None`, inside
-    /// the caller's transaction. An existing suspension is replaced. Call
-    /// [`Self::mail_suspension`] once the transaction has committed.
+    /// the caller's transaction. An existing suspension is replaced. The
+    /// caller holds [`Admin::identity_slot`] from before it opened the
+    /// transaction. Call [`Self::mail_suspension`] once it has committed.
     pub(crate) async fn suspend(
         &self,
         conn: &mut PgConnection,
@@ -172,6 +173,7 @@ impl Admin {
 
     /// Lifts an account's suspension or ban on a staff member's request.
     pub(crate) async fn lift_suspension(&self, staff: &Staff, target: &Target, note: &str) -> AppResult<()> {
+        let slot = self.identity_slot().await?;
         let mut tx = self.core.db.begin().await?;
         lock_sanctions(&mut tx, target.id).await?;
         // Re-read under the lock: the expiry worker may have lifted it already.
@@ -195,6 +197,7 @@ impl Admin {
             .record(&mut *tx)
             .await?;
         tx.commit().await?;
+        drop(slot);
         self.send_mail(target.email.clone(), notices::suspension_lifted_mail(&target.locale));
         Ok(())
     }
@@ -222,6 +225,7 @@ impl Admin {
 
     /// Lifts one expired suspension unless it ended or was replaced meanwhile.
     async fn expire_suspension(&self, suspension_id: Uuid, user_id: Uuid) -> AppResult<bool> {
+        let slot = self.identity_slot().await?;
         let mut tx = self.core.db.begin().await?;
         lock_sanctions(&mut tx, user_id).await?;
         let still_due: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM user_suspensions WHERE id = $1 AND ended_at IS NULL AND expires_at <= now())")
@@ -254,6 +258,7 @@ impl Admin {
             .record(&mut *tx)
             .await?;
         tx.commit().await?;
+        drop(slot);
         if let Ok(target) = self.target(user_id).await {
             self.send_mail(target.email, notices::suspension_lifted_mail(&target.locale));
         }

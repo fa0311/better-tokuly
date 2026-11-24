@@ -87,9 +87,11 @@ impl UserAdminService for Admin {
             let target = self.target(parse_id(request.user_id)?).await?;
             Self::check_may_sanction(&staff, &target)?;
             self.limit_sanctions(&staff).await?;
+            let slot = self.identity_slot().await?;
             let mut tx = self.core.db.begin().await?;
             let action = self.suspend(&mut tx, &staff, &target, Sanction { reason: &reason, note: &note, case: None }, expires_at).await?;
             tx.commit().await?;
+            drop(slot);
             self.mail_suspension(&target, &reason, expires_at);
             ok(SuspendUserResponse {
                 user: self.admin_user(target.id).await?.into(),

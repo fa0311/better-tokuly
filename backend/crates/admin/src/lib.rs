@@ -70,6 +70,8 @@ pub struct AdminInner {
     pub cfg: AdminConfig,
     /// Asked about content that is reported without an owner.
     hidden_owners: OnceLock<Arc<dyn HiddenOwners>>,
+    /// See [`Admin::identity_slot`].
+    identity_slot: tokio::sync::Semaphore,
 }
 
 /// The admin domain. Cheap to clone.
@@ -88,7 +90,17 @@ impl Admin {
     pub fn new(core: Core, identity: Identity, cfg: AdminConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
         core.exporters.register(Arc::new(cleanup::ModerationExporter { core: core.clone() }));
-        Ok(Self(Arc::new(AdminInner { core, identity, cfg, hidden_owners: OnceLock::new() })))
+        Ok(Self(Arc::new(AdminInner { core, identity, cfg, hidden_owners: OnceLock::new(), identity_slot: tokio::sync::Semaphore::new(1) })))
+    }
+
+    /// Taken before opening a transaction that will hold a lock (a case row,
+    /// an account's sanction lock) while identity changes the account in a
+    /// transaction of its own: such a section needs two connections at once.
+    /// One section per process at a time, so a burst of them waits here
+    /// instead of holding every connection of the pool while each waits for
+    /// a second one. Hold the permit until the transaction has ended.
+    pub(crate) async fn identity_slot(&self) -> AppResult<tokio::sync::SemaphorePermit<'_>> {
+        self.identity_slot.acquire().await.map_err(|_| AppError::unavailable("SHUTTING_DOWN", "the server is shutting down"))
     }
 
     /// Registers this domain's RPC services on the Connect router.
