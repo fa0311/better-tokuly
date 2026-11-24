@@ -507,3 +507,102 @@ async fn an_erased_creators_pack_goes_with_its_last_unpaid_order() {
         "then erased"
     );
 }
+
+async fn purchases_of(ctx: &Ctx, pack_id: &str) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM stamp_pack_purchases WHERE pack_id = $1")
+        .bind(pack_id.parse::<uuid::Uuid>().unwrap())
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_retry_while_the_first_payment_still_waits_charges_once() {
+    let ctx = start().await;
+    let (creator, buyer) = (ctx.app.user("creator").await, ctx.app.user("buyer").await);
+    let id = id_of(&ctx.published(&creator, "まちぼうけ", 100, &[], 1).await);
+    ctx.grant_coins(&buyer, 300).await;
+    let buy = PurchasePackRequest { pack_id: id.clone(), expected_price: 100, ..Default::default() };
+
+    // Something holds the buyer's wallet account: the first attempt's payment waits for it.
+    let mut holder = ctx.app.core.db.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM wallet_accounts WHERE user_id = $1 FOR UPDATE")
+        .bind(buyer.id)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+    let first = ctx.call::<_, PurchasePackResponse>("Library", "PurchasePack", Some(&buyer), &buy);
+    let retry = async {
+        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        // The first attempt's lease runs out while its payment still waits.
+        sqlx::query("UPDATE stamp_purchase_intents SET leased_until = now() - interval '1 second' WHERE user_id = $1")
+            .bind(buyer.id)
+            .execute(&ctx.app.core.db)
+            .await
+            .unwrap();
+        ctx.call::<_, PurchasePackResponse>("Library", "PurchasePack", Some(&buyer), &buy).await
+    };
+    let release = async move {
+        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+        holder.rollback().await.unwrap();
+    };
+    let (first, retry, ()) = tokio::join!(first, retry, release);
+    let (first, retry) = (first.unwrap(), retry.unwrap());
+    assert_eq!(first.charged + retry.charged, 100, "one of them was charged");
+    assert!(first.pack.viewer.owned && retry.pack.viewer.owned);
+    assert_eq!((ctx.balance(&buyer).await.coins, ctx.balance(&creator).await.earnings), (200, 70));
+    assert_eq!((purchases_of(&ctx, &id).await, open_orders(&ctx, &id).await), (1, 0));
+}
+
+#[tokio::test]
+async fn a_payment_stuck_on_a_lock_gives_up_and_keeps_its_order_held() {
+    let ctx = start().await;
+    let (creator, buyer) = (ctx.app.user("creator").await, ctx.app.user("buyer").await);
+    let id = id_of(&ctx.published(&creator, "ながまち", 100, &[], 1).await);
+    ctx.grant_coins(&buyer, 300).await;
+    let mut holder = ctx.app.core.db.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM wallet_accounts WHERE user_id = $1 FOR UPDATE")
+        .bind(buyer.id)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+
+    let buy = PurchasePackRequest { pack_id: id.clone(), expected_price: 100, ..Default::default() };
+    let started = std::time::Instant::now();
+    let answer = ctx.call::<_, PurchasePackResponse>("Library", "PurchasePack", Some(&buyer), &buy).await;
+    assert!(answer.is_err(), "the transfer gave up on the lock");
+    assert!(started.elapsed() < std::time::Duration::from_secs(30));
+    holder.rollback().await.unwrap();
+
+    // The outcome was unclear to the caller: the order stays held until its
+    // lease runs out, so nobody ends it while a payment might still run.
+    let held: bool = sqlx::query_scalar("SELECT leased_until > now() FROM stamp_purchase_intents WHERE user_id = $1")
+        .bind(buyer.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert!(held);
+    assert_eq!(ctx.balance(&buyer).await.coins, 300);
+}
+
+#[tokio::test]
+async fn a_paid_order_of_a_taken_down_pack_ends_when_the_refund_is_impossible() {
+    let ctx = start().await;
+    let (creator, buyer) = (ctx.app.user("creator").await, ctx.app.user("buyer").await);
+    let id = id_of(&ctx.published(&creator, "かえせない", 200, &[], 1).await);
+    ctx.grant_coins(&buyer, 200).await;
+    paid_but_unrecorded(&ctx, &buyer, &creator, &id, 200, 0).await;
+    set_pack(&ctx, &id, "status = 5").await;
+    // The creator's account is closed: their earnings cannot be taken back.
+    sqlx::query("UPDATE users SET deleted_at = now() WHERE id = $1")
+        .bind(creator.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+
+    let buy = PurchasePackRequest { pack_id: id.clone(), expected_price: 200, ..Default::default() };
+    assert_eq!(ctx.reason("Library", "PurchasePack", Some(&buyer), &buy).await, "PACK_NOT_FOR_SALE");
+    assert_eq!(open_orders(&ctx, &id).await, 0, "the order is over");
+    assert_eq!(purchases_of(&ctx, &id).await, 1, "and the buyer keeps what they paid for");
+    assert_eq!(ctx.balance(&buyer).await.coins, 0);
+}

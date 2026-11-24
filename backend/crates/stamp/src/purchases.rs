@@ -50,7 +50,10 @@ fn order_key(pack_id: Uuid, user_id: Uuid) -> String {
 /// Age after which the worker settles an order the buyer did not finish.
 const UNFINISHED_AFTER: &str = "15 minutes";
 /// How long a settler holds an order; also the worker's back-off after an
-/// attempt it could not finish.
+/// attempt it could not finish. Well above the time a wallet transfer can
+/// take at most (`tokuly_wallet::ledger::transfer`, about two minutes): a
+/// settler that takes an expired lease knows no payment of the order is
+/// still running, which is what makes ending an unpaid order safe.
 const LEASE: &str = "5 minutes";
 /// Orders one worker pass settles.
 const SETTLE_BATCH: i64 = 100;
@@ -122,6 +125,20 @@ enum Settled {
     Ended,
 }
 
+/// Why a held order was not settled.
+enum Unsettled {
+    /// The payment may have committed or may still be running: the lease
+    /// must run out before anyone settles the order again.
+    Unclear(AppError),
+    Failed(AppError),
+}
+
+impl From<AppError> for Unsettled {
+    fn from(error: AppError) -> Self {
+        Self::Failed(error)
+    }
+}
+
 /// A payment as recorded by the ledger.
 struct Payment {
     entry_id: Uuid,
@@ -164,21 +181,22 @@ impl Stamp {
                 tx.commit().await?;
                 return Ok(0);
             }
-            let (order, placed_now) = match find_order(&core.db, user_id, pack.id).await? {
-                Some(order) => (order, false),
+            // An earlier order at the price the buyer confirms again is paid
+            // under its own key — the ledger lets one movement through, also
+            // if an earlier attempt is still paying it. An earlier order at
+            // another price only finishes if it was paid already.
+            let (order, pay) = match find_order(&core.db, user_id, pack.id).await? {
+                Some(order) => {
+                    let pay = order.price == expected_price;
+                    (order, pay)
+                }
                 None => (self.place_order(user_id, pack, expected_price).await?, true),
             };
             if claim(&core.db, &order).await? {
-                // An order placed by this call is paid; an earlier one only
-                // finishes if it was paid already.
-                match self.settle_claimed(&order, pack, placed_now).await {
-                    Ok(Settled::Bought(charged)) => return Ok(charged),
-                    Ok(Settled::Ended) if !placed_now => continue,
-                    Ok(Settled::Ended) => return Err(not_for_sale()),
-                    Err(e) => {
-                        release(&core.db, &order).await?;
-                        return Err(e);
-                    }
+                match self.settle_claimed(&order, pack, pay, true).await? {
+                    Settled::Bought(charged) => return Ok(charged),
+                    Settled::Ended if !pay => continue,
+                    Settled::Ended => return Err(not_for_sale()),
                 }
             }
             // Someone else (a second tap) is settling it: wait for them.
@@ -229,16 +247,47 @@ impl Stamp {
     /// The ledger says whether the order was paid. Paid: the purchase is
     /// recorded at the agreed price — also for a pack that left the store or
     /// became free since — unless moderators took the pack down, which
-    /// refunds it. Unpaid: with `pay`, it is paid now; otherwise it ends.
-    async fn settle_claimed(&self, order: &Order, pack: &PackRow, pay: bool) -> AppResult<Settled> {
+    /// refunds it (or, when the refund is impossible, records it anyway).
+    /// Unpaid: with `pay` and a pack still for sale, it is paid now;
+    /// otherwise it ends.
+    ///
+    /// Ending an unpaid order is safe because no payment of it can still be
+    /// running: a payment runs only under the lease this caller now holds,
+    /// and the wallet bounds a transfer well below the lease (`transfer`
+    /// sets `lock_timeout` / `statement_timeout`). That is also why the
+    /// lease is never given back after a payment failed in an unclear way:
+    /// the order waits for whoever takes it after the lease. Other failures
+    /// give it back when `release` (a request; the worker keeps it as its
+    /// back-off).
+    async fn settle_claimed(
+        &self,
+        order: &Order,
+        pack: &PackRow,
+        pay: bool,
+        release_on_failure: bool,
+    ) -> AppResult<Settled> {
+        match self.settle_held(order, pack, pay).await {
+            Ok(settled) => Ok(settled),
+            Err(Unsettled::Unclear(e)) => Err(e),
+            Err(Unsettled::Failed(e)) => {
+                if release_on_failure && let Err(release_error) = release(&self.core.db, order).await {
+                    tracing::warn!(error = %release_error, "a stamp purchase order was not given back");
+                }
+                Err(e)
+            }
+        }
+    }
+
+    async fn settle_held(&self, order: &Order, pack: &PackRow, pay: bool) -> Result<Settled, Unsettled> {
         let core = &self.core;
+        let for_sale = pack.is_published() && pack.price > 0;
         let payment = match ledger::find_by_key(core, &order.payment_key).await? {
             Some(entry) if entry.refunded => {
                 self.end_order(order).await?;
                 return Ok(Settled::Ended);
             }
             Some(entry) => Payment { entry_id: entry.entry_id, net: entry.amount - entry.fee, applied: false },
-            None if !pay => {
+            None if !pay || !for_sale => {
                 self.end_order(order).await?;
                 return Ok(Settled::Ended);
             }
@@ -248,18 +297,31 @@ impl Stamp {
                     self.end_order(order).await?;
                     // The creator's account was erased a moment ago: their
                     // packs leave the store as soon as the stamp domain hears of it.
-                    return Err(if e.reason == "ACCOUNT_CLOSED" { not_for_sale() } else { e });
+                    return Err(Unsettled::Failed(if e.reason == "ACCOUNT_CLOSED" { not_for_sale() } else { e }));
                 }
-                // Perhaps after the payment committed: the order stays.
-                Err(e) => return Err(e),
+                // Perhaps after the payment committed: the order stays held.
+                Err(e) => return Err(Unsettled::Unclear(e)),
             },
         };
         if pack.status == status::REMOVED {
-            ledger::refund(core, payment.entry_id, "stamp.pack.refund").await?;
-            self.end_order(order).await?;
+            match ledger::refund(core, payment.entry_id, "stamp.pack.refund").await {
+                Ok(()) => self.end_order(order).await?,
+                // The coins cannot come back (the creator spent them or left):
+                // the buyer keeps what they paid for, and the order is over.
+                Err(e) if e.reason == "REFUND_IMPOSSIBLE" => {
+                    self.complete_purchase(order, pack, &payment).await?;
+                }
+                Err(e) => return Err(e.into()),
+            }
             return Ok(Settled::Ended);
         }
-        self.complete_purchase(order, pack, &payment).await?;
+        if let Some(duplicate) = self.complete_purchase(order, pack, &payment).await? {
+            // The pack was already bought with another payment: this one is
+            // given back. (Orders make this impossible; it is a safety net.)
+            tracing::error!(%duplicate, entry = %payment.entry_id, "a stamp pack was paid twice; refunding the second payment");
+            ledger::refund(core, payment.entry_id, "stamp.pack.refund").await?;
+            return Ok(Settled::Bought(0));
+        }
         let mut event = AnalyticsEvent::new("stamp.pack.purchase")
             .user(Some(order.user_id))
             .subject("stamp_pack", pack.id)
@@ -308,7 +370,7 @@ impl Stamp {
         for order in &orders {
             let Some(pack) = packs::find_by_id(&self.core.db, order.pack_id).await? else { continue };
             let (user_id, pack_id) = (order.user_id, order.pack_id);
-            match self.settle_claimed(order, &pack, false).await {
+            match self.settle_claimed(order, &pack, false, false).await {
                 Ok(Settled::Bought(_)) => {
                     tracing::info!(%user_id, %pack_id, "an unfinished stamp purchase was recorded")
                 }
@@ -349,7 +411,10 @@ impl Stamp {
     }
 
     /// Records the purchase and everything that follows from it, atomically.
-    async fn complete_purchase(&self, order: &Order, pack: &PackRow, payment: &Payment) -> AppResult<()> {
+    /// Returns the entry of an earlier purchase of the pack when it was
+    /// bought with a different payment than `payment` (nothing is recorded
+    /// then, and the caller gives `payment` back).
+    async fn complete_purchase(&self, order: &Order, pack: &PackRow, payment: &Payment) -> AppResult<Option<Uuid>> {
         let (user_id, price) = (order.user_id, order.price);
         let mut tx = self.core.db.begin().await?;
         let recorded = sqlx::query(
@@ -365,6 +430,16 @@ impl Stamp {
         .await?
         .rows_affected()
             == 1;
+        let duplicate: Option<Uuid> = if recorded {
+            None
+        } else {
+            sqlx::query_scalar("SELECT entry_id FROM stamp_pack_purchases WHERE user_id = $1 AND pack_id = $2")
+                .bind(user_id)
+                .bind(pack.id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .filter(|entry| *entry != payment.entry_id)
+        };
         sqlx::query("DELETE FROM stamp_purchase_intents WHERE payment_key = $1")
             .bind(&order.payment_key)
             .execute(&mut *tx)
@@ -375,7 +450,7 @@ impl Stamp {
         }
         installs::install(&mut tx, user_id, pack, true).await?;
         tx.commit().await?;
-        Ok(())
+        Ok(duplicate)
     }
 
     async fn announce_sale(
