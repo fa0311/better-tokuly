@@ -9,6 +9,8 @@ import { create as createStore } from "zustand";
 import { api } from "#/lib/api";
 
 export const noteClient = () => api().service(notes.NoteService);
+export const draftClient = () => api().service(notes.NoteDraftService);
+export const muteClient = () => api().service(notes.NoteMuteService);
 
 /** Which list of notes a timeline shows. */
 export type TimelineSource =
@@ -24,8 +26,8 @@ export type TimelineSource =
 export interface TimelinePage {
   entries: notes.TimelineEntry[];
   nextCursor: string;
-  /** Only on the first page of a profile's notes tab. */
-  pinnedNote?: notes.Note;
+  /** Only on the first page of a profile's notes tab, latest pinned first. */
+  pinnedNotes?: notes.Note[];
   /** Only for hashtag timelines. */
   hashtag?: notes.Hashtag;
 }
@@ -54,6 +56,11 @@ export const notesKeys = {
   likers: (noteId: string) => ["notes", "likers", noteId] as const,
   renoters: (noteId: string) => ["notes", "renoters", noteId] as const,
   trending: ["notes", "trending"] as const,
+  trendingNotes: (language: string) => ["notes", "trending-notes", language] as const,
+  drafts: ["notes", "drafts"] as const,
+  mutes: ["notes", "mutes"] as const,
+  edits: (noteId: string) => ["notes", "edits", noteId] as const,
+  analytics: (noteId: string) => ["notes", "analytics", noteId] as const,
   hashtagSearch: (prefix: string) => ["notes", "hashtag-search", prefix] as const,
 };
 
@@ -91,7 +98,7 @@ export async function fetchTimeline(
       return {
         entries: response.entries,
         nextCursor: response.page?.nextCursor ?? "",
-        pinnedNote: response.pinnedNote,
+        pinnedNotes: response.pinnedNotes,
       };
     }
     case "hashtag": {
@@ -332,7 +339,8 @@ export function forgetUserNotes(queryClient: QueryClient, userId: string): void 
     const data = query.state.data as TimelineData | undefined;
     if (
       !data?.pages.some(
-        (page) => page.entries.some(theirs) || page.pinnedNote?.author?.id === userId,
+        (page) =>
+          page.entries.some(theirs) || page.pinnedNotes?.some((note) => note.author?.id === userId),
       )
     )
       continue;
@@ -343,7 +351,7 @@ export function forgetUserNotes(queryClient: QueryClient, userId: string): void 
         pages: data.pages.map((page) => ({
           ...page,
           entries: page.entries.filter((entry) => !theirs(entry)),
-          pinnedNote: page.pinnedNote?.author?.id === userId ? undefined : page.pinnedNote,
+          pinnedNotes: page.pinnedNotes?.filter((note) => note.author?.id !== userId),
         })),
       },
       { updatedAt: query.state.dataUpdatedAt },
@@ -398,7 +406,7 @@ export function withFreshEntries(
       ...current,
       pages: current.pages.map((page, index) =>
         index === 0
-          ? { ...page, pinnedNote: fresh.pinnedNote, hashtag: fresh.hashtag ?? page.hashtag }
+          ? { ...page, pinnedNotes: fresh.pinnedNotes, hashtag: fresh.hashtag ?? page.hashtag }
           : page,
       ),
     };
@@ -412,7 +420,7 @@ export function withFreshEntries(
       return index === 0
         ? {
             ...page,
-            pinnedNote: fresh.pinnedNote,
+            pinnedNotes: fresh.pinnedNotes,
             hashtag: fresh.hashtag ?? page.hashtag,
             entries: [...added, ...kept],
           }

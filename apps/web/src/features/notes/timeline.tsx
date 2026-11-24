@@ -157,11 +157,12 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
       void latestCheck.current(false);
   }, [key.join("|")]);
 
-  const pinned = query.data?.pages[0]?.pinnedNote;
+  const pinned = (query.data?.pages[0]?.pinnedNotes ?? []).filter((note) => !deleted.has(note.id));
+  const pinnedIds = new Set(pinned.map((note) => note.id));
   const seen = new Set<string>();
   const entries = (query.data?.pages.flatMap((page) => page.entries) ?? []).filter((entry) => {
     const id = entry.note?.id;
-    if (!id || seen.has(id) || deleted.has(id) || id === pinned?.id) return false;
+    if (!id || seen.has(id) || deleted.has(id) || pinnedIds.has(id)) return false;
     seen.add(id);
     return true;
   });
@@ -200,10 +201,10 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
           </button>
         </div>
       )}
-      {pinned && !deleted.has(pinned.id) && (
-        <NoteCard note={pinned} showPinned className="mb-2.5" />
-      )}
-      {entries.length === 0 && !pinned ? (
+      {pinned.map((note) => (
+        <NoteCard key={note.id} note={note} showPinned className="mb-2.5" />
+      ))}
+      {entries.length === 0 && pinned.length === 0 ? (
         empty
       ) : (
         <VirtualRows entries={entries} storeKey={key.join("|")} />

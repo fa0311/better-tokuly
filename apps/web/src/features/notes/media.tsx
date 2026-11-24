@@ -1,5 +1,5 @@
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
-import { type common, media } from "@tokuly/api";
+import { type common, media, type notes } from "@tokuly/api";
 import { ChevronLeft, ChevronRight, Play, Volume2, VolumeX, X } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -56,6 +56,8 @@ const GRID: Record<number, string> = {
   3: "grid-cols-2 grid-rows-2 aspect-[16/10]",
   4: "grid-cols-2 grid-rows-2 aspect-[16/10]",
 };
+/** Five to ten pictures: rows of three squares. */
+const GRID_MANY = "grid-cols-3";
 
 /**
  * Up to four pictures of a note: one keeps its own shape, two sit side by
@@ -63,14 +65,20 @@ const GRID: Record<number, string> = {
  */
 export function ImageGrid({
   attachments,
+  details = [],
   className,
 }: {
   attachments: media.Attachment[];
+  /** Alt text and sensitive marks by asset ID. */
+  details?: notes.AttachmentDetails[];
   className?: string;
 }) {
   const { t } = useTranslation("notes");
   const [viewing, setViewing] = useState<number>();
-  const images = attachments.slice(0, 4);
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  const images = attachments.slice(0, 10);
+  const detail = (attachment: media.Attachment) =>
+    details.find((item) => item.assetId === attachment.assetId);
   if (images.length === 0) return null;
   const single = images.length === 1 ? images[0]!.image : undefined;
   // A lone picture keeps its proportions, within what a timeline can take.
@@ -84,7 +92,7 @@ export function ImageGrid({
       <div
         className={cn(
           "grid gap-1 overflow-hidden rounded-2xl border-2 border-ink",
-          GRID[images.length],
+          GRID[images.length] ?? GRID_MANY,
           className,
         )}
         // A tall picture is as wide as its height allows, not letterboxed in a wide box.
@@ -94,28 +102,50 @@ export function ImageGrid({
             : undefined
         }
       >
-        {images.map((attachment, index) => (
-          <button
-            key={attachment.assetId || index}
-            type="button"
-            aria-label={t("media.open", { index: index + 1, count: images.length })}
-            onClick={() => setViewing(index)}
-            className={cn(
-              "relative min-h-0 overflow-hidden bg-surface-3",
-              images.length === 3 && index === 0 && "row-span-2",
-            )}
-            style={{ background: attachment.image?.dominantColor || undefined }}
-          >
-            <img
-              src={imageUrl(attachment.image, images.length === 1 ? 640 : 320)}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              draggable={false}
-              className="size-full object-cover"
-            />
-          </button>
-        ))}
+        {images.map((attachment, index) => {
+          const about = detail(attachment);
+          const hidden = about?.sensitive && !revealed.has(attachment.assetId);
+          return (
+            <button
+              key={attachment.assetId || index}
+              type="button"
+              aria-label={
+                hidden
+                  ? t("media.revealSensitive")
+                  : about?.altText || t("media.open", { index: index + 1, count: images.length })
+              }
+              onClick={() =>
+                hidden ? setRevealed(new Set([...revealed, attachment.assetId])) : setViewing(index)
+              }
+              className={cn(
+                "relative min-h-0 overflow-hidden bg-surface-3",
+                images.length === 3 && index === 0 && "row-span-2",
+                images.length > 4 && "aspect-square",
+              )}
+              style={{ background: attachment.image?.dominantColor || undefined }}
+            >
+              <img
+                src={imageUrl(attachment.image, images.length === 1 ? 640 : 320)}
+                alt={about?.altText ?? ""}
+                title={about?.altText || undefined}
+                loading="lazy"
+                decoding="async"
+                draggable={false}
+                className={cn("size-full object-cover", hidden && "scale-110 blur-xl")}
+              />
+              {hidden && (
+                <span className="absolute inset-0 grid place-items-center bg-black/30 text-xs font-black text-white">
+                  {t("media.sensitive")}
+                </span>
+              )}
+              {!hidden && about?.altText && (
+                <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] font-black text-white">
+                  ALT
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
       {viewing !== undefined && (
         <ImageViewer

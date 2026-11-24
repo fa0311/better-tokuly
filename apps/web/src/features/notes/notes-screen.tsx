@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Bookmark, CalendarHeart, History, Sparkles } from "lucide-react";
+import { Bookmark, CalendarHeart, History, NotebookPen, Sparkles, VolumeX } from "lucide-react";
 import { type ReactNode, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
@@ -10,7 +10,7 @@ import { useHomeFeed } from "./feed/api";
 import { HomeFeed, hasMoreThanNotes } from "./feed/home-feed";
 import { ComposeButton, NotesPage, useScroller } from "./shell";
 import { Timeline, type TimelineHandle, TimelineSkeleton } from "./timeline";
-import { TrendingHashtags } from "./trending";
+import { TrendingHashtags, TrendingNotes } from "./trending";
 
 export const NOTES_TABS = ["feed", "home", "following", "global", "mentions"] as const;
 export type NotesTab = (typeof NOTES_TABS)[number];
@@ -88,6 +88,7 @@ export function NotesScreen({
           <TrendingHashtags layout="strip" />
         </div>
       )}
+      {tab === "global" && <TrendingNotes />}
       {tab === undefined && <TimelineSkeleton />}
       {tab === "feed" && (
         <HomeFeed
@@ -191,6 +192,8 @@ function Shortcuts() {
     { to: "/activity", label: t("shortcuts.activity"), icon: History, tint: "bg-mint" },
     { to: "/stories/archive", label: t("shortcuts.archive"), icon: CalendarHeart, tint: "bg-pink" },
     { to: "/recap", label: t("shortcuts.recap"), icon: Sparkles, tint: "bg-sun" },
+    { to: "/notes/drafts", label: t("shortcuts.drafts"), icon: NotebookPen, tint: "bg-lime" },
+    { to: "/settings/notes", label: t("shortcuts.mutes"), icon: VolumeX, tint: "bg-coral" },
   ] as const;
   return (
     <nav aria-label={t("shortcuts.title")} className="rounded-card bg-surface p-2">

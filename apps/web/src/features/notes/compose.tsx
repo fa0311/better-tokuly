@@ -1,7 +1,17 @@
+import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { common, errorReason, media, type notes, social } from "@tokuly/api";
-import { ChevronDown, EyeOff, ImagePlus, MapPin, Smile, X } from "lucide-react";
+import {
+  BarChart3,
+  CalendarClock,
+  ChevronDown,
+  EyeOff,
+  ImagePlus,
+  MapPin,
+  Smile,
+  X,
+} from "lucide-react";
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -25,7 +35,15 @@ import { errorMessage } from "#/lib/errors";
 import { useLocations } from "#/stores/locations";
 import { useMe } from "#/stores/session";
 import { postNote } from "./actions";
-import { notesKeys, useHashtagSearch, useTrendingHashtags } from "./api";
+import { draftClient, notesKeys, useHashtagSearch, useTrendingHashtags } from "./api";
+import {
+  newPoll,
+  type PollDraft,
+  PollEditor,
+  pollInput,
+  pollReady,
+  ScheduleField,
+} from "./compose-extras";
 import { type ComposeContext, closeCompose, useCompose } from "./compose-store";
 import { discardDraft, draftKey, loadDraft, saveDraft } from "./drafts";
 import { NoteBody } from "./note-card";
@@ -38,7 +56,9 @@ const friendClient = () => api().service(social.FriendService);
 
 /** A note's place tag name may be this long. */
 const PLACE_NAME_MAX = 100;
-const MAX_IMAGES = 4;
+const MAX_IMAGES = 10;
+/** The count of characters shows only near the end: a quick note stays quick. */
+const COUNT_FROM = NOTE_MAX_CHARS - 200;
 
 /** The composer of the app. It is mounted once (with the notes background) and opened through `openCompose`. */
 export function ComposeHost() {
@@ -136,6 +156,11 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
   );
   const [audienceOpen, setAudienceOpen] = useState(false);
   const [contentWarning, setContentWarning] = useState(draft?.contentWarning ?? false);
+  const [warningText, setWarningText] = useState("");
+  const [details, setDetails] = useState<Record<string, { alt: string; sensitive: boolean }>>({});
+  const [poll, setPoll] = useState<PollDraft>();
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState<number>();
   const [stamp, setStamp] = useState<common.StampRef>();
   const [place, setPlace] = useState<PlaceDraft>();
   const [placeOpen, setPlaceOpen] = useState(false);
@@ -177,7 +202,8 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
 
   const length = charCount(text.trim());
   const over = length > NOTE_MAX_CHARS;
-  const hasContent = text.trim() !== "" || uploads.uploads.length > 0 || stamp !== undefined;
+  const hasContent =
+    text.trim() !== "" || uploads.uploads.length > 0 || stamp !== undefined || poll !== undefined;
   const mustAgree = rules.data ? !rules.data.agreed : true;
 
   // The field grows with the text.
@@ -206,6 +232,48 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
     closeCompose();
   };
 
+  const attachmentDetails = uploads.uploads.flatMap((upload) => {
+    const about = details[upload.key];
+    return upload.assetId && about
+      ? [{ assetId: upload.assetId, altText: about.alt, sensitive: about.sensitive }]
+      : [];
+  });
+  /** What a server draft or a scheduled note holds. */
+  const draftContent = () => ({
+    text: text.trim(),
+    assetIds: uploads.assetIds,
+    stampId: stamp?.id ?? "",
+    place: place ? { name: place.name, location: { lat: place.lat, lng: place.lng } } : undefined,
+    visibility: chosenAudience?.visibility ?? common.Visibility.UNSPECIFIED,
+    circleId: chosenAudience?.circleId ?? "",
+    directUserIds: chosenAudience?.directUserIds ?? [],
+    replyToId: context.replyTo?.id ?? "",
+    quoteOfId: context.quote?.id ?? "",
+    contentWarning,
+    contentWarningText: contentWarning ? warningText : "",
+    attachmentDetails,
+    poll: poll ? pollInput(poll) : undefined,
+  });
+  const saveToServer = useMutation({
+    mutationFn: (scheduled?: number) =>
+      draftClient().saveDraft({
+        content: draftContent(),
+        scheduledAt: scheduled ? timestampFromMs(scheduled) : undefined,
+      }),
+    onSuccess: (_, scheduled) => {
+      discardDraft(user.id, key);
+      closeCompose();
+      void queryClient.invalidateQueries({ queryKey: notesKeys.drafts });
+      toast.success(t(scheduled ? "toast.scheduled" : "toast.draftSaved"), {
+        action: {
+          label: t("toast.toDrafts"),
+          onClick: () => void navigate({ to: "/notes/drafts" }),
+        },
+      });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+
   const post = useMutation({
     mutationFn: () =>
       postNote(queryClient, {
@@ -221,6 +289,9 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
         replyToId: context.replyTo?.id ?? "",
         quoteOfId: context.quote?.id ?? "",
         contentWarning,
+        contentWarningText: contentWarning ? warningText : "",
+        attachmentDetails,
+        poll: poll ? pollInput(poll) : undefined,
         idempotencyKey,
       }),
     onSuccess: (note) => {
@@ -240,7 +311,16 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
       toast.error(errorMessage(error));
     },
   });
-  const canPost = hasContent && !over && !uploads.busy && !post.isPending;
+  const canPost =
+    hasContent &&
+    !over &&
+    !uploads.busy &&
+    !post.isPending &&
+    !saveToServer.isPending &&
+    (!poll || pollReady(poll)) &&
+    (!scheduleOpen || scheduleAt !== undefined);
+  const submit = () =>
+    scheduleOpen && scheduleAt ? saveToServer.mutate(scheduleAt) : post.mutate();
 
   const accept = (suggestion: Suggestion) => {
     if (!completion) return;
@@ -281,7 +361,7 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
     }
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canPost) {
       event.preventDefault();
-      post.mutate();
+      submit();
     }
   };
 
@@ -311,18 +391,29 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
             <span
               className={cn(
                 "mr-auto self-center text-sm font-black tabular-nums",
-                over
-                  ? "text-danger"
-                  : length > NOTE_MAX_CHARS - 20
-                    ? "text-coral"
-                    : "text-ink-faint",
+                over ? "text-danger" : "text-coral",
               )}
               aria-live="polite"
             >
-              {length}/{NOTE_MAX_CHARS}
+              {length > COUNT_FROM && `${length}/${NOTE_MAX_CHARS}`}
             </span>
-            <Button disabled={!canPost} loading={post.isPending} onClick={() => post.mutate()}>
-              {context.replyTo ? t("compose.reply") : t("compose.post")}
+            <Button
+              variant="ghost"
+              disabled={!hasContent || over || uploads.busy || saveToServer.isPending}
+              onClick={() => saveToServer.mutate(undefined)}
+            >
+              {t("compose.saveDraft")}
+            </Button>
+            <Button
+              disabled={!canPost}
+              loading={post.isPending || saveToServer.isPending}
+              onClick={submit}
+            >
+              {scheduleOpen && scheduleAt
+                ? t("compose.schedule.submit")
+                : context.replyTo
+                  ? t("compose.reply")
+                  : t("compose.post")}
             </Button>
           </>
         )
@@ -437,10 +528,17 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
           )}
 
           {contentWarning && (
-            <p className="mt-3 flex items-center gap-2 rounded-xl border-2 border-dashed border-line px-3 py-2 text-sm font-bold text-ink-soft">
+            <label className="mt-3 flex items-center gap-2 rounded-xl border-2 border-dashed border-line px-3 py-2 text-sm font-bold text-ink-soft">
               <EyeOff className="size-4 shrink-0" />
-              {t("compose.sensitiveOn")}
-            </p>
+              <input
+                value={warningText}
+                maxLength={100}
+                aria-label={t("compose.warningText")}
+                placeholder={t("compose.warningPlaceholder")}
+                onChange={(event) => setWarningText(event.target.value)}
+                className="min-w-0 flex-1 bg-transparent outline-none"
+              />
+            </label>
           )}
 
           {uploads.uploads.length > 0 && (
@@ -450,14 +548,36 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
                 uploads.uploads.length === 1 ? "grid-cols-1" : "grid-cols-2",
               )}
             >
-              {uploads.uploads.map((upload) => (
-                <UploadTile
-                  key={upload.key}
-                  upload={upload}
-                  onRemove={() => uploads.remove(upload.key)}
-                  className={uploads.uploads.length === 1 ? "aspect-video" : "aspect-square"}
-                />
-              ))}
+              {uploads.uploads.map((upload) => {
+                const about = details[upload.key] ?? { alt: "", sensitive: false };
+                const set = (next: Partial<typeof about>) =>
+                  setDetails({ ...details, [upload.key]: { ...about, ...next } });
+                return (
+                  <div key={upload.key} className="flex flex-col gap-1">
+                    <UploadTile
+                      upload={upload}
+                      onRemove={() => uploads.remove(upload.key)}
+                      className={uploads.uploads.length === 1 ? "aspect-video" : "aspect-square"}
+                    />
+                    <input
+                      value={about.alt}
+                      maxLength={1500}
+                      aria-label={t("compose.altText")}
+                      placeholder={t("compose.altText")}
+                      onChange={(event) => set({ alt: event.target.value })}
+                      className="h-8 rounded-lg border-2 border-line bg-surface px-2 text-xs font-bold outline-none focus:border-ink"
+                    />
+                    <label className="flex items-center gap-1.5 text-xs font-bold text-ink-soft">
+                      <input
+                        type="checkbox"
+                        checked={about.sensitive}
+                        onChange={(event) => set({ sensitive: event.target.checked })}
+                      />
+                      {t("compose.sensitiveMedia")}
+                    </label>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -497,6 +617,19 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
               onSave={(next) => {
                 setPlace(next);
                 setPlaceOpen(false);
+              }}
+            />
+          )}
+
+          {poll && (
+            <PollEditor poll={poll} onChange={setPoll} onRemove={() => setPoll(undefined)} />
+          )}
+          {scheduleOpen && (
+            <ScheduleField
+              value={scheduleAt}
+              onChange={(value) => {
+                setScheduleAt(value);
+                if (value === undefined) setScheduleOpen(false);
               }}
             />
           )}
@@ -547,6 +680,25 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
             >
               <EyeOff className="size-5" />
             </ToolButton>
+            <ToolButton
+              label={t("compose.poll.title")}
+              pressed={poll !== undefined}
+              onClick={() => setPoll(poll ? undefined : newPoll())}
+            >
+              <BarChart3 className="size-5" />
+            </ToolButton>
+            {!context.replyTo && (
+              <ToolButton
+                label={t("compose.schedule.label")}
+                pressed={scheduleOpen}
+                onClick={() => {
+                  setScheduleOpen(!scheduleOpen);
+                  if (scheduleOpen) setScheduleAt(undefined);
+                }}
+              >
+                <CalendarClock className="size-5" />
+              </ToolButton>
+            )}
             <span className="flex-1" />
             <button
               type="button"

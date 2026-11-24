@@ -3,16 +3,20 @@ import { Link } from "@tanstack/react-router";
 import { common, engagement, type notes } from "@tokuly/api";
 import {
   BarChart3,
+  BellOff,
   Ellipsis,
   Flag,
   Globe,
   Heart,
+  History,
   Link2,
   MessageCircle,
+  Pencil,
   Pin,
   PinOff,
   Quote,
   Repeat2,
+  RotateCcw,
   Trash2,
   UsersRound,
 } from "lucide-react";
@@ -43,6 +47,14 @@ import { useMe } from "#/stores/session";
 import { useDeleteNote, useLike, usePin, useRenote, useSetVisibility } from "./actions";
 import { noteClient, notesKeys } from "./api";
 import { openCompose } from "./compose-store";
+import {
+  EditDialog,
+  HistoryDialog,
+  NoteAnalyticsPanel,
+  useHideRenotes,
+  useMuteThread,
+  useRedraft,
+} from "./note-extras";
 import { type Audience, noteAudience, sameAudience, VisibilityChoices } from "./visibility";
 
 export const noteSubject = (noteId: string): Subject => ({
@@ -150,20 +162,40 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
   );
 }
 
-type Sheet = "delete" | "visibility" | "likers" | "renoters" | "report" | "stats";
+type Sheet =
+  | "delete"
+  | "visibility"
+  | "likers"
+  | "renoters"
+  | "report"
+  | "stats"
+  | "edit"
+  | "history";
 
 /**
  * The "more" menu of a note: copy its link, see who liked and renoted it,
  * and — on the viewer's own notes — pin it, change who sees it, look at its
  * numbers or delete it; on other people's notes, report it.
  */
-export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): void }) {
+export function NoteMenu({
+  note,
+  renoter,
+  onDeleted,
+}: {
+  note: notes.Note;
+  /** Set on a renote row: who renoted it, whose renotes can be hidden from here. */
+  renoter?: common.UserSummary;
+  onDeleted?(): void;
+}) {
   const { t } = useTranslation("notes");
   const me = useMe();
   const [sheet, setSheet] = useState<Sheet>();
   const copyLink = useCopySubjectLink(noteSubject(note.id));
   const pin = usePin();
   const remove = useDeleteNote();
+  const redraft = useRedraft();
+  const muteThread = useMuteThread();
+  const hideRenotes = useHideRenotes();
   const [deleting, setDeleting] = useState(false);
   const mine = Boolean(me?.user && note.author?.id === me.user.id);
   const close = () => setSheet(undefined);
@@ -179,7 +211,32 @@ export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): 
       icon: <Repeat2 />,
       onSelect: () => setSheet("renoters"),
     });
+  if (note.editCount > 0)
+    actions.push({
+      label: t("edit.history"),
+      icon: <History />,
+      onSelect: () => setSheet("history"),
+    });
+  if (me?.user && renoter && renoter.id !== me.user.id)
+    actions.push({
+      label: t("mutes.hideRenotes", { name: renoter.displayName || renoter.handle }),
+      icon: <Repeat2 />,
+      onSelect: () => void hideRenotes(renoter.id),
+    });
+  if (me?.user)
+    actions.push({
+      label: note.viewer?.threadMuted ? t("mutes.unmuteThread") : t("mutes.muteThread"),
+      icon: <BellOff />,
+      onSelect: () => void muteThread(note, !note.viewer?.threadMuted),
+    });
   if (mine) {
+    if (note.viewer?.canEdit)
+      actions.push({ label: t("edit.title"), icon: <Pencil />, onSelect: () => setSheet("edit") });
+    actions.push({
+      label: t("edit.redraft"),
+      icon: <RotateCcw />,
+      onSelect: () => void redraft(note),
+    });
     actions.push(
       note.pinned
         ? { label: t("menu.unpin"), icon: <PinOff />, onSelect: () => void pin(note, false) }
@@ -236,6 +293,8 @@ export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): 
       {sheet === "likers" && <PeopleDialog kind="likers" noteId={note.id} onClose={close} />}
       {sheet === "renoters" && <PeopleDialog kind="renoters" noteId={note.id} onClose={close} />}
       {sheet === "stats" && <StatsDialog note={note} onClose={close} />}
+      {sheet === "edit" && <EditDialog note={note} onClose={close} />}
+      {sheet === "history" && <HistoryDialog note={note} onClose={close} />}
       <ReportDialog
         subject={noteSubject(note.id)}
         open={sheet === "report"}
@@ -374,7 +433,9 @@ function StatsDialog({ note, onClose }: { note: notes.Note; onClose(): void }) {
           label={t("stats.shares")}
           value={number(shares.data?.shareCount ?? data?.shareCount)}
         />
+        <Stat label={t("stats.clips")} value={number(counters?.clipCount)} />
       </dl>
+      <NoteAnalyticsPanel noteId={note.id} />
       {shares.data && shares.data.targets.length > 0 && (
         <div className="mt-4">
           <h3 className="flex items-center gap-1.5 text-sm font-black text-ink-soft">

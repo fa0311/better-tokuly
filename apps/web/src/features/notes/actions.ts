@@ -7,7 +7,6 @@ import { useMe } from "#/stores/session";
 import {
   bumpCounter,
   findCachedNote,
-  mapNotes,
   markNoteDeleted,
   noteClient,
   notesKeys,
@@ -144,31 +143,19 @@ export function useDeleteNote(): (note: notes.Note) => Promise<boolean> {
   };
 }
 
-/** Pins a note to the viewer's profile (replacing the one pinned before) or removes the pin. */
+/** Pins a note to the viewer's profile (up to five) or takes it off. */
 export function usePin(): (note: notes.Note, pinned: boolean) => Promise<void> {
   const queryClient = useQueryClient();
   const me = useMe();
   return async (note, pinned) => {
     try {
       if (pinned) await noteClient().pinNote({ noteId: note.id });
-      else await noteClient().unpinNote({});
+      else await noteClient().unpinNote({ noteId: note.id });
     } catch (error) {
       toast.error(errorMessage(error));
       return;
     }
-    // One pin per profile: every other note of the viewer loses the flag.
-    for (const query of queryClient.getQueryCache().findAll({ queryKey: notesKeys.all })) {
-      const data = query.state.data;
-      if (data === undefined) continue;
-      const next = mapNotes(data, (current) => {
-        const shouldBePinned = pinned && current.id === note.id;
-        return current.author?.id === note.author?.id && current.pinned !== shouldBePinned
-          ? { ...current, pinned: shouldBePinned }
-          : current;
-      });
-      if (next !== data)
-        queryClient.setQueryData(query.queryKey, next, { updatedAt: query.state.dataUpdatedAt });
-    }
+    patchNote(queryClient, note.id, (current) => ({ ...current, pinned }));
     if (me?.user)
       void queryClient.invalidateQueries({ queryKey: notesKeys.userTimelines(me.user.id) });
     toast.success(say(pinned ? "toast.pinned" : "toast.unpinned"));

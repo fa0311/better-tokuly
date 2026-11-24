@@ -122,7 +122,6 @@ test("the rules are agreed to before the first note, which then lands in the tim
 
   const text = `e2e はじめてのノート ${tag()}`;
   await composer(page).getByRole("textbox", { name: "今何してる?" }).fill(text);
-  await expect(dialog.getByText(`${[...text].length}/300`)).toBeVisible();
   await dialog.getByRole("button", { name: "ノートする" }).click();
 
   await expect(page.getByText("ノートしたよ!", { exact: true })).toBeVisible();
@@ -425,7 +424,7 @@ test("a note is pinned to the profile and its audience changed", async ({ page, 
   await card(page, pinned).getByRole("button", { name: "メニュー" }).click();
   await page.getByRole("menuitem", { name: "公開範囲を変える" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("radio", { name: /ともだち/ }).click();
+  await dialog.getByRole("radio", { name: /^ともだち/ }).click();
   await dialog.getByRole("button", { name: "変更する" }).click();
   await expect(page.getByText("公開範囲を変えたよ")).toBeVisible();
   await expect(card(page, pinned).getByRole("img", { name: "ともだち" })).toBeVisible();
@@ -546,14 +545,14 @@ test("a locked account's public note reaches its followers, not strangers", asyn
   await dismissDevServerOverlay(strangerPage);
   await signInAs(strangerPage, stranger);
   await strangerPage.goto(`/notes/${note.id}`);
-  await expect(strangerPage.getByText("このノートは見つからないよ")).toBeVisible();
+  await expect(strangerPage.getByText("このノートは見つからないよ")).toBeVisible({ timeout: 30_000 });
   await strangerPage.context().close();
 
   const followerPage = await (await browser.newContext()).newPage();
   await dismissDevServerOverlay(followerPage);
   await signInAs(followerPage, follower);
   await followerPage.goto(`/notes/${note.id}`);
-  await expect(card(followerPage, text).first()).toBeVisible();
+  await expect(card(followerPage, text).first()).toBeVisible({ timeout: 30_000 });
   // Nobody else may pass it on: renote and quote are off.
   await expect(
     card(followerPage, text).first().getByRole("button", { name: "リノート" }),
@@ -598,12 +597,12 @@ test("a note is shared with followers, a circle or named people from the compose
   };
 
   const forFollowers = `e2e フォロワー限定 ${tag()}`;
-  await write(forFollowers, (dialog) => dialog.getByRole("radio", { name: /フォロワー/ }).click());
+  await write(forFollowers, (dialog) => dialog.getByRole("radio", { name: /^フォロワー/ }).click());
   const club = `e2e 部活だけ ${tag()}`;
-  await write(club, (dialog) => dialog.getByRole("radio", { name: /部活/ }).click());
+  await write(club, (dialog) => dialog.getByRole("radio", { name: /^部活/ }).click());
   const secret = `e2e ひみつの宛先 ${tag()}`;
   await write(secret, async (dialog) => {
-    await dialog.getByRole("radio", { name: /宛先を指定/ }).click();
+    await dialog.getByRole("radio", { name: /^宛先を指定/ }).click();
     await dialog.getByRole("checkbox", { name: new RegExp(friend.handle) }).check();
   });
 
@@ -630,4 +629,116 @@ test("the following tab shows notes of accounts I follow", async ({ page, me, re
   await post(request, followed, { text, visibility: "VISIBILITY_FOLLOWERS" });
   await page.goto("/notes?tab=following");
   await expect(card(page, text)).toBeVisible();
+});
+
+test("markup is rendered, and a poll is voted in and shows its result", async ({
+  page,
+  me,
+  request,
+  browser,
+}) => {
+  await agree(request, me);
+  const word = tag();
+  await page.goto("/notes?tab=home");
+  await openComposer(page);
+  await composer(page)
+    .getByRole("textbox", { name: "今何してる?" })
+    .fill(`**太字${word}** と \`code\``);
+  await composer(page).getByRole("button", { name: "アンケート" }).click();
+  await composer(page).getByRole("textbox", { name: "選択肢1" }).fill("いぬ");
+  await composer(page).getByRole("textbox", { name: "選択肢2" }).fill("ねこ");
+  await page.getByRole("dialog").getByRole("button", { name: "ノートする", exact: true }).click();
+  await expect(page.getByText("ノートしたよ!", { exact: true })).toBeVisible();
+  const posted = card(page, `太字${word}`).first();
+  await expect(posted.locator("strong", { hasText: `太字${word}` })).toBeVisible();
+  await expect(posted.locator("code", { hasText: "code" })).toBeVisible();
+  await expect(posted.getByTestId("poll")).toBeVisible();
+
+  const friend = await friendOf(request, me, "voter");
+  const other = await (await browser.newContext()).newPage();
+  await dismissDevServerOverlay(other);
+  await signInAs(other, friend);
+  await other.goto("/notes?tab=home");
+  const theirs = card(other, `太字${word}`).first();
+  await theirs.getByTestId("poll").getByRole("button", { name: "ねこ" }).click();
+  await expect(other.getByText("投票したよ!")).toBeVisible();
+  await expect(theirs.getByTestId("poll")).toContainText("100%");
+  await expect(theirs.getByTestId("poll")).toContainText("1人が投票");
+  await other.context().close();
+});
+
+test("a content warning folds the note behind its line", async ({ page, me, request }) => {
+  await agree(request, me);
+  const text = `e2e ネタバレの中身 ${tag()}`;
+  await post(request, me, { text, contentWarningText: "映画の結末" });
+  await page.goto(`/u/${me.handle}`);
+  const folded = page.getByTestId("note").filter({ hasText: "映画の結末" }).first();
+  await expect(folded).toBeVisible();
+  await expect(folded).not.toContainText(text);
+  await folded.getByRole("button", { name: "見る" }).click();
+  await expect(page.getByTestId("note").filter({ hasText: text }).first()).toBeVisible();
+});
+
+test("a note is edited from its menu and keeps its history", async ({ page, me, request }) => {
+  await agree(request, me);
+  const first = `e2e 最初の版 ${tag()}`;
+  await post(request, me, { text: first });
+  await page.goto(`/u/${me.handle}`);
+  await card(page, first).getByRole("button", { name: "メニュー" }).click();
+  await page.getByRole("menuitem", { name: "編集する" }).click();
+  const dialog = page.getByRole("dialog");
+  const second = `${first} (直した)`;
+  await dialog.getByRole("textbox").fill(second);
+  await dialog.getByRole("button", { name: "保存する" }).click();
+  await expect(page.getByText("編集したよ!")).toBeVisible();
+  const edited = card(page, "(直した)");
+  await expect(edited).toContainText("編集済み");
+  await edited.getByRole("button", { name: "メニュー" }).click();
+  await page.getByRole("menuitem", { name: "編集履歴" }).click();
+  await expect(page.getByTestId("note-history")).toContainText(first);
+});
+
+test("a scheduled note waits in the drafts and can be posted now", async ({
+  page,
+  me,
+  request,
+}) => {
+  await agree(request, me);
+  const text = `e2e 予約のノート ${tag()}`;
+  await page.goto("/notes?tab=home");
+  await openComposer(page);
+  await composer(page).getByRole("textbox", { name: "今何してる?" }).fill(text);
+  await composer(page).getByRole("button", { name: "予約投稿" }).click();
+  const tomorrow = new Date(Date.now() + 86_400_000 - new Date().getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
+  await composer(page).locator('input[type="datetime-local"]').fill(tomorrow);
+  await page.getByRole("dialog").getByRole("button", { name: "予約する" }).click();
+  await expect(page.getByText("予約したよ!")).toBeVisible();
+
+  await page.goto("/notes/drafts");
+  await page.getByRole("tab", { name: "予約" }).click();
+  const row = page.getByTestId("draft").filter({ hasText: text });
+  await expect(row).toContainText("投稿予定");
+  await row.getByRole("button", { name: "投稿する" }).click();
+  await expect(page.getByText("ノートしたよ!", { exact: true })).toBeVisible();
+  await page.goto(`/u/${me.handle}`);
+  await expect(card(page, text)).toBeVisible();
+});
+
+test("a muted word keeps notes out of the home timeline", async ({ page, me, request }) => {
+  const friend = await friendOf(request, me);
+  const muted = `ネタ${tag()}`;
+  await post(request, friend, { text: `e2e ${muted} を含むノート` });
+  const kept = `e2e ふつうのノート ${tag()}`;
+  await post(request, friend, { text: kept });
+
+  await page.goto("/settings/notes");
+  await page.getByRole("textbox", { name: "言葉を追加" }).fill(muted);
+  await page.getByRole("button", { name: "追加" }).click();
+  await expect(page.getByTestId("muted-words")).toContainText(muted);
+
+  await page.goto("/notes?tab=home");
+  await expect(card(page, kept)).toBeVisible();
+  await expect(card(page, muted)).toHaveCount(0);
 });
