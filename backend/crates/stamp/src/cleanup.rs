@@ -125,6 +125,32 @@ impl Stamp {
         Ok(())
     }
 
+    /// Deletes a pack whose creator's account was erased once nothing keeps
+    /// it any more: no purchase and no open order (see
+    /// `erase_pack_of_deleted_creator`, which kept it for them). Called when
+    /// an order ends without a purchase.
+    pub(crate) async fn erase_if_creator_gone(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        pack_id: Uuid,
+    ) -> AppResult<()> {
+        let orphaned: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM stamp_packs p JOIN users u ON u.id = p.creator_id
+                            WHERE p.id = $1 AND u.deleted_at IS NOT NULL)",
+        )
+        .bind(pack_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if !orphaned {
+            return Ok(());
+        }
+        let pack = packs::lock(tx, pack_id).await?;
+        if !crate::studio_svc::has_buyers(tx, pack.id).await? {
+            packs::delete(tx, &pack).await?;
+        }
+        Ok(())
+    }
+
     /// `media.asset.deleted`: the files of an upload are gone, so the stamps
     /// that showed it are removed rather than left with a broken picture.
     ///

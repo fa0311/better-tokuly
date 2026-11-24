@@ -57,6 +57,28 @@ pub async fn balance(core: &Core, user_id: Uuid) -> AppResult<Balance> {
     Ok(row.map(|(coins, earnings)| Balance { coins, earnings }).unwrap_or(Balance { coins: 0, earnings: 0 }))
 }
 
+/// A movement as its idempotency key finds it.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct KeyedEntry {
+    #[sqlx(rename = "id")]
+    pub entry_id: Uuid,
+    pub amount: i64,
+    /// Platform fee withheld (transfers; 0 otherwise).
+    pub fee: i64,
+    /// The movement was reversed since.
+    pub refunded: bool,
+}
+
+/// The movement made under `idempotency_key`, if one was. Lets a caller that
+/// lost the answer of a [`spend`] or [`transfer`] (a timeout, a crash) tell
+/// "paid" from "not paid" without making the movement.
+pub async fn find_by_key(core: &Core, idempotency_key: &str) -> AppResult<Option<KeyedEntry>> {
+    Ok(sqlx::query_as("SELECT id, amount, fee, refunded_at IS NOT NULL AS refunded FROM wallet_entries WHERE idempotency_key = $1")
+        .bind(idempotency_key)
+        .fetch_optional(&core.db)
+        .await?)
+}
+
 /// Issues new coins to a user (a purchase, a bonus, an admin adjustment).
 /// Returns the entry ID and whether this call applied it.
 pub async fn grant(core: &Core, user_id: Uuid, amount: i64, reason: &str, idempotency_key: &str, memo: serde_json::Value) -> AppResult<(Uuid, bool)> {

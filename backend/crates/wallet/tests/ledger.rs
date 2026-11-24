@@ -213,3 +213,19 @@ async fn a_retry_of_a_refunded_movement_is_refused() {
     // A different movement under the key is still a reuse, refunded or not.
     assert_eq!(ledger::spend(&app.core, streamer.id, 100, "stamp.pack", &pack_key, serde_json::json!({})).await.unwrap_err().reason, "IDEMPOTENCY_KEY_REUSED");
 }
+
+#[tokio::test]
+async fn a_movement_is_found_by_its_key() {
+    let app = TestApp::start(MIGRATIONS, |_, _, router| router).await;
+    let (payer, payee) = (app.user("payer").await, app.user("payee").await);
+    ledger::grant(&app.core, payer.id, 100, "purchase", &key("grant"), serde_json::json!({})).await.unwrap();
+    let transfer_key = key("transfer");
+    assert_eq!(ledger::find_by_key(&app.core, &transfer_key).await.unwrap(), None, "nothing moved yet");
+
+    let receipt = ledger::transfer(&app.core, payer.id, payee.id, 100, 30, "stamp.pack", &transfer_key, serde_json::json!({})).await.unwrap();
+    let found = ledger::find_by_key(&app.core, &transfer_key).await.unwrap().unwrap();
+    assert_eq!((found.entry_id, found.amount, found.fee, found.refunded), (receipt.entry_id, 100, 30, false));
+
+    ledger::refund(&app.core, receipt.entry_id, "stamp.pack.refund").await.unwrap();
+    assert!(ledger::find_by_key(&app.core, &transfer_key).await.unwrap().unwrap().refunded);
+}

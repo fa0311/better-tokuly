@@ -268,7 +268,7 @@ impl Stamp {
     }
 
     /// The pack `pack_ref` names, whatever its state, if `user_id` has an
-    /// unfinished purchase of it (see `purchases`).
+    /// unfinished purchase of it (see `purchases`) or owns it.
     pub(crate) async fn pack_being_bought(
         &self,
         user_id: Uuid,
@@ -282,11 +282,9 @@ impl Stamp {
         .bind(pack.id)
         .fetch_one(&self.core.db)
         .await?;
-        if !buying {
-            return Ok(None);
-        }
         let holding = holding(&self.core, Some(user_id), pack.id).await?;
-        Ok(Some((pack, holding)))
+        // Owned by now: a concurrent settler finished the order in between.
+        Ok((buying || holding.owned).then_some((pack, holding)))
     }
 
     /// The pack `pack_ref` names, if `viewer` may edit it.

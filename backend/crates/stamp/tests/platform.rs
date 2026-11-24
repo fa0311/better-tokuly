@@ -493,7 +493,8 @@ async fn pruning_drops_old_usage_rows_and_abandoned_purchase_intents() {
     sqlx::query(oldest_row).bind(user.id).execute(&core.db).await.unwrap();
     // A purchase abandoned two days ago whose payment never went through.
     sqlx::query(
-        "INSERT INTO stamp_purchase_intents (user_id, pack_id, price, created_at) VALUES ($1, $2, 100, now() - interval '2 days')",
+        "INSERT INTO stamp_purchase_intents (user_id, pack_id, price, payment_key, created_at)
+         VALUES ($1, $2, 100, 'stamp-pack:abandoned:' || $1::text, now() - interval '2 days')",
     )
     .bind(user.id)
     .bind(pack_uuid)
@@ -502,7 +503,7 @@ async fn pruning_drops_old_usage_rows_and_abandoned_purchase_intents() {
     .unwrap();
 
     assert!(stats::prune(core, 180).await.unwrap() >= 1);
-    // It is settled, not swept: the payment is refused, so it is over.
+    // It is settled, not swept: it was never paid, so it is over.
     assert!(ctx.stamp.settle_unfinished_purchases().await.unwrap() >= 1);
     let remaining: i64 = sqlx::query_scalar("SELECT count(*) FROM stamp_usage WHERE user_id = $1")
         .bind(user.id)
