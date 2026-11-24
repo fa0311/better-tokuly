@@ -9,6 +9,7 @@ import {
   Heart,
   Link2,
   MessageCircle,
+  Paperclip,
   Pin,
   PinOff,
   Quote,
@@ -42,6 +43,7 @@ import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { useDeleteNote, useLike, usePin, useRenote, useSetVisibility } from "./actions";
 import { noteClient, notesKeys } from "./api";
+import { AddToClipSheet } from "./clips-sheet";
 import { openCompose } from "./compose-store";
 import { type Audience, noteAudience, sameAudience, VisibilityChoices } from "./visibility";
 
@@ -150,7 +152,7 @@ export function NoteActions({ note, className }: { note: notes.Note; className?:
   );
 }
 
-type Sheet = "delete" | "visibility" | "likers" | "renoters" | "report" | "stats";
+type Sheet = "delete" | "visibility" | "likers" | "renoters" | "report" | "stats" | "clip";
 
 /**
  * The "more" menu of a note: copy its link, see who liked and renoted it,
@@ -179,6 +181,8 @@ export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): 
       icon: <Repeat2 />,
       onSelect: () => setSheet("renoters"),
     });
+  if (me?.user)
+    actions.push({ label: t("clips:menu"), icon: <Paperclip />, onSelect: () => setSheet("clip") });
   if (mine) {
     actions.push(
       note.pinned
@@ -236,6 +240,7 @@ export function NoteMenu({ note, onDeleted }: { note: notes.Note; onDeleted?(): 
       {sheet === "likers" && <PeopleDialog kind="likers" noteId={note.id} onClose={close} />}
       {sheet === "renoters" && <PeopleDialog kind="renoters" noteId={note.id} onClose={close} />}
       {sheet === "stats" && <StatsDialog note={note} onClose={close} />}
+      {sheet === "clip" && <AddToClipSheet note={note} onClose={close} />}
       <ReportDialog
         subject={noteSubject(note.id)}
         open={sheet === "report"}
@@ -368,6 +373,7 @@ function StatsDialog({ note, onClose }: { note: notes.Note; onClose(): void }) {
         <Stat label={t("stats.renotes")} value={number(counters?.renoteCount)} />
         <Stat label={t("stats.quotes")} value={number(counters?.quoteCount)} />
         <Stat label={t("stats.replies")} value={number(counters?.replyCount)} />
+        <Stat label={t("clips:stat")} value={number(counters?.clipCount)} />
         <Stat label={t("stats.reactions")} value={number(data?.emojiTotal)} />
         <Stat label={t("stats.saves")} value={number(data?.bookmarkCount)} />
         <Stat

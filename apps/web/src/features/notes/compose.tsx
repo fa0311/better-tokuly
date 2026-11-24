@@ -215,9 +215,13 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
         place: place
           ? { name: place.name, location: { lat: place.lat, lng: place.lng } }
           : undefined,
-        visibility: chosenAudience?.visibility ?? common.Visibility.UNSPECIFIED,
-        circleId: chosenAudience?.circleId ?? "",
-        directUserIds: chosenAudience?.directUserIds ?? [],
+        // A channel note is public: the chosen audience does not apply there.
+        visibility: context.channelId
+          ? common.Visibility.UNSPECIFIED
+          : (chosenAudience?.visibility ?? common.Visibility.UNSPECIFIED),
+        circleId: context.channelId ? "" : (chosenAudience?.circleId ?? ""),
+        directUserIds: context.channelId ? [] : (chosenAudience?.directUserIds ?? []),
+        channelId: context.channelId ?? "",
         replyToId: context.replyTo?.id ?? "",
         quoteOfId: context.quote?.id ?? "",
         contentWarning,

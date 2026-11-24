@@ -219,8 +219,11 @@ function addPostedNote(
 ): void {
   const authorId = note.author?.id;
   const isReply = Boolean(note.replyTo?.noteId);
-  prependNote(queryClient, { kind: "home" }, note);
-  if (!isReply && note.viewer?.canQuote) prependNote(queryClient, { kind: "global" }, note);
+  // A channel note reaches home only through a followed channel, and never the global timeline.
+  const inChannel = Boolean(note.channel?.id);
+  if (!inChannel) prependNote(queryClient, { kind: "home" }, note);
+  if (!isReply && !inChannel && note.viewer?.canQuote)
+    prependNote(queryClient, { kind: "global" }, note);
   for (const tag of note.hashtags) prependNote(queryClient, { kind: "hashtag", tag }, note);
   if (authorId) {
     if (!isReply)

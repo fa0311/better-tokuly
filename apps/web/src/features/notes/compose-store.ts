@@ -9,6 +9,8 @@ export interface ComposeContext {
   quote?: notes.Note;
   /** Text to start from when there is no draft (a hashtag page offers its `#tag`). */
   text?: string;
+  /** The channel to post into (channel notes are public). */
+  channelId?: string;
 }
 
 interface ComposeStore {
