@@ -9,6 +9,7 @@
 //! | [`list`] | the queries behind the lists |
 //! | [`render`] | rows → `tokuly.engagement.v1.Comment` for a viewer |
 //! | [`announce`] | notifications about comments |
+//! | [`kept`] | what edits and deletions removed, kept for reports |
 //!
 //! # Public view
 //!
@@ -27,6 +28,7 @@ use crate::{
 };
 
 pub(crate) mod announce;
+pub(crate) mod kept;
 pub(crate) mod lifecycle;
 pub(crate) mod list;
 pub(crate) mod moderate;
@@ -242,20 +244,6 @@ impl Found {
     /// the comment above it.
     pub(crate) fn visible_parent(&self, viewer: Option<Uuid>) -> Option<&CommentRow> {
         self.parent.as_ref().filter(|parent| parent.visible_to(viewer, self.owner_id(), &self.hidden))
-    }
-}
-
-/// Characters of a comment's text in the title of a report about it.
-const REPORT_TITLE_CHARS: usize = 80;
-
-/// What a report about a comment is titled with: its text, or what it
-/// carries instead.
-pub(crate) fn reported_title(row: &CommentRow) -> String {
-    match crate::text::excerpt(&row.text, REPORT_TITLE_CHARS) {
-        excerpt if !excerpt.is_empty() => excerpt,
-        _ if row.stamp_id.is_some() => "（スタンプ）".to_owned(),
-        _ if row.image_asset_id.is_some() => "（画像）".to_owned(),
-        _ => "コメント".to_owned(),
     }
 }
 

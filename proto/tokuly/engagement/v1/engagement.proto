@@ -972,9 +972,12 @@ message Report {
 service ReportService {
   // Reports a subject — content, a comment (`SUBJECT_TYPE_COMMENT`) or a
   // user (`SUBJECT_TYPE_USER`, by UUID or handle) — to the moderation team.
-  // A user has one open report per subject. A report that has gone
-  // unanswered for a week no longer stands in the way: reporting the subject
-  // again then replaces it (the old one becomes SUPERSEDED).
+  // A comment can be reported by whoever had it in front of them also after
+  // a block, and for 30 days after its author edited or deleted it (the
+  // report then carries every version). A user has one open report per
+  // subject. A report that has gone unanswered for a week no longer stands
+  // in the way: reporting the subject again then replaces it (the old one
+  // becomes SUPERSEDED).
   //
   // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, REPORT_CATEGORY_INVALID,
   // REPORT_TEXT_TOO_LONG (more than 1000 characters), CANNOT_REPORT_OWN

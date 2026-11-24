@@ -72,6 +72,95 @@ async fn a_comment_stays_reportable_across_a_block() {
     ctx.report_comment(&owner, &to_carol.id).await.expect("reportable by the owner after a block");
 }
 
+#[tokio::test]
+async fn a_deleted_comment_stays_reportable_by_those_who_received_it() {
+    let ctx = start().await;
+    let (owner, alice, bob, carol) =
+        (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await);
+    let note = ctx.note(&owner, "友達だけ");
+    ctx.notes.update(note.id, |note| note.audience = Audience::Only(vec![alice.id, bob.id]));
+
+    let comment = ctx.comment(&alice, &note, "ひどいことば").await;
+    ctx.delete(&alice, &comment.id).await;
+    let filed = ctx.report_comment(&bob, &comment.id).await.expect("reportable after its deletion");
+    assert_eq!(filed.subject_title, "ひどいことば");
+    assert_eq!(filed.subject_path, format!("{}?comment={}", note.path, comment.id));
+    let events = ctx.app.events_by("engagement.report.created", bob.id).await;
+    assert_eq!(events[0].data["subject_owner_id"], serde_json::json!(alice.id));
+    // Someone who could never see the note learns nothing.
+    assert_eq!(ctx.report_comment(&carol, &comment.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
+    // Nor can the author report their own words.
+    assert_eq!(ctx.report_comment(&alice, &comment.id).await.unwrap_err(), "CANNOT_REPORT_OWN");
+
+    // A comment that never left the review queue was only ever the owner's to see.
+    ctx.set_rules(&owner, true, false, &[]).await;
+    let held = ctx.comment(&alice, &note, "保留されたひどいことば").await;
+    assert_eq!(held.status, CommentStatus::COMMENT_STATUS_HELD);
+    ctx.delete(&alice, &held.id).await;
+    assert_eq!(ctx.report_comment(&bob, &held.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
+    ctx.report_comment(&owner, &held.id).await.expect("the owner saw it in the review queue");
+
+    // A takedown forgets what was kept.
+    ctx.deliver(
+        "admin.content.removed",
+        None,
+        serde_json::json!({ "subject_type": SubjectType::SUBJECT_TYPE_COMMENT as i32, "subject_id": comment.id }),
+    )
+    .await;
+    assert_eq!(ctx.report_comment(&owner, &comment.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
+}
+
+#[tokio::test]
+async fn an_edited_comment_is_reported_with_every_version() {
+    let ctx = start().await;
+    let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, "ひどいことば").await;
+    ctx.edit(&alice, &comment.id, "ごめんね").await.unwrap();
+    let filed = ctx.report_comment(&bob, &comment.id).await.unwrap();
+    assert_eq!(filed.subject_title, "[2版] ひどいことば → ごめんね");
+
+    // Edited, then deleted: every version is still there.
+    ctx.delete(&alice, &comment.id).await;
+    let filed = ctx.report_comment(&owner, &comment.id).await.unwrap();
+    assert_eq!(filed.subject_title, "[2版] ひどいことば → ごめんね");
+}
+
+#[tokio::test]
+async fn kept_texts_expire_from_their_removal_and_with_the_account() {
+    let ctx = start().await;
+    let (owner, alice, bob) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Bob").await);
+    let video = ctx.video(&owner, "v");
+    let old = ctx.comment(&alice, &video, "昔のひどいことば").await;
+    // Written long ago, deleted now: still reportable.
+    sqlx::query("UPDATE comments SET created_at = now() - interval '90 days' WHERE id = $1::uuid")
+        .bind(&old.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.delete(&alice, &old.id).await;
+    ctx.engagement.purge_removed_comment_texts().await.unwrap();
+    ctx.report_comment(&bob, &old.id).await.expect("kept from its deletion on");
+    // Deleted 31 days ago: gone.
+    sqlx::query("UPDATE comment_removed_texts SET removed_at = now() - interval '31 days' WHERE comment_id = $1::uuid")
+        .bind(&old.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.engagement.purge_removed_comment_texts().await.unwrap();
+    assert_eq!(ctx.report_comment(&owner, &old.id).await.unwrap_err(), "SUBJECT_NOT_FOUND");
+
+    let edited = ctx.comment(&alice, &video, "ひどいことば").await;
+    ctx.edit(&alice, &edited.id, "ごめんね").await.unwrap();
+    ctx.deliver("identity.user.deleted", None, serde_json::json!({ "user_id": alice.id })).await;
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM comment_removed_texts WHERE author_id = $1")
+        .bind(alice.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
+}
+
 // ───────────────────────────── comments ─────────────────────────────
 
 #[tokio::test]

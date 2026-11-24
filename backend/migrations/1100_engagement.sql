@@ -95,6 +95,33 @@ CREATE TABLE comment_mentions (
 
 CREATE INDEX comment_mentions_user ON comment_mentions (user_id);
 
+-- What comments said before their author (or the subject's owner) edited
+-- or deleted them, kept for reports for 30 days from the change: taking
+-- words back must not take away the report of those who read them. No
+-- foreign key to `comments`, which a deleted comment is no longer in.
+CREATE TABLE comment_removed_texts (
+    id               uuid PRIMARY KEY     DEFAULT uuidv7(),
+    comment_id       uuid        NOT NULL,
+    -- The top-level comment, for a reply.
+    parent_id        uuid,
+    subject_type     integer     NOT NULL,
+    subject_id       uuid        NOT NULL,
+    author_id        uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    -- 1: an edit replaced it; 2: the comment was deleted.
+    reason           smallint    NOT NULL CHECK (reason IN (1, 2)),
+    text             text        NOT NULL,
+    -- For a deletion: whether the comment had been in public view, so that
+    -- everyone who sees the subject may have read it.
+    was_public       boolean     NOT NULL DEFAULT false,
+    removed_at       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX comment_removed_texts_comment ON comment_removed_texts (comment_id, removed_at);
+CREATE INDEX comment_removed_texts_parent ON comment_removed_texts (parent_id) WHERE parent_id IS NOT NULL;
+CREATE INDEX comment_removed_texts_subject ON comment_removed_texts (subject_type, subject_id);
+CREATE INDEX comment_removed_texts_author ON comment_removed_texts (author_id);
+CREATE INDEX comment_removed_texts_removed ON comment_removed_texts (removed_at);
+
 -- How a user wants comments on their own subjects screened.
 CREATE TABLE comment_settings (
     user_id       uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,

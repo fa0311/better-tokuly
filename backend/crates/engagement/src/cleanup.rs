@@ -9,7 +9,7 @@ use tokuly_social::graph;
 
 use crate::{
     Engagement,
-    comments::{image_holder, lifecycle, lock_thread, lock_threads_of, status, write::comment_event},
+    comments::{image_holder, kept, lifecycle, lock_thread, lock_threads_of, status, write::comment_event},
     effects::{Effects, Push},
     events::{COMMENT_DELETED, ContentRemoved, ReportResolved},
     reactions::{self, Stored},
@@ -90,6 +90,7 @@ pub(crate) async fn purge_subject(conn: &mut PgConnection, effects: &mut Effects
             .execute(&mut *conn)
             .await?;
     }
+    kept::forget_subject(conn, key).await?;
     forget_subjects(conn, key.kind, &[key.id]).await
 }
 
@@ -108,6 +109,9 @@ impl Engagement {
                 lifecycle::delete(&mut tx, &mut effects, &row, parent.as_mut()).await?;
                 events::emit(&mut *tx, COMMENT_DELETED, removed.moderator_id, &comment_event(&row)).await?;
             }
+            // What its author had removed goes too, also when they deleted
+            // the comment before the moderators got to it.
+            kept::forget(&mut tx, &[key.id]).await?;
         } else {
             purge_subject(&mut tx, &mut effects, key).await?;
         }
@@ -202,8 +206,9 @@ impl Engagement {
     }
 
     /// `identity.user.deleted`: erases what the account left in this
-    /// domain — its comments (with the replies below them), reactions,
-    /// bookmarks, reports, moderation rules and blocks — and everything
+    /// domain — its comments (with the replies below them) and the texts
+    /// kept of them, reactions, bookmarks, reports, moderation rules and
+    /// blocks — and everything
     /// other people left on the subjects it owned, which the owning domains
     /// delete at the same moment.
     ///
@@ -224,6 +229,7 @@ impl Engagement {
             "DELETE FROM comment_mentions WHERE user_id = $1",
             "DELETE FROM comment_settings WHERE user_id = $1",
             "DELETE FROM comment_blocks WHERE owner_id = $1 OR blocked_user_id = $1",
+            "DELETE FROM comment_removed_texts WHERE author_id = $1",
         ] {
             sqlx::query(sql).bind(user_id).execute(&mut *tx).await?;
         }

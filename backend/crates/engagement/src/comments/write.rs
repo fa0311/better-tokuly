@@ -9,7 +9,7 @@ use tokuly_stamp::SendContext;
 use super::{
     CommentRow,
     announce::{Concerned, Reason, Sender},
-    comment_columns, comment_not_found, find, image_holder, lifecycle, lock_thread,
+    comment_columns, comment_not_found, find, image_holder, kept, lifecycle, lock_thread,
 };
 use crate::{
     Engagement,
@@ -356,6 +356,8 @@ impl Engagement {
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
         let (mut row, mut parent) = lock_thread(&mut tx, found.row.id).await?.ok_or_else(comment_not_found)?;
+        // What the people who read it read stays reportable.
+        kept::keep_edited(&mut tx, &row).await?;
         let edited_at: Time =
             sqlx::query_scalar("UPDATE comments SET text = $2, edited_at = now() WHERE id = $1 RETURNING edited_at")
                 .bind(row.id)
@@ -404,6 +406,8 @@ impl Engagement {
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
         let (row, mut parent) = lock_thread(&mut tx, comment_id).await?.ok_or_else(comment_not_found)?;
+        // What the people who read it read stays reportable.
+        kept::keep_deleted(&mut tx, &row).await?;
         let removed = lifecycle::delete(&mut tx, &mut effects, &row, parent.as_mut()).await?;
         events::emit(&mut *tx, COMMENT_DELETED, Some(user_id), &comment_event(&row)).await?;
         tx.commit().await?;

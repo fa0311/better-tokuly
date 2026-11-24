@@ -4,7 +4,8 @@ Crate `tokuly-engagement`, migration `1100_engagement.sql`, API
 `tokuly.engagement.v1` (`CommentService`, `CommentModerationService`,
 `ReactionService`, `BookmarkService`, `EngagementService`, `ReportService`).
 Depends on `identity`, `media` (comment images), `stamp` (comment stamps) and
-`social` (blocks). No ClickHouse table of its own; no background jobs.
+`social` (blocks). No ClickHouse table of its own; no background jobs, one
+timer (the purge of comment texts kept for reports).
 
 Engagement knows no content. Everything attaches to a
 `tokuly.common.v1.SubjectRef` and is authorized through `core.subjects`.
@@ -55,13 +56,21 @@ Engagement itself registers:
   ignores blocks (with the author and with the subject's owner) and asks
   the subject's domain for `resolve_for_report`: whoever had the comment in
   front of them — it is or was in public view, or they own the subject —
-  can report it after a block;
+  can report it after a block, and after its author (or the subject's
+  owner) edited or deleted it. What an edit replaced (up to 20 versions per
+  comment) and what a deletion removed (the comment and the replies that
+  went with it) are kept in `comment_removed_texts` for 30 days from the
+  change; the report is titled with every distinct version, oldest first
+  (`[2版] before → after`, 80 characters each). Nothing else reads them. A
+  takedown, the purge of the subject and the erasure of the author forget
+  them at once;
 - a resolver for `SUBJECT_TYPE_USER` — **only if no other domain registered
   one before `Engagement::new` ran** — resolving any non-erased account by
   UUID or handle (path `/u/<handle>`, interactions disabled), so accounts
   can be reported. A domain that registers users later replaces it;
 - the guard of the realtime topic kind `subject`;
-- a `DataExporter` named `engagement`.
+- a `DataExporter` named `engagement` (comments, the texts of them kept for
+  reports, reactions, collections, reports, screening rules, blocks).
 
 ## Channel identities
 
@@ -105,9 +114,9 @@ idempotent.
 
 | Topic | Reaction |
 |---|---|
-| `admin.content.removed` `{ subject_type, subject_id, … }` | `SUBJECT_TYPE_COMMENT`: the comment is deleted with its replies (counters, realtime and `engagement.comment.deleted` as for any deletion). Any other type: everything engagement kept about the subject is purged — comments with their uploads and likes, reactions, bookmarks, share counts, counters. Either way the open reports about the subject become `ACTION_TAKEN`. |
+| `admin.content.removed` `{ subject_type, subject_id, … }` | `SUBJECT_TYPE_COMMENT`: the comment is deleted with its replies (counters, realtime and `engagement.comment.deleted` as for any deletion). Any other type: everything engagement kept about the subject is purged — comments with their uploads and likes, reactions, bookmarks, share counts, counters. Either way the open reports about the subject become `ACTION_TAKEN`, and the comment texts kept for reports (of the comment and its replies, or of every comment on the subject) are forgotten. |
 | `admin.report.resolved` `{ report_ids: [uuid], action_taken: bool }` | The named reports become `ACTION_TAKEN` / `NO_ACTION`. Emitted by the admin domain when a moderator resolves the case the reports were filed into. |
-| `identity.user.deleted` `{ user_id }` | Erased: the user's comments (threads go with their replies), reactions, bookmarks and collections, reports they filed, screening rules, comment blocks (as owner and as blocked), mentions of them. Purged: everything on the subjects they owned. Reports about them or their content stay, without the owner reference. Counters of other people's subjects follow, with callbacks. Works in batches of 200 per transaction. |
+| `identity.user.deleted` `{ user_id }` | Erased: the user's comments (threads go with their replies), reactions, bookmarks and collections, reports they filed, screening rules, comment blocks (as owner and as blocked), mentions of them, the texts of their comments kept for reports. Purged: everything on the subjects they owned. Reports about them or their content stay, without the owner reference. Counters of other people's subjects follow, with callbacks. Works in batches of 200 per transaction. |
 | `social.user.blocked` `{ user_id, blocked_id }` | Everything either of the two wrote on the other's subjects is hidden (`HIDDEN`, reason `BLOCKED_COMMENTER`) for everyone and leaves the owner's review queue: the blocked user's comments because the blocker asked not to deal with them, the blocker's own because the owner of the content could no longer see, hide or delete them. Unblocking restores nothing; the owner can approve the comments. An event that arrives after the block was lifted changes nothing. |
 | `media.asset.deleted` `{ asset_id, … }` | Safety net for forced deletions (a comment holds its image as `engagement:comment:<id>`, so owners and the janitor cannot delete it). A comment with text loses the image; a comment that was only the image is deleted. |
 
@@ -175,9 +184,10 @@ whenever the number of comments waiting for their review changes.
 | What | Name | Notes |
 |---|---|---|
 | Event consumer | durable `engagement` | topics above; `ack_wait` 120 s (account erasure and purges of busy subjects take a while) |
+| Timer, hourly | removed comment text purge | forgets `comment_removed_texts` 30 days after the edit or deletion (`Engagement::purge_removed_comment_texts`) |
 
-No jobs and no timers: counters are exact by construction (they move in the
-transaction that changes what they count).
+No jobs: counters are exact by construction (they move in the transaction
+that changes what they count).
 
 ## Valkey keys
 

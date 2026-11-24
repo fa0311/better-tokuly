@@ -1,6 +1,8 @@
 //! Background work of the engagement domain: reacting to other domains'
-//! events. There are no timers; counters are exact by construction and
-//! nothing here expires.
+//! events, and forgetting the comment texts kept for reports once they are
+//! old enough. Counters are exact by construction and need no timer.
+use std::time::Duration;
+
 use tokuly_core::{
     events::{self, ConsumeOptions, Event},
     prelude::*,
@@ -15,12 +17,31 @@ use crate::{
     },
 };
 
+/// How often removed comment texts past their retention are forgotten.
+const REMOVED_TEXT_PURGE_INTERVAL: Duration = Duration::from_secs(3600);
+
 impl Engagement {
     /// Starts the engagement workers (worker processes only): the durable
     /// consumer `engagement` of `identity.user.deleted`,
     /// `social.user.blocked`, `social.friend.removed`, `media.asset.deleted`,
-    /// `admin.content.removed` and `admin.report.resolved`.
+    /// `admin.content.removed` and `admin.report.resolved`, and the hourly
+    /// purge of removed comment texts.
     pub fn spawn_workers(&self) {
+        let purging = self.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(REMOVED_TEXT_PURGE_INTERVAL);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    _ = purging.core.shutdown.cancelled() => break,
+                    _ = tick.tick() => {
+                        if let Err(error) = purging.purge_removed_comment_texts().await {
+                            tracing::warn!(%error, "removed comment text purge failed");
+                        }
+                    }
+                }
+            }
+        });
         let engagement = self.clone();
         tokio::spawn(async move {
             let handler = engagement.clone();
@@ -29,7 +50,7 @@ impl Engagement {
                 "engagement",
                 &[USER_DELETED, USER_BLOCKED, FRIEND_REMOVED, ASSET_DELETED, CONTENT_REMOVED, REPORT_RESOLVED],
                 // Erasing an account or purging a busy subject takes a while.
-                ConsumeOptions { ack_wait: std::time::Duration::from_secs(120), ..Default::default() },
+                ConsumeOptions { ack_wait: Duration::from_secs(120), ..Default::default() },
                 engagement.core.shutdown.clone(),
                 move |event| {
                     let engagement = handler.clone();

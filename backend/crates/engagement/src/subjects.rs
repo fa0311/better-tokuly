@@ -323,40 +323,12 @@ impl SubjectResolver for CommentSubjects {
         }))
     }
 
-    /// What the viewer received, for a report and nothing else. Unlike
-    /// [`Self::resolve`], blocks do not count — neither with the comment's
-    /// author nor with the subject's owner — and the subject is asked for
-    /// what the viewer received of it: a block or a withdrawal must not
-    /// take away the report. The comment must have been in front of the
-    /// viewer: it is or was in public view, or the viewer owns the subject
-    /// (and saw it in the review queue).
+    /// What the viewer received, for a report and nothing else: across
+    /// blocks, with every version, and after a deletion (see
+    /// [`comments::kept`](crate::comments::kept)).
     async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let (Ok(comment_id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
-        let Some(row) = crate::comments::find(&self.0.core.db, comment_id).await? else { return Ok(None) };
-        let subject = match self
-            .0
-            .core
-            .subjects
-            .resolve_for_report(row.key().subject_type(), &row.subject_id.to_string(), Some(viewer))
-            .await
-        {
-            Ok(subject) => subject,
-            Err(error) if is_absent(&error) => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let owns_subject = subject.owner_id == viewer && !viewer.is_nil();
-        let received = row.is_published() || row.notified_at.is_some() || owns_subject || row.author_id == viewer;
-        if !received {
-            return Ok(None);
-        }
-        Ok(Some(SubjectInfo {
-            id: row.id,
-            owner_id: row.author_id,
-            title: crate::comments::reported_title(&row),
-            path: comment_path(&subject.path, row.id),
-            image_url: None,
-            interactions_enabled: false,
-        }))
+        self.0.comment_for_report(comment_id, viewer).await
     }
 
     // Like and dislike counts of comments are kept by the reaction's own
