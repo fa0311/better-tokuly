@@ -158,5 +158,31 @@ async fn taking_something_back_tells_nothing_about_unseen_subjects() {
     assert_eq!(save_again.bookmark_count, 1);
 }
 
+#[tokio::test]
+async fn sharing_the_same_thing_again_does_not_count_again() {
+    let ctx = start().await;
+    let (owner, bob) = (ctx.app.user("Owner").await, ctx.app.user("Bob").await);
+    let video = ctx.video(&owner, "v");
+    let share = |target: ShareTarget| RecordShareRequest {
+        subject: video.subject_ref().into(),
+        target: target.into(),
+        ..Default::default()
+    };
+    let mut last = 0;
+    for _ in 0..5 {
+        let answer: RecordShareResponse = ctx
+            .call("EngagementService", "RecordShare", Some(&bob), &share(ShareTarget::SHARE_TARGET_LINK_COPY))
+            .await
+            .unwrap();
+        assert!(!answer.url.is_empty());
+        last = answer.share_count;
+    }
+    assert_eq!(last, 1);
+    let answer: RecordShareResponse =
+        ctx.call("EngagementService", "RecordShare", Some(&bob), &share(ShareTarget::SHARE_TARGET_CHAT)).await.unwrap();
+    assert_eq!(answer.share_count, 2);
+    assert_eq!(ctx.events_about("engagement.share.recorded", video.id).await.len(), 2);
+}
+
 // ───────────────────────────── load ─────────────────────────────
 

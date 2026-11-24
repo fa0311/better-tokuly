@@ -92,7 +92,7 @@ as its number, `subject_id` the subject's UUID.
 | `engagement.comment.deleted` | same | A comment was deleted by its author, the subject owner, moderation, or because its only content was an upload deleted by force. Not emitted for the replies that go with a thread, nor for comments purged with their subject or their author's account. |
 | `engagement.reaction.changed` | `{ user_id, subject_type, subject_id, subject_owner_id, kind, emoji, previous_kind, previous_emoji }` | A user set, changed or removed a reaction. `kind` / `previous_kind` are `ReactionKind` numbers (1 like, 2 dislike, 3 emoji), 0 = none. `subject_owner_id` is `null` when a reaction was removed from a subject that no longer resolves. |
 | `engagement.bookmark.changed` | `{ user_id, subject_type, subject_id, saved }` | A user saved a subject (`saved: true`) or removed it from everything they saved. Moves between named collections emit nothing. |
-| `engagement.share.recorded` | `{ user_id, subject_type, subject_id, subject_owner_id, target }` | A share was recorded. `user_id` is `null` for guests; `target` is the `ShareTarget` number. |
+| `engagement.share.recorded` | `{ user_id, subject_type, subject_id, subject_owner_id, target }` | A share was recorded (a repeat by the same user or guest address with the same target within an hour is not). `user_id` is `null` for guests; `target` is the `ShareTarget` number. |
 
 ## Events consumed
 
@@ -183,6 +183,7 @@ transaction that changes what they count).
 | `engagement:comment:dup:<user>:<type>:<subject>:<hash>` | marker, 60 s | the same comment (text and stamp, case- and width-insensitive) cannot be posted on the same subject twice in a row |
 | `engagement:push:lead:<type>:<subject>` / `…:trail:…` | markers, 1 s / 3 s | throttle of `counters_changed` |
 | `engagement:liked:<user>:<type>:<subject>` | marker, 24 h | one like notification per user and subject per day |
+| `engagement:shared:<user or ip:address>:<type>:<subject>:<target>` | marker, 1 h | a repeated share is not counted again |
 | `engagement:heart:<comment>` | marker, 24 h | one heart notification per comment per day |
 | `engagement:mentioned:<comment>:<user>` | marker, 24 h | one mention notification per comment and user per day |
 

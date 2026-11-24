@@ -20,6 +20,8 @@ use crate::{
 const SHARES_PER_MINUTE: u32 = 60;
 /// Shares guests behind one address may record per minute.
 const GUEST_SHARES_PER_MINUTE: u32 = 30;
+/// How long sharing the same subject the same way again is not counted again.
+const REPEAT_WINDOW: Duration = Duration::from_secs(3600);
 
 /// The share target of a request; `SHARE_TARGET_INVALID` when unset or unknown.
 pub(crate) fn requested_target(value: buffa::EnumValue<ShareTarget>) -> AppResult<ShareTarget> {
@@ -31,7 +33,10 @@ pub(crate) fn requested_target(value: buffa::EnumValue<ShareTarget>) -> AppResul
 
 impl Engagement {
     /// Records that a subject was shared (`EngagementService.RecordShare`)
-    /// and returns its new share count. `client_ip` rate-limits guests.
+    /// and returns its new share count. `client_ip` rate-limits guests. The
+    /// same user (or guest address) sharing the same subject the same way
+    /// again within [`REPEAT_WINDOW`] is not counted again: one account
+    /// cannot inflate a public number.
     pub(crate) async fn record_share(
         &self,
         user_id: Option<Uuid>,
@@ -57,6 +62,14 @@ impl Engagement {
             }
         }
         let key = subject.key;
+        let sharer = match user_id {
+            Some(user_id) => user_id.to_string(),
+            None => format!("ip:{client_ip}"),
+        };
+        let repeat_key = format!("engagement:shared:{sharer}:{}:{}:{}", key.kind, key.id, target as i32);
+        if !cache.set_nx(&repeat_key, "1", REPEAT_WINDOW).await.unwrap_or(true) {
+            return Ok(stats::load(&self.core, &[key]).await?.of(key).share_count);
+        }
         let mut tx = self.core.db.begin().await?;
         let mut effects = Effects::default();
         sqlx::query(

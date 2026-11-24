@@ -870,6 +870,8 @@ service EngagementService {
   rpc BatchGetEngagement(BatchGetEngagementRequest) returns (BatchGetEngagementResponse);
 
   // Records that the caller shared a subject and returns the link to share.
+  // Sharing the same subject the same way again within an hour (per user;
+  // per address for guests) is not counted again.
   //
   // Public. Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT,
   // SHARE_TARGET_INVALID, RATE_LIMITED.

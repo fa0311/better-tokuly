@@ -767,7 +767,7 @@ async fn engagement_gathers_every_number_of_a_subject() {
 #[tokio::test]
 async fn shares_are_counted_by_target() {
     let ctx = start().await;
-    let (owner, bob) = (ctx.app.user("Owner").await, ctx.app.user("Bob").await);
+    let (owner, bob, carol) = (ctx.app.user("Owner").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await);
     let video = ctx.video(&owner, "v");
     let share = |target: ShareTarget| RecordShareRequest {
         subject: video.subject_ref().into(),
@@ -784,7 +784,7 @@ async fn shares_are_counted_by_target() {
     let _: RecordShareResponse =
         ctx.call("EngagementService", "RecordShare", None, &share(ShareTarget::SHARE_TARGET_EXTERNAL)).await.unwrap();
     let third: RecordShareResponse = ctx
-        .call("EngagementService", "RecordShare", Some(&bob), &share(ShareTarget::SHARE_TARGET_LINK_COPY))
+        .call("EngagementService", "RecordShare", Some(&carol), &share(ShareTarget::SHARE_TARGET_LINK_COPY))
         .await
         .unwrap();
     assert_eq!(third.share_count, 3);
