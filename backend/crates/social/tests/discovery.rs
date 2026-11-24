@@ -248,7 +248,7 @@ async fn signing_up_through_an_invite_counts_as_an_intro() {
         .app
         .call(
             "tokuly.identity.v1.ProfileService/GetProfile",
-            None,
+            Some(&inviter),
             &GetProfileRequest { by: Some(get_profile_request::By::UserId(inviter.id.to_string())), ..Default::default() },
         )
         .await

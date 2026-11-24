@@ -301,10 +301,14 @@ async fn profiles_show_relationship_mutual_friends_and_counters() {
     ctx.befriend(&owner, &mutual).await;
     ctx.befriend(&viewer, &mutual).await;
 
-    // Anonymous: counters only.
+    // Anonymous: no relationship, and no friend or intro counts either (a
+    // count that ignores blocks, next to the viewer's own, would tell them
+    // someone blocked them).
     let anonymous = profile(&ctx, None, &owner).await.unwrap();
     assert_eq!(anonymous.relationship, Relationship::RELATIONSHIP_NONE);
-    assert_eq!(anonymous.stats.as_option().unwrap().friend_count, 1);
+    let stats = anonymous.stats.as_option().unwrap();
+    assert_eq!((stats.friend_count, stats.intro_count), (0, 0));
+    assert_eq!(profile(&ctx, Some(&stranger), &owner).await.unwrap().stats.as_option().unwrap().friend_count, 1);
     assert!(anonymous.mutual_friends.is_empty());
 
     // A stranger with a mutual friend.
