@@ -153,6 +153,9 @@ message FriendRequest {
   FriendSource source = 4;
   string message = 5;
   google.protobuf.Timestamp created_at = 6;
+  // Friends the caller shares with the other side; 0 unless the other
+  // side's friend list is visible to the caller (mutual friends are part
+  // of it). The same rule holds for every mutual-friend field.
   int32 mutual_friend_count = 7;
 }
 
@@ -241,6 +244,7 @@ message Friendship {
   // BUMP_BUDDIES (5+ bumps in 30 days), CHATTERBOX (200+ messages and stamps
   // in 30 days), ON_FIRE (streak of 4+ weeks), NEW_FRIENDS (first week).
   repeated string titles = 8;
+  // 0 unless the friend's friend list is visible to the caller.
   int32 mutual_friend_count = 9;
   // Messages + stamps exchanged in the last 30 days.
   int32 interaction_score = 10;
@@ -273,6 +277,8 @@ message Suggestion {
   // INVITED (they joined through the caller's invite) | SAME_SCHOOL |
   // NEARBY_OFTEN
   string reason = 2;
+  // Both empty unless the suggested user's friend list is visible to the
+  // caller.
   int32 mutual_friend_count = 3;
   repeated tokuly.common.v1.UserSummary mutual_friends = 4;
 }

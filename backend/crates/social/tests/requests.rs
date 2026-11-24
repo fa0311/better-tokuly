@@ -262,6 +262,8 @@ async fn requests_are_listed_per_direction_with_pagination_and_mutual_friends() 
         fans.push(fan);
     }
     ctx.befriend(&fans[2], &mutual).await;
+    // Mutual friends show for senders whose friend list the star may see.
+    ctx.set_privacy(&fans[2], |p| p.friend_list_visible_to = Audience::AUDIENCE_FRIENDS_OF_FRIENDS.into()).await;
 
     let first: ListFriendRequestsResponse = ctx
         .friends(

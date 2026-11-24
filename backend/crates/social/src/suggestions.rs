@@ -171,7 +171,11 @@ impl Social {
 
         // 3. Rank, cut, and decorate with mutual friends.
         let ids: Vec<Uuid> = candidates.iter().map(|(id, _)| *id).collect();
-        let mutual = self.mutual_friends_with(user_id, &ids).await?;
+        // Mutual friends (count, preview and the order they give) only for
+        // candidates whose friend list the user may see.
+        let mut mutual = self.mutual_friends_with(user_id, &ids).await?;
+        let visible = self.friend_lists_visible_to(user_id, &ids).await?;
+        mutual.retain(|id, _| visible.contains(id));
         let mutual_counts: HashMap<Uuid, usize> = mutual.iter().map(|(id, friends)| (*id, friends.len())).collect();
         rank_candidates(&mut candidates, &mutual_counts);
         candidates.truncate(limit);

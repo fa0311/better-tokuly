@@ -54,6 +54,9 @@ async fn friends_of_friends_are_suggested_until_related_or_dismissed() {
     ctx.befriend(&f2, &close).await;
     ctx.befriend(&f2, &dismissed).await;
     ctx.set_privacy(&private, |p| p.discoverable = false).await;
+    // Mutual friends come from the candidate's friend list: shown only when
+    // that list is visible to me (friends only, the default, hides them).
+    ctx.set_privacy(&close, |p| p.friend_list_visible_to = Audience::AUDIENCE_FRIENDS_OF_FRIENDS.into()).await;
     ctx.request(&me, &requested).await;
     let _: BlockUserResponse = ctx.friends("BlockUser", &blocker, &BlockUserRequest { user_id: me.id.to_string(), ..Default::default() }).await.unwrap();
 
@@ -71,6 +74,7 @@ async fn friends_of_friends_are_suggested_until_related_or_dismissed() {
     let mut expected = vec![distant.id, dismissed.id];
     expected.sort();
     assert_eq!(rest, expected, "friends, pending requests, blocks and hidden accounts are left out");
+    assert!(found[1..].iter().all(|s| s.mutual_friend_count == 0 && s.mutual_friends.is_empty()), "their friend lists are friends-only");
 
     assert_eq!(suggestions_for(&ctx, &me, 1).await.len(), 1);
 

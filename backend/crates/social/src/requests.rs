@@ -421,7 +421,10 @@ impl Social {
         user_ids.sort_unstable();
         user_ids.dedup();
         let summaries = tokuly_identity::summaries(&self.core, &user_ids).await?;
-        let mutual = graph::mutual_friend_counts(&self.core, viewer, &user_ids).await?;
+        let mut mutual = graph::mutual_friend_counts(&self.core, viewer, &user_ids).await?;
+        // Only for people whose friend list the viewer may see.
+        let visible = self.friend_lists_visible_to(viewer, &user_ids).await?;
+        mutual.retain(|id, _| visible.contains(id));
         Ok(rows
             .into_iter()
             .map(|row| {
