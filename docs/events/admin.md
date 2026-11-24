@@ -65,9 +65,51 @@ say whose post it was. A moderator who is not involved reads the log as it
 is. The answers to `ResolveCase` and `TakedownContent` never name the target
 of such an entry.
 
-What this does not cover: the numbers in an account's moderation record
-(`UserModerationSummary`) count these cases and sanctions for every reader,
-and the audit log (admins only) names the owner of every case it mentions.
+The same holds wherever else an account and an anonymous post meet:
+
+- the numbers of an account's moderation record (`UserModerationSummary`,
+  in `GetUser` and as the owner record of `GetCase`) leave out the cases and
+  log entries about anonymous posts the reader is involved in (an account
+  with more than 100 such posts has all of them left out for everyone);
+- a suspension imposed for such a post comes to an involved reader without
+  `case_id` and `reason` (`GetUser`, `SearchUsers`, the account RPCs);
+- the audit log marks entries about such a post
+  (`admin_audit_log.target_hidden`, with the post's subject) and shows them
+  to an involved admin with `target_withheld` and without the account,
+  and not at all in the log filtered by that account.
+
+What stays visible: that an account is suspended, and since when. A reader
+who watches the moment an anonymous post's case is resolved with a
+suspension can line it up with the accounts suspended at that moment.
+
+**Unmasking is limited.** `GetCase` names at most
+`TOKULY_MODERATOR_REVEALS_PER_HOUR` hidden authors per staff member and hour
+(admins included; a case opened again within the hour counts once); past
+that, such a case answers `RATE_LIMITED`.
+
+## Cases about staff
+
+A case about a moderator's own content or about their account is not
+theirs: `GetCase` gives them the case with `conflict_of_interest` and the
+actions taken, but no reports (who reported them, what they wrote), notes or
+owner record; `ListCaseReports`, `AssignCase`, `AddCaseNote`, `ReopenCase`
+and `ResolveCase` answer `CONFLICT_OF_INTEREST`. Moderators cannot sanction
+staff or change a staff account's verified badge (their own included):
+admins do (`TARGET_IS_STAFF`).
+
+## Evidence
+
+The uploads of reported content belong to the domain that keeps it, and
+media collects an upload nothing holds. So that an unsend, an edit or a
+deletion by the owner does not take the evidence with it, every case holds
+its subject's uploads under the media holder `admin:case:<case id>` from the
+moment a report files into it (on the transaction that files the report)
+until `TOKULY_MODERATION_EVIDENCE_DAYS` after it is resolved; a reopened
+case keeps them. The holding is done by a lookup the server hands in
+(`Admin::set_report_evidence`, trait `tokuly_admin::ReportEvidence`), since
+admin may not depend on media or the content domains. Without it nothing is
+held. A takedown still deletes the uploads (media drops the holds of what it
+deletes on a domain's authority).
 
 Everything a resolution does (case update, events, notifications, both logs)
 commits in one transaction. The account lock itself is committed by identity
@@ -136,7 +178,7 @@ by mail (`core.mail`, in the account's locale; sent after commit, best effort):
 |---|---|---|
 | Event consumer | durable `admin` | topics above |
 | Announcement broadcast | job `admin.announcement.broadcast` (`tokuly_admin::announcements::BroadcastJob { announcement_id }`) | Notifies active users in chunks of `TOKULY_ANNOUNCEMENT_NOTIFY_CHUNK`, one transaction per chunk; the cursor is stored on the announcement in that transaction, so retries and duplicate jobs resume instead of repeating. One at a time per process, lease 120 s, 5 attempts. A broadcast still unfinished an hour after it was queued is queued again. |
-| Maintenance timer | every 60 s (first pass at start) | Lifts suspensions whose `expires_at` has passed (`Admin::expire_due_suspensions`); queues the broadcast of announcements that became visible (`Admin::queue_due_broadcasts`) — this is what fires scheduled announcements. Safe with several workers. |
+| Maintenance timer | every 60 s (first pass at start) | Lifts suspensions whose `expires_at` has passed (`Admin::expire_due_suspensions`); lets go of the evidence of cases resolved more than `TOKULY_MODERATION_EVIDENCE_DAYS` ago (`Admin::release_due_evidence`); queues the broadcast of announcements that became visible (`Admin::queue_due_broadcasts`) — this is what fires scheduled announcements. Safe with several workers. |
 
 `PublishAnnouncement` also queues the broadcast directly when the
 announcement is visible at once, so API-only processes need no timer.
@@ -145,7 +187,11 @@ announcement is visible at once, so API-only processes need no timer.
 
 Every state change made through this API writes one `admin_audit_log` row in
 the same transaction (identity-owned changes — roles, badge, sessions — right
-after identity committed). `SystemService.ListAuditLog` filters by an exact
+after identity committed). Nothing in the API changes or deletes a row; only
+the erasure of an account nulls its references. Entries about an anonymous
+post are shown to an involved admin without its author (see above).
+Role changes take turns and need the caller to still be an admin at that
+moment, so two admins demoting each other leave one of them. `SystemService.ListAuditLog` filters by an exact
 action or by a prefix ending in a dot (`user.`).
 
 | Action | Target | before / after |
@@ -175,6 +221,8 @@ action or by a prefix ending in a dot (`user.`).
 | `TOKULY_ANNOUNCEMENT_NOTIFY_ACTIVE_DAYS` | `30` | A broadcast reaches accounts with a signed-in device active within this many days. |
 | `TOKULY_ANNOUNCEMENT_NOTIFY_CHUNK` | `500` | Users notified per transaction during a broadcast (1–5000). |
 | `TOKULY_MODERATOR_SANCTIONS_PER_HOUR` | `120` | Warnings, suspensions, bans and takedowns one moderator may issue per hour (admins are not limited). |
+| `TOKULY_MODERATOR_REVEALS_PER_HOUR` | `30` | Hidden authors of anonymous posts one staff member (admins included) may be shown per hour, counted once per case. |
+| `TOKULY_MODERATION_EVIDENCE_DAYS` | `90` | Days the uploads of reported content stay held for a case after it is resolved. |
 
 Other rate limits (fixed): the public announcement RPCs allow 240 requests a
 minute per client address; `GetServerStats` 30 a minute per admin.
@@ -206,6 +254,7 @@ let router = admin.register(router);
 admin.spawn_workers();                                                 // worker processes
 admin.grant_bootstrap_admin().await?;                                  // at startup: `TOKULY_ADMIN_USER`, if that verified address exists already
 admin.set_hidden_owners(Arc<dyn tokuly_admin::HiddenOwners>);          // bridge: owners of content that is reported without one, and who is involved in it
+admin.set_report_evidence(Arc<dyn tokuly_admin::ReportEvidence>);      // bridge: hold / release the uploads of reported content (holder admin:case:<id>)
 ```
 
 `grant_bootstrap_admin` returns `true` when it granted the role, `false`
