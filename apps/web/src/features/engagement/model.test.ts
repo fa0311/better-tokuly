@@ -2,11 +2,13 @@ import { create, engagement } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
 import {
   compactCount,
+  DEFAULT_RULES,
   type Engagement,
   emojiReaction,
   LIKE,
   toEngagement,
   withCounters,
+  withReactionChange,
   withViewerReaction,
 } from "./model";
 
@@ -19,6 +21,8 @@ const base: Engagement = {
     { emoji: "🔥", count: 1 },
   ],
   emojiTotal: 4,
+  viewerReactions: [],
+  rules: DEFAULT_RULES,
   commentCount: 0,
   bookmarkCount: 0,
   shareCount: 0,
@@ -66,6 +70,45 @@ describe("withViewerReaction", () => {
   });
 });
 
+describe("withReactionChange", () => {
+  const several: Engagement = {
+    ...base,
+    rules: { ...DEFAULT_RULES, multiple: true, maxPerPerson: 5 },
+  };
+
+  it("puts emoji side by side where a subject takes several", () => {
+    const one = withReactionChange(several, { add: emojiReaction("🎉") });
+    const two = withReactionChange(one, { add: emojiReaction(":neko:") });
+    expect(two.viewerReactions.map((reaction) => reaction.emoji)).toEqual(["🎉", ":neko:"]);
+    expect(two.emojiTotal).toBe(6);
+    expect(two.emojiCounts.at(-1)).toEqual({ emoji: ":neko:", count: 1 });
+    expect(two.viewerReaction?.emoji).toBe(":neko:");
+    // A like joins them, and stands for them.
+    const liked = withReactionChange(two, { add: LIKE });
+    expect(liked.viewerReactions).toHaveLength(3);
+    expect(liked.viewerReaction).toEqual(LIKE);
+  });
+
+  it("takes back one emoji, or everything", () => {
+    const two = withReactionChange(withReactionChange(several, { add: emojiReaction("🎉") }), {
+      add: emojiReaction("🔥"),
+    });
+    const one = withReactionChange(two, { remove: emojiReaction("🎉") });
+    expect(one.viewerReactions.map((reaction) => reaction.emoji)).toEqual(["🔥"]);
+    expect(one.emojiCounts[0]).toEqual({ emoji: "🎉", count: 3 });
+    const none = withReactionChange(two, { removeAll: true });
+    expect(none.viewerReactions).toEqual([]);
+    expect(none.emojiTotal).toBe(4);
+  });
+
+  it("replaces the reaction where a subject takes one", () => {
+    const first = withReactionChange(base, { add: emojiReaction("🎉") });
+    const second = withReactionChange(first, { add: emojiReaction("🔥") });
+    expect(second.viewerReactions.map((reaction) => reaction.emoji)).toEqual(["🔥"]);
+    expect(second.emojiTotal).toBe(5);
+  });
+});
+
 describe("server data", () => {
   it("reads an engagement message", () => {
     const message = create(engagement.SubjectEngagementSchema, {
@@ -87,6 +130,58 @@ describe("server data", () => {
       viewerReaction: { emoji: "🎉" },
       bookmarked: true,
     });
+  });
+
+  it("reads custom emoji with their pictures, rules and every reaction of the viewer", () => {
+    const neko = {
+      name: "neko",
+      image: {
+        url: "https://m/anim.webp",
+        variants: [
+          { size: 128, url: "https://m/128.webp" },
+          { size: 64, url: "https://m/64.webp" },
+        ],
+      },
+      staticUrl: "https://m/64.webp",
+      animated: true,
+      available: true,
+    };
+    const message = create(engagement.SubjectEngagementSchema, {
+      subject: { type: 22, id: "uuid" },
+      reactions: {
+        emojiCounts: [
+          { emoji: ":neko:", count: 1n, custom: neko },
+          { emoji: ":gone:", count: 2n, custom: { name: "gone" } },
+        ],
+        emojiTotal: 3n,
+        viewerReaction: { kind: engagement.ReactionKind.EMOJI, emoji: ":neko:", custom: neko },
+        viewerReactions: [
+          { kind: engagement.ReactionKind.EMOJI, emoji: "✅" },
+          { kind: engagement.ReactionKind.EMOJI, emoji: ":neko:", custom: neko },
+        ],
+        rules: {
+          emoji: true,
+          multiple: true,
+          maxPerPerson: 20,
+          maxDistinctEmoji: 50,
+          customEmoji: true,
+        },
+      },
+    });
+    const read = toEngagement(message);
+    expect(read.emojiCounts[0]?.custom).toMatchObject({
+      name: "neko",
+      animated: true,
+      available: true,
+      staticUrl: "https://m/64.webp",
+      stills: [
+        { size: 64, url: "https://m/64.webp" },
+        { size: 128, url: "https://m/128.webp" },
+      ],
+    });
+    expect(read.emojiCounts[1]?.custom?.available).toBe(false);
+    expect(read.viewerReactions.map((reaction) => reaction.emoji)).toEqual(["✅", ":neko:"]);
+    expect(read.rules).toMatchObject({ multiple: true, maxPerPerson: 20, sensitiveEmoji: false });
   });
 
   it("applies pushed counters without losing the viewer's own state", () => {

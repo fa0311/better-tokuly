@@ -36,7 +36,7 @@ export interface EmojiPickerProps {
   onOpenChange?(open: boolean): void;
   /**
    * Offer Unicode emoji only: for a field or an RPC that does not take
-   * `:shortcode:`s (reactions do not yet).
+   * `:shortcode:`s (a field that holds one Unicode emoji).
    */
   unicodeOnly?: boolean;
 }

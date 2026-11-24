@@ -1,4 +1,5 @@
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import { blinkingGif, discPicture, uploadPicture } from "./pictures";
 import {
   type Account,
   adminAccount,
@@ -59,7 +60,11 @@ const card = (page: Page, text: string): Locator =>
 
 interface EngagementJson {
   reactions?: {
-    emojiCounts?: { emoji: string; count: string }[];
+    emojiCounts?: {
+      emoji: string;
+      count: string;
+      custom?: { name: string; available?: boolean };
+    }[];
     viewerReaction?: { emoji?: string };
   };
   bookmarked?: boolean;
@@ -354,4 +359,180 @@ test("a note is sent to a friend in chat from its share menu", async ({ page, me
   // In the conversation the note shows as its preview.
   await page.goto(`/chat/${conversation.id}`);
   await expect(page.getByTestId("message").filter({ hasText: "これ見て！" })).toBeVisible();
+});
+
+// ───────────────────────────── Custom emoji reactions ─────────────────────────────
+
+const EMOJI_ADMIN = "tokuly.emoji.v1.EmojiAdminService";
+
+/** Emoji this file put into the catalogue (one for the whole server), taken out again after each test. */
+const addedEmoji = new Set<string>();
+
+test.afterEach(async ({ request }) => {
+  if (addedEmoji.size === 0) return;
+  const admin = await adminAccount(request);
+  for (const id of addedEmoji)
+    await rpc(request, `${EMOJI_ADMIN}/DeleteEmoji`, { emojiId: id }, admin).catch(() => {});
+  addedEmoji.clear();
+});
+
+/** A custom emoji a moderator put straight into the catalogue: animated (a blinking GIF) or a still disc. */
+async function customEmoji(
+  request: APIRequestContext,
+  options: { animated?: boolean; sensitive?: boolean } = {},
+): Promise<{ id: string; name: string; code: string; url: string }> {
+  const admin = await adminAccount(request);
+  const name = `rx_${tag()}`;
+  const file = options.animated ? blinkingGif(`${name}.gif`) : discPicture(`${name}.png`);
+  const assetId = await uploadPicture(request, admin, file);
+  const added = await rpc<{ emoji: { emoji: { id: string; image: { url: string } } } }>(
+    request,
+    `${EMOJI_ADMIN}/AddEmoji`,
+    { name, assetId, sensitive: options.sensitive ?? false },
+    admin,
+  );
+  addedEmoji.add(added.emoji.emoji.id);
+  return { id: added.emoji.emoji.id, name, code: `:${name}:`, url: added.emoji.emoji.image.url };
+}
+
+test("a custom emoji is picked, drawn as its picture (still for less motion), and falls back once taken down", async ({
+  page,
+  me,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  const emoji = await customEmoji(request, { animated: true });
+  const text = `e2e カスタム絵文字でリアクション ${tag()}`;
+  const { friend, noteId } = await friendWithNote(request, me, text);
+
+  await page.goto(`/notes/${noteId}`);
+  const note = card(page, text);
+  await note.getByRole("button", { name: "リアクションする" }).click();
+  const picker = page.getByTestId("emoji-picker");
+  await picker.getByRole("searchbox").fill(emoji.name);
+  await picker.getByRole("button", { name: emoji.code }).click();
+
+  // The chip shows the emoji's picture, moving while motion is allowed.
+  const chip = note.locator(`button[data-emoji="${emoji.code}"]`);
+  await expect(chip).toHaveAttribute("aria-pressed", "true");
+  await expect(chip).toContainText("1");
+  const picture = chip.locator(`img[data-emoji="${emoji.name}"]`);
+  await expect(picture).toHaveAttribute("src", emoji.url);
+  // The server stored it and describes it for every client.
+  await expect
+    .poll(
+      async () => (await engagementOf(request, noteId, friend)).reactions?.emojiCounts?.[0]?.emoji,
+    )
+    .toBe(emoji.code);
+
+  // "Reduce motion": the still rendition instead.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(picture).not.toHaveAttribute("src", emoji.url);
+  await expect(picture).toHaveAttribute("src", /.+/);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+
+  // Who reacted shows the picture too.
+  await note.getByRole("button", { name: "リアクションした人" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(`@${me.handle}`)).toBeVisible();
+  await expect(dialog.locator(`img[data-emoji="${emoji.name}"]`).first()).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // A moderator takes the emoji down: the reaction stays, shown as its shortcode, and can still be taken back.
+  const admin = await adminAccount(request);
+  await rpc(request, `${EMOJI_ADMIN}/DisableEmoji`, { emojiId: emoji.id, reason: "e2e" }, admin);
+  await page.reload();
+  const fallback = card(page, text).locator(`button[data-emoji="${emoji.code}"]`);
+  await expect(fallback).toContainText(emoji.code);
+  await expect(fallback.locator("img")).toHaveCount(0);
+  await fallback.click();
+  await expect(fallback).toHaveCount(0);
+  await expect
+    .poll(async () => (await engagementOf(request, noteId, me)).reactions?.viewerReaction)
+    .toBeUndefined();
+});
+
+test("reactions others add pop up over the note while it is on screen", async ({
+  page,
+  me,
+  request,
+}) => {
+  const emoji = await customEmoji(request);
+  const text = `e2e ポップするリアクション ${tag()}`;
+  const { friend, noteId } = await friendWithNote(request, me, text);
+  await page.goto(`/notes/${noteId}`);
+  const note = card(page, text);
+  await expect(note.getByRole("button", { name: "リアクションする" })).toBeVisible();
+
+  // The topic is followed a moment after the note settled on screen; keep reacting until a pop shows.
+  await expect(async () => {
+    await rpc(request, `${REACTIONS}/RemoveReaction`, { subject: subject(noteId) }, friend);
+    await rpc(
+      request,
+      `${REACTIONS}/SetReaction`,
+      { subject: subject(noteId), reaction: { kind: "REACTION_KIND_EMOJI", emoji: emoji.code } },
+      friend,
+    );
+    await expect(note.getByTestId("reaction-pop").first()).toBeAttached({ timeout: 3_000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(note.locator(`button[data-emoji="${emoji.code}"]`)).toContainText("1");
+});
+
+test("an owner decides about custom and sensitive emoji in the reaction settings", async ({
+  page,
+  me,
+  request,
+}) => {
+  const spicy = await customEmoji(request, { sensitive: true });
+  const fan = await createAccount(request, "fan");
+  await befriend(request, me, fan);
+  const rules = await rpc<{ version: number }>(request, `${NOTES}/GetNoteRules`, {}, me);
+  await rpc(request, `${NOTES}/AgreeToNoteRules`, { version: rules.version }, me);
+  const created = await rpc<{ note: { id: string } }>(
+    request,
+    `${NOTES}/CreateNote`,
+    { text: `e2e センシティブ ${tag()}` },
+    me,
+  );
+  const react = (code: string) =>
+    rpc(
+      request,
+      `${REACTIONS}/SetReaction`,
+      { subject: subject(created.note.id), reaction: { kind: "REACTION_KIND_EMOJI", emoji: code } },
+      fan,
+    );
+  await expect(react(spicy.code)).rejects.toThrow(/SENSITIVE_EMOJI_NOT_ALLOWED/);
+
+  await page.goto("/settings");
+  await page.getByRole("link", { name: /あなたの投稿につけられる絵文字/ }).click();
+  await expect(page).toHaveURL(/\/settings\/reactions$/);
+  const sensitive = page.getByRole("switch", { name: /センシティブな絵文字も使えるようにする/ });
+  await expect(sensitive).not.toBeChecked();
+  await sensitive.click();
+  await expect(sensitive).toBeChecked();
+  await expect
+    .poll(async () => {
+      const { settings } = await rpc<{ settings: { sensitiveEmoji?: boolean } }>(
+        request,
+        `${REACTIONS}/GetReactionSettings`,
+        {},
+        me,
+      );
+      return settings.sensitiveEmoji ?? false;
+    })
+    .toBe(true);
+  await react(spicy.code);
+
+  // Custom emoji off: the sensitive switch goes with it, and only Unicode emoji are taken.
+  await page.getByRole("switch", { name: /カスタム絵文字を使えるようにする/ }).click();
+  await expect(sensitive).toBeDisabled();
+  await expect
+    .poll(() =>
+      react(spicy.code).then(
+        () => "ok",
+        (error: Error) => error.message,
+      ),
+    )
+    .toMatch(/CUSTOM_EMOJI_NOT_ALLOWED/);
+  await react("🎉");
 });

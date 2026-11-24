@@ -4,7 +4,8 @@
  *
  *   const subject = { type: common.SubjectType.VIDEO, id: video.id };   // UUID or short ID
  *
- *   <ReactionBar subject={subject} />                 // like + emoji reactions, live counts, who reacted
+ *   <ReactionBar subject={subject} />                 // like + emoji reactions (Unicode and custom), live counts and pops, who reacted
+ *   <ReactionEmoji emoji={reaction.emoji} custom={…} />   // one emoji of a reaction, custom ones as their picture
  *   <BookmarkButton subject={subject} showCount />    // save; the collection chooser when already saved
  *   <ShareButton subject={subject} title={video.title} />   // send in chat, copy the link, the share sheet
  *   const more = useSubjectMenu(subject, { title, label });   // "send in chat", "copy link", "report" for a menu of your own
@@ -19,7 +20,14 @@
  * ahead of rendering). Saved and reacted-to subjects are drawn on
  * `/bookmarks` by the card each feature registers with `registerSubjectCard`.
  */
-export { loadEngagement, prefetchEngagement, useEngagement, useReact, useShareStats } from "./api";
+export {
+  loadEngagement,
+  prefetchEngagement,
+  useEngagement,
+  useReact,
+  useShareStats,
+  useUnreact,
+} from "./api";
 export { BookmarkButton, type BookmarkButtonProps } from "./bookmark-button";
 export { useBurst } from "./burst";
 export { openCollectionChooser } from "./collection-chooser";
@@ -30,6 +38,8 @@ export {
   type Engagement,
   emojiReaction,
   LIKE,
+  type ReactionPicture,
+  type ReactionRules,
   type Subject,
   subjectTopic,
   type ViewerReaction,
@@ -43,6 +53,7 @@ export {
   ReactionChips,
   ReactorsDialog,
 } from "./reaction-bar";
+export { ReactionEmoji, type ReactionEmojiProps } from "./reaction-emoji";
 export { ReportButton, ReportDialog, type ReportDialogProps } from "./report-dialog";
 export { ReportsList } from "./reports-list";
 export {
