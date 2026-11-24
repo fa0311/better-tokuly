@@ -550,6 +550,28 @@ message ListBlockedCommentersResponse {
 }
 
 // ───────────────────────────── Reactions ─────────────────────────────
+//
+// A reaction is a like, a dislike or an emoji. An emoji is a Unicode emoji
+// ("🎉") or a custom emoji of the emoji domain, written as its shortcode
+// with colons (":neko:"), the way it is written in text.
+//
+// How many a person may hold depends on the subject (`ReactionRules`):
+// - most subjects take ONE reaction per person, as notes do on Misskey: a
+//   new reaction replaces the previous one, so every count is people;
+// - the subjects of group conversation (community threads, replies and
+//   events, plans; configurable) take SEVERAL distinct emoji per person, as
+//   messages do on Discord: emoji are added next to each other, and a like
+//   and a dislike replace each other;
+// - comments take a like or a dislike, never an emoji.
+// A subject carries a limited number of distinct emoji; once it is full,
+// only emoji already on it can be added.
+//
+// Custom emoji must be approved and enabled in the emoji catalogue when
+// they are added. One that is disabled or deleted later keeps its
+// reactions, which keep counting and can be taken back, but it cannot be
+// added any more and comes back with `ReactionEmoji.available` false: show
+// its shortcode as text. Owners decide whether their subjects take custom
+// emoji at all and whether they take sensitive ones (`ReactionSettings`).
 
 enum ReactionKind {
   REACTION_KIND_UNSPECIFIED = 0;
@@ -559,20 +581,66 @@ enum ReactionKind {
   REACTION_KIND_EMOJI = 3;
 }
 
-// One user's reaction to a subject. A user has at most one per subject: a
-// like, a dislike or one emoji.
+// One reaction of one person.
 message Reaction {
   ReactionKind kind = 1;
-  // A single emoji, e.g. "🎉"; only for kind EMOJI.
+  // For kind EMOJI: one Unicode emoji ("🎉") or a custom emoji's shortcode
+  // with colons (":neko:", any case in requests, lowercase in responses).
   string emoji = 2;
+  // For a custom emoji, how to draw it. Set in responses; ignored in requests.
+  ReactionEmoji custom = 3;
+}
+
+// A custom emoji as reactions show it: enough to draw it without asking the
+// emoji domain.
+message ReactionEmoji {
+  // The shortcode without colons, lowercase.
+  string name = 1;
+  // The picture: `url` is the animated WebP of an animated emoji and the
+  // largest still otherwise; `variants` are stills by longest edge. Unset
+  // when the emoji is not available.
+  tokuly.common.v1.Image image = 2;
+  // A still rendition, for people who asked for less movement (the same as
+  // `image.url` for a still emoji). Empty when not available.
+  string static_url = 3;
+  bool animated = 4;
+  // Not for every eye: blur or hide it unless the viewer asked for
+  // sensitive content.
+  bool sensitive = 5;
+  // False when the emoji left the catalogue (disabled, deleted, renamed)
+  // after people reacted with it: show `:name:` as text. Its reactions keep
+  // counting and can be taken back; it cannot be added any more.
+  bool available = 6;
 }
 
 message EmojiCount {
+  // As in `Reaction.emoji`.
   string emoji = 1;
   int64 count = 2;
+  // For a custom emoji, how to draw it.
+  ReactionEmoji custom = 3;
 }
 
-// Reaction counts of a subject, plus the caller's own reaction.
+// How a subject takes reactions, for the controls that offer them.
+message ReactionRules {
+  // Whether emoji are taken at all (comments take likes and dislikes only).
+  bool emoji = 1;
+  // Whether one person may hold several distinct emoji at once. When false,
+  // a new reaction replaces the person's previous one.
+  bool multiple = 2;
+  // Emoji one person may hold on the subject at once (1 unless `multiple`).
+  int32 max_per_person = 3;
+  // Distinct emoji the subject may carry. When reached, only emoji already
+  // on it can be added.
+  int32 max_distinct_emoji = 4;
+  // Whether custom emoji are taken (the owner may turn them off).
+  bool custom_emoji = 5;
+  // Whether custom emoji flagged sensitive are taken (off unless the owner
+  // allows them; never on content that belongs to nobody).
+  bool sensitive_emoji = 6;
+}
+
+// Reaction counts of a subject, plus the caller's own reactions.
 message ReactionSummary {
   int64 like_count = 1;
   int64 dislike_count = 2;
@@ -580,11 +648,19 @@ message ReactionSummary {
   repeated EmojiCount emoji_counts = 3;
   // Total emoji reactions, including emoji beyond the listed ones.
   int64 emoji_total = 4;
-  // Unset for guests, in realtime events, and when the caller did not react.
+  // The caller's reaction. On a subject that takes several: their like or
+  // dislike if they gave one, otherwise their newest emoji. Unset for
+  // guests, in realtime events, and when the caller did not react.
   Reaction viewer_reaction = 5;
+  // Every reaction of the caller, oldest first (at most one unless
+  // `rules.multiple`). Empty for guests and in realtime events.
+  repeated Reaction viewer_reactions = 6;
+  // How the subject takes reactions. Unset in realtime events.
+  ReactionRules rules = 7;
 }
 
-// Someone who reacted to a subject.
+// Someone who reacted to a subject. On a subject that takes several
+// reactions per person, each of their emoji is its own entry.
 message Reactor {
   tokuly.common.v1.UserSummary user = 1;
   Reaction reaction = 2;
@@ -598,37 +674,70 @@ message ReactedSubject {
   google.protobuf.Timestamp reacted_at = 3;
 }
 
+// How the caller wants reactions to their own content. Applies to every
+// subject they own, from the next reaction on (reactions already given
+// stay).
+message ReactionSettings {
+  // Custom emoji may be used. Default true.
+  bool custom_emoji = 1;
+  // Custom emoji flagged sensitive may be used too. Default false.
+  bool sensitive_emoji = 2;
+}
+
 service ReactionService {
-  // Reacts to a subject, replacing the caller's previous reaction to it.
+  // Reacts to a subject. On a subject that takes one reaction per person,
+  // it replaces the caller's previous reaction. On one that takes several,
+  // an emoji is added next to the caller's others (nothing happens when
+  // they already hold it), and a like and a dislike replace each other.
   // Comments are subjects too (`SUBJECT_TYPE_COMMENT`); they take likes and
   // dislikes but no emoji. The subject's owner is notified of likes and
-  // emoji, never of dislikes.
+  // emoji, never of dislikes, grouped per subject ("Aと他2人が…").
   //
   // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, INTERACTIONS_DISABLED
   // (failed precondition), REACTION_INVALID (no kind), EMOJI_INVALID (not a
-  // single emoji), EMOJI_NOT_ALLOWED (emoji on a comment), RATE_LIMITED.
+  // single emoji or `:shortcode:`), EMOJI_NOT_ALLOWED (emoji on a comment),
+  // EMOJI_UNAVAILABLE (failed precondition: no approved custom emoji of that
+  // name), CUSTOM_EMOJI_NOT_ALLOWED (failed precondition: the owner turned
+  // custom emoji off), SENSITIVE_EMOJI_NOT_ALLOWED (failed precondition),
+  // REACTION_EMOJI_LIMIT (failed precondition: the subject carries as many
+  // distinct emoji as it may, and this is a new one), REACTION_LIMIT (failed
+  // precondition: the caller holds as many emoji here as one person may),
+  // RATE_LIMITED.
   rpc SetReaction(SetReactionRequest) returns (SetReactionResponse);
 
-  // Takes the caller's reaction back. Does nothing when there is none. Works
-  // by UUID even after the subject stopped being visible to the caller; the
-  // returned counts are then all zero.
+  // Takes the caller's reaction back: the one named, or all of them. Does
+  // nothing when there is none. Works by UUID even after the subject
+  // stopped being visible to the caller; the returned counts are then all
+  // zero.
   //
-  // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, RATE_LIMITED.
+  // Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT, EMOJI_INVALID,
+  // RATE_LIMITED.
   rpc RemoveReaction(RemoveReactionRequest) returns (RemoveReactionResponse);
 
   // Who reacted to a subject, most recent first. Emoji reactions are public
   // to everyone who can see the subject; who liked is only shown to the
-  // subject's owner; who disliked is shown to nobody.
+  // subject's owner; who disliked is shown to nobody. People in a block
+  // with the caller (either direction) and people the caller muted are left
+  // out.
   //
   // Public. Errors: SUBJECT_NOT_FOUND, UNSUPPORTED_SUBJECT,
   // REACTION_LIST_PRIVATE (permission denied), INVALID_CURSOR.
   rpc ListReactions(ListReactionsRequest) returns (ListReactionsResponse);
 
   // Subjects the caller reacted to, most recent first — e.g. "liked videos"
-  // with subject type VIDEO and kind LIKE.
+  // with subject type VIDEO and kind LIKE. A subject the caller gave several
+  // emoji is listed once per emoji.
   //
   // Errors: INVALID_CURSOR.
   rpc ListMyReactions(ListMyReactionsRequest) returns (ListMyReactionsResponse);
+
+  // The caller's settings for reactions to their own content.
+  rpc GetReactionSettings(GetReactionSettingsRequest) returns (GetReactionSettingsResponse);
+
+  // Replaces the caller's settings for reactions to their own content.
+  //
+  // Errors: RATE_LIMITED.
+  rpc UpdateReactionSettings(UpdateReactionSettingsRequest) returns (UpdateReactionSettingsResponse);
 }
 
 message SetReactionRequest {
@@ -642,6 +751,9 @@ message SetReactionResponse {
 
 message RemoveReactionRequest {
   tokuly.common.v1.SubjectRef subject = 1;
+  // Only this reaction (a like, a dislike, or one emoji); unset takes back
+  // every reaction of the caller to the subject.
+  Reaction reaction = 2;
 }
 
 message RemoveReactionResponse {
@@ -653,7 +765,7 @@ message ListReactionsRequest {
   // LIKE (owner only), EMOJI, or unspecified for everything the caller may
   // see: emoji reactions, plus likes for the owner.
   ReactionKind kind = 2;
-  // With kind EMOJI: only this emoji.
+  // With kind EMOJI: only this emoji (as in `Reaction.emoji`).
   string emoji = 3;
   // Default 30, at most 100.
   tokuly.common.v1.PageRequest page = 4;
@@ -676,6 +788,20 @@ message ListMyReactionsRequest {
 message ListMyReactionsResponse {
   repeated ReactedSubject subjects = 1;
   tokuly.common.v1.PageInfo page = 2;
+}
+
+message GetReactionSettingsRequest {}
+
+message GetReactionSettingsResponse {
+  ReactionSettings settings = 1;
+}
+
+message UpdateReactionSettingsRequest {
+  ReactionSettings settings = 1;
+}
+
+message UpdateReactionSettingsResponse {
+  ReactionSettings settings = 1;
 }
 
 // ───────────────────────────── Bookmarks ─────────────────────────────
@@ -1032,6 +1158,7 @@ message EngagementEvent {
     CommentPinned comment_pinned = 5;
     CountersChanged counters_changed = 6;
     ReviewQueueChanged review_queue_changed = 7;
+    ReactionAdded reaction_added = 8;
   }
 }
 
@@ -1073,11 +1200,19 @@ message CommentPinned {
 // The subject's numbers changed. Sent at most about once a second per
 // subject, with the totals at that moment.
 message CountersChanged {
-  // Without `viewer_reaction`.
+  // Without the viewer's reactions and without `rules`.
   ReactionSummary reactions = 1;
   int64 comment_count = 2;
   int64 bookmark_count = 3;
   int64 share_count = 4;
+}
+
+// Someone reacted with an emoji or a like, for an animation on the screens
+// showing the subject. Who reacted is not said, and not every reaction is
+// sent when many arrive at once (at most about ten a second per subject);
+// the numbers follow in `counters_changed`.
+message ReactionAdded {
+  Reaction reaction = 1;
 }
 
 // Sent to a subject owner when the number of comments waiting for their
