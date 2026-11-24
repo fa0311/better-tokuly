@@ -171,7 +171,7 @@ service PreferencesService {
   // here. Idempotent. Errors: INVALID_ID, CANNOT_MUTE_SELF, USER_NOT_FOUND,
   // RATE_LIMITED.
   rpc MuteUser(MuteUserRequest) returns (MuteUserResponse);
-  // Idempotent. Errors: INVALID_ID.
+  // Idempotent. Errors: INVALID_ID, RATE_LIMITED (shared with MuteUser).
   rpc UnmuteUser(UnmuteUserRequest) returns (UnmuteUserResponse);
   // Most recently muted first. Errors: INVALID_CURSOR.
   rpc ListMutedUsers(ListMutedUsersRequest) returns (ListMutedUsersResponse);

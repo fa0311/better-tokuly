@@ -435,3 +435,36 @@ async fn a_storm_of_notifications_is_capped_for_push_only() {
         }
     ));
 }
+
+#[tokio::test]
+async fn mirrored_mutes_end_in_the_latest_state_whatever_the_order() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let prefs_changed = |muted: bool, ago_seconds: i64| {
+        event_at(
+            FRIEND_PREFS_CHANGED_TOPIC,
+            FriendPrefsChanged {
+                user_id: alice.id,
+                friend_id: bob.id,
+                muted,
+            },
+            Utc::now() - chrono::Duration::seconds(ago_seconds),
+        )
+    };
+    // Muted 10 s ago and unmuted 5 s ago, handled the other way round (the
+    // consumer runs events concurrently, and retries come late).
+    ctx.notify.handle_event(prefs_changed(false, 5)).await.unwrap();
+    ctx.notify.handle_event(prefs_changed(true, 10)).await.unwrap();
+    assert!(matches!(
+        ctx.deliver(&chat_message(&alice, &bob)).await,
+        RequestOutcome::Handled { .. }
+    ));
+
+    // Unmuted 3 s ago, muted again 1 s ago, also in reverse.
+    ctx.notify.handle_event(prefs_changed(true, 1)).await.unwrap();
+    ctx.notify.handle_event(prefs_changed(false, 3)).await.unwrap();
+    assert_eq!(
+        dropped(&ctx.deliver(&chat_message(&alice, &bob)).await),
+        Some(DropReason::Muted)
+    );
+}

@@ -194,6 +194,7 @@ async fn deleting_an_account_removes_its_notification_data() {
         "notify_settings",
         "notify_category_prefs",
         "notify_mutes",
+        "notify_blocks",
         "push_devices",
     ] {
         let rows: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(

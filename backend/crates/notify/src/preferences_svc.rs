@@ -15,51 +15,53 @@ use crate::{
 const MAX_PAUSE_SECONDS: i32 = 30 * 24 * 3600;
 const MAX_MUTES_PAGE_SIZE: i64 = 100;
 
-/// Adds a mute. Returns whether it is new. Used by the RPC and by the
-/// consumer that mirrors the social domain's friend preference.
-pub(crate) async fn insert_mute<'e, E: PgExecutor<'e>>(
+/// Mutes or unmutes `muted_user_id` for `user_id` as of `at`. Used by the
+/// RPCs (`at` = now) and by the consumer that mirrors the social domain's
+/// friend preference (`at` = the event's time). A change older than the one
+/// the row reflects is ignored, so the latest change wins whatever order
+/// they are handled in. Returns whether the state flipped.
+pub(crate) async fn set_mute_state<'e, E: PgExecutor<'e>>(
     executor: E,
     user_id: Uuid,
     muted_user_id: Uuid,
+    muted: bool,
+    at: Time,
 ) -> AppResult<bool> {
-    // The join keeps a mute for a user that does not exist from failing on
-    // the foreign key (events can outlive accounts).
-    let done = sqlx::query(
-        "INSERT INTO notify_mutes (user_id, muted_user_id)
-         SELECT a.id, b.id FROM users a, users b WHERE a.id = $1 AND b.id = $2 AND a.id <> b.id
-         ON CONFLICT DO NOTHING",
+    // The join keeps a change about a user that does not exist from failing
+    // on the foreign key (events can outlive accounts).
+    let flipped: Option<bool> = sqlx::query_scalar(
+        "INSERT INTO notify_mutes AS m (user_id, muted_user_id, muted, changed_at)
+         SELECT a.id, b.id, $3, $4 FROM users a, users b WHERE a.id = $1 AND b.id = $2 AND a.id <> b.id
+         ON CONFLICT (user_id, muted_user_id) DO UPDATE SET
+            muted = EXCLUDED.muted,
+            changed_at = EXCLUDED.changed_at,
+            created_at = CASE WHEN EXCLUDED.muted AND NOT m.muted THEN now() ELSE m.created_at END
+         WHERE m.changed_at <= EXCLUDED.changed_at
+         RETURNING new.muted <> COALESCE(old.muted, false)",
     )
     .bind(user_id)
     .bind(muted_user_id)
-    .execute(executor)
+    .bind(muted)
+    .bind(at)
+    .fetch_optional(executor)
     .await?;
-    Ok(done.rows_affected() > 0)
-}
-
-/// Removes a mute. Returns whether there was one.
-pub(crate) async fn delete_mute<'e, E: PgExecutor<'e>>(
-    executor: E,
-    user_id: Uuid,
-    muted_user_id: Uuid,
-) -> AppResult<bool> {
-    let done = sqlx::query("DELETE FROM notify_mutes WHERE user_id = $1 AND muted_user_id = $2")
-        .bind(user_id)
-        .bind(muted_user_id)
-        .execute(executor)
-        .await?;
-    Ok(done.rows_affected() > 0)
+    Ok(flipped.unwrap_or(false))
 }
 
 impl Notify {
+    /// Muting and unmuting share one limit: both write a row.
+    async fn mute_rate_limit(&self, user_id: Uuid) -> AppResult<()> {
+        self.core
+            .cache
+            .rate_limit(&format!("notify-mute:{user_id}"), 120, Duration::from_secs(60))
+            .await
+    }
+
     /// Applies a mute or unmute requested through the API and announces it,
     /// so the friends list can show the same state.
     async fn set_mute(&self, user_id: Uuid, muted_user_id: Uuid, muted: bool) -> AppResult<()> {
         let mut tx = self.core.db.begin().await?;
-        let changed = if muted {
-            insert_mute(&mut *tx, user_id, muted_user_id).await?
-        } else {
-            delete_mute(&mut *tx, user_id, muted_user_id).await?
-        };
+        let changed = set_mute_state(&mut *tx, user_id, muted_user_id, muted, now()).await?;
         if changed {
             events::emit(
                 &mut *tx,
@@ -202,14 +204,7 @@ impl PreferencesService for Notify {
                 "CANNOT_MUTE_SELF",
                 "you cannot mute yourself"
             );
-            self.core
-                .cache
-                .rate_limit(
-                    &format!("notify-mute:{user_id}"),
-                    120,
-                    Duration::from_secs(60),
-                )
-                .await?;
+            self.mute_rate_limit(user_id).await?;
             let exists: bool = sqlx::query_scalar(
                 "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL)",
             )
@@ -231,6 +226,7 @@ impl PreferencesService for Notify {
         handle(async {
             let user_id = ctx.user_id()?;
             let target_id = parse_id(request.user_id)?;
+            self.mute_rate_limit(user_id).await?;
             self.set_mute(user_id, target_id, false).await?;
             ok(UnmuteUserResponse::default())
         })
@@ -248,7 +244,7 @@ impl PreferencesService for Notify {
             let after: Option<(Time, Uuid)> = page.decode()?;
             let mut rows: Vec<(Uuid, Time)> = sqlx::query_as(
                 "SELECT muted_user_id, created_at FROM notify_mutes
-                 WHERE user_id = $1 AND ($2::timestamptz IS NULL OR (created_at, muted_user_id) < ($2, $3))
+                 WHERE user_id = $1 AND muted AND ($2::timestamptz IS NULL OR (created_at, muted_user_id) < ($2, $3))
                  ORDER BY created_at DESC, muted_user_id DESC
                  LIMIT $4",
             )

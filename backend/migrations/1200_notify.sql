@@ -102,15 +102,21 @@ CREATE TABLE notify_category_prefs (
 
 -- "Do not notify me about what this person does." Written by the mute RPCs
 -- and kept in sync with the friend preference of the social domain.
+-- Unmuting keeps the row (`muted = false`): changes arrive from two places
+-- and events are not ordered, so the latest change (`changed_at`) wins.
 CREATE TABLE notify_mutes (
     user_id       uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     muted_user_id uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    muted         boolean     NOT NULL DEFAULT true,
+    -- When the mute was last switched on (the list is sorted by it).
     created_at    timestamptz NOT NULL DEFAULT now(),
+    -- Time of the change this row reflects: the RPC's or the event's.
+    changed_at    timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, muted_user_id),
     CHECK (user_id <> muted_user_id)
 );
 
-CREATE INDEX notify_mutes_list ON notify_mutes (user_id, created_at DESC, muted_user_id DESC);
+CREATE INDEX notify_mutes_list ON notify_mutes (user_id, created_at DESC, muted_user_id DESC) WHERE muted;
 CREATE INDEX notify_mutes_muted ON notify_mutes (muted_user_id);
 
 -- Blocks, mirrored from the social domain's events. Nothing is delivered

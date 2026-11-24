@@ -233,7 +233,7 @@ impl DataExporter for NotifyExporter {
         let mutes = json(
             core,
             "SELECT COALESCE(jsonb_agg(to_jsonb(m) ORDER BY m.muted_at DESC), '[]'::jsonb) FROM (
-                 SELECT muted_user_id, created_at AS muted_at FROM notify_mutes WHERE user_id = $1
+                 SELECT muted_user_id, created_at AS muted_at FROM notify_mutes WHERE user_id = $1 AND muted
              ) m",
             user_id,
         )

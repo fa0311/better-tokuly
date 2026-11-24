@@ -35,7 +35,7 @@ use crate::{
     locks,
     inbox::{self, NewNotification, NotificationRow},
     preferences::{self, DeliveryContext},
-    preferences_svc::{delete_mute, insert_mute},
+    preferences_svc::set_mute_state,
     sanitize::sanitize,
     withdraw::{self, CONTENT_REMOVED_TOPIC, UNWITHDRAWABLE_CATEGORY},
 };
@@ -388,11 +388,14 @@ impl Notify {
     /// Mirrors the "mute this friend" preference of the social domain.
     pub async fn handle_friend_prefs_changed(&self, event: &Event) -> AppResult<()> {
         let change: FriendPrefsChanged = event.data()?;
-        if change.muted {
-            insert_mute(&self.core.db, change.user_id, change.friend_id).await?;
-        } else {
-            delete_mute(&self.core.db, change.user_id, change.friend_id).await?;
-        }
+        set_mute_state(
+            &self.core.db,
+            change.user_id,
+            change.friend_id,
+            change.muted,
+            event.occurred_at,
+        )
+        .await?;
         Ok(())
     }
 }

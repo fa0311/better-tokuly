@@ -66,7 +66,7 @@ account's) for push.
 | Topic | Payload | Effect |
 |---|---|---|
 | `notify.requested` | `tokuly_core::outbound::NotificationRequest` | inbox entry, realtime event, push job (see above) |
-| `social.friend.prefs_changed` | `{ user_id, friend_id, muted }` (`tokuly_notify::events::FriendPrefsChanged`) | `muted = true` adds a mute of `friend_id` for `user_id`, `false` removes it |
+| `social.friend.prefs_changed` | `{ user_id, friend_id, muted }` (`tokuly_notify::events::FriendPrefsChanged`) | `muted = true` mutes `friend_id` for `user_id`, `false` unmutes. Applied only when newer than the pair's last change (from this event or `MuteUser` / `UnmuteUser`), so events handled out of order end in the latest state |
 | `social.user.blocked` / `social.user.unblocked` | `{ user_id, blocked_id }` (`tokuly_notify::events::UserBlocked`) | mirrors the block (rule 2). A block removes `user_id`'s non-system entries caused by `blocked_id`. Applied only when newer than the pair's last change, so events handled out of order end in the latest state |
 | `admin.content.removed` | `{ subject_type, subject_id, … }` | withdraws `subject_id` (any subject type but `SUBJECT_TYPE_USER`: a profile takedown keeps what the person did in other inboxes) |
 | `chat.message.deleted` | `{ message_id, … }` | withdraws `message_id` |
