@@ -791,7 +791,7 @@ impl TopicGuard for StreamGuard {
         };
         let Some(stream) = streams::find_by_id(&self.core, stream_id).await? else { return Ok(false) };
         let viewer = Viewer::load(&self.core, subscriber).await?;
-        Ok(access::can_watch(&viewer, &stream.facts()))
+        access::can_watch_now(&self.core, &viewer, &stream.facts()).await
     }
 }
 

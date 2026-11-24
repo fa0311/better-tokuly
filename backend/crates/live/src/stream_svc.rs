@@ -47,9 +47,6 @@ fn explicit_visibility(value: buffa::EnumValue<Visibility>) -> AppResult<i32> {
         Some(Visibility::VISIBILITY_UNSPECIFIED) | None => {
             Err(AppError::invalid("VISIBILITY_INVALID", "unknown visibility"))
         }
-        Some(Visibility::VISIBILITY_FOLLOWERS | Visibility::VISIBILITY_CLOSE_FRIENDS | Visibility::VISIBILITY_CIRCLE) => {
-            Err(AppError::invalid("VISIBILITY_INVALID", "this audience is not available here yet"))
-        }
         Some(known) => Ok(known as i32),
     }
 }
@@ -119,10 +116,15 @@ impl Live {
             new_subscribers: row.new_subscribers,
             archive_error: row.archive_error.clone(),
             end_reason: row.end_reason.into(),
+            circle_id: row.circle_id.map(|id| id.to_string()).unwrap_or_default(),
             ..Default::default()
         });
+        let mut summary = streams::summary(core, row).await?;
+        if is_owner {
+            summary.visibility = row.visibility.into();
+        }
         Ok(Stream {
-            summary: Some(streams::summary(core, row).await?).into(),
+            summary: Some(summary).into(),
             description: row.description.clone(),
             tags: row.tags.clone(),
             dvr_enabled: row.dvr_enabled,
@@ -185,6 +187,7 @@ impl LiveStreamService for Live {
                 game: Some(req.game),
                 thumbnail_asset_id: Some(parse_opt_id(req.thumbnail_asset_id.trim())?),
                 visibility: Some(video_validate::visibility(req.visibility, Visibility::VISIBILITY_PUBLIC)?),
+                circle_id: parse_opt_id(&req.circle_id)?,
                 scheduled_at: Some(req.scheduled_at.as_option().map(tokuly_core::time::from_ts)),
                 low_latency: req.low_latency,
                 dvr_enabled: req.dvr_enabled,
@@ -195,6 +198,13 @@ impl LiveStreamService for Live {
             };
             core.cache.rate_limit(&format!("live-create:{user_id}"), 30, Duration::from_secs(3600)).await?;
             let row = streams::create(core, &channel, self.cfg.max_open_streams, edit).await?;
+            // Locked or unlocked since `create` read it: apply it now.
+            let row = if tokuly_video::access::is_locked_now(core, user_id).await? != row.owner_locked {
+                self.sync_owner_lock(user_id).await?;
+                streams::find_by_id(core, row.id).await?.ok_or_else(streams::not_found)?
+            } else {
+                row
+            };
             ok(CreateStreamResponse {
                 stream: Some(self.own_stream_proto(ctx.auth()?, &row).await?).into(),
                 ..Default::default()
@@ -231,6 +241,7 @@ impl LiveStreamService for Live {
                 game: req.game,
                 thumbnail_asset_id,
                 visibility: req.visibility.map(explicit_visibility).transpose()?,
+                circle_id: parse_opt_id(&req.circle_id)?,
                 scheduled_at,
                 low_latency: req.low_latency,
                 dvr_enabled: req.dvr_enabled,
@@ -245,13 +256,14 @@ impl LiveStreamService for Live {
             if !updated.is_ended() {
                 self.push_stream_updated(&updated).await;
             }
-            if access::narrower(stream.visibility, updated.visibility) {
+            let (was, now) = (stream.audience(stream.owner_locked), updated.audience(updated.owner_locked));
+            if access::narrower(was, now) {
                 // Whoever the new visibility leaves out stops following the stream.
                 // (Widening, or moving between the ones open to everyone, leaves nobody out.)
                 core.rt.recheck_topic(&updated.topic()).await;
             }
             // Narrower than before: whoever may no longer watch is cut off now, not when their token runs out.
-            if updated.visibility != stream.visibility && (updated.is_live() || updated.encoder_connected) {
+            if was != now && (updated.is_live() || updated.encoder_connected) {
                 let cut = async {
                     self.access_changed(&[updated.owner_id]).await?;
                     self.enforce_access(&updated, true).await
@@ -335,25 +347,25 @@ impl LiveStreamService for Live {
                 .await?
             } else {
                 // Streams that were cancelled before they went on air are the owner's business.
-                sqlx::query_as(concat!(
-                    "SELECT ",
-                    stream_columns!(),
-                    " FROM live_streams s
-                      WHERE s.channel_id = $1 AND s.deleted_at IS NULL AND ($2 = 0 OR s.status = $2)
-                        AND ($3::uuid IS NULL OR s.id < $3) AND NOT (s.status = 3 AND s.started_at IS NULL) AND ",
-                    listed!("5", "6"),
-                    " ORDER BY s.id DESC LIMIT $4"
-                ))
-                .bind(channel.id)
-                .bind(status)
-                .bind(before)
-                .bind(page.fetch())
-                .bind(&viewer.friends)
-                .bind(&viewer.blocked)
-                .fetch_all(&core.db)
-                .await?
+                viewer
+                    .query_as(concat!(
+                        "SELECT ",
+                        stream_columns!(),
+                        " FROM live_streams s
+                          WHERE s.channel_id = $7 AND s.deleted_at IS NULL AND ($8 = 0 OR s.status = $8)
+                            AND ($9::uuid IS NULL OR s.id < $9) AND NOT (s.status = 3 AND s.started_at IS NULL) AND ",
+                        listed!(),
+                        " ORDER BY s.id DESC LIMIT $10"
+                    ))
+                    .bind(channel.id)
+                    .bind(status)
+                    .bind(before)
+                    .bind(page.fetch())
+                    .fetch_all(&core.db)
+                    .await?
             };
             let info = page.finish(&mut rows, |row| row.id);
+            viewer.drop_newly_locked(core, &mut rows, StreamRow::lock_facts).await?;
             ok(ListChannelStreamsResponse {
                 streams: streams::summaries(core, &rows).await?,
                 page: info.into(),
@@ -375,25 +387,26 @@ impl LiveStreamService for Live {
             let game = request.game.split_whitespace().collect::<Vec<_>>().join(" ");
             let page = Page::from_view(request.page.as_option(), 100);
             let after: Option<LiveCursor> = page.decode()?;
-            let mut rows: Vec<StreamRow> = sqlx::query_as(concat!(
-                "SELECT ",
-                stream_columns!(),
-                " FROM live_streams s
+            let mut rows: Vec<StreamRow> = viewer
+                .query_as(concat!(
+                    "SELECT ",
+                    stream_columns!(),
+                    " FROM live_streams s
                   WHERE s.status = 2 AND ",
-                public_stream!("1"),
-                " AND ($2 = 0 OR s.category = $2) AND ($3 = '' OR lower(s.game) = lower($3))
-                    AND ($4::bigint IS NULL OR (s.ranked_viewer_count, s.id) < ($4, $5))
-                  ORDER BY s.ranked_viewer_count DESC, s.id DESC LIMIT $6"
-            ))
-            .bind(&viewer.blocked)
-            .bind(category)
-            .bind(&game)
-            .bind(after.as_ref().map(|cursor| cursor.viewers))
-            .bind(after.as_ref().map(|cursor| cursor.id))
-            .bind(page.fetch())
-            .fetch_all(&core.db)
-            .await?;
+                    public_stream!(),
+                    " AND ($7 = 0 OR s.category = $7) AND ($8 = '' OR lower(s.game) = lower($8))
+                    AND ($9::bigint IS NULL OR (s.ranked_viewer_count, s.id) < ($9, $10))
+                  ORDER BY s.ranked_viewer_count DESC, s.id DESC LIMIT $11"
+                ))
+                .bind(category)
+                .bind(&game)
+                .bind(after.as_ref().map(|cursor| cursor.viewers))
+                .bind(after.as_ref().map(|cursor| cursor.id))
+                .bind(page.fetch())
+                .fetch_all(&core.db)
+                .await?;
             let info = page.finish(&mut rows, |row| LiveCursor { viewers: row.ranked_viewer_count, id: row.id });
+            viewer.drop_newly_locked(core, &mut rows, StreamRow::lock_facts).await?;
             ok(ListLiveStreamsResponse {
                 streams: streams::summaries(core, &rows).await?,
                 page: info.into(),
@@ -414,16 +427,15 @@ impl LiveStreamService for Live {
             let category = video_validate::category(request.category)?;
             let page = Page::from_view(request.page.as_option(), 100);
             let after: Option<UpcomingCursor> = page.decode()?;
-            let mut rows: Vec<StreamRow> = sqlx::query_as(concat!(
+            let mut rows: Vec<StreamRow> = viewer.query_as(concat!(
                 "SELECT ",
                 stream_columns!(),
                 " FROM live_streams s
                   WHERE s.status = 1 AND s.scheduled_at IS NOT NULL AND s.scheduled_at > now() - interval '1 hour' AND ",
-                public_stream!("1"),
-                " AND ($2 = 0 OR s.category = $2) AND ($3::timestamptz IS NULL OR (s.scheduled_at, s.id) > ($3, $4))
-                  ORDER BY s.scheduled_at, s.id LIMIT $5"
+                public_stream!(),
+                " AND ($7 = 0 OR s.category = $7) AND ($8::timestamptz IS NULL OR (s.scheduled_at, s.id) > ($8, $9))
+                  ORDER BY s.scheduled_at, s.id LIMIT $10"
             ))
-            .bind(&viewer.blocked)
             .bind(category)
             .bind(after.as_ref().map(|cursor| cursor.at))
             .bind(after.as_ref().map(|cursor| cursor.id))
@@ -431,6 +443,7 @@ impl LiveStreamService for Live {
             .fetch_all(&core.db)
             .await?;
             let info = page.finish(&mut rows, |row| UpcomingCursor { at: row.scheduled_at.unwrap_or(row.created_at), id: row.id });
+            viewer.drop_newly_locked(core, &mut rows, StreamRow::lock_facts).await?;
             ok(ListUpcomingStreamsResponse { streams: streams::summaries(core, &rows).await?, page: info.into(), ..Default::default() })
         })
         .await
@@ -451,17 +464,16 @@ impl LiveStreamService for Live {
             // this user subscribed to this channel": the streams that could
             // be listed are read first and then narrowed down channel by
             // channel.
-            let candidates: Vec<StreamRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT {} FROM live_streams s WHERE {ON_AIR_OR_SCHEDULED} AND s.owner_id <> $1 AND {} ORDER BY {ON_AIR_FIRST} LIMIT $4",
-                stream_columns!(),
-                in_feed!("2", "3"),
-            )))
-            .bind(user_id)
-            .bind(&viewer.friends)
-            .bind(&viewer.blocked)
-            .bind(SUBSCRIBED_CANDIDATES)
-            .fetch_all(&core.db)
-            .await?;
+            let mut candidates: Vec<StreamRow> = viewer
+                .query_as(sqlx::AssertSqlSafe(format!(
+                    "SELECT {} FROM live_streams s WHERE {ON_AIR_OR_SCHEDULED} AND s.owner_id <> $1 AND {} ORDER BY {ON_AIR_FIRST} LIMIT $7",
+                    stream_columns!(),
+                    in_feed!(),
+                )))
+                .bind(SUBSCRIBED_CANDIDATES)
+                .fetch_all(&core.db)
+                .await?;
+            viewer.drop_newly_locked(core, &mut candidates, StreamRow::lock_facts).await?;
             let mut subscribed: HashMap<Uuid, bool> = HashMap::new();
             let mut kept = Vec::new();
             for stream in candidates {
@@ -493,17 +505,16 @@ impl LiveStreamService for Live {
             let user_id = ctx.user_id()?;
             let viewer = Viewer::load(core, Some(user_id)).await?;
             let page = Page::from_view(request.page.as_option(), 100);
-            let candidates: Vec<StreamRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT {} FROM live_streams s
-                 WHERE {ON_AIR_OR_SCHEDULED} AND s.owner_id = ANY($1) AND {} ORDER BY {ON_AIR_FIRST} LIMIT $3",
-                stream_columns!(),
-                in_feed!("1", "2"),
-            )))
-            .bind(&viewer.friends)
-            .bind(&viewer.blocked)
-            .bind(SUBSCRIBED_CANDIDATES)
-            .fetch_all(&core.db)
-            .await?;
+            let candidates: Vec<StreamRow> = viewer
+                .query_as(sqlx::AssertSqlSafe(format!(
+                    "SELECT {} FROM live_streams s
+                     WHERE {ON_AIR_OR_SCHEDULED} AND s.owner_id = ANY($2) AND {} ORDER BY {ON_AIR_FIRST} LIMIT $7",
+                    stream_columns!(),
+                    in_feed!(),
+                )))
+                .bind(SUBSCRIBED_CANDIDATES)
+                .fetch_all(&core.db)
+                .await?;
             let (rows, info) = page_by_position(candidates, &page)?;
             ok(ListFriendStreamsResponse {
                 streams: streams::summaries(core, &rows).await?,
@@ -788,9 +799,7 @@ impl LiveStreamService for Live {
             // The audience must be able to follow: the target is open to everyone.
             let target = target
                 .filter(|target| {
-                    access::can_watch(&viewer, &target.facts())
-                        && access::open_to_everyone(target.visibility)
-                        && !target.suspended
+                    access::can_watch(&viewer, &target.facts()) && target.open_to_everyone() && !target.suspended
                 })
                 .ok_or_else(|| AppError::not_found("RAID_TARGET_NOT_FOUND", "the stream to raid was not found"))?;
             ensure!(target.channel_id != stream.channel_id, invalid, "RAID_SELF", "a channel cannot raid itself");

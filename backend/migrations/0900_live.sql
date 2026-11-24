@@ -25,7 +25,10 @@ CREATE TABLE live_streams (
     thumbnail          jsonb,
     thumbnail_asset_id uuid,
     -- tokuly.common.v1.Visibility.
-    visibility         integer     NOT NULL DEFAULT 1 CHECK (visibility BETWEEN 1 AND 5),
+    -- tokuly.common.v1.Visibility (1 public … 5 private, 6 followers,
+    -- 7 close friends, 8 circle), with `circle_id` for a circle.
+    visibility         integer     NOT NULL DEFAULT 1 CHECK (visibility BETWEEN 1 AND 8),
+    circle_id          uuid,
     -- tokuly.live.v1.StreamStatus.
     status             integer     NOT NULL DEFAULT 1 CHECK (status BETWEEN 1 AND 3),
     scheduled_at       timestamptz,
@@ -87,13 +90,18 @@ CREATE TABLE live_streams (
     announced_at       timestamptz,
     -- The owner's account is suspended: hidden from everyone else.
     suspended          boolean     NOT NULL DEFAULT false,
+    -- The owner's account is locked (copy of the social domain's follow
+    -- settings, kept on social.follow.settings_changed): open streams reach
+    -- only the owner's followers and friends.
+    owner_locked       boolean     NOT NULL DEFAULT false,
     -- Deleted (by its owner, with its channel, or by moderation): gone for
     -- everyone, but the row and its chat are kept for a retention period so
     -- that what was said can still be reported and judged. Purged after that.
     deleted_at         timestamptz,
     attrs              jsonb       NOT NULL DEFAULT '{}',
     created_at         timestamptz NOT NULL DEFAULT now(),
-    updated_at         timestamptz NOT NULL DEFAULT now()
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT live_streams_circle_audience CHECK ((visibility = 8) = (circle_id IS NOT NULL))
 );
 
 CREATE INDEX live_streams_channel ON live_streams (channel_id, id DESC);
@@ -112,7 +120,7 @@ CREATE INDEX live_streams_deleted ON live_streams (deleted_at) WHERE deleted_at 
 
 -- `updated_at` means "the page changed": counters and encoder state do not touch it.
 CREATE TRIGGER live_streams_updated_at
-    BEFORE UPDATE OF title, description, tags, category, game, thumbnail, visibility, status, scheduled_at,
+    BEFORE UPDATE OF title, description, tags, category, game, thumbnail, visibility, circle_id, status, scheduled_at,
         low_latency, dvr_enabled, auto_archive, auto_start, gifts_enabled, chat ON live_streams
     FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();

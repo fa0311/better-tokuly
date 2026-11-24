@@ -23,9 +23,11 @@ use tokuly_proto::{
     live::*,
     media::{AssetKind, AssetPurpose},
     social::{
-        BlockUserRequest, BlockUserResponse, FriendSource, RemoveFriendRequest, RemoveFriendResponse,
+        AddCircleMembersRequest, AddCircleMembersResponse, BlockUserRequest, BlockUserResponse, CircleKind,
+        CreateCircleRequest, CreateCircleResponse, FollowRequest, FollowResponse, FollowSettings, FriendSource,
+        ListCirclesRequest, ListCirclesResponse, RemoveFriendRequest, RemoveFriendResponse,
         RespondFriendRequestRequest, RespondFriendRequestResponse, SendFriendRequestRequest, SendFriendRequestResponse,
-        send_friend_request_request::Target,
+        UpdateFollowSettingsRequest, UpdateFollowSettingsResponse, follow_request, send_friend_request_request::Target,
     },
     stamp::{CreatePersonalStampRequest, CreatePersonalStampResponse},
     video::{
@@ -219,6 +221,85 @@ impl Ctx {
         let _: RemoveFriendResponse =
             self.app.call("tokuly.social.v1.FriendService/RemoveFriend", Some(a), &request).await.expect("unfriend");
         assert_eq!(self.deliver("social.friend.removed", a.id).await, 1, "the end of a friendship is announced");
+    }
+
+    /// `follower` follows `followee` (an account that is not locked) through the social API.
+    pub async fn follow(&self, follower: &TestUser, followee: &TestUser) {
+        let request = FollowRequest {
+            target: Some(follow_request::Target::UserId(followee.id.to_string())),
+            ..Default::default()
+        };
+        let _: FollowResponse =
+            self.app.call("tokuly.social.v1.FollowService/Follow", Some(follower), &request).await.expect("follow");
+    }
+
+    /// Locks or unlocks `user`'s account through the social API. The
+    /// `social.follow.settings_changed` event is not delivered here: call
+    /// [`Self::deliver_lock_change`] for that.
+    pub async fn set_locked(&self, user: &TestUser, locked: bool) {
+        let request = UpdateFollowSettingsRequest {
+            settings: FollowSettings { locked, ..Default::default() }.into(),
+            ..Default::default()
+        };
+        let _: UpdateFollowSettingsResponse = self
+            .app
+            .call("tokuly.social.v1.FollowService/UpdateFollowSettings", Some(user), &request)
+            .await
+            .expect("update follow settings");
+    }
+
+    /// Delivers the latest `social.follow.settings_changed` of `user` to the live domain.
+    pub async fn deliver_lock_change(&self, user: &TestUser) {
+        let event =
+            self.app.events_by("social.follow.settings_changed", user.id).await.pop().expect("a settings change");
+        self.live.handle_event(event).await.expect("handled");
+    }
+
+    /// Creates a custom circle of `owner` with `members` and returns its ID.
+    pub async fn circle(&self, owner: &TestUser, name: &str, members: &[&TestUser]) -> String {
+        let created: CreateCircleResponse = self
+            .app
+            .call(
+                "tokuly.social.v1.CircleService/CreateCircle",
+                Some(owner),
+                &CreateCircleRequest { name: name.to_owned(), ..Default::default() },
+            )
+            .await
+            .expect("create circle");
+        let circle_id = created.circle.id.clone();
+        self.add_to_circle(owner, &circle_id, members).await;
+        circle_id
+    }
+
+    /// The ID of `owner`'s close-friends circle.
+    pub async fn close_friends_circle(&self, owner: &TestUser) -> String {
+        let circles: ListCirclesResponse = self
+            .app
+            .call("tokuly.social.v1.CircleService/ListCircles", Some(owner), &ListCirclesRequest::default())
+            .await
+            .expect("list circles");
+        circles
+            .circles
+            .iter()
+            .find(|circle| circle.kind == buffa::EnumValue::from(CircleKind::CIRCLE_KIND_CLOSE_FRIENDS))
+            .map(|circle| circle.id.clone())
+            .expect("a close-friends circle")
+    }
+
+    pub async fn add_to_circle(&self, owner: &TestUser, circle_id: &str, members: &[&TestUser]) {
+        if members.is_empty() {
+            return;
+        }
+        let request = AddCircleMembersRequest {
+            circle_id: circle_id.to_owned(),
+            user_ids: members.iter().map(|member| member.id.to_string()).collect(),
+            ..Default::default()
+        };
+        let _: AddCircleMembersResponse = self
+            .app
+            .call("tokuly.social.v1.CircleService/AddCircleMembers", Some(owner), &request)
+            .await
+            .expect("add circle members");
     }
 
     /// `blocker` blocks `blocked` through the social API.

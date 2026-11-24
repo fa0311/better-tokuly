@@ -14,6 +14,7 @@ use tokuly_proto::{
     live::{ArchiveStatus, ChatAudience, ChatSettings, LinkPolicy, StreamSummary},
     media::AssetPurpose,
 };
+use tokuly_social::graph::{self, ContentAudience};
 use tokuly_video::{
     channels::{self, ChannelRow},
     validate as video_validate,
@@ -93,6 +94,10 @@ pub struct StreamRow {
     pub raid_target_id: Option<Uuid>,
     pub announced_at: Option<Time>,
     pub suspended: bool,
+    /// VISIBILITY_CIRCLE only: the owner's circle.
+    pub circle_id: Option<Uuid>,
+    /// The owner's account is locked, as this domain's copy knows it.
+    pub owner_locked: bool,
     /// Deleted: kept (with its chat) until the retention period is over.
     pub deleted_at: Option<Time>,
     pub created_at: Time,
@@ -107,7 +112,7 @@ macro_rules! stream_columns {
          s.encoder_connected, s.encoder_protocol, s.encoder_lost_at, s.started_at, s.ended_at, s.end_reason, \
          s.viewer_count, s.ranked_viewer_count, s.peak_viewer_count, s.like_count, s.chat_message_count, s.gift_coins, s.gift_net_coins, \
          s.gift_count, s.new_subscribers, s.pinned_message_id, s.archive_status, s.archive_asset_id, \
-         s.archive_video_id, s.archive_error, s.raid_target_id, s.announced_at, s.suspended, s.deleted_at, s.created_at, \
+         s.archive_video_id, s.archive_error, s.raid_target_id, s.announced_at, s.suspended, s.circle_id, s.owner_locked, s.deleted_at, s.created_at, \
          s.updated_at"
     };
 }
@@ -115,7 +120,34 @@ pub(crate) use stream_columns;
 
 impl StreamRow {
     pub fn facts(&self) -> StreamFacts {
-        StreamFacts { owner_id: self.owner_id, visibility: self.visibility, suspended: self.suspended }
+        StreamFacts {
+            owner_id: self.owner_id,
+            visibility: self.visibility,
+            circle_id: self.circle_id,
+            suspended: self.suspended,
+            owner_locked: self.owner_locked,
+        }
+    }
+
+    /// See [`StreamFacts::lock_facts`].
+    pub fn lock_facts(&self) -> (Uuid, bool, bool) {
+        self.facts().lock_facts()
+    }
+
+    /// The audience the stream reaches, given whether the owner is `locked`.
+    pub fn audience(&self, locked: bool) -> tokuly_social::graph::ContentAudience {
+        access::audience(self.visibility, self.circle_id, locked)
+    }
+
+    /// Playable without a token (see [`access::open_to_everyone`]).
+    pub fn open_to_everyone(&self) -> bool {
+        access::open_to_everyone(self.visibility, self.owner_locked)
+    }
+
+    /// The visibility in effect, as `live.stream.visibility_changed` names
+    /// it: an open stream of a locked owner reads as FOLLOWERS.
+    pub fn effective_visibility(&self) -> i32 {
+        if self.owner_locked && access::is_open(self.visibility) { access::FOLLOWERS } else { self.visibility }
     }
 
     pub fn is_live(&self) -> bool {
@@ -134,9 +166,14 @@ impl StreamRow {
         self.deleted_at.is_some()
     }
 
-    /// Listed in the directories and in search: public, not over, not suspended.
+    /// Listed in the directories and in search: public, not over, not
+    /// suspended, its owner not locked.
     pub fn is_discoverable(&self) -> bool {
-        self.visibility == access::PUBLIC && !self.is_ended() && !self.suspended && !self.is_deleted()
+        self.visibility == access::PUBLIC
+            && !self.is_ended()
+            && !self.suspended
+            && !self.owner_locked
+            && !self.is_deleted()
     }
 
     /// Path of the stream page in the web app.
@@ -188,7 +225,8 @@ impl StreamRow {
             thumbnail: self.thumbnail().into(),
             channel: channel.into(),
             status: self.status.into(),
-            visibility: self.visibility.into(),
+            // A circle is never named on a card (the owner's page says it).
+            visibility: tokuly_video::access::shown_visibility(self.visibility, false).into(),
             category: self.category.into(),
             game: self.game.clone(),
             viewer_count: if self.is_live() { self.viewer_count } else { 0 },
@@ -272,7 +310,14 @@ pub async fn find_ref(core: &Core, reference: &str) -> AppResult<Option<StreamRo
 /// The stream a client named, if `viewer` may open it (`STREAM_NOT_FOUND`
 /// otherwise, whatever the reason).
 pub async fn find_watchable(core: &Core, viewer: &Viewer, reference: &str) -> AppResult<StreamRow> {
-    find_ref(core, reference).await?.filter(|stream| access::can_watch(viewer, &stream.facts())).ok_or_else(not_found)
+    let stream = find_ref(core, reference).await?.ok_or_else(not_found)?;
+    ensure!(
+        access::can_watch_now(core, viewer, &stream.facts()).await?,
+        not_found,
+        "STREAM_NOT_FOUND",
+        "stream not found"
+    );
+    Ok(stream)
 }
 
 /// The stream a client named, which must belong to `owner_id`.
@@ -417,6 +462,8 @@ pub struct StreamEdit {
     /// `Some(None)` removes the thumbnail.
     pub thumbnail_asset_id: Option<Option<Uuid>>,
     pub visibility: Option<i32>,
+    /// With `visibility` = VISIBILITY_CIRCLE: one of the owner's circles.
+    pub circle_id: Option<Uuid>,
     /// `Some(None)` removes the planned start.
     pub scheduled_at: Option<Option<Time>>,
     pub low_latency: Option<bool>,
@@ -468,6 +515,9 @@ pub async fn create(core: &Core, channel: &ChannelRow, max_open: i64, edit: Stre
         None => default_chat_settings(),
     };
     let thumbnail = resolve_thumbnail(core, channel.owner_id, edit.thumbnail_asset_id.flatten()).await?;
+    let visibility = edit.visibility.unwrap_or(access::PUBLIC);
+    let circle_id = tokuly_video::access::chosen_circle(core, channel.owner_id, visibility, edit.circle_id).await?;
+    let owner_locked = tokuly_video::access::is_locked_now(core, channel.owner_id).await?;
     let (_, sealed, hash) = new_stream_key(core);
 
     let stream_id = new_id();
@@ -490,8 +540,10 @@ pub async fn create(core: &Core, channel: &ChannelRow, max_open: i64, edit: Stre
     sqlx::query(
         "INSERT INTO live_streams (id, short_id, channel_id, owner_id, title, description, tags, category, game, thumbnail,
                                    thumbnail_asset_id, visibility, scheduled_at, low_latency, dvr_enabled, auto_archive,
-                                   auto_start, gifts_enabled, chat, stream_key_sealed, stream_key_hash, suspended)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)",
+                                   auto_start, gifts_enabled, chat, stream_key_sealed, stream_key_hash, suspended,
+                                   circle_id, owner_locked)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
+                 $23, $24)",
     )
     .bind(stream_id)
     .bind(tokuly_core::ids::new_short_id())
@@ -504,7 +556,7 @@ pub async fn create(core: &Core, channel: &ChannelRow, max_open: i64, edit: Stre
     .bind(&game)
     .bind(thumbnail.as_ref().map(|t| &t.image))
     .bind(thumbnail.as_ref().map(|t| t.asset_id))
-    .bind(edit.visibility.unwrap_or(access::PUBLIC))
+    .bind(visibility)
     .bind(scheduled_at)
     .bind(edit.low_latency.unwrap_or(true))
     .bind(edit.dvr_enabled.unwrap_or(true))
@@ -515,6 +567,8 @@ pub async fn create(core: &Core, channel: &ChannelRow, max_open: i64, edit: Stre
     .bind(&sealed)
     .bind(&hash)
     .bind(channel.suspended)
+    .bind(circle_id)
+    .bind(owner_locked)
     .execute(&mut *tx)
     .await?;
     if let Some(thumbnail) = &thumbnail {
@@ -524,6 +578,35 @@ pub async fn create(core: &Core, channel: &ChannelRow, max_open: i64, edit: Stre
     search::sync_stream(&mut tx, &row, Some(channel)).await?;
     tx.commit().await?;
     Ok(row)
+}
+
+/// Emits `live.stream.visibility_changed` for `row` as it is now (in the
+/// transaction that changed it). `visible_to`: who besides the owner may
+/// still watch it (`None`: everyone).
+pub(crate) async fn emit_visibility_changed_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    row: &StreamRow,
+    visible_to: Option<Vec<Uuid>>,
+) -> AppResult<()> {
+    let changed_at: Time = sqlx::query_scalar("SELECT clock_timestamp()").fetch_one(&mut **tx).await?;
+    let mut stream = row.event();
+    stream.visibility = row.effective_visibility();
+    let payload = crate::events::StreamVisibilityChanged { stream, visible_to, changed_at };
+    tokuly_core::events::emit(&mut **tx, crate::events::STREAM_VISIBILITY_CHANGED, Some(row.owner_id), &payload).await
+}
+
+/// Who besides the owner is in `audience` of `owner_id`'s streams (`None`:
+/// everyone), read from the social graph. Sorted.
+pub async fn audience_members(core: &Core, owner_id: Uuid, audience: ContentAudience) -> AppResult<Option<Vec<Uuid>>> {
+    Ok(match audience {
+        ContentAudience::Public => None,
+        ContentAudience::Private => Some(Vec::new()),
+        audience => {
+            let mut members = graph::audience_member_ids(core, owner_id, audience).await?;
+            members.sort_unstable();
+            Some(members)
+        }
+    })
 }
 
 /// Applies `edit` to a stream of its owner. The schedule and `auto_start`
@@ -544,6 +627,19 @@ pub async fn update(core: &Core, stream: &StreamRow, edit: StreamEdit) -> AppRes
     // Read before the transaction: inside it, nothing asks the pool for a
     // second connection.
     let channel = channels::find_by_id(core, stream.channel_id).await?;
+    let circle_id = match edit.visibility {
+        Some(visibility) => {
+            tokuly_video::access::chosen_circle(core, stream.owner_id, visibility, edit.circle_id).await?
+        }
+        None => stream.circle_id,
+    };
+    let planned = match edit.visibility {
+        Some(visibility) => {
+            let audience = access::audience(visibility, circle_id, stream.owner_locked);
+            Some((audience, audience_members(core, stream.owner_id, audience).await?))
+        }
+        None => None,
+    };
 
     let mut tx = core.db.begin().await?;
     let current = lock(&mut tx, stream.id).await?.ok_or_else(not_found)?;
@@ -561,7 +657,8 @@ pub async fn update(core: &Core, stream: &StreamRow, edit: StreamEdit) -> AppRes
              category = COALESCE($5, category), game = COALESCE($6, game), visibility = COALESCE($7, visibility),
              low_latency = COALESCE($8, low_latency), dvr_enabled = COALESCE($9, dvr_enabled),
              auto_archive = COALESCE($10, auto_archive), auto_start = COALESCE($11, auto_start),
-             gifts_enabled = COALESCE($12, gifts_enabled)
+             gifts_enabled = COALESCE($12, gifts_enabled),
+             circle_id = CASE WHEN $7 IS NULL THEN circle_id ELSE $13 END
          WHERE id = $1",
     )
     .bind(stream.id)
@@ -576,6 +673,7 @@ pub async fn update(core: &Core, stream: &StreamRow, edit: StreamEdit) -> AppRes
     .bind(edit.auto_archive)
     .bind(edit.auto_start)
     .bind(edit.gifts_enabled)
+    .bind(circle_id)
     .execute(&mut *tx)
     .await?;
     if let Some(scheduled_at) = scheduled_at {
@@ -602,6 +700,14 @@ pub async fn update(core: &Core, stream: &StreamRow, edit: StreamEdit) -> AppRes
     }
     let updated = lock(&mut tx, stream.id).await?.ok_or_else(not_found)?;
     search::sync_stream(&mut tx, &updated, channel.as_ref()).await?;
+    let (was, now) = (current.audience(current.owner_locked), updated.audience(updated.owner_locked));
+    if let Some((planned, members)) = planned
+        && was != now
+    {
+        // Another change in between: name nobody (withdraws too much, never too little).
+        let visible_to = if planned == now { members } else { Some(Vec::new()) };
+        emit_visibility_changed_in(&mut tx, &updated, visible_to).await?;
+    }
     tx.commit().await?;
     Ok(updated)
 }

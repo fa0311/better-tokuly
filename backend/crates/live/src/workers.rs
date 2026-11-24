@@ -31,9 +31,10 @@ use crate::{
     Live, chat, clips,
     events::{
         ASSET_DELETED, ASSET_FAILED, ASSET_READY, AnnounceJob, ArchiveJob, CHANNEL_DELETED, CHANNEL_SUBSCRIBED,
-        CONTENT_REMOVED, ClipJob, ContentRemoved, FRIEND_REMOVED, FriendRemoved, JOB_ANNOUNCE, JOB_ARCHIVE, JOB_CLIP,
-        STREAM_ENDED, STREAM_STARTED, StreamEvent, USER_BANNED, USER_BLOCKED, USER_DELETED, USER_UNBANNED, UserBlocked,
-        UserRef, VIDEO_DELETED, VIDEO_PUBLISHED, VIDEO_UNPUBLISHED,
+        CIRCLE_DELETED, CIRCLE_MEMBERS_CHANGED, CONTENT_REMOVED, CircleChanged, ClipJob, ContentRemoved,
+        FOLLOW_REMOVED, FOLLOW_SETTINGS_CHANGED, FRIEND_REMOVED, FollowRemoved, FriendRemoved, JOB_ANNOUNCE,
+        JOB_ARCHIVE, JOB_CLIP, STREAM_ENDED, STREAM_STARTED, StreamEvent, USER_BANNED, USER_BLOCKED, USER_DELETED,
+        USER_UNBANNED, UserBlocked, UserRef, VIDEO_DELETED, VIDEO_PUBLISHED, VIDEO_UNPUBLISHED,
     },
     overlays, search,
     streams::{self, ARCHIVE_FAILED, ARCHIVE_NONE, ARCHIVE_PENDING, Aftermath, StreamRow, stream_columns},
@@ -59,6 +60,10 @@ impl Live {
                     USER_BANNED,
                     USER_UNBANNED,
                     USER_BLOCKED,
+                    FOLLOW_SETTINGS_CHANGED,
+                    FOLLOW_REMOVED,
+                    CIRCLE_MEMBERS_CHANGED,
+                    CIRCLE_DELETED,
                     FRIEND_REMOVED,
                     CONTENT_REMOVED,
                     ASSET_READY,
@@ -201,6 +206,16 @@ impl Live {
             FRIEND_REMOVED => {
                 let removed: FriendRemoved = event.data()?;
                 self.cut_lost_viewers(&[removed.user_id, removed.friend_id]).await
+            }
+            FOLLOW_SETTINGS_CHANGED => self.sync_owner_lock(event.data::<UserRef>()?.user_id).await.map(drop),
+            // A follow that ended, or a circle that lost members: followers,
+            // close friends and circle streams may have lost viewers.
+            FOLLOW_REMOVED => {
+                let removed: FollowRemoved = event.data()?;
+                self.cut_lost_viewers(&[removed.followee_id, removed.follower_id]).await
+            }
+            CIRCLE_MEMBERS_CHANGED | CIRCLE_DELETED => {
+                self.cut_lost_viewers(&[event.data::<CircleChanged>()?.owner_id]).await
             }
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
             CHANNEL_DELETED => self.on_channel_deleted(event.data::<ChannelEvent>()?.channel_id).await,
@@ -371,6 +386,77 @@ impl Live {
     ///
     /// The two events can arrive late or in the wrong order, so they only
     /// say "look again": what counts is whether the account is banned now.
+    /// Applies whether `owner_id`'s account is locked to their streams: the
+    /// copy in `live_streams.owner_locked`, search, one
+    /// `live.stream.visibility_changed` per open stream whose reach changed,
+    /// and — for a lock — the realtime subscriptions and media sessions of
+    /// people who are no longer in the audience. The handler of
+    /// `social.follow.settings_changed`. Idempotent; returns how many open
+    /// streams changed reach.
+    pub async fn sync_owner_lock(&self, owner_id: Uuid) -> AppResult<u64> {
+        let mut changed = 0;
+        // A lock and an unlock in quick succession can have their passes
+        // cross: the last word is what the social domain says afterwards.
+        loop {
+            let locked = tokuly_video::access::is_locked_now(&self.core, owner_id).await?;
+            changed += self.sync_lock_to(owner_id, locked).await?;
+            if tokuly_video::access::is_locked_now(&self.core, owner_id).await? == locked {
+                return Ok(changed);
+            }
+        }
+    }
+
+    /// One pass of [`Self::sync_owner_lock`]: brings every stream to `locked`.
+    async fn sync_lock_to(&self, owner_id: Uuid, locked: bool) -> AppResult<u64> {
+        let core = &self.core;
+        // Everything from elsewhere is read before the transaction.
+        let tied = streams::audience_members(core, owner_id, tokuly_social::graph::ContentAudience::Followers).await?;
+        let owned: Vec<StreamRow> =
+            self.streams_where("owner_id", owner_id).await?.into_iter().filter(|s| !s.is_deleted()).collect();
+        let mut channels_of = std::collections::HashMap::new();
+        for stream in owned.iter().filter(|stream| stream.owner_locked != locked) {
+            if !channels_of.contains_key(&stream.channel_id) {
+                channels_of
+                    .insert(stream.channel_id, tokuly_video::channels::find_by_id(core, stream.channel_id).await?);
+            }
+        }
+        let mut tx = core.db.begin().await?;
+        let mut changed = Vec::new();
+        for stream in &owned {
+            let Some(current) = streams::lock(&mut tx, stream.id).await? else { continue };
+            if current.owner_locked == locked {
+                continue;
+            }
+            sqlx::query("UPDATE live_streams SET owner_locked = $2 WHERE id = $1")
+                .bind(current.id)
+                .bind(locked)
+                .execute(&mut *tx)
+                .await?;
+            let updated = StreamRow { owner_locked: locked, ..current };
+            let channel = channels_of.get(&updated.channel_id).and_then(Option::as_ref);
+            search::sync_stream(&mut tx, &updated, channel).await?;
+            if crate::access::is_open(updated.visibility) {
+                let visible_to = if locked { tied.clone() } else { None };
+                streams::emit_visibility_changed_in(&mut tx, &updated, visible_to).await?;
+                changed.push(updated);
+            }
+        }
+        tx.commit().await?;
+        if locked && !changed.is_empty() {
+            // Strangers stop following and watching the streams at once.
+            for stream in &changed {
+                core.rt.recheck_topic(&stream.topic()).await;
+            }
+            self.access_changed(&[owner_id]).await?;
+            for stream in changed.iter().filter(|stream| stream.is_live()) {
+                if let Err(error) = self.enforce_access(stream, true).await {
+                    tracing::warn!(stream_id = %stream.id, %error, "could not cut viewers after a lock");
+                }
+            }
+        }
+        Ok(changed.len() as u64)
+    }
+
     async fn on_user_suspended(&self, user_id: Uuid) -> AppResult<()> {
         let core = &self.core;
         let suspended: bool =
@@ -465,7 +551,8 @@ impl Live {
         let on_air: Vec<StreamRow> = sqlx::query_as(concat!(
             "SELECT ",
             stream_columns!(),
-            " FROM live_streams s WHERE s.owner_id = ANY($1) AND s.status = 2 AND s.visibility IN (4, 5)"
+            " FROM live_streams s WHERE s.owner_id = ANY($1) AND s.status = 2 AND ",
+            crate::access::restricted!()
         ))
         .bind(owners)
         .fetch_all(&self.core.db)

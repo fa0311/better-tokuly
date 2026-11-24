@@ -1,84 +1,102 @@
 //! Who may see and do what. Every read path goes through this module.
 //!
-//! Streams follow the rules of videos (`tokuly_video::access`):
+//! Streams follow the rules of videos (`tokuly_video::access`, the social
+//! graph's audiences):
 //!
 //! - the owner sees their stream in every state;
 //! - nobody else sees a stream of a suspended account or of someone in a
 //!   block relation with them;
 //! - PUBLIC, NO_FEED and UNLISTED streams can be *opened* by anyone who has
-//!   the link, FRIENDS streams by friends of the owner, PRIVATE by nobody
-//!   else;
+//!   the link — a **locked** owner's only by their followers and friends;
+//!   FOLLOWERS streams by followers and friends, FRIENDS by friends,
+//!   CLOSE_FRIENDS by the owner's close friends, CIRCLE by that circle's
+//!   members (shown to them as FOLLOWERS), PRIVATE by nobody else;
 //! - being *listed* is narrower: a channel page lists PUBLIC and NO_FEED
-//!   streams (plus FRIENDS ones for friends), the directories ("live now",
-//!   upcoming) PUBLIC ones, the subscription and friend lists also FRIENDS
-//!   ones for friends.
+//!   streams (plus the audiences above the viewer is in), the directories
+//!   ("live now", upcoming) PUBLIC ones of unlocked owners, the
+//!   subscription and friend lists also the audiences the viewer is in.
+//!
+//! Locked accounts: `live_streams.owner_locked` is this domain's copy of
+//! the social domain's setting (kept by `Live::sync_owner_lock`); until it
+//! catches up, `Viewer::drop_newly_locked` / [`can_watch_now`] ask the
+//! social domain about streams that reach a viewer only because the copy
+//! says "unlocked". The media server treats a stream as open (no playback
+//! token) only while it is open and its owner unlocked.
 //!
 //! The rules exist twice: as functions for single rows ([`can_watch`],
 //! [`sees_listed`]) and as SQL predicates over `live_streams s` for the
-//! queries that list many. The integration test
+//! queries that list many (the viewer as `$1`–`$6`, bound by
+//! `Viewer::query_as`). The integration test
 //! `visibility_decides_who_sees_a_stream` runs both over every visibility
 //! and kind of viewer and requires them to agree.
 //!
 //! Chat standing: the channel's owner and the moderators they appointed
 //! ([`Standing`]) may moderate; everyone else is a viewer.
 use tokuly_core::prelude::*;
-pub use tokuly_video::access::{FRIENDS, NO_FEED, PRIVATE, PUBLIC, UNLISTED, Viewer};
+use tokuly_social::graph::ContentAudience;
+pub use tokuly_video::access::{
+    CIRCLE, CLOSE_FRIENDS, FOLLOWERS, FRIENDS, NO_FEED, PRIVATE, PUBLIC, UNLISTED, Viewer, is_open,
+};
 
 /// Stored values of `tokuly.live.v1.StreamStatus`.
 pub const UPCOMING: i32 = 1;
 pub const LIVE: i32 = 2;
 pub const ENDED: i32 = 3;
 
-/// SQL predicates over `live_streams s`. Arguments are the placeholder
-/// numbers of the viewer's friends and of the users hidden from them
-/// (`uuid[]`).
-///
 /// SQL predicate: stream `s` is listed for the viewer on its channel's page
 /// (the owner's own view of their channel is a different query).
 macro_rules! listed {
-    ($friends:literal, $blocked:literal) => {
-        concat!(
-            "(NOT s.suspended AND NOT (s.owner_id = ANY($",
-            $blocked,
-            ")) AND (s.visibility IN (1, 2) OR (s.visibility = 4 AND s.owner_id = ANY($",
-            $friends,
-            "))))"
-        )
+    () => {
+        concat!("(NOT s.suspended AND NOT (s.owner_id = ANY($3)) AND ", tokuly_video::reach!("s", "1, 2"), ")")
     };
 }
 
 /// SQL predicate: stream `s` may appear in the viewer's personal lists
-/// (subscriptions, friends): public, or friends-only from a friend.
+/// (subscriptions, friends): public, or shared with an audience they are in.
 macro_rules! in_feed {
-    ($friends:literal, $blocked:literal) => {
-        concat!(
-            "(NOT s.suspended AND NOT (s.owner_id = ANY($",
-            $blocked,
-            ")) AND (s.visibility = 1 OR (s.visibility = 4 AND s.owner_id = ANY($",
-            $friends,
-            "))))"
-        )
+    () => {
+        concat!("(NOT s.suspended AND NOT (s.owner_id = ANY($3)) AND ", tokuly_video::reach!("s", "1"), ")")
     };
 }
 
-/// SQL predicate: stream `s` is public (the directories shown to everyone).
+/// SQL predicate: stream `s` is public and its owner unlocked (the
+/// directories shown to everyone).
 macro_rules! public_stream {
-    ($blocked:literal) => {
-        concat!("(s.visibility = 1 AND NOT s.suspended AND NOT (s.owner_id = ANY($", $blocked, ")))")
+    () => {
+        "(s.visibility = 1 AND NOT s.suspended AND NOT s.owner_locked AND NOT (s.owner_id = ANY($3)))"
     };
 }
 
-pub(crate) use {in_feed, listed, public_stream};
+/// SQL predicate: stream `s` needs a playback token: not open to everyone,
+/// or its owner is locked (for the passes that cut viewers who lost access).
+macro_rules! restricted {
+    () => {
+        "(s.visibility NOT IN (1, 2, 3) OR s.owner_locked)"
+    };
+}
+
+pub(crate) use {in_feed, listed, public_stream, restricted};
 
 /// What access decisions need to know about a stream.
 #[derive(Debug, Clone, Copy)]
 pub struct StreamFacts {
     pub owner_id: Uuid,
     pub visibility: i32,
+    pub circle_id: Option<Uuid>,
     pub suspended: bool,
+    /// The owner's account is locked, as this domain's copy knows it.
+    pub owner_locked: bool,
 }
 
-/// Whether the viewer may open the stream given its link ([`watchable!`]).
+impl StreamFacts {
+    /// The owner, whether the stream is open to everyone with the link,
+    /// and the copy of the owner's lock (for `Viewer::drop_newly_locked`).
+    pub fn lock_facts(&self) -> (Uuid, bool, bool) {
+        (self.owner_id, is_open(self.visibility), self.owner_locked)
+    }
+}
+
+/// Whether the viewer may open the stream given its link.
 pub fn can_watch(viewer: &Viewer, stream: &StreamFacts) -> bool {
     if viewer.is(stream.owner_id) {
         return true;
@@ -86,11 +104,25 @@ pub fn can_watch(viewer: &Viewer, stream: &StreamFacts) -> bool {
     if stream.suspended || viewer.hides(stream.owner_id) {
         return false;
     }
-    match stream.visibility {
-        PUBLIC | NO_FEED | UNLISTED => true,
-        FRIENDS => viewer.friends.contains(&stream.owner_id),
-        _ => false,
+    viewer.reaches(
+        stream.owner_id,
+        stream.visibility,
+        stream.circle_id,
+        stream.owner_locked,
+        is_open(stream.visibility),
+    )
+}
+
+/// [`can_watch`], with the owner's lock as the social domain knows it now.
+pub async fn can_watch_now(core: &Core, viewer: &Viewer, stream: &StreamFacts) -> AppResult<bool> {
+    if !can_watch(viewer, stream) {
+        return Ok(false);
     }
+    let (owner, open, locked) = stream.lock_facts();
+    if !viewer.doubts_lock(owner, open, locked) {
+        return Ok(true);
+    }
+    Ok(!tokuly_video::access::is_locked_now(core, owner).await?)
 }
 
 /// Whether the stream is listed for the viewer on its channel page ([`listed!`]).
@@ -98,28 +130,33 @@ pub fn sees_listed(viewer: &Viewer, stream: &StreamFacts) -> bool {
     if stream.suspended || viewer.hides(stream.owner_id) {
         return false;
     }
-    match stream.visibility {
-        PUBLIC | NO_FEED => true,
-        FRIENDS => viewer.friends.contains(&stream.owner_id),
-        _ => false,
+    let open = matches!(stream.visibility, PUBLIC | NO_FEED);
+    viewer.reaches(stream.owner_id, stream.visibility, stream.circle_id, stream.owner_locked, open)
+}
+
+/// The audience of a stream as the social graph names it, given whether
+/// its owner is `locked`: open streams of a locked owner reach followers.
+pub fn audience(visibility: i32, circle_id: Option<Uuid>, locked: bool) -> ContentAudience {
+    if is_open(visibility) {
+        if locked { ContentAudience::Followers } else { ContentAudience::Public }
+    } else {
+        tokuly_video::access::audience_of(visibility, circle_id)
     }
 }
 
-/// Whether a stream going from visibility `before` to `after` may leave
-/// someone who could watch it out: open to everyone > friends > the rest.
-pub fn narrower(before: i32, after: i32) -> bool {
-    let reach = |visibility: i32| match visibility {
-        _ if open_to_everyone(visibility) => 2,
-        FRIENDS => 1,
-        _ => 0,
-    };
-    reach(after) < reach(before)
+/// Whether going from audience `before` to `after` may leave someone who
+/// could watch out.
+pub fn narrower(before: ContentAudience, after: ContentAudience) -> bool {
+    let contains = after == before
+        || after == ContentAudience::Public
+        || (after == ContentAudience::Followers && before != ContentAudience::Public);
+    !contains
 }
 
 /// Whether anyone who knows the stream's name may play it without a token:
-/// true for the visibilities that are open to everyone with the link.
-pub fn open_to_everyone(visibility: i32) -> bool {
-    matches!(visibility, PUBLIC | NO_FEED | UNLISTED)
+/// open to everyone with the link, and its owner not locked.
+pub fn open_to_everyone(visibility: i32, owner_locked: bool) -> bool {
+    is_open(visibility) && !owner_locked
 }
 
 /// A user's standing in the chats of a channel.
@@ -163,7 +200,7 @@ mod tests {
     use super::*;
 
     fn facts(owner_id: Uuid, visibility: i32) -> StreamFacts {
-        StreamFacts { owner_id, visibility, suspended: false }
+        StreamFacts { owner_id, visibility, circle_id: None, suspended: false, owner_locked: false }
     }
 
     #[test]
@@ -180,20 +217,40 @@ mod tests {
             assert_eq!(can_watch(&friend, &stream), visibility != PRIVATE);
             assert_eq!(sees_listed(&stranger, &stream), matches!(visibility, PUBLIC | NO_FEED));
             assert_eq!(sees_listed(&friend, &stream), matches!(visibility, PUBLIC | NO_FEED | FRIENDS));
-            assert_eq!(open_to_everyone(visibility), matches!(visibility, PUBLIC | NO_FEED | UNLISTED));
+            assert_eq!(open_to_everyone(visibility, false), matches!(visibility, PUBLIC | NO_FEED | UNLISTED));
+            assert!(!open_to_everyone(visibility, true), "a locked owner's streams need a token");
         }
     }
 
     #[test]
     fn blocks_and_suspensions_hide_even_public_streams() {
         let owner = Uuid::now_v7();
-        let blocked = Viewer { user_id: Some(Uuid::now_v7()), blocked: vec![owner], friends: vec![owner] };
+        let blocked =
+            Viewer { user_id: Some(Uuid::now_v7()), blocked: vec![owner], friends: vec![owner], ..Default::default() };
         let mut stream = facts(owner, PUBLIC);
         assert!(!can_watch(&blocked, &stream) && !sees_listed(&blocked, &stream));
         stream.suspended = true;
         assert!(!can_watch(&Viewer::anonymous(), &stream) && !sees_listed(&Viewer::anonymous(), &stream));
         let me = Viewer { user_id: Some(owner), ..Default::default() };
         assert!(can_watch(&me, &stream));
+    }
+
+    #[test]
+    fn audiences_and_locks_decide_who_watches_a_stream() {
+        let owner = Uuid::now_v7();
+        let follower = Viewer { user_id: Some(Uuid::now_v7()), following: vec![owner], ..Default::default() };
+        let stranger = Viewer { user_id: Some(Uuid::now_v7()), ..Default::default() };
+        let followers = facts(owner, FOLLOWERS);
+        assert!(can_watch(&follower, &followers) && sees_listed(&follower, &followers));
+        assert!(!can_watch(&stranger, &followers) && !can_watch(&Viewer::anonymous(), &followers));
+        let mut locked = facts(owner, PUBLIC);
+        locked.owner_locked = true;
+        assert!(can_watch(&follower, &locked) && !can_watch(&stranger, &locked));
+        let (public, friends) = (ContentAudience::Public, ContentAudience::Friends);
+        assert!(narrower(public, ContentAudience::Followers) && narrower(ContentAudience::Followers, friends));
+        assert!(!narrower(friends, ContentAudience::Followers) && !narrower(friends, public));
+        assert!(narrower(ContentAudience::CloseFriends, friends), "close friends may be followers only");
+        assert_eq!(audience(PUBLIC, None, true), ContentAudience::Followers);
     }
 
     #[test]

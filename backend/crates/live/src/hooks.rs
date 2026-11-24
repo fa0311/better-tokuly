@@ -213,7 +213,11 @@ impl Live {
         };
         if viewer.is_none() {
             // Without a token only what everyone may watch, and only on air.
-            if !open_to_everyone(stream.visibility) {
+            // An account locked a moment ago (this domain's copy may not
+            // know yet) needs a token too.
+            let open = open_to_everyone(stream.visibility, stream.owner_locked)
+                && !tokuly_video::access::is_locked_now(&self.core, stream.owner_id).await?;
+            if !open {
                 return Ok(Err(Refusal::NoToken));
             }
             if !stream.is_live() {
@@ -272,7 +276,13 @@ impl Live {
         let mut conn = self.core.cache.conn();
         let epoch: Option<i64> =
             redis::cmd("GET").arg(access_epoch_key(stream.owner_id)).query_async(&mut conn).await?;
-        let key = format!("live:may-watch:{}:{viewer_id}:{}:{}", stream.id, stream.visibility, epoch.unwrap_or(0));
+        let key = format!(
+            "live:may-watch:{}:{viewer_id}:{}:{}:{}",
+            stream.id,
+            stream.visibility,
+            stream.owner_locked,
+            epoch.unwrap_or(0)
+        );
         // Only a yes is remembered: a no is asked again, so that someone who has just become a
         // friend is not kept out by an answer from before.
         let cached: Option<i64> = redis::cmd("GET").arg(&key).query_async(&mut conn).await?;
@@ -280,7 +290,7 @@ impl Live {
             return Ok(true);
         }
         let viewer = Viewer::load(&self.core, Some(viewer_id)).await?;
-        let may = access::can_watch(&viewer, &stream.facts());
+        let may = access::can_watch_now(&self.core, &viewer, &stream.facts()).await?;
         if may {
             redis::cmd("SET").arg(&key).arg(1).arg("EX").arg(ACCESS_CACHE_SECONDS).query_async::<()>(&mut conn).await?;
         }

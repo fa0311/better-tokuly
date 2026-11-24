@@ -47,7 +47,7 @@ impl SubjectResolver for StreamSubjects {
         let Ok(reference) = Ref::parse(id.trim()) else { return Ok(None) };
         let Some(stream) = streams::find_with_deleted(&self.core, &reference).await? else { return Ok(None) };
         let viewer = Viewer::load(&self.core, viewer).await?;
-        if !access::can_watch(&viewer, &stream.facts()) {
+        if !access::can_watch_now(&self.core, &viewer, &stream.facts()).await? {
             return Ok(None);
         }
         Ok(Some(SubjectInfo {
@@ -146,7 +146,7 @@ impl SubjectResolver for ChatSubjects {
         let stream = streams::find_with_deleted(&self.core, &Ref::Id(message.stream_id)).await?;
         let Some(stream) = stream else { return Ok(None) };
         let viewer = Viewer::load(&self.core, viewer).await?;
-        if !access::can_watch(&viewer, &stream.facts()) {
+        if !access::can_watch_now(&self.core, &viewer, &stream.facts()).await? {
             return Ok(None);
         }
         let excerpt: String = message.text.graphemes(true).take(80).collect();

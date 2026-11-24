@@ -51,7 +51,12 @@ impl Live {
         let Ok(message_id) = Uuid::parse_str(message_id.trim()) else { return Err(message_not_found()) };
         let message = chat::find(&self.core, message_id).await?.ok_or_else(message_not_found)?;
         let stream = streams::find_by_id(&self.core, message.stream_id).await?.ok_or_else(message_not_found)?;
-        ensure!(access::can_watch(viewer, &stream.facts()), not_found, "MESSAGE_NOT_FOUND", "message not found");
+        ensure!(
+            access::can_watch_now(&self.core, viewer, &stream.facts()).await?,
+            not_found,
+            "MESSAGE_NOT_FOUND",
+            "message not found"
+        );
         Ok((message, stream))
     }
 }

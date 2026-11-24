@@ -10,6 +10,7 @@
 //! | `live.clip.ready` | [`ClipEvent`] | a clip finished processing |
 //! | `live.clip.deleted` | [`ClipEvent`] | a clip is gone |
 use serde::{Deserialize, Serialize};
+use tokuly_core::prelude::Time;
 use uuid::Uuid;
 
 pub const STREAM_STARTED: &str = "live.stream.started";
@@ -25,6 +26,11 @@ pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BANNED: &str = "identity.user.banned";
 pub const USER_UNBANNED: &str = "identity.user.unbanned";
 pub const USER_BLOCKED: &str = "social.user.blocked";
+pub const FOLLOW_SETTINGS_CHANGED: &str = "social.follow.settings_changed";
+pub const FOLLOW_REMOVED: &str = "social.follow.removed";
+pub const CIRCLE_MEMBERS_CHANGED: &str = "social.circle.members_changed";
+pub const CIRCLE_DELETED: &str = "social.circle.deleted";
+pub const STREAM_VISIBILITY_CHANGED: &str = "live.stream.visibility_changed";
 pub const FRIEND_REMOVED: &str = "social.friend.removed";
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
 pub const ASSET_READY: &str = tokuly_media::events::ASSET_READY;
@@ -51,6 +57,34 @@ pub struct StreamEvent {
     /// a cancelled one).
     #[serde(default)]
     pub went_live: bool,
+}
+
+/// Payload of `social.follow.removed`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FollowRemoved {
+    pub follower_id: Uuid,
+    pub followee_id: Uuid,
+}
+
+/// Payload of `social.circle.members_changed` / `social.circle.deleted`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CircleChanged {
+    pub owner_id: Uuid,
+}
+
+/// Payload of `live.stream.visibility_changed`: the stream, with
+/// `visibility` the audience now in effect (an open stream of a locked
+/// owner reads as FOLLOWERS), and who besides the owner may still watch it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamVisibilityChanged {
+    #[serde(flatten)]
+    pub stream: StreamEvent,
+    /// `None` (JSON `null`): everyone may. Otherwise the people in the
+    /// audience as the social graph gives them. **Never forward to outside
+    /// parties: it is the owner's friend and follower list.**
+    pub visible_to: Option<Vec<Uuid>>,
+    /// When the change was made, taken while the stream was locked.
+    pub changed_at: Time,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
