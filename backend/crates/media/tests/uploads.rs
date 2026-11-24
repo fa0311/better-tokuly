@@ -1070,7 +1070,7 @@ async fn private_downloads_are_never_cached_by_shared_caches() {
 
 #[tokio::test]
 async fn unused_uploads_are_capped_in_bytes_per_user() {
-    let h = start_with(MediaConfig { max_unused_gb: 50, ..Default::default() }).await;
+    let h = start_with(MediaConfig { max_unused_gb: 50, daily_upload_gb: 1000, ..Default::default() }).await;
     let alice = h.app.user("alice").await;
     let video = |size_bytes: i64| CreateUploadRequest {
         purpose: AssetPurpose::ASSET_PURPOSE_VIDEO.into(),
@@ -1154,4 +1154,35 @@ async fn private_downloads_serve_the_stored_bytes_as_they_are() {
     assert!(encoding.is_empty() || encoding == "identity", "{encoding:?}");
     assert!(headers.get("content-language").is_none_or(|v| v.to_str().unwrap() != "de"), "{headers:?}");
     assert_eq!(download.bytes().await.unwrap(), gzip, "the file downloads as the gzip file it is");
+}
+
+#[tokio::test]
+async fn uploads_are_capped_in_bytes_per_day_used_or_not() {
+    let h = start_with(MediaConfig { daily_upload_gb: 30, ..Default::default() }).await;
+    let core = &h.app.core;
+    let alice = h.app.user("alice").await;
+    const GB: i64 = 1024 * 1024 * 1024;
+    let video = |size_bytes: i64| CreateUploadRequest {
+        purpose: AssetPurpose::ASSET_PURPOSE_VIDEO.into(),
+        file_name: "long.mp4".into(),
+        content_type: "video/mp4".into(),
+        size_bytes,
+        ..Default::default()
+    };
+    // Uploaded and published (held): out of the unused quota, still today's bytes.
+    let first: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(20 * GB)).await.unwrap();
+    assets::attach(&core.db, first.asset_id.parse().unwrap(), "test:published").await.unwrap();
+    let error = h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &video(15 * GB)).await.unwrap_err();
+    assert_eq!((error.code.as_str(), error.reason.as_str()), ("resource_exhausted", "DAILY_UPLOAD_LIMIT_EXCEEDED"));
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(5 * GB)).await.unwrap();
+
+    // An upload aborted before any completion gives its allowance back.
+    let aborted: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(5 * GB)).await.unwrap();
+    let _: AbortUploadResponse = h.rpc("AbortUpload", Some(&alice), &AbortUploadRequest { upload_id: aborted.upload_id, ..Default::default() }).await.unwrap();
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(5 * GB)).await.unwrap();
+    assert_eq!(reason(h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &video(GB)).await), "DAILY_UPLOAD_LIMIT_EXCEEDED");
+
+    // A day later the window has moved on.
+    sqlx::query("UPDATE media_assets SET created_at = created_at - interval '25 hours' WHERE owner_id = $1").bind(alice.id).execute(&core.db).await.unwrap();
+    let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(GB)).await.unwrap();
 }

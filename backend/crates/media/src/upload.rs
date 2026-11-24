@@ -142,9 +142,11 @@ impl Media {
     }
 
     /// Records a new upload, unless the owner is over their limits: at most
-    /// [`MAX_OPEN_UPLOADS`] unfinished uploads, and at most
+    /// [`MAX_OPEN_UPLOADS`] unfinished uploads, at most
     /// `TOKULY_MEDIA_MAX_UNUSED_GB` in uploads nothing uses yet (unfinished,
-    /// processing, or finished and not attached anywhere). The owner's
+    /// processing, or finished and not attached anywhere), and at most
+    /// `TOKULY_MEDIA_DAILY_UPLOAD_GB` uploaded in the last 24 hours, used
+    /// or not (uploads aborted before completion do not count). The owner's
     /// uploads are counted and the row is inserted under a per-owner lock,
     /// so requests at the same moment cannot pass the check together.
     async fn insert_upload(&self, row: NewRow<'_>) -> AppResult<chrono::DateTime<chrono::Utc>> {
@@ -170,6 +172,21 @@ impl Media {
             rate_limited,
             "UNUSED_QUOTA_EXCEEDED",
             "use or delete some of your uploads first"
+        );
+        let uploaded_today: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(sum(size_bytes), 0)::bigint FROM media_assets
+             WHERE owner_id = $1 AND created_at > now() - interval '24 hours'
+               AND NOT (deleted_at IS NOT NULL AND status = $2)",
+        )
+        .bind(row.owner_id)
+        .bind(AssetStatus::ASSET_STATUS_UPLOADING as i32)
+        .fetch_one(&mut *tx)
+        .await?;
+        ensure!(
+            uploaded_today.saturating_add(row.upload.size_bytes) <= self.cfg.daily_upload_bytes(),
+            rate_limited,
+            "DAILY_UPLOAD_LIMIT_EXCEEDED",
+            "you have uploaded as much as one account may in a day; try again later"
         );
         let created_at = sqlx::query_scalar(
             "INSERT INTO media_assets

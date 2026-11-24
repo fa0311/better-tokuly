@@ -55,6 +55,10 @@ pub struct MediaConfig {
     /// Bounds the storage one account can claim without publishing anything.
     #[arg(long, env = "TOKULY_MEDIA_MAX_UNUSED_GB", default_value_t = 100)]
     pub max_unused_gb: i64,
+    /// Gigabytes one account may upload in any 24 hours, used or not. Leaves
+    /// room for one long-form video at its largest (`TOKULY_MEDIA_MAX_VIDEO_MB`).
+    #[arg(long, env = "TOKULY_MEDIA_DAILY_UPLOAD_GB", default_value_t = 50)]
+    pub daily_upload_gb: i64,
 
     // ── processing ──
     /// Images, animations and voice messages processed in parallel per worker process.
@@ -105,6 +109,7 @@ impl Default for MediaConfig {
             upload_ttl_hours: 24,
             unattached_ttl_hours: 48,
             max_unused_gb: 100,
+            daily_upload_gb: 50,
             image_concurrency: 4,
             video_concurrency: 1,
             ffmpeg_threads: 0,
@@ -138,6 +143,11 @@ impl MediaConfig {
     /// Bytes one account may have in uploads nothing uses yet.
     pub fn max_unused_bytes(&self) -> i64 {
         self.max_unused_gb.max(0).saturating_mul(1024 * MB)
+    }
+
+    /// Bytes one account may upload in any 24 hours.
+    pub fn daily_upload_bytes(&self) -> i64 {
+        self.daily_upload_gb.max(0).saturating_mul(1024 * MB)
     }
 
     pub fn upload_ttl(&self) -> Duration {

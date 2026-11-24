@@ -121,6 +121,7 @@ read it.
 | `TOKULY_MEDIA_UPLOAD_TTL_HOURS` | 24 | unfinished uploads are discarded after this |
 | `TOKULY_MEDIA_UNATTACHED_TTL_HOURS` | 48 | finished uploads nothing holds are deleted after this (0 = never) |
 | `TOKULY_MEDIA_MAX_UNUSED_GB` | 100 | per account: bytes of uploads nothing holds yet (unfinished, processing, ready but unattached); `CreateUpload` beyond it fails with `UNUSED_QUOTA_EXCEEDED` |
+| `TOKULY_MEDIA_DAILY_UPLOAD_GB` | 50 | per account: bytes uploaded in any 24 hours, used or not (uploads aborted before completion do not count); beyond it `DAILY_UPLOAD_LIMIT_EXCEEDED` |
 | `TOKULY_MEDIA_IMAGE_CONCURRENCY` | 4 | parallel `media.process` jobs per worker process |
 | `TOKULY_MEDIA_VIDEO_CONCURRENCY` | 1 | parallel `media.transcode` jobs per worker process |
 | `TOKULY_MEDIA_FFMPEG_THREADS` | 0 | threads per ffmpeg process (0 = ffmpeg decides) |

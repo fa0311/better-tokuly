@@ -25,7 +25,9 @@ service MediaService {
   // UNSUPPORTED_CONTENT_TYPE, SHA256_INVALID, TOO_MANY_UPLOADS (too many
   // unfinished uploads), UNUSED_QUOTA_EXCEEDED (the caller's uploads that
   // nothing uses yet, this one included, would exceed the per-account
-  // allowance: attach or delete some first), RATE_LIMITED.
+  // allowance: attach or delete some first), DAILY_UPLOAD_LIMIT_EXCEEDED
+  // (the caller uploaded as many bytes as one account may in 24 hours,
+  // used or not), RATE_LIMITED.
   rpc CreateUpload(CreateUploadRequest) returns (CreateUploadResponse);
   // Signs part URLs of a multipart upload and reports which parts the store
   // already holds, so an interrupted upload resumes where it stopped.
