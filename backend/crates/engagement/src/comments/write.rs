@@ -14,7 +14,7 @@ use super::{
 use crate::{
     Engagement,
     effects::{Effects, Push},
-    events::{COMMENT_DELETED, COMMENT_PUBLISHED, CommentEvent},
+    events::{COMMENT_DELETED, COMMENT_EDITED, COMMENT_PUBLISHED, CommentEvent},
     subjects::{Subject, requested_type},
     text,
 };
@@ -358,6 +358,7 @@ impl Engagement {
         row.edited_at = Some(edited_at);
         sqlx::query("DELETE FROM comment_mentions WHERE comment_id = $1").bind(row.id).execute(&mut *tx).await?;
         save_mentions(&mut tx, row.id, &mentioned).await?;
+        events::emit(&mut *tx, COMMENT_EDITED, Some(user_id), &comment_event(&row)).await?;
         if row.is_published() && !verdict.is_published() {
             // The new text trips one of the owner's rules. The other way
             // round never happens: an edit does not publish a comment.

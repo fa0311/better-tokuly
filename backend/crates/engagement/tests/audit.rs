@@ -52,6 +52,19 @@ impl Ctx {
 // ───────────────────────────── comments ─────────────────────────────
 
 #[tokio::test]
+async fn an_edit_is_an_event() {
+    let ctx = start().await;
+    let (owner, alice) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await);
+    let video = ctx.video(&owner, "v");
+    let comment = ctx.comment(&alice, &video, "はじめまして").await;
+    ctx.edit(&alice, &comment.id, "こんにちは").await.unwrap();
+    let edited = ctx.app.events_by("engagement.comment.edited", alice.id).await;
+    assert_eq!(edited.len(), 1);
+    assert_eq!(edited[0].data["comment_id"], serde_json::json!(comment.id));
+    assert_eq!(edited[0].data["subject_id"], serde_json::json!(video.id));
+}
+
+#[tokio::test]
 async fn a_commenter_who_blocks_the_owner_takes_their_comments_down() {
     let ctx = start().await;
     let (owner, alice, carol) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await, ctx.app.user("Carol").await);

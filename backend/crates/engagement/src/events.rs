@@ -18,6 +18,10 @@ pub const COMMENT_PUBLISHED: &str = "engagement.comment.published";
 /// Payload: [`CommentEvent`]. Not emitted for the replies deleted with it,
 /// nor for comments purged with their subject or their author's account.
 pub const COMMENT_DELETED: &str = "engagement.comment.deleted";
+/// The author changed the text of a comment, whatever its status. Payload:
+/// [`CommentEvent`]. Lets copies of the old text (inbox entries) be updated
+/// or withdrawn.
+pub const COMMENT_EDITED: &str = "engagement.comment.edited";
 /// A user set, changed or removed their reaction. Payload: [`ReactionChanged`].
 pub const REACTION_CHANGED: &str = "engagement.reaction.changed";
 /// A user saved a subject or removed it from everything they saved.
