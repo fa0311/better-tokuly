@@ -131,6 +131,19 @@ read it.
 | `TOKULY_MEDIA_FFMPEG_PATH` / `TOKULY_MEDIA_FFPROBE_PATH` | `ffmpeg` / `ffprobe` | binaries |
 | `TOKULY_MEDIA_WORK_DIR` | system temp | scratch space for transcodes |
 
+## Files are kept as they are
+
+Images, animations, video and audio are decoded and re-encoded, so nothing
+of the uploaded file survives but the picture and sound: EXIF, GPS
+positions, device names and container metadata are gone. Files
+(`ASSET_KIND_FILE`: chat files, subtitles, dotLottie stamps) are the
+opposite: stored and served byte for byte, **metadata included**. A photo
+sent as a chat file keeps its location. Clients therefore send photos as
+images, and convert the formats the image pipeline does not decode (HEIC,
+HEIF, AVIF, BMP: only JPEG, PNG, WebP and GIF are) to JPEG before upload
+instead of falling back to a file; the web app re-encodes them through a
+canvas, which drops the metadata too.
+
 ## Object layout
 
 Private bucket (presigned access only): `originals/{asset_id}/source[.ext]`

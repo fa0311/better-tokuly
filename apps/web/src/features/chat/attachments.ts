@@ -35,9 +35,51 @@ const ASSET_KIND: Record<AttachmentKind, media.AssetKind> = {
   file: media.AssetKind.FILE,
 };
 
-/** Pictures browsers can show (and the server can process) go as images; everything else as its own kind. */
+/** Picture formats the server decodes itself (and re-encodes, dropping EXIF and GPS). */
+const SERVER_IMAGE = /^image\/(png|jpe?g|gif|webp)$/i;
+/**
+ * Photo formats the server cannot decode (iPhone HEIC, AVIF, BMP). They are
+ * converted to JPEG here, before upload: a photo never goes out as a file,
+ * because files keep their bytes, metadata and location included, untouched.
+ */
+const CONVERTED_IMAGE = /^image\/(avif|heic|heif|heic-sequence|heif-sequence|bmp)$/i;
+
+/** Whether a picture of this type is converted to JPEG before upload. */
+export function needsConversion(type: string): boolean {
+  return CONVERTED_IMAGE.test(type);
+}
+
+/** A photo this browser cannot decode (e.g. HEIC outside Safari), so it cannot be sent. */
+export class UnreadablePhotoError extends Error {
+  constructor() {
+    super("this browser cannot read the photo");
+    this.name = "UnreadablePhotoError";
+  }
+}
+
+/** Re-encodes a picture as JPEG through a canvas: the orientation is applied, all metadata is gone. */
+export async function toJpeg(file: Blob, name: string): Promise<File> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    throw new UnreadablePhotoError();
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const jpeg = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", 0.9),
+  );
+  if (!jpeg) throw new UnreadablePhotoError();
+  return new File([jpeg], `${name.replace(/\.[^.]*$/, "") || "photo"}.jpg`, { type: "image/jpeg" });
+}
+
+/** Pictures the server can process (directly or after conversion) go as images; everything else as its own kind. */
 export function classify(type: string): AttachmentKind {
-  if (/^image\/(png|jpe?g|gif|webp|avif|heic|heif|bmp)$/i.test(type)) return "image";
+  if (SERVER_IMAGE.test(type) || CONVERTED_IMAGE.test(type)) return "image";
   if (type.startsWith("video/")) return "video";
   if (type.startsWith("audio/")) return "audio";
   return "file";
@@ -72,14 +114,22 @@ function videoSize(
 
 let counter = 0;
 
-/** Wraps a picked, pasted, dropped or recorded file for sending, measuring what the preview needs. */
+/**
+ * Wraps a picked, pasted, dropped or recorded file for sending, measuring
+ * what the preview needs. Photos in formats the server cannot decode are
+ * converted to JPEG; one this browser cannot read rejects with
+ * {@link UnreadablePhotoError}.
+ */
 export async function describeFile(
-  file: Blob,
+  picked: Blob,
   extra: Partial<Pick<OutgoingFile, "name" | "kind" | "durationSeconds" | "waveform">> = {},
 ): Promise<OutgoingFile> {
-  const kind = extra.kind ?? classify(file.type);
+  const kind = extra.kind ?? classify(picked.type);
+  const pickedName = extra.name ?? (picked as File).name ?? "file";
+  const file =
+    kind === "image" && needsConversion(picked.type) ? await toJpeg(picked, pickedName) : picked;
+  const name = file === picked ? pickedName : (file as File).name;
   const previewUrl = URL.createObjectURL(file);
-  const name = extra.name ?? (file as File).name ?? "file";
   const base: OutgoingFile = {
     id: `f${Date.now().toString(36)}${counter++}`,
     file,

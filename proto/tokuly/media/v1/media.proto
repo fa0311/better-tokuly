@@ -116,7 +116,10 @@ enum AssetKind {
   // Audio (voice messages); served as AAC and Opus with waveform peaks.
   ASSET_KIND_AUDIO = 3;
   // Stored untouched: chat files and subtitles (private, presigned URL) and
-  // dotLottie stamps (public URL).
+  // dotLottie stamps (public URL). Byte for byte, metadata included: a
+  // photo sent as a chat file keeps its EXIF and GPS position, so clients
+  // send photos as images (re-encoded, metadata stripped), converting
+  // formats the server cannot decode (HEIC, AVIF) to JPEG first.
   ASSET_KIND_FILE = 4;
   // Animated GIF / WebP / APNG; served as an animated WebP plus a still poster.
   ASSET_KIND_ANIMATION = 5;

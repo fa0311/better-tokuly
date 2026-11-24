@@ -215,9 +215,13 @@ export function Composer({
     const room = capabilities.maxAttachments - files.length;
     if (picked.length > room)
       toast.error(t("composer.tooManyFiles", { count: capabilities.maxAttachments }));
-    const described = await Promise.all(
+    const settled = await Promise.allSettled(
       picked.slice(0, Math.max(0, room)).map((file) => describeFile(file)),
     );
+    const described = settled.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    );
+    if (described.length < settled.length) toast.error(t("composer.photoUnreadable"));
     setFiles((current) => [...current, ...described]);
     input.current?.focus();
   };

@@ -46,5 +46,8 @@ export default {
   UNSUPPORTED_CONTENT_TYPE: "That file type isn't supported",
   UNSUPPORTED_CONTENT: "That file couldn't be used",
   TOO_MANY_UPLOADS: "Too many uploads in progress. Give it a moment",
+  UNUSED_QUOTA_EXCEEDED:
+    "Too many unused uploads. Delete some files you aren't using and try again",
+  DAILY_UPLOAD_LIMIT_EXCEEDED: "You've reached today's upload limit. Try again tomorrow!",
   UPLOAD_INCOMPLETE: "The upload stopped halfway. Try again",
 } as const;

@@ -1,6 +1,6 @@
 import { chat } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { classify } from "./attachments";
+import { classify, needsConversion } from "./attachments";
 import { bigEmojiCount, type Outgoing, previewMessage } from "./outbox";
 import { extensionOf } from "./recorder";
 import { rowKey } from "./timeline";
@@ -81,7 +81,14 @@ describe("files", () => {
     expect(classify("image/gif")).toBe("image");
     expect(classify("video/mp4")).toBe("video");
     expect(classify("audio/webm")).toBe("audio");
-    // Pictures the server cannot process as images go as files.
+    // Photos the server cannot decode are still photos: converted before upload, never sent as files.
+    for (const type of ["image/heic", "image/heif", "image/avif", "image/bmp"]) {
+      expect(classify(type)).toBe("image");
+      expect(needsConversion(type)).toBe(true);
+    }
+    expect(needsConversion("image/jpeg")).toBe(false);
+    expect(needsConversion("image/webp")).toBe(false);
+    // Pictures that are documents rather than photos go as files.
     expect(classify("image/svg+xml")).toBe("file");
     expect(classify("application/pdf")).toBe("file");
     expect(classify("")).toBe("file");
