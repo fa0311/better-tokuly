@@ -13,6 +13,7 @@ use tokuly_proto::notify::PushChannelKind;
 pub mod apns;
 pub mod ece;
 pub mod fcm;
+pub mod resolver;
 pub mod vapid;
 pub mod webpush;
 
@@ -120,13 +121,35 @@ pub trait PushChannel: Send + Sync + 'static {
 /// service has no reason to redirect, and following one would let a crafted
 /// Web Push endpoint steer requests somewhere else.
 pub fn http_client() -> anyhow::Result<reqwest::Client> {
+    builder()
+        .build()
+        .map_err(|e| anyhow::anyhow!("push http client: {e}"))
+}
+
+/// The HTTP client for Web Push: endpoints are chosen by clients, so it only
+/// ever connects to public addresses ([`resolver`]). `allow_insecure`
+/// (development and tests, never production) lets it reach local stand-ins.
+pub fn web_push_client(allow_insecure: bool) -> anyhow::Result<reqwest::Client> {
+    let builder = builder();
+    // Never through a proxy from the environment: the proxy would resolve
+    // the name, out of the resolver's reach.
+    let builder = builder.no_proxy();
+    let builder = if allow_insecure {
+        builder
+    } else {
+        builder.dns_resolver(resolver::PublicOnly::shared())
+    };
+    builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("web push http client: {e}"))
+}
+
+fn builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .user_agent("Tokuly/1.0")
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| anyhow::anyhow!("push http client: {e}"))
 }
 
 /// Reads a push service's answer: status and the start of the body. The

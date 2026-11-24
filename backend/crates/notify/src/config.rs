@@ -28,8 +28,8 @@ pub struct NotifyConfig {
     /// Hosts a Web Push endpoint may point to, comma separated; subdomains are
     /// included. The server POSTs to these URLs, so the list is what keeps a
     /// crafted subscription from reaching internal services. `*` allows any
-    /// https host with a public-looking name; names are not resolved, so
-    /// prefer the list wherever the server can reach private networks.
+    /// https host with a public-looking name. Either way the server only
+    /// connects to public addresses of those names.
     #[arg(long, env = "TOKULY_WEBPUSH_ALLOWED_HOSTS", default_value = DEFAULT_WEBPUSH_HOSTS)]
     pub webpush_allowed_hosts: String,
 
@@ -74,6 +74,13 @@ pub struct NotifyConfig {
     #[arg(long, env = "TOKULY_PUSH_RATE_PER_MINUTE", default_value_t = 30)]
     pub push_rate_per_minute: u32,
 
+    /// Push notifications one person may cause for one recipient per
+    /// minute, so that one sender cannot use up the recipient's whole
+    /// budget. Urgent notifications have a budget of the same size of their
+    /// own. 0 = no cap.
+    #[arg(long, env = "TOKULY_PUSH_RATE_PER_SENDER_PER_MINUTE", default_value_t = 10)]
+    pub push_rate_per_sender_per_minute: u32,
+
     /// Days an inbox entry is kept.
     #[arg(long, env = "TOKULY_NOTIFY_RETENTION_DAYS", default_value_t = 90)]
     pub notify_retention_days: u32,
@@ -105,6 +112,10 @@ impl std::fmt::Debug for NotifyConfig {
             .field("apns_topic", &self.apns_topic)
             .field("push_ttl_seconds", &self.push_ttl_seconds)
             .field("push_rate_per_minute", &self.push_rate_per_minute)
+            .field(
+                "push_rate_per_sender_per_minute",
+                &self.push_rate_per_sender_per_minute,
+            )
             .field("notify_retention_days", &self.notify_retention_days)
             .finish()
     }
@@ -124,6 +135,7 @@ impl Default for NotifyConfig {
             apns_topic: String::new(),
             push_ttl_seconds: 86_400,
             push_rate_per_minute: 30,
+            push_rate_per_sender_per_minute: 10,
             notify_retention_days: 90,
         }
     }

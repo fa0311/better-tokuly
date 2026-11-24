@@ -27,17 +27,43 @@ use crate::{
     Notify,
     categories::{self, Category},
     delivery::PushJob,
-    events::{FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_DELETED_TOPIC, UserDeleted},
+    blocks,
+    events::{
+        FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC, USER_DELETED_TOPIC,
+        USER_UNBLOCKED_TOPIC, UserDeleted,
+    },
+    locks,
     inbox::{self, NewNotification, NotificationRow},
     preferences::{self, DeliveryContext},
-    preferences_svc::{delete_mute, insert_mute},
+    preferences_svc::set_mute_state,
     sanitize::sanitize,
+    withdraw::{self, CONTENT_REMOVED_TOPIC, UNWITHDRAWABLE_CATEGORY},
 };
 
 /// Durable consumer name on the event stream.
 pub const CONSUMER_NAME: &str = "notify";
 /// Topics the consumer subscribes to.
-pub const TOPICS: &[&str] = &[NOTIFY_TOPIC, FRIEND_PREFS_CHANGED_TOPIC, USER_DELETED_TOPIC];
+pub const TOPICS: &[&str] = &[
+    NOTIFY_TOPIC,
+    FRIEND_PREFS_CHANGED_TOPIC,
+    USER_DELETED_TOPIC,
+    USER_BLOCKED_TOPIC,
+    USER_UNBLOCKED_TOPIC,
+    CONTENT_REMOVED_TOPIC,
+    // `withdraw::RULES`
+    "chat.message.deleted",
+    "engagement.comment.deleted",
+    "notes.note.deleted",
+    "notes.story.deleted",
+    "community.thread.deleted",
+    "video.playlist.deleted",
+    "video.video.deleted",
+    "shorts.short.deleted",
+    "live.stream.deleted",
+    "ask.answer.deleted",
+    "video.video.unpublished",
+    "notes.note.visibility_changed",
+];
 
 /// Why a notification was not pushed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,8 +98,12 @@ pub enum DropReason {
     OwnAction,
     /// The recipient muted the person who caused it.
     Muted,
+    /// The recipient and the person who caused it are in a block.
+    Blocked,
     /// A newer event with the same collapse key was handled first.
     Superseded,
+    /// What it is about was deleted or taken down before it was handled.
+    Withdrawn,
 }
 
 /// What became of one `notify.requested` event.
@@ -141,6 +171,7 @@ async fn claim_event(tx: &mut Transaction<'_, Postgres>, event_id: Uuid) -> AppR
 fn inbox_entry<'a>(
     request: &'a NotificationRequest,
     category: &'a Category,
+    refs: &'a [Uuid],
     occurred_at: Time,
 ) -> NewNotification<'a> {
     NewNotification {
@@ -155,6 +186,7 @@ fn inbox_entry<'a>(
         subject: request.subject,
         collapse_key: request.collapse_key.as_deref(),
         data: &request.data,
+        refs,
         urgent: request.urgent,
         occurred_at,
     }
@@ -168,10 +200,13 @@ fn push_job(
     category: &Category,
     stored: Option<&NotificationRow>,
     unread: &UnreadCount,
+    withdrawable_refs: &[Uuid],
+    blockable_actor: Option<Uuid>,
 ) -> PushJob {
     PushJob {
         id: event.id,
         user_id: request.user_id,
+        actor_id: blockable_actor,
         notification_id: stored.map(|row| row.id),
         kind: request.kind.clone(),
         category: category.id.to_owned(),
@@ -182,6 +217,7 @@ fn push_job(
         collapse_key: request.collapse_key.clone(),
         badge: i64::from(unread.total),
         data: request.data.clone(),
+        refs: withdrawable_refs.to_vec(),
         urgent: request.urgent,
         created_at: event.occurred_at,
     }
@@ -193,11 +229,16 @@ impl Notify {
         match event.topic.as_str() {
             NOTIFY_TOPIC => self.handle_request(&event).await.map(|_| ()),
             FRIEND_PREFS_CHANGED_TOPIC => self.handle_friend_prefs_changed(&event).await,
+            USER_BLOCKED_TOPIC => self.handle_block(&event, true).await,
+            USER_UNBLOCKED_TOPIC => self.handle_block(&event, false).await,
             USER_DELETED_TOPIC => {
                 let deleted: UserDeleted = event.data()?;
                 self.purge_user(deleted.user_id).await
             }
-            _ => Ok(()),
+            _ => match withdraw::withdrawal_of(&event)? {
+                Some(withdrawal) => self.withdraw(&withdrawal).await,
+                None => Ok(()),
+            },
         }
     }
 
@@ -227,6 +268,12 @@ impl Notify {
             return Ok(RequestOutcome::Dropped(DropReason::Muted));
         }
         let plan = plan(&request, category, &recipient, now());
+        let refs = withdraw::refs_of(&request);
+        // System notices (account and security, moderation) are never
+        // withdrawn, nor held back by a block.
+        let system = category.id == UNWITHDRAWABLE_CATEGORY;
+        let withdrawable_refs: &[Uuid] = if system { &[] } else { &refs };
+        let blockable_actor = request.actor_id.filter(|_| !system);
 
         // Nothing above changed anything, so a redelivery may safely repeat
         // it. From here on the event ID guards against doing the work twice.
@@ -234,8 +281,23 @@ impl Notify {
         if !claim_event(&mut tx, event.id).await? {
             return Ok(RequestOutcome::Duplicate);
         }
+        // Checked under the locks a withdrawal and a block take, so that an
+        // entry is either refused here or seen and removed by them.
+        let mut keys: Vec<i64> = withdrawable_refs.iter().map(|id| locks::key(*id)).collect();
+        keys.extend(blockable_actor.map(|actor_id| locks::pair_key(request.user_id, actor_id)));
+        locks::lock_shared(&mut tx, keys).await?;
+        if withdraw::any_withdrawn(&mut *tx, withdrawable_refs).await? {
+            tx.commit().await?;
+            return Ok(RequestOutcome::Dropped(DropReason::Withdrawn));
+        }
+        if let Some(actor_id) = blockable_actor
+            && blocks::either_blocked(&mut *tx, request.user_id, actor_id).await?
+        {
+            tx.commit().await?;
+            return Ok(RequestOutcome::Dropped(DropReason::Blocked));
+        }
         let stored = if plan.inbox {
-            let entry = inbox_entry(&request, category, event.occurred_at);
+            let entry = inbox_entry(&request, category, &refs, event.occurred_at);
             match inbox::upsert(&mut tx, &entry).await? {
                 Some(row) => Some(row),
                 None => {
@@ -253,13 +315,19 @@ impl Notify {
 
         let push = match plan.push {
             Err(skip) => PushDecision::Skipped(skip),
-            // An urgent push is never the one a storm of ordinary ones crowds
-            // out, so it neither checks nor uses up the per-minute budget.
-            Ok(()) if !request.urgent && !self.push_budget_left(request.user_id).await? => {
+            Ok(()) if !self.push_budget_left(&request).await? => {
                 PushDecision::Skipped(PushSkip::RateLimited)
             }
             Ok(()) => {
-                let job = push_job(event, &request, category, stored.as_ref(), &unread);
+                let job = push_job(
+                    event,
+                    &request,
+                    category,
+                    stored.as_ref(),
+                    &unread,
+                    withdrawable_refs,
+                    blockable_actor,
+                );
                 // Queued before the commit: if queuing fails nothing is
                 // recorded and the event is retried as a whole. The job is
                 // unique per event, so a retry after a failed commit does not
@@ -301,21 +369,45 @@ impl Notify {
             .await;
     }
 
-    /// The per-user push cap: a burst of events (a busy group chat, a viral
-    /// post) must not turn into a buzzing phone. Returns whether one more
-    /// push fits this minute; notifications over the cap still reach the inbox.
-    async fn push_budget_left(&self, user_id: Uuid) -> AppResult<bool> {
-        if self.cfg.push_rate_per_minute == 0 {
-            return Ok(true); // no cap configured
+    /// The push caps: a burst of events (a busy group chat, a viral post)
+    /// must not turn into a buzzing phone, and one person must not use up
+    /// the recipient's budget so that nobody else's pushes get through.
+    /// Returns whether one more push fits; notifications over a cap still
+    /// reach the inbox.
+    ///
+    /// Each sender has a per-recipient budget, checked first so that a
+    /// flood only spends its own. An urgent push is never the one a storm of
+    /// ordinary ones crowds out: it has a sender budget of its own (so
+    /// nobody can ring through quiet hours without end) and neither checks
+    /// nor uses up the recipient's overall budget.
+    async fn push_budget_left(&self, request: &NotificationRequest) -> AppResult<bool> {
+        let user_id = request.user_id;
+        if let Some(actor_id) = request.actor_id {
+            let kind = if request.urgent { "urgent" } else { "push" };
+            let key = format!("notify-{kind}:{user_id}:{actor_id}");
+            if !self
+                .within_rate(&key, self.cfg.push_rate_per_sender_per_minute)
+                .await?
+            {
+                return Ok(false);
+            }
+        }
+        if request.urgent {
+            return Ok(true);
+        }
+        self.within_rate(&format!("notify-push:{user_id}"), self.cfg.push_rate_per_minute)
+            .await
+    }
+
+    /// Counts one push against a per-minute budget of `max` (0 = no cap).
+    async fn within_rate(&self, key: &str, max: u32) -> AppResult<bool> {
+        if max == 0 {
+            return Ok(true);
         }
         match self
             .core
             .cache
-            .rate_limit(
-                &format!("notify-push:{user_id}"),
-                self.cfg.push_rate_per_minute,
-                std::time::Duration::from_secs(60),
-            )
+            .rate_limit(key, max, std::time::Duration::from_secs(60))
             .await
         {
             Ok(()) => Ok(true),
@@ -327,11 +419,14 @@ impl Notify {
     /// Mirrors the "mute this friend" preference of the social domain.
     pub async fn handle_friend_prefs_changed(&self, event: &Event) -> AppResult<()> {
         let change: FriendPrefsChanged = event.data()?;
-        if change.muted {
-            insert_mute(&self.core.db, change.user_id, change.friend_id).await?;
-        } else {
-            delete_mute(&self.core.db, change.user_id, change.friend_id).await?;
-        }
+        set_mute_state(
+            &self.core.db,
+            change.user_id,
+            change.friend_id,
+            change.muted,
+            event.occurred_at,
+        )
+        .await?;
         Ok(())
     }
 }
@@ -339,6 +434,13 @@ impl Notify {
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone as _;
+
+    #[test]
+    fn every_deletion_topic_is_consumed() {
+        for rule in withdraw::RULES {
+            assert!(TOPICS.contains(&rule.topic), "{}", rule.topic);
+        }
+    }
     use tokuly_core::outbound::Localized;
 
     use super::*;

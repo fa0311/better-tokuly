@@ -28,6 +28,8 @@ const PROCESSED_EVENT_DAYS: i32 = 8;
 pub struct RetentionReport {
     pub notifications: u64,
     pub processed_events: u64,
+    /// Markers of withdrawn content (`notify_withdrawn`).
+    pub withdrawn: u64,
     pub devices: u64,
 }
 
@@ -123,6 +125,23 @@ impl Notify {
                 break;
             }
         }
+        // A request or push about withdrawn content cannot arrive later
+        // than any other event, so the markers are kept as long.
+        loop {
+            let done = sqlx::query(
+                "DELETE FROM notify_withdrawn WHERE ref_id IN (
+                     SELECT ref_id FROM notify_withdrawn WHERE withdrawn_at < now() - make_interval(days => $1) LIMIT $2
+                 )",
+            )
+            .bind(PROCESSED_EVENT_DAYS)
+            .bind(SWEEP_BATCH)
+            .execute(db)
+            .await?;
+            report.withdrawn += done.rows_affected();
+            if done.rows_affected() < SWEEP_BATCH as u64 {
+                break;
+            }
+        }
         report.devices = devices::sweep_ended_sessions(&self.core).await?;
         Ok(report)
     }
@@ -137,6 +156,10 @@ impl Notify {
             .execute(&mut *tx)
             .await?;
         sqlx::query("DELETE FROM notify_mutes WHERE user_id = $1 OR muted_user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM notify_blocks WHERE user_id = $1 OR blocked_id = $1")
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
@@ -210,7 +233,7 @@ impl DataExporter for NotifyExporter {
         let mutes = json(
             core,
             "SELECT COALESCE(jsonb_agg(to_jsonb(m) ORDER BY m.muted_at DESC), '[]'::jsonb) FROM (
-                 SELECT muted_user_id, created_at AS muted_at FROM notify_mutes WHERE user_id = $1
+                 SELECT muted_user_id, created_at AS muted_at FROM notify_mutes WHERE user_id = $1 AND muted
              ) m",
             user_id,
         )

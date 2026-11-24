@@ -21,20 +21,50 @@ Rules the consumer applies, in order:
 1. Malformed requests (kind not `[a-z0-9_.]{1,64}`, empty title) and requests
    about the recipient's own action are dropped.
 2. A recipient who muted the actor gets nothing: no inbox entry, no push.
+   Nor does anyone in a block with the actor, whoever blocked whom (blocks
+   are mirrored from `social.user.blocked` / `unblocked`; `system` notices
+   are exempt). Blocking someone also removes what they caused from the
+   blocker's inbox; the blocked person's inbox is left alone, since blocks
+   are silent.
 3. Category toggles: `inbox` off → no inbox entry (and no realtime event);
    `push` off → no push. The `system` category's inbox toggle is locked on.
 4. Global push pause and quiet hours (in `users.time_zone`) suppress the push
    only. The inbox still records.
 5. No push registration → no push job. More than
-   `TOKULY_PUSH_RATE_PER_MINUTE` pushes for one user in a minute → the push is
-   skipped, the inbox still records.
+   `TOKULY_PUSH_RATE_PER_SENDER_PER_MINUTE` pushes caused by one person for
+   one recipient in a minute, or more than `TOKULY_PUSH_RATE_PER_MINUTE`
+   pushes for one user in a minute → the push is skipped, the inbox still
+   records. The sender's budget is checked first, so one person's flood
+   spends only their own and cannot silence everybody else's pushes.
 
 **Urgent requests** (`NotificationRequest::urgent()`: incoming calls, SOS)
-skip rule 4 and the per-minute cap of rule 5: they are pushed during quiet
+skip rule 4 and the recipient's per-minute cap of rule 5 (they have a
+per-sender budget of their own, so nobody can ring through quiet hours
+without end): they are pushed during quiet
 hours and while pushes are paused. Rules 2 and 3 still apply — a muted person
 and a category whose push is switched off stay silent. They are delivered at
 the highest priority of every channel (table below), and the inbox entry
 carries `urgent = true`.
+
+**Withdrawn content.** Every inbox entry records the IDs it refers to: its
+subject and every `*_id` value at the top level of its `data` (`comment_id`,
+`message_id`...), and while it is unread, those of every event folded into
+it. When one of them is deleted or taken down (events below), every entry
+referring to it leaves every inbox (`NotifyEvent.removed` to the owners'
+clients, in batches of 1000 entries). A grouped entry that still stands for
+other events stays with one event less, and without its body and image when
+it was showing the withdrawn one (clients see that change on their next
+read; no event is sent for it). Content that is gone is remembered for
+8 days: a request about it that arrives late, or a push job still queued for
+it, is dropped. Content that is only hidden (unpublished, made private) is
+withdrawn from everyone but its owner and not remembered, since it can come
+back. A note narrowed to friends is not withdrawn: this domain does not know
+who is a friend. Entries of
+the `system` category are never withdrawn: the notice telling an owner that
+their content was taken down refers to that content. A withdrawal and a
+request about the same ID serialize on an advisory lock, so an entry stored
+while the withdrawal runs is not missed. Pushes already delivered cannot be
+recalled.
 
 The consumer is idempotent on the event ID (`notify_processed_events`, written
 in the same transaction as the inbox entry). Events with the same collapse key
@@ -49,8 +79,21 @@ account's) for push.
 | Topic | Payload | Effect |
 |---|---|---|
 | `notify.requested` | `tokuly_core::outbound::NotificationRequest` | inbox entry, realtime event, push job (see above) |
-| `social.friend.prefs_changed` | `{ user_id, friend_id, muted }` (`tokuly_notify::events::FriendPrefsChanged`) | `muted = true` adds a mute of `friend_id` for `user_id`, `false` removes it |
-| `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes and push registrations, inbox entries they caused for others, and mutes on them |
+| `social.friend.prefs_changed` | `{ user_id, friend_id, muted }` (`tokuly_notify::events::FriendPrefsChanged`) | `muted = true` mutes `friend_id` for `user_id`, `false` unmutes. Applied only when newer than the pair's last change (from this event or `MuteUser` / `UnmuteUser`), so events handled out of order end in the latest state |
+| `social.user.blocked` / `social.user.unblocked` | `{ user_id, blocked_id }` (`tokuly_notify::events::UserBlocked`) | mirrors the block (rule 2). A block removes `user_id`'s non-system entries caused by `blocked_id`. Applied only when newer than the pair's last change, so events handled out of order end in the latest state |
+| `admin.content.removed` | `{ subject_type, subject_id, … }` | withdraws `subject_id` (any subject type but `SUBJECT_TYPE_USER`: a profile takedown keeps what the person did in other inboxes) |
+| `chat.message.deleted` | `{ message_id, … }` | withdraws `message_id` |
+| `engagement.comment.deleted` | `{ comment_id, … }` | withdraws `comment_id` |
+| `notes.note.deleted` / `notes.story.deleted` | `{ note_id, … }` / `{ story_id, … }` | withdraws the note / story |
+| `community.thread.deleted` | `{ community_id, thread_id }` | withdraws `thread_id` |
+| `video.playlist.deleted` | `{ playlist_id, owner_id }` | withdraws `playlist_id` |
+| `video.video.deleted` | `VideoEvent` `{ video_id, … }` | withdraws `video_id` |
+| `shorts.short.deleted` | `ShortEvent` `{ id, … }` | withdraws `id` |
+| `live.stream.deleted` | `StreamEvent` `{ stream_id, … }` | withdraws `stream_id` |
+| `ask.answer.deleted` | `{ question_id, owner_id }` | withdraws the asker's `ask.answered` entries for `question_id` (the question itself stays; not remembered, it can be answered again) |
+| `video.video.unpublished` | `VideoEvent` | hides `video_id` from everyone but `owner_id` |
+| `notes.note.visibility_changed` | `{ note_id, author_id, visibility }` | `visibility` = 5 (private): hides `note_id` from everyone but `author_id`. Other values change nothing |
+| `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, and mutes on them |
 
 ## Events emitted
 
@@ -122,8 +165,8 @@ Sent to every connection of the user:
 | What | Name | Notes |
 |---|---|---|
 | Event consumer | durable `notify` | topics above |
-| Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; up to 5 attempts with the job queue's backoff; devices already reached are remembered in Valkey (`notify:push:delivered:{job}`) so a retry only reaches the rest |
-| Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers older than 8 days; push registrations of revoked or expired sessions |
+| Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; dropped at delivery when its content was withdrawn, or when the recipient blocked, was blocked by or muted its actor in the meantime (not for `system` notices); up to 5 attempts with the job queue's backoff; devices already reached are remembered in Valkey (`notify:push:delivered:{job}`) so a retry only reaches the rest |
+| Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers and withdrawn-content markers older than 8 days; push registrations of revoked or expired sessions |
 
 Push outcomes: accepted → `last_delivered_at`; token gone (Web Push 404/410,
 FCM `UNREGISTERED` / `SENDER_ID_MISMATCH`, APNs 410 / `BadDeviceToken` /
@@ -180,12 +223,13 @@ alert.
 |---|---|---|
 | `TOKULY_VAPID_PRIVATE_KEY` | empty | Web Push application-server key (raw P-256 scalar, base64url). Empty derives it from `TOKULY_SECRET` (`keys.derive("webpush/vapid")`) |
 | `TOKULY_VAPID_SUBJECT` | empty | Contact URI in VAPID tokens. Empty: the public URL when https, else `mailto:` + the `TOKULY_MAIL_FROM` address |
-| `TOKULY_WEBPUSH_ALLOWED_HOSTS` | `fcm.googleapis.com,updates.push.services.mozilla.com,notify.windows.com,push.apple.com` | Hosts (and their subdomains) a Web Push endpoint may point to; `*` = any public https host |
+| `TOKULY_WEBPUSH_ALLOWED_HOSTS` | `fcm.googleapis.com,updates.push.services.mozilla.com,notify.windows.com,push.apple.com` | Hosts (and their subdomains) a Web Push endpoint may point to; `*` = any public https host. Whatever the list, Web Push requests only connect to public addresses: a name resolving to a loopback, private or link-local address fails |
 | `TOKULY_WEBPUSH_ALLOW_INSECURE` | `false` | Development/tests: accept `http://` endpoints on any host. Startup fails if set in production |
 | `TOKULY_FCM_SERVICE_ACCOUNT_JSON` | empty | Firebase service-account JSON; empty disables FCM |
 | `TOKULY_APNS_KEY_P8`, `TOKULY_APNS_KEY_ID`, `TOKULY_APNS_TEAM_ID`, `TOKULY_APNS_TOPIC` | empty | APNs token-auth key (`.p8` content, `\n` escapes accepted), key ID, team ID, bundle ID; all four enable APNs |
 | `TOKULY_PUSH_TTL_SECONDS` | `86400` | How long push services keep a notification for an offline device |
 | `TOKULY_PUSH_RATE_PER_MINUTE` | `30` | Pushes per user per minute; 0 = no cap |
+| `TOKULY_PUSH_RATE_PER_SENDER_PER_MINUTE` | `10` | Pushes one person may cause for one recipient per minute, and urgent pushes likewise; 0 = no cap |
 | `TOKULY_NOTIFY_RETENTION_DAYS` | `90` | Days an inbox entry is kept |
 
 FCM and APNs are implemented against the documented wire formats and tested

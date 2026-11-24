@@ -435,3 +435,81 @@ async fn a_storm_of_notifications_is_capped_for_push_only() {
         }
     ));
 }
+
+#[tokio::test]
+async fn mirrored_mutes_end_in_the_latest_state_whatever_the_order() {
+    let ctx = start().await;
+    let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
+    let prefs_changed = |muted: bool, ago_seconds: i64| {
+        event_at(
+            FRIEND_PREFS_CHANGED_TOPIC,
+            FriendPrefsChanged {
+                user_id: alice.id,
+                friend_id: bob.id,
+                muted,
+            },
+            Utc::now() - chrono::Duration::seconds(ago_seconds),
+        )
+    };
+    // Muted 10 s ago and unmuted 5 s ago, handled the other way round (the
+    // consumer runs events concurrently, and retries come late).
+    ctx.notify.handle_event(prefs_changed(false, 5)).await.unwrap();
+    ctx.notify.handle_event(prefs_changed(true, 10)).await.unwrap();
+    assert!(matches!(
+        ctx.deliver(&chat_message(&alice, &bob)).await,
+        RequestOutcome::Handled { .. }
+    ));
+
+    // Unmuted 3 s ago, muted again 1 s ago, also in reverse.
+    ctx.notify.handle_event(prefs_changed(true, 1)).await.unwrap();
+    ctx.notify.handle_event(prefs_changed(false, 3)).await.unwrap();
+    assert_eq!(
+        dropped(&ctx.deliver(&chat_message(&alice, &bob)).await),
+        Some(DropReason::Muted)
+    );
+}
+
+#[tokio::test]
+async fn one_person_cannot_use_up_the_push_budget() {
+    let ctx = start().await;
+    let (alice, bob, carol) = (
+        ctx.app.user("alice").await,
+        ctx.app.user("bob").await,
+        ctx.app.user("carol").await,
+    );
+    ctx.register_browser(&alice).await;
+    let mut queued = 0;
+    for _ in 0..40 {
+        if let RequestOutcome::Handled {
+            push: PushDecision::Queued(_),
+            ..
+        } = ctx.deliver(&chat_message(&alice, &bob)).await
+        {
+            queued += 1;
+        }
+    }
+    assert!(
+        queued <= 10,
+        "one sender got {queued} pushes through in a minute"
+    );
+    // Carol's message is still pushed: Bob's flood did not use up Alice's budget.
+    assert!(matches!(
+        ctx.deliver(&chat_message(&alice, &carol)).await,
+        RequestOutcome::Handled {
+            push: PushDecision::Queued(_),
+            ..
+        }
+    ));
+    // Nor can a flooder ring through with urgent requests forever.
+    let mut rung = 0;
+    for _ in 0..40 {
+        if let RequestOutcome::Handled {
+            push: PushDecision::Queued(_),
+            ..
+        } = ctx.deliver(&chat_message(&alice, &bob).urgent()).await
+        {
+            rung += 1;
+        }
+    }
+    assert!(rung <= 10, "{rung} urgent pushes from one sender in a minute");
+}
