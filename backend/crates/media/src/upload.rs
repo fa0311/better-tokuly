@@ -21,6 +21,10 @@ const MAX_OPEN_UPLOADS: i64 = 100;
 /// Uploads one user may start per window.
 const UPLOADS_PER_WINDOW: u32 = 300;
 const UPLOAD_WINDOW: Duration = Duration::from_secs(600);
+/// Attempts to complete one upload per minute while it is still unfinished.
+/// Each attempt reads (and copies) the stored bytes; a client completes once
+/// and retries a few times at most.
+const COMPLETIONS_PER_MINUTE: u32 = 10;
 /// Part URLs signed per `GetUploadParts` call.
 pub const MAX_PARTS_PER_CALL: usize = 100;
 /// Checksums of uploads up to this size are verified while completing the
@@ -262,6 +266,7 @@ impl Media {
         if !row.has_status(AssetStatus::ASSET_STATUS_UPLOADING) {
             return self.completed_asset(row).await;
         }
+        core.cache.rate_limit(&format!("media:complete:{upload_id}"), COMPLETIONS_PER_MINUTE, Duration::from_secs(60)).await?;
 
         if let Some(multipart_id) = &row.multipart_id {
             self.assemble_parts(&row, multipart_id, client_parts).await?;

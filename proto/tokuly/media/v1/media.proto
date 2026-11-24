@@ -41,7 +41,8 @@ service MediaService {
   // Errors: UPLOAD_NOT_FOUND, UPLOAD_INCOMPLETE (bytes or parts missing),
   // PART_ETAG_MISMATCH, SIZE_MISMATCH, CHECKSUM_MISMATCH and
   // UNSUPPORTED_CONTENT (the bytes are not what the purpose accepts). The
-  // last three also mark the asset FAILED.
+  // last three also mark the asset FAILED. RATE_LIMITED when one unfinished
+  // upload is completed too often (more than 10 attempts a minute).
   rpc CompleteUpload(CompleteUploadRequest) returns (CompleteUploadResponse);
   // Cancels an unfinished upload and discards its bytes. Idempotent.
   //

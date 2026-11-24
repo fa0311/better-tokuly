@@ -1186,3 +1186,22 @@ async fn uploads_are_capped_in_bytes_per_day_used_or_not() {
     sqlx::query("UPDATE media_assets SET created_at = created_at - interval '25 hours' WHERE owner_id = $1").bind(alice.id).execute(&core.db).await.unwrap();
     let _: CreateUploadResponse = h.rpc("CreateUpload", Some(&alice), &video(GB)).await.unwrap();
 }
+
+#[tokio::test]
+async fn completing_one_upload_over_and_over_is_rate_limited() {
+    let h = start().await;
+    let alice = h.app.user("alice").await;
+    let bytes = png(40, 40);
+    let upload = h.create_upload(&alice, AssetPurpose::ASSET_PURPOSE_AVATAR, "a.png", "image/png", &bytes).await;
+    // Every attempt on an unfinished upload reads the store (and, once the
+    // bytes are there, copies them): a burst of them is cut off.
+    let attempts = futures::future::join_all((0..15).map(|_| h.complete(&alice, &upload.upload_id))).await;
+    let reasons: Vec<String> = attempts.into_iter().map(|a| a.expect_err("nothing uploaded yet").reason).collect();
+    assert_eq!(reasons.iter().filter(|r| *r == "UPLOAD_INCOMPLETE").count(), 10, "{reasons:?}");
+    assert_eq!(reasons.iter().filter(|r| *r == "RATE_LIMITED").count(), 5, "{reasons:?}");
+    // Other uploads are not affected, and a finished upload answers at once.
+    let other = h.upload(&alice, AssetPurpose::ASSET_PURPOSE_AVATAR, "b.png", "image/png", png(40, 40)).await;
+    for _ in 0..12 {
+        assert_eq!(h.complete(&alice, &other.id).await.unwrap().id, other.id);
+    }
+}
