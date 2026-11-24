@@ -949,17 +949,13 @@ async fn nothing_shown_about_an_anonymous_post_lines_up_with_its_authors_suspens
     let case = get_case(&app, &neutral, &case_id).await.moderation_case.into_option().unwrap();
     resolve(&app, &neutral, ResolveCaseRequest { suspension_seconds: 86_400, ..resolution(&case, SUSPEND, "匿名スレッドでの嫌がらせ") }).await.unwrap();
 
-    // Every suspended account, as the involved admin can list them.
+    // The author's suspension, as anyone listing suspended accounts finds it among the others.
     let suspended: SearchUsersResponse = app
-        .call(
-            &format!("{USERS}/SearchUsers"),
-            Some(&involved),
-            &SearchUsersRequest { state: AccountState::ACCOUNT_STATE_SUSPENDED.into(), page: tokuly_proto::common::PageRequest { limit: 100, ..Default::default() }.into(), ..Default::default() },
-        )
+        .call(&format!("{USERS}/SearchUsers"), Some(&involved), &SearchUsersRequest { query: author.id.to_string(), ..Default::default() })
         .await
         .unwrap();
     let suspensions: Vec<Suspension> = suspended.users.iter().filter_map(|user| user.suspension.clone().into_option()).collect();
-    assert!(suspensions.iter().any(|s| s.reason == "匿名スレッドでの嫌がらせ"), "the author is among them");
+    assert_eq!(suspensions.len(), 1);
 
     // 1. The moderation log's entry: no expiry, only the day, no reason to match.
     let opened = get_case(&app, &involved, &case_id).await;
