@@ -2,9 +2,16 @@
 //!
 //! Access tokens are short-lived EdDSA (Ed25519) JWTs. The signing key is
 //! derived from the master secret, so the API and the realtime gateway verify
-//! each other's tokens without sharing key files. Revoked sessions are held in
-//! a small in-memory set (fed over the bus by the identity service) for the
-//! lifetime of an access token.
+//! each other's tokens without sharing key files.
+//!
+//! A revoked session's tokens stop working at once, not at expiry: the
+//! revocation is written to Valkey (`auth:revoked:<session>`, kept for the
+//! lifetime of an access token) and every authenticated request asks Valkey
+//! about its session (one `EXISTS` on the shared multiplexed connection). A
+//! small in-memory set, fed over the bus and loaded from Valkey when a
+//! process starts, answers without the round trip for sessions already
+//! known to be revoked, and is what the synchronous [`Tokens::verify`] (the
+//! realtime gateway) consults.
 //!
 //! The other kind of bearer credential is an API token (`tkl_…`): opaque,
 //! long-lived, limited to its scopes. [`auth_middleware`] hands those to
@@ -114,7 +121,15 @@ struct Claims {
 #[derive(Clone)]
 pub struct Tokens {
     inner: Arc<TokensInner>,
+    /// Where revocations are shared between processes; `None` keeps them in
+    /// this process only (unit tests).
+    revocations: Option<Cache>,
 }
+
+/// How long a revocation must be remembered: until every access token of
+/// the session has expired (plus the verification leeway, with margin).
+const REVOCATION_TTL: Duration = Duration::from_secs(ACCESS_TOKEN_TTL.as_secs() + 30);
+const REVOKED_PREFIX: &str = "auth:revoked:";
 
 struct TokensInner {
     encoding: EncodingKey,
@@ -144,7 +159,14 @@ impl Tokens {
                 revoked: DashMap::new(),
                 public_key,
             }),
+            revocations: None,
         })
+    }
+
+    /// Shares revocations with every other process through `cache`.
+    pub fn with_revocations(mut self, cache: Cache) -> Self {
+        self.revocations = Some(cache);
+        self
     }
 
     /// Raw Ed25519 public key (for publishing as a JWK).
@@ -198,12 +220,64 @@ impl Tokens {
         })
     }
 
-    /// Marks a session as revoked for the remaining lifetime of its tokens.
+    /// Revokes a session for the remaining lifetime of its tokens, in this
+    /// process and (through Valkey) in every other one, for their next
+    /// request. [`crate::Core::revoke_session`] also tells running processes
+    /// over the bus.
+    pub async fn revoke(&self, session_id: Uuid) {
+        self.revoke_session(session_id);
+        if let Some(cache) = &self.revocations
+            && let Err(e) = cache.set_string(&format!("{REVOKED_PREFIX}{session_id}"), "1", Some(REVOCATION_TTL)).await
+        {
+            tracing::warn!(error = %e, %session_id, "session revocation not stored in Valkey");
+        }
+    }
+
+    /// Whether Valkey holds a revocation of the session (another process
+    /// revoked it). An unreachable Valkey answers `false`: the bus and the
+    /// in-memory set still apply, and signing everyone out while Valkey is
+    /// down would be worse.
+    async fn revoked_elsewhere(&self, session_id: Uuid) -> bool {
+        let Some(cache) = &self.revocations else { return false };
+        match cache.exists(&format!("{REVOKED_PREFIX}{session_id}")).await {
+            Ok(revoked) => {
+                if revoked {
+                    self.revoke_session(session_id);
+                }
+                revoked
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "session revocations unreadable; checked in memory only");
+                false
+            }
+        }
+    }
+
+    /// Loads the revocations other processes stored, so that a process that
+    /// just started (and missed their broadcasts) knows them too.
+    pub async fn load_revocations(&self) -> anyhow::Result<usize> {
+        use futures::StreamExt as _;
+        let Some(cache) = &self.revocations else { return Ok(0) };
+        let mut conn = cache.conn();
+        let keys: Vec<String> = {
+            let mut iter = redis::AsyncCommands::scan_match::<_, String>(&mut conn, format!("{REVOKED_PREFIX}*")).await?;
+            let mut keys = Vec::new();
+            while let Some(key) = iter.next().await {
+                keys.push(key?);
+            }
+            keys
+        };
+        let ids: Vec<Uuid> = keys.iter().filter_map(|key| key.strip_prefix(REVOKED_PREFIX)?.parse().ok()).collect();
+        for id in &ids {
+            self.revoke_session(*id);
+        }
+        Ok(ids.len())
+    }
+
+    /// Marks a session as revoked in this process only, for the remaining
+    /// lifetime of its tokens (what a revocation broadcast does).
     pub fn revoke_session(&self, session_id: Uuid) {
-        self.inner.revoked.insert(
-            session_id,
-            Utc::now() + ACCESS_TOKEN_TTL + Duration::from_secs(30),
-        );
+        self.inner.revoked.insert(session_id, Utc::now() + REVOCATION_TTL);
         if self.inner.revoked.len() > 10_000 {
             let now = Utc::now();
             self.inner.revoked.retain(|_, until| *until > now);
@@ -232,6 +306,15 @@ impl Tokens {
         match self.verify(token) {
             Ok(ctx) => AuthState::Authenticated(ctx),
             Err(reason) => AuthState::Invalid(reason),
+        }
+    }
+
+    /// [`Self::authenticate`], and the session's revocation is also looked up
+    /// in Valkey: what every request goes through.
+    pub async fn authenticate_shared(&self, token: &str) -> AuthState {
+        match self.authenticate(token) {
+            AuthState::Authenticated(ctx) if self.revoked_elsewhere(ctx.session_id).await => AuthState::Invalid("SESSION_REVOKED"),
+            state => state,
         }
     }
 }
@@ -350,7 +433,7 @@ pub async fn auth_middleware(
             Err(Refusal::Unauthenticated(reason)) => (AuthState::Invalid(reason), None),
             Err(Refusal::Respond(response)) => return response,
         },
-        Bearer::Token(token) => (layer.tokens.authenticate(token), None),
+        Bearer::Token(token) => (layer.tokens.authenticate_shared(token).await, None),
     };
     req.extensions_mut().insert(state);
     req.extensions_mut().insert(meta);
