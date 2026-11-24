@@ -8,13 +8,13 @@ use tokuly_stamp::SendContext;
 
 use super::{
     CommentRow,
-    announce::{Concerned, Reason, Sender},
+    announce::{self, Concerned, Reason, Sender},
     comment_columns, comment_not_found, find, image_holder, kept, lifecycle, lock_thread,
 };
 use crate::{
     Engagement,
     effects::{Effects, Push},
-    events::{COMMENT_DELETED, COMMENT_EDITED, COMMENT_PUBLISHED, CommentEvent},
+    events::{COMMENT_DELETED, COMMENT_EDITED, COMMENT_PUBLISHED, CommentEdited, CommentEvent},
     subjects::{Subject, requested_type},
     text,
 };
@@ -358,17 +358,26 @@ impl Engagement {
         let (mut row, mut parent) = lock_thread(&mut tx, found.row.id).await?.ok_or_else(comment_not_found)?;
         // What the people who read it read stays reportable.
         kept::keep_edited(&mut tx, &row).await?;
-        let edited_at: Time =
-            sqlx::query_scalar("UPDATE comments SET text = $2, edited_at = now() WHERE id = $1 RETURNING edited_at")
-                .bind(row.id)
-                .bind(&text)
-                .fetch_one(&mut *tx)
-                .await?;
+        // The clock, not the transaction's start: taken under the lock, it
+        // orders two edits of one comment the way they were applied.
+        let edited_at: Time = sqlx::query_scalar(
+            "UPDATE comments SET text = $2, edited_at = clock_timestamp() WHERE id = $1 RETURNING edited_at",
+        )
+        .bind(row.id)
+        .bind(&text)
+        .fetch_one(&mut *tx)
+        .await?;
         row.text = text;
         row.edited_at = Some(edited_at);
         sqlx::query("DELETE FROM comment_mentions WHERE comment_id = $1").bind(row.id).execute(&mut *tx).await?;
         save_mentions(&mut tx, row.id, &mentioned).await?;
-        events::emit(&mut *tx, COMMENT_EDITED, Some(user_id), &comment_event(&row)).await?;
+        let edited = CommentEdited {
+            comment: comment_event(&row),
+            body: announce::body_of(&row),
+            mentioned: mentioned.clone(),
+            edited_at,
+        };
+        events::emit(&mut *tx, COMMENT_EDITED, Some(user_id), &edited).await?;
         if row.is_published() && !verdict.is_published() {
             // The new text trips one of the owner's rules. The other way
             // round never happens: an edit does not publish a comment.

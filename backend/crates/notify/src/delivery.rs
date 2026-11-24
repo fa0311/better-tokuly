@@ -20,6 +20,7 @@ use tokuly_core::{jobs::JobOptions, outbound::Localized, prelude::*};
 use crate::{
     Notify, blocks, categories,
     devices::{self, DeliveryDevice},
+    edits::{self, Current},
     inbox,
     push::{PushMessage, PushOutcome, PushPriority},
     withdraw,
@@ -138,6 +139,20 @@ impl Notify {
             // Blocked or muted while the push waited.
             return Ok(report);
         }
+        // A comment edited while the push waited: its text now, or nothing
+        // for a mention the edit took out.
+        let edited;
+        let job = match edits::current(&self.core.db, &job.kind, job.user_id, &job.data).await? {
+            Current::Unchanged => job,
+            current => {
+                let mut copy = job.clone();
+                if !current.apply(&mut copy.body, &mut copy.data) {
+                    return Ok(report);
+                }
+                edited = copy;
+                &edited
+            }
+        };
         let devices = devices::for_delivery(&self.core, job.user_id).await?;
         if devices.is_empty() {
             return Ok(report);

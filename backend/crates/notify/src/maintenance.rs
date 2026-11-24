@@ -30,6 +30,8 @@ pub struct RetentionReport {
     pub processed_events: u64,
     /// Markers of withdrawn content (`notify_withdrawn`).
     pub withdrawn: u64,
+    /// The latest edits of comments (`notify_edits`).
+    pub edits: u64,
     pub devices: u64,
 }
 
@@ -137,6 +139,23 @@ impl Notify {
                 break;
             }
         }
+        // Likewise the latest edit of a comment: a request or push from
+        // before it cannot arrive later than any other event.
+        loop {
+            let done = sqlx::query(
+                "DELETE FROM notify_edits WHERE ref_id IN (
+                     SELECT ref_id FROM notify_edits WHERE recorded_at < now() - make_interval(days => $1) LIMIT $2
+                 )",
+            )
+            .bind(PROCESSED_EVENT_DAYS)
+            .bind(SWEEP_BATCH)
+            .execute(db)
+            .await?;
+            report.edits += done.rows_affected();
+            if done.rows_affected() < SWEEP_BATCH as u64 {
+                break;
+            }
+        }
         report.devices = devices::sweep_ended_sessions(&self.core).await?;
         Ok(report)
     }
@@ -150,6 +169,14 @@ impl Notify {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
+        // The texts of their edited comments, and their name in the mentions of others'.
+        sqlx::query("DELETE FROM notify_edits WHERE author_id = $1").bind(user_id).execute(&mut *tx).await?;
+        sqlx::query(
+            "UPDATE notify_edits SET mentioned = array_remove(mentioned, $1) WHERE mentioned @> ARRAY[$1]::uuid[]",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("DELETE FROM notify_mutes WHERE user_id = $1 OR muted_user_id = $1")
             .bind(user_id)
             .execute(&mut *tx)

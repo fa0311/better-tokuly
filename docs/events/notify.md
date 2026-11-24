@@ -66,6 +66,18 @@ request about the same ID serialize on an advisory lock, so an entry stored
 while the withdrawal runs is not missed. Pushes already delivered cannot be
 recalled.
 
+**Edited comments.** Notifications of the engagement domain (`engagement.*`)
+quote a comment (`data.comment_id`) at a version (`data.edited_at`, `null`
+before the first edit). On `engagement.comment.edited` every entry quoting
+an older version shows the body the event gives for the new text (and its
+version), and an `engagement.mention` entry whose recipient the new text no
+longer mentions leaves the inbox (`NotifyEvent.removed`; a changed body is
+seen on the next read, no event is sent for it). The latest edit of each
+comment is remembered for 8 days (`notify_edits`): an older edit handled
+after a newer one changes nothing, and a request or a queued push about an
+older version that is handled after the edit carries the new body — or is
+dropped when it announces a mention that is gone.
+
 The consumer is idempotent on the event ID (`notify_processed_events`, written
 in the same transaction as the inbox entry). Events with the same collapse key
 handled out of order: the older one is discarded.
@@ -84,6 +96,7 @@ account's) for push.
 | `admin.content.removed` | `{ subject_type, subject_id, … }` | withdraws `subject_id` (any subject type but `SUBJECT_TYPE_USER`: a profile takedown keeps what the person did in other inboxes) |
 | `chat.message.deleted` | `{ message_id, … }` | withdraws `message_id` |
 | `engagement.comment.deleted` | `{ comment_id, … }` | withdraws `comment_id` |
+| `engagement.comment.edited` | `{ comment_id, author_id, body, mentioned, edited_at, … }` | entries quoting an older version of the comment show `body`; mentions of people not in `mentioned` are withdrawn (see "Edited comments") |
 | `notes.note.deleted` / `notes.story.deleted` | `{ note_id, … }` / `{ story_id, … }` | withdraws the note / story |
 | `community.thread.deleted` | `{ community_id, thread_id }` | withdraws `thread_id` |
 | `video.playlist.deleted` | `{ playlist_id, owner_id }` | withdraws `playlist_id` |
@@ -93,7 +106,7 @@ account's) for push.
 | `ask.answer.deleted` | `{ question_id, owner_id }` | withdraws the asker's `ask.answered` entries for `question_id` (the question itself stays; not remembered, it can be answered again) |
 | `video.video.unpublished` | `VideoEvent` | hides `video_id` from everyone but `owner_id` |
 | `notes.note.visibility_changed` | `{ note_id, author_id, visibility }` | `visibility` = 5 (private): hides `note_id` from everyone but `author_id`. Other values change nothing |
-| `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, and mutes on them |
+| `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, mutes on them, the remembered edits of their comments, and their name in the remembered mentions of others' |
 
 ## Events emitted
 
@@ -165,8 +178,8 @@ Sent to every connection of the user:
 | What | Name | Notes |
 |---|---|---|
 | Event consumer | durable `notify` | topics above |
-| Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; dropped at delivery when its content was withdrawn, or when the recipient blocked, was blocked by or muted its actor in the meantime (not for `system` notices); up to 5 attempts with the job queue's backoff; devices already reached are remembered in Valkey (`notify:push:delivered:{job}`) so a retry only reaches the rest |
-| Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers and withdrawn-content markers older than 8 days; push registrations of revoked or expired sessions |
+| Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; sends the current text of a comment edited while it waited (nothing for a mention the edit took out); dropped at delivery when its content was withdrawn, or when the recipient blocked, was blocked by or muted its actor in the meantime (not for `system` notices); up to 5 attempts with the job queue's backoff; devices already reached are remembered in Valkey (`notify:push:delivered:{job}`) so a retry only reaches the rest |
+| Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers, withdrawn-content markers and remembered comment edits older than 8 days; push registrations of revoked or expired sessions |
 
 Push outcomes: accepted → `last_delivered_at`; token gone (Web Push 404/410,
 FCM `UNREGISTERED` / `SENDER_ID_MISMATCH`, APNs 410 / `BadDeviceToken` /

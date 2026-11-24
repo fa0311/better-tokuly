@@ -85,7 +85,7 @@ pub(crate) struct Sender {
 }
 
 /// What a notification shows of the comment itself.
-fn body_of(row: &CommentRow) -> Localized {
+pub(crate) fn body_of(row: &CommentRow) -> Localized {
     let excerpt = text::excerpt(&row.text, 100);
     if !excerpt.is_empty() {
         Localized::same(excerpt)
@@ -122,10 +122,16 @@ fn kind_of(reason: Reason) -> &'static str {
     }
 }
 
+/// What every notification about a comment carries: its subject, the
+/// comment, and the version of the comment it quotes (`edited_at`), by which
+/// the notify domain tells a stale copy from a current one when the comment
+/// is edited (`engagement.comment.edited`).
 fn about(request: NotificationRequest, row: &CommentRow, subject: &Subject) -> NotificationRequest {
-    request
-        .subject(subject.key.subject_type(), subject.key.id)
-        .data(serde_json::json!({ "comment_id": row.id, "parent_id": row.parent_id }))
+    request.subject(subject.key.subject_type(), subject.key.id).data(serde_json::json!({
+        "comment_id": row.id,
+        "parent_id": row.parent_id,
+        "edited_at": row.edited_at,
+    }))
 }
 
 impl Engagement {

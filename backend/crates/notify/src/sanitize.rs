@@ -60,6 +60,12 @@ pub fn sanitize(mut request: NotificationRequest) -> Option<NotificationRequest>
     Some(request)
 }
 
+/// A body from another domain's event (an edited comment), bounded like the
+/// body of a request.
+pub(crate) fn clean_body(body: &Localized) -> Localized {
+    clean_text(body, MAX_BODY_CHARS)
+}
+
 /// A path on this site. `//host/…` and `/\host/…` begin with a slash too, but
 /// browsers read them as another site.
 fn is_app_path(path: &str) -> bool {

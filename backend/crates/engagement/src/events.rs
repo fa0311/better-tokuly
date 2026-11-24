@@ -4,7 +4,9 @@
 //! Everything emitted here is written in the transaction of the change it
 //! describes. `subject_type` is always `tokuly.common.v1.SubjectType` as its
 //! number and `subject_id` the subject's UUID.
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use tokuly_core::outbound::Localized;
 use uuid::Uuid;
 
 // ── emitted ──
@@ -19,8 +21,9 @@ pub const COMMENT_PUBLISHED: &str = "engagement.comment.published";
 /// nor for comments purged with their subject or their author's account.
 pub const COMMENT_DELETED: &str = "engagement.comment.deleted";
 /// The author changed the text of a comment, whatever its status. Payload:
-/// [`CommentEvent`]. Lets copies of the old text (inbox entries) be updated
-/// or withdrawn.
+/// [`CommentEdited`]. Lets copies of the old text (inbox entries, pushes
+/// still queued) be updated, or withdrawn where the new text no longer
+/// mentions their recipient.
 pub const COMMENT_EDITED: &str = "engagement.comment.edited";
 /// A user set, changed or removed their reaction. Payload: [`ReactionChanged`].
 pub const REACTION_CHANGED: &str = "engagement.reaction.changed";
@@ -70,6 +73,24 @@ pub struct CommentEvent {
     pub channel_id: Option<Uuid>,
     /// The top-level comment, for replies.
     pub parent_id: Option<Uuid>,
+}
+
+/// `engagement.comment.edited`: the comment's fields, and what
+/// notifications about it show from now on.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentEdited {
+    #[serde(flatten)]
+    pub comment: CommentEvent,
+    /// The body notifications about the comment carry, as engagement writes
+    /// it for the new text (an excerpt, or a description of a stamp or image).
+    pub body: Localized,
+    /// The users the new text mentions.
+    pub mentioned: Vec<Uuid>,
+    /// The version this edit made: the comment's new `edited_at`, taken
+    /// while the comment was locked, so two edits are ordered by it. Every
+    /// notification about the comment names the version it quotes
+    /// (`data.edited_at`, `null` before the first edit).
+    pub edited_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -25,6 +25,7 @@ use crate::{
     Notify, blocks,
     categories::{self, Category},
     delivery::PushJob,
+    edits::{self, COMMENT_EDITED_TOPIC},
     events::{
         FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC, USER_DELETED_TOPIC, USER_UNBLOCKED_TOPIC,
         UserDeleted,
@@ -47,6 +48,7 @@ pub const TOPICS: &[&str] = &[
     USER_BLOCKED_TOPIC,
     USER_UNBLOCKED_TOPIC,
     CONTENT_REMOVED_TOPIC,
+    COMMENT_EDITED_TOPIC,
     // `withdraw::RULES`
     "chat.message.deleted",
     "engagement.comment.deleted",
@@ -221,6 +223,7 @@ impl Notify {
             FRIEND_PREFS_CHANGED_TOPIC => self.handle_friend_prefs_changed(&event).await,
             USER_BLOCKED_TOPIC => self.handle_block(&event, true).await,
             USER_UNBLOCKED_TOPIC => self.handle_block(&event, false).await,
+            COMMENT_EDITED_TOPIC => self.handle_comment_edited(&event).await,
             USER_DELETED_TOPIC => {
                 let deleted: UserDeleted = event.data()?;
                 self.purge_user(deleted.user_id).await
@@ -236,7 +239,7 @@ impl Notify {
     /// event and a push job, as far as the recipient's preferences allow.
     pub async fn handle_request(&self, event: &Event) -> AppResult<RequestOutcome> {
         let request: NotificationRequest = event.data()?;
-        let Some(request) = sanitize(request) else {
+        let Some(mut request) = sanitize(request) else {
             tracing::warn!(event = %event.id, "dropping a malformed notification request");
             return Ok(RequestOutcome::Dropped(DropReason::Invalid));
         };
@@ -280,6 +283,13 @@ impl Notify {
         {
             tx.commit().await?;
             return Ok(RequestOutcome::Dropped(DropReason::Blocked));
+        }
+        // A comment edited after this was asked for: the new text, or
+        // nothing for a mention the edit took out.
+        let current = edits::current(&mut *tx, &request.kind, request.user_id, &request.data).await?;
+        if !current.apply(&mut request.body, &mut request.data) {
+            tx.commit().await?;
+            return Ok(RequestOutcome::Dropped(DropReason::Withdrawn));
         }
         let stored = if plan.inbox {
             let entry = inbox_entry(&request, category, &refs, event.occurred_at);

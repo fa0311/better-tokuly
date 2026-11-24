@@ -59,6 +59,26 @@ CREATE TABLE notify_withdrawn (
 
 CREATE INDEX notify_withdrawn_age ON notify_withdrawn (withdrawn_at);
 
+-- The latest edit of each comment notifications quote (`edits.rs`): what
+-- they show of it now and whom it still mentions, by version (`edited_at`,
+-- the comment's own). A request or push about an older version that is
+-- handled after the edit shows this instead. Swept with the handled-event
+-- markers.
+CREATE TABLE notify_edits (
+    ref_id      uuid PRIMARY KEY,
+    -- The comment's author; their edits go with their account.
+    author_id   uuid        NOT NULL,
+    body_ja     text        NOT NULL,
+    body_en     text        NOT NULL,
+    mentioned   uuid[]      NOT NULL DEFAULT '{}',
+    edited_at   timestamptz NOT NULL,
+    recorded_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX notify_edits_age ON notify_edits (recorded_at);
+CREATE INDEX notify_edits_author ON notify_edits (author_id);
+CREATE INDEX notify_edits_mentioned ON notify_edits USING gin (mentioned);
+
 -- IDs of `notify.requested` events that were already handled. Event delivery
 -- is at-least-once; a row here makes a redelivery a no-op. Rows outlive the
 -- event stream's retention (7 days) and are then swept.

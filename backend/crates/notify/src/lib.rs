@@ -10,7 +10,7 @@
 //! ```
 //!
 //! Entries about content that is deleted or taken down are withdrawn
-//! ([`withdraw`]).
+//! ([`withdraw`]); entries quoting a comment follow its edits ([`edits`]).
 //!
 //! What a user receives is governed by their preferences ([`preferences`]):
 //! per-category toggles, a global push pause, quiet hours and per-person
@@ -26,6 +26,7 @@ pub mod config;
 pub mod consumer;
 pub mod delivery;
 pub mod devices;
+pub mod edits;
 pub mod events;
 pub mod inbox;
 mod inbox_svc;

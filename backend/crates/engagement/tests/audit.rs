@@ -4,6 +4,8 @@ mod common;
 
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
+
 use common::*;
 use tokuly_proto::{
     common::{SubjectRef, SubjectType},
@@ -361,12 +363,35 @@ async fn an_edit_is_an_event() {
     let ctx = start().await;
     let (owner, alice) = (ctx.app.user("Owner").await, ctx.app.user("Alice").await);
     let video = ctx.video(&owner, "v");
+    let bob = ctx.app.user("Bob").await;
     let comment = ctx.comment(&alice, &video, "はじめまして").await;
-    ctx.edit(&alice, &comment.id, "こんにちは").await.unwrap();
+    let announced = ctx.notifications(owner.id, "engagement.comment").await;
+    assert_eq!(announced[0]["data"]["edited_at"], serde_json::Value::Null, "the version it quotes: unedited");
+    ctx.edit(&alice, &comment.id, &format!("こんにちは @{}", bob.handle)).await.unwrap();
     let edited = ctx.app.events_by("engagement.comment.edited", alice.id).await;
     assert_eq!(edited.len(), 1);
-    assert_eq!(edited[0].data["comment_id"], serde_json::json!(comment.id));
-    assert_eq!(edited[0].data["subject_id"], serde_json::json!(video.id));
+    let edited = &edited[0].data;
+    assert_eq!(edited["comment_id"], serde_json::json!(comment.id));
+    assert_eq!(edited["subject_id"], serde_json::json!(video.id));
+    // What notifications show of it now, and whom it mentions.
+    assert_eq!(edited["body"]["ja"], format!("こんにちは @{}", bob.handle));
+    assert_eq!(edited["mentioned"], serde_json::json!([bob.id]));
+    // The mention the edit added names the version it quotes.
+    let mention = ctx.notifications(bob.id, "engagement.mention").await;
+    assert_eq!(mention.len(), 1);
+    assert_eq!(mention[0]["data"]["edited_at"], edited["edited_at"]);
+    assert_eq!(mention[0]["body"]["ja"], edited["body"]["ja"]);
+
+    // Two edits are ordered by their version.
+    ctx.edit(&alice, &comment.id, "またね").await.unwrap();
+    let versions: Vec<DateTime<Utc>> = ctx
+        .app
+        .events_by("engagement.comment.edited", alice.id)
+        .await
+        .iter()
+        .map(|event| serde_json::from_value(event.data["edited_at"].clone()).unwrap())
+        .collect();
+    assert!(versions[0] < versions[1], "{versions:?}");
 }
 
 /// A commenter who blocks the owner of the content must not leave their

@@ -110,7 +110,7 @@ as its number, `subject_id` the subject's UUID.
 |---|---|---|
 | `engagement.report.created` | `{ report_id, reporter_id, subject_type, subject_id, subject_owner_id, category, text, subject_title, subject_path, reported_content }` | A user reported a subject. `subject_title` is what the reporter may see of it now (what their own copy shows; a generic label such as 「コメント」 when it was withdrawn or is hidden from them). `reported_content` is what they received as the owning domain kept it (`resolve_for_report`): for content edited or withdrawn since, every version. It is for moderators only: admin keeps it on the case (`moderation_cases.reported_content`, cleared with the case's title) and shows it on the case screen. `subject_owner_id` is `null` for content that belongs to nobody. `category` is `SPAM`, `HARASSMENT`, `HATE`, `SEXUAL`, `VIOLENCE`, `SELF_HARM`, `ILLEGAL`, `IMPERSONATION`, `COPYRIGHT` or `OTHER`. Actor: the reporter. Consumed by admin. |
 | `engagement.comment.published` | `{ comment_id, subject_type, subject_id, subject_owner_id, author_id, channel_id, parent_id }` | A comment entered public view: written (and not held), or approved by the owner. Actor: the author, or the owner who approved. |
-| `engagement.comment.edited` | same | The author changed the text of a comment, whatever its status (an edit can also hold it again, see `comment_removed`). For copies of the old text, e.g. inbox entries. Actor: the author. |
+| `engagement.comment.edited` | the fields above, plus `body` (`{ ja, en }`: what notifications about the comment show for the new text), `mentioned` (the users the new text mentions) and `edited_at` (the new version: the comment's `edited_at`, taken while it was locked, so it orders two edits) | The author changed the text of a comment, whatever its status (an edit can also hold it again, see `comment_removed`). For copies of the old text: notify updates inbox entries and queued pushes, and withdraws mentions the edit took out. Carries comment text: internal consumers only, never webhooks. Actor: the author. |
 | `engagement.comment.deleted` | same | A comment was deleted by its author, the subject owner, moderation, or because its only content was an upload deleted by force. Not emitted for the replies that go with a thread, nor for comments purged with their subject or their author's account. |
 | `engagement.reaction.changed` | `{ user_id, subject_type, subject_id, subject_owner_id, kind, emoji, previous_kind, previous_emoji }` | A user set, changed or removed a reaction. `kind` / `previous_kind` are `ReactionKind` numbers (1 like, 2 dislike, 3 emoji), 0 = none. `subject_owner_id` is `null` when a reaction was removed from a subject that no longer resolves. |
 | `engagement.bookmark.changed` | `{ user_id, subject_type, subject_id, saved }` | A user saved a subject (`saved: true`) or removed it from everything they saved. Moves between named collections emit nothing. |
@@ -132,8 +132,10 @@ idempotent.
 ## Notification kinds
 
 All through `tokuly_core::outbound::notify`, Japanese and English, inbox +
-push, `subject` set to the subject, `data = { comment_id, parent_id }` for
-the comment kinds. Nobody is notified about their own action, across a
+push, `subject` set to the subject, `data = { comment_id, parent_id, edited_at }`
+for the comment kinds (`edited_at`: the version of the comment the
+notification quotes, `null` before the first edit; see
+`engagement.comment.edited`). Nobody is notified about their own action, across a
 block, or as the owner of content that belongs to nobody.
 
 | Kind | To | When | Notes |
