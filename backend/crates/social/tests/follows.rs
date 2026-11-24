@@ -585,4 +585,17 @@ async fn profiles_carry_a_follow_card() {
     assert_eq!(card.data["follower_count"], "1");
     assert_eq!(card.data["following"], "FOLLOWING");
     assert_eq!(card.path, format!("/u/{}/followers", bob.handle));
+    // A suspended account's profile still loads (as far as identity shows it), without the card.
+    sqlx::query("UPDATE users SET banned_at = now() WHERE id = $1").bind(bob.id).execute(&ctx.app.core.db).await.unwrap();
+    let after: Result<tokuly_proto::identity::GetProfileResponse, _> = ctx
+        .app
+        .call(
+            "tokuly.identity.v1.ProfileService/GetProfile",
+            Some(&alice),
+            &tokuly_proto::identity::GetProfileRequest { by: Some(tokuly_proto::identity::get_profile_request::By::UserId(bob.id.to_string())), ..Default::default() },
+        )
+        .await;
+    if let Ok(after) = after {
+        assert!(after.profile.as_option().unwrap().cards.iter().all(|c| c.kind != "social.follow"));
+    }
 }

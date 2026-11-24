@@ -40,7 +40,14 @@ impl ProfileExtension for Social {
         }
 
         if let Some(viewer) = viewer {
-            profile.cards.push(self.follow_card(viewer, owner, profile).await?);
+            // No card for an account the viewer cannot follow or look up
+            // (suspended, or hidden by a block): the rest of the profile is
+            // identity's to show or not.
+            match self.follow_card(viewer, owner, profile).await {
+                Ok(card) => profile.cards.push(card),
+                Err(e) if e.is_not_found() => {}
+                Err(e) => return Err(e),
+            }
         }
 
         let Some(viewer) = viewer.filter(|viewer| *viewer != owner) else {
