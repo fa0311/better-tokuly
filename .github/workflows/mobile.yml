@@ -151,7 +151,8 @@ jobs:
             adb install "$RUNNER_TEMP/tokuly.apk"
             # The emulator's localhost is the runner's: the edge, uploads to storage, LiveKit.
             for port in 8080 9000 7880 7881; do adb reverse tcp:$port tcp:$port || exit 1; done
-            maestro test apps/mobile/maestro --env SERVER=${{ env.SERVER }} --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro"
+            # On failure, also what the device shows and logged (a crash at launch shows only there).
+            maestro test apps/mobile/maestro --env SERVER=${{ env.SERVER }} --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro" || { adb exec-out screencap -p > "$RUNNER_TEMP/maestro-screen.png"; adb logcat -d > "$RUNNER_TEMP/maestro-logcat.txt"; exit 1; }
 
       - name: Keep the Maestro output
         if: always()
