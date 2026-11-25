@@ -120,6 +120,7 @@ account's) for push.
 | `video.video.unpublished` | `VideoEvent` | hides `video_id` from everyone but `owner_id` |
 | `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to, changed_at }` | withdraws `note_id` (and what refers to it as its subject: likes, renotes, comments and mentions in comments on the note; likes on those comments name only the comment and stay) from everyone but `author_id` and `visible_to`, as far as the entries are not newer than `changed_at`; `visible_to = null` (public) withdraws nothing but is remembered, so an older narrowing handled after it does nothing. An event without `visible_to` withdraws only for `visibility` = 5 (private) |
 | `video.video.visibility_changed`, `shorts.short.visibility_changed`, `live.stream.visibility_changed` | `{ video_id \| id \| stream_id, owner_id, visibility, visible_to, changed_at, … }` | the same for the video, short or stream: withdrawn from everyone but `owner_id` and `visible_to` up to `changed_at`; `visible_to = null` (open to everyone again) is remembered. Emitted when the owner shares it with another audience and, once per open item, when the owner locks or unlocks their account |
+| `identity.user.created` | `{ user_id, … }` (`tokuly_notify::events::UserCreated`) | stores what the new account's pushes show: `PUSH_PREVIEW_SENDER_ONLY` for minors (by the birthdate, read this once), `PUSH_PREVIEW_FULL` for adults; never overrides a choice already made, so a redelivery changes nothing |
 | `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, mutes on them, the remembered edits of their comments and audience changes of their content, and their name in the remembered mentions and audiences of others' |
 
 ## Events emitted
@@ -206,6 +207,33 @@ checked against `sessions.revoked_at` / `expires_at` when a push is sent (a
 revoked session's device gets nothing and its row is deleted) and swept hourly.
 
 ## Push payloads
+
+### What pushes show (「通知に内容を表示」)
+
+`Preferences.push_preview`, changed with `UpdatePreferences`:
+
+| Choice | Title | Text | Picture, producer data | Tap opens |
+|---|---|---|---|---|
+| `PUSH_PREVIEW_FULL` 「すべて表示」 | as requested | as requested | kept | the notification's path |
+| `PUSH_PREVIEW_SENDER_ONLY` 「送り主だけ」 | the category's name (「チャット・通話」) | 「あおいさんからメッセージが届いたよ」 (chat), 「あおいさんから動画のお知らせが届いたよ」 (others); without a nameable actor 「動画のお知らせが届いたよ」 | dropped | the notification's path |
+| `PUSH_PREVIEW_HIDDEN` 「表示しない」 | `Tokuly` | 「新しいお知らせがあるよ」 | dropped | `/notifications` (the inbox) |
+
+The name is the actor's display name (else handle) at delivery time;
+producers leave the actor out of anonymous notifications, so those are never
+named. The rewrite happens in `delivery.rs` on the per-device message
+(`preview::apply`), before any channel builds its payload: what a choice
+leaves out is not in the Web Push plaintext, the FCM request or the APNs
+payload at all. The setting is read when the push is sent, so a change also
+applies to pushes still queued. `kind`, `category` (the Android channel),
+the collapse digest and the badge are kept. The inbox always shows
+everything.
+
+Default: decided when the account is created (`identity.user.created`) and
+stored, `SENDER_ONLY` for accounts under 18 and `FULL` for the others; the
+migration does the same for existing minors. It is never derived from the
+birthdate on a read, so an 18th birthday changes nothing anyone can see.
+Until the event is handled (`notify_settings.push_preview` is NULL) pushes
+show everything.
 
 Collapse keys are sent to push services as a 32-character digest (Web Push
 `Topic`, FCM `collapse_key` and `android.notification.tag`, APNs

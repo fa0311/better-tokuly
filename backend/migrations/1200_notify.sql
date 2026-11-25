@@ -123,6 +123,12 @@ CREATE TABLE notify_settings (
     -- Minutes after midnight in the user's time zone (`users.time_zone`).
     quiet_start_minute smallint    NOT NULL DEFAULT 1320 CHECK (quiet_start_minute BETWEEN 0 AND 1439),
     quiet_end_minute   smallint    NOT NULL DEFAULT 420 CHECK (quiet_end_minute BETWEEN 0 AND 1439),
+    -- What pushes show (tokuly.notify.v1.PushPreview: 1 full, 2 sender only,
+    -- 3 hidden). Set when the account is created (2 for minors, 1 for
+    -- adults; identity.user.created) and by the owner afterwards; never
+    -- derived from the birthdate on a read, so turning 18 changes nothing.
+    -- NULL until then, read as full.
+    push_preview       smallint    CHECK (push_preview BETWEEN 1 AND 3),
     attrs              jsonb       NOT NULL DEFAULT '{}',
     created_at         timestamptz NOT NULL DEFAULT now(),
     updated_at         timestamptz NOT NULL DEFAULT now()
@@ -132,6 +138,12 @@ CREATE TRIGGER notify_settings_updated_at
     BEFORE UPDATE ON notify_settings
     FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
+
+-- Accounts of minors that exist already show only the sender on the lock screen.
+INSERT INTO notify_settings (user_id, push_preview)
+SELECT id, 2 FROM users
+WHERE birthdate > current_date - interval '18 years' AND deleted_at IS NULL
+ON CONFLICT (user_id) DO NOTHING;
 
 -- Per-category toggles. A missing row means both are on.
 CREATE TABLE notify_category_prefs (

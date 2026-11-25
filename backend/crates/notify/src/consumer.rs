@@ -27,8 +27,9 @@ use crate::{
     delivery::PushJob,
     edits::{self, COMMENT_EDITED_TOPIC},
     events::{
-        FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC, USER_DELETED_TOPIC, USER_UNBLOCKED_TOPIC,
-        UserDeleted,
+        FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC, USER_CREATED_TOPIC, USER_DELETED_TOPIC,
+        USER_UNBLOCKED_TOPIC,
+        UserCreated, UserDeleted,
     },
     inbox::{self, NewNotification, NotificationRow},
     locks,
@@ -44,6 +45,7 @@ pub const CONSUMER_NAME: &str = "notify";
 pub const TOPICS: &[&str] = &[
     NOTIFY_TOPIC,
     FRIEND_PREFS_CHANGED_TOPIC,
+    USER_CREATED_TOPIC,
     USER_DELETED_TOPIC,
     USER_BLOCKED_TOPIC,
     USER_UNBLOCKED_TOPIC,
@@ -229,6 +231,11 @@ impl Notify {
             USER_BLOCKED_TOPIC => self.handle_block(&event, true).await,
             USER_UNBLOCKED_TOPIC => self.handle_block(&event, false).await,
             COMMENT_EDITED_TOPIC => self.handle_comment_edited(&event).await,
+            // What a new account's pushes show starts out by its age.
+            USER_CREATED_TOPIC => {
+                let created: UserCreated = event.data()?;
+                preferences::set_initial_push_preview(&self.core, created.user_id).await
+            }
             USER_DELETED_TOPIC => {
                 let deleted: UserDeleted = event.data()?;
                 self.purge_user(deleted.user_id).await

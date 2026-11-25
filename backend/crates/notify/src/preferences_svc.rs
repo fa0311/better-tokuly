@@ -107,6 +107,11 @@ impl PreferencesService for Notify {
             if let Some(quiet) = quiet_hours {
                 preferences::validate_quiet_hours(quiet)?;
             }
+            let push_preview = match request.push_preview.as_known() {
+                Some(PushPreview::PUSH_PREVIEW_UNSPECIFIED) => None,
+                Some(preview) => Some(preview as i16),
+                None => bail!(invalid, "PUSH_PREVIEW_INVALID", "unknown push preview setting"),
+            };
 
             let mut tx = self.core.db.begin().await?;
             for change in &request.categories {
@@ -139,6 +144,16 @@ impl PreferencesService for Notify {
                 .bind(quiet.enabled)
                 .bind(quiet.start_minute as i16)
                 .bind(quiet.end_minute as i16)
+                .execute(&mut *tx)
+                .await?;
+            }
+            if let Some(preview) = push_preview {
+                sqlx::query(
+                    "INSERT INTO notify_settings (user_id, push_preview) VALUES ($1, $2)
+                     ON CONFLICT (user_id) DO UPDATE SET push_preview = EXCLUDED.push_preview",
+                )
+                .bind(user_id)
+                .bind(preview)
                 .execute(&mut *tx)
                 .await?;
             }
