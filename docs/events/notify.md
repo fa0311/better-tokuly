@@ -218,9 +218,12 @@ revoked session's device gets nothing and its row is deleted) and swept hourly.
 | `PUSH_PREVIEW_SENDER_ONLY` 「送り主だけ」 | the category's name (「チャット・通話」) | 「あおいさんからメッセージが届いたよ」 (chat), 「あおいさんから動画のお知らせが届いたよ」 (others); without a nameable actor 「動画のお知らせが届いたよ」 | dropped | the notification's path |
 | `PUSH_PREVIEW_HIDDEN` 「表示しない」 | `Tokuly` | 「新しいお知らせがあるよ」 | dropped | `/notifications` (the inbox) |
 
-The name is the actor's display name (else handle) at delivery time;
-producers leave the actor out of anonymous notifications, so those are never
-named. The rewrite happens in `delivery.rs` on the per-device message
+The name is the actor's display name (else handle) at delivery time. A
+sender-only push never shows more than the full one: producers leave the
+actor out of anonymous notifications, and one whose text does not name its
+actor on purpose marks it `NotificationRequest::unnamed_actor` (the actor
+still counts for mutes and blocks; stamp's "someone bought your pack"), so
+neither is ever named. The rewrite happens in `delivery.rs` on the per-device message
 (`preview::apply`), before any channel builds its payload: what a choice
 leaves out is not in the Web Push plaintext, the FCM request or the APNs
 payload at all. The setting is read when the push is sent, so a change also

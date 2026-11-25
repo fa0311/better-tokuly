@@ -65,6 +65,9 @@ pub struct PushJob {
     /// SOS): delivered at the highest priority every channel offers.
     #[serde(default)]
     pub urgent: bool,
+    /// The producer's text does not name `actor_id`, so no rendering may.
+    #[serde(default)]
+    pub actor_unnamed: bool,
     pub created_at: Time,
 }
 
@@ -164,8 +167,10 @@ impl Notify {
         // Read now rather than when the push was queued: a change to what
         // pushes show applies to everything not yet sent.
         let preview = preferences::push_preview_of(&self.core, job.user_id).await?;
+        // A sender-only push never shows more than the full one: an actor
+        // the producer's text leaves unnamed stays unnamed.
         let actor_name = match (preview, job.actor_id) {
-            (PushPreview::PUSH_PREVIEW_SENDER_ONLY, Some(actor_id)) => self.actor_name(actor_id).await?,
+            (PushPreview::PUSH_PREVIEW_SENDER_ONLY, Some(actor_id)) if !job.actor_unnamed => self.actor_name(actor_id).await?,
             _ => None,
         };
         let already_delivered = self.delivered_devices(job.id).await?;
@@ -321,6 +326,7 @@ mod tests {
             data: serde_json::Value::Null,
             refs: Vec::new(),
             urgent,
+            actor_unnamed: false,
             created_at: now(),
         }
     }

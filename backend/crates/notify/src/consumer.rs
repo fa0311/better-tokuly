@@ -218,6 +218,7 @@ fn push_job(
         data: request.data.clone(),
         refs: withdrawable_refs.to_vec(),
         urgent: request.urgent,
+        actor_unnamed: request.actor_unnamed,
         created_at: event.occurred_at,
     }
 }

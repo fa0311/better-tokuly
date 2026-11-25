@@ -202,3 +202,29 @@ async fn a_minor_whose_sign_up_event_never_arrived_still_gets_sender_only() {
     set_birthdate(&ctx, &adult, 15).await;
     assert_eq!(preview_of(&ctx, &adult).await, PushPreview::PUSH_PREVIEW_FULL);
 }
+
+#[tokio::test]
+async fn sender_only_never_names_an_actor_the_full_text_leaves_out() {
+    let ctx = start_insecure().await;
+    let stub = Stub::accepting().await;
+    let (creator, buyer) = (ctx.app.user("creator").await, ctx.app.user("buyer").await);
+    choose(&ctx, &creator, PushPreview::PUSH_PREVIEW_SENDER_ONLY).await;
+    let subscription = Subscription::new(&format!("{}/push/creator", stub.url));
+    ctx.register(&creator, &RegisterDeviceRequest { locale: "ja".into(), ..subscription.request() }).await;
+    // What stamp sends when a pack sells: the buyer is the actor (for mutes
+    // and blocks) but the text says "someone".
+    let request = tokuly_core::outbound::NotificationRequest::new(
+        creator.id,
+        "stamp.pack.sold",
+        tokuly_core::outbound::Localized::new("スタンプが売れたよ!", "You sold a stamp pack!"),
+        tokuly_core::outbound::Localized::new("「ねこ」が購入されたよ! +90コイン", "Someone bought “ねこ”. +90 coins"),
+        "/stamps/studio",
+    )
+    .unnamed_actor(buyer.id);
+    let job = ctx.deliver_for_push(&request).await;
+    ctx.notify.deliver_push(&job).await.unwrap();
+    let message = subscription.decrypt(&stub.requests_to("/push/creator")[0].body);
+    let decrypted = message.to_string();
+    assert!(!decrypted.contains("buyer"), "the buyer is named: {decrypted}");
+    assert_eq!(message["notification"]["body"], "スタンプ・絵文字のお知らせが届いたよ");
+}
