@@ -113,7 +113,10 @@ test("XP earned elsewhere arrives as a toast and moves the level bar", async ({
   // The login bonus is claimed somewhere else (here: through the API) and is worth 10 XP.
   await live(page);
   await rpc(request, `${WALLET}/ClaimDailyBonus`, {}, me);
-  await expect(page.getByText("+10 XP", { exact: true })).toBeVisible({ timeout: SETTLE });
+  // In the toast: the missions drawn for the account may show "+10 XP" as their reward.
+  await expect(
+    page.locator("[data-sonner-toast]").getByText("+10 XP", { exact: true }),
+  ).toBeVisible({ timeout: SETTLE });
   await expect(level.getByTestId("quest-xp-into")).toHaveText("20 / 100 XP");
   await expect(level.getByRole("progressbar", { name: "つぎのレベルまで" })).toHaveAttribute(
     "aria-valuenow",
@@ -491,7 +494,9 @@ test("someone who is not a friend sees the showcase, but not every badge or the 
   me,
 }) => {
   test.slow();
-  // `owner` has two badges (welcome, first friend), shows none, and has a streak with `me`.
+  // `owner` has the welcome and first-friend badges, shows none, and has a streak with `me`.
+  // What they do here may earn more on its own (the early bird, when the test runs between 5
+  // and 7 in the morning in Tokyo), so the count the stranger sees is read from the owner.
   const owner = await createAccount(request, "owner");
   await befriend(request, me, owner);
   await message(request, me, owner);
@@ -512,20 +517,18 @@ test("someone who is not a friend sees the showcase, but not every badge or the 
     .toBe(1);
   // The first-friend badge is awarded a moment after the friendship, like the streak after the
   // messages: the quest page shows what was earned when it opened.
-  await expect
-    .poll(
-      async () => {
-        const { badges } = await rpc<{ badges?: { key: string }[] }>(
-          request,
-          `${QUEST}.BadgeService/ListUserBadges`,
-          { userId: owner.userId },
-          me,
-        );
-        return badges?.map((badge) => badge.key) ?? [];
-      },
-      { timeout: SETTLE },
-    )
-    .toContain("first_friend");
+  const badgesOf = async (viewer: Account) => {
+    const { badges } = await rpc<{ badges?: { key: string }[] }>(
+      request,
+      `${QUEST}.BadgeService/ListUserBadges`,
+      { userId: owner.userId },
+      viewer,
+    );
+    return badges?.map((badge) => badge.key) ?? [];
+  };
+  await expect.poll(() => badgesOf(me), { timeout: SETTLE }).toContain("first_friend");
+  const earned = await badgesOf(owner);
+  expect(earned).toEqual(expect.arrayContaining(["welcome", "first_friend"]));
 
   // The friend: the streak on the profile, and every badge on the quest page.
   await page.goto(`/u/${owner.handle}`);
@@ -556,8 +559,10 @@ test("someone who is not a friend sees the showcase, but not every badge or the 
     "まだ何もかざってないみたい",
     { timeout: SETTLE },
   );
-  await expect(theirs.getByText("バッジ 2こ")).toBeVisible();
+  // How many badges the owner has, but not which: neither on the page nor from the API.
+  await expect(theirs.getByText(`バッジ ${earned.length}こ`)).toBeVisible();
   await expect(theirs.getByRole("region", { name: "ほかのバッジ" })).toHaveCount(0);
+  expect(await badgesOf(stranger)).toEqual([]);
   await expect(theirs.getByRole("region", { name: "ふたりのストリーク" })).toHaveCount(0);
   await context.close();
 });
