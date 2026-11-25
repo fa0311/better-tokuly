@@ -1,7 +1,7 @@
 import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { create, identity, notify } from "@tokuly/api";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
+import { create, identity, notify } from "@tokuly/api";
 import { signOut, switchAccount, useSessionStore } from "#/features/session/session";
 import { api, resetApi } from "#/lib/api";
 import { pushChoiceKey, usePush, usePushRegistration } from "../push";
@@ -16,7 +16,7 @@ let unregisterFails = false;
 let switchAnswer: identity.AuthResponse;
 
 const ok = (body: Uint8Array = new Uint8Array()) =>
-  new Response(body, { status: 200, headers: { "content-type": "application/proto" } });
+  new Response(body as BodyInit, { status: 200, headers: { "content-type": "application/proto" } });
 
 async function mockServer(input: string, init: { body: Uint8Array; headers?: HeadersInit }) {
   const method = new URL(input).pathname.split("/").pop() ?? "";
@@ -123,9 +123,7 @@ describe("push registration", () => {
     hook.rerender({});
     await waitFor(() => expect(usePush.getState()).toMatchObject({ userId: "alt", loaded: true }));
     expect(usePush.getState().choice).toBeNull();
-    expect(calls.filter((call) => call.startsWith("register"))).toEqual([
-      "register as main: apns",
-    ]);
+    expect(calls.filter((call) => call.startsWith("register"))).toEqual(["register as main: apns"]);
     hook.unmount();
   });
 

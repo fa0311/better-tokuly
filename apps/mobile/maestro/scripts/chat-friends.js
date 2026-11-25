@@ -45,7 +45,11 @@ const direct = call(
 );
 call(
   "tokuly.chat.v1.MessageService/SendMessage",
-  { conversationId: direct.conversation.id, clientId: `maestro-${Date.now()}`, text: "やっほー！あそぼ" },
+  {
+    conversationId: direct.conversation.id,
+    clientId: `maestro-${Date.now()}`,
+    text: "やっほー！あそぼ",
+  },
   friend.token,
 );
 output.me = me.handle;
