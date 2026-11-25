@@ -96,3 +96,16 @@ export function departedTokenStore(sessionId: string): RefreshTokenStore {
     clear: () => forgetDeparted(sessionId),
   };
 }
+
+/**
+ * A new install found the accounts of a previous one in the keychain (iOS
+ * keeps it across an uninstall): they are not signed in here, but their
+ * sessions may be alive on the server with this phone's push token, so they
+ * go aside as departed, to be ended there.
+ */
+export async function departPreviousInstall(): Promise<void> {
+  const active = await activeTokenStore.get();
+  const parked = await parkedTokens();
+  if (active) await addDeparted("previous-install", active);
+  for (const [sessionId, token] of Object.entries(parked)) await addDeparted(sessionId, token);
+}

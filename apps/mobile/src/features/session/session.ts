@@ -10,6 +10,7 @@ import {
   addDeparted,
   departedTokenStore,
   departedTokens,
+  departPreviousInstall,
   forgetDeparted,
   forgetParked,
   parkActive,
@@ -47,13 +48,13 @@ function bindStore(): void {
 /**
  * On app start: resumes the active account from the refresh token in secure
  * storage, unless this is a new install (its keychain may hold a previous
- * one's accounts). Never leaves the session unknown, which would keep the
+ * one's accounts: they are ended on the server, best effort, and forgotten). Never leaves the session unknown, which would keep the
  * splash screen up for good: when the device's storage fails, the app starts
  * signed out.
  */
 export async function startSession(): Promise<void> {
   try {
-    await forgetPreviousInstall([...ACCOUNT_KEYS, DEVICE_ID_KEY]);
+    await forgetPreviousInstall([...ACCOUNT_KEYS, DEVICE_ID_KEY], departPreviousInstall);
     await prepareRealtime();
     bindStore();
     if (await activeTokenStore.get()) await api().session.restore();
