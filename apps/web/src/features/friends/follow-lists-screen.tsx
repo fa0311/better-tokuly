@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { errorReason, identity, social } from "@tokuly/api";
+import { profileQuery } from "@tokuly/core/profile";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -43,10 +44,7 @@ export function FollowListsScreen({ handle, tab }: { handle: string; tab: Follow
   const { t } = useTranslation("follows");
   const navigate = useNavigate();
   // The same query as the profile screen, so coming from there costs nothing.
-  const profile = useQuery({
-    queryKey: ["identity", "profile", handle],
-    queryFn: () => profileClient().getProfile({ by: { case: "handle", value: handle } }),
-  });
+  const profile = useQuery(profileQuery(profileClient, handle));
   const user = profile.data?.profile?.user;
   const isSelf = profile.data?.profile?.relationship === identity.Relationship.SELF;
   // "Followed by people you follow" says nothing about your own account.

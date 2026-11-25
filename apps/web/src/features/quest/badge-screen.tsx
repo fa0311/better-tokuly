@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { errorReason, toMillis } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { Send } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -43,7 +44,7 @@ export function BadgeScreen({ badgeKey }: { badgeKey: string }) {
     void queryClient.invalidateQueries({ queryKey: questKeys.badges });
     void queryClient.invalidateQueries({ queryKey: questKeys.progress });
     void queryClient.invalidateQueries({ queryKey: questKeys.profiles });
-    void queryClient.invalidateQueries({ queryKey: ["identity", "profile"] });
+    void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
   };
   const onError = (failure: unknown) => toast.error(errorMessage(failure, { namespace: "quest" }));
 

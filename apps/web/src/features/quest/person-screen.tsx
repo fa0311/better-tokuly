@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { identity, type quest, toMillis } from "@tokuly/api";
+import { profileQuery } from "@tokuly/core/profile";
 import { EyeOff, MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -31,10 +32,7 @@ export function PersonScreen({ handle }: { handle: string }) {
   const zone = useAccountTimeZone();
   const { ms: now } = useAccountNow(60_000);
   // The same query the profile page uses: coming from there, the person is already known.
-  const person = useQuery({
-    queryKey: ["identity", "profile", handle],
-    queryFn: () => profileClient().getProfile({ by: { case: "handle", value: handle } }),
-  });
+  const person = useQuery(profileQuery(profileClient, handle));
   const profile = person.data?.profile;
   const user = profile?.user;
   const isSelf = profile?.relationship === identity.Relationship.SELF;

@@ -3,7 +3,7 @@ import { create, identity, social } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
 import { profileKeys } from "../profile/keys";
 import { FOLLOW_CARD, refreshFollows, summaryFromProfile } from "./follows";
-import { followKeys } from "./keys";
+import { followKeys, friendKeys } from "./keys";
 
 describe("summaryFromProfile", () => {
   it("reads the follow card a profile carries", () => {
@@ -44,5 +44,12 @@ describe("refreshFollows", () => {
     await refreshFollows(queryClient);
     expect(queryClient.getQueryState(followKeys.summary("aoi"))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(profileKeys.profile("aoi"))?.isInvalidated).toBe(true);
+  });
+});
+
+describe("friendKeys", () => {
+  it("keeps every friend list under the prefix the map's friends use", () => {
+    expect(friendKeys.list("あお").slice(0, 2)).toEqual(["social", "friends"]);
+    expect(friendKeys.incoming.slice(0, 2)).toEqual(friendKeys.requests);
   });
 });

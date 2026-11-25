@@ -1,6 +1,21 @@
 import type { social } from "@tokuly/api";
 
 /**
+ * Query keys of friends. Everything social starts with `["social"]`, so one
+ * invalidation after an answer to a request re-reads all of it.
+ */
+export const friendKeys = {
+  all: ["social"] as const,
+  /** The viewer's friends filtered by name or handle (`""`: all of them); the map's list too. */
+  list: (query: string) => ["social", "friends", "list", query] as const,
+  requests: ["social", "requests"] as const,
+  incoming: ["social", "requests", "incoming"] as const,
+  outgoing: ["social", "requests", "outgoing"] as const,
+  suggestions: ["social", "suggestions"] as const,
+  invite: ["social", "invite"] as const,
+};
+
+/**
  * Query keys of follows and circles. Everything starts with
  * `["social", "follow"]` or `["social", "circles"]`, so one invalidation
  * refreshes a whole side after a change or a realtime push.

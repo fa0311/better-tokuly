@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type { common, social } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -54,7 +55,7 @@ export function BlockedUsersScreen() {
       toast.success(t("privacy.blocked.unblocked", { name: user.displayName }));
       close();
       void queryClient.invalidateQueries({ queryKey: ["social"] });
-      void queryClient.invalidateQueries({ queryKey: ["identity", "profile"] });
+      void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
     },
     onError: (error) => {
       close();

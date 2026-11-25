@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { plans } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { Check, HeartCrack, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -82,7 +83,7 @@ function LoadedAnniversary({ anniversary }: { anniversary: plans.Anniversary }) 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: keys.anniversaries });
     void queryClient.invalidateQueries({ queryKey: keys.calendars });
-    void queryClient.invalidateQueries({ queryKey: ["identity", "profile"] });
+    void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
   };
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "plans" }));
   const update = useMutation({

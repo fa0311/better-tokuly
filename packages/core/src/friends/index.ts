@@ -1,7 +1,8 @@
 /**
- * Friends and follows logic every app shares: query keys, the follow summary
- * a profile card carries, what to re-read after a change, close friends.
- * Friend lists themselves are keyed in `@tokuly/core/map` (`mapKeys.friends`).
+ * Friends and follows logic every app shares: query keys and options of
+ * friends and their requests, the follow summary a profile card carries,
+ * what to re-read after a change, close friends.
  */
 export { FOLLOW_CARD, isCloseFriends, refreshFollows, summaryFromProfile } from "./follows";
-export { circleKeys, followKeys } from "./keys";
+export { circleKeys, followKeys, friendKeys } from "./keys";
+export { friendQueries } from "./queries";

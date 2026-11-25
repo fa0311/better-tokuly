@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { profileKeys } from "@tokuly/core/profile";
 import { ClipboardList, Plus, Star, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -378,7 +379,7 @@ function NewestResults({ keep }: { keep(entry: CatalogEmoji): boolean }) {
 function AuthorBanner({ userId, onClear }: { userId: string; onClear(): void }) {
   const { t } = useTranslation("emoji");
   const profile = useQuery({
-    queryKey: ["identity", "profile", "id", userId],
+    queryKey: profileKeys.byId(userId),
     queryFn: async () =>
       (await profileClient().getProfile({ by: { case: "userId", value: userId } })).profile ?? null,
     retry: false,

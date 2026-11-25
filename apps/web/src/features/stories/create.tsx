@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { media, notes, social } from "@tokuly/api";
+import { friendQueries } from "@tokuly/core/friends";
 import { Check, GripVertical, ImagePlus, Search } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -233,10 +234,7 @@ function FriendPicker({
 }) {
   const { t } = useTranslation("stories");
   const [query, setQuery] = useState("");
-  const friends = useQuery({
-    queryKey: ["social", "friends", "list", query] as const,
-    queryFn: () => friendClient().listFriends({ query, page: { limit: 100 } }),
-  });
+  const friends = useQuery(friendQueries.list(friendClient, query));
   const toggle = (userId: string) => {
     const next = new Set(chosen);
     if (next.has(userId)) next.delete(userId);

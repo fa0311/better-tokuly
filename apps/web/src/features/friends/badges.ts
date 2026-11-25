@@ -1,12 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { social } from "@tokuly/api";
+import { friendKeys, friendQueries } from "@tokuly/core/friends";
 import { useEffect } from "react";
 import { api } from "#/lib/api";
 import { realtime } from "#/lib/realtime";
 import type { BadgeSources } from "#/seams/badges";
-import { refreshFollows, useFollowRequestCount } from "./follow-data";
 
-const INCOMING = ["social", "requests", "incoming"];
+const friendClient = () => api().service(social.FriendService);
+
+import { refreshFollows, useFollowRequestCount } from "./follow-data";
 
 /** The social pushes about follows: a request came or went, one was approved, a new follower. */
 const FOLLOW_EVENTS = new Set([
@@ -19,13 +21,7 @@ const FOLLOW_EVENTS = new Set([
 /** Friend requests and follow requests waiting for an answer. */
 function useFriendRequestsBadge(): number {
   const queryClient = useQueryClient();
-  const requests = useQuery({
-    queryKey: INCOMING,
-    queryFn: () =>
-      api()
-        .service(social.FriendService)
-        .listFriendRequests({ direction: social.FriendRequestDirection.INCOMING }),
-  });
+  const requests = useQuery(friendQueries.incoming(friendClient));
   const followRequests = useFollowRequestCount();
 
   useEffect(
@@ -35,7 +31,7 @@ function useFriendRequestsBadge(): number {
         if (frame.body.case === "notify") {
           const event = frame.body.value.event;
           if (event.case === "received" && event.value.notification?.kind.startsWith("social."))
-            void queryClient.invalidateQueries({ queryKey: INCOMING });
+            void queryClient.invalidateQueries({ queryKey: friendKeys.incoming });
           return;
         }
         // Follows have their own pushes: counts, requests and relations re-read.
