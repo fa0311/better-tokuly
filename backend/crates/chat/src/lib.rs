@@ -27,11 +27,11 @@
 //! | [`signals`] | typing and co-presence from the realtime gateway |
 //! | [`pov`] | POV requests |
 //! | [`calls`], [`livekit`] | calls and the LiveKit access tokens / API |
-//! | [`assist`] | the AI assistant (Anthropic Messages API) |
+//! | [`assist`] | the AI assistant: providers (Anthropic, OpenAI, OpenAI-compatible), operator and user settings, consent |
 //! | [`push`], [`notices`] | realtime pushes; notification requests and their wording |
 //! | [`server_notices`] | notices other domains post into conversations |
 //! | [`cleanup`], [`subjects`], [`workers`] | other domains' events; subject resolver and data export; background work |
-//! | `*_svc` | the five Connect services: thin handlers over the modules above |
+//! | `*_svc`, `assist::svc` | the Connect services: thin handlers over the modules above |
 use std::{ops::Deref, sync::Arc};
 
 use tokuly_core::Core;
@@ -80,8 +80,6 @@ pub struct ChatInner {
     pub cfg: ChatConfig,
     /// `None` when calls are not configured.
     pub(crate) livekit: Option<livekit::LiveKit>,
-    /// `None` when the AI assistant is not configured.
-    pub(crate) assist: Option<assist::Assistant>,
 }
 
 /// The chat domain. Cheap to clone.
@@ -103,22 +101,26 @@ impl Chat {
     pub fn new(core: Core, identity: Identity, cfg: ChatConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
         let livekit = livekit::LiveKit::from_config(&cfg)?;
-        let assist = assist::Assistant::from_config(&cfg)?;
+        anyhow::ensure!(
+            !(core.cfg.is_production() && cfg.ai_allow_loopback),
+            "TOKULY_AI_ALLOW_LOOPBACK must not be set in production"
+        );
         subjects::register(&core);
-        Ok(Self(Arc::new(ChatInner { core, identity, cfg, livekit, assist })))
+        Ok(Self(Arc::new(ChatInner { core, identity, cfg, livekit })))
     }
 
-    /// Registers the five chat services on the Connect router.
+    /// Registers the chat services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
         use tokuly_proto::chat::{
-            AssistServiceExt, CallServiceExt, ConversationServiceExt, MessageServiceExt, PovServiceExt,
+            AssistAdminServiceExt, AssistServiceExt, CallServiceExt, ConversationServiceExt, MessageServiceExt, PovServiceExt,
         };
         let me = Arc::new(self.clone());
         let router = ConversationServiceExt::register(me.clone(), router);
         let router = MessageServiceExt::register(me.clone(), router);
         let router = PovServiceExt::register(me.clone(), router);
         let router = CallServiceExt::register(me.clone(), router);
-        AssistServiceExt::register(me, router)
+        let router = AssistServiceExt::register(me.clone(), router);
+        AssistAdminServiceExt::register(me, router)
     }
 
     /// The LiveKit deployment calls run on, when configured. For tooling

@@ -17,9 +17,9 @@ pub(crate) fn page_of(page: Option<&PageRequestView<'_>>, default: i64, max: i64
 
 impl Chat {
     /// Limits and optional features of this server.
-    pub fn capabilities(&self) -> Capabilities {
+    pub async fn capabilities(&self, user_id: Uuid) -> AppResult<Capabilities> {
         let seconds = |value: i64| value.clamp(0, i64::from(i32::MAX)) as i32;
-        Capabilities {
+        Ok(Capabilities {
             max_text_length: content::MAX_TEXT_CHARS as i32,
             max_attachments: content::MAX_ATTACHMENTS as i32,
             max_group_members: self.cfg.max_group_members,
@@ -30,9 +30,9 @@ impl Chat {
             pov_reply_seconds: seconds(self.cfg.pov_reply_seconds),
             calls_enabled: self.livekit.is_some(),
             ring_seconds: seconds(self.cfg.ring_seconds),
-            assist_enabled: self.assist.is_some(),
+            assist_enabled: self.assist_enabled_for(user_id).await?,
             ..Default::default()
-        }
+        })
     }
 }
 
@@ -43,8 +43,8 @@ impl ConversationService for Chat {
         _request: ServiceRequest<'_, GetCapabilitiesRequest>,
     ) -> ServiceResult<GetCapabilitiesResponse> {
         handle(async {
-            ctx.user_id()?;
-            ok(GetCapabilitiesResponse { capabilities: self.capabilities().into(), ..Default::default() })
+            let user_id = ctx.user_id()?;
+            ok(GetCapabilitiesResponse { capabilities: self.capabilities(user_id).await?.into(), ..Default::default() })
         })
         .await
     }

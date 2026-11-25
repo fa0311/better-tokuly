@@ -223,6 +223,17 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("RewriteDraft", Write),
         ("SuggestReplies", Write),
         ("TranslateMessage", Write),
+        ("GetAssistSettings", Read),
+        ("ChooseAssistProvider", Write),
+        // Storing a credential the server then spends on the user's behalf.
+        ("SetOwnApiKey", Session),
+        ("RemoveOwnApiKey", Session),
+        ("SetAiMessageConsent", Session),
+    ]),
+    ("tokuly.chat.v1.AssistAdminService", &[
+        ("GetAssistInstance", Session),
+        ("UpdateAssistProvider", Session),
+        ("SetDefaultAssistProvider", Session),
     ]),
     ("tokuly.dev.v1.TokenService", &[
         ("ListScopes", Any),

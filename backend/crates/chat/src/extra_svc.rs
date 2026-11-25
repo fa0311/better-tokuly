@@ -1,5 +1,5 @@
-//! `PovService`, `CallService` and `AssistService`: thin RPC handlers over
-//! [`crate::pov`], [`crate::calls`] and [`crate::assist`].
+//! `PovService` and `CallService`: thin RPC handlers over [`crate::pov`]
+//! and [`crate::calls`].
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
 use tokuly_core::prelude::*;
 use tokuly_proto::chat::*;
@@ -160,46 +160,6 @@ impl CallService for Chat {
             let page = page_of(request.page.as_option(), 30, 100);
             let (calls, page) = Chat::list_calls(self, ctx.user_id()?, request.missed_only, &page).await?;
             ok(ListCallsResponse { calls: self.calls_to_proto(&calls).await?, page: page.into(), ..Default::default() })
-        })
-        .await
-    }
-}
-
-impl AssistService for Chat {
-    async fn rewrite_draft(
-        &self,
-        ctx: RequestContext,
-        request: ServiceRequest<'_, RewriteDraftRequest>,
-    ) -> ServiceResult<RewriteDraftResponse> {
-        handle(async {
-            let text = Chat::rewrite_draft(self, ctx.user_id()?, request.text, request.tone.as_known()).await?;
-            ok(RewriteDraftResponse { text, ..Default::default() })
-        })
-        .await
-    }
-
-    async fn suggest_replies(
-        &self,
-        ctx: RequestContext,
-        request: ServiceRequest<'_, SuggestRepliesRequest>,
-    ) -> ServiceResult<SuggestRepliesResponse> {
-        handle(async {
-            let replies = Chat::suggest_replies(self, ctx.user_id()?, parse_id(request.conversation_id)?).await?;
-            ok(SuggestRepliesResponse { replies, ..Default::default() })
-        })
-        .await
-    }
-
-    async fn translate_message(
-        &self,
-        ctx: RequestContext,
-        request: ServiceRequest<'_, TranslateMessageRequest>,
-    ) -> ServiceResult<TranslateMessageResponse> {
-        handle(async {
-            let (text, source_language, target_language) =
-                Chat::translate_message(self, ctx.user_id()?, parse_id(request.message_id)?, request.target_language)
-                    .await?;
-            ok(TranslateMessageResponse { text, source_language, target_language, ..Default::default() })
         })
         .await
     }

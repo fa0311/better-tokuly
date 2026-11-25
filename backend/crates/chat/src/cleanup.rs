@@ -118,8 +118,8 @@ impl Chat {
         Ok(())
     }
 
-    /// `identity.user.deleted`: the user's memberships, reactions and
-    /// co-presence go. Their messages stay and show a deleted user; direct
+    /// `identity.user.deleted`: the user's memberships, reactions, AI
+    /// settings and keys, and co-presence go. Their messages stay and show a deleted user; direct
     /// conversations become read-only for the other side; groups lose a
     /// member (and get a new owner when they owned one).
     pub(crate) async fn on_user_deleted(&self, user_id: Uuid) -> AppResult<()> {
@@ -159,6 +159,10 @@ impl Chat {
             }
         }
         sqlx::query("DELETE FROM chat_reactions WHERE user_id = $1").bind(user_id).execute(&core.db).await?;
+        // Their AI keys and settings; their messages then follow the
+        // default for an unknown age: not offered to the AI.
+        sqlx::query("DELETE FROM chat_ai_user_keys WHERE user_id = $1").bind(user_id).execute(&core.db).await?;
+        sqlx::query("DELETE FROM chat_ai_user_settings WHERE user_id = $1").bind(user_id).execute(&core.db).await?;
         Ok(())
     }
 

@@ -5933,6 +5933,7 @@ dependencies = [
  "async-trait",
  "axum",
  "buffa",
+ "bytes",
  "chrono",
  "clap",
  "connectrpc",
@@ -5956,6 +5957,7 @@ dependencies = [
  "tokuly-testkit",
  "tracing",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 

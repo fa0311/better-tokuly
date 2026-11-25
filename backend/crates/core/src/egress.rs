@@ -21,6 +21,15 @@
 //! redirect on its own and never uses a proxy (a proxy would resolve the
 //! name, out of the resolver's reach), with a time limit; [`read_capped`]
 //! bounds what is read of an answer.
+//!
+//! One deliberate exception exists: a [`HostAllowance`], which an operator
+//! grants to the single host of a server they run on their own network (an
+//! AI model server on the LAN). Requests to that host may reach private and
+//! loopback addresses on any port; link-local addresses (cloud metadata),
+//! multicast and the other special ranges stay refused even there, and
+//! every other host is judged by the policy as usual
+//! ([`client_builder_allowing`], [`check_url_allowing`],
+//! [`check_peer_allowing`]).
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::Arc,
@@ -158,6 +167,117 @@ pub fn check_url(url: &Url, policy: Policy) -> Result<(), Refusal> {
     if policy.permits(address) { Ok(()) } else { Err(Refusal::Address(address)) }
 }
 
+/// Whether `ip` is on a private network an operator may run a server on:
+/// the private IPv4 ranges, carrier-grade NAT (VPN overlays such as
+/// Tailscale live there), unique-local IPv6 and loopback, or public. Never
+/// link-local (cloud metadata), "this network", multicast, broadcast or the
+/// reserved and documentation ranges.
+fn is_private_network(ip: IpAddr) -> bool {
+    if ip.is_loopback() {
+        return true;
+    }
+    let v4 = match ip {
+        IpAddr::V4(v4) => Some(v4),
+        IpAddr::V6(v6) => embedded_v4(v6),
+    };
+    if let Some(v4) = v4 {
+        let [a, b, ..] = v4.octets();
+        return is_public_v4(v4)
+            || a == 10
+            || a == 127
+            || (a == 172 && (16..32).contains(&b))
+            || (a == 192 && b == 168)
+            || (a == 100 && (64..128).contains(&b));
+    }
+    let IpAddr::V6(v6) = ip else { return false };
+    is_public_v6(v6) || (v6.segments()[0] & 0xfe00) == 0xfc00
+}
+
+/// The one host an operator allowed on a private network (see the module
+/// documentation). Hosts are compared as the URL parser normalises them
+/// (lowercase names, bracketed IPv6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostAllowance {
+    host: String,
+}
+
+impl HostAllowance {
+    /// The allowance for the host of `url`; `None` when it has none.
+    pub fn for_url(url: &Url) -> Option<Self> {
+        url.host_str().map(|host| Self { host: host.to_ascii_lowercase() })
+    }
+
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    fn covers(&self, host: &str) -> bool {
+        self.host.eq_ignore_ascii_case(host.trim_start_matches('[').trim_end_matches(']'))
+            || self.host.eq_ignore_ascii_case(host)
+    }
+
+    /// Whether a connection to `ip` is permitted for the allowed host.
+    pub fn permits(&self, ip: IpAddr) -> bool {
+        is_private_network(ip)
+    }
+}
+
+/// [`check_url`], except that a URL on the allowed host may use any port
+/// and a literal address on a private network.
+pub fn check_url_allowing(url: &Url, policy: Policy, allowance: Option<&HostAllowance>) -> Result<(), Refusal> {
+    let allowance = match (allowance, url.host_str()) {
+        (Some(allowance), Some(host)) if allowance.covers(host) => allowance,
+        _ => return check_url(url, policy),
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(Refusal::Scheme);
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(Refusal::Credentials);
+    }
+    let address = match url.host() {
+        None => return Err(Refusal::NoHost),
+        Some(Host::Domain(_)) => return Ok(()),
+        Some(Host::Ipv4(v4)) => IpAddr::V4(v4),
+        Some(Host::Ipv6(v6)) => IpAddr::V6(v6),
+    };
+    if allowance.permits(address) { Ok(()) } else { Err(Refusal::Address(address)) }
+}
+
+/// Resolves `name`, keeping only the addresses `permits` accepts.
+async fn resolve_permitted(
+    name: Name,
+    permits: impl Fn(IpAddr) -> bool,
+) -> Result<Addrs, Box<dyn std::error::Error + Send + Sync>> {
+    let resolved: Vec<SocketAddr> = tokio::net::lookup_host((name.as_str(), 0)).await?.collect();
+    let permitted: Vec<SocketAddr> = resolved.iter().copied().filter(|address| permits(address.ip())).collect();
+    match (permitted.is_empty(), resolved.first()) {
+        (false, _) => Ok(Box::new(permitted.into_iter()) as Addrs),
+        (true, Some(refused)) => Err(Box::new(Refusal::Address(refused.ip()))),
+        (true, None) => Err(format!("{} does not resolve", name.as_str()).into()),
+    }
+}
+
+/// [`GuardedResolver`] that judges the allowed host by the allowance.
+#[derive(Debug, Clone)]
+struct AllowingResolver {
+    policy: Policy,
+    allowance: Arc<HostAllowance>,
+}
+
+impl Resolve for AllowingResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let (policy, allowance) = (self.policy, self.allowance.clone());
+        Box::pin(async move {
+            if allowance.covers(name.as_str()) {
+                resolve_permitted(name, |ip| allowance.permits(ip)).await
+            } else {
+                resolve_permitted(name, |ip| policy.permits(ip)).await
+            }
+        })
+    }
+}
+
 /// DNS resolver that only ever yields addresses the policy permits. A name
 /// that resolves to nothing permitted fails to resolve.
 #[derive(Debug, Clone, Copy)]
@@ -168,18 +288,7 @@ pub struct GuardedResolver {
 impl Resolve for GuardedResolver {
     fn resolve(&self, name: Name) -> Resolving {
         let policy = self.policy;
-        Box::pin(async move {
-            let resolved: Vec<SocketAddr> = tokio::net::lookup_host((name.as_str(), 0)).await?.collect();
-            let permitted: Vec<SocketAddr> =
-                resolved.iter().copied().filter(|address| policy.permits(address.ip())).collect();
-            match (permitted.is_empty(), resolved.first()) {
-                (false, _) => Ok(Box::new(permitted.into_iter()) as Addrs),
-                (true, Some(refused)) => {
-                    Err(Box::new(Refusal::Address(refused.ip())) as Box<dyn std::error::Error + Send + Sync>)
-                }
-                (true, None) => Err(format!("{} does not resolve", name.as_str()).into()),
-            }
-        })
+        Box::pin(async move { resolve_permitted(name, |ip| policy.permits(ip)).await })
     }
 }
 
@@ -188,6 +297,21 @@ impl Resolve for GuardedResolver {
 pub fn check_peer(response: &reqwest::Response, policy: Policy) -> Result<(), Refusal> {
     match response.remote_addr() {
         Some(peer) if !policy.permits(peer.ip()) => Err(Refusal::Address(peer.ip())),
+        _ => Ok(()),
+    }
+}
+
+/// [`check_peer`] for a client made by [`client_builder_allowing`]: a
+/// response from the allowed host is judged by the allowance.
+pub fn check_peer_allowing(
+    response: &reqwest::Response,
+    policy: Policy,
+    allowance: Option<&HostAllowance>,
+) -> Result<(), Refusal> {
+    let allowed = allowance.filter(|allowance| response.url().host_str().is_some_and(|host| allowance.covers(host)));
+    match (response.remote_addr(), allowed) {
+        (Some(peer), Some(allowance)) if !allowance.permits(peer.ip()) => Err(Refusal::Address(peer.ip())),
+        (Some(peer), None) if !policy.permits(peer.ip()) => Err(Refusal::Address(peer.ip())),
         _ => Ok(()),
     }
 }
@@ -220,6 +344,14 @@ pub fn client_builder(guard: Option<Policy>, timeout: Duration) -> reqwest::Clie
         Some(policy) => builder.dns_resolver(Arc::new(GuardedResolver { policy })),
         None => builder,
     }
+}
+
+/// [`client_builder`] with the guard of `policy`, except for the host of
+/// `allowance`, which may resolve to addresses on a private network.
+/// Literal addresses never pass a resolver: check every URL with
+/// [`check_url_allowing`] and every answer with [`check_peer_allowing`].
+pub fn client_builder_allowing(policy: Policy, allowance: HostAllowance, timeout: Duration) -> reqwest::ClientBuilder {
+    client_builder(None, timeout).dns_resolver(Arc::new(AllowingResolver { policy, allowance: Arc::new(allowance) }))
 }
 
 /// Reads at most `max` bytes of a response body; the rest is not downloaded.
@@ -440,6 +572,56 @@ mod tests {
         assert_eq!(check_peer(&response, Policy { allow_loopback: true }), Ok(()));
         assert!(matches!(check_peer(&response, Policy::default()), Err(Refusal::Address(ip)) if ip.is_loopback()));
         assert_eq!(read_capped(&mut response, 3).await.unwrap().as_ref(), b"hel", "the body is cut at the cap");
+    }
+
+    #[test]
+    fn an_allowance_opens_private_networks_for_its_host_only() {
+        let base = Url::parse("http://lmstudio.local:1234/v1").unwrap();
+        let allowance = HostAllowance::for_url(&base).unwrap();
+        assert_eq!(allowance.host(), "lmstudio.local");
+        for ip in ["192.168.1.20", "10.0.0.5", "172.16.3.4", "100.100.1.1", "127.0.0.1", "::1", "fd12:3456::1", "::ffff:192.168.0.2", "8.8.8.8"] {
+            assert!(allowance.permits(ip.parse().unwrap()), "{ip} may be the operator's server");
+        }
+        for ip in ["169.254.169.254", "fe80::1", "0.0.0.0", "224.0.0.1", "255.255.255.255", "::ffff:169.254.169.254", "192.0.2.1", "ff02::1", "::"] {
+            assert!(!allowance.permits(ip.parse().unwrap()), "{ip} stays refused, allowance or not");
+        }
+        let check = |url: &str| check_url_allowing(&Url::parse(url).unwrap(), Policy::default(), Some(&allowance));
+        assert_eq!(check("http://lmstudio.local:1234/v1/chat/completions"), Ok(()), "any port on the allowed host");
+        assert_eq!(check("http://LMStudio.local:1234/v1"), Ok(()));
+        assert_eq!(check("http://other.local:1234/v1"), Err(Refusal::Port), "another host is judged by the policy");
+        assert_eq!(check("ftp://lmstudio.local/"), Err(Refusal::Scheme));
+        assert_eq!(check("http://u:p@lmstudio.local/"), Err(Refusal::Credentials));
+
+        let literal = HostAllowance::for_url(&Url::parse("http://192.168.1.20:1234/v1").unwrap()).unwrap();
+        let check = |url: &str| check_url_allowing(&Url::parse(url).unwrap(), Policy::default(), Some(&literal));
+        assert_eq!(check("http://192.168.1.20:1234/v1/models"), Ok(()));
+        assert_eq!(check("http://192.168.1.21:1234/v1"), Err(Refusal::Port), "only that one address");
+        assert_eq!(check("http://192.168.1.21/v1"), Err(Refusal::Address("192.168.1.21".parse().unwrap())));
+        let metadata = HostAllowance::for_url(&Url::parse("http://169.254.169.254/").unwrap()).unwrap();
+        assert_eq!(
+            check_url_allowing(&Url::parse("http://169.254.169.254/latest").unwrap(), Policy::default(), Some(&metadata)),
+            Err(Refusal::Address("169.254.169.254".parse().unwrap())),
+            "no allowance opens link-local addresses"
+        );
+        let v6 = HostAllowance::for_url(&Url::parse("http://[fd00::5]:1234/v1").unwrap()).unwrap();
+        assert_eq!(check_url_allowing(&Url::parse("http://[fd00::5]:1234/v1").unwrap(), Policy::default(), Some(&v6)), Ok(()));
+    }
+
+    #[tokio::test]
+    async fn an_allowing_client_reaches_the_allowed_host_and_nothing_else() {
+        let port = local_server("hello").await;
+        let allowance = HostAllowance::for_url(&Url::parse("http://localhost/").unwrap()).unwrap();
+        let client =
+            client_builder_allowing(Policy::default(), allowance.clone(), Duration::from_secs(5)).build().unwrap();
+        let response = client.get(format!("http://localhost:{port}/")).send().await.unwrap();
+        assert_eq!(check_peer_allowing(&response, Policy::default(), Some(&allowance)), Ok(()));
+        assert!(check_peer_allowing(&response, Policy::default(), None).is_err());
+
+        // Another name that points at loopback is still refused by the resolver.
+        let other = HostAllowance::for_url(&Url::parse("http://lmstudio.invalid/").unwrap()).unwrap();
+        let client = client_builder_allowing(Policy::default(), other, Duration::from_secs(5)).build().unwrap();
+        let error = client.get(format!("http://localhost:{port}/")).send().await.unwrap_err();
+        assert!(matches!(refusal_of(&error), Some(Refusal::Address(ip)) if ip.is_loopback()), "{error}");
     }
 
     #[tokio::test]

@@ -36,6 +36,8 @@ unicode-segmentation.workspace = true
 jsonwebtoken.workspace = true
 reqwest.workspace = true
 sha2.workspace = true
+url.workspace = true
+bytes.workspace = true
 hex.workspace = true
 
 [dev-dependencies]

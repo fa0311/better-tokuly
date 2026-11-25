@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { chat } from "@tokuly/api";
 import { Languages, Sparkles, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { create } from "zustand";
@@ -10,27 +10,33 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
+import { useAssistSettings } from "./ai-settings";
 import { assistClient } from "./api";
 import { errorMessage } from "./errors";
 
 /**
  * The AI writing assistant: rewrite the draft in another tone, suggest
  * replies, translate a message. Every use sends text to an outside AI
- * service, so nothing is sent before the person has been told and agreed
- * (once per browser), and never without them asking for it.
+ * service, so nothing is sent before the person has been told which one and
+ * agreed (once per browser and service: choosing another asks again), and
+ * never without them asking for it.
  */
 
 const CONSENT_KEY = "tokuly.chat.assistConsent";
 
 function hasConsent(): boolean {
+  const recipient = useAssist.getState().recipient;
+  if (!recipient) return false;
   try {
-    return window.localStorage.getItem(CONSENT_KEY) === "1";
+    return window.localStorage.getItem(`${CONSENT_KEY}:${recipient}`) === "1";
   } catch {
     return false;
   }
 }
 
 interface AssistStore {
+  /** Who receives the text now (the person's settings, kept here by `<AssistConsent>`). */
+  recipient: string;
   /** What the person asked for before agreeing; runs once they do. */
   waiting: (() => void) | null;
   /** Messages whose translation is shown. */
@@ -39,7 +45,12 @@ interface AssistStore {
   suggesting: Record<string, string>;
 }
 
-const useAssist = create<AssistStore>(() => ({ waiting: null, translated: {}, suggesting: {} }));
+const useAssist = create<AssistStore>(() => ({
+  recipient: "",
+  waiting: null,
+  translated: {},
+  suggesting: {},
+}));
 
 /** Runs `action` if the person agreed to the assistant's terms, asking them first otherwise. */
 export function withAssistConsent(action: () => void): void {
@@ -51,16 +62,20 @@ export function withAssistConsent(action: () => void): void {
 export function AssistConsent() {
   const { t } = useTranslation("chat");
   const waiting = useAssist((state) => state.waiting);
+  // Loaded here so that the question can name who receives the text.
+  const settings = useAssistSettings();
+  const recipient = settings.data?.effectiveRecipient ?? "";
+  useEffect(() => useAssist.setState({ recipient }), [recipient]);
   return (
     <ConfirmDialog
-      open={waiting !== null}
+      open={waiting !== null && Boolean(recipient)}
       onOpenChange={(open) => !open && useAssist.setState({ waiting: null })}
       title={t("assist.consent.title")}
-      description={t("assist.consent.lead")}
+      description={t("assist.consent.lead", { recipient })}
       confirmLabel={t("assist.consent.agree")}
       onConfirm={() => {
         try {
-          window.localStorage.setItem(CONSENT_KEY, "1");
+          window.localStorage.setItem(`${CONSENT_KEY}:${recipient}`, "1");
         } catch {
           // Without storage the question simply comes again next time.
         }
@@ -267,7 +282,11 @@ export function SuggestedReplies({
         ) : replies.isError ? (
           <p className="text-sm text-danger">{errorMessage(replies.error)}</p>
         ) : replies.data.replies.length === 0 ? (
-          <p className="text-sm text-ink-soft">{t("assist.noSuggestions")}</p>
+          <p className="text-sm text-ink-soft">
+            {replies.data.skippedMessages > 0
+              ? t("assist.skipped", { count: replies.data.skippedMessages })
+              : t("assist.noSuggestions")}
+          </p>
         ) : (
           replies.data.replies.map((reply) => (
             <Button

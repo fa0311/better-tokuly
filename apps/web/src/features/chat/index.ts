@@ -16,5 +16,8 @@
  *   <ShareToChat open={sharing} onOpenChange={setSharing} share={{ subject: { type: common.SubjectType.NOTE, id: note.id } }} title={note.text} />
  *   <ShareToChat open={sharing} onOpenChange={setSharing} share={{ url: location.href }} />
  */
+
+/** 「AI に自分のメッセージを使ってもいい」, for the privacy settings. */
+export { AiMessageConsentSwitch } from "./ai-consent-switch";
 export { openDirectChat } from "./navigation";
 export { ShareToChat, type ShareToChatProps } from "./share-to-chat";

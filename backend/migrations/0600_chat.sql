@@ -252,3 +252,58 @@ CREATE TABLE chat_call_participants (
 );
 
 CREATE INDEX chat_call_participants_user ON chat_call_participants (user_id, call_id DESC);
+
+-- ───────────────────────────── AI assistant ─────────────────────────────
+
+-- Operator settings of one AI provider, once saved in the staff console
+-- (AssistAdminService). A provider without a row runs on the environment's
+-- values (TOKULY_ANTHROPIC_*, TOKULY_OPENAI_*, TOKULY_OPENAI_COMPAT_*).
+CREATE TABLE chat_ai_providers (
+    -- tokuly.chat.v1.AiProvider: 1 Anthropic, 2 OpenAI, 3 OpenAI-compatible.
+    provider           smallint    PRIMARY KEY CHECK (provider BETWEEN 1 AND 3),
+    enabled            boolean     NOT NULL,
+    model              text        NOT NULL,
+    base_url           text        NOT NULL,
+    -- The API key, sealed (core keys, label "chat/ai-key/instance"). Never
+    -- returned to a client; only its last four characters are shown.
+    api_key_sealed     bytea,
+    api_key_last4      text        NOT NULL DEFAULT '',
+    -- OpenAI-compatible only: the base URL's host may be on a private
+    -- network (the outbound guard's one exception, for that host only).
+    allow_private_host boolean     NOT NULL DEFAULT false CHECK (NOT allow_private_host OR provider = 3),
+    updated_by         uuid        REFERENCES users (id) ON DELETE SET NULL,
+    updated_at         timestamptz NOT NULL DEFAULT now()
+);
+
+-- The instance default, once chosen in the staff console (one row).
+CREATE TABLE chat_ai_instance (
+    singleton        boolean     PRIMARY KEY DEFAULT true CHECK (singleton),
+    -- tokuly.chat.v1.AiProvider; 0: the first enabled provider.
+    default_provider smallint    NOT NULL DEFAULT 0,
+    updated_by       uuid        REFERENCES users (id) ON DELETE SET NULL,
+    updated_at       timestamptz NOT NULL DEFAULT now()
+);
+
+-- Each user's assistant settings. No row: the defaults (the instance
+-- default provider, on, consent by age).
+CREATE TABLE chat_ai_user_settings (
+    user_id           uuid        PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    -- tokuly.chat.v1.AiProvider; 0: the instance default.
+    provider          smallint    NOT NULL DEFAULT 0,
+    off               boolean     NOT NULL DEFAULT false,
+    -- 「AI に自分のメッセージを使ってもいい」. NULL: never chosen, which is
+    -- off while the account is under 18 and on for adults.
+    allow_message_use boolean,
+    updated_at        timestamptz NOT NULL DEFAULT now()
+);
+
+-- API keys users brought for their own requests (Anthropic, OpenAI).
+CREATE TABLE chat_ai_user_keys (
+    user_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    provider   smallint    NOT NULL CHECK (provider IN (1, 2)),
+    -- Sealed (core keys, label "chat/ai-key/user"); never returned.
+    key_sealed bytea       NOT NULL,
+    last4      text        NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, provider)
+);
