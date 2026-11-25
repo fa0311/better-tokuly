@@ -8,6 +8,15 @@ import type { ConfigContext, ExpoConfig } from "expo/config";
 const serverUrl = process.env.EXPO_PUBLIC_TOKULY_URL ?? "http://localhost:3000";
 
 /**
+ * Push goes through the phones' own services, not Expo's: FCM on Android
+ * (the Firebase project's `google-services.json`, given by path in
+ * `GOOGLE_SERVICES_JSON`; without it the build has no push and the app says
+ * so) and APNs on iOS (`EXPO_PUBLIC_APNS_ENV`: `production` for store builds).
+ */
+const googleServicesFile = process.env.GOOGLE_SERVICES_JSON;
+const apnsMode = process.env.EXPO_PUBLIC_APNS_ENV === "production" ? "production" : "development";
+
+/**
  * The native projects are generated (`expo prebuild`, Continuous Native
  * Generation) from this file: everything native is a config plugin here.
  */
@@ -29,7 +38,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: "app.tokuly.mobile",
-    permissions: ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+    permissions: ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "CAMERA", "POST_NOTIFICATIONS"],
+    ...(googleServicesFile ? { googleServicesFile } : {}),
   },
   plugins: [
     "expo-router",
@@ -37,6 +47,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "expo-localization",
     "expo-web-browser",
     "@maplibre/maplibre-react-native",
+    ["expo-notifications", { mode: apnsMode, color: "#7c5cff" }],
+    [
+      "expo-image-picker",
+      {
+        photosPermission: "トークで写真を送るために使います。/ Lets you send photos in chats.",
+        cameraPermission:
+          "トークで送る写真を撮るために使います。/ Lets you take photos to send in chats.",
+        microphonePermission: false,
+      },
+    ],
     [
       "expo-location",
       {

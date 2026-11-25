@@ -1,7 +1,9 @@
 import { Tabs } from "expo-router";
-import { MapPin, Smile, Users } from "lucide-react-native";
+import { Bell, MapPin, MessageCircle, Smile, Users } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
+import { useUnread as useChatUnread } from "#/features/chat/data";
 import { useIncomingRequests } from "#/features/friends/data";
+import { useUnread as useInboxUnread } from "#/features/notifications/data";
 import { useTheme } from "#/lib/theme";
 
 /** The primary destinations, one tap away. */
@@ -11,6 +13,9 @@ export default function TabsLayout() {
   const { t } = useTranslation("mobile");
   const { colors } = useTheme();
   const waiting = useIncomingRequests().data?.requests.length ?? 0;
+  const chats = useChatUnread().badge;
+  const inbox = useInboxUnread().total;
+  const badge = (count: number) => (count > 0 ? (count > 99 ? "99+" : count) : undefined);
   return (
     <Tabs
       screenOptions={{
@@ -35,12 +40,30 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="chats"
+        options={{
+          title: t("tabs.chat"),
+          tabBarButtonTestID: "tab-chats",
+          tabBarBadge: badge(chats),
+          tabBarIcon: ({ color, size }) => <MessageCircle color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
         name="friends"
         options={{
           title: t("tabs.friends"),
           tabBarButtonTestID: "tab-friends",
-          tabBarBadge: waiting > 0 ? waiting : undefined,
+          tabBarBadge: badge(waiting),
           tabBarIcon: ({ color, size }) => <Users color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="inbox"
+        options={{
+          title: t("tabs.inbox"),
+          tabBarButtonTestID: "tab-inbox",
+          tabBarBadge: badge(inbox),
+          tabBarIcon: ({ color, size }) => <Bell color={color} size={size} />,
         }}
       />
       <Tabs.Screen
