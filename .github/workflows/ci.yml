@@ -45,6 +45,7 @@ jobs:
               - 'buf.yaml'
             backend:
               - 'backend/**'
+              - 'tokuly.example.toml'
               - 'proto/**'
               - 'buf.yaml'
               - 'compose.dev.yaml'

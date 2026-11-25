@@ -106,6 +106,13 @@ impl Audit {
         self
     }
 
+    /// A server setting (`ServerSettingsService`), as `section.key`.
+    pub fn setting(mut self, section: &str, key: &str) -> Self {
+        self.target_type = "setting";
+        self.target_id = format!("{section}.{key}");
+        self
+    }
+
     pub fn announcement(mut self, id: Uuid) -> Self {
         self.target_type = "announcement";
         self.target_id = id.to_string();

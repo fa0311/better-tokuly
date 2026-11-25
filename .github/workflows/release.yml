@@ -62,8 +62,9 @@ jobs:
           done
           # The Compose stack pinned to this version: unpack, run tools/init-env.sh, docker compose up -d.
           kit="tokuly-selfhost-$VERSION"
-          mkdir -p "dist/$kit/tools" "dist/$kit/infra"
-          cp compose.yaml LICENSE "dist/$kit/"
+          mkdir -p "dist/$kit/tools" "dist/$kit/infra" "dist/$kit/config"
+          cp compose.yaml LICENSE tokuly.example.toml "dist/$kit/"
+          cp config/README.md "dist/$kit/config/"
           sed "s/^TOKULY_VERSION=.*/TOKULY_VERSION=$VERSION/" .env.example > "dist/$kit/.env.example"
           cp tools/init-env.sh "dist/$kit/tools/"
           cp -r infra/caddy infra/livekit "dist/$kit/infra/"

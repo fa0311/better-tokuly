@@ -135,6 +135,48 @@ be unique across domains: give a setting whose field name could collide an
 explicit `id = "<domain>_<field>"` (the server's `command_line_is_consistent`
 test catches clashes).
 
+#### Declaring a setting
+
+A setting is one such argument, and nothing else needs writing by hand: it
+becomes a key of `tokuly.toml`, a row of the staff console's 「サーバー設定」
+and an entry of `tokuly.example.toml` (`tokuly_core::settings`). Per argument:
+
+- an `env = "TOKULY_<DOMAIN>_<NAME>"` and a `long` flag. The key is the
+  variable without `TOKULY_` and the section prefix: `TOKULY_MEDIA_MAX_VIDEO_HOURS`
+  is `[media] max_video_hours` (a variable without the prefix keeps its whole name);
+- a doc comment: it is the description in the console and the example file
+  (the server test `every_setting_has_a_description` fails without one);
+- a value with a type: `bool` with `action = clap::ArgAction::Set` (never a
+  bare flag), integers, `f64`, text, or a list with `value_delimiter = ','`;
+  `value_parser = [..]` gives the console a choice;
+- `hide_env_values = true` for anything secret (keys, passwords, tokens,
+  URLs with credentials): the console then only writes it and shows the last
+  four characters, the export leaves it out (`credentials_are_secrets` checks
+  the obvious names).
+
+What clap does not know goes on the section's `SectionSpec` in
+`crates/server/src/settings.rs`:
+
+- `.live(&["key", ..])`: the domain reads the value per use through
+  `core.settings.current::<YourConfig>("section")` (see `Media::live`), so a
+  console change applies at once. Everything else applies on restart and the
+  console says so;
+- `.bootstrap(&[..])`: never editable in the console (addresses, credentials,
+  listen addresses);
+- `.managed(&[(prefix, path)])`: edited on a screen of its own, which the
+  settings page links to;
+- `.check(check!(YourConfig))`: the domain's `validate()`, run on a console
+  change before it is saved.
+
+After adding or changing a setting, regenerate the example file from the
+repository root: `backend/target/.../tokuly config example > tokuly.example.toml`
+(`cargo run -p tokuly-server -- config example`); the server test
+`the_example_file_is_current` fails until it matches.
+
+Precedence, highest first: command line and environment, `tokuly.toml`
+(`TOKULY_CONFIG`), the console (table `server_settings`, history in
+`server_setting_changes`), the default.
+
 The server crate wires domains in `crates/server/src/app.rs`: the config in
 `DomainConfigs`, construction in `Domains::new` (in dependency order, and
 before `Engagement` when the domain registers a subject resolver),

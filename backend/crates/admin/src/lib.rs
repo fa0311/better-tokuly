@@ -12,6 +12,8 @@
 //! - **Feature flags** (`flags_svc.rs`), **announcements** — the product
 //!   update log (`announcements_svc.rs`, [`announcements`]) — and **system**
 //!   stats plus the audit log (`system_svc.rs`, `stats.rs`, `audit.rs`).
+//! - **Server settings** (`settings_svc.rs`): the console layer of
+//!   `tokuly_core::settings` (「サーバー設定」).
 //! - **Background work** (`workers.rs`) and personal-data handling
 //!   (`cleanup.rs`).
 //!
@@ -54,6 +56,7 @@ mod owners;
 pub mod reported;
 mod resolution;
 mod sanctions;
+mod settings_svc;
 mod staff;
 mod stats;
 mod system_svc;
@@ -111,12 +114,15 @@ impl Admin {
 
     /// Registers this domain's RPC services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::admin::{AnnouncementServiceExt, FeatureFlagServiceExt, ModerationServiceExt, SystemServiceExt, UserAdminServiceExt};
+        use tokuly_proto::admin::{
+            AnnouncementServiceExt, FeatureFlagServiceExt, ModerationServiceExt, ServerSettingsServiceExt, SystemServiceExt, UserAdminServiceExt,
+        };
         let me = Arc::new(self.clone());
         let router = ModerationServiceExt::register(me.clone(), router);
         let router = UserAdminServiceExt::register(me.clone(), router);
         let router = FeatureFlagServiceExt::register(me.clone(), router);
         let router = AnnouncementServiceExt::register(me.clone(), router);
+        let router = ServerSettingsServiceExt::register(me.clone(), router);
         SystemServiceExt::register(me, router)
     }
 

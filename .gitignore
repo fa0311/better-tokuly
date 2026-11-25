@@ -50,3 +50,6 @@ web-build/
 coverage/
 playwright-report/
 test-results/
+
+# the deployment's own settings file (config/README.md)
+config/tokuly.toml

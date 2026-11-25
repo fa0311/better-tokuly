@@ -137,7 +137,7 @@ pub fn sections() -> Vec<SectionSpec> {
         SectionSpec::new("stamp", StampConfig::augment_args),
         SectionSpec::new("wallet", WalletConfig::augment_args).check(check!(WalletConfig)),
         SectionSpec::new("notify", NotifyConfig::augment_args).check(check!(NotifyConfig, production)),
-        SectionSpec::new("admin", AdminConfig::augment_args).check(check!(AdminConfig)),
+        SectionSpec::new("admin", AdminConfig::augment_args).bootstrap(&["user"]).check(check!(AdminConfig)),
         SectionSpec::new("feed", FeedConfig::augment_args).check(check!(FeedConfig, production)),
         SectionSpec::new("chat", ChatConfig::augment_args).managed(CHAT_AI_SCREEN).check(check!(ChatConfig)),
         SectionSpec::new("notes", NotesConfig::augment_args).check(check!(NotesConfig)),

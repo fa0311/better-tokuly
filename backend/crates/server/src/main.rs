@@ -195,4 +195,24 @@ mod tests {
     fn command_line_is_consistent() {
         Cli::command().debug_assert();
     }
+
+    /// Without a file or console values, the layered parse reads exactly
+    /// what clap alone read before (an environment-only deployment).
+    #[test]
+    fn without_file_or_console_nothing_changes() {
+        let argv: Vec<std::ffi::OsString> =
+            ["tokuly", "--secret", "0123456789abcdef0123456789abcdef", "--max-video-hours", "4", "api"].iter().map(Into::into).collect();
+        let plain = Cli::command().try_get_matches_from(&argv).unwrap();
+        let resolved = crate::settings::Resolved {
+            registry: std::sync::Arc::new(crate::settings::registry().unwrap()),
+            layers: Default::default(),
+            file: None,
+        };
+        let layered = tokuly_core::settings::apply(Cli::command(), &resolved.registry, &resolved.layers, false).try_get_matches_from(&argv).unwrap();
+        for def in resolved.registry.defs() {
+            let raw = |m: &clap::ArgMatches| m.get_raw(&def.id).map(|v| v.map(|s| s.to_owned()).collect::<Vec<_>>());
+            assert_eq!(raw(&plain), raw(&layered), "{}", def.env);
+            assert_eq!(plain.value_source(&def.id), layered.value_source(&def.id), "{}", def.env);
+        }
+    }
 }

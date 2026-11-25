@@ -716,7 +716,7 @@
 # `admin` role once that address is verified (at startup, or the moment it is), and only once per
 # deployment and address: whoever holds the address later is not promoted. A handle is not accepted
 # (whoever signed up first would hold it). Empty: nobody is promoted automatically.
-# (TOKULY_ADMIN_USER; restart: api, worker)
+# (TOKULY_ADMIN_USER; bootstrap; restart: api, worker)
 # user = ""
 
 # IANA time zone whose midnight starts "today" in the server stats (new accounts today, daily active
