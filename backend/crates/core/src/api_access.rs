@@ -507,6 +507,8 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("RefreshToken", Session),
         ("SignOut", Session),
         ("CheckHandle", Session),
+        // Says only what the server supports; nothing about anyone.
+        ("GetAuthCapabilities", Any),
         ("BeginPasskeyRegistration", Session),
         ("FinishPasskeyRegistration", Session),
         ("BeginPasskeySignIn", Session),

@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
-import { DeviceAccountsOnLogin, enterAccount } from "#/features/settings";
+import { DeviceAccountsOnLogin, enterAccount, usePasskeysAvailable } from "#/features/settings";
 import { api, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { parseRedirect } from "#/lib/redirect";
@@ -32,6 +32,7 @@ function Login() {
   const [needsTotp, setNeedsTotp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"password" | "passkey" | null>(null);
+  const passkeys = usePasskeysAvailable();
 
   const finish = async () => {
     // A new account beside others starts the app over as that account.
@@ -149,16 +150,18 @@ function Login() {
         </Button>
         {!needsTotp && (
           <>
-            <Button
-              variant="secondary"
-              block
-              icon={<KeyRound className="size-4" />}
-              loading={busy === "passkey"}
-              disabled={busy !== null}
-              onClick={signInWithPasskey}
-            >
-              {t("signIn.passkey")}
-            </Button>
+            {passkeys && (
+              <Button
+                variant="secondary"
+                block
+                icon={<KeyRound className="size-4" />}
+                loading={busy === "passkey"}
+                disabled={busy !== null}
+                onClick={signInWithPasskey}
+              >
+                {t("signIn.passkey")}
+              </Button>
+            )}
             <Link
               to="/reset-password"
               className="text-center text-sm font-bold text-ink-soft underline-offset-4 hover:underline"

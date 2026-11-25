@@ -3,7 +3,7 @@ import { create, identity, social } from "@tokuly/api";
 import { profileKeys } from "@tokuly/core/profile";
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { accountClient, api } from "#/lib/api";
+import { accountClient, api, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 
 export const friendClient = () => api().service(social.FriendService);
@@ -29,6 +29,20 @@ export const PRIVATE_KEYS = [
   keys.connections,
   keys.blocked,
 ];
+
+/**
+ * Whether this server has passkeys: one reached by an IP address has none
+ * (WebAuthn needs a domain name). `false` until the server has said so, so a
+ * passkey button never shows on a server where it cannot work.
+ */
+export function usePasskeysAvailable(): boolean {
+  const { data } = useQuery({
+    queryKey: ["identity", "auth-capabilities"],
+    queryFn: () => authClient().getAuthCapabilities({}),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  return data?.capabilities?.passkeysAvailable ?? false;
+}
 
 /** The account's privacy and appearance settings. */
 export function useSettings() {

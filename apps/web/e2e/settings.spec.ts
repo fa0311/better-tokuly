@@ -1,6 +1,8 @@
 import { createHmac } from "node:crypto";
 import { crc32, deflateSync } from "node:zlib";
+import { toBinary } from "@bufbuild/protobuf";
 import type { APIRequestContext, Page } from "@playwright/test";
+import { create, identity } from "@tokuly/api";
 import {
   type Account,
   expect as baseExpect,
@@ -514,6 +516,51 @@ test("a passkey is added with a name, listed, and removed", async ({ page, me })
     .click();
   await expect(toast(page, "パスキーを削除しました")).toBeVisible();
   await expect(page.getByText("まだパスキーがありません")).toBeVisible();
+});
+
+/**
+ * Answers GetAuthCapabilities as a server reached by an IP address does
+ * (`TOKULY_PUBLIC_URL=http://192.168.1.10`): WebAuthn needs a domain name,
+ * and this test server runs on localhost, which has one.
+ */
+async function serveWithoutPasskeys(page: Page): Promise<void> {
+  await page.route(`**/${AUTH}/GetAuthCapabilities`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/proto",
+      body: Buffer.from(
+        toBinary(
+          identity.GetAuthCapabilitiesResponseSchema,
+          create(identity.GetAuthCapabilitiesResponseSchema, {
+            capabilities: { passkeysAvailable: false },
+          }),
+        ),
+      ),
+    }),
+  );
+}
+
+test("the sign-in screen offers a passkey only when the server has passkeys", async ({ page }) => {
+  await page.goto("/login");
+  await expect(page.getByRole("button", { name: "パスキーでログイン" })).toBeVisible();
+
+  await serveWithoutPasskeys(page);
+  await page.goto("/login");
+  await page.waitForFunction(() => window.localStorage.getItem("tokuly.signedIn") === null);
+  await expect(page.getByRole("button", { name: "ログイン", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "パスキーでログイン" })).toHaveCount(0);
+});
+
+test("on a server without passkeys, settings say so instead of offering to add one", async ({
+  page,
+  me: _me,
+}) => {
+  await serveWithoutPasskeys(page);
+  await page.goto("/settings/security");
+  await expect(
+    page.getByText("このサーバーではパスキーが使えません。", { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "パスキーを追加" })).toHaveCount(0);
 });
 
 test("signed-in devices are listed with this one marked, and another one can be signed out", async ({

@@ -531,6 +531,16 @@ impl AuthService for Identity {
         .await
     }
 
+    async fn get_auth_capabilities(
+        &self,
+        _ctx: RequestContext,
+        _request: ServiceRequest<'_, GetAuthCapabilitiesRequest>,
+    ) -> ServiceResult<GetAuthCapabilitiesResponse> {
+        let capabilities = AuthCapabilities { passkeys_available: self.passkeys_available(), ..Default::default() };
+        handle(async { ok(GetAuthCapabilitiesResponse { capabilities: capabilities.into(), ..Default::default() }) })
+            .await
+    }
+
     async fn begin_passkey_registration(
         &self,
         ctx: RequestContext,
@@ -538,6 +548,9 @@ impl AuthService for Identity {
     ) -> ServiceResult<BeginPasskeyRegistrationResponse> {
         handle(async {
             let user = users::get(&self.core, ctx.user_id()?).await?;
+            // Before the password check: on a server without passkeys there is
+            // nothing to confirm the password for.
+            self.relying_party()?;
             self.confirm_password(&user, request.current_password).await?;
             let (challenge_id, options_json) = Identity::begin_passkey_registration(self, &user, request.name).await?;
             ok(BeginPasskeyRegistrationResponse { challenge_id, options_json, ..Default::default() })

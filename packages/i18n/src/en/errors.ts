@@ -26,6 +26,7 @@ export default {
   PASSKEY_FAILED: "Couldn't verify the passkey",
   PASSKEY_UNKNOWN: "This passkey isn't registered",
   PASSKEY_EXPIRED: "That took too long. Please try again",
+  PASSKEYS_UNAVAILABLE: "Passkeys are not available on this server",
   DEVICE_CODE_INVALID: "This code is invalid or has expired",
   DEVICE_CODE_USED: "This code was already used",
   USER_NOT_FOUND: "User not found",
