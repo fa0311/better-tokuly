@@ -9,6 +9,7 @@ import { readJson, readSecure, writeJson, writeSecure } from "#/platform/secure-
  */
 const ACTIVE_KEY = "tokuly.session.active";
 const PARKED_KEY = "tokuly.session.parked";
+const DEPARTED_KEY = "tokuly.session.departed";
 
 /** Every account this install holds, for forgetting them all at once. */
 export const ACCOUNT_KEYS = [ACTIVE_KEY, PARKED_KEY] as const;
@@ -65,5 +66,33 @@ export function parkedTokenStore(sessionId: string): RefreshTokenStore {
     get: async () => (await parkedTokens())[sessionId] ?? null,
     set: (token) => rotateParked(sessionId, token),
     clear: () => forgetParked(sessionId),
+  };
+}
+
+/**
+ * Accounts signed out of this device whose server may not know yet (signed
+ * out offline, or left behind by a previous install): session ID → refresh
+ * token, kept only until the server has removed their push registrations and
+ * ended them (`settleDeparted`). The app shows nobody signed in for them.
+ */
+export function departedTokens(): Promise<ParkedTokens> {
+  return readJson<ParkedTokens>(DEPARTED_KEY, {});
+}
+
+export async function addDeparted(sessionId: string, token: string): Promise<void> {
+  await writeJson(DEPARTED_KEY, { ...(await departedTokens()), [sessionId]: token });
+}
+
+export async function forgetDeparted(sessionId: string): Promise<void> {
+  const { [sessionId]: _gone, ...rest } = await departedTokens();
+  await writeJson(DEPARTED_KEY, rest);
+}
+
+/** The token store of one departed session: a refresh keeps the rotated token, a refused one ends it here. */
+export function departedTokenStore(sessionId: string): RefreshTokenStore {
+  return {
+    get: async () => (await departedTokens())[sessionId] ?? null,
+    set: (token) => addDeparted(sessionId, token),
+    clear: () => forgetDeparted(sessionId),
   };
 }

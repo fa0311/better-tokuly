@@ -2,7 +2,12 @@ import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 import { create, identity, notify } from "@tokuly/api";
-import { signOut, switchAccount, useSessionStore } from "#/features/session/session";
+import {
+  settleDeparted,
+  signOut,
+  switchAccount,
+  useSessionStore,
+} from "#/features/session/session";
 import { parkedTokens } from "#/features/session/vault";
 import { api, resetApi } from "#/lib/api";
 import { readJson } from "#/platform/secure-storage";
@@ -22,6 +27,10 @@ let registerGate: Promise<void> | null = null;
 /** The parked sessions cannot be resumed (the network is down for them). */
 let refreshFails = false;
 let switchAnswer: identity.AuthResponse;
+/** No request reaches the server. */
+let offline = false;
+/** Sessions the server signed out: their refresh tokens are refused. */
+const signedOutThere = new Set<string>();
 
 const ok = (body: Uint8Array = new Uint8Array()) =>
   new Response(body as BodyInit, { status: 200, headers: { "content-type": "application/proto" } });
@@ -29,6 +38,7 @@ const ok = (body: Uint8Array = new Uint8Array()) =>
 async function mockServer(input: string, init: { body: Uint8Array; headers?: HeadersInit }) {
   const method = new URL(input).pathname.split("/").pop() ?? "";
   const bearer = new Headers(init.headers).get("authorization")?.replace("Bearer access-", "");
+  if (offline) throw new TypeError("Network request failed");
   switch (method) {
     case "GetPushConfig":
       if (configGate) await configGate;
@@ -63,10 +73,19 @@ async function mockServer(input: string, init: { body: Uint8Array; headers?: Hea
       const request = fromBinary(identity.RefreshTokenRequestSchema, init.body);
       calls.push(`refresh ${request.refreshToken}`);
       const user = request.refreshToken.replace(/^rt-/, "").replace(/-\d+$/, "");
+      if (signedOutThere.has(user))
+        return new Response(JSON.stringify({ code: "unauthenticated", message: "signed out" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        });
       const answer = signedInAs(user, `s-${user}`);
       answer.refreshToken = `rt-${user}-2`;
       return ok(toBinary(identity.AuthResponseSchema, answer));
     }
+    case "SignOut":
+      calls.push(`SignOut as ${bearer}`);
+      if (bearer) signedOutThere.add(bearer);
+      return ok();
     case "SwitchAccount":
       calls.push(`switch as ${bearer}`);
       return ok(toBinary(identity.AuthResponseSchema, switchAnswer));
@@ -125,6 +144,8 @@ beforeEach(() => {
   configGate = null;
   registerGate = null;
   refreshFails = false;
+  offline = false;
+  signedOutThere.clear();
   switchAnswer = signedInAs("alt", "s-alt");
 });
 
@@ -269,4 +290,25 @@ describe("push registration", () => {
     await waitFor(async () => expect(await readJson(UNREGISTER_OWED_KEY, [])).toEqual([]));
     await hook.unmount();
   }, 15_000);
+
+  it("signs out offline at once, and tells the server on the next start", async () => {
+    const hook = await signedInMain();
+    await waitFor(() => expect(calls).toContain("register as main: apns"));
+
+    offline = true;
+    await act(() => signOut());
+    expect(useSessionStore.getState().state.status).toBe("signedOut");
+    await hook.unmount();
+
+    // Back online, the next start: the session that left still owes its removal and its end.
+    offline = false;
+    calls.length = 0;
+    await act(() => settleDeparted());
+    expect(calls).toEqual(["refresh rt-main", "unregister as main", "SignOut as main"]);
+
+    // Done once: nothing is left to tell.
+    calls.length = 0;
+    await act(() => settleDeparted());
+    expect(calls).toEqual([]);
+  });
 });

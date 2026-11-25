@@ -52,7 +52,11 @@ its tests) and the web switches to it.
   (`features/session/vault.ts`). Switching accounts, adding one, signing out:
   `features/session/session.ts`. Each starts the signed-in tree over (a new
   API object, realtime connection, query cache and navigation stack), the way
-  a page load does on the web.
+  a page load does on the web. A sign-out shows at once; the session's token
+  is kept aside (`departed`) until the server has removed its push
+  registrations and ended it, retried on each start when it was offline.
+  Every use of a parked or departed token waits its turn, so none is ever
+  sent twice.
 - **Location.** The same rules as the web (`features/map/sharing.ts`): nothing
   is sent for an account until it says yes on this device; stopping, a
   revoked permission, a sign-out or a switch tell the server, and a stop that
