@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/fa0311/better-tokuly/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/ci.yml)
 [![Stack](https://github.com/fa0311/better-tokuly/actions/workflows/stack.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/stack.yml)
-[![Mobile](https://github.com/fa0311/better-tokuly/actions/workflows/mobile.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/mobile.yml)
+[![End to end](https://github.com/fa0311/better-tokuly/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/e2e.yml)
 
 友達と位置情報共有を楽しもう! — 位置情報共有・チャット・ノート・動画・ライブ・ショートがひとつになったスーパーアプリ。
 Bump（旧 Zenly）のような地図を中心に、初代 Tokuly の機能をすべて引き継いで作り直しています。
@@ -99,7 +99,9 @@ docker compose up -d     # http://localhost
 どの変数が必要かを表示して止まります。
 スタック全体の起動確認は GitHub Actions の [Stack](.github/workflows/stack.yml) ワークフローが
 `tools/ci/smoke.sh`（サインアップ、メール、アップロード、地図、リアルタイム接続）で行い、
-画面の操作は [Browser tests](.github/workflows/e2e.yml) が同じスタックの上で Playwright を走らせて確かめています。
+画面の操作は [End to end](.github/workflows/e2e.yml) が同じスタックの上で Playwright（Web）と Maestro（Android エミュレーター）を走らせて確かめています。
+テスト用のイメージはコミットごとに 1 回だけビルドし（`ci-*` として GHCR に置き、2 週間で [CI cleanup](.github/workflows/ci-cleanup.yml) が消します）、
+Playwright は複数のランナーに分けて、それぞれ自分のスタックで並列に実行します。
 
 開発（インフラだけ Docker で、または Docker なしでネイティブに起動）:
 

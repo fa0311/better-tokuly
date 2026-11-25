@@ -1,0 +1,17 @@
+# pnpm, Node, the workspace's dependencies and the generated API client: what
+# every job that runs the web app, the phone app or the client packages needs.
+name: Set up the JavaScript workspace
+description: pnpm install and the generated API client.
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 26
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash
+    - name: Generate the API client
+      run: pnpm proto:gen
+      shell: bash

@@ -160,3 +160,17 @@ opt-level = 1
 lto = "thin"
 codegen-units = 8
 strip = "debuginfo"
+
+# The images CI tests against (never published): built in about half the time
+# and memory of a release build, at the cost of a slower, larger binary. Our
+# own crates (the generated API above all) are barely optimised; dependencies
+# are fully optimised, since they are compiled once and cached.
+[profile.ci]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+debug = false
+
+[profile.ci.package."*"]
+opt-level = 3

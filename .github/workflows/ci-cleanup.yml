@@ -1,0 +1,48 @@
+# Removes what CI leaves in the GitHub Container Registry: the images built
+# for testing one commit (ci-<image>:sha-<commit>, see e2e.yml) and the layer
+# caches of pull requests (ci-cache:*-pr-<number>), once they are two weeks old,
+# and versions that lost their tag to a newer build.
+#
+# Only packages named ci-* are touched: never the published images (backend,
+# web, tiles, postgres with their release, `latest` and `edge` tags), and never
+# a cache of main or of the release builds that is still tagged.
+name: CI cleanup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 18 * * *"
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    name: Old CI images and caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OWNER: ${{ github.repository_owner }}
+      REPO: ${{ github.event.repository.name }}
+      DAYS: 14
+    steps:
+      - name: Delete old versions
+        run: |
+          owner_kind="$(gh api "users/$OWNER" --jq 'if .type == "Organization" then "orgs" else "users" end')"
+          cutoff="$(date -u -d "$DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)"
+          for name in ci-backend ci-web ci-tiles ci-postgres ci-cache; do
+            package="$(jq -rn --arg p "$REPO/$name" '$p | @uri')"
+            versions="$(gh api --paginate "$owner_kind/$OWNER/packages/container/$package/versions" 2>/dev/null || true)"
+            [ -n "$versions" ] || { echo "$name: no such package"; continue; }
+            # Old, and either untagged or tagged only for one commit or one pull request.
+            old="$(jq -r --arg cutoff "$cutoff" '
+              .[] | select(.updated_at < $cutoff)
+              | select(.metadata.container.tags | all(startswith("sha-") or test("-pr-[0-9]+$")))
+              | .id' <<<"$versions")"
+            count=0
+            for id in $old; do
+              gh api -X DELETE "$owner_kind/$OWNER/packages/container/$package/versions/$id" && count=$((count + 1))
+            done
+            echo "$name: deleted $count old versions"
+          done
