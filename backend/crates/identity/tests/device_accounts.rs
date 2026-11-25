@@ -424,3 +424,24 @@ async fn a_shared_computer_signs_every_account_out_at_once() {
     let listed = browser.call("tokuly.identity.v1.AuthService/ListDeviceAccounts", None, json!({})).await;
     assert!(listed.body["accounts"].as_array().is_none_or(|a| a.is_empty()));
 }
+
+#[tokio::test]
+async fn cookies_split_over_several_header_fields_keep_every_account() {
+    // The Compose edge reaches the API over HTTP/2, which may carry each
+    // cookie in a header field of its own. The active account's refresh
+    // cookie must be found whichever comes first.
+    let ext = start(IdentityConfig::default()).await;
+    let mut browser = Browser::new(&ext);
+    browser.split_cookies = true;
+    let first = browser.call("tokuly.identity.v1.AuthService/SignUp", None, sign_up_json(&unique("ha"), false)).await;
+    let second = browser.call("tokuly.identity.v1.AuthService/SignUp", None, sign_up_json(&unique("hb"), true)).await;
+    assert_eq!(second.status, 200, "{}", second.reason);
+    let refreshed = browser.call("tokuly.identity.v1.AuthService/RefreshToken", None, json!({})).await;
+    assert_eq!(refreshed.status, 200, "{}", refreshed.reason);
+    assert_eq!(user_id(&refreshed.body), user_id(&second.body));
+    let listed = browser.call("tokuly.identity.v1.AuthService/ListDeviceAccounts", None, json!({})).await;
+    let accounts = listed.body["accounts"].as_array().cloned().unwrap_or_default();
+    assert_eq!(accounts.len(), 2, "{accounts:?}");
+    assert_eq!(accounts[0]["user"]["id"], json!(user_id(&second.body)));
+    assert_eq!(accounts[1]["user"]["id"], json!(user_id(&first.body)));
+}

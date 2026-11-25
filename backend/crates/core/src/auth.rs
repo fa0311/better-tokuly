@@ -408,6 +408,21 @@ impl AuthLayer {
     }
 }
 
+/// Every `Cookie` header of a request as one `a=1; b=2` string. HTTP/2 (the
+/// edge reaches the API over h2c) may send each cookie as a header field of
+/// its own (RFC 9113, 8.2.3); reading only the first would lose the rest —
+/// the refresh token whenever another cookie happens to come first.
+pub fn cookie_header(headers: &http::HeaderMap) -> String {
+    headers
+        .get_all(http::header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// Axum middleware: authenticates the request and records [`AuthState`] and
 /// [`ClientMeta`] for handlers.
 ///
@@ -437,7 +452,7 @@ pub async fn auth_middleware(
         ip,
         user_agent: text("user-agent"),
         is_web: text("x-tokuly-client").eq_ignore_ascii_case("web"),
-        cookies: text("cookie"),
+        cookies: cookie_header(headers),
         language: text("accept-language")
             .split(',')
             .next()
@@ -489,6 +504,16 @@ async fn session_outlived(tokens: Tokens, session_id: Uuid, expires_at: Time, re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cookies_split_over_several_header_fields_are_all_read() {
+        let mut headers = http::HeaderMap::new();
+        // As HTTP/2 may deliver them: one field per cookie, in any order.
+        headers.append(http::header::COOKIE, "tokuly_ra=parked.token".parse().unwrap());
+        headers.append(http::header::COOKIE, "tokuly_rt=active.token; theme=dark".parse().unwrap());
+        assert_eq!(cookie_header(&headers), "tokuly_ra=parked.token; tokuly_rt=active.token; theme=dark");
+        assert_eq!(cookie_header(&http::HeaderMap::new()), "");
+    }
 
     fn tokens() -> Tokens {
         Tokens::new(&Keys::new("0123456789abcdef0123456789abcdef")).unwrap()
