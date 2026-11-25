@@ -1,0 +1,73 @@
+appId: app.tokuly.mobile
+name: Accept a friend, see them on the live map, add someone by handle, ghost mode, sharing
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/friend-request.js
+- launchApp:
+    clearState: true
+    permissions:
+      location: allow
+- setLocation:
+    latitude: 35.6580
+    longitude: 139.7016
+- tapOn: { id: "welcome-sign-in" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.me}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+
+# The request waits under the friends tab.
+- tapOn: { id: "tab-friends" }
+- tapOn: { id: "friends-tab-requests" }
+- tapOn: { id: "${'accept-' + output.friend}" }
+- tapOn: "OK"
+
+# Friends now: the friend's pin is on the map, with a card.
+- tapOn: { id: "tab-map" }
+- extendedWaitUntil:
+    visible: { id: "${'friend-pin-' + output.friend}" }
+    timeout: 30000
+- tapOn: { id: "${'friend-pin-' + output.friend}" }
+- assertVisible: { id: "friend-card" }
+- tapOn: { id: "friend-card-profile" }
+- extendedWaitUntil:
+    visible: { id: "${'profile-' + output.friend}" }
+    timeout: 15000
+- back
+
+# Ghost mode for everyone.
+- tapOn: { id: "ghost-chip" }
+- tapOn: { id: "ghost-blurred" }
+- extendedWaitUntil:
+    visible: "(ぼかし中|Blurred).*"
+    timeout: 10000
+- tapOn: { id: "ghost-precise" }
+
+# Sharing my own position: consent, then the OS permission (granted at launch).
+- tapOn: { id: "sharing-chip" }
+- tapOn: { id: "sharing-turn-on" }
+- extendedWaitUntil:
+    visible: { id: "sharing-sharing" }
+    timeout: 30000
+- tapOn: { id: "sharing-stop" }
+- extendedWaitUntil:
+    visible: { id: "sharing-stopped" }
+    timeout: 10000
+
+# Someone else, by handle.
+- tapOn: { id: "tab-friends" }
+- tapOn: { id: "friends-add" }
+- tapOn: { id: "add-friend-handle" }
+- inputText: ${output.stranger}
+- hideKeyboard
+- tapOn: { id: "add-friend-send" }
+- tapOn: "OK"
+- back
+- tapOn: { id: "friends-tab-requests" }
+- assertVisible: { id: "${'person-' + output.stranger}" }

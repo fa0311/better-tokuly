@@ -21,7 +21,8 @@ Bump（旧 Zenly）のような地図を中心に、初代 Tokuly の機能を�
 | スタンプ、カスタム絵文字、コイン（台帳・購入・収益・出金）、質問箱、ミッション、予定、学校、たまり場、コミュニティ、開発者 API | 動作中 |
 | 管理・モデレーション、機能フラグ、お知らせ | 動作中 |
 | Web アプリ（すべての領域の画面、PWA） | 動作中 |
-| モバイルアプリ（Expo）、配信スタジオ（Tauri） | 未着手 |
+| モバイルアプリ（Expo）: ログイン・アカウント切り替え、ライブマップ（ゴーストモード、バックグラウンド位置共有）、フレンド、プロフィール | 作業中 |
+| 配信スタジオ（Tauri） | 未着手 |
 | Docker Compose（amd64 / arm64） | GitHub Actions で通し検証・ブラウザテスト |
 
 全領域がセキュリティ監査（[#44](https://github.com/fa0311/better-tokuly/issues/44)）を通っています。
@@ -34,7 +35,8 @@ Bump（旧 Zenly）のような地図を中心に、初代 Tokuly の機能を�
 proto/      API の契約（Protobuf）。Connect RPC / gRPC / gRPC-Web として提供
 backend/    Rust ワークスペース。ドメインごとに 1 クレート、バイナリは 1 つ（api / realtime / worker / migrate）
 apps/web    Web アプリ（TanStack Start, React 19, Tailwind 4, MapLibre GL）
-packages/   TypeScript の API クライアントとリアルタイムクライアント
+apps/mobile iOS / Android アプリ（Expo SDK 58, Expo Router, NativeWind, MapLibre Native）
+packages/   TypeScript の API・リアルタイムクライアント、共通ロジック（@tokuly/core）と文言（@tokuly/i18n）
 infra/      Docker Compose で使う設定とイメージ（Caddy, LiveKit, 地図タイル, PostGIS 入り PostgreSQL）
 docs/       ドメインごとの機能範囲（domains.md）とイベント一覧（events.md, events/）
 tools/      開発用スクリプト

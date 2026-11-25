@@ -4,7 +4,7 @@
   "private": true,
   "description": "Tokuly for iOS and Android (Expo, development builds).",
   "license": "MIT",
-  "main": "expo-router/entry",
+  "main": "./index.ts",
   "scripts": {
     "start": "expo start --dev-client",
     "android": "expo run:android",

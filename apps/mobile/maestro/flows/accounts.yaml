@@ -1,0 +1,61 @@
+appId: app.tokuly.mobile
+name: Add a second account and switch between them
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/two-accounts.js
+- launchApp:
+    clearState: true
+- tapOn: { id: "welcome-sign-in" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.main}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+
+# A second account beside the first.
+- tapOn: { id: "tab-me" }
+- tapOn: { id: "me-settings" }
+- tapOn: { id: "settings-accounts" }
+- tapOn: { id: "accounts-add" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.second}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+- tapOn: { id: "tab-me" }
+- extendedWaitUntil:
+    visible: ${'@' + output.second}
+    timeout: 15000
+
+# Back to the first, without its password.
+- tapOn: { id: "me-settings" }
+- tapOn: { id: "settings-accounts" }
+- tapOn: { id: "${'switch-' + output.main}" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+- tapOn: { id: "tab-me" }
+- extendedWaitUntil:
+    visible: ${'@' + output.main}
+    timeout: 15000
+
+# Signing out keeps the parked account on the device: continue as it.
+- tapOn: { id: "me-settings" }
+- tapOn: { id: "settings-sign-out" }
+- tapOn: "(Sign out|ログアウト)"
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 15000
+- tapOn: { id: "${'switch-' + output.second}" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000

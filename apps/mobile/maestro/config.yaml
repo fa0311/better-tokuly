@@ -1,0 +1,11 @@
+# Maestro end-to-end flows of the phone app, against a running stack.
+#
+#   maestro test apps/mobile/maestro --env SERVER=http://10.0.2.2
+#
+# SERVER is the stack's edge as the device reaches it (the Android emulator
+# sees the host as 10.0.2.2). The app must be built for the same address
+# (EXPO_PUBLIC_TOKULY_URL). Every flow makes its own accounts through the API.
+flows:
+  - flows/*.yaml
+executionOrder:
+  continueOnFailure: true

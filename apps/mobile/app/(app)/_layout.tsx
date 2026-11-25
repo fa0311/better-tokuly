@@ -5,6 +5,8 @@ import { MapBackground } from "#/features/map/background";
 import { useTheme } from "#/lib/theme";
 
 /** Signed in: the tabs, the screens pushed over them, and what runs on every one of them. */
+export const unstable_settings = { initialRouteName: "(tabs)" };
+
 export default function AppLayout() {
   const { t } = useTranslation("mobile");
   const { t: ta } = useTranslation("accounts");

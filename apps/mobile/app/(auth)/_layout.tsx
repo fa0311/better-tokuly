@@ -2,6 +2,8 @@ import { Stack } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "#/lib/theme";
 
+export const unstable_settings = { initialRouteName: "welcome" };
+
 export default function AuthLayout() {
   const { t } = useTranslation("mobile");
   const { colors } = useTheme();

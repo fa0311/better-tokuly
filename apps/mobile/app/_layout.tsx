@@ -1,6 +1,4 @@
 import "../global.css";
-// Defines the background location task before anything renders (the OS may start the app for it).
-import "#/features/map/background-report";
 import { SplashScreen, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";

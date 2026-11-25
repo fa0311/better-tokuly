@@ -86,14 +86,25 @@ export function useMapSync(): void {
         const event = body.value.event;
         if (event.case === "friendRemovedUserId") forget(event.value);
         else if (event.case === "friendRequestAccepted")
-          void queryClient.invalidateQueries({ queryKey: ["social"] });
+          void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
       }
+    });
+    // A new friend (whichever side accepted, from whichever screen): their pin may be there to see.
+    let known: Set<string> | null = null;
+    const offCache = queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated" || event.action.type !== "success") return;
+      if (event.query.queryHash !== JSON.stringify(mapKeys.friends)) return;
+      const ids = new Set((event.query.state.data as social.Friend[]).map((f) => f.user?.id ?? ""));
+      const added = known !== null && [...ids].some((id) => !known?.has(id));
+      known = ids;
+      if (added) void loadSnapshot();
     });
     client.start();
     void loadSnapshot();
     return () => {
       cancelled = true;
       offFrame();
+      offCache();
       const store = useLocations.getState();
       store.setSnapshot([]);
       store.setOwn(null);
