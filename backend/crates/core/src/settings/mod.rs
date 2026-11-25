@@ -18,7 +18,7 @@ pub mod store;
 
 use std::{
     any::{Any, TypeId},
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     ffi::OsString,
     path::PathBuf,
     sync::{
@@ -137,6 +137,41 @@ pub fn check_section(registry: &Registry, layers: &Layers, section: &str, produc
     }
 }
 
+/// A console layer after [`admit_console`].
+#[derive(Debug, Default)]
+pub struct Admitted {
+    pub kept: HashMap<String, String>,
+    pub rejected: HashMap<String, String>,
+    /// Why each refused section was refused.
+    pub reasons: BTreeMap<String, String>,
+}
+
+/// Checks the console values of each section together with the layers
+/// above them ([`check_section`]) and sets aside every console value of a
+/// section that fails: a mistake saved in the console must never stop the
+/// server. Each refusal is logged.
+pub fn admit_console(registry: &Registry, base: &Layers, console: HashMap<String, String>, production: bool) -> Admitted {
+    let mut by_section: BTreeMap<&str, HashMap<String, String>> = BTreeMap::new();
+    for (id, value) in console {
+        if let Some(def) = registry.by_id(&id) {
+            by_section.entry(def.section).or_default().insert(id, value);
+        }
+    }
+    let mut admitted = Admitted::default();
+    for (section, values) in by_section {
+        let candidate = Layers { console: values.clone(), ..base.clone() };
+        match check_section(registry, &candidate, section, production) {
+            Ok(()) => admitted.kept.extend(values),
+            Err(e) => {
+                tracing::warn!(section, error = %e, "settings: the console values of this section are set aside (they do not pass its checks)");
+                admitted.reasons.insert(section.to_owned(), e.to_string());
+                admitted.rejected.extend(values);
+            }
+        }
+    }
+    admitted
+}
+
 /// The settings a process runs with.
 pub struct State {
     pub registry: Arc<Registry>,
@@ -146,6 +181,11 @@ pub struct State {
     /// The `tokuly.toml` that was read, if any.
     pub file: Option<PathBuf>,
     pub production: bool,
+    /// Console values set aside because their section did not pass its
+    /// checks with them, by argument ID (see [`admit_console`]).
+    pub rejected: HashMap<String, String>,
+    /// Why, by section.
+    pub rejected_sections: BTreeMap<String, String>,
     /// Counts the states a process has had: what [`Settings::current`]
     /// caches its parses by (an address would be reused once freed).
     generation: u64,
@@ -154,7 +194,31 @@ pub struct State {
 impl State {
     pub fn new(registry: Arc<Registry>, layers: Layers, file: Option<PathBuf>, production: bool) -> Self {
         let started = registry.defs().iter().map(|d| (d.id.clone(), layers.effective(d).0.map(str::to_owned))).collect();
-        Self { registry, layers, started, file, production, generation: 0 }
+        Self { registry, layers, started, file, production, rejected: HashMap::new(), rejected_sections: BTreeMap::new(), generation: 0 }
+    }
+
+    /// Like [`State::new`], with a console layer that is first checked
+    /// section by section ([`admit_console`]): what the process starts with.
+    pub fn with_console(registry: Arc<Registry>, mut layers: Layers, console: HashMap<String, String>, file: Option<PathBuf>, production: bool) -> Self {
+        layers.console = HashMap::new();
+        let admitted = admit_console(&registry, &layers, console, production);
+        layers.console = admitted.kept;
+        let mut state = Self::new(registry, layers, file, production);
+        state.rejected = admitted.rejected;
+        state.rejected_sections = admitted.reasons;
+        state
+    }
+
+    /// Why the console value of `def` is set aside, if it is.
+    pub fn rejection(&self, def: &Def) -> Option<&str> {
+        self.rejected.contains_key(&def.id).then(|| self.rejected_sections.get(def.section).map(String::as_str)).flatten()
+    }
+
+    /// The console values of a section, set aside ones included: what a change is checked together with.
+    pub fn console_of_section(&self, section: &str) -> HashMap<String, String> {
+        let mut values = self.layers.console.clone();
+        values.extend(self.rejected.iter().filter(|(id, _)| self.registry.by_id(id).is_some_and(|d| d.section == section)).map(|(k, v)| (k.clone(), v.clone())));
+        values
     }
 
     /// Whether this process runs with another value than the one in force
@@ -195,16 +259,22 @@ impl Settings {
         self.0.state.read().clone()
     }
 
-    /// Replaces the console layer (after a change was saved here or in another process).
+    /// Replaces the console layer (after a change was saved here or in
+    /// another process), setting aside the values of sections that do not
+    /// pass their checks with them.
     pub fn set_console(&self, console: HashMap<String, String>) {
         let mut guard = self.0.state.write();
         if let Some(state) = guard.as_ref() {
+            let base = Layers { console: HashMap::new(), ..state.layers.clone() };
+            let admitted = admit_console(&state.registry, &base, console, state.production);
             let next = State {
                 registry: state.registry.clone(),
-                layers: Layers { console, ..state.layers.clone() },
+                layers: Layers { console: admitted.kept, ..base },
                 started: state.started.clone(),
                 file: state.file.clone(),
                 production: state.production,
+                rejected: admitted.rejected,
+                rejected_sections: admitted.reasons,
                 generation: self.0.next_generation.fetch_add(1, Ordering::Relaxed),
             };
             *guard = Some(Arc::new(next));

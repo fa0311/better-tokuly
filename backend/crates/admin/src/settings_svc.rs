@@ -71,7 +71,7 @@ fn lock_of(def: &Def, source: Source) -> ServerSettingLock {
 /// One setting as the console shows it; secrets without any value.
 fn setting_pb(state: &State, def: &Def, secrets: &HashMap<String, store::SecretInfo>) -> ServerSetting {
     let (value, source) = state.layers.effective(def);
-    let console = state.layers.console.get(&def.id);
+    let console = state.layers.console.get(&def.id).or_else(|| state.rejected.get(&def.id));
     let shown = |v: Option<&str>| if def.secret { None } else { v.map(str::to_owned) };
     ServerSetting {
         section: def.section.to_owned(),
@@ -93,6 +93,7 @@ fn setting_pb(state: &State, def: &Def, secrets: &HashMap<String, store::SecretI
         restart_pending: state.restart_pending(def),
         console_value: shown(console.map(String::as_str)),
         console_secret_set: def.secret && console.is_some(),
+        console_rejected: state.rejection(def).unwrap_or_default().to_owned(),
         ..Default::default()
     }
 }
@@ -150,8 +151,10 @@ impl ServerSettingsService for Admin {
                 ensure!(request.value.chars().count() <= VALUE_MAX_CHARS, invalid, "SETTING_TOO_LONG", "values are at most {VALUE_MAX_CHARS} characters");
                 Some(def.check_value(request.value).map_err(|e| AppError::invalid("SETTING_INVALID", e))?)
             };
-            // The domain's own rules, over the section as it would be.
+            // The domain's own rules, over the section as it would be: with
+            // every console value it has, set-aside ones included.
             let mut layers = state.layers.clone();
+            layers.console = state.console_of_section(def.section);
             match &value {
                 Some(value) => layers.console.insert(def.id.clone(), value.clone()),
                 None => layers.console.remove(&def.id),

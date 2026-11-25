@@ -263,6 +263,11 @@ impl Config {
         );
         url::Url::parse(self.public_url())
             .map_err(|e| anyhow::anyhow!("TOKULY_PUBLIC_URL is not a valid URL: {e}"))?;
+        // What `Core::connect` builds from the settings without the network,
+        // built here too: a console change is checked with this before it is
+        // saved, and a value the server cannot start with must be refused.
+        crate::mail::Mailer::new(&self.smtp_url, &self.mail_from)?;
+        crate::livekit::LiveKit::from_config(self)?;
         Ok(())
     }
 }

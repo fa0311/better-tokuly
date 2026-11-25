@@ -265,8 +265,13 @@ so live settings apply everywhere at once and the rest show
 Refused: settings the environment or the file set (`SETTING_LOCKED`),
 bootstrap settings (`SETTING_BOOTSTRAP`), settings with their own screen
 (`SETTING_MANAGED_ELSEWHERE`: the chat AI providers at `/admin/chat-ai`),
-values of the wrong type or against the domain's own `validate()`
-(`SETTING_INVALID`).
+values of the wrong type or against the section's checks, run over all of
+its console values together with what the server builds from them at
+start-up (`SETTING_INVALID`). Console values a section does not pass its
+checks with (saved before a check existed, or by hand) are set aside, all of
+that section together, at start-up and on every reload; the page shows why
+(`console_rejected`). If the server still does not start with the console
+values, it starts once more without any of them.
 
 ## Getting back in
 

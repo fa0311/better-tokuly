@@ -1248,6 +1248,10 @@ message ServerSetting {
   optional string console_value = 18;
   // A secret is saved in this console.
   bool console_secret_set = 19;
+  // Why the value saved in this console is not in force: the section did
+  // not pass its checks with it (all console values of the section are set
+  // aside together, so the server starts without them). Empty when in force.
+  string console_rejected = 20;
 }
 
 message ListServerSettingsRequest {}

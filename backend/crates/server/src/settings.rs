@@ -1,6 +1,6 @@
 //! The settings of the binary: which sections exist, and resolving their
 //! layers at start-up (see `tokuly_core::settings`).
-use std::{ffi::OsString, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, ffi::OsString, path::PathBuf, sync::Arc};
 
 use clap::{Args, CommandFactory as _, FromArgMatches as _};
 use tokuly_admin::AdminConfig;
@@ -161,11 +161,13 @@ pub fn registry() -> anyhow::Result<Registry> {
     Registry::new(sections())
 }
 
-/// The command line, the environment and `tokuly.toml`, without the console layer.
+/// The command line, the environment and `tokuly.toml`, and the console
+/// values as read (checked when the state is made).
 pub struct Resolved {
     pub registry: Arc<Registry>,
     pub layers: Layers,
     pub file: Option<PathBuf>,
+    pub console: HashMap<String, String>,
 }
 
 impl Resolved {
@@ -195,7 +197,7 @@ impl Resolved {
             },
             None => None,
         };
-        Ok(Self { registry, layers, file })
+        Ok(Self { registry, layers, file, console: HashMap::new() })
     }
 
     /// The value in force of a `[core]` setting, before the console layer.
@@ -215,22 +217,39 @@ impl Resolved {
             .connect(&url)
             .await
             .map_err(|e| anyhow::anyhow!("cannot connect to PostgreSQL to read the console settings: {e}"))?;
-        self.layers.console = settings::store::load(&db, &self.registry, &Keys::new(&secret)).await?;
+        self.console = settings::store::load(&db, &self.registry, &Keys::new(&secret)).await?;
         db.close().await;
         Ok(())
     }
 
-    /// Parses the command line with every layer below it as defaults.
-    pub fn parse(&self, argv: &[OsString]) -> Cli {
-        let cmd = settings::apply(Cli::command(), &self.registry, &self.layers, false);
-        let matches = cmd.try_get_matches_from(argv).unwrap_or_else(|e| e.exit());
-        Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit())
+    fn production(&self) -> bool {
+        self.core_value("env").as_deref() == Some("production")
     }
 
-    pub fn into_state(self, production: bool) -> State {
-        State::new(self.registry, self.layers, self.file, production)
+    /// What the process starts with: the console values of a section that
+    /// does not pass its checks with them are set aside (and logged).
+    pub fn state(&self) -> State {
+        State::with_console(self.registry.clone(), self.layers.clone(), self.console.clone(), self.file.clone(), self.production())
     }
 
+    /// The last resort when the server does not start with the console
+    /// values at all: every one of them set aside, with `reason`.
+    pub fn state_without_console(&self, reason: &str) -> State {
+        let mut state = State::new(self.registry.clone(), self.layers.clone(), self.file.clone(), self.production());
+        state.rejected_sections = self.console.keys().filter_map(|id| self.registry.by_id(id)).map(|d| (d.section.to_owned(), reason.to_owned())).collect();
+        state.rejected = self.console.clone();
+        state
+    }
+}
+
+/// Parses the command line with every layer of `state` below it as defaults.
+pub fn parse(argv: &[OsString], state: &State) -> Cli {
+    let cmd = settings::apply(Cli::command(), &state.registry, &state.layers, false);
+    let matches = cmd.try_get_matches_from(argv).unwrap_or_else(|e| e.exit());
+    Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit())
+}
+
+impl Resolved {
     /// The settings in force (secrets left out) as a `tokuly.toml` with the source of each.
     pub fn show(&self) -> String {
         let values = self
@@ -265,6 +284,26 @@ mod tests {
         let credential = |env: &str| ["SECRET", "PASSWORD", "API_KEY", "PRIVATE_KEY", "KEY_P8", "SERVICE_ACCOUNT", "MEILI_KEY", "DATABASE_URL", "SMTP_URL"].iter().any(|w| env.contains(w));
         let missing: Vec<&str> = registry.defs().iter().filter(|d| credential(&d.env) && d.kind == Kind::Text && !d.secret).map(|d| d.env.as_str()).collect();
         assert!(missing.is_empty(), "add `hide_env_values = true` to {missing:?}");
+    }
+
+    /// The start-up path: a console value the mailer would refuse does
+    /// not reach Core::connect; its section's console values are set aside.
+    #[test]
+    fn console_values_the_server_cannot_start_with_are_set_aside() {
+        let mut resolved = Resolved { registry: Arc::new(registry().unwrap()), layers: Layers::default(), file: None, console: HashMap::new() };
+        resolved.layers.cli.insert("secret".into(), "0123456789abcdef0123456789abcdef".into());
+        resolved.console.insert("mail_from".into(), "not a mailbox".into());
+        resolved.console.insert("max_video_hours".into(), "4".into());
+        let state = resolved.state();
+        assert_eq!(state.layers.console.get("max_video_hours").map(String::as_str), Some("4"));
+        assert!(!state.layers.console.contains_key("mail_from"));
+        let mail_from = state.registry.get("core", "mail_from").unwrap();
+        assert!(state.rejection(mail_from).is_some_and(|r| r.contains("TOKULY_MAIL_FROM")), "{:?}", state.rejection(mail_from));
+        // And the command line parses without it.
+        let argv: Vec<OsString> = ["tokuly", "api"].iter().map(Into::into).collect();
+        let cli = parse(&argv, &state);
+        assert_eq!(cli.core.mail_from, "Tokuly <no-reply@tokuly.localhost>");
+        assert_eq!(cli.domains.media.max_video_hours, 4);
     }
 
     #[test]

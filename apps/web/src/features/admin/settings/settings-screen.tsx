@@ -20,7 +20,7 @@ import { type Tone, ToneChip } from "../ui/tone";
 import { processNames, secretText, settingsKey, sourceLabel, valueText } from "./labels";
 import { SettingDialog, SettingHistoryDialog } from "./setting-dialog";
 
-const FILTERS = ["all", "console", "locked", "pending"] as const;
+const FILTERS = ["all", "console", "locked", "pending", "rejected"] as const;
 type Filter = (typeof FILTERS)[number];
 
 export interface SettingsSearch {
@@ -54,6 +54,7 @@ function matches(setting: admin.ServerSetting, query: string | undefined, show: 
     return false;
   if (show === "locked" && editable(setting)) return false;
   if (show === "pending" && !setting.restartPending) return false;
+  if (show === "rejected" && !setting.consoleRejected) return false;
   if (!query) return true;
   const needle = query.toLowerCase();
   return [
@@ -296,7 +297,12 @@ function SettingRow({
           {lockText}
         </p>
       )}
-      {shadowed && (
+      {setting.consoleRejected && (
+        <p role="alert" className="text-xs font-bold text-danger">
+          {t("settings.rejected", { reason: setting.consoleRejected })}
+        </p>
+      )}
+      {shadowed && !setting.consoleRejected && (
         <p className="text-xs text-ink-faint">
           {setting.secret
             ? t("settings.shadowedSecret")

@@ -110,7 +110,8 @@ async fn main() -> anyhow::Result<()> {
     }
     let mut resolved = settings::Resolved::read(&argv)?;
     resolved.read_console().await?;
-    let cli = resolved.parse(&argv);
+    let state = resolved.state();
+    let cli = settings::parse(&argv, &state);
     let service = match &cli.command {
         Command::Api => "tokuly-api",
         Command::Realtime => "tokuly-realtime",
@@ -124,12 +125,24 @@ async fn main() -> anyhow::Result<()> {
     if let Some(file) = &resolved.file {
         tracing::info!(file = %file.display(), "settings file read");
     }
-    let settings = Settings::new(resolved.into_state(cli.core.is_production()));
-
-    let core = Core::connect_with(cli.core, settings).await?;
+    for (section, reason) in &state.rejected_sections {
+        tracing::warn!(section, reason, "settings: the console values of this section are set aside; fix them in サーバー設定");
+    }
+    // A mistake saved in the console must never stop the server: when it
+    // does not start with the console values, it starts without them.
+    let (core, domains, cli) = match start(cli.core.clone(), cli.domains.clone(), state).await {
+        Ok((core, domains)) => (core, domains, cli),
+        Err(e) if !resolved.console.is_empty() => {
+            tracing::error!(error = %e, "the server does not start with the console settings; starting without them");
+            let state = resolved.state_without_console(&format!("the server did not start with them: {e}"));
+            let cli = settings::parse(&argv, &state);
+            let (core, domains) = start(cli.core.clone(), cli.domains.clone(), state).await?;
+            (core, domains, cli)
+        }
+        Err(e) => return Err(e),
+    };
     spawn_shutdown_listener(core.clone());
 
-    let domains = app::Domains::new(core.clone(), cli.domains)?;
     match cli.command {
         Command::Migrate => app::migrate(&core, &domains).await?,
         Command::PromoteAdmin { account } => {
@@ -162,6 +175,19 @@ async fn main() -> anyhow::Result<()> {
         Command::Healthcheck { .. } | Command::Config { .. } => unreachable!("handled above"),
     }
     Ok(())
+}
+
+/// Connects to the infrastructure and builds every domain.
+async fn start(cfg: Config, domains: app::DomainConfigs, state: tokuly_core::settings::State) -> anyhow::Result<(Core, app::Domains)> {
+    let core = Core::connect_with(cfg, Settings::new(state)).await?;
+    match app::Domains::new(core.clone(), domains) {
+        Ok(domains) => Ok((core, domains)),
+        Err(e) => {
+            // Stops what connecting started (the system listeners).
+            core.shutdown.cancel();
+            Err(e)
+        }
+    }
 }
 
 /// Cancels `core.shutdown` on Ctrl-C or SIGTERM so servers and workers stop cleanly.
@@ -207,6 +233,7 @@ mod tests {
             registry: std::sync::Arc::new(crate::settings::registry().unwrap()),
             layers: Default::default(),
             file: None,
+            console: Default::default(),
         };
         let layered = tokuly_core::settings::apply(Cli::command(), &resolved.registry, &resolved.layers, false).try_get_matches_from(&argv).unwrap();
         for def in resolved.registry.defs() {

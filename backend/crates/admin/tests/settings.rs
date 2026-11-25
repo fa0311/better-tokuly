@@ -51,11 +51,31 @@ struct Demo {
     race: i64,
 }
 
+/// A section only `console_values_that_break_their_section_are_set_aside` writes.
+#[derive(Args, Debug)]
+struct Spare {
+    /// Must be at least 1.
+    #[arg(long = "spare-floor", env = "TOKULY_SPARE_FLOOR", default_value_t = 1)]
+    floor: i64,
+    /// Fine on its own.
+    #[arg(long = "spare-other", env = "TOKULY_SPARE_OTHER", default_value_t = 0)]
+    other: i64,
+}
+
 fn registry() -> Arc<Registry> {
     let core = SectionSpec::new("core", Config::augment_args)
         .processes(&[Process::Api, Process::Realtime, Process::Worker])
         .live(&["rate_limits"])
-        .bootstrap(&["secret", "database_url"]);
+        .bootstrap(&["secret", "database_url"])
+        .check(|m, _| {
+            use clap::FromArgMatches as _;
+            Config::from_arg_matches(m)?.validate()
+        });
+    let spare = SectionSpec::new("spare", Spare::augment_args).check(|m, _| {
+        use clap::FromArgMatches as _;
+        anyhow::ensure!(Spare::from_arg_matches(m)?.floor >= 1, "TOKULY_SPARE_FLOOR must be at least 1");
+        Ok(())
+    });
     let demo = SectionSpec::new("demo", Demo::augment_args)
         .live(&["limit"])
         .bootstrap(&["listen"])
@@ -65,7 +85,7 @@ fn registry() -> Arc<Registry> {
             anyhow::ensure!(Demo::from_arg_matches(m)?.min >= 1, "TOKULY_DEMO_MIN must be at least 1");
             Ok(())
         });
-    Arc::new(Registry::new(vec![core, demo]).unwrap())
+    Arc::new(Registry::new(vec![core, demo, spare]).unwrap())
 }
 
 /// An app whose settings are the registry above: `filed` set by the file,
@@ -208,6 +228,57 @@ async fn live_settings_apply_at_once_and_others_on_restart() {
     // Saving the value in force again changes nothing and records nothing.
     reset(&app, &boss, "demo", "limit").await;
     assert_eq!(changes(&app, &boss, "limit").await.len(), 2);
+}
+
+/// What the server builds from `[core]` at start-up is built on saving too:
+/// a sender address the mailer refuses would stop every process.
+#[tokio::test]
+async fn a_value_the_server_could_not_start_with_is_refused() {
+    let (app, boss) = start_settings().await;
+    let request = UpdateServerSettingRequest { section: "core".into(), key: "mail_from".into(), value: "not a mailbox".into(), ..Default::default() };
+    let err = app.call::<_, UpdateServerSettingResponse>(&format!("{SETTINGS}/UpdateServerSetting"), Some(&boss), &request).await.unwrap_err();
+    assert_eq!(err.reason, "SETTING_INVALID");
+    assert!(err.message.contains("TOKULY_MAIL_FROM"), "{}", err.message);
+}
+
+/// Console values the section's checks refuse (saved before a check
+/// existed, or by hand) are set aside, all of the section together, and
+/// the page says why; fixing the value brings them back.
+#[tokio::test]
+async fn console_values_that_break_their_section_are_set_aside() {
+    let (app, boss) = start_settings().await;
+    sqlx::query("INSERT INTO server_settings (section, key, value) VALUES ('spare', 'floor', '0'), ('spare', 'other', '5')")
+        .execute(&app.core.db)
+        .await
+        .unwrap();
+    app.core.reload_settings().await.unwrap();
+    let spare = || async {
+        let listing = list(&app, &boss).await;
+        let by_key: HashMap<String, ServerSetting> = listing.settings.into_iter().filter(|s| s.section == "spare").map(|s| (s.key.clone(), s)).collect();
+        by_key
+    };
+    let before = spare().await;
+    for key in ["floor", "other"] {
+        let setting = &before[key];
+        assert!(setting.console_rejected.contains("at least 1"), "{key}: {}", setting.console_rejected);
+        assert_eq!(setting.source.as_known(), Some(ServerSettingSource::SERVER_SETTING_SOURCE_DEFAULT), "{key}");
+    }
+    assert_eq!(before["other"].console_value.as_deref(), Some("5"));
+    let current = app.core.settings.current::<Spare>("spare").unwrap();
+    assert_eq!((current.floor, current.other), (1, 0));
+
+    // Saving another key of the section is checked with the set-aside values too.
+    let request = UpdateServerSettingRequest { section: "spare".into(), key: "other".into(), value: "6".into(), ..Default::default() };
+    let err = app.call::<_, UpdateServerSettingResponse>(&format!("{SETTINGS}/UpdateServerSetting"), Some(&boss), &request).await.unwrap_err();
+    assert_eq!(err.reason, "SETTING_INVALID");
+    // Fixing the bad one brings the section back.
+    let request = UpdateServerSettingRequest { section: "spare".into(), key: "floor".into(), value: "2".into(), ..Default::default() };
+    let _: UpdateServerSettingResponse = app.call(&format!("{SETTINGS}/UpdateServerSetting"), Some(&boss), &request).await.unwrap();
+    let after = spare().await;
+    assert!(after["other"].console_rejected.is_empty());
+    assert_eq!(after["other"].source.as_known(), Some(ServerSettingSource::SERVER_SETTING_SOURCE_CONSOLE));
+    let current = app.core.settings.current::<Spare>("spare").unwrap();
+    assert_eq!((current.floor, current.other), (2, 5));
 }
 
 #[tokio::test]
