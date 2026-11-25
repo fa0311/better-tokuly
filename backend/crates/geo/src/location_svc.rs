@@ -64,10 +64,12 @@ impl LocationService for Geo {
     async fn stop_sharing(
         &self,
         ctx: RequestContext,
-        _request: ServiceRequest<'_, StopSharingRequest>,
+        request: ServiceRequest<'_, StopSharingRequest>,
     ) -> ServiceResult<StopSharingResponse> {
         handle(async {
-            Geo::stop_sharing(self, ctx.user_id()?).await?;
+            let req = request.to_owned_message();
+            let stopped_ms = crate::pipeline::stop_time(req.stopped_at.as_option(), Utc::now());
+            Geo::stop_sharing(self, ctx.user_id()?, stopped_ms).await?;
             ok(StopSharingResponse::default())
         })
         .await

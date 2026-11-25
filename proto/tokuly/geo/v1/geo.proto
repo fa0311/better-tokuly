@@ -23,11 +23,15 @@ service LocationService {
   // newest one already processed are skipped, not rejected: see
   // `accepted_count`.
   // Fixes less than a second after the previous one (device time) are
-  // skipped as well.
+  // skipped as well, and so are fixes recorded at or before the latest
+  // StopSharing (`StopSharingRequest.stopped_at`): an upload already on its
+  // way when the device stopped never turns sharing back on.
   // Errors: TOO_MANY_SAMPLES, RATE_LIMITED, LOCATION_BUSY.
   rpc ReportLocations(ReportLocationsRequest) returns (ReportLocationsResponse);
   // Tells the server the device stopped sharing (permission revoked, signed
-  // out, sharing paused) so friends see a stale pin right away.
+  // out, sharing paused) so friends see a stale pin right away. Sharing
+  // resumes with the first sample recorded after the stop: the device
+  // starting to report again is the start.
   rpc StopSharing(StopSharingRequest) returns (StopSharingResponse);
 
   // Snapshot of every friend the caller is allowed to see.
@@ -114,7 +118,16 @@ message ReportLocationsResponse {
   int32 accepted_count = 3;
 }
 
-message StopSharingRequest {}
+message StopSharingRequest {
+  // When the device stopped, by the same clock its samples' `recorded_at`
+  // come from: samples recorded at or before it are dropped (see
+  // ReportLocations). Comparing device time with device time is what keeps
+  // a skewed device clock harmless. Missing means the server's receive time,
+  // which a device clock running behind the server's turns into a short
+  // wait before sharing can resume. Values more than two minutes ahead of
+  // the server are taken as the server's time plus two minutes.
+  google.protobuf.Timestamp stopped_at = 1;
+}
 
 message StopSharingResponse {}
 

@@ -1,4 +1,4 @@
-import { type Api, geo } from "@tokuly/api";
+import { type Api, fromDate, geo } from "@tokuly/api";
 import {
   type LastReport,
   locationSample,
@@ -93,7 +93,8 @@ async function setStopOwed(userId: string, owed: boolean): Promise<void> {
  */
 async function tellServerStopped(userId: string): Promise<boolean> {
   try {
-    await locationClient().stopSharing({});
+    // The device's clock, as in its samples: what it sent before this moment never resumes sharing.
+    await locationClient().stopSharing({ stoppedAt: fromDate(new Date()) });
     await setStopOwed(userId, false);
     return true;
   } catch {
