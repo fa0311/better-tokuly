@@ -1,8 +1,10 @@
 # Checks every pull request and every push to main.
 #
-# Each job runs only when the files it is about changed. The backend job
-# builds and tests against real backing services (compose.dev.yaml), for the
-# crates the change touches — see tools/ci/backend-packages.sh.
+# Each job checks one thing, on a runner of its own, and runs only when the
+# files it is about changed. The backend is built once; its test binaries are
+# then split across several runners, each with its own backing services
+# (compose.dev.yaml), for the crates the change touches (all of them on main):
+# see tools/ci/backend-packages.sh and tools/ci/test-archive.sh.
 name: CI
 
 on:
@@ -19,6 +21,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # How many runners the backend's tests are split across.
+  BACKEND_TEST_PARTS: 3
+
 jobs:
   changes:
     name: What changed
@@ -32,6 +38,9 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
       packages: ${{ steps.packages.outputs.flags }}
       touched: ${{ steps.packages.outputs.touched }}
+      mobile: ${{ steps.filter.outputs.mobile }}
+      packages-js: ${{ steps.filter.outputs.packages }}
+      test-parts: ${{ steps.parts.outputs.list }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,7 +58,8 @@ jobs:
               - 'proto/**'
               - 'buf.yaml'
               - 'compose.dev.yaml'
-              - 'tools/ci/**'
+              - 'tools/ci/backend-packages.sh'
+              - 'tools/ci/test-archive.sh'
               - '.github/workflows/ci.yml'
             web:
               - 'apps/web/**'
@@ -59,6 +69,24 @@ jobs:
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - '.github/workflows/ci.yml'
+              - '.github/actions/setup-js/**'
+            mobile:
+              - 'apps/mobile/**'
+              - 'packages/**'
+              - 'proto/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
+              - '.github/actions/setup-js/**'
+            packages:
+              - 'packages/**'
+              - 'proto/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
+              - '.github/actions/setup-js/**'
       - name: Choose the crates to build and test
         id: packages
         env:
@@ -70,9 +98,12 @@ jobs:
           # The crates the pull request itself edits: each is also checked on its own.
           if [ -n "$BASE" ]; then touched="$(ONLY_TOUCHED=1 tools/ci/backend-packages.sh "$BASE")"; else touched=""; fi
           echo "touched=$touched" >> "$GITHUB_OUTPUT"
+      - id: parts
+        run: echo "list=[$(seq -s , 1 "$BACKEND_TEST_PARTS")]" >> "$GITHUB_OUTPUT"
 
-  proto:
-    name: API contract
+  # ── API contract ────────────────────────────────────────────────────────────
+  proto-lint:
+    name: "API contract: lint"
     needs: changes
     if: needs.changes.outputs.proto == 'true'
     runs-on: ubuntu-latest
@@ -82,17 +113,28 @@ jobs:
         with:
           setup_only: true
       - run: buf lint
+
+  proto-build:
+    name: "API contract: build"
+    needs: changes
+    if: needs.changes.outputs.proto == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
       - run: buf build -o /dev/null
 
-  backend:
-    name: Backend
+  # ── Backend ─────────────────────────────────────────────────────────────────
+  backend-build:
+    name: "Backend: build and doc tests"
     needs: changes
     if: needs.changes.outputs.backend == 'true' && needs.changes.outputs.packages != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
     env:
       PACKAGES: ${{ needs.changes.outputs.packages }}
-      TOUCHED: ${{ needs.changes.outputs.touched }}
       CARGO_INCREMENTAL: "0"
       # The generated API crate is enormous; without debug info it builds faster and in less memory.
       CARGO_PROFILE_DEV_DEBUG: "0"
@@ -106,23 +148,84 @@ jobs:
         with:
           workspaces: backend
           cache-on-failure: true
-      - name: Install ffmpeg (media pipeline tests)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
-      # The build comes before the backing services: the compiler of the generated API crate
-      # needs most of the runner's memory for a few minutes, and with the databases running
-      # next to it the runner was killed (exit 143, "lost communication with the server").
       - name: Build
         working-directory: backend
         run: |
           free -m | sed -n 1,2p; df -h / | tail -1
           cargo build --locked --all-targets $PACKAGES
           free -m | sed -n 1,2p; df -h / | tail -1
-      # Built together, the crates share the API packages one of them enables (cargo unifies
-      # features), so a crate that forgot one of its own still compiles. Alone it does not:
-      # every crate the pull request edits is checked by itself.
-      - name: Each edited crate on its own
-        if: env.TOUCHED != ''
+      - name: Archive the test binaries
+        run: tools/ci/test-archive.sh pack "$RUNNER_TEMP/tests.tar.zst" "$BACKEND_TEST_PARTS" --locked $PACKAGES
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-tests
+          path: ${{ runner.temp }}/tests.tar.zst
+          retention-days: 1
+          compression-level: 0
+      # Examples in the documentation of the libraries (no backing services involved).
+      - name: Doc tests
         working-directory: backend
+        run: |
+          libs=""
+          for flag in $PACKAGES; do
+            [ "$flag" = -p ] && continue
+            [ -f "crates/${flag#tokuly-}/src/lib.rs" ] && libs="$libs -p $flag"
+          done
+          [ -z "$libs" ] || cargo test --locked --doc $libs
+
+  backend-test:
+    name: "Backend: tests ${{ matrix.part }}/${{ strategy.job-total }}"
+    needs: [changes, backend-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ${{ fromJSON(needs.changes.outputs.test-parts) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: backend-tests
+          path: ${{ runner.temp }}
+      - name: Install ffmpeg (media pipeline tests)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
+      - name: Start the backing services
+        run: docker compose -f compose.dev.yaml up -d --wait --wait-timeout 300
+      - name: Test
+        env:
+          PART: ${{ matrix.part }}
+        run: |
+          eval "$(tools/dev/infra.sh env)"
+          tools/ci/test-archive.sh run "$RUNNER_TEMP/tests.tar.zst" "$PART"
+      - name: Service logs
+        if: failure()
+        run: docker compose -f compose.dev.yaml logs --tail 80
+
+  # Built together, the crates share the API packages one of them enables (cargo unifies
+  # features), so a crate that forgot one of its own still compiles. Alone it does not:
+  # every crate the pull request edits is checked by itself.
+  backend-crates:
+    name: "Backend: each edited crate on its own"
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' && needs.changes.outputs.touched != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TOUCHED: ${{ needs.changes.outputs.touched }}
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+          cache-on-failure: true
+      - working-directory: backend
         run: |
           for crate in $(printf '%s\n' $TOUCHED | grep '^tokuly-'); do
             [ -f "crates/${crate#tokuly-}/src/lib.rs" ] || continue
@@ -130,45 +233,119 @@ jobs:
             cargo check --locked -p "$crate" --lib
             echo "::endgroup::"
           done
-      - name: Start the backing services
-        run: docker compose -f compose.dev.yaml up -d --wait --wait-timeout 300
-      - name: Test
-        working-directory: backend
-        run: |
-          eval "$(../tools/dev/infra.sh env)"
-          cargo test --locked $PACKAGES
-      - name: Service logs
-        if: failure()
-        run: docker compose -f compose.dev.yaml logs --tail 80
 
-  web:
-    name: Web
+  # ── Web app ─────────────────────────────────────────────────────────────────
+  web-lint:
+    name: "Web: format and lint"
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Generate the API client
-        run: pnpm proto:gen
-      # Formatting, import order and lint errors of the web app and the client packages
-      # (`pnpm format:web` fixes what can be fixed).
-      - name: Format and lint
-        run: pnpm lint:web
-      - name: Client packages
-        run: pnpm --filter "./packages/*" run --if-present test
-      - name: Client packages type check
-        run: pnpm --filter "./packages/*" run --if-present typecheck
-      # The build comes first: it writes the route tree the type check needs.
-      - name: Build
+      - uses: ./.github/actions/setup-js
+      # The web app and the client packages (`pnpm format:web` fixes what can be fixed).
+      - run: pnpm lint:web
+
+  web-typecheck:
+    name: "Web: type check"
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - name: Write the route tree (the build does)
         run: pnpm --filter @tokuly/web build
-      - name: Type check
-        run: pnpm --filter @tokuly/web typecheck
-      - name: Unit tests
-        run: pnpm --filter @tokuly/web test
+      - run: pnpm --filter @tokuly/web typecheck
+
+  web-test:
+    name: "Web: unit tests"
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm --filter @tokuly/web test
+
+  web-build:
+    name: "Web: build"
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm --filter @tokuly/web build
+
+  # ── Client packages (packages/*) ────────────────────────────────────────────
+  packages-test:
+    name: "Client packages: tests"
+    needs: changes
+    if: needs.changes.outputs.packages-js == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm --filter "./packages/*" run --if-present test
+
+  packages-typecheck:
+    name: "Client packages: type check"
+    needs: changes
+    if: needs.changes.outputs.packages-js == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm --filter "./packages/*" run --if-present typecheck
+
+  # ── Phone app ───────────────────────────────────────────────────────────────
+  mobile-typecheck:
+    name: "Mobile: type check"
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm --filter @tokuly/mobile typecheck
+
+  mobile-lint:
+    name: "Mobile: format and lint"
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm --filter @tokuly/mobile lint
+
+  mobile-test:
+    name: "Mobile: component tests"
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm --filter @tokuly/mobile test --ci
+
+  mobile-bundle:
+    name: "Mobile: JS bundles (Android and iOS)"
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - run: pnpm --filter @tokuly/mobile export

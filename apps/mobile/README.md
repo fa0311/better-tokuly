@@ -80,7 +80,7 @@ device modules, the clock.
 
 The Maestro flows (`maestro/flows`) sign up and in, switch accounts, accept a
 friend and see them on the map, use ghost mode and sharing. CI
-(`.github/workflows/mobile.yml`) builds a release APK for the emulator and
+(the End to end workflow, `.github/workflows/e2e.yml`) builds a release APK for the emulator and
 runs them against the Compose stack; locally, with an emulator and a stack:
 
 ```sh

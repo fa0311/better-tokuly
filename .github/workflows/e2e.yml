@@ -1,30 +1,45 @@
-# Runs the browser tests (apps/web/e2e, Playwright) against the real Compose
-# stack: every flow a person can do in the web app, on a phone-sized and a
-# desktop-sized screen.
+# The end-to-end tests: the web app in a browser (Playwright, apps/web/e2e)
+# and the phone app on an Android emulator (Maestro, apps/mobile/maestro),
+# each against the real Compose stack.
 #
-# The web image is always built from the commit under test. The backend and
-# tile images are built too when the change touches them; otherwise the `edge`
-# images (the newest build of main that passed the Stack workflow) are pulled,
-# which keeps a web-only pull request fast.
-name: Browser tests
+#   changes ─▶ images ───────────┬─▶ playwright (one job per shard) ─▶ playwright-report
+#          └─▶ android-app ──────┴─▶ maestro
+#
+# The images under test are built once per commit, by the images job, and every
+# test job runs its own stack from them on its own runner. The web image is
+# always built from the commit; the backend, tiles and postgres images only
+# when the change touches them (otherwise `edge`, the newest build of main that
+# passed the Stack workflow, keeps a web-only change fast). They are built with
+# the `ci` cargo profile (no LTO: half the time and memory of a release build)
+# and published to the registry as ci-<image>:sha-<commit>, with a layer cache
+# next to them (see infra/docker/backend.Dockerfile). Pull requests from forks
+# cannot push there: their images travel to the test jobs as an artifact.
+# Old ci-* versions are removed by ci-cleanup.yml.
+name: End to end
 
 on:
   workflow_dispatch:
-  # Pull requests that change what runs in the browser. (A backend-only change is covered by
-  # its own tests in the CI workflow; the stack as a whole by the Stack workflow on main.)
   pull_request:
     paths:
       - apps/web/**
+      - apps/mobile/**
       - packages/**
+      - proto/**
       - pnpm-lock.yaml
       - .github/workflows/e2e.yml
+      - .github/actions/**
+      - tools/ci/use-images.sh
   push:
     branches: [main]
     paths:
       - apps/web/**
+      - apps/mobile/**
       - packages/**
+      - proto/**
       - pnpm-lock.yaml
       - .github/workflows/e2e.yml
+      - .github/actions/**
+      - tools/ci/use-images.sh
 
 # A newer push to a pull request replaces its run. On main a run that has started
 # finishes, so every result is seen; only runs still waiting are replaced.
@@ -36,25 +51,180 @@ permissions:
   contents: read
   packages: read
 
+env:
+  # How many jobs the browser tests are split across, each with its own stack.
+  PLAYWRIGHT_SHARDS: 8
+  REGISTRY: ghcr.io/${{ github.repository }}
+
 jobs:
-  e2e:
-    name: Playwright on the Compose stack
+  changes:
+    name: What changed
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-    env:
-      TOKULY_VERSION: edge
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      playwright: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.web == 'true' }}
+      maestro: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.mobile == 'true' }}
+      server: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.server == 'true' }}
+      shards: ${{ steps.shards.outputs.list }}
+      shard-count: ${{ steps.shards.outputs.count }}
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
       - uses: dorny/paths-filter@v4
-        id: changed
+        id: filter
         with:
           filters: |
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+              - 'proto/**'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/e2e.yml'
+              - '.github/actions/**'
+              - 'tools/ci/use-images.sh'
+            mobile:
+              - 'apps/mobile/**'
+              - 'packages/**'
+              - 'proto/**'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/e2e.yml'
+              - '.github/actions/**'
+              - 'tools/ci/use-images.sh'
             server:
               - 'backend/**'
               - 'proto/**'
               - 'infra/**'
               - 'compose.yaml'
+      - id: shards
+        run: |
+          echo "count=$PLAYWRIGHT_SHARDS" >> "$GITHUB_OUTPUT"
+          echo "list=[$(seq -s , 1 "$PLAYWRIGHT_SHARDS")]" >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Images under test
+    needs: changes
+    if: needs.changes.outputs.playwright == 'true' || needs.changes.outputs.maestro == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      images: ${{ steps.plan.outputs.images }}
+      artifact: ${{ steps.plan.outputs.artifact }}
+    env:
+      # Pull requests from forks cannot write to the registry.
+      PUSH: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      SERVER: ${{ needs.changes.outputs.server }}
+      TAG: sha-${{ github.sha }}
+      # Each pull request keeps a layer cache of its own; every build also reads main's.
+      CACHE: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'main' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Choose what to build
+        id: plan
+        run: |
+          build=web
+          [ "$SERVER" = true ] && build="backend web tiles postgres"
+          images=""
+          for name in backend web tiles postgres; do
+            case " $build " in
+              *" $name "*) images+="$name=$REGISTRY/ci-$name:$TAG " ;;
+              *) images+="$name=$REGISTRY/$name:edge " ;;
+            esac
+          done
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "images=${images% }" >> "$GITHUB_OUTPUT"
+          if [ "$PUSH" = true ]; then
+            echo "output=type=registry" >> "$GITHUB_OUTPUT"
+            echo "artifact=" >> "$GITHUB_OUTPUT"
+          else
+            mkdir -p "$RUNNER_TEMP/images"
+            echo "output=type=docker,dest=$RUNNER_TEMP/images/{0}.tar" >> "$GITHUB_OUTPUT"
+            echo "artifact=ci-images" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Building: $build"
+
+      # The backend first and alone (in parallel with the web build a release build ran the
+      # runner out of memory; the ci profile needs less, but the order costs nothing).
+      - name: Backend
+        if: contains(steps.plan.outputs.build, 'backend')
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/docker/backend.Dockerfile
+          build-args: |
+            PROFILE=ci
+            CARGO_BUILD_JOBS=4
+          tags: ${{ env.REGISTRY }}/ci-backend:${{ env.TAG }}
+          outputs: ${{ format(steps.plan.outputs.output, 'backend') }}
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/ci-cache:backend-${{ env.CACHE }}
+            type=registry,ref=${{ env.REGISTRY }}/ci-cache:backend-main
+          cache-to: ${{ env.PUSH == 'true' && format('type=registry,ref={0}/ci-cache:backend-{1},mode=max', env.REGISTRY, env.CACHE) || '' }}
+      - name: Web
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/docker/web.Dockerfile
+          tags: ${{ env.REGISTRY }}/ci-web:${{ env.TAG }}
+          outputs: ${{ format(steps.plan.outputs.output, 'web') }}
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/ci-cache:web-${{ env.CACHE }}
+            type=registry,ref=${{ env.REGISTRY }}/ci-cache:web-main
+          cache-to: ${{ env.PUSH == 'true' && format('type=registry,ref={0}/ci-cache:web-{1},mode=max', env.REGISTRY, env.CACHE) || '' }}
+      - name: Tiles
+        if: contains(steps.plan.outputs.build, 'tiles')
+        uses: docker/build-push-action@v7
+        with:
+          context: infra/tiles
+          tags: ${{ env.REGISTRY }}/ci-tiles:${{ env.TAG }}
+          outputs: ${{ format(steps.plan.outputs.output, 'tiles') }}
+      - name: Postgres
+        if: contains(steps.plan.outputs.build, 'postgres')
+        uses: docker/build-push-action@v7
+        with:
+          context: infra/postgres
+          tags: ${{ env.REGISTRY }}/ci-postgres:${{ env.TAG }}
+          outputs: ${{ format(steps.plan.outputs.output, 'postgres') }}
+
+      - name: Hand the images to the test jobs
+        if: steps.plan.outputs.artifact != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.plan.outputs.artifact }}
+          path: ${{ runner.temp }}/images
+          retention-days: 1
+          compression-level: 1
+
+  playwright:
+    name: Playwright ${{ matrix.shard }}/${{ needs.changes.outputs.shard-count }}
+    needs: [changes, images]
+    if: needs.changes.outputs.playwright == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.changes.outputs.shards) }}
+    env:
+      TOKULY_IMAGES: local/tokuly
+      TOKULY_VERSION: ci
+      TOKULY_PULL_POLICY: never
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/stack-images
+        with:
+          images: ${{ needs.images.outputs.images }}
+          artifact: ${{ needs.images.outputs.artifact }}
 
       - name: Write .env
         run: |
@@ -65,17 +235,6 @@ jobs:
           sed -i 's/^TOKULY_MAP_REGION_BBOX=.*/TOKULY_MAP_REGION_BBOX=139.695,35.655,139.705,35.665/; s/^TOKULY_MAP_REGION_MAXZOOM=.*/TOKULY_MAP_REGION_MAXZOOM=12/' .env
           echo 'TOKULY_ADMIN_USER=e2e-admin@e2e.tokuly.test' >> .env
           echo 'TOKULY_RATE_LIMITS=false' >> .env
-
-      - name: Build the images this change touches
-        run: |
-          if [ "${{ steps.changed.outputs.server }}" = true ] || [ "${{ github.event_name }}" = workflow_dispatch ]; then
-            # The backend alone first (see images.yml: in parallel with the web build it ran out of memory).
-            docker compose build --build-arg CARGO_BUILD_JOBS=4 migrate
-            docker compose build
-          else
-            docker compose build web
-          fi
-
       - name: Start the stack
         run: tools/ci/stack-up.sh
       # The API runs in a container: a stand-in server a test starts on this machine (the
@@ -85,14 +244,7 @@ jobs:
           gateway="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' "$(docker compose ps -q api)")"
           echo "TOKULY_E2E_HOST_FROM_API=$gateway" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Generate the API client
-        run: pnpm proto:gen
+      - uses: ./.github/actions/setup-js
       - name: Install the browser
         run: pnpm --filter @tokuly/web exec playwright install --with-deps chrome
 
@@ -100,18 +252,178 @@ jobs:
         env:
           TOKULY_WEB_URL: http://localhost
           TOKULY_MAILPIT_URL: http://localhost:8025
-        run: pnpm --filter @tokuly/web e2e --workers=2
+          SHARD: ${{ matrix.shard }}/${{ needs.changes.outputs.shard-count }}
+        run: pnpm --filter @tokuly/web e2e --workers=2 --shard="$SHARD" --reporter=blob,list
 
+      - name: Keep this shard's results for the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: apps/web/blob-report
+          retention-days: 1
       - name: Keep the traces of failed tests
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-traces
+          name: playwright-traces-${{ matrix.shard }}
           path: apps/web/test-results
           retention-days: 7
-
       - name: Diagnostics
         if: failure()
         run: |
           docker compose ps -a
           docker compose logs --tail 200 migrate api realtime worker web edge
+
+  playwright-report:
+    name: Playwright report
+    needs: [changes, playwright]
+    if: ${{ !cancelled() && needs.changes.outputs.playwright == 'true' && needs.playwright.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: blob-report-*
+          merge-multiple: true
+          path: all-blob-reports
+      # One HTML report of every shard (and the failures as annotations on the run).
+      - name: Merge the shards' results
+        run: pnpm --filter @tokuly/web exec playwright merge-reports --reporter html,github "$GITHUB_WORKSPACE/all-blob-reports"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7
+
+  android-app:
+    name: Android app
+    needs: changes
+    if: needs.changes.outputs.maestro == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # The app on the emulator and Maestro's scripts (which arrange accounts, on the runner
+      # itself) both reach the edge as http://localhost:8080: see the maestro job.
+      SERVER: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v7
+      # The APK depends on nothing but these files (and the address it is built for): when
+      # they are unchanged, the one built for them before is reused.
+      - name: An APK built from the same files
+        id: apk
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/apk
+          key: android-apk-${{ hashFiles('apps/mobile/**', 'packages/**', 'proto/**', 'pnpm-lock.yaml', 'package.json', 'pnpm-workspace.yaml') }}-localhost-8080
+
+      - if: steps.apk.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-js
+      - if: steps.apk.outputs.cache-hit != 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      # Gradle's own dependencies and build cache (written on main, read everywhere).
+      - if: steps.apk.outputs.cache-hit != 'true'
+        uses: gradle/actions/setup-gradle@v6
+      # A release build carries its JS bundle, built for the address the emulator sees.
+      - name: Build the Android app
+        if: steps.apk.outputs.cache-hit != 'true'
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_TOKULY_URL: ${{ env.SERVER }}
+          GRADLE_OPTS: -Xmx3g -Dorg.gradle.workers.max=2
+        run: |
+          pnpm exec expo prebuild --platform android --no-install
+          cd android
+          ./gradlew assembleRelease -PreactNativeArchitectures=x86_64 --build-cache
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apk/tokuly.apk"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-apk
+          path: ${{ runner.temp }}/apk/tokuly.apk
+          retention-days: 3
+
+  maestro:
+    name: Maestro on an Android emulator
+    needs: [changes, images, android-app]
+    if: needs.changes.outputs.maestro == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TOKULY_IMAGES: local/tokuly
+      TOKULY_VERSION: ci
+      TOKULY_PULL_POLICY: never
+      # The app on the emulator and Maestro's scripts (which arrange accounts, on the runner
+      # itself) both reach the edge as http://localhost:8080: `adb reverse` forwards the
+      # emulator's own ports to the runner (8080, not 80: the device does not let adb bind a
+      # privileged port). Not 10.0.2.2 as the public URL: an IP address cannot be the passkey
+      # (WebAuthn) relying party, and the backend refuses to start with one.
+      SERVER: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-apk
+          path: ${{ runner.temp }}/apk
+      - uses: ./.github/actions/stack-images
+        with:
+          images: ${{ needs.images.outputs.images }}
+          artifact: ${{ needs.images.outputs.artifact }}
+
+      - name: Write .env
+        run: |
+          tools/init-env.sh
+          # As in the browser tests: a small map region and no request limits (the flows make
+          # their accounts from one address). The edge on the port the emulator is given.
+          sed -i 's/^TOKULY_MAP_REGION_BBOX=.*/TOKULY_MAP_REGION_BBOX=139.695,35.655,139.705,35.665/; s/^TOKULY_MAP_REGION_MAXZOOM=.*/TOKULY_MAP_REGION_MAXZOOM=12/; s|^TOKULY_PUBLIC_URL=.*|TOKULY_PUBLIC_URL=${{ env.SERVER }}|; s/^TOKULY_HTTP_PORT=.*/TOKULY_HTTP_PORT=8080/' .env
+          echo 'TOKULY_RATE_LIMITS=false' >> .env
+      - name: Start the stack
+        run: tools/ci/stack-up.sh
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      # Three flows today, one emulator. When there are many, `--shard-split` and a matrix
+      # like the Playwright one spread them over several.
+      - name: Maestro flows
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          ram-size: 3072M
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none
+          script: |
+            adb install "$RUNNER_TEMP/apk/tokuly.apk"
+            # The emulator's localhost is the runner's: the edge, uploads to storage, LiveKit.
+            for port in 8080 9000 7880 7881; do adb reverse tcp:$port tcp:$port || exit 1; done
+            # On failure, also what the device shows and logged (a crash at launch shows only there).
+            maestro test apps/mobile/maestro --env SERVER=${{ env.SERVER }} --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro" || { adb exec-out screencap -p > "$RUNNER_TEMP/maestro-screen.png"; adb logcat -d > "$RUNNER_TEMP/maestro-logcat.txt"; exit 1; }
+
+      - name: Keep the Maestro output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: maestro
+          path: ${{ runner.temp }}/maestro*
+          retention-days: 7
+      - name: Diagnostics
+        if: failure()
+        run: |
+          free -m
+          docker compose ps -a
+          docker compose logs --tail 200 migrate api worker realtime edge

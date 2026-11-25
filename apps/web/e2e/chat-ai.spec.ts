@@ -20,7 +20,7 @@ import {
 
 /**
  * Where the API reaches this machine: loopback when it runs here, the Compose
- * network's gateway when it runs in a container (set by the Browser tests
+ * network's gateway when it runs in a container (set by the End to end
  * workflow). The stand-in listens on that address only.
  */
 const STUB_HOST = process.env.TOKULY_E2E_HOST_FROM_API ?? "127.0.0.1";

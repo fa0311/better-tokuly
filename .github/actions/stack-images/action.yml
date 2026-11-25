@@ -1,0 +1,36 @@
+# Puts the images the images job of e2e.yml chose in place for the Compose
+# stack: loaded from the job's artifact (pull requests from forks, which cannot
+# push to the registry) or pulled from the registry. The job then runs the stack
+# with TOKULY_IMAGES=local/tokuly TOKULY_VERSION=ci TOKULY_PULL_POLICY=never.
+name: Images for the stack
+description: Load or pull the images under test and tag them for compose.yaml.
+inputs:
+  images:
+    description: name=reference pairs separated by spaces (the images job's `images` output).
+    required: true
+  artifact:
+    description: Name of the artifact holding the images as tar files; empty when they are in the registry.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - if: inputs.artifact != ''
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.artifact }}
+        path: ${{ runner.temp }}/images
+    - if: inputs.artifact != ''
+      name: Load the images
+      shell: bash
+      run: for tar in "$RUNNER_TEMP"/images/*.tar; do docker load -q -i "$tar"; done
+    - name: Sign in to the registry (pulls)
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    - name: Tag the images for compose.yaml
+      shell: bash
+      env:
+        IMAGES: ${{ inputs.images }}
+      run: tools/ci/use-images.sh $IMAGES

@@ -43,12 +43,26 @@ jobs:
           # A few city blocks instead of greater Tokyo: the check needs tiles to exist, not a real map.
           sed -i 's/^TOKULY_MAP_REGION_BBOX=.*/TOKULY_MAP_REGION_BBOX=139.695,35.655,139.705,35.665/; s/^TOKULY_MAP_REGION_MAXZOOM=.*/TOKULY_MAP_REGION_MAXZOOM=12/' .env
 
-      - name: Build the images
-        # The backend first, alone: compiling the generated API crate in release mode next to the web
-        # build ran the 16 GB amd64 runner out of memory. The second command reuses its layers.
-        run: |
-          docker compose build --build-arg CARGO_BUILD_JOBS=4 migrate
-          docker compose build
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # The backend first, alone: compiling the generated API crate in release mode next to the web
+      # build ran the 16 GB amd64 runner out of memory. Its layers (third-party crates, the API
+      # crate, the rest: see the Dockerfile) are cached in the registry, per architecture.
+      - name: Build the backend image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/docker/backend.Dockerfile
+          build-args: CARGO_BUILD_JOBS=4
+          tags: ${{ env.REGISTRY }}/backend:candidate
+          load: true
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/ci-cache:backend-release-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/ci-cache:backend-release-${{ matrix.arch }},mode=max
+      - name: Build the other images
+        run: docker compose build web tiles postgres
 
       - name: Start the stack
         run: tools/ci/stack-up.sh
@@ -83,7 +97,6 @@ jobs:
       - name: Push this architecture's images
         if: inputs.tags != ''
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           for image in backend web tiles postgres; do
             docker tag "$REGISTRY/$image:candidate" "$REGISTRY/$image:sha-${GITHUB_SHA::12}-${{ matrix.arch }}"
             docker push "$REGISTRY/$image:sha-${GITHUB_SHA::12}-${{ matrix.arch }}"
