@@ -1057,3 +1057,36 @@ test.describe("review", () => {
     await expect(page.getByRole("heading", { name: "スタンプ審査" })).toHaveCount(0);
   });
 });
+
+test("a creator is told a pack sold without being told who bought it", async ({
+  page,
+  request,
+  me,
+}) => {
+  const pack = await draftPack(request, me, { price: 40, stamps: 1 });
+  await rpc(request, `${STUDIO}/SubmitPack`, { packId: pack.id }, me);
+  await rpc(request, `${REVIEW}/ApprovePack`, { packId: pack.id }, await adminAccount(request));
+  const buyer = await createAccount(request, "kaitai");
+  await grantCoins(request, buyer);
+  await rpc(request, `${LIBRARY}/PurchasePack`, { packId: pack.id, expectedPrice: 40 }, buyer);
+
+  // The API never hands out the buyer: no actor on the entry, only "someone".
+  const sold = async () =>
+    (
+      await rpc<{ notifications?: { kind: string; actor?: unknown; actorUnnamed?: boolean }[] }>(
+        request,
+        "tokuly.notify.v1.InboxService/ListNotifications",
+        {},
+        me,
+      )
+    ).notifications?.find((entry) => entry.kind === "stamp.pack.sold");
+  await expect.poll(sold, { timeout: 30_000 }).toMatchObject({ actorUnnamed: true });
+  expect((await sold())?.actor).toBeUndefined();
+
+  // The inbox shows a neutral face, and nothing of the buyer.
+  await open(page, "/notifications");
+  const entry = page.getByRole("link").filter({ hasText: "スタンプが売れたよ!" });
+  await expect(entry.getByRole("img", { name: "だれか" })).toBeVisible();
+  await expect(entry).not.toContainText(buyer.displayName);
+  await expect(entry).not.toContainText(buyer.handle);
+});

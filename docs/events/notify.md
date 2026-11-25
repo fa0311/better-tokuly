@@ -223,7 +223,14 @@ sender-only push never shows more than the full one: producers leave the
 actor out of anonymous notifications, and one whose text does not name its
 actor on purpose marks it `NotificationRequest::unnamed_actor` (the actor
 still counts for mutes and blocks; stamp's "someone bought your pack"), so
-neither is ever named. The rewrite happens in `delivery.rs` on the per-device message
+neither is ever named.
+
+An unnamed actor is never returned to the recipient anywhere: the inbox
+entry (`ListNotifications`, the realtime `received` event) has no `actor`
+but `actor_unnamed = true` (the web shows a neutral 「だれか」 face), and the
+data export leaves `actor_id` out. `notifications.actor_id` is still stored
+for blocks, mutes and account deletion. A newer event folded into the same
+entry decides again whether its actor is shown. The rewrite happens in `delivery.rs` on the per-device message
 (`preview::apply`), before any channel builds its payload: what a choice
 leaves out is not in the Web Push plaintext, the FCM request or the APNs
 payload at all. The setting is read when the push is sent, so a change also

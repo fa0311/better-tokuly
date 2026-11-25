@@ -155,6 +155,7 @@ export default {
       already: "ミュート中",
     },
   },
+  someone: "だれか",
   preview: {
     title: "通知に内容を表示",
     lead: "ロック画面のプッシュ通知に、どこまで見せるか選べるよ。",

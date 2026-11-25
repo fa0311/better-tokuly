@@ -155,6 +155,7 @@ export default {
       already: "Muted",
     },
   },
+  someone: "Someone",
   preview: {
     title: "Show content in notifications",
     lead: "Choose how much push notifications show on your lock screen.",

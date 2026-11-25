@@ -178,6 +178,7 @@ fn inbox_entry<'a>(
         kind: &request.kind,
         category: category.id,
         actor_id: request.actor_id,
+        actor_unnamed: request.actor_unnamed,
         title: &request.title,
         body: &request.body,
         image_url: request.image_url.as_deref(),

@@ -12,6 +12,11 @@ CREATE TABLE notifications (
     -- Who caused it. No foreign key: a request naming an unknown actor must
     -- not poison the consumer; rows are removed on `identity.user.deleted`.
     actor_id     uuid,
+    -- The producer's text does not name the actor on purpose
+    -- (`NotificationRequest::unnamed_actor`): `actor_id` is kept for blocks,
+    -- mutes and account deletion, but never shown or exported to the
+    -- recipient.
+    actor_unnamed boolean    NOT NULL DEFAULT false,
     title_ja     text        NOT NULL,
     title_en     text        NOT NULL,
     body_ja      text        NOT NULL,

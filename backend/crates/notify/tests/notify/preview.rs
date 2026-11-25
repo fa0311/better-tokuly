@@ -228,3 +228,53 @@ async fn sender_only_never_names_an_actor_the_full_text_leaves_out() {
     assert!(!decrypted.contains("buyer"), "the buyer is named: {decrypted}");
     assert_eq!(message["notification"]["body"], "スタンプ・絵文字のお知らせが届いたよ");
 }
+
+#[tokio::test]
+async fn the_inbox_never_returns_an_unnamed_actor() {
+    let ctx = start().await;
+    let (creator, buyer) = (ctx.app.user("creator").await, ctx.app.user("buyer").await);
+    let mut frames = ctx.app.listen_user(creator.id).await;
+    // Stamp's notice when a pack sells: the buyer caused it but stays unnamed.
+    let sale = tokuly_core::outbound::NotificationRequest::new(
+        creator.id,
+        "stamp.pack.sold",
+        tokuly_core::outbound::Localized::new("スタンプが売れたよ!", "You sold a stamp pack!"),
+        tokuly_core::outbound::Localized::new("「ねこ」が購入されたよ! +90コイン", "Someone bought “ねこ”. +90 coins"),
+        "/stamps/studio",
+    )
+    .unnamed_actor(buyer.id)
+    .collapse("stamp.pack.sold:ねこ");
+    let id = ctx.deliver_to_inbox(&sale).await;
+    let buyer_id = buyer.id.to_string();
+
+    // ListNotifications
+    let inbox = ctx.inbox(&creator).await;
+    let entry = inbox.notifications.iter().find(|n| n.id == id).expect("the sale is in the inbox");
+    assert!(entry.actor.as_option().is_none(), "no buyer in the list: {:?}", entry.actor);
+    assert!(entry.actor_unnamed, "someone, unnamed");
+    // The realtime push of the new entry.
+    let frame = frames.next(std::time::Duration::from_secs(5)).await.expect("a realtime frame");
+    let pushed = frame.event::<NotifyEvent>().expect("a notify frame");
+    let Some(notify_event::Event::Received(received)) = pushed.event else { panic!("expected `received`") };
+    assert!(received.notification.as_option().unwrap().actor.as_option().is_none(), "no buyer in the push");
+    // The personal data export.
+    let exporter = ctx.app.core.exporters.all().into_iter().find(|e| e.name() == "notify").unwrap();
+    let export = exporter.export(creator.id).await.unwrap().to_string();
+    assert!(!export.contains(&buyer_id) && !export.contains(&buyer.handle), "no buyer in the export: {export}");
+
+    // A named sale folded into the same entry shows its actor again, and an
+    // unnamed one after it hides it again.
+    ctx.deliver_to_inbox(&tokuly_core::outbound::NotificationRequest { actor_unnamed: false, ..sale.clone() }).await;
+    let shown = ctx.inbox(&creator).await.notifications.into_iter().find(|n| n.id == id).unwrap();
+    assert_eq!(shown.actor.as_option().map(|a| a.id.as_str()), Some(buyer_id.as_str()));
+    ctx.deliver_to_inbox(&sale).await;
+    let hidden = ctx.inbox(&creator).await.notifications.into_iter().find(|n| n.id == id).unwrap();
+    assert!(hidden.actor.as_option().is_none());
+
+    // The actor still counts for blocks: blocking the buyer removes the entry.
+    let block = event(USER_BLOCKED_TOPIC_NAME, serde_json::json!({ "user_id": creator.id, "blocked_id": buyer.id }));
+    ctx.notify.handle_event(block).await.unwrap();
+    assert!(ctx.inbox(&creator).await.notifications.iter().all(|n| n.id != id), "blocking the buyer removes it");
+}
+
+const USER_BLOCKED_TOPIC_NAME: &str = "social.user.blocked";
