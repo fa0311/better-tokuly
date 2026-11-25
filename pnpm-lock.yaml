@@ -206,6 +206,9 @@ catalogs:
     '@tailwindcss/vite':
       specifier: 4.3.5
       version: 4.3.5
+    '@tanstack/query-core':
+      specifier: 5.108.1
+      version: 5.108.1
     '@tanstack/react-query':
       specifier: 5.108.1
       version: 5.108.1
@@ -498,6 +501,9 @@ importers:
       '@connectrpc/connect':
         specifier: 'catalog:'
         version: 2.3.0(@bufbuild/protobuf@2.17.0)
+      '@tanstack/query-core':
+        specifier: 'catalog:'
+        version: 5.108.1
       '@tokuly/api':
         specifier: workspace:*
         version: link:../api

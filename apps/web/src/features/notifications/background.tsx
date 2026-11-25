@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import type { notify } from "@tokuly/api";
+import { withRead, withReceived, withRemoved } from "@tokuly/core/notifications";
 import { X } from "lucide-react";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,6 @@ import { setBadge } from "#/stores/badges";
 import { useSessionStore } from "#/stores/session";
 import { applyInboxChange, applyUnread, notifyKeys, rereadInbox, useUnread } from "./api";
 import { openNotification } from "./inbox-actions";
-import { withRead, withReceived, withRemoved } from "./inbox-cache";
 import { NotificationFace } from "./notification-face";
 import { closeShownNotifications, refreshPushRegistration, serviceWorker } from "./push";
 

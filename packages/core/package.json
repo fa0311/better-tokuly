@@ -10,7 +10,8 @@
     "./errors": "./src/errors/index.ts",
     "./query": "./src/query/index.ts",
     "./chat": "./src/chat/index.ts",
-    "./map": "./src/map/index.ts"
+    "./map": "./src/map/index.ts",
+    "./notifications": "./src/notifications/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -19,6 +20,7 @@
   "dependencies": {
     "@bufbuild/protobuf": "catalog:",
     "@connectrpc/connect": "catalog:",
+    "@tanstack/query-core": "catalog:",
     "@tokuly/api": "workspace:*",
     "@tokuly/i18n": "workspace:*",
     "i18next": "catalog:"
