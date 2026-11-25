@@ -119,10 +119,14 @@ export async function switchAccount(sessionId: string, totpCode = ""): Promise<S
     });
   }
   const current = activeSessionId();
-  if (current) await leave();
+  // A wrong code, a cancel or a network failure leaves the account in use as it was:
+  // it leaves (stops sharing, tells the server) only once the switch went through.
   const response = await authClient().switchAccount({ refreshToken: token, totpCode });
   if (response.mfaRequired) return "needsCode";
-  if (current) await parkActive(current);
+  if (current) {
+    await leave();
+    await parkActive(current);
+  }
   await forgetParked(sessionId);
   await startOver(response);
   return "switched";

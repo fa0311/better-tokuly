@@ -8,12 +8,19 @@ import { activeTokenStore, parkedTokens } from "../vault";
 /** The server, at the edge: answers SwitchAccount as the account the refresh token belongs to. */
 const calls: string[] = [];
 let switchAnswer: identity.AuthResponse;
+/** The server refuses the switch (a wrong code), as Connect errors look on the wire. */
+let switchFails = false;
 async function mockServer(input: string, init: { body: Uint8Array }): Promise<Response> {
   const method = new URL(input).pathname.split("/").pop() ?? "";
   calls.push(method);
   if (method !== "SwitchAccount") throw new Error(`unexpected ${method}`);
   const request = fromBinary(identity.SwitchAccountRequestSchema, init.body);
   calls.push(`token:${request.refreshToken}`);
+  if (switchFails)
+    return new Response(JSON.stringify({ code: "unauthenticated", message: "wrong code" }), {
+      status: 401,
+      headers: { "content-type": "application/json", "x-tokuly-error": "INVALID_TOTP" },
+    });
   return new Response(toBinary(identity.AuthResponseSchema, switchAnswer), {
     status: 200,
     headers: { "content-type": "application/proto" },
@@ -34,6 +41,7 @@ const signedInAs = (user: string, sessionId: string, refreshToken: string) =>
 
 beforeEach(async () => {
   calls.length = 0;
+  switchFails = false;
   // `main` is signed in; `alt` is parked on this device.
   resetApi();
   await api().session.adopt(signedInAs("main", "s-main", "rt-main"));
@@ -51,8 +59,8 @@ describe("switchAccount", () => {
     await expect(switchAccount("s-alt")).resolves.toBe("switched");
     off();
 
-    // Sharing and the like stop while the old session still works: before the switch is sent.
-    expect(left).toEqual(["left while 0 calls"]);
+    // The account in use leaves once the switch went through, before the new one starts.
+    expect(left).toEqual(["left while 2 calls"]);
     expect(calls).toEqual(["SwitchAccount", "token:rt-alt"]);
     expect(await activeTokenStore.get()).toBe("rt-alt-rotated");
     expect(await parkedTokens()).toEqual({ "s-main": "rt-main" });
@@ -63,9 +71,27 @@ describe("switchAccount", () => {
 
   it("changes nothing until the second factor is given", async () => {
     switchAnswer = create(identity.AuthResponseSchema, { mfaRequired: true });
+    const left = jest.fn();
+    const off = onBeforeLeave(left);
 
     await expect(switchAccount("s-alt")).resolves.toBe("needsCode");
+    off();
 
+    expect(left).not.toHaveBeenCalled();
+    expect(await activeTokenStore.get()).toBe("rt-main");
+    expect(await parkedTokens()).toEqual({ "s-alt": "rt-alt" });
+    expect(useSessionStore.getState().generation).toBe(0);
+  });
+
+  it("keeps the account in use as it was when the switch fails", async () => {
+    switchFails = true;
+    const left = jest.fn();
+    const off = onBeforeLeave(left);
+
+    await expect(switchAccount("s-alt", "000000")).rejects.toThrow();
+    off();
+
+    expect(left).not.toHaveBeenCalled();
     expect(await activeTokenStore.get()).toBe("rt-main");
     expect(await parkedTokens()).toEqual({ "s-alt": "rt-alt" });
     expect(useSessionStore.getState().generation).toBe(0);
