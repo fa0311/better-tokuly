@@ -90,6 +90,21 @@ pub(crate) fn is_currency_code(code: &str) -> bool {
     code.len() == 3 && code.bytes().all(|b| b.is_ascii_uppercase())
 }
 
+impl WalletConfig {
+    /// Settings whose empty value means something (none, off): an empty
+    /// environment variable is that value, not "unset".
+    pub const EMPTY_IS_A_VALUE: &'static [&'static str] = &["daily_bonus_coins"];
+
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "purchase_ttl_minutes",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;

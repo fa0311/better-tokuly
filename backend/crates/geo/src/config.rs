@@ -180,6 +180,29 @@ impl GeoConfig {
     }
 }
 
+impl GeoConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "stay_radius_meters",
+        "stay_seconds",
+        "gathering_radius_meters",
+        "gathering_seconds",
+        "moving_interval_seconds",
+        "stationary_interval_seconds",
+        "max_sample_age_hours",
+        "home_nights",
+        "one_time_alert_hours",
+        "pending_alert_days",
+        "sos_max_hours",
+        "max_cells",
+        "pipeline_lanes",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

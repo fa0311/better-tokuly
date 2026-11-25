@@ -84,7 +84,7 @@ impl Media {
             .ok_or_else(|| AppError::invalid("PURPOSE_INVALID", "unknown upload purpose"))?;
         let file_name = recipe::sanitize_file_name(upload.file_name);
         let declared = recipe::classify_declared(upload.content_type, &file_name);
-        let Some(max_bytes) = recipe::max_bytes(&self.cfg, purpose, declared.class) else {
+        let Some(max_bytes) = recipe::max_bytes(&self.live(), purpose, declared.class) else {
             bail!(denied, "PURPOSE_NOT_ALLOWED", "clients cannot upload for this purpose");
         };
         let Some(kind) = recipe::resolve(purpose, declared.class) else {
@@ -108,7 +108,7 @@ impl Media {
             (None, 0, 0, url)
         };
 
-        let max_duration_seconds = recipe::max_duration_of(&self.cfg, purpose, kind);
+        let max_duration_seconds = recipe::max_duration_of(&self.live(), purpose, kind);
         let row = NewRow {
             attrs: recipe::new_asset_attrs(max_duration_seconds, false),
             asset_id,
@@ -176,7 +176,7 @@ impl Media {
         .await?;
         ensure!(open < MAX_OPEN_UPLOADS, rate_limited, "TOO_MANY_UPLOADS", "finish or abort your unfinished uploads first");
         ensure!(
-            unused_bytes.saturating_add(row.upload.size_bytes) <= self.cfg.max_unused_bytes(),
+            unused_bytes.saturating_add(row.upload.size_bytes) <= self.live().max_unused_bytes(),
             rate_limited,
             "UNUSED_QUOTA_EXCEEDED",
             "use or delete some of your uploads first"
@@ -191,7 +191,7 @@ impl Media {
         .fetch_one(&mut *tx)
         .await?;
         ensure!(
-            uploaded_today.saturating_add(row.upload.size_bytes) <= self.cfg.daily_upload_bytes(),
+            uploaded_today.saturating_add(row.upload.size_bytes) <= self.live().daily_upload_bytes(),
             rate_limited,
             "DAILY_UPLOAD_LIMIT_EXCEEDED",
             "you have uploaded as much as one account may in a day; try again later"

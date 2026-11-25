@@ -3,7 +3,13 @@
 //! Key naming: `<domain>:<thing>:<id>`, e.g. `geo:loc:<user_id>`. Domains use
 //! [`Cache::conn`] for arbitrary commands; the helpers here cover the common
 //! cases.
-use std::time::Duration;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use redis::{AsyncCommands as _, aio::ConnectionManager};
 use serde::{Serialize, de::DeserializeOwned};
@@ -14,7 +20,8 @@ use crate::error::{AppError, AppResult};
 pub struct Cache {
     conn: ConnectionManager,
     /// `false` turns [`Cache::rate_limit`] into a no-op (`TOKULY_RATE_LIMITS`).
-    rate_limits: bool,
+    /// Shared by every clone, so the console can switch it while running.
+    rate_limits: Arc<AtomicBool>,
 }
 
 impl Cache {
@@ -24,13 +31,23 @@ impl Cache {
         let conn = ConnectionManager::new(client)
             .await
             .map_err(|e| anyhow::anyhow!("cannot connect to Valkey at {url}: {e}"))?;
-        Ok(Self { conn, rate_limits: true })
+        Ok(Self { conn, rate_limits: Arc::new(AtomicBool::new(true)) })
     }
 
     /// Whether [`Cache::rate_limit`] enforces its limits (it does by default).
-    pub fn with_rate_limits(mut self, enforce: bool) -> Self {
-        self.rate_limits = enforce;
+    pub fn with_rate_limits(self, enforce: bool) -> Self {
+        self.set_rate_limits(enforce);
         self
+    }
+
+    /// Switches the limits on or off for every clone of this cache.
+    pub fn set_rate_limits(&self, enforce: bool) {
+        self.rate_limits.store(enforce, Ordering::Relaxed);
+    }
+
+    /// Whether [`Cache::rate_limit`] enforces its limits right now.
+    pub fn enforces_rate_limits(&self) -> bool {
+        self.rate_limits.load(Ordering::Relaxed)
     }
 
     /// A cheap clone of the multiplexed connection for raw commands.
@@ -121,7 +138,7 @@ impl Cache {
     /// Returns a `resource_exhausted` error when exceeded. Always allows when
     /// limits are switched off for this deployment (`TOKULY_RATE_LIMITS=false`).
     pub async fn rate_limit(&self, key: &str, max: u32, window: Duration) -> AppResult<()> {
-        if !self.rate_limits {
+        if !self.enforces_rate_limits() {
             return Ok(());
         }
         let key = format!("rl:{key}");

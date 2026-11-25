@@ -47,6 +47,7 @@ pub struct Config {
     pub trusted_proxies: Vec<String>,
 
     // ── PostgreSQL ──
+    /// PostgreSQL connection URL (with the password).
     #[arg(
         long,
         env = "TOKULY_DATABASE_URL",
@@ -54,10 +55,12 @@ pub struct Config {
         hide_env_values = true
     )]
     pub database_url: String,
+    /// Connections each process keeps in its PostgreSQL pool.
     #[arg(long, env = "TOKULY_DATABASE_MAX_CONNECTIONS", default_value_t = 20)]
     pub database_max_connections: u32,
 
     // ── Valkey ──
+    /// Valkey (Redis protocol) URL: caches, rate limits, short-lived tokens.
     #[arg(
         long,
         env = "TOKULY_VALKEY_URL",
@@ -67,6 +70,7 @@ pub struct Config {
     pub valkey_url: String,
 
     // ── NATS ──
+    /// NATS URL: events, jobs and realtime fan-out.
     #[arg(
         long,
         env = "TOKULY_NATS_URL",
@@ -92,8 +96,10 @@ pub struct Config {
     /// Defaults to `TOKULY_S3_ENDPOINT`.
     #[arg(long, env = "TOKULY_S3_PUBLIC_ENDPOINT")]
     pub s3_public_endpoint: Option<String>,
+    /// Region the object store signs requests for.
     #[arg(long, env = "TOKULY_S3_REGION", default_value = "us-east-1")]
     pub s3_region: String,
+    /// Access key of the object store.
     #[arg(
         long,
         env = "TOKULY_S3_ACCESS_KEY",
@@ -101,6 +107,7 @@ pub struct Config {
         hide_env_values = true
     )]
     pub s3_access_key: String,
+    /// Secret key of the object store.
     #[arg(
         long,
         env = "TOKULY_S3_SECRET_KEY",
@@ -124,14 +131,17 @@ pub struct Config {
     pub media_url: Option<String>,
 
     // ── ClickHouse ──
+    /// ClickHouse HTTP URL (product analytics).
     #[arg(
         long,
         env = "TOKULY_CLICKHOUSE_URL",
         default_value = "http://localhost:8123"
     )]
     pub clickhouse_url: String,
+    /// ClickHouse user.
     #[arg(long, env = "TOKULY_CLICKHOUSE_USER", default_value = "tokuly")]
     pub clickhouse_user: String,
+    /// ClickHouse password.
     #[arg(
         long,
         env = "TOKULY_CLICKHOUSE_PASSWORD",
@@ -139,16 +149,19 @@ pub struct Config {
         hide_env_values = true
     )]
     pub clickhouse_password: String,
+    /// ClickHouse database holding the analytics tables.
     #[arg(long, env = "TOKULY_CLICKHOUSE_DATABASE", default_value = "tokuly")]
     pub clickhouse_database: String,
 
     // ── Meilisearch ──
+    /// Meilisearch URL (search).
     #[arg(
         long,
         env = "TOKULY_MEILI_URL",
         default_value = "http://localhost:7700"
     )]
     pub meili_url: String,
+    /// Meilisearch master key.
     #[arg(
         long,
         env = "TOKULY_MEILI_KEY",
@@ -167,6 +180,7 @@ pub struct Config {
         hide_env_values = true
     )]
     pub smtp_url: String,
+    /// Sender of outgoing mail (`Name <address>`).
     #[arg(
         long,
         env = "TOKULY_MAIL_FROM",
@@ -183,8 +197,10 @@ pub struct Config {
     /// LiveKit URL clients connect to (`ws://` / `wss://`).
     #[arg(long, env = "TOKULY_LIVEKIT_PUBLIC_URL", default_value = "")]
     pub livekit_public_url: String,
+    /// LiveKit API key.
     #[arg(long, env = "TOKULY_LIVEKIT_API_KEY", default_value = "", hide_env_values = true)]
     pub livekit_api_key: String,
+    /// LiveKit API secret.
     #[arg(long, env = "TOKULY_LIVEKIT_API_SECRET", default_value = "", hide_env_values = true)]
     pub livekit_api_secret: String,
 
@@ -247,6 +263,26 @@ impl Config {
         );
         url::Url::parse(self.public_url())
             .map_err(|e| anyhow::anyhow!("TOKULY_PUBLIC_URL is not a valid URL: {e}"))?;
+        // What `Core::connect` builds from the settings without the network,
+        // built here too: a console change is checked with this before it is
+        // saved, and a value the server cannot start with must be refused.
+        crate::mail::Mailer::new(&self.smtp_url, &self.mail_from)?;
+        crate::livekit::LiveKit::from_config(self)?;
         Ok(())
     }
+}
+
+impl Config {
+    /// Settings whose empty value means something (none, off): an empty
+    /// environment variable is that value, not "unset".
+    pub const EMPTY_IS_A_VALUE: &'static [&'static str] = &["api_path_prefix", "trusted_proxies"];
+
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "mail_from",
+    ];
 }

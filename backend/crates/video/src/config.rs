@@ -198,3 +198,27 @@ impl VideoConfig {
         Ok(())
     }
 }
+
+impl VideoConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "max_channels",
+        "min_view_seconds",
+        "view_dedupe_seconds",
+        "report_interval_seconds",
+        "publish_interval_seconds",
+        "trending_interval_seconds",
+        "trending_half_life_hours",
+        "max_playlists",
+        "max_playlist_items",
+        "announce_batch_size",
+        "party_max_members",
+        "party_max_hosted",
+        "party_max_hours",
+        "party_member_timeout_seconds",
+    ];
+}

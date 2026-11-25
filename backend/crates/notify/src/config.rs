@@ -42,8 +42,10 @@ pub struct NotifyConfig {
     /// all set.
     #[arg(long, env = "TOKULY_APNS_KEY_P8", default_value = "", hide_env_values = true)]
     pub apns_key_p8: String,
+    /// Key ID of the APNs signing key.
     #[arg(long, env = "TOKULY_APNS_KEY_ID", default_value = "")]
     pub apns_key_id: String,
+    /// Apple developer team ID (APNs).
     #[arg(long, env = "TOKULY_APNS_TEAM_ID", default_value = "")]
     pub apns_team_id: String,
     /// The iOS app's bundle ID.
@@ -135,6 +137,24 @@ impl NotifyConfig {
             .iter()
             .all(|v| !v.trim().is_empty())
     }
+}
+
+impl NotifyConfig {
+    /// Settings whose empty value means something (none, off): an empty
+    /// environment variable is that value, not "unset".
+    pub const EMPTY_IS_A_VALUE: &'static [&'static str] = &["webpush_allowed_hosts"];
+
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "push_ttl_seconds",
+        "push_rate_per_minute",
+        "push_rate_per_sender_per_minute",
+        "retention_days",
+    ];
 }
 
 #[cfg(test)]

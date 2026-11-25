@@ -89,8 +89,10 @@ pub struct MediaConfig {
     /// top of the daily byte budget. 0 switches the budget off.
     #[arg(long, env = "TOKULY_MEDIA_DAILY_TRANSCODE_MINUTES", default_value_t = 720)]
     pub daily_transcode_minutes: i64,
+    /// The ffmpeg executable.
     #[arg(long, env = "TOKULY_MEDIA_FFMPEG_PATH", default_value = "ffmpeg")]
     pub ffmpeg_path: PathBuf,
+    /// The ffprobe executable.
     #[arg(long, env = "TOKULY_MEDIA_FFPROBE_PATH", default_value = "ffprobe")]
     pub ffprobe_path: PathBuf,
     /// Scratch directory for transcodes; needs room for the largest upload
@@ -198,6 +200,37 @@ fn div_ceil(a: i64, b: i64) -> i64 {
 
 pub const fn megabytes(mb: i64) -> i64 {
     mb * MB
+}
+
+impl MediaConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "max_avatar_mb",
+        "max_image_mb",
+        "max_clip_mb",
+        "max_video_mb",
+        "max_short_mb",
+        "max_audio_mb",
+        "max_file_mb",
+        "multipart_threshold_mb",
+        "part_size_mb",
+        "upload_ttl_hours",
+        "unattached_ttl_hours",
+        "max_unused_gb",
+        "daily_upload_gb",
+        "image_concurrency",
+        "video_concurrency",
+        "ffmpeg_threads",
+        "x264_preset",
+        "av1",
+        "max_video_hours",
+        "transcodes_per_account",
+        "daily_transcode_minutes",
+    ];
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 // Administration and moderation: the reports queue, account sanctions,
 // content takedowns, feature flags, announcements (the product update log),
-// server stats and the audit log.
+// server stats, the audit log and the server settings.
 //
 // Roles. Every RPC names the role it needs: `moderator` or `admin` (admins
 // hold every role). A signed-in caller without the role gets
@@ -1123,5 +1123,192 @@ message ListAuditLogRequest {
 
 message ListAuditLogResponse {
   repeated AuditEntry entries = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+// ───────────────────────────── Server settings ─────────────────────────────
+
+// 「サーバー設定」: every setting of the backend with its value and where the
+// value comes from. Highest first: the environment (and command line),
+// `tokuly.toml`, this console, the default. Only settings their domain lets
+// the console change are edited here (limits, quotas, tuning, texts); the
+// rest (addresses, credentials, egress guards, paths, money, privacy floors)
+// are set in `tokuly.toml` or the environment only. A setting the
+// environment or the file sets is locked here, and so are those with a
+// screen of their own. Secrets are write-only:
+// only whether one is set and, for values saved here, its last four
+// characters are returned. Every RPC needs the `admin` role.
+service ServerSettingsService {
+  // Every setting, grouped by section in the order of `tokuly.example.toml`.
+  // Role: `admin`.
+  rpc ListServerSettings(ListServerSettingsRequest) returns (ListServerSettingsResponse);
+  // Saves a console value of a setting, or removes it (`reset`, allowed for
+  // every setting: a value stored for one the console may not change is
+  // never applied, and is shown so it can be removed). The change
+  // is checked by the setting's type and by its domain's own rules first,
+  // applied at once for live settings and on the next restart of the
+  // listed processes otherwise, recorded with who made it, and written to
+  // the audit log (`server_setting.updated`). Role: `admin`.
+  // Errors: SETTING_NOT_FOUND, SETTING_LOCKED (set by the environment or
+  // `tokuly.toml`), SETTING_FILE_ONLY (not a console setting), SETTING_MANAGED_ELSEWHERE,
+  // SETTING_INVALID (with the reason), SETTING_TOO_LONG, RATE_LIMITED.
+  rpc UpdateServerSetting(UpdateServerSettingRequest) returns (UpdateServerSettingResponse);
+  // The settings in force that are not secrets and not defaults, as a
+  // `tokuly.toml`, to move from the console to the declarative file.
+  // Role: `admin`.
+  rpc ExportServerSettings(ExportServerSettingsRequest) returns (ExportServerSettingsResponse);
+  // Changes made in the console, newest first, of one setting or of all.
+  // Role: `admin`.
+  // Errors: SETTING_NOT_FOUND.
+  rpc ListServerSettingChanges(ListServerSettingChangesRequest) returns (ListServerSettingChangesResponse);
+}
+
+// Where the value in force comes from.
+enum ServerSettingSource {
+  SERVER_SETTING_SOURCE_UNSPECIFIED = 0;
+  // The setting's default.
+  SERVER_SETTING_SOURCE_DEFAULT = 1;
+  // Saved in this console.
+  SERVER_SETTING_SOURCE_CONSOLE = 2;
+  // `tokuly.toml`.
+  SERVER_SETTING_SOURCE_FILE = 3;
+  // A `TOKULY_*` environment variable.
+  SERVER_SETTING_SOURCE_ENVIRONMENT = 4;
+  // A command-line flag of the process.
+  SERVER_SETTING_SOURCE_COMMAND_LINE = 5;
+}
+
+// The type of a setting's value (its form in `tokuly.toml`).
+enum ServerSettingKind {
+  SERVER_SETTING_KIND_UNSPECIFIED = 0;
+  // `true` or `false`.
+  SERVER_SETTING_KIND_BOOL = 1;
+  SERVER_SETTING_KIND_INTEGER = 2;
+  // Integer or decimal.
+  SERVER_SETTING_KIND_NUMBER = 3;
+  SERVER_SETTING_KIND_TEXT = 4;
+  // Comma-separated text (a TOML array).
+  SERVER_SETTING_KIND_LIST = 5;
+}
+
+// Why a setting cannot be changed here.
+enum ServerSettingLock {
+  SERVER_SETTING_LOCK_UNSPECIFIED = 0;
+  // Editable.
+  SERVER_SETTING_LOCK_NONE = 1;
+  // Not a console setting: only `tokuly.toml` or the environment set it.
+  SERVER_SETTING_LOCK_FILE_ONLY = 2;
+  // The environment, the command line or `tokuly.toml` sets it (`source` says which).
+  SERVER_SETTING_LOCK_OVERRIDDEN = 3;
+  // Edited on another screen of the console (`managed_at`).
+  SERVER_SETTING_LOCK_MANAGED_ELSEWHERE = 4;
+}
+
+// A kind of backend process.
+enum ServerProcess {
+  SERVER_PROCESS_UNSPECIFIED = 0;
+  SERVER_PROCESS_API = 1;
+  SERVER_PROCESS_REALTIME = 2;
+  SERVER_PROCESS_WORKER = 3;
+}
+
+message ServerSetting {
+  // `[section]` in `tokuly.toml`, e.g. `media`.
+  string section = 1;
+  // The key inside the section, e.g. `max_video_hours`.
+  string key = 2;
+  // The environment variable, e.g. `TOKULY_MEDIA_MAX_VIDEO_HOURS`.
+  string env = 3;
+  // What the setting does (English, from the backend's documentation).
+  string description = 4;
+  ServerSettingKind kind = 5;
+  // The values accepted, when there is a fixed list.
+  repeated string choices = 6;
+  // The default as text (lists comma separated); unset when there is none.
+  // Unset for secrets.
+  optional string default_value = 7;
+  // The value in force as text; unset for secrets and when nothing sets it.
+  optional string value = 8;
+  ServerSettingSource source = 9;
+  // Write-only: neither `value`, `default_value` nor `console_value` is ever returned.
+  bool secret = 10;
+  // A secret has a value in force.
+  bool secret_set = 11;
+  // The last four characters of a secret saved in this console.
+  string secret_last4 = 12;
+  ServerSettingLock lock = 13;
+  // The console path of the screen that edits it (`/admin/chat-ai`), with
+  // SERVER_SETTING_LOCK_MANAGED_ELSEWHERE.
+  string managed_at = 14;
+  // A change applies at once; otherwise on restart of `processes`.
+  bool live = 15;
+  // The processes that read the setting.
+  repeated ServerProcess processes = 16;
+  // This API process runs with another value than the one in force now:
+  // the change needs a restart of `processes`.
+  bool restart_pending = 17;
+  // What this console saved, also while a higher layer overrides it.
+  // Unset when nothing is saved, and for secrets (see `console_secret_set`).
+  optional string console_value = 18;
+  // A secret is saved in this console.
+  bool console_secret_set = 19;
+  // Why the value saved in this console is not in force: the section did
+  // not pass its checks with it (all console values of the section are set
+  // aside together, so the server starts without them). Empty when in force.
+  string console_rejected = 20;
+}
+
+message ListServerSettingsRequest {}
+
+message ListServerSettingsResponse {
+  repeated ServerSetting settings = 1;
+  // The `tokuly.toml` the backend read; empty when none.
+  string file_path = 2;
+}
+
+message UpdateServerSettingRequest {
+  string section = 1;
+  string key = 2;
+  // The new value as text (lists comma separated). Ignored with `reset`.
+  string value = 3;
+  // Removes the console value: the default (or a lower layer) applies again.
+  bool reset = 4;
+}
+
+message UpdateServerSettingResponse {
+  ServerSetting setting = 1;
+}
+
+message ExportServerSettingsRequest {}
+
+message ExportServerSettingsResponse {
+  // A `tokuly.toml`; each value carries a comment naming where it came from.
+  string toml = 1;
+}
+
+// One change made in the console.
+message ServerSettingChange {
+  string id = 1;
+  string section = 2;
+  string key = 3;
+  // The console value before and after; unset when there was none (the
+  // lower layers applied). Secrets read `••••`.
+  optional string old_value = 4;
+  optional string new_value = 5;
+  bool secret = 6;
+  // Unset for deleted accounts.
+  tokuly.common.v1.UserSummary actor = 7;
+  google.protobuf.Timestamp changed_at = 8;
+}
+
+message ListServerSettingChangesRequest {
+  tokuly.common.v1.PageRequest page = 1;
+  // Only this setting (both set), or every setting (both empty).
+  string section = 2;
+  string key = 3;
+}
+
+message ListServerSettingChangesResponse {
+  repeated ServerSettingChange changes = 1;
   tokuly.common.v1.PageInfo page = 2;
 }

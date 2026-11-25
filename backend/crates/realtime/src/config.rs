@@ -303,6 +303,27 @@ pub fn parse_duration(text: &str) -> Result<Duration, String> {
     Duration::try_from_secs_f64(seconds).map_err(|e| format!("`{text}` is not a usable duration: {e}"))
 }
 
+impl RealtimeConfig {
+    /// Settings whose empty value means something (none, off): an empty
+    /// environment variable is that value, not "unset".
+    pub const EMPTY_IS_A_VALUE: &'static [&'static str] = &["wt_listen", "trusted_proxies"];
+
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "max_connections",
+        "max_connections_per_ip",
+        "max_topics",
+        "location_burst",
+        "location_rate",
+        "moving_interval",
+        "stationary_interval",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;

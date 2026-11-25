@@ -1,4 +1,12 @@
-import { Flag, Gavel, LayoutDashboard, Megaphone, ScrollText, Users } from "lucide-react";
+import {
+  Flag,
+  Gavel,
+  LayoutDashboard,
+  Megaphone,
+  ScrollText,
+  SlidersHorizontal,
+  Users,
+} from "lucide-react";
 import i18n from "#/lib/i18n";
 import type { AdminSection } from "#/seams/admin";
 
@@ -38,6 +46,14 @@ export default [
     icon: Megaphone,
     needs: "admin",
     label: label("announcements"),
+  },
+  {
+    id: "settings",
+    order: 45,
+    to: "/admin/settings",
+    icon: SlidersHorizontal,
+    needs: "admin",
+    label: label("settings"),
   },
   {
     id: "audit",

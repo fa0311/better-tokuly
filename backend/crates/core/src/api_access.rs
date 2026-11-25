@@ -112,6 +112,12 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("GetServerStats", Session),
         ("ListAuditLog", Session),
     ]),
+    ("tokuly.admin.v1.ServerSettingsService", &[
+        ("ListServerSettings", Session),
+        ("UpdateServerSetting", Session),
+        ("ExportServerSettings", Session),
+        ("ListServerSettingChanges", Session),
+    ]),
     ("tokuly.ask.v1.QuestionBoxService", &[
         ("GetSettings", Read),
         ("UpdateSettings", Write),

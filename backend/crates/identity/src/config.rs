@@ -23,6 +23,7 @@ pub struct IdentityConfig {
     /// Leave empty to disable the integration.
     #[arg(long, env = "TOKULY_SPOTIFY_CLIENT_ID", default_value = "")]
     pub spotify_client_id: String,
+    /// Spotify app client secret (profile music connection).
     #[arg(long, env = "TOKULY_SPOTIFY_CLIENT_SECRET", default_value = "", hide_env_values = true)]
     pub spotify_client_secret: String,
     /// Base URL of the Spotify Web API (a test double in tests).
@@ -66,4 +67,19 @@ impl IdentityConfig {
     pub fn spotify_enabled(&self) -> bool {
         !self.spotify_client_id.is_empty() && !self.spotify_client_secret.is_empty()
     }
+}
+
+impl IdentityConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "registration_open",
+        "session_days",
+        "deletion_grace_days",
+        "device_account_limit",
+        "account_switch_mfa_hours",
+    ];
 }

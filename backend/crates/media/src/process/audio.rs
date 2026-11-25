@@ -124,7 +124,7 @@ impl Media {
         // browser recordings do not store in the file.
         // Decoding stops a second past the purpose's limit: enough to tell
         // that a recording is too long, whatever its header claims.
-        let limit = recipe::read_limit_seconds(&self.cfg, asset.asset_purpose());
+        let limit = recipe::read_limit_seconds(&self.live(), asset.asset_purpose());
         let mut collector = PeakCollector::default();
         let pcm = Args::new()
             .input_up_to(&path, limit.map(|seconds| seconds + 1.0))

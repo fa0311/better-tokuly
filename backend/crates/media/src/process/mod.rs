@@ -175,7 +175,7 @@ impl Media {
     /// arrival queued the job. Returns the asset it worked on.
     pub(crate) async fn run_transcode_turn(&self, _job: ProcessJob) -> AppResult<Option<Uuid>> {
         let core = &self.core;
-        let Some(asset) = lifecycle::claim_next_transcode(core, self.cfg.transcodes_per_account).await? else {
+        let Some(asset) = lifecycle::claim_next_transcode(core, self.live().transcodes_per_account).await? else {
             // Nothing may start now. A video held back by its owner's limit
             // gets the turn queued when one of their transcodes ends.
             return Ok(None);
@@ -260,7 +260,7 @@ impl Media {
     /// Refuses a recording longer than its purpose takes
     /// ([`recipe::max_duration_seconds`]).
     pub(crate) fn check_duration(&self, asset: &AssetRow, duration: f64) -> ProcessResult<()> {
-        if recipe::too_long(&self.cfg, asset.asset_purpose(), duration) {
+        if recipe::too_long(&self.live(), asset.asset_purpose(), duration) {
             return Err(ProcessError::rejected("MEDIA_TOO_LONG", format!("{duration:.0} s")));
         }
         Ok(())
@@ -271,7 +271,7 @@ impl Media {
     /// Media the server produces itself (live archives and clips) is bounded
     /// by the domain that makes it and is not counted.
     pub(crate) async fn reserve_transcode(&self, asset: &AssetRow, duration: f64) -> ProcessResult<()> {
-        let Some(budget) = self.cfg.daily_transcode_seconds() else { return Ok(()) };
+        let Some(budget) = self.live().daily_transcode_seconds() else { return Ok(()) };
         if asset.is_server_made() {
             return Ok(());
         }

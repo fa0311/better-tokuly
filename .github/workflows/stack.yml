@@ -22,6 +22,7 @@ on:
       - compose.yaml
       - infra/**
       - .env.example
+      - config/**
       - .dockerignore
       - tools/init-env.sh
       - tools/ci/smoke.sh

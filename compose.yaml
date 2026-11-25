@@ -29,9 +29,12 @@
 # Optional parts are Compose profiles (set COMPOSE_PROFILES in .env):
 #   observability  Grafana + OpenTelemetry collector + Loki/Tempo/Prometheus at http://localhost:3001
 #
-# Every setting has a default here except the secrets, which tools/init-env.sh
-# generates. `.env.example` documents all of them; any TOKULY_* variable put in
-# .env reaches the backend.
+# Settings live in three places:
+#   .env                  secrets and where the deployment is reached (tools/init-env.sh writes it)
+#   config/tokuly.toml    every other backend setting, declaratively (see tokuly.example.toml);
+#                         mounted read-only at /etc/tokuly
+#   the staff console     「サーバー設定」 for what neither of the two sets
+# Any TOKULY_* variable put in .env still reaches the backend and wins over both.
 
 name: tokuly
 
@@ -43,17 +46,20 @@ x-backend: &backend
   # Pull the published image; without access to the registry, build from source.
   pull_policy: ${TOKULY_PULL_POLICY:-missing}
   restart: unless-stopped
-  # Everything in .env (feature settings such as TOKULY_VAPID_PRIVATE_KEY) ...
+  # Everything in .env (secrets such as TOKULY_VAPID_PRIVATE_KEY, and any
+  # TOKULY_* override) ...
   env_file:
     - path: .env
       required: false
+  # ... the declarative settings (an absent file is no file) ...
+  volumes:
+    - ./config:/etc/tokuly:ro
   # ... and what this file decides: where the other services are.
   environment:
+    TOKULY_CONFIG: /etc/tokuly/tokuly.toml
     TOKULY_ENV: production
     TOKULY_PUBLIC_URL: ${TOKULY_PUBLIC_URL:-http://localhost}
     TOKULY_SECRET: ${TOKULY_SECRET:?run tools/init-env.sh first (it writes .env)}
-    TOKULY_ADMIN_USER: ${TOKULY_ADMIN_USER:-}
-    TOKULY_REGISTRATION_OPEN: ${TOKULY_REGISTRATION_OPEN:-true}
     TOKULY_DATABASE_URL: postgres://tokuly:${POSTGRES_PASSWORD:?run tools/init-env.sh first}@postgres:5432/tokuly
     TOKULY_VALKEY_URL: redis://valkey:6379
     TOKULY_NATS_URL: nats://nats:4222
@@ -68,7 +74,6 @@ x-backend: &backend
     TOKULY_MEILI_URL: http://search:7700
     TOKULY_MEILI_KEY: ${MEILI_MASTER_KEY:?run tools/init-env.sh first}
     TOKULY_SMTP_URL: ${TOKULY_SMTP_URL:-smtp://mailpit:1025}
-    TOKULY_MAIL_FROM: ${TOKULY_MAIL_FROM:-Tokuly <no-reply@tokuly.localhost>}
     TOKULY_LIVEKIT_URL: http://livekit:7880
     TOKULY_LIVEKIT_PUBLIC_URL: ${TOKULY_LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
     TOKULY_LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-tokuly}
@@ -86,7 +91,6 @@ x-backend: &backend
     TOKULY_LIVE_HLS_URL: ${TOKULY_LIVE_HLS_URL:-http://localhost:8888}
     TOKULY_LIVE_PLAYBACK_URL: ${TOKULY_LIVE_PLAYBACK_URL:-http://localhost:9996}
     TOKULY_LIVE_RECORDINGS_DIR: /recordings
-    TOKULY_OTLP_ENDPOINT: ${TOKULY_OTLP_ENDPOINT:-}
   depends_on:
     migrate:
       condition: service_completed_successfully
@@ -169,6 +173,7 @@ services:
     # What the media server records: the worker cuts clips and archives from
     # it and deletes it afterwards.
     volumes:
+      - ./config:/etc/tokuly:ro
       - recordings:/recordings
 
   # ── Data ───────────────────────────────────────────────────────────────────

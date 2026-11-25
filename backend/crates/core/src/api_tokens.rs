@@ -355,7 +355,7 @@ impl ApiGate {
             secret,
             recheck: self.recheck,
         };
-        if let (Some(cache), true) = (&self.limiter, admitted.token.rate.per_minute > 0) {
+        if let Some(cache) = self.limiter.as_ref().filter(|c| c.enforces_rate_limits() && admitted.token.rate.per_minute > 0) {
             match count_request(cache, &admitted.token).await {
                 Ok(status) => admitted.rate = Some(status),
                 // A counter that cannot be reached must not take the API down with it.

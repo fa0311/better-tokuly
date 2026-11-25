@@ -52,9 +52,33 @@ proto・マイグレーション・クレートを 1 つずつ足します（`ba
 Docker Compose:
 
 ```sh
-tools/init-env.sh        # .env に秘密鍵を生成
+tools/init-env.sh        # .env に秘密鍵を生成、config/tokuly.toml のひな形も
 docker compose up -d     # http://localhost
 ```
+
+### 設定
+
+設定は 3 か所にあり、上にあるものほど優先されます。
+
+| 置き場所 | 中身 |
+|---|---|
+| 環境変数（`.env`） | 秘密鍵と、どこから届くか（`TOKULY_SECRET`、パスワード、`TOKULY_PUBLIC_URL` など）。ここに書いた `TOKULY_*` はほかのどれよりも優先されるので、コンテナや CI での上書きにも使えます |
+| `config/tokuly.toml` | それ以外の設定を宣言的に。全項目と既定値と説明は [`tokuly.example.toml`](tokuly.example.toml)（`tokuly config example` が生成） |
+| 管理画面「サーバー設定」 | 上限・保存期間・調整用の設定など、各ドメインが許したものだけを管理者がブラウザから変更できます（上の 2 つが決めていない場合。変更履歴と監査ログ付き）。接続先・秘密鍵・安全装置・お金に関わる設定は `tokuly.toml` か環境変数でだけ決めます |
+
+どれも決めていなければ既定値です。`tokuly.toml` は `[media] max_video_hours = 3` のように
+ドメインごとのセクションに分かれ、知らないキーや型の違う値があるとキー名を表示して起動を止めます。
+`tokuly.toml` か環境変数で決めた設定は管理画面ではロックされ、どこで決まっているかが表示されます。
+レート制限やメディアの上限のようにリクエストごとに読む設定はすぐ反映され、それ以外は
+「再起動で反映されるよ」と必要なプロセス（api / realtime / worker）が表示されます
+（`docker compose restart api worker`）。管理画面の「設定を書き出す」で、いまの設定（秘密鍵以外）を
+`tokuly.toml` として保存できるので、画面で決めた設定をあとからファイルに移せます。
+
+以前の `.env`（全部の設定が並んでいたもの）もそのまま動きます。`TOKULY_X=` のような空の行は
+「設定なし」として扱われ、ほかで決まった値が使われるときは起動時に警告が出ます。ただし
+`TOKULY_TRUSTED_PROXIES=`（プロキシなし）や `TOKULY_WALLET_DAILY_BONUS_COINS=`（ボーナスなし）のように
+空に意味がある設定では、これまでどおり空の値として使われます（`tokuly.example.toml` に `empty is a value` とある設定）。
+`docker compose run --rm api config show` で、ファイルと環境変数から何が決まっているかを確かめられます。
 
 アプリのイメージは GitHub Container Registry のビルド済みのもの（`edge` = 通し検証を通った最新ビルド、
 またはリリース版）を取得します。amd64 と arm64（Apple Silicon、ARM サーバー）の両方を配布しています。

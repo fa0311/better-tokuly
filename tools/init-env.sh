@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Writes `.env` for `docker compose` from `.env.example`, filling in freshly
-# generated secrets. Run once before the first `docker compose up`, and again
-# after an update that needs a secret your `.env` does not have yet.
+# generated secrets, and a first `config/tokuly.toml` when there is none. Run
+# once before the first `docker compose up`, and again after an update that
+# needs a secret your `.env` does not have yet.
+#
+# `.env` holds only secrets and how the deployment is reached; every other
+# setting belongs in config/tokuly.toml (see tokuly.example.toml) or the staff
+# console.
 #
 #   tools/init-env.sh           # no .env: write one. An existing .env: add the secrets it lacks, touch nothing else
 #   tools/init-env.sh --force   # start over (existing data volumes will not accept the new secrets)
@@ -25,6 +30,34 @@ is_secret() {
   for name in "${SECRETS[@]}"; do [ "$name" = "$1" ] && return 0; done
   return 1
 }
+
+# The declarative settings: a short start, never overwritten.
+write_config() {
+  [ -e config/tokuly.toml ] && return 0
+  mkdir -p config
+  cat >config/tokuly.toml <<'TOML'
+# Tokuly settings (created by tools/init-env.sh). Every key, its default and
+# what it does: tokuly.example.toml. Unknown keys stop the backend, so typos
+# show at once. Restart what a change needs: `docker compose restart api worker`.
+# Settings set here are locked in the staff console (「サーバー設定」); the
+# ones you leave out can be changed there.
+
+[identity]
+# Set to false to stop new sign-ups once everyone is in.
+registration_open = true
+
+[wallet]
+# No payment processor is bundled. With this on, "buying" coins is free, which
+# is what a private deployment among friends wants. Turn it off when you plug
+# in a real payment provider.
+dev_provider = true
+TOML
+  # Read by the containers' own user, whatever this shell's umask is.
+  chmod 755 config
+  chmod 644 config/tokuly.toml
+  echo "Wrote config/tokuly.toml (settings other than secrets go there)."
+}
+write_config
 
 umask 077
 

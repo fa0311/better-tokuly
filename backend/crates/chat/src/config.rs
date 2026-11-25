@@ -23,6 +23,7 @@ pub struct ChatConfig {
     )]
     pub livekit_public_url: String,
 
+    /// LiveKit API key.
     #[arg(
         id = "chat_livekit_api_key",
         long = "chat-livekit-api-key",
@@ -32,6 +33,7 @@ pub struct ChatConfig {
     )]
     pub livekit_api_key: String,
 
+    /// LiveKit API secret.
     #[arg(
         id = "chat_livekit_api_secret",
         long = "chat-livekit-api-secret",
@@ -389,6 +391,33 @@ impl ChatConfig {
         self.default_provider()?;
         Ok(())
     }
+}
+
+impl ChatConfig {
+    /// Settings whose empty value means something (none, off): an empty
+    /// environment variable is that value, not "unset".
+    pub const EMPTY_IS_A_VALUE: &'static [&'static str] = &["openai_reasoning_effort", "ai_effort"];
+
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "ring_seconds",
+        "anthropic_version",
+        "openai_reasoning_effort",
+        "ai_effort",
+        "ai_refusal_fallback",
+        "ai_hourly_limit",
+        "ai_timeout_seconds",
+        "max_group_members",
+        "edit_window_seconds",
+        "request_message_limit",
+        "messages_per_minute",
+        "pov_answer_seconds",
+        "pov_reply_seconds",
+    ];
 }
 
 #[cfg(test)]

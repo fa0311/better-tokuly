@@ -142,6 +142,29 @@ impl Default for EngagementConfig {
     }
 }
 
+impl EngagementConfig {
+    /// Settings whose empty value means something (none, off): an empty
+    /// environment variable is that value, not "unset".
+    pub const EMPTY_IS_A_VALUE: &'static [&'static str] = &["multi_reaction_types"];
+
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "comments_per_minute",
+        "comments_per_hour",
+        "reports_per_hour",
+        "report_repeat_days",
+        "max_collections",
+        "max_bookmarks",
+        "reaction_emoji_per_subject",
+        "reactions_per_person",
+        "multi_reaction_types",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;

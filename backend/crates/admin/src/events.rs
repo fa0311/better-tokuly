@@ -5,6 +5,8 @@
 //!   deletes or hides it.
 //! - [`REPORT_RESOLVED`] — [`ReportResolved`]: the reports of a case were
 //!   decided, so the domain that took them can show their outcome.
+//! - [`SERVER_SETTING_CHANGED`] — [`ServerSettingChanged`]: an admin saved
+//!   or removed a server setting in the console (never with its value).
 //!
 //! Consumed:
 //! - [`REPORT_CREATED`] — [`ReportCreated`], from the engagement domain.
@@ -17,6 +19,7 @@ use uuid::Uuid;
 
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
 pub const REPORT_RESOLVED: &str = "admin.report.resolved";
+pub const SERVER_SETTING_CHANGED: &str = "admin.server_setting.changed";
 pub const REPORT_CREATED: &str = "engagement.report.created";
 pub const USER_CREATED: &str = "identity.user.created";
 pub const USER_EMAIL_VERIFIED: &str = "identity.user.email_verified";
@@ -41,6 +44,19 @@ pub struct ReportResolved {
     /// False for a dismissal; true when content was removed or the owner was
     /// warned, suspended or banned.
     pub action_taken: bool,
+}
+
+/// An admin changed a server setting in the console (「サーバー設定」). The
+/// value is not in the event: secrets must not reach the event stream, and
+/// whoever needs a value reads it from `tokuly_core::settings`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerSettingChanged {
+    /// `[section]` and key in `tokuly.toml`.
+    pub section: String,
+    pub key: String,
+    pub secret: bool,
+    /// The change applies without a restart.
+    pub live: bool,
 }
 
 /// A user reported a subject (our view of engagement's payload).

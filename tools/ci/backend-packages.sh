@@ -38,6 +38,10 @@ else
   if [ -z "${ONLY_TOUCHED:-}" ] && printf '%s\n' "$changed_files" | grep -Eq '^(backend/crates/(core|proto|testkit|server|identity)/|backend/Cargo\.toml$|proto/tokuly/(common|realtime|identity)/)'; then
     crates="$(printf '%s\n%s\n' "$crates" "$(integrated)" | sort -u)"
   fi
+  # A domain's settings are in tokuly.example.toml, which the server's tests keep current.
+  if [ -z "${ONLY_TOUCHED:-}" ] && printf '%s\n' "$changed_files" | grep -Eq '^(backend/crates/[a-z_-]*/src/config\.rs|tokuly\.example\.toml)$'; then
+    crates="$(printf '%s\ntokuly-server\n' "$crates" | sort -u)"
+  fi
 fi
 
 flags=""

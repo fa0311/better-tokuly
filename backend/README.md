@@ -135,6 +135,84 @@ be unique across domains: give a setting whose field name could collide an
 explicit `id = "<domain>_<field>"` (the server's `command_line_is_consistent`
 test catches clashes).
 
+#### Declaring a setting
+
+A setting is one such argument, and nothing else needs writing by hand: it
+becomes a key of `tokuly.toml`, a row of the staff console's 「サーバー設定」
+and an entry of `tokuly.example.toml` (`tokuly_core::settings`). Per argument:
+
+- an `env = "TOKULY_<DOMAIN>_<NAME>"` and a `long` flag. The key is the
+  variable without `TOKULY_` and the section prefix: `TOKULY_MEDIA_MAX_VIDEO_HOURS`
+  is `[media] max_video_hours` (a variable without the prefix keeps its whole name);
+- a doc comment: it is the description in the console and the example file
+  (the server test `every_setting_has_a_description` fails without one);
+- a value with a type: `bool` with `action = clap::ArgAction::Set` (never a
+  bare flag), integers, `f64`, text, or a list with `value_delimiter = ','`;
+  `value_parser = [..]` gives the console a choice;
+- `hide_env_values = true` for anything secret (keys, passwords, tokens,
+  URLs with credentials): the console then only writes it and shows the last
+  four characters, the export leaves it out (`credentials_are_secrets` checks
+  the obvious names).
+
+**The console changes only what the domain allows.** A setting is set in
+`tokuly.toml` or the environment unless its domain lists its key in
+`<YourConfig>::CONSOLE_EDITABLE` (next to the struct, in `config.rs`). The
+list is an allowlist on purpose: a new setting starts out of the console, so
+adding one can never open a hole in it. List limits, quotas, retention,
+intervals, feature tuning and texts. Never list:
+
+- addresses the server talks to or is reached at, and origins or proxies it
+  trusts (URLs, CORS / allowed origins, trusted proxies, LiveKit, MediaMTX);
+- egress and SSRF switches (`*_allow_loopback`, `*_allow_private`,
+  `*_allow_insecure`, allowed host lists);
+- what the server executes or writes to (executable paths, directories);
+- infrastructure names (index prefixes, keyspaces), credentials of the
+  infrastructure, and the identity of the apps the server is registered as
+  with other services (OAuth client IDs and secrets, push keys);
+- protections and money: the rate limits switch, the minimum age, fees,
+  exchange rates, coin rewards, the wallet's dev provider;
+- privacy floors (minimum group sizes of anonymous or aggregate features).
+
+An admin account is one password away from all of this, and a mistake in
+these would let the console turn the server against its own network or
+users. The server test `the_console_edits_only_what_domains_allow` names
+the dangerous ones that must stay out.
+
+What clap does not know goes on the section's `SectionSpec` in
+`crates/server/src/settings.rs`:
+
+- `.editable(YourConfig::CONSOLE_EDITABLE)`: the allowlist above;
+
+- `.live(&["key", ..])`: the domain reads the value per use through
+  `core.settings.current::<YourConfig>("section")` (see `Media::live`), so a
+  console change applies at once. Everything else applies on restart and the
+  console says so;
+- `.managed(&[(prefix, path)])`: edited on a screen of its own, which the
+  settings page links to;
+- `.check(check!(YourConfig))`: the domain's `validate()`, run on a console
+  change before it is saved (with every console value of the section), and
+  at start-up and on every reload: console values a section fails with are
+  set aside, so a console mistake never stops the server. Make `validate()`
+  build what the domain builds from its settings without the network, as
+  `Config::validate` builds the mailer.
+
+After adding or changing a setting, regenerate the example file from the
+repository root: `backend/target/.../tokuly config example > tokuly.example.toml`
+(`cargo run -p tokuly-server -- config example`); the server test
+`the_example_file_is_current` fails until it matches.
+
+Precedence, highest first: command line and environment, `tokuly.toml`
+(`TOKULY_CONFIG`), the console (table `server_settings`, history in
+`server_setting_changes`), the default. An environment variable that is set
+but empty counts as not set (env files are full of `TOKULY_X=` lines); the
+start warns when such a line would have hidden another value. Where empty
+means something ("no proxies", "bonus off", "omit the parameter"), list the
+key in `<YourConfig>::EMPTY_IS_A_VALUE` and pass it to
+`.empty_is_value(..)`: an empty variable is then that value. The server test
+`documented_empty_values_are_kept` fails for a text or list setting with a
+non-empty default whose description mentions an empty value but is not
+listed.
+
 The server crate wires domains in `crates/server/src/app.rs`: the config in
 `DomainConfigs`, construction in `Domains::new` (in dependency order, and
 before `Engagement` when the domain registers a subject resolver),

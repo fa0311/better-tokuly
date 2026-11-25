@@ -36,6 +36,7 @@ pub mod presence;
 pub mod proxies;
 pub mod realtime;
 pub mod rpc;
+pub mod settings;
 pub mod storage;
 pub mod subject;
 pub mod telemetry;

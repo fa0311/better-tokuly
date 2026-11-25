@@ -2,7 +2,7 @@
 
 Crate `tokuly-admin`, migration `1600_admin.sql`, API `tokuly.admin.v1`
 (`ModerationService`, `UserAdminService`, `FeatureFlagService`,
-`AnnouncementService`, `SystemService`). No realtime events.
+`AnnouncementService`, `SystemService`, `ServerSettingsService`). No realtime events.
 
 Every RPC needs the `moderator` or `admin` role (admins hold every role),
 except `AnnouncementService.ListAnnouncements` / `GetAnnouncement`, which are
@@ -129,6 +129,7 @@ consumer of `identity.user.banned` signs it out when the event arrives.
 |---|---|---|
 | `admin.content.removed` | `{ subject_type, subject_id, reason, moderator_id }` (`tokuly_admin::events::ContentRemoved`) | A moderator took content down (case resolution or direct takedown). `subject_type` is `tokuly.common.v1.SubjectType` as its number. Actor: the moderator. |
 | `admin.report.resolved` | `{ report_ids, action_taken }` (`tokuly_admin::events::ReportResolved`) | A moderator resolved a case. `report_ids` are the `report_id`s of every `engagement.report.created` filed into it; `action_taken` is false for a dismissal. Actor: the moderator. The engagement domain uses it to show reporters the outcome. |
+| `admin.server_setting.changed` | `{ section, key, secret, live }` (`tokuly_admin::events::ServerSettingChanged`) | An admin saved or removed a server setting in 「サーバー設定」. Never carries the value. Actor: the admin. Nobody consumes it today; the processes reload the settings from the `sys.settings.changed` broadcast instead. |
 
 **What the owning domain does with it:** delete or hide the subject (and
 whatever hangs off it), unindex it, and treat an unknown or already removed
@@ -229,6 +230,7 @@ action or by a prefix ending in a dot (`user.`).
 | `user.sessions_revoked` | user | number revoked |
 | `flag.created`, `flag.updated`, `flag.deleted` | flag (its name) | full flag snapshot |
 | `announcement.created`, `.updated`, `.published`, `.unpublished`, `.deleted` | announcement | titles, category, pinned, publish time, notify |
+| `server_setting.updated` | setting (`section.key`) | `{ "value": … }`, `null` for no console value; secrets read `••••` |
 
 ## Configuration
 
@@ -243,7 +245,39 @@ action or by a prefix ending in a dot (`user.`).
 | `TOKULY_MODERATION_EVIDENCE_DAYS` | `90` | Days the uploads of reported content stay held for a case after it is resolved. |
 
 Other rate limits (fixed): the public announcement RPCs allow 240 requests a
-minute per client address; `GetServerStats` 30 a minute per admin.
+minute per client address; `GetServerStats` 30 a minute per admin;
+`UpdateServerSetting` 60 a minute per admin.
+
+## Server settings (「サーバー設定」)
+
+`ServerSettingsService` is the console layer of `tokuly_core::settings`
+(see `backend/README.md`, "Declaring a setting"): every setting of the
+binary with its value, default, description and source, highest first the
+environment / command line, `tokuly.toml`, this console, the default.
+Values are stored in core's `server_settings` (secrets sealed with the core
+keys, `last4` beside them) and every change in `server_setting_changes`
+(who, when, old → new; secrets as `••••`), plus the audit entry and the event
+above, all in one transaction. After the commit the API process reloads and
+broadcasts `sys.settings.changed`; every process reloads the console layer,
+so live settings apply everywhere at once and the rest show
+`restart_pending` until the listed processes restart.
+
+Refused: settings their domain does not let the console change
+(`SETTING_FILE_ONLY`; see `backend/README.md`, "Declaring a setting"),
+settings the environment or the file set (`SETTING_LOCKED`), settings with their own screen
+(`SETTING_MANAGED_ELSEWHERE`: the chat AI providers at `/admin/chat-ai`),
+values of the wrong type or against the section's checks, run over all of
+its console values together with what the server builds from them at
+start-up (`SETTING_INVALID`). Console values a section does not pass its
+checks with (saved before a check existed, or by hand) are set aside, all of
+that section together, at start-up and on every reload; the page shows why
+(`console_rejected`). So are values stored for settings the console may
+not change (saved before their domain took them off its list, or by hand);
+removing a value (`reset`) is allowed for every setting. If the server still does not start with the console
+values, it tries once more with them (the infrastructure may have been away
+for a moment) and then without them; only when it starts without them are
+they blamed, and the next re-read (within a minute) applies them again. A
+start that fails without them as well ends with the first error.
 
 ## Getting back in
 

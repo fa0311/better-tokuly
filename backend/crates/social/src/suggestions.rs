@@ -84,7 +84,7 @@ pub async fn suggest(core: &Core, user_id: Uuid, suggested_id: Uuid, reason: Sug
 /// again costs nothing. Only an estimate of the count is kept (a
 /// HyperLogLog), never the hashes.
 async fn ensure_contact_budget(core: &Core, user_id: Uuid, hashes: &[String]) -> AppResult<()> {
-    if !core.cfg.rate_limits {
+    if !core.cache.enforces_rate_limits() {
         return Ok(());
     }
     let key = format!("rl:match-contacts-distinct:{user_id}");

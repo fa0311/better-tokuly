@@ -286,7 +286,7 @@ impl Media {
         }
         // The header's duration is whatever the file says; the packets tell
         // how long it really plays (read without decoding). The longer wins.
-        let limit = recipe::read_limit_seconds(&self.cfg, asset.asset_purpose());
+        let limit = recipe::read_limit_seconds(&self.live(), asset.asset_purpose());
         // One second past the limit is enough to tell a recording is too long.
         let measured = self.ffmpeg.measure_duration(&path, probe.mov, limit.map(|s| s + 1.0), timeout_for(0.0)).await?;
         let duration = probe.duration.max(measured);
@@ -321,7 +321,7 @@ impl Media {
         // from a longer source than every measurement showed, so it is
         // refused rather than kept cut down.
         let encoded = renditions.iter().map(|r| r.seconds).fold(0.0, f64::max);
-        if recipe::reached_read_limit(&self.cfg, asset.asset_purpose(), encoded) {
+        if recipe::reached_read_limit(&self.live(), asset.asset_purpose(), encoded) {
             return Err(ProcessError::rejected("MEDIA_TOO_LONG", format!("{encoded:.0} s encoded")));
         }
         if self.cfg.av1 {
