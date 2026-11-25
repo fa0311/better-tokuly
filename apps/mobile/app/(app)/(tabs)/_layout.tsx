@@ -5,6 +5,8 @@ import { useIncomingRequests } from "#/features/friends/data";
 import { useTheme } from "#/lib/theme";
 
 /** The primary destinations, one tap away. */
+export const unstable_settings = { initialRouteName: "map" };
+
 export default function TabsLayout() {
   const { t } = useTranslation("mobile");
   const { colors } = useTheme();
@@ -24,7 +26,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
-        name="index"
+        name="map"
         options={{
           title: t("tabs.map"),
           headerShown: false,

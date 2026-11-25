@@ -1,13 +1,28 @@
-import { Stack } from "expo-router";
+import { Redirect, Stack, usePathname } from "expo-router";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useFriendsSync } from "#/features/friends/data";
 import { MapBackground } from "#/features/map/background";
+import { routeFor, usePendingLink } from "#/features/session/routing";
+import { useSessionStore } from "#/features/session/session";
 import { useTheme } from "#/lib/theme";
 
 /** Signed in: the tabs, the screens pushed over them, and what runs on every one of them. */
 export const unstable_settings = { initialRouteName: "(tabs)" };
 
+/** Someone signed out who opened a link in here signs in first; the link waits for them. */
 export default function AppLayout() {
+  const status = useSessionStore((s) => s.state.status);
+  const path = usePathname();
+  const to = routeFor(status, "app");
+  useEffect(() => {
+    if (to) usePendingLink.getState().remember(path);
+  }, [to, path]);
+  if (to) return <Redirect href={to} />;
+  return <SignedIn />;
+}
+
+function SignedIn() {
   const { t } = useTranslation("mobile");
   const { t: ta } = useTranslation("accounts");
   const { colors } = useTheme();
