@@ -114,7 +114,10 @@ A `media.transcode` job is a turn on the transcoder, not a ticket for its
 own asset: the worker that takes it transcodes the waiting video that is
 fairest to go next (`lifecycle::claim_next_transcode`). Owners take turns:
 each owner's oldest waiting video, ranked by how many of the owner's videos
-are running or ahead of it, then by when the owner last had a turn. An owner
+are running or ahead of it, then by how long the owner has waited (since
+the video arrived, or since their last turn when that came later: an owner
+just served goes after one who was waiting, and accounts arriving later
+never jump one that has waited since before). An owner
 with `TOKULY_MEDIA_TRANSCODES_PER_ACCOUNT` (2) transcodes running gets no
 more until one ends, and the turn that ends queues another one while videos
 are waiting. So one account's backlog never holds up anyone else's first

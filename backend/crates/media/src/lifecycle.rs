@@ -144,8 +144,11 @@ pub(crate) async fn begin_attempt(core: &Core, asset_id: Uuid) -> AppResult<Opti
 /// one asset: whichever worker takes a job transcodes the video whose
 /// owner has waited longest for their share. Videos are taken round-robin
 /// across owners (each owner's oldest waiting video first, an owner with
-/// videos already running further back, and among equals the owner served
-/// longest ago), and an owner with
+/// videos already running further back; among equals, whoever has waited
+/// longest: since their video arrived, or since their last turn if that
+/// came later, so an owner just served goes after one who was waiting, and
+/// accounts arriving later never jump one that waited since before), and an
+/// owner with
 /// `per_account` transcodes running gets no more until one ends. So one
 /// account's backlog never holds up another account's first video.
 ///
@@ -170,7 +173,7 @@ pub(crate) async fn claim_next_transcode(core: &Core, per_account: i64) -> AppRe
          LEFT JOIN running r ON r.owner_id = w.owner_id
          LEFT JOIN media_transcode_turns t ON t.owner_id = w.owner_id
          WHERE COALESCE(r.n, 0) < $4
-         ORDER BY COALESCE(r.n, 0) + w.turn, t.last_turn_at ASC NULLS FIRST, w.created_at, w.id
+         ORDER BY COALESCE(r.n, 0) + w.turn, GREATEST(w.created_at, t.last_turn_at), w.created_at, w.id
          LIMIT 1",
     )
     .bind(AssetStatus::ASSET_STATUS_PROCESSING as i32)
