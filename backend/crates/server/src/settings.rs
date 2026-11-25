@@ -95,28 +95,28 @@ macro_rules! check {
 /// Every section, in the order of the example file and the console.
 pub fn sections() -> Vec<SectionSpec> {
     vec![
-        SectionSpec::new("core", Config::augment_args).processes(ALL).editable(Config::CONSOLE_EDITABLE).check(check!(Config)),
+        SectionSpec::new("core", Config::augment_args).processes(ALL).editable(Config::CONSOLE_EDITABLE).empty_is_value(Config::EMPTY_IS_A_VALUE).check(check!(Config)),
         SectionSpec::new("api", ApiConfig::augment_args).processes(&[Process::Api]),
         SectionSpec::new("realtime", RealtimeConfig::augment_args)
             .env_prefix("RT")
             .processes(&[Process::Realtime])
-            .editable(RealtimeConfig::CONSOLE_EDITABLE)
+            .editable(RealtimeConfig::CONSOLE_EDITABLE).empty_is_value(RealtimeConfig::EMPTY_IS_A_VALUE)
             .check(check!(RealtimeConfig)),
         SectionSpec::new("identity", IdentityConfig::augment_args).editable(IdentityConfig::CONSOLE_EDITABLE),
         SectionSpec::new("media", MediaConfig::augment_args).editable(MediaConfig::CONSOLE_EDITABLE).live(MEDIA_LIVE).check(check!(MediaConfig)),
         SectionSpec::new("social", SocialConfig::augment_args).editable(SocialConfig::CONSOLE_EDITABLE),
         SectionSpec::new("geo", GeoConfig::augment_args).editable(GeoConfig::CONSOLE_EDITABLE).check(check!(GeoConfig)),
         SectionSpec::new("stamp", StampConfig::augment_args).editable(StampConfig::CONSOLE_EDITABLE),
-        SectionSpec::new("wallet", WalletConfig::augment_args).editable(WalletConfig::CONSOLE_EDITABLE).check(check!(WalletConfig)),
-        SectionSpec::new("notify", NotifyConfig::augment_args).editable(NotifyConfig::CONSOLE_EDITABLE).check(check!(NotifyConfig, production)),
+        SectionSpec::new("wallet", WalletConfig::augment_args).editable(WalletConfig::CONSOLE_EDITABLE).empty_is_value(WalletConfig::EMPTY_IS_A_VALUE).check(check!(WalletConfig)),
+        SectionSpec::new("notify", NotifyConfig::augment_args).editable(NotifyConfig::CONSOLE_EDITABLE).empty_is_value(NotifyConfig::EMPTY_IS_A_VALUE).check(check!(NotifyConfig, production)),
         SectionSpec::new("admin", AdminConfig::augment_args).editable(AdminConfig::CONSOLE_EDITABLE).check(check!(AdminConfig)),
         SectionSpec::new("feed", FeedConfig::augment_args).editable(FeedConfig::CONSOLE_EDITABLE).check(check!(FeedConfig, production)),
-        SectionSpec::new("chat", ChatConfig::augment_args).editable(ChatConfig::CONSOLE_EDITABLE).managed(CHAT_AI_SCREEN).check(check!(ChatConfig)),
+        SectionSpec::new("chat", ChatConfig::augment_args).editable(ChatConfig::CONSOLE_EDITABLE).empty_is_value(ChatConfig::EMPTY_IS_A_VALUE).managed(CHAT_AI_SCREEN).check(check!(ChatConfig)),
         SectionSpec::new("notes", NotesConfig::augment_args).editable(NotesConfig::CONSOLE_EDITABLE).check(check!(NotesConfig)),
         SectionSpec::new("video", VideoConfig::augment_args).editable(VideoConfig::CONSOLE_EDITABLE).check(check!(VideoConfig)),
         SectionSpec::new("search", SearchConfig::augment_args).editable(SearchConfig::CONSOLE_EDITABLE).check(check!(SearchConfig)),
-        SectionSpec::new("emoji", EmojiConfig::augment_args).editable(EmojiConfig::CONSOLE_EDITABLE).check(check!(EmojiConfig)),
-        SectionSpec::new("ask", AskConfig::augment_args).editable(AskConfig::CONSOLE_EDITABLE).check(check!(AskConfig)),
+        SectionSpec::new("emoji", EmojiConfig::augment_args).editable(EmojiConfig::CONSOLE_EDITABLE).empty_is_value(EmojiConfig::EMPTY_IS_A_VALUE).check(check!(EmojiConfig)),
+        SectionSpec::new("ask", AskConfig::augment_args).editable(AskConfig::CONSOLE_EDITABLE).empty_is_value(AskConfig::EMPTY_IS_A_VALUE).check(check!(AskConfig)),
         SectionSpec::new("plans", PlansConfig::augment_args).editable(PlansConfig::CONSOLE_EDITABLE),
         SectionSpec::new("school", SchoolConfig::augment_args).editable(SchoolConfig::CONSOLE_EDITABLE),
         SectionSpec::new("quest", QuestConfig::augment_args).editable(QuestConfig::CONSOLE_EDITABLE).check(check!(QuestConfig)),
@@ -125,7 +125,7 @@ pub fn sections() -> Vec<SectionSpec> {
         SectionSpec::new("spaces", SpacesConfig::augment_args).editable(SpacesConfig::CONSOLE_EDITABLE).check(check!(SpacesConfig)),
         SectionSpec::new("community", CommunityConfig::augment_args).editable(CommunityConfig::CONSOLE_EDITABLE).check(check!(CommunityConfig)),
         SectionSpec::new("dev", DevConfig::augment_args).editable(DevConfig::CONSOLE_EDITABLE).check(check!(DevConfig, production)),
-        SectionSpec::new("engagement", EngagementConfig::augment_args).editable(EngagementConfig::CONSOLE_EDITABLE),
+        SectionSpec::new("engagement", EngagementConfig::augment_args).editable(EngagementConfig::CONSOLE_EDITABLE).empty_is_value(EngagementConfig::EMPTY_IS_A_VALUE),
     ]
 }
 
@@ -351,6 +351,22 @@ mod tests {
         for (section, key) in [("media", "max_video_hours"), ("admin", "moderator_sanctions_per_hour"), ("core", "mail_from"), ("chat", "max_group_members")] {
             assert!(console_editable(registry.get(section, key).unwrap()), "[{section}] {key}");
         }
+    }
+
+    /// A setting whose description says what an empty value does must
+    /// keep an empty variable as that value (`empty_is_a_value`).
+    #[test]
+    fn documented_empty_values_are_kept() {
+        let registry = registry().unwrap();
+        let missing: Vec<&str> = registry
+            .defs()
+            .iter()
+            .filter(|d| matches!(d.kind, Kind::Text | Kind::List) && d.default.as_deref().is_some_and(|v| !v.is_empty()))
+            .filter(|d| d.help.to_lowercase().contains("empty"))
+            .filter(|d| !d.empty_is_value)
+            .map(|d| d.env.as_str())
+            .collect();
+        assert!(missing.is_empty(), "list these in EMPTY_IS_A_VALUE: {missing:?}");
     }
 
     #[test]

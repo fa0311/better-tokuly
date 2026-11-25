@@ -204,7 +204,13 @@ Precedence, highest first: command line and environment, `tokuly.toml`
 (`TOKULY_CONFIG`), the console (table `server_settings`, history in
 `server_setting_changes`), the default. An environment variable that is set
 but empty counts as not set (env files are full of `TOKULY_X=` lines); the
-start warns when such a line would have hidden another value.
+start warns when such a line would have hidden another value. Where empty
+means something ("no proxies", "bonus off", "omit the parameter"), list the
+key in `<YourConfig>::EMPTY_IS_A_VALUE` and pass it to
+`.empty_is_value(..)`: an empty variable is then that value. The server test
+`documented_empty_values_are_kept` fails for a text or list setting with a
+non-empty default whose description mentions an empty value but is not
+listed.
 
 The server crate wires domains in `crates/server/src/app.rs`: the config in
 `DomainConfigs`, construction in `Domains::new` (in dependency order, and

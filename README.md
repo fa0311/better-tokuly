@@ -73,8 +73,9 @@ docker compose up -d     # http://localhost
 `tokuly.toml` として保存できるので、画面で決めた設定をあとからファイルに移せます。
 
 以前の `.env`（全部の設定が並んでいたもの）もそのまま動きます。`TOKULY_X=` のような空の行は
-「設定なし」として扱われ、ほかで決まった値が使われるときは起動時に警告が出ます
-（空にしたい設定は `tokuly.toml` に `""` と書いてください）。
+「設定なし」として扱われ、ほかで決まった値が使われるときは起動時に警告が出ます。ただし
+`TOKULY_TRUSTED_PROXIES=`（プロキシなし）や `TOKULY_WALLET_DAILY_BONUS_COINS=`（ボーナスなし）のように
+空に意味がある設定では、これまでどおり空の値として使われます（`tokuly.example.toml` に `empty is a value` とある設定）。
 `docker compose run --rm api config show` で、ファイルと環境変数から何が決まっているかを確かめられます。
 
 アプリのイメージは GitHub Container Registry のビルド済みのもの（`edge` = 通し検証を通った最新ビルド、

@@ -62,6 +62,17 @@ fn empty_variables_do_not_hide_the_file() {
     assert!(err.contains("TOKULY_MEDIA_MAX_VIDEO_HOURS is empty and ignored"), "{err}");
 }
 
+/// Where empty means something (no bonus, no trusted proxies), an empty
+/// variable is that value, as it always was.
+#[test]
+fn empty_stays_a_value_where_it_means_something() {
+    let (ok, out, err) = run(tokuly(&["config", "show"]).env("TOKULY_WALLET_DAILY_BONUS_COINS", "").env("TOKULY_TRUSTED_PROXIES", ""));
+    assert!(ok, "{err}");
+    assert!(out.contains("daily_bonus_coins = \"\"  # from 環境変数"), "{out}");
+    assert!(out.contains("trusted_proxies = []  # from 環境変数"), "{out}");
+    assert!(!err.contains("is empty and ignored"), "{err}");
+}
+
 #[test]
 fn typos_and_wrong_types_stop_the_start() {
     for (text, expected) in [

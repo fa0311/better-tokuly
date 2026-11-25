@@ -167,6 +167,9 @@ pub fn example(registry: &Registry) -> String {
             if def.editable {
                 notes.push("console".to_owned());
             }
+            if def.empty_is_value {
+                notes.push("empty is a value".to_owned());
+            }
             if def.live {
                 notes.push("applies at once".to_owned());
             } else {

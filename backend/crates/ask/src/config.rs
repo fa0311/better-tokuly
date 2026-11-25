@@ -156,6 +156,10 @@ impl AskConfig {
 }
 
 impl AskConfig {
+    /// Settings whose empty value means something (none, off): an empty
+    /// environment variable is that value, not "unset".
+    pub const EMPTY_IS_A_VALUE: &'static [&'static str] = &["filter_words", "hint_prices"];
+
     /// The settings the staff console (「サーバー設定」) may change, by
     /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
     /// environment only: addresses, credentials, egress guards, paths,

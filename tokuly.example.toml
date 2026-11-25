@@ -24,7 +24,7 @@
 # Path prefix under which the edge proxy exposes the API to browsers (it strips the prefix before
 # forwarding). Cookies scoped to RPC paths must include it. Empty when the API is served at the
 # origin root.
-# (TOKULY_API_PATH_PREFIX; restart: api, realtime, worker)
+# (TOKULY_API_PATH_PREFIX; empty is a value; restart: api, realtime, worker)
 # api_path_prefix = "/api"
 
 # Master secret (>= 32 chars). Signing keys, token peppers and cursor MACs are derived from it, so
@@ -46,7 +46,7 @@
 # CIDR ranges, comma separated). From any other peer the header is ignored. The default covers an
 # edge proxy on the same host or container network; add the ranges of a CDN in front of it, or set
 # it empty if the API is exposed directly.
-# (TOKULY_TRUSTED_PROXIES; restart: api, realtime, worker)
+# (TOKULY_TRUSTED_PROXIES; empty is a value; restart: api, realtime, worker)
 # trusted_proxies = ["127.0.0.0/8", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"]
 
 # PostgreSQL connection URL (with the password).
@@ -174,7 +174,7 @@
 [realtime]
 
 # UDP address of the WebTransport (HTTP/3) listener. Empty disables WebTransport.
-# (TOKULY_RT_WT_LISTEN; restart: realtime)
+# (TOKULY_RT_WT_LISTEN; empty is a value; restart: realtime)
 # wt_listen = "0.0.0.0:4433"
 
 # TCP address of the WebSocket fallback listener (`/rt/ws`, `/healthz`).
@@ -222,7 +222,7 @@
 # Proxies whose `X-Forwarded-For` header names the real client of a WebSocket connection (addresses
 # or CIDR ranges, comma separated). From any other peer the header is ignored. Add the ranges of a
 # CDN in front of the edge proxy here; empty if the gateway is exposed directly.
-# (TOKULY_RT_TRUSTED_PROXIES; restart: realtime)
+# (TOKULY_RT_TRUSTED_PROXIES; empty is a value; restart: realtime)
 # trusted_proxies = ["127.0.0.0/8", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"]
 
 # How long a new connection may take to send its `Hello`.
@@ -627,7 +627,7 @@
 
 # Daily login bonus ladder: coins for streak day 1, 2, ... separated by commas. After the last step
 # the ladder starts over. Empty disables the bonus.
-# (TOKULY_WALLET_DAILY_BONUS_COINS; restart: api, worker)
+# (TOKULY_WALLET_DAILY_BONUS_COINS; empty is a value; restart: api, worker)
 # daily_bonus_coins = "10,10,15,15,20,20,50"
 
 # Smallest number of earned coins a payout request may ask for.
@@ -662,7 +662,7 @@
 # to these URLs, so the list is what keeps a crafted subscription from reaching internal services.
 # `*` allows any https host with a public-looking name. Either way the server only connects to
 # public addresses of those names.
-# (TOKULY_WEBPUSH_ALLOWED_HOSTS; restart: api, worker)
+# (TOKULY_WEBPUSH_ALLOWED_HOSTS; empty is a value; restart: api, worker)
 # webpush_allowed_hosts = "fcm.googleapis.com,updates.push.services.mozilla.com,notify.windows.com,push.apple.com"
 
 # Development and tests only: accept `http://` Web Push endpoints on any host (a local stand-in for
@@ -866,7 +866,7 @@
 
 # `reasoning_effort` sent to OpenAI (`minimal`, `low`, `medium`, `high`). Empty omits it, for models
 # without reasoning.
-# (TOKULY_OPENAI_REASONING_EFFORT; console; restart: api, worker)
+# (TOKULY_OPENAI_REASONING_EFFORT; console; empty is a value; restart: api, worker)
 # openai_reasoning_effort = "low"
 
 # Base URL of an OpenAI-compatible server (LM Studio, Ollama, vLLM…), up to and including `/v1`,
@@ -899,7 +899,7 @@
 
 # `output_config.effort` sent with every request (`low`, `medium`, `high`…). Rewrites and
 # translations are short, simple tasks. Empty omits the parameter, for models that do not accept it.
-# (TOKULY_AI_EFFORT; console; restart: api, worker)
+# (TOKULY_AI_EFFORT; console; empty is a value; restart: api, worker)
 # ai_effort = "low"
 
 # Ask the API to retry a request its safety classifiers declined on the fallback model Anthropic
@@ -1118,7 +1118,7 @@
 # reserved_names = []
 
 # The deck of users who never saved one: `:name:` or a Unicode emoji each, comma separated.
-# (TOKULY_EMOJI_DEFAULT_DECK; console; restart: api, worker)
+# (TOKULY_EMOJI_DEFAULT_DECK; console; empty is a value; restart: api, worker)
 # default_deck = ["👍", "❤️", "😆", "🤔", "😮", "🎉", "💢", "😥", "😇", "🍮"]
 
 # Seconds between runs of the usage worker, which moves the use counters into the database and
@@ -1151,7 +1151,7 @@
 
 # Words (comma-separated) that hold a question or prompt response in the recipient's FILTERED
 # folder, on top of each owner's own muted words. Empty switches the server-wide list off.
-# (TOKULY_ASK_FILTER_WORDS; console; restart: api, worker)
+# (TOKULY_ASK_FILTER_WORDS; console; empty is a value; restart: api, worker)
 # filter_words = "死ね,死んで,氏ね,タヒね,殺す,殺して,ころすぞ,消えろ,きえろ,自殺しろ,くたばれ,きもい,キモい,キモイ,気持ち悪い,うざい,ウザい,ウザイ,ブス,デブ,ガイジ,クズ,嫌われてる,住所教えて,裸,下着,エッチ,やらせて,kys,kill yourself,go die,slut,whore,fag,retard,ugly,nudes,loser,nobody likes you"
 
 # Questions and prompt responses one account may send per hour.
@@ -1186,7 +1186,7 @@
 
 # Price in coins of the first and the second hint about who sent a flame, separated by a comma.
 # Empty sells no hints.
-# (TOKULY_ASK_HINT_PRICES; restart: api, worker)
+# (TOKULY_ASK_HINT_PRICES; empty is a value; restart: api, worker)
 # hint_prices = "30,60"
 
 # Days a deleted, withdrawn or dropped question is kept for moderators before it is erased.
@@ -1742,5 +1742,5 @@
 
 # Subject types on which one person may hold several distinct emoji (`SubjectType` names without the
 # `SUBJECT_TYPE_` prefix, comma separated). Every other type takes one reaction per person.
-# (TOKULY_ENGAGEMENT_MULTI_REACTION_TYPES; console; restart: api, worker)
+# (TOKULY_ENGAGEMENT_MULTI_REACTION_TYPES; console; empty is a value; restart: api, worker)
 # multi_reaction_types = ["COMMUNITY_THREAD", "COMMUNITY_REPLY", "COMMUNITY_EVENT", "PLAN"]

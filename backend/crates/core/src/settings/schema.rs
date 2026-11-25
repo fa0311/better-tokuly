@@ -53,6 +53,10 @@ pub struct SectionSpec {
     /// `tokuly.toml` or the environment only, so a new setting stays out of
     /// the console until its domain lists it (`<Config>::CONSOLE_EDITABLE`).
     pub editable: &'static [&'static str],
+    /// Keys whose empty value means something ("no proxies", "bonus off"):
+    /// an empty environment variable is that value. For every other
+    /// setting an empty variable counts as not set.
+    pub empty_is_value: &'static [&'static str],
     /// Key prefixes that have a screen of their own in the console, with its path:
     /// the settings page links there instead of editing them.
     pub managed: &'static [(&'static str, &'static str)],
@@ -63,7 +67,7 @@ impl SectionSpec {
     /// A domain section, read by the API and the workers, every setting
     /// editable and applied on restart.
     pub fn new(name: &'static str, augment: fn(Command) -> Command) -> Self {
-        Self { name, augment, env_prefix: None, processes: &[Process::Api, Process::Worker], live: &[], editable: &[], managed: &[], check: None }
+        Self { name, augment, env_prefix: None, processes: &[Process::Api, Process::Worker], live: &[], editable: &[], empty_is_value: &[], managed: &[], check: None }
     }
 
     pub fn env_prefix(mut self, prefix: &'static str) -> Self {
@@ -83,6 +87,11 @@ impl SectionSpec {
 
     pub fn editable(mut self, keys: &'static [&'static str]) -> Self {
         self.editable = keys;
+        self
+    }
+
+    pub fn empty_is_value(mut self, keys: &'static [&'static str]) -> Self {
+        self.empty_is_value = keys;
         self
     }
 
@@ -131,6 +140,8 @@ pub struct Def {
     pub secret: bool,
     /// The console may change it ([`SectionSpec::editable`]).
     pub editable: bool,
+    /// An empty environment variable is a value ([`SectionSpec::empty_is_value`]).
+    pub empty_is_value: bool,
     pub live: bool,
     /// The console path of the screen this setting is edited on instead.
     pub managed_at: Option<&'static str>,
@@ -257,6 +268,7 @@ impl Registry {
                     section: spec.name,
                     live: spec.live.contains(&key.as_str()),
                     editable: spec.editable.contains(&key.as_str()),
+                    empty_is_value: spec.empty_is_value.contains(&key.as_str()),
                     secret: arg.is_hide_env_values_set(),
                     managed_at,
                     processes: spec.processes,
@@ -278,7 +290,7 @@ impl Registry {
                 anyhow::ensure!(by_id.insert(id.clone(), defs.len()).is_none(), "two settings have the argument ID `{id}`");
                 defs.push(def);
             }
-            for key in spec.live.iter().chain(spec.editable) {
+            for key in spec.live.iter().chain(spec.editable).chain(spec.empty_is_value) {
                 anyhow::ensure!(by_name.contains_key(&(spec.name.to_owned(), (*key).to_owned())), "[{}] names unknown setting `{key}`", spec.name);
             }
         }

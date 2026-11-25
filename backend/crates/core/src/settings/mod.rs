@@ -65,9 +65,10 @@ pub struct Layers {
     pub env: HashMap<String, String>,
     pub file: HashMap<String, String>,
     pub console: HashMap<String, String>,
-    /// Settings whose environment variable is set but empty: treated as
-    /// unset (and clap is told not to read them), since an env file line
-    /// `TOKULY_X=` means "nothing here" far more often than "empty".
+    /// Settings whose environment variable is set but empty, and for which
+    /// empty is not a value ([`Def::empty_is_value`]): treated as unset (and
+    /// clap is told not to read them), since an env file line `TOKULY_X=`
+    /// means "nothing here" there.
     pub empty_env: BTreeSet<String>,
 }
 
@@ -94,7 +95,7 @@ impl Layers {
         self.empty_env.clear();
         for def in registry.defs() {
             match lookup(&def.env) {
-                Some(value) if value.is_empty() => {
+                Some(value) if value.is_empty() && !def.empty_is_value => {
                     self.empty_env.insert(def.id.clone());
                 }
                 Some(value) => {
