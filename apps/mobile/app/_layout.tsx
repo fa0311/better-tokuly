@@ -16,8 +16,10 @@ void startSession();
 
 /**
  * The root: theme, strings, and the stack of whoever is signed in. While the
- * session is being restored the splash screen stays up; a signed-in account
- * sees `(app)`, everyone else `(auth)`.
+ * session is being restored the splash screen stays up. Where each start
+ * lands is `routeFor` (`features/session/routing.ts`): `/` and the group
+ * layouts redirect by it, so a signed-in account sees `(app)`, everyone else
+ * `(auth)`, whatever link opened the app.
  */
 export default function RootLayout() {
   const theme = useTheme();
@@ -41,12 +43,10 @@ export default function RootLayout() {
                   contentStyle: { backgroundColor: theme.colors.bg },
                 }}
               >
-                <Stack.Protected guard={status === "signedIn"}>
-                  <Stack.Screen name="(app)" />
-                </Stack.Protected>
-                <Stack.Protected guard={status !== "signedIn"}>
-                  <Stack.Screen name="(auth)" />
-                </Stack.Protected>
+                <Stack.Screen name="index" />
+                <Stack.Screen name="(app)" />
+                <Stack.Screen name="(auth)" />
+                <Stack.Screen name="+not-found" />
               </Stack>
             </AccountScope>
           </I18nextProvider>
