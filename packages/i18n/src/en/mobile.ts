@@ -1,6 +1,6 @@
-/** The screens only the phone app has: tabs, location permission, background sharing, settings. */
+/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, settings. */
 export default {
-  tabs: { map: "Map", friends: "Friends", me: "Me" },
+  tabs: { map: "Map", chat: "Chats", friends: "Friends", inbox: "Inbox", me: "Me" },
   welcome: {
     signUp: "Get started",
     signIn: "Sign in",
@@ -84,5 +84,56 @@ export default {
   profile: {
     me: "Me",
     viewOnWeb: "Open on the web",
+  },
+  chat: {
+    newChat: "New chat",
+    newLead: "Pick who you want to talk to! Pick two or more for a group",
+    startDirect: "Talk to {{name}}",
+    startGroup: "Start a group of {{count}}",
+    groupName: "Group name (e.g. After-school crew)",
+    photoLibrary: "Choose a photo",
+    camera: "Take a photo",
+    photoDenied: "Tokuly can't see your photos. Allow it in the Settings app",
+    cameraDenied: "Tokuly can't use the camera. Allow it in the Settings app",
+    sending: "Sending…",
+    uploading: "Uploading {{percent}}%",
+    loadingOlder: "Loading earlier messages…",
+    calls: {
+      title: "Calls are on the web for now!",
+      body: "Calling from the app is coming soon. For now, call from Tokuly on the web.",
+    },
+    assist: {
+      title: "The AI assistant is on the web",
+      body: "Try reply suggestions and translation in Tokuly on the web!",
+    },
+    openWeb: "Open on the web",
+    react: "React",
+    conversationMenu: "Menu for {{name}}",
+  },
+  push: {
+    title: "Push notifications",
+    lead: {
+      on: "Your friends' notifications reach you even while the app is closed!",
+      off: "Turn this on to get notifications while the app is closed!",
+      denied: "Notifications are off for Tokuly. Turn them on in the Settings app.",
+      unavailable: "This server doesn't offer phone push notifications yet.",
+    },
+    enable: "Turn on",
+    disable: "Turn off on this device",
+    failed: "Couldn't register for push notifications. Try again in a little while",
+    channels: {
+      social: "Friends",
+      chat: "Chats and calls",
+      geo: "Map",
+      notes: "Notes",
+      video: "Videos",
+      live: "Live",
+      shorts: "Shorts",
+      engagement: "Reactions and comments",
+      stamp: "Stamps",
+      wallet: "Wallet",
+      feed: "Feed",
+      system: "From Tokuly",
+    },
   },
 } as const;
