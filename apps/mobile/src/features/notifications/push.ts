@@ -163,9 +163,11 @@ export async function disablePush(): Promise<void> {
  * also owed, see `UNREGISTER_OWED_KEY`).
  */
 async function unregister(): Promise<boolean> {
+  // The session's own client, taken now: after a wait another account may be the active one.
+  const client = pushClient();
   await registering;
   try {
-    await pushClient().unregisterDevice({ deviceId: "" });
+    await client.unregisterDevice({ deviceId: "" });
     return true;
   } catch {
     await dropDevicePushToken().catch(() => {});
@@ -218,7 +220,11 @@ export async function leavePush(sessionId: string): Promise<void> {
   // Whatever this launch knows about the account's choice (it may still be
   // reading it), a registration from an earlier launch can be alive: the
   // removal always goes out, and the server takes it as done when there is none.
-  if (!(await unregister())) await setOwed(sessionId, true);
+  // Owed until done: the leave hook may give up waiting (a registration hanging on the OS
+  // for its token) while this goes on, and the account must not be left registered then.
+  const removal = unregister();
+  await setOwed(sessionId, true);
+  if (await removal) await setOwed(sessionId, false);
   await clearPresented().catch(() => {});
 }
 

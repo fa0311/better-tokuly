@@ -5,7 +5,8 @@ import { create, identity, notify } from "@tokuly/api";
 import { signOut, switchAccount, useSessionStore } from "#/features/session/session";
 import { parkedTokens } from "#/features/session/vault";
 import { api, resetApi } from "#/lib/api";
-import { pushChoiceKey, usePush, usePushRegistration } from "../push";
+import { readJson } from "#/platform/secure-storage";
+import { pushChoiceKey, UNREGISTER_OWED_KEY, usePush, usePushRegistration } from "../push";
 
 /**
  * The server at the edge: every call is written down with the account it
@@ -18,6 +19,8 @@ let unregisterFails = false;
 let configGate: Promise<void> | null = null;
 /** While set, RegisterDevice answers only once it resolves: a registration in flight. */
 let registerGate: Promise<void> | null = null;
+/** The parked sessions cannot be resumed (the network is down for them). */
+let refreshFails = false;
 let switchAnswer: identity.AuthResponse;
 
 const ok = (body: Uint8Array = new Uint8Array()) =>
@@ -55,6 +58,7 @@ async function mockServer(input: string, init: { body: Uint8Array; headers?: Hea
         });
       return ok();
     case "RefreshToken": {
+      if (refreshFails) throw new TypeError("Network request failed");
       // A parked account's session, woken for what it still owes: its token rotates.
       const request = fromBinary(identity.RefreshTokenRequestSchema, init.body);
       calls.push(`refresh ${request.refreshToken}`);
@@ -110,6 +114,7 @@ async function signedInMain() {
   await writeJson("tokuly.session.parked", { "s-alt": "rt-alt" });
   await writeSecure(pushChoiceKey("main"), "on");
   await writeSecure(pushChoiceKey("alt"), null);
+  await writeSecure(UNREGISTER_OWED_KEY, null);
   return renderHook(() => usePushRegistration());
 }
 
@@ -119,14 +124,15 @@ beforeEach(() => {
   unregisterFails = false;
   configGate = null;
   registerGate = null;
+  refreshFails = false;
   switchAnswer = signedInAs("alt", "s-alt");
 });
 
 describe("push registration", () => {
   it("registers the device for the account that said yes on it", async () => {
-    const { unmount } = await signedInMain();
+    const hook = await signedInMain();
     await waitFor(() => expect(calls).toEqual(["register as main: apns"]));
-    unmount();
+    await hook.unmount();
   });
 
   it("unregisters the account before another one takes over, and not for the next one unasked", async () => {
@@ -141,11 +147,11 @@ describe("push registration", () => {
     expect(device).toEqual(["tray cleared"]);
 
     // The next account starts undecided: nothing is registered for it.
-    hook.rerender({});
+    await hook.rerender({});
     await waitFor(() => expect(usePush.getState()).toMatchObject({ userId: "alt", loaded: true }));
     expect(usePush.getState().choice).toBeNull();
     expect(calls.filter((call) => call.startsWith("register"))).toEqual(["register as main: apns"]);
-    hook.unmount();
+    await hook.unmount();
   });
 
   it("unregisters the account that leaves before its start-up finished", async () => {
@@ -161,10 +167,10 @@ describe("push registration", () => {
     });
     expect(calls).toContain("unregister as main");
     release();
-    hook.rerender({});
+    await hook.rerender({});
     await waitFor(() => expect(usePush.getState()).toMatchObject({ userId: "alt", loaded: true }));
     expect(calls.filter((call) => call.startsWith("register"))).toEqual([]);
-    hook.unmount();
+    await hook.unmount();
   });
 
   it("unregisters only once a registration in flight has been answered", async () => {
@@ -182,7 +188,7 @@ describe("push registration", () => {
     release();
     await leaving;
     expect(calls.indexOf("registered as main")).toBeLessThan(calls.indexOf("unregister as main"));
-    hook.unmount();
+    await hook.unmount();
   });
 
   it("registers the next account when it said yes here before", async () => {
@@ -191,9 +197,9 @@ describe("push registration", () => {
     await writeSecure(pushChoiceKey("alt"), "on");
 
     await act(() => switchAccount("s-alt"));
-    hook.rerender({});
+    await hook.rerender({});
     await waitFor(() => expect(calls).toContain("register as alt: apns"));
-    hook.unmount();
+    await hook.unmount();
   });
 
   it("unregisters before signing out", async () => {
@@ -203,7 +209,7 @@ describe("push registration", () => {
     await act(() => signOut());
     expect(calls.indexOf("unregister as main")).toBeGreaterThan(-1);
     expect(calls.indexOf("unregister as main")).toBeLessThan(calls.indexOf("SignOut as main"));
-    hook.unmount();
+    await hook.unmount();
   });
 
   it("throws the device token away when the server cannot be told", async () => {
@@ -214,7 +220,7 @@ describe("push registration", () => {
     await act(() => signOut());
     expect(calls).toContain("unregister as main");
     expect(device).toEqual(["token dropped", "tray cleared"]);
-    hook.unmount();
+    await hook.unmount();
   });
 
   it("removes, on the next start, a registration a switch could not remove", async () => {
@@ -223,7 +229,7 @@ describe("push registration", () => {
     unregisterFails = true;
     await act(() => switchAccount("s-alt"));
     expect(calls).toContain("unregister as main");
-    hook.unmount();
+    await hook.unmount();
 
     // Next launch, as the other account: the parked session that still owes it is woken for it.
     unregisterFails = false;
@@ -235,11 +241,32 @@ describe("push registration", () => {
     await waitFor(async () => expect((await parkedTokens())["s-main"]).toBe("rt-main-2"));
 
     // Owed once: a later start has nothing left to do.
-    next.unmount();
+    await next.unmount();
     calls.length = 0;
     const later = await renderHook(() => usePushRegistration());
     await waitFor(() => expect(usePush.getState()).toMatchObject({ userId: "alt", loaded: true }));
     expect(calls).toEqual([]);
-    later.unmount();
+    await later.unmount();
   });
+
+  it("keeps a removal that outlasts the leave hook for the account that left, and owes it meanwhile", async () => {
+    let release = () => {};
+    registerGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const hook = await signedInMain();
+    await waitFor(() => expect(calls).toContain("register as main: apns"));
+
+    // The registration hangs past the leave hook's 3 s: the switch goes on without it.
+    refreshFails = true; // (and the next start cannot settle it as the parked session yet)
+    await act(() => switchAccount("s-alt"));
+    expect(await readJson(UNREGISTER_OWED_KEY, [])).toEqual(["s-main"]);
+
+    // When it is answered at last, the removal still goes out as the account that left.
+    release();
+    await waitFor(() => expect(calls).toContain("unregister as main"));
+    expect(calls).not.toContain("unregister as alt");
+    await waitFor(async () => expect(await readJson(UNREGISTER_OWED_KEY, [])).toEqual([]));
+    await hook.unmount();
+  }, 15_000);
 });
