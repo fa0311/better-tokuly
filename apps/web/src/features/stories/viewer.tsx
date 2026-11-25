@@ -2,6 +2,7 @@ import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { common, type notes, toMillis } from "@tokuly/api";
+import { reelStart, type StorySegment, storySegments } from "@tokuly/core/stories";
 import {
   ChevronLeft,
   ChevronRight,
@@ -51,26 +52,8 @@ const SWIPE_REEL = 56;
 const SWIPE_CLOSE = 90;
 const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "👏", "🔥"];
 
-interface Segment {
-  story: notes.Story;
-  item: notes.StoryItem;
-  key: string;
-}
-
-function segmentsOf(reel: ViewerReel): Segment[] {
-  return reel.stories.flatMap((story) =>
-    story.items.map((item, index) => ({ story, item, key: `${story.id}:${index}` })),
-  );
-}
-
-/** Where a reel starts: at the story asked for, else at the first one not watched yet, else at the beginning. */
-function startOf(reel: ViewerReel, storyId?: string): number {
-  const segments = segmentsOf(reel);
-  const wanted = storyId
-    ? segments.findIndex((segment) => segment.story.id === storyId)
-    : segments.findIndex((segment) => !segment.story.viewed);
-  return Math.max(0, wanted);
-}
+const segmentsOf = (reel: ViewerReel): StorySegment[] => storySegments(reel.stories);
+const startOf = (reel: ViewerReel, storyId?: string): number => reelStart(reel.stories, storyId);
 
 function motionOff(): boolean {
   return (
@@ -664,7 +647,7 @@ function SegmentMedia({
   muted,
   onReady,
 }: {
-  segment: Segment;
+  segment: StorySegment;
   video: RefObject<HTMLVideoElement | null>;
   muted: boolean;
   onReady(): void;
