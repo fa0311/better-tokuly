@@ -11,7 +11,8 @@
     "./query": "./src/query/index.ts",
     "./chat": "./src/chat/index.ts",
     "./map": "./src/map/index.ts",
-    "./notifications": "./src/notifications/index.ts"
+    "./notifications": "./src/notifications/index.ts",
+    "./stories": "./src/stories/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
