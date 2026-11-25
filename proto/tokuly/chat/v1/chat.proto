@@ -1291,8 +1291,8 @@ message ListCallsResponse {
 //
 // Consent of the people quoted: other people's messages are only sent when
 // their author allows it (AssistSettings.allow_message_use, 「AI に自分の
-// メッセージを使ってもいい」, default off for accounts under 18 and on for
-// adults). SuggestReplies leaves out the messages of authors who do not
+// メッセージを使ってもいい」, default off for accounts of minors and on for
+// adults, fixed when the account is created). SuggestReplies leaves out the messages of authors who do not
 // allow it; TranslateMessage refuses them (SENDER_DISALLOWS_AI). The
 // caller's own messages and drafts are always theirs to send.
 //
@@ -1395,8 +1395,9 @@ message AssistSettings {
   repeated OwnApiKey own_keys = 6;
   // 「AI に自分のメッセージを使ってもいい」.
   bool allow_message_use = 7;
-  // True while the caller never chose: then it follows the age of the
-  // account (off under 18, on for adults).
+  // True while the caller never chose: then it is the default stored when
+  // the account was created (off for a minor, on for an adult; turning 18
+  // does not change it).
   bool allow_message_use_is_default = 8;
 }
 

@@ -881,3 +881,70 @@ async fn settings_saved_at_once_from_one_account_end_up_as_one_row() {
     assert_eq!(settings.own_keys.len(), 1, "one key per provider, whatever the order");
     assert!(!settings.allow_message_use_is_default);
 }
+
+/// A date `years` years and `days` days before today.
+fn born(years: i32, days: i64) -> String {
+    let today = chrono::Utc::now().date_naive();
+    use chrono::Datelike as _;
+    let anniversary =
+        chrono::NaiveDate::from_ymd_opt(today.year() - years, today.month(), today.day().min(28)).unwrap();
+    (anniversary - chrono::Duration::days(days)).to_string()
+}
+
+#[tokio::test]
+async fn the_consent_default_is_fixed_when_the_account_is_created_and_never_moves_with_a_birthday() {
+    let (ctx, stub) = start_with_stub(|_| {}).await;
+
+    // Signed up at 17: the event stores "off".
+    let (taro, minor) = ctx.friends("taro", "minor").await;
+    set_birthdate(&ctx, &minor, &born(17, 0)).await;
+    let created = tokuly_core::events::Event {
+        id: Uuid::now_v7(),
+        topic: "identity.user.created".into(),
+        actor_id: Some(minor.id),
+        occurred_at: chrono::Utc::now(),
+        data: serde_json::json!({ "user_id": minor.id, "handle": minor.handle, "invite_code": "" }),
+    };
+    ctx.chat.handle_event(&created).await.unwrap();
+    ctx.chat.handle_event(&created).await.unwrap();
+    // Their 18th birthday passes (here: the birthdate moves back past it).
+    set_birthdate(&ctx, &minor, &born(18, 30)).await;
+    let settings = settings_of(&ctx, &minor).await;
+    assert!(!settings.allow_message_use && settings.allow_message_use_is_default, "still off after turning 18");
+    let direct = ctx.direct(&taro, &minor).await;
+    let message = ctx.text(&minor, &direct.id, "まだないしょ").await;
+    assert_eq!(
+        ctx.reason("Assist", "TranslateMessage", &taro, &translate(&message.id, "en")).await,
+        "SENDER_DISALLOWS_AI",
+        "nothing anybody sees changes with the birthday"
+    );
+
+    // An account whose event never arrived: judged by its age when it was created, not today.
+    let late = ctx.app.user("late").await;
+    sqlx::query("UPDATE users SET created_at = now() - interval '2 years', birthdate = $2::date WHERE id = $1")
+        .bind(late.id)
+        .bind(born(19, 0))
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert!(!settings_of(&ctx, &late).await.allow_message_use, "17 when the account was created");
+
+    // An adult starts on; a choice wins over the stored default, and over a late event.
+    let adult = ctx.app.user("adult").await;
+    ctx.chat
+        .handle_event(&tokuly_core::events::Event {
+            data: serde_json::json!({ "user_id": adult.id, "handle": adult.handle, "invite_code": "" }),
+            ..created.clone()
+        })
+        .await
+        .unwrap();
+    let settings = settings_of(&ctx, &adult).await;
+    assert!(settings.allow_message_use && settings.allow_message_use_is_default);
+    consent(&ctx, &minor, true).await;
+    ctx.chat.handle_event(&created).await.unwrap();
+    let chosen = settings_of(&ctx, &minor).await;
+    assert!(chosen.allow_message_use && !chosen.allow_message_use_is_default);
+    let _: TranslateMessageResponse =
+        ctx.call("Assist", "TranslateMessage", &taro, &translate(&message.id, "en")).await.unwrap();
+    assert_eq!(stub.count(), 1);
+}

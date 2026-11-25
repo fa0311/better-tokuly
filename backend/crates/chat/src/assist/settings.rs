@@ -25,9 +25,6 @@ const USER_KEY_SEAL: &str = "chat/ai-key/user";
 /// The order in which providers are listed and the default is picked.
 pub(crate) const PROVIDERS: [AiProvider; 3] =
     [AiProvider::AI_PROVIDER_ANTHROPIC, AiProvider::AI_PROVIDER_OPENAI, AiProvider::AI_PROVIDER_OPENAI_COMPATIBLE];
-/// Below this age a user's messages are not offered to other people's AI
-/// requests unless they say so.
-pub(crate) const MESSAGE_USE_ADULT_AGE: u32 = 18;
 const MAX_BASE_URL_CHARS: usize = 500;
 const MAX_API_KEY_CHARS: usize = 512;
 const MIN_API_KEY_CHARS: usize = 8;
@@ -213,8 +210,10 @@ pub(crate) struct UserSettings {
     /// `None`: the instance default.
     pub provider: Option<AiProvider>,
     pub off: bool,
-    /// `None`: never chosen (the default for the account's age).
+    /// `None`: not stored yet (see [`Chat::ai_message_use_allowed`]).
     pub allow_message_use: Option<bool>,
+    /// The owner chose the consent setting themselves.
+    pub message_use_chosen: bool,
 }
 
 /// A key a user brought, opened.
@@ -473,16 +472,17 @@ impl Chat {
     }
 
     pub(crate) async fn ai_user_settings(&self, user_id: Uuid) -> AppResult<UserSettings> {
-        let row: Option<(i16, bool, Option<bool>)> =
-            sqlx::query_as("SELECT provider, off, allow_message_use FROM chat_ai_user_settings WHERE user_id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.core.db)
-                .await?;
+        let row: Option<(i16, bool, Option<bool>, bool)> = sqlx::query_as(
+            "SELECT provider, off, allow_message_use, message_use_chosen FROM chat_ai_user_settings WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.core.db)
+        .await?;
         Ok(match row {
-            Some((provider, off, allow_message_use)) => {
-                UserSettings { provider: provider_from(provider), off, allow_message_use }
+            Some((provider, off, allow_message_use, message_use_chosen)) => {
+                UserSettings { provider: provider_from(provider), off, allow_message_use, message_use_chosen }
             }
-            None => UserSettings { provider: None, off: false, allow_message_use: None },
+            None => UserSettings { provider: None, off: false, allow_message_use: None, message_use_chosen: false },
         })
     }
 
@@ -517,8 +517,9 @@ impl Chat {
 
     pub(crate) async fn save_ai_consent(&self, user_id: Uuid, allow: bool) -> AppResult<()> {
         sqlx::query(
-            "INSERT INTO chat_ai_user_settings (user_id, allow_message_use) VALUES ($1, $2)
-             ON CONFLICT (user_id) DO UPDATE SET allow_message_use = EXCLUDED.allow_message_use, updated_at = now()",
+            "INSERT INTO chat_ai_user_settings (user_id, allow_message_use, message_use_chosen) VALUES ($1, $2, true)
+             ON CONFLICT (user_id) DO UPDATE SET allow_message_use = EXCLUDED.allow_message_use,
+                message_use_chosen = true, updated_at = now()",
         )
         .bind(user_id)
         .bind(allow)
@@ -550,22 +551,44 @@ impl Chat {
         Ok(())
     }
 
-    /// Whether each of `user_ids` lets other people's AI requests use their
-    /// messages: their choice, or by default only adults. An unknown age
-    /// counts as under 18.
-    pub(crate) async fn ai_message_use_allowed(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, bool>> {
-        let rows: Vec<(Uuid, Option<bool>, Option<chrono::NaiveDate>)> = sqlx::query_as(
-            "SELECT u.id, s.allow_message_use, u.birthdate FROM users u
-             LEFT JOIN chat_ai_user_settings s ON s.user_id = u.id WHERE u.id = ANY($1)",
+    /// Stores the consent default of new accounts: on for an adult, off
+    /// for a minor or an unknown age, judged by the age **when the account
+    /// was created** — never by today's date, so a minor turning 18 does not
+    /// start sharing (and nothing visible moves with a hidden birthday). A
+    /// stored value, chosen or default, always wins. Idempotent: used for
+    /// `identity.user.created` and for values a lost event left unstored.
+    pub(crate) async fn store_message_use_default(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, bool>> {
+        let rows: Vec<(Uuid, Option<bool>)> = sqlx::query_as(
+            "INSERT INTO chat_ai_user_settings (user_id, allow_message_use)
+             SELECT u.id, u.birthdate IS NOT NULL AND u.birthdate <= (u.created_at - interval '18 years')::date
+             FROM users u WHERE u.id = ANY($1)
+             ON CONFLICT (user_id) DO UPDATE
+                SET allow_message_use = COALESCE(chat_ai_user_settings.allow_message_use, EXCLUDED.allow_message_use)
+             RETURNING user_id, allow_message_use",
         )
         .bind(user_ids)
         .fetch_all(&self.core.db)
         .await?;
-        let today = Utc::now().date_naive();
-        Ok(rows
-            .into_iter()
-            .map(|(id, choice, birthdate)| (id, choice.unwrap_or_else(|| adult(birthdate, today))))
-            .collect())
+        Ok(rows.into_iter().map(|(id, allow)| (id, allow.unwrap_or(false))).collect())
+    }
+
+    /// Whether each of `user_ids` lets other people's AI requests use their
+    /// messages, as stored (see [`Self::store_message_use_default`]; what is
+    /// not stored yet is stored now). Unknown users are left out.
+    pub(crate) async fn ai_message_use_allowed(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, bool>> {
+        let rows: Vec<(Uuid, bool)> = sqlx::query_as(
+            "SELECT user_id, allow_message_use FROM chat_ai_user_settings
+             WHERE user_id = ANY($1) AND allow_message_use IS NOT NULL",
+        )
+        .bind(user_ids)
+        .fetch_all(&self.core.db)
+        .await?;
+        let mut allowed: HashMap<Uuid, bool> = rows.into_iter().collect();
+        let missing: Vec<Uuid> = user_ids.iter().copied().filter(|id| !allowed.contains_key(id)).collect();
+        if !missing.is_empty() {
+            allowed.extend(self.store_message_use_default(&missing).await?);
+        }
+        Ok(allowed)
     }
 
     /// The caller's settings as the API shows them.
@@ -574,7 +597,7 @@ impl Chat {
         let user = self.ai_user_settings(user_id).await?;
         let own_keys = self.ai_own_keys(user_id).await?;
         let default = instance.effective_default();
-        let consent_default = user.allow_message_use.is_none();
+        let consent_default = !user.message_use_chosen;
         let allow_message_use = match user.allow_message_use {
             Some(allow) => allow,
             None => self.ai_message_use_allowed(&[user_id]).await?.get(&user_id).copied().unwrap_or(false),
@@ -623,10 +646,6 @@ impl Chat {
     }
 }
 
-/// Whether someone born on `birthdate` is an adult `today`.
-fn adult(birthdate: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> bool {
-    birthdate.and_then(|birthdate| today.years_since(birthdate)).is_some_and(|age| age >= MESSAGE_USE_ADULT_AGE)
-}
 
 #[cfg(test)]
 mod tests {
@@ -646,7 +665,7 @@ mod tests {
     }
 
     fn user(provider: Option<AiProvider>) -> UserSettings {
-        UserSettings { provider, off: false, allow_message_use: None }
+        UserSettings { provider, off: false, allow_message_use: None, message_use_chosen: false }
     }
 
     const ANTHROPIC: AiProvider = AiProvider::AI_PROVIDER_ANTHROPIC;
@@ -721,13 +740,5 @@ mod tests {
         assert_eq!(check(COMPAT, "http://lmstudio.local:1234/v1", true).unwrap(), "http://lmstudio.local:1234/v1");
         assert_eq!(check(COMPAT, "http://169.254.169.254/v1", true).unwrap_err(), "BASE_URL_NOT_ALLOWED");
         assert_eq!(check(ANTHROPIC, "https://api.anthropic.com:8443", false).unwrap_err(), "BASE_URL_NOT_ALLOWED");
-    }
-
-    #[test]
-    fn consent_follows_age_until_chosen() {
-        let today = chrono::NaiveDate::from_ymd_opt(2026, 11, 25).unwrap();
-        assert!(adult(chrono::NaiveDate::from_ymd_opt(2008, 11, 25), today));
-        assert!(!adult(chrono::NaiveDate::from_ymd_opt(2008, 11, 26), today));
-        assert!(!adult(None, today), "an unknown age counts as under 18");
     }
 }

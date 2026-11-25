@@ -107,6 +107,7 @@ pub struct AssistDefaultChanged {
 
 // ── consumed ──
 
+pub const USER_CREATED: &str = "identity.user.created";
 pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BLOCKED: &str = "social.user.blocked";
 pub const USER_UNBLOCKED: &str = "social.user.unblocked";

@@ -291,11 +291,24 @@ CREATE TABLE chat_ai_user_settings (
     -- tokuly.chat.v1.AiProvider; 0: the instance default.
     provider          smallint    NOT NULL DEFAULT 0,
     off               boolean     NOT NULL DEFAULT false,
-    -- 「AI に自分のメッセージを使ってもいい」. NULL: never chosen, which is
-    -- off while the account is under 18 and on for adults.
-    allow_message_use boolean,
-    updated_at        timestamptz NOT NULL DEFAULT now()
+    -- 「AI に自分のメッセージを使ってもいい」. Stored when the account is
+    -- created (identity.user.created): off for an account of a minor, on
+    -- for an adult, by the age at creation, and kept until the owner
+    -- chooses. Never derived from today's date, so turning 18 changes
+    -- nothing anybody can see. NULL (a lost event) is filled the same way
+    -- the first time it is read.
+    allow_message_use  boolean,
+    -- The owner chose `allow_message_use` themselves.
+    message_use_chosen boolean     NOT NULL DEFAULT false,
+    updated_at         timestamptz NOT NULL DEFAULT now()
 );
+
+-- Accounts that existed before get the default for their age at this
+-- migration, once. Unknown age: off.
+INSERT INTO chat_ai_user_settings (user_id, allow_message_use)
+SELECT id, birthdate IS NOT NULL AND birthdate <= (now() - interval '18 years')::date FROM users
+ON CONFLICT (user_id) DO UPDATE
+    SET allow_message_use = COALESCE(chat_ai_user_settings.allow_message_use, EXCLUDED.allow_message_use);
 
 -- API keys users brought for their own requests (Anthropic, OpenAI).
 CREATE TABLE chat_ai_user_keys (

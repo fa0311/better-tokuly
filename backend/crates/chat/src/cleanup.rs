@@ -15,7 +15,7 @@ use crate::{
     Chat, access,
     events::{
         ASSET_DELETED, ASSET_FAILED, ASSET_READY, AssetRef, CONTENT_REMOVED, ContentRemoved, FRIEND_ACCEPTED,
-        USER_BLOCKED, USER_DELETED, USER_UNBLOCKED,
+        USER_BLOCKED, USER_CREATED, USER_DELETED, USER_UNBLOCKED,
     },
     model::{MSG, MessageRow, kind, msg},
 };
@@ -25,6 +25,8 @@ impl Chat {
     /// deliver events directly (no relay runs in tests).
     pub async fn handle_event(&self, event: &Event) -> AppResult<()> {
         match event.topic.as_str() {
+            // The consent default is fixed when the account is created.
+            USER_CREATED => self.store_message_use_default(&[event.data::<UserRef>()?.user_id]).await.map(drop),
             USER_DELETED => self.on_user_deleted(event.data::<UserRef>()?.user_id).await,
             USER_BLOCKED | USER_UNBLOCKED => {
                 let change: BlockChanged = event.data()?;

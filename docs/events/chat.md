@@ -76,6 +76,7 @@ Durable consumer `chat`. Every handler is idempotent.
 | Topic | Reaction |
 |---|---|
 | `identity.user.deleted` `{ user_id }` | The user's memberships, reactions and co-presence go. Their messages stay (the sender renders as a deleted user). Direct conversations become read-only for the other side (a live call fails, an open POV request is cancelled). Groups lose a member, with the usual system message; a group they owned passes to the longest standing admin, else member; a group nobody is left in is deleted with its uploads released. |
+| `identity.user.created` `{ user_id }` | Stores the account's default for 「AI に自分のメッセージを使ってもいい」 (off for a minor, on for an adult, by the age at creation), unless a value is stored already. Idempotent. |
 | `social.user.blocked` / `social.user.unblocked` `{ user_id, blocked_id }` | The direct conversation of the two becomes read-only for both (live call ends as `FAILED`, open POV request is cancelled), or writable again. Sending already checks blocks live, so the event only maintains the flag lists show. Groups are not touched. |
 | `social.friend.accepted` `{ user_id, friend_id, … }` | A message request waiting between the two is accepted (friends need none). |
 | `media.asset.ready` / `media.asset.failed` `{ asset_id, … }` | Messages showing the upload (a video sent while transcoding) get the final attachment and are pushed again (`MESSAGE_UPDATE_REASON_ATTACHMENT`). |
@@ -284,9 +285,14 @@ refused. Granting it is recorded (`chat.assist.provider_updated` with
 `private_host`) and logged.
 
 **Consent of the people quoted**: 「AI に自分のメッセージを使ってもいい」
-(`SetAiMessageConsent`). Never chosen, it is **off for accounts under 18
-and on for adults** (computed from the birthdate at the time of the
-request; an unknown age counts as under 18). `RewriteDraft` only sends the
+(`SetAiMessageConsent`). Never chosen, it is **off for accounts of minors
+and on for adults**, stored when the account is created
+(`identity.user.created`, by the age at creation) and kept until the owner
+chooses: it is never derived from today's date, so turning 18 changes
+nothing anybody can see (a translation that starts working would give a
+hidden birthday away). A value a lost event left unstored is filled the
+same way when first read; accounts that existed before were filled by the
+migration, by their age then. An unknown age counts as a minor. `RewriteDraft` only sends the
 caller's own draft. `SuggestReplies` leaves out the messages of authors who
 do not allow it (`skipped_messages` counts them) and makes no request when
 nothing from someone else remains. `TranslateMessage` refuses another
