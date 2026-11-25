@@ -52,6 +52,8 @@ registration_open = true
 # in a real payment provider.
 dev_provider = true
 TOML
+  # Read by the containers' own user, whatever this shell's umask is.
+  chmod 755 config
   chmod 644 config/tokuly.toml
   echo "Wrote config/tokuly.toml (settings other than secrets go there)."
 }

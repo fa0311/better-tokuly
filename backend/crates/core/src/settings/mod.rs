@@ -274,8 +274,11 @@ struct SettingsInner {
     state: RwLock<Option<Arc<State>>>,
     /// The generation of the next state installed.
     next_generation: AtomicU64,
-    /// Sections re-parsed by [`Settings::current`], with the generation of the state they were parsed from.
-    parsed: Mutex<HashMap<TypeId, (u64, Arc<dyn Any + Send + Sync>)>>,
+    /// Sections that did not parse (each logged once).
+    failed_parses: AtomicU64,
+    /// Sections re-parsed by [`Settings::current`], with the generation of
+    /// the state they were parsed from; `None` when they did not parse.
+    parsed: Mutex<HashMap<TypeId, (u64, Option<Arc<dyn Any + Send + Sync>>)>>,
 }
 
 impl Settings {
@@ -293,6 +296,14 @@ impl Settings {
 
     pub fn state(&self) -> Option<Arc<State>> {
         self.0.state.read().clone()
+    }
+
+    /// The console values as last loaded, set-aside ones included.
+    pub fn console(&self) -> Option<HashMap<String, String>> {
+        let state = self.state()?;
+        let mut values = state.layers.console.clone();
+        values.extend(state.rejected.clone());
+        Some(values)
     }
 
     /// Replaces the console layer (after a change was saved here or in
@@ -330,17 +341,19 @@ impl Settings {
         if let Some((parsed_from, value)) = self.0.parsed.lock().get(&TypeId::of::<C>())
             && *parsed_from == stamp
         {
-            return value.clone().downcast::<C>().ok();
+            return value.clone().and_then(|v| v.downcast::<C>().ok());
         }
         let cmd = apply(C::augment_args(Command::new(section.to_owned()).no_binary_name(true)), &state.registry, &state.layers, true);
         let parsed = match cmd.try_get_matches_from(Vec::<OsString>::new()).map_err(|e| schema::clap_message(&e)).and_then(|m| C::from_arg_matches(&m).map_err(|e| schema::clap_message(&e))) {
             Ok(parsed) => Arc::new(parsed),
             Err(e) => {
+                self.0.failed_parses.fetch_add(1, Ordering::Relaxed);
                 tracing::error!(section, error = %e, "settings: section does not parse with the console values");
+                self.0.parsed.lock().insert(TypeId::of::<C>(), (stamp, None));
                 return None;
             }
         };
-        self.0.parsed.lock().insert(TypeId::of::<C>(), (stamp, parsed.clone()));
+        self.0.parsed.lock().insert(TypeId::of::<C>(), (stamp, Some(parsed.clone())));
         Some(parsed)
     }
 }
@@ -436,6 +449,18 @@ mod tests {
         // The command line wins over the console, so nothing changed for the token.
         assert!(!state.restart_pending(def(&r, "token")));
         assert!(Settings::default().current::<Demo>("demoset").is_none());
+    }
+
+    /// A section that does not parse is logged once per state, not on
+    /// every read (domains read live settings per request).
+    #[test]
+    fn a_parse_failure_is_reported_once() {
+        // No token anywhere: the section lacks a required value.
+        let settings = Settings::new(State::new(registry(), Layers::default(), None, false));
+        for _ in 0..3 {
+            assert!(settings.current::<Demo>("demoset").is_none());
+        }
+        assert_eq!(settings.0.failed_parses.load(Ordering::Relaxed), 1);
     }
 
     /// Every change is seen, also when the allocator hands out a freed

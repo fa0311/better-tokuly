@@ -24,6 +24,8 @@ use crate::{
 const SESSION_REVOKED_SUBJECT: &str = "sys.session.revoked";
 /// Broadcast after a console settings change: every process reloads the console layer.
 const SETTINGS_CHANGED_SUBJECT: &str = "sys.settings.changed";
+/// How often every process looks at the console layer without being told.
+const SETTINGS_RECHECK: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub struct CoreInner {
     pub cfg: Config,
@@ -142,15 +144,21 @@ impl Core {
             .map_err(|e| anyhow::anyhow!("cannot subscribe to system subjects: {e}"))?;
         let core = self.clone();
         tokio::spawn(async move {
+            // The broadcast is fire-and-forget: one lost while NATS was away
+            // must not leave this process stale, so it also looks every minute.
+            let mut every_minute = tokio::time::interval(SETTINGS_RECHECK);
+            every_minute.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            every_minute.tick().await;
             loop {
                 tokio::select! {
                     _ = core.shutdown.cancelled() => break,
                     message = changed.next() => {
                         if message.is_none() { break }
-                        if let Err(e) = core.reload_settings().await {
-                            tracing::warn!(error = %e, "settings: reloading the console layer failed");
-                        }
                     }
+                    _ = every_minute.tick() => {}
+                }
+                if let Err(e) = core.reload_settings().await {
+                    tracing::warn!(error = %e, "settings: reloading the console layer failed");
                 }
             }
         });
@@ -195,6 +203,10 @@ impl Core {
     pub async fn reload_settings(&self) -> anyhow::Result<()> {
         let Some(state) = self.settings.state() else { return Ok(()) };
         let console = settings::store::load(&self.db, &state.registry, &self.keys).await?;
+        // Unchanged (the periodic check): keep the state, and the parses cached for it.
+        if self.settings.console().as_ref() == Some(&console) {
+            return Ok(());
+        }
         self.settings.set_console(console);
         if let Some(cfg) = self.settings.current::<Config>("core") {
             self.cache.set_rate_limits(cfg.rate_limits);
