@@ -44,7 +44,11 @@ jobs:
           sed -i 's/^TOKULY_MAP_REGION_BBOX=.*/TOKULY_MAP_REGION_BBOX=139.695,35.655,139.705,35.665/; s/^TOKULY_MAP_REGION_MAXZOOM=.*/TOKULY_MAP_REGION_MAXZOOM=12/' .env
 
       - name: Build the images
-        run: docker compose build
+        # The backend first, alone: compiling the generated API crate in release mode next to the web
+        # build ran the 16 GB amd64 runner out of memory. The second command reuses its layers.
+        run: |
+          docker compose build migrate
+          docker compose build
 
       - name: Start the stack
         run: tools/ci/stack-up.sh
