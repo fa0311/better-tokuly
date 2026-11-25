@@ -1,7 +1,7 @@
+import { type Subject, subjectTopic } from "@tokuly/core/engagement";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { useEngagement } from "./api";
-import { type Subject, subjectTopic } from "./model";
 
 /**
  * A connection may follow 64 topics. Content on screen shares them with

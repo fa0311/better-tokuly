@@ -1,3 +1,4 @@
+import { compactCount, type Subject } from "@tokuly/core/engagement";
 import { Bookmark } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -5,7 +6,6 @@ import { cn } from "#/lib/cn";
 import { useBookmark, useEngagement } from "./api";
 import { useBurst } from "./burst";
 import { openCollectionChooser } from "./collection-chooser";
-import { compactCount, type Subject } from "./model";
 
 export interface BookmarkButtonProps {
   subject: Subject;

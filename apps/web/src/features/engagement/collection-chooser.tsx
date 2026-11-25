@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { engagement } from "@tokuly/api";
+import type { Subject } from "@tokuly/core/engagement";
 import { BookmarkX, Check, FolderPlus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,7 +19,6 @@ import {
   useCollectionsFor,
   useEngagement,
 } from "./api";
-import type { Subject } from "./model";
 
 /** The longest collection name the server takes. */
 export const COLLECTION_NAME_MAX = 50;

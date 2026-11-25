@@ -1,7 +1,7 @@
+import { isCustomEmoji, type ReactionPicture } from "@tokuly/core/engagement";
 import { useTranslation } from "react-i18next";
 import { type CatalogEmoji, Emoji, EmojiImage } from "#/features/emoji";
 import { cn } from "#/lib/cn";
-import { isCustomEmoji, type ReactionPicture } from "./model";
 
 /** The picture the server described, in the shape the emoji feature draws. */
 function asCatalogEmoji(picture: ReactionPicture): CatalogEmoji {

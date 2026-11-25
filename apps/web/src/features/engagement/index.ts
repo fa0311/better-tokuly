@@ -20,6 +20,18 @@
  * ahead of rendering). Saved and reacted-to subjects are drawn on
  * `/bookmarks` by the card each feature registers with `registerSubjectCard`.
  */
+
+export {
+  compactCount,
+  type Engagement,
+  emojiReaction,
+  LIKE,
+  type ReactionPicture,
+  type ReactionRules,
+  type Subject,
+  subjectTopic,
+  type ViewerReaction,
+} from "@tokuly/core/engagement";
 export {
   loadEngagement,
   prefetchEngagement,
@@ -33,17 +45,6 @@ export { useBurst } from "./burst";
 export { openCollectionChooser } from "./collection-chooser";
 export { EmojiPicker, type EmojiPickerProps } from "./emoji-picker";
 export { useSubjectLive, useSubjectTopic } from "./live";
-export {
-  compactCount,
-  type Engagement,
-  emojiReaction,
-  LIKE,
-  type ReactionPicture,
-  type ReactionRules,
-  type Subject,
-  subjectTopic,
-  type ViewerReaction,
-} from "./model";
 export { useOpenPath } from "./open-path";
 export {
   AddReactionButton,

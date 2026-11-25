@@ -8,6 +8,7 @@
   "exports": {
     "./format": "./src/format/index.ts",
     "./errors": "./src/errors/index.ts",
+    "./engagement": "./src/engagement/index.ts",
     "./query": "./src/query/index.ts",
     "./chat": "./src/chat/index.ts",
     "./friends": "./src/friends/index.ts",

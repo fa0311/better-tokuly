@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { engagement } from "@tokuly/api";
+import { compactCount, type Subject } from "@tokuly/core/engagement";
 import { Link2, MessageCircle, Share2, Upload } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,6 @@ import { Menu } from "#/components/ui/menu";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { recordShare, useEngagement } from "./api";
-import { compactCount, type Subject } from "./model";
 
 export interface ShareButtonProps {
   subject: Subject;

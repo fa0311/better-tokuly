@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { engagement, toDate } from "@tokuly/api";
+import { readReaction, type Subject } from "@tokuly/core/engagement";
 import { BookmarkX, Ellipsis, FolderOpen, FolderPlus, Pencil, Trash2, Undo2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -29,7 +30,6 @@ import {
   openCollectionChooser,
   useCollectionName,
 } from "./collection-chooser";
-import { readReaction, type Subject } from "./model";
 import { ReactionEmoji } from "./reaction-emoji";
 import { SubjectCard } from "./subject-card";
 

@@ -1,9 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { readReaction } from "@tokuly/core/engagement";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { applyCounters, engagementKeys } from "./api";
 import { CollectionChooserHost } from "./collection-chooser";
-import { readReaction } from "./model";
 import { emitPop } from "./pops";
 
 /**
