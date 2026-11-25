@@ -2,6 +2,7 @@ import type { common } from "@tokuly/api";
 import type { GeoJSONSource, LayerSpecification } from "maplibre-gl";
 import { Map as MapLibreMap, Marker, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { decodePolyline } from "@tokuly/core/map";
 // The map parses tiles in a module worker. Let the bundler emit that worker
 // (with its imports) and tell the library where it ended up.
 import mapWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
@@ -10,7 +11,6 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { cn } from "#/lib/cn";
-import { decodePolyline } from "./model";
 import { buildMapStyle, type MapStyleId } from "./tiles";
 
 setWorkerUrl(mapWorkerUrl);

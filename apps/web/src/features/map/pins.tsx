@@ -1,4 +1,5 @@
 import { type common, geo, toMillis } from "@tokuly/api";
+import { circleRing, isBlurred, isMoving, pinState, stayMillis } from "@tokuly/core/map";
 import {
   BatteryCharging,
   BatteryFull,
@@ -18,7 +19,6 @@ import { cn } from "#/lib/cn";
 import { compactAge, compactDuration, kmh } from "#/lib/format";
 import { useNow } from "./data";
 import { type MapGeoJson, MapPin, useMap, useMapLayer } from "./map-view";
-import { circleRing, isBlurred, isMoving, pinState, stayMillis } from "./model";
 
 export const PLACE_ICONS = {
   [geo.PlaceLabel.HOME]: House,

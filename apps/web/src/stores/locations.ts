@@ -1,4 +1,5 @@
 import type { geo } from "@tokuly/api";
+import { fromSnapshot, withLocation, withoutFriend } from "@tokuly/core/map";
 import { create } from "zustand";
 
 /** The device's own position as last read from the browser. */
@@ -31,21 +32,9 @@ export const useLocations = create<LocationsStore>((set) => ({
   online: {},
   own: null,
   ownError: null,
-  setSnapshot: (locations) =>
-    set({
-      friends: Object.fromEntries(locations.map((l) => [l.userId, l])),
-      online: Object.fromEntries(locations.filter((l) => l.online).map((l) => [l.userId, true])),
-    }),
-  upsert: (location) =>
-    set((state) => ({
-      friends: { ...state.friends, [location.userId]: location },
-      online: { ...state.online, [location.userId]: location.online },
-    })),
-  remove: (userId) =>
-    set((state) => {
-      const { [userId]: _removed, ...friends } = state.friends;
-      return { friends };
-    }),
+  setSnapshot: (locations) => set(fromSnapshot(locations)),
+  upsert: (location) => set((state) => withLocation(state, location)),
+  remove: (userId) => set((state) => ({ friends: withoutFriend(state.friends, userId) })),
   setOnline: (userId, online) =>
     set((state) => ({ online: { ...state.online, [userId]: online } })),
   setOwn: (own, error = null) => set({ own, ownError: error }),

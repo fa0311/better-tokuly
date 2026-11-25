@@ -1,6 +1,6 @@
+import { isBlurred } from "@tokuly/core/map";
 import { useLocations } from "#/stores/locations";
 import { useMap } from "./map-view";
-import { isBlurred } from "./model";
 
 function reducedMotion(): boolean {
   return (

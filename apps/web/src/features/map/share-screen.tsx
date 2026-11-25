@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type geo, isNotFound, toMillis } from "@tokuly/api";
+import { MOVING_SPEED_MPS, STALE_AFTER_MS } from "@tokuly/core/map";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -12,7 +13,6 @@ import { compactAge, compactDuration, kmh } from "#/lib/format";
 import { useSessionStatus } from "#/stores/session";
 import { locationClient, useNow } from "./data";
 import { MapPin, MapView, useMap } from "./map-view";
-import { MOVING_SPEED_MPS, STALE_AFTER_MS } from "./model";
 import { ACTIVITY_EMOJI } from "./pins";
 
 /** Keeps the shared pin in view as it moves. */

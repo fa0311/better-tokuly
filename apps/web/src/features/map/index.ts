@@ -61,6 +61,7 @@
  * A link to `/map?friend=<user id>` opens the live map on that friend.
  */
 
+export { decodePolyline } from "@tokuly/core/map";
 export {
   boundsOf,
   cameraMs,
@@ -93,6 +94,5 @@ export {
   useMap,
   useMapLayer,
 } from "./map-view";
-export { decodePolyline } from "./model";
 export { StaticMapPreview, type StaticMapPreviewProps } from "./static-map-preview";
 export type { MapStyleId } from "./tiles";

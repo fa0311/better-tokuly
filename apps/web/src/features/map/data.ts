@@ -1,5 +1,6 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type common, feed, geo, social, toMillis } from "@tokuly/api";
+import { mapKeys } from "@tokuly/core/map";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
@@ -19,21 +20,8 @@ export const placeClient = () => api().service(geo.PlaceService);
 export const interactionClient = () => api().service(social.InteractionService);
 export const mapStoryClient = () => api().service(feed.MapStoryService);
 
-export const mapKeys = {
-  friends: ["social", "friends"] as const,
-  ghost: ["geo", "ghost"] as const,
-  gatherings: ["geo", "gatherings"] as const,
-  trips: ["geo", "trips"] as const,
-  sos: ["geo", "sos"] as const,
-  alerts: ["geo", "alerts"] as const,
-  shares: ["geo", "shares"] as const,
-  directions: (userId: string, mode: geo.TravelMode) =>
-    ["geo", "directions", userId, mode] as const,
-  mapViews: ["social", "mapViews"] as const,
-  bumps: (userId: string) => ["social", "bumps", userId] as const,
-  storyTray: ["feed", "mapStories", "tray"] as const,
-  storyReel: (userId: string) => ["feed", "mapStories", "reel", userId] as const,
-};
+// The map's keys live in `@tokuly/core/map`; the folder reads them from here.
+export { mapKeys };
 
 export type FriendUser = common.UserSummary;
 
