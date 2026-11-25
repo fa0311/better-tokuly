@@ -1,3 +1,4 @@
+import { type Api, geo } from "@tokuly/api";
 import {
   type LastReport,
   locationSample,
@@ -8,6 +9,7 @@ import { useEffect } from "react";
 import { AppState } from "react-native";
 import { create } from "zustand";
 import { onBeforeLeave, useMe } from "#/features/session/session";
+import { api } from "#/lib/api";
 import i18n from "#/lib/i18n";
 import { realtime } from "#/lib/realtime";
 import {
@@ -49,6 +51,8 @@ interface SharingStore {
    * still see a live pin. Remembered per account and retried until it works.
    */
   stopOwed: boolean;
+  /** The account is leaving (signing out, another account taking over): nothing more goes out for it. */
+  leaving: boolean;
 }
 
 export const useSharing = create<SharingStore>(() => ({
@@ -57,7 +61,25 @@ export const useSharing = create<SharingStore>(() => ({
   choice: null,
   access: null,
   stopOwed: false,
+  leaving: false,
 }));
+
+/**
+ * Whether `userId` still shares from here through `account`: the same API
+ * (no switch happened since), the same account in the store, sharing on,
+ * not leaving. Asked again after every wait, the way the web's
+ * `stillSharing` is: a stop or a switch must not be followed by one more fix.
+ */
+function stillSharing(userId: string, account: Api): boolean {
+  const state = useSharing.getState();
+  return (
+    api() === account &&
+    state.userId === userId &&
+    state.loaded &&
+    state.choice === "on" &&
+    !state.leaving
+  );
+}
 
 async function setStopOwed(userId: string, owed: boolean): Promise<void> {
   await writeSecure(stopOwedKey(userId), owed ? "1" : null);
@@ -81,8 +103,9 @@ async function tellServerStopped(userId: string): Promise<boolean> {
 }
 
 async function setChoice(userId: string, choice: SharingChoice): Promise<void> {
-  await writeSecure(choiceKey(userId), choice);
+  // In memory first: a fix already on its way checks the store, not the storage.
   if (useSharing.getState().userId === userId) useSharing.setState({ choice });
+  await writeSecure(choiceKey(userId), choice);
 }
 
 export async function refreshAccess(): Promise<void> {
@@ -146,15 +169,39 @@ export function useSharingState(): SharingState {
   return own ? "sharing" : "starting";
 }
 
-/** Sends one fix: over the realtime connection when it is up, the plain RPC otherwise. */
-async function send(position: OwnPosition): Promise<void> {
-  const sample = locationSample(position, { ...(await readBattery()), foreground: true });
-  if (realtime().sendLocation(sample)) return;
+/**
+ * Sends one fix for `userId`: over the realtime connection when it is up,
+ * the plain RPC otherwise, both those of the account active when it started.
+ * Nothing goes out once that account stopped, left or was switched away from.
+ */
+export async function sendFix(position: OwnPosition, userId: string): Promise<void> {
+  const account = api();
+  const connection = realtime();
+  if (!stillSharing(userId, account)) return;
+  const battery = await readBattery();
+  if (!stillSharing(userId, account)) return;
+  const sample = locationSample(position, { ...battery, foreground: true });
+  if (connection.sendLocation(sample)) return;
   try {
-    await locationClient().reportLocations({ samples: [sample] });
+    await account.service(geo.LocationService).reportLocations({ samples: [sample] });
   } catch {
     // Dropping one sample is fine: the next one supersedes it.
   }
+}
+
+/**
+ * Before `userId` leaves this device's screen (sign-out, a switch): nothing
+ * more is sent for it from the foreground or the background, then the
+ * server hears that it stopped.
+ */
+export async function leaveSharing(userId: string): Promise<void> {
+  const state = useSharing.getState();
+  const wasSharing = state.userId === userId && state.choice === "on";
+  useSharing.setState({ leaving: true });
+  useLocations.getState().setOwn(null);
+  if (!wasSharing) return;
+  await stopBackground();
+  await tellServerStopped(userId);
 }
 
 /** Every few seconds the newest fix goes out if its turn came; a still device gets a fresh one. */
@@ -166,16 +213,18 @@ const HEARTBEAT_MS = 5_000;
  * rarely while still). Off screen, the background task takes over when
  * "always" is allowed.
  */
-function useForegroundReporting(active: boolean, precise: boolean): void {
+function useForegroundReporting(userId: string | null, active: boolean, precise: boolean): void {
   useEffect(() => {
-    if (!active) return;
+    if (!active || !userId) return;
+    const account = api();
     let live = true;
+    const sharing = () => live && stillSharing(userId, account);
     let last: LastReport | null = null;
     let unsent: OwnPosition | null = null;
     let unwatch: (() => void) | null = null;
 
     const flush = (force = false) => {
-      if (!live || !unsent) return;
+      if (!sharing() || !unsent) return;
       const now = Date.now();
       const decision = reportDecision(unsent, last, realtime().cadence, now, force);
       if (decision === "wait") return;
@@ -186,10 +235,10 @@ function useForegroundReporting(active: boolean, precise: boolean): void {
         return;
       }
       last = { at: now, position };
-      void send(position);
+      void sendFix(position, userId);
     };
     const accept = (position: OwnPosition, force = false) => {
-      if (!live) return;
+      if (!sharing()) return;
       useLocations.getState().setOwn(position);
       unsent = position;
       flush(force);
@@ -228,7 +277,7 @@ function useForegroundReporting(active: boolean, precise: boolean): void {
       clearInterval(heartbeat);
       appState.remove();
     };
-  }, [active, precise]);
+  }, [userId, active, precise]);
 }
 
 /** The background task runs for the account that shares with "always" allowed; it stops otherwise. */
@@ -267,7 +316,13 @@ export function useOwnLocationSharing(): void {
   const access = useSharing((state) => state.access);
 
   useEffect(() => {
-    useSharing.setState({ userId: myId, loaded: false, choice: null, stopOwed: false });
+    useSharing.setState({
+      userId: myId,
+      loaded: false,
+      choice: null,
+      stopOwed: false,
+      leaving: false,
+    });
     if (!myId) return;
     let current = true;
     void (async () => {
@@ -292,12 +347,9 @@ export function useOwnLocationSharing(): void {
       void refreshAccess();
       if (useSharing.getState().stopOwed) void confirmStop();
     });
-    const offLeave = onBeforeLeave(async () => {
+    const offLeave = onBeforeLeave(() => {
       current = false;
-      useLocations.getState().setOwn(null);
-      if (useSharing.getState().choice !== "on") return;
-      await stopBackground();
-      await tellServerStopped(myId);
+      return leaveSharing(myId);
     });
     return () => {
       current = false;
@@ -316,7 +368,8 @@ export function useOwnLocationSharing(): void {
     void tellServerStopped(myId);
   }, [myId, choice, revoked]);
 
-  const active = Boolean(myId) && choice === "on" && granted;
-  useForegroundReporting(active, access?.approximate === false);
+  const leaving = useSharing((state) => state.leaving);
+  const active = Boolean(myId) && choice === "on" && granted && !leaving;
+  useForegroundReporting(myId, active, access?.approximate === false);
   useBackgroundTask(myId, active && access?.background === true);
 }
