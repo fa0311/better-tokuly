@@ -207,11 +207,18 @@ impl Assistant {
                 return Err(ai_unavailable());
             }
         };
-        serde_json::from_value(answer).map_err(|e| {
-            tracing::warn!(reason = %e, provider = ?self.kind, "AI answer does not match the schema");
+        decode_answer(answer).map_err(|reason| {
+            tracing::warn!(%reason, provider = ?self.kind, "AI answer does not match the schema");
             ai_unavailable()
         })
     }
+}
+
+/// The answer as `T`, or a description of why not that is safe to log:
+/// serde's own messages quote the values they could not use, which here is
+/// model output derived from user text.
+fn decode_answer<T: DeserializeOwned>(answer: serde_json::Value) -> Result<T, String> {
+    serde_json::from_value(answer).map_err(|e| providers::json_error(&e))
 }
 
 /// A cache key for the translation of `text` into `language` by one model:
@@ -438,6 +445,18 @@ mod tests {
             assert!(tone_instruction(tone).is_some(), "{tone:?}");
         }
         assert!(tone_instruction(pb::RewriteTone::REWRITE_TONE_UNSPECIFIED).is_none());
+    }
+
+    #[test]
+    fn schema_mismatches_are_logged_without_the_model_output() {
+        let answer = serde_json::json!({ "replies": "SECRET-MODEL-TEXT about the user's draft" });
+        let raw = serde_json::from_value::<Suggested>(answer.clone()).err().unwrap().to_string();
+        assert!(raw.contains("SECRET-MODEL-TEXT"), "serde quotes the value: {raw}");
+        let logged = decode_answer::<Suggested>(answer).err().unwrap();
+        assert!(!logged.contains("SECRET"), "{logged}");
+        assert!(logged.contains("Data"), "the category is kept: {logged}");
+        let unknown = decode_answer::<Rewritten>(serde_json::json!({ "txt": "SECRET-MODEL-TEXT" })).err().unwrap();
+        assert!(!unknown.contains("SECRET"), "{unknown}");
     }
 
     #[test]

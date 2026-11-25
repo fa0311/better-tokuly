@@ -651,7 +651,6 @@ impl Chat {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

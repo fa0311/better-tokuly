@@ -114,7 +114,14 @@ fn status_failure(status: reqwest::StatusCode, bytes: &[u8], kind_pointer: &str)
 }
 
 fn decode(bytes: &[u8]) -> Result<serde_json::Value, Failure> {
-    serde_json::from_slice(bytes).map_err(|e| Failure::Transient(format!("undecodable answer: {e}")))
+    serde_json::from_slice(bytes).map_err(|e| Failure::Transient(format!("undecodable answer: {}", json_error(&e))))
+}
+
+/// What went wrong with a JSON value, without serde's message, which may
+/// quote the value (model output derived from user text): the category
+/// and the position only. For log lines.
+pub(crate) fn json_error(error: &serde_json::Error) -> String {
+    format!("{:?} error at line {} column {}", error.classify(), error.line(), error.column())
 }
 
 // ───────────────────────────── Anthropic ─────────────────────────────
@@ -195,7 +202,7 @@ pub(crate) fn parse_anthropic(answer: &serde_json::Value) -> Result<serde_json::
         })
         .unwrap_or_default();
     serde_json::from_str(text.trim())
-        .map_err(|e| Failure::Permanent(format!("the answer is not the requested JSON: {e}")))
+        .map_err(|e| Failure::Permanent(format!("the answer is not the requested JSON: {}", json_error(&e))))
 }
 
 // ───────────────────────────── OpenAI ─────────────────────────────
@@ -313,7 +320,7 @@ pub(crate) fn parse_openai(answer: &serde_json::Value, mode: JsonMode) -> Result
         JsonMode::Schema => serde_json::from_str(text),
         JsonMode::Prompted => serde_json::from_str(text).or_else(|e| lenient_json(text).ok_or(e)),
     };
-    parsed.map_err(|e| Failure::Permanent(format!("the answer is not the requested JSON: {e}")))
+    parsed.map_err(|e| Failure::Permanent(format!("the answer is not the requested JSON: {}", json_error(&e))))
 }
 
 /// The JSON object inside an answer that wraps it in prose or code fences
