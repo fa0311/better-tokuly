@@ -282,7 +282,11 @@ function useForegroundReporting(userId: string | null, active: boolean, precise:
   }, [userId, active, precise]);
 }
 
-/** The background task runs for the account that shares with "always" allowed; it stops otherwise. */
+/**
+ * The background task runs for the account that shares with "always" allowed;
+ * it stops otherwise. `userId` is null until that account's choice is known:
+ * nothing is started or stopped on a guess (no notification flashing by).
+ */
 function useBackgroundTask(userId: string | null, active: boolean): void {
   useEffect(() => {
     if (!userId) return;
@@ -370,8 +374,15 @@ export function useOwnLocationSharing(): void {
     void tellServerStopped(myId);
   }, [myId, choice, revoked]);
 
+  // Only once this account's own choice was read: right after a switch the store still holds
+  // the previous account's yes for a render, and nothing may start on it for the new one.
+  const decided = useSharing((state) => (state.loaded ? state.userId : null)) === myId;
   const leaving = useSharing((state) => state.leaving);
-  const active = Boolean(myId) && choice === "on" && granted && !leaving;
+  const active = decided && Boolean(myId) && choice === "on" && granted && !leaving;
   useForegroundReporting(myId, active, access?.approximate === false);
-  useBackgroundTask(myId, active && access?.background === true);
+  // Nor before the OS permission was read: a start or a stop on a guess flashes the notification.
+  useBackgroundTask(
+    decided && access !== null ? myId : null,
+    active && access?.background === true,
+  );
 }
