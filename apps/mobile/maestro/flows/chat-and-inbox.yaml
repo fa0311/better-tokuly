@@ -30,6 +30,7 @@ env:
 # Send one (the device keyboard types ASCII only).
 - tapOn: { id: "composer-input" }
 - inputText: "hello from the phone"
+- hideKeyboard
 - tapOn: { id: "composer-send" }
 - extendedWaitUntil:
     visible: "hello from the phone"

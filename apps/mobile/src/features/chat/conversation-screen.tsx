@@ -7,15 +7,7 @@ import * as WebBrowser from "expo-web-browser";
 import { ChevronLeft, Phone, Sparkles } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Alert,
-  AppState,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
+import { Alert, AppState, KeyboardAvoidingView, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ActionSheet, type SheetAction } from "#/components/action-sheet";
 import { Button } from "#/components/button";
@@ -312,7 +304,8 @@ function Open({ conversation, me }: { conversation: chat.Conversation; me: commo
     <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-bg" testID="conversation-screen">
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        // Android draws edge to edge: the window is not resized for the keyboard, so both pad.
+        behavior="padding"
       >
         <Header conversation={conversation} myId={me.id} />
         {window.loading ? (
