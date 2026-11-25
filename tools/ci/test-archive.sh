@@ -25,9 +25,15 @@ pack() {
   local archive="$1" parts="$2"; shift 2
   local work; work="$(mktemp -d)"
   (cd backend && cargo test --no-run --message-format=json-render-diagnostics "$@") \
-    | jq -r 'select(.reason == "compiler-artifact" and .profile.test and .executable != null)
-             | "\(.manifest_path | sub("/Cargo.toml$"; ""))\t\(.executable)"' >"$work/binaries"
-  mkdir "$work/bin"
+    | jq -r 'select(.reason == "compiler-artifact" and .executable != null)
+             | "\(.profile.test)\t\(.manifest_path | sub("/Cargo.toml$"; ""))\t\(.executable)"' >"$work/artifacts"
+  mkdir "$work/bin" "$work/programs"
+  sed -n 's/^true\t//p' "$work/artifacts" >"$work/binaries"
+  # The crates' programs too, where they were built: integration tests run them
+  # through the path cargo compiled in (CARGO_BIN_EXE_<name>).
+  sed -n 's/^false\t[^\t]*\t//p' "$work/artifacts" | sort -u >"$work/bin/programs.list"
+  while read -r exe; do cp "$exe" "$work/programs/$(basename "$exe")"; done <"$work/bin/programs.list"
+  mv "$work/programs" "$work/bin/"
   # Each binary under a name of its own, with its crate's directory and number of tests.
   while IFS=$'\t' read -r dir exe; do
     name="$(basename "$exe")"
@@ -41,7 +47,7 @@ pack() {
       load[best] += $1; print best "\t" $2 "\t" $3
     } END { for (p = 1; p <= parts; p++) printf "group %d: %d tests\n", p, load[p] > "/dev/stderr" }' \
     "$work/weighted" >"$work/bin/groups"
-  tar -C "$work/bin" -cf - . | zstd -T0 -3 -q -o "$archive"
+  tar -C "$work/bin" -cf - . | zstd -T0 -3 --long=30 -q -o "$archive"
   echo "$(wc -l <"$work/binaries") test binaries, $(du -h "$archive" | cut -f1) archived"
   rm -rf "$work"
 }
@@ -49,7 +55,10 @@ pack() {
 run() {
   local archive="$1" part="$2"
   local bin; bin="$(mktemp -d)"
-  zstd -dc "$archive" | tar -C "$bin" -xf -
+  zstd -dc --long=30 "$archive" | tar -C "$bin" -xf -
+  while read -r exe; do
+    mkdir -p "$(dirname "$exe")" && cp "$bin/programs/$(basename "$exe")" "$exe"
+  done <"$bin/programs.list"
   local failed=()
   while IFS=$'\t' read -r group dir name; do
     [ "$group" = "$part" ] || continue

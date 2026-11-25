@@ -53,7 +53,7 @@ permissions:
 
 env:
   # How many jobs the browser tests are split across, each with its own stack.
-  PLAYWRIGHT_SHARDS: 8
+  PLAYWRIGHT_SHARDS: 12
   REGISTRY: ghcr.io/${{ github.repository }}
 
 jobs:
@@ -245,8 +245,10 @@ jobs:
           echo "TOKULY_E2E_HOST_FROM_API=$gateway" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/setup-js
-      - name: Install the browser
-        run: pnpm --filter @tokuly/web exec playwright install --with-deps chrome
+      # The tests use Google Chrome (channel "chrome"), which GitHub's runner image already has;
+      # installing it again took three minutes per shard.
+      - name: Install the browser (when the runner has none)
+        run: google-chrome --version || pnpm --filter @tokuly/web exec playwright install --with-deps chrome
 
       - name: Browser tests
         env:
