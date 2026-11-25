@@ -42,14 +42,23 @@ function bindStore(): void {
 /**
  * On app start: resumes the active account from the refresh token in secure
  * storage, unless this is a new install (its keychain may hold a previous
- * one's accounts).
+ * one's accounts). Never leaves the session unknown, which would keep the
+ * splash screen up for good: when the device's storage fails, the app starts
+ * signed out.
  */
 export async function startSession(): Promise<void> {
-  await forgetPreviousInstall([...ACCOUNT_KEYS, DEVICE_ID_KEY]);
-  await prepareRealtime();
-  bindStore();
-  if (await activeTokenStore.get()) await api().session.restore();
-  else api().session.assumeSignedOut();
+  try {
+    await forgetPreviousInstall([...ACCOUNT_KEYS, DEVICE_ID_KEY]);
+    await prepareRealtime();
+    bindStore();
+    if (await activeTokenStore.get()) await api().session.restore();
+    else api().session.assumeSignedOut();
+  } catch (error) {
+    // Not knowing whose tokens storage holds (this install's or a previous one's), nobody is signed in by itself.
+    console.warn("Could not resume the session; starting signed out.", error);
+    if (!unbind) bindStore();
+    api().session.assumeSignedOut();
+  }
 }
 
 /** The signed-in account, or `null` while unknown / signed out. */
