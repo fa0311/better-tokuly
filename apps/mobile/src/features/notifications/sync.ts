@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
   applyInboxChange,
+  NOTIFY_CATEGORIES,
   notifyKeys,
   rereadInbox,
   storeUnread,
@@ -43,8 +44,11 @@ export function useNotificationsSync(): void {
   }, [unread.total]);
 
   useEffect(() => {
+    // One Android channel per category the server sends pushes in.
     void prepareChannels(
-      i18n.t("mobile:push.channels", { returnObjects: true }) as Record<string, string>,
+      Object.fromEntries(
+        NOTIFY_CATEGORIES.map((category) => [category, i18n.t(`mobile:push.channels.${category}`)]),
+      ),
     ).catch(() => {});
     // While the app is open, a push about the conversation being read stays quiet.
     showWhileOpen((path) => {

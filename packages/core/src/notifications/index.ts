@@ -5,6 +5,7 @@
  * leads. Push registration and opening a target stay in each app.
  */
 export { applyInboxChange, rereadInbox, storeUnread, updateInboxLists } from "./cache";
+export { NOTIFY_CATEGORIES, type NotifyCategory } from "./categories";
 export {
   entriesOf,
   type InboxFilter,
