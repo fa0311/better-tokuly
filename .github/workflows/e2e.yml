@@ -69,7 +69,7 @@ jobs:
         run: |
           if [ "${{ steps.changed.outputs.server }}" = true ] || [ "${{ github.event_name }}" = workflow_dispatch ]; then
             # The backend alone first (see images.yml: in parallel with the web build it ran out of memory).
-            docker compose build migrate
+            docker compose build --build-arg CARGO_BUILD_JOBS=4 migrate
             docker compose build
           else
             docker compose build web

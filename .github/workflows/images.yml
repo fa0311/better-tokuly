@@ -47,7 +47,7 @@ jobs:
         # The backend first, alone: compiling the generated API crate in release mode next to the web
         # build ran the 16 GB amd64 runner out of memory. The second command reuses its layers.
         run: |
-          docker compose build migrate
+          docker compose build --build-arg CARGO_BUILD_JOBS=4 migrate
           docker compose build
 
       - name: Start the stack

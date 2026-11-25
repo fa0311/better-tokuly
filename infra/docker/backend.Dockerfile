@@ -20,6 +20,9 @@ COPY buf.yaml ./
 COPY proto ./proto
 COPY backend ./backend
 WORKDIR /src/backend
+# Parallel rustc jobs; CI passes a small number, since compiling the generated
+# API crate in release mode next to other crates ran a 16 GB runner out of memory.
+ARG CARGO_BUILD_JOBS=default
 # Cache mounts keep the crate registry and build artifacts between image builds.
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/backend/target,sharing=locked \
