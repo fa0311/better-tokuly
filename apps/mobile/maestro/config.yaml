@@ -3,9 +3,10 @@
 #   maestro test apps/mobile/maestro --env SERVER=http://localhost
 #
 # SERVER is the stack's edge as Maestro's scripts reach it: they run on the
-# host, not on the device. The app is built for the address the device sees
-# (EXPO_PUBLIC_TOKULY_URL=http://10.0.2.2 on the Android emulator). Every
-# flow makes its own accounts through the API.
+# host, not on the device. The app is built for the address the device sees:
+# in CI http://localhost:8080 too, with `adb reverse` forwarding the emulator's
+# ports to the host (.github/workflows/mobile.yml). Every flow makes its own
+# accounts through the API.
 flows:
   - flows/*.yaml
 executionOrder:

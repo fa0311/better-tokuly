@@ -114,4 +114,4 @@ jobs:
         if: failure()
         run: |
           docker compose ps -a
-          docker compose logs --tail 200 api realtime worker web edge
+          docker compose logs --tail 200 migrate api realtime worker web edge

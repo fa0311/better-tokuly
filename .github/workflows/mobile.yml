@@ -67,10 +67,12 @@ jobs:
     timeout-minutes: 120
     env:
       TOKULY_VERSION: edge
-      # The same edge proxy, seen from two places: the app on the emulator reaches the host
-      # at 10.0.2.2; Maestro's scripts (which arrange accounts) run on the runner itself.
-      APP_SERVER: http://10.0.2.2
-      SCRIPT_SERVER: http://localhost
+      # The app on the emulator and Maestro's scripts (which arrange accounts, on the runner
+      # itself) both reach the edge as http://localhost:8080: `adb reverse` forwards the
+      # emulator's own ports to the runner (8080, not 80: the device does not let adb bind a
+      # privileged port). Not 10.0.2.2 as the public URL: an IP address cannot be the passkey
+      # (WebAuthn) relying party, and the backend refuses to start with one.
+      SERVER: http://localhost:8080
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -99,7 +101,7 @@ jobs:
       - name: Build the Android app
         working-directory: apps/mobile
         env:
-          EXPO_PUBLIC_TOKULY_URL: ${{ env.APP_SERVER }}
+          EXPO_PUBLIC_TOKULY_URL: ${{ env.SERVER }}
           GRADLE_OPTS: -Xmx3g -Dorg.gradle.workers.max=2
         run: |
           pnpm exec expo prebuild --platform android --no-install
@@ -112,9 +114,8 @@ jobs:
         run: |
           tools/init-env.sh
           # As in the browser tests: a small map region and no request limits (the flows make
-          # their accounts from one address). The public address is the one the emulator sees,
-          # so the API hands out realtime and media URLs it can reach.
-          sed -i 's/^TOKULY_MAP_REGION_BBOX=.*/TOKULY_MAP_REGION_BBOX=139.695,35.655,139.705,35.665/; s/^TOKULY_MAP_REGION_MAXZOOM=.*/TOKULY_MAP_REGION_MAXZOOM=12/; s|^TOKULY_PUBLIC_URL=.*|TOKULY_PUBLIC_URL=http://10.0.2.2|' .env
+          # their accounts from one address). The edge on the port the emulator is given.
+          sed -i 's/^TOKULY_MAP_REGION_BBOX=.*/TOKULY_MAP_REGION_BBOX=139.695,35.655,139.705,35.665/; s/^TOKULY_MAP_REGION_MAXZOOM=.*/TOKULY_MAP_REGION_MAXZOOM=12/; s|^TOKULY_PUBLIC_URL=.*|TOKULY_PUBLIC_URL=${{ env.SERVER }}|; s/^TOKULY_HTTP_PORT=.*/TOKULY_HTTP_PORT=8080/' .env
           echo 'TOKULY_RATE_LIMITS=false' >> .env
 
       - uses: docker/setup-buildx-action@v4
@@ -148,7 +149,10 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none
           script: |
             adb install "$RUNNER_TEMP/tokuly.apk"
-            maestro test apps/mobile/maestro --env SERVER=${{ env.SCRIPT_SERVER }} --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro"
+            # The emulator's localhost is the runner's: the edge, uploads to storage, LiveKit.
+            for port in 8080 9000 7880 7881; do adb reverse tcp:$port tcp:$port || exit 1; done
+            # On failure, also what the device shows and logged (a crash at launch shows only there).
+            maestro test apps/mobile/maestro --env SERVER=${{ env.SERVER }} --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro" || { adb exec-out screencap -p > "$RUNNER_TEMP/maestro-screen.png"; adb logcat -d > "$RUNNER_TEMP/maestro-logcat.txt"; exit 1; }
 
       - name: Keep the Maestro output
         if: always()
@@ -163,4 +167,4 @@ jobs:
         run: |
           free -m
           docker compose ps -a
-          docker compose logs --tail 200 api realtime edge
+          docker compose logs --tail 200 migrate api worker realtime edge
