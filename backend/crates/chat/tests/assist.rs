@@ -651,11 +651,12 @@ async fn users_choose_among_the_enabled_providers_and_can_switch_the_assistant_o
     assert_eq!(settings.providers.len(), 1, "only Anthropic has a key in this environment");
     let option = &settings.providers[0];
     assert_eq!(option.provider.as_known(), Some(AiProvider::AI_PROVIDER_ANTHROPIC));
-    assert_eq!(option.recipient, "Anthropic");
+    // The base URL is the stub, not Anthropic's API: the stub's host is what receives the text.
+    assert_eq!(option.recipient, "127.0.0.1");
     assert_eq!(option.model, "claude-opus-5-5");
     assert!(option.is_default && option.usable && option.accepts_own_key);
     assert_eq!(settings.effective_provider.as_known(), Some(AiProvider::AI_PROVIDER_ANTHROPIC));
-    assert_eq!(settings.effective_recipient, "Anthropic");
+    assert_eq!(settings.effective_recipient, "127.0.0.1");
 
     let choose = |provider: AiProvider, off: bool| ChooseAssistProviderRequest { provider: provider.into(), off, ..Default::default() };
     assert_eq!(
@@ -699,7 +700,7 @@ async fn openai_is_asked_for_a_strict_schema_and_translations_are_cached_per_mod
     let settings = settings_of(&ctx, &taro).await;
     assert_eq!(settings.providers.len(), 2);
     assert_eq!(settings.effective_provider.as_known(), Some(AiProvider::AI_PROVIDER_OPENAI));
-    assert_eq!(settings.effective_recipient, "OpenAI");
+    assert_eq!(settings.effective_recipient, "127.0.0.1", "the stub, not api.openai.com");
 
     let rewritten: RewriteDraftResponse =
         ctx.call("Assist", "RewriteDraft", &taro, &rewrite("おはようございます", RewriteTone::REWRITE_TONE_CUTE)).await.unwrap();

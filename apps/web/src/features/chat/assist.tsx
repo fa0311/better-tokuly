@@ -12,6 +12,7 @@ import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
 import { useAssistSettings } from "./ai-settings";
 import { assistClient } from "./api";
+import { consentStorageKey } from "./assist-consent";
 import { errorMessage } from "./errors";
 
 /**
@@ -22,21 +23,19 @@ import { errorMessage } from "./errors";
  * never without them asking for it.
  */
 
-const CONSENT_KEY = "tokuly.chat.assistConsent";
-
 function hasConsent(): boolean {
-  const recipient = useAssist.getState().recipient;
-  if (!recipient) return false;
+  const key = useAssist.getState().consentKey;
+  if (!key) return false;
   try {
-    return window.localStorage.getItem(`${CONSENT_KEY}:${recipient}`) === "1";
+    return window.localStorage.getItem(key) === "1";
   } catch {
     return false;
   }
 }
 
 interface AssistStore {
-  /** Who receives the text now (the person's settings, kept here by `<AssistConsent>`). */
-  recipient: string;
+  /** Where the agreement for the current recipient is remembered (kept here by `<AssistConsent>`). */
+  consentKey: string;
   /** What the person asked for before agreeing; runs once they do. */
   waiting: (() => void) | null;
   /** Messages whose translation is shown. */
@@ -46,7 +45,7 @@ interface AssistStore {
 }
 
 const useAssist = create<AssistStore>(() => ({
-  recipient: "",
+  consentKey: "",
   waiting: null,
   translated: {},
   suggesting: {},
@@ -65,17 +64,18 @@ export function AssistConsent() {
   // Loaded here so that the question can name who receives the text.
   const settings = useAssistSettings();
   const recipient = settings.data?.effectiveRecipient ?? "";
-  useEffect(() => useAssist.setState({ recipient }), [recipient]);
+  const consentKey = consentStorageKey(settings.data);
+  useEffect(() => useAssist.setState({ consentKey }), [consentKey]);
   return (
     <ConfirmDialog
-      open={waiting !== null && Boolean(recipient)}
+      open={waiting !== null && Boolean(consentKey)}
       onOpenChange={(open) => !open && useAssist.setState({ waiting: null })}
       title={t("assist.consent.title")}
       description={t("assist.consent.lead", { recipient })}
       confirmLabel={t("assist.consent.agree")}
       onConfirm={() => {
         try {
-          window.localStorage.setItem(`${CONSENT_KEY}:${recipient}`, "1");
+          window.localStorage.setItem(consentKey, "1");
         } catch {
           // Without storage the question simply comes again next time.
         }

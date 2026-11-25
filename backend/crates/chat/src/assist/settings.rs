@@ -30,6 +30,9 @@ const MAX_API_KEY_CHARS: usize = 512;
 const MIN_API_KEY_CHARS: usize = 8;
 const ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+/// The hosts of the companies' own APIs.
+const ANTHROPIC_HOST: &str = "api.anthropic.com";
+const OPENAI_HOST: &str = "api.openai.com";
 
 pub(crate) fn provider_number(provider: AiProvider) -> i16 {
     provider as i16
@@ -61,14 +64,16 @@ pub(crate) struct ProviderSettings {
 
 impl ProviderSettings {
     /// Who receives the text: the company, or the compatible server's host.
+    /// The company's name only when the base URL is the company's own
+    /// API: a base URL pointing elsewhere (a proxy such as OpenRouter, a
+    /// gateway) sends the text there, so that host is named instead.
     pub fn recipient(&self) -> String {
-        match self.provider {
-            AiProvider::AI_PROVIDER_ANTHROPIC => "Anthropic".to_owned(),
-            AiProvider::AI_PROVIDER_OPENAI => "OpenAI".to_owned(),
-            _ => Url::parse(&self.base_url)
-                .ok()
-                .and_then(|url| url.host_str().map(str::to_owned))
-                .unwrap_or_else(|| "OpenAI-compatible".to_owned()),
+        let host = Url::parse(&self.base_url).ok().and_then(|url| url.host_str().map(str::to_ascii_lowercase));
+        match (self.provider, host.as_deref()) {
+            (AiProvider::AI_PROVIDER_ANTHROPIC, Some(ANTHROPIC_HOST)) => "Anthropic".to_owned(),
+            (AiProvider::AI_PROVIDER_OPENAI, Some(OPENAI_HOST)) => "OpenAI".to_owned(),
+            (_, Some(host)) => host.to_owned(),
+            (_, None) => "?".to_owned(),
         }
     }
 
@@ -711,7 +716,16 @@ mod tests {
         let mut anthropic = settings(ANTHROPIC, true, true);
         anthropic.allow_private_host = true;
         assert!(anthropic.allowance().is_none(), "the allowance is for the compatible provider only");
+        anthropic.base_url = "https://api.anthropic.com".into();
         assert_eq!(anthropic.recipient(), "Anthropic");
+        // A proxy in front of the API receives the text: it is what is named.
+        anthropic.base_url = "https://openrouter.ai/api".into();
+        assert_eq!(anthropic.recipient(), "openrouter.ai");
+        let mut openai = settings(OPENAI, true, true);
+        openai.base_url = "https://api.openai.com/v1".into();
+        assert_eq!(openai.recipient(), "OpenAI");
+        openai.base_url = "https://Gateway.Example.com/openai/v1".into();
+        assert_eq!(openai.recipient(), "gateway.example.com");
     }
 
     #[test]
