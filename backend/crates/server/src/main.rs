@@ -271,3 +271,4 @@ mod tests {
         }
     }
 }
+// (temporary: measures a source-only rebuild in CI; reverted next commit)
