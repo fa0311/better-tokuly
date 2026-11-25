@@ -15,6 +15,8 @@ const calls: string[] = [];
 let unregisterFails = false;
 /** While set, GetPushConfig waits for it: a slow network at start-up. */
 let configGate: Promise<void> | null = null;
+/** While set, RegisterDevice answers only once it resolves: a registration in flight. */
+let registerGate: Promise<void> | null = null;
 let switchAnswer: identity.AuthResponse;
 
 const ok = (body: Uint8Array = new Uint8Array()) =>
@@ -37,6 +39,10 @@ async function mockServer(input: string, init: { body: Uint8Array; headers?: Hea
     case "RegisterDevice": {
       const request = fromBinary(notify.RegisterDeviceRequestSchema, init.body);
       calls.push(`register as ${bearer}: ${request.token.case}`);
+      if (registerGate) {
+        await registerGate;
+        calls.push(`registered as ${bearer}`);
+      }
       return ok();
     }
     case "UnregisterDevice":
@@ -102,6 +108,7 @@ beforeEach(() => {
   device.length = 0;
   unregisterFails = false;
   configGate = null;
+  registerGate = null;
   switchAnswer = signedInAs("alt", "s-alt");
 });
 
@@ -147,6 +154,24 @@ describe("push registration", () => {
     hook.rerender({});
     await waitFor(() => expect(usePush.getState()).toMatchObject({ userId: "alt", loaded: true }));
     expect(calls.filter((call) => call.startsWith("register"))).toEqual([]);
+    hook.unmount();
+  });
+
+  it("unregisters only once a registration in flight has been answered", async () => {
+    let release = () => {};
+    registerGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const hook = await signedInMain();
+    await waitFor(() => expect(calls).toContain("register as main: apns"));
+
+    // Signing out while the registration is still on its way.
+    const leaving = act(() => signOut());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls).not.toContain("unregister as main");
+    release();
+    await leaving;
+    expect(calls.indexOf("registered as main")).toBeLessThan(calls.indexOf("unregister as main"));
     hook.unmount();
   });
 

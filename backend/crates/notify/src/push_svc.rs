@@ -72,13 +72,7 @@ impl PushService for Notify {
         handle(async {
             let auth = ctx.auth()?;
             match parse_opt_id(request.device_id)? {
-                None => {
-                    sqlx::query("DELETE FROM push_devices WHERE session_id = $1 AND user_id = $2")
-                        .bind(auth.session_id)
-                        .bind(auth.user_id)
-                        .execute(&self.core.db)
-                        .await?;
-                }
+                None => devices::unregister_session(&self.core, auth.user_id, auth.session_id).await?,
                 Some(device_id) => {
                     // Scoped to the caller: other people's registrations look
                     // like they do not exist.

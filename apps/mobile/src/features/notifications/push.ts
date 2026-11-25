@@ -74,8 +74,19 @@ function stillFor(userId: string): boolean {
   return state.userId === userId && state.choice === "on" && !state.leaving;
 }
 
+/** The registration on its way, if any: a removal waits for it, or it could land after the removal. */
+let registering: Promise<void> | null = null;
+
 /** Registers this phone's token for the signed-in session (again: a token may have rotated). */
-async function register(userId: string): Promise<void> {
+function register(userId: string): Promise<void> {
+  const run = sendRegistration(userId).finally(() => {
+    if (registering === run) registering = null;
+  });
+  registering = run;
+  return run;
+}
+
+async function sendRegistration(userId: string): Promise<void> {
   try {
     const { platform: kind, token } = await devicePushToken();
     if (!stillFor(userId)) return;
@@ -150,6 +161,7 @@ export async function disablePush(): Promise<void> {
  * account then reaches nobody.
  */
 async function unregister(): Promise<void> {
+  await registering;
   try {
     await pushClient().unregisterDevice({ deviceId: "" });
   } catch {
