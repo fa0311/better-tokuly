@@ -122,6 +122,66 @@ pub fn resolve(purpose: AssetPurpose, class: ContentClass) -> Option<AssetKind> 
     }
 }
 
+/// How much longer than its limit a recording may be: phones and browsers
+/// stop a 60-second story a few frames late.
+pub const DURATION_TOLERANCE_SECONDS: f64 = 1.0;
+
+/// The longest video or audio a purpose accepts, in whole seconds, checked
+/// against the probed duration before anything is transcoded. `None` where
+/// the purpose has no limit of its own: live archives are as long as the
+/// live domain lets a stream run (`TOKULY_LIVE_MAX_HOURS`), and purposes
+/// that take no video or audio never get here.
+pub fn max_duration_seconds(cfg: &MediaConfig, purpose: AssetPurpose) -> Option<i64> {
+    use AssetPurpose::*;
+    match purpose {
+        ASSET_PURPOSE_CHAT_AUDIO => Some(5 * 60),
+        ASSET_PURPOSE_CHAT_VIDEO | ASSET_PURPOSE_NOTE_VIDEO => Some(10 * 60),
+        ASSET_PURPOSE_STORY => Some(60),
+        ASSET_PURPOSE_SHORT => Some(3 * 60),
+        ASSET_PURPOSE_AVATAR_VIDEO => Some(15),
+        ASSET_PURPOSE_VIDEO => Some(cfg.max_video_hours.max(1) * 3600),
+        ASSET_PURPOSE_LIVE_ARCHIVE => None,
+        ASSET_PURPOSE_AVATAR
+        | ASSET_PURPOSE_BANNER
+        | ASSET_PURPOSE_CHAT_IMAGE
+        | ASSET_PURPOSE_CHAT_FILE
+        | ASSET_PURPOSE_NOTE_IMAGE
+        | ASSET_PURPOSE_STAMP
+        | ASSET_PURPOSE_THUMBNAIL
+        | ASSET_PURPOSE_SUBTITLE
+        | ASSET_PURPOSE_PLACE_PHOTO
+        | ASSET_PURPOSE_DAY_MEMO
+        | ASSET_PURPOSE_CHANNEL_ICON
+        | ASSET_PURPOSE_CHANNEL_BANNER
+        | ASSET_PURPOSE_UNSPECIFIED => None,
+    }
+}
+
+/// [`max_duration_seconds`] for an asset of `kind`: only video and audio
+/// have a duration.
+pub fn max_duration_of(cfg: &MediaConfig, purpose: AssetPurpose, kind: AssetKind) -> Option<i64> {
+    matches!(kind, AssetKind::ASSET_KIND_VIDEO | AssetKind::ASSET_KIND_AUDIO).then(|| max_duration_seconds(cfg, purpose)).flatten()
+}
+
+/// The `attrs` a new asset row starts with: the duration limit it was
+/// created under (shown to its owner, e.g. when it fails as too long), and
+/// whether the server made it.
+pub fn new_asset_attrs(max_duration_seconds: Option<i64>, server_made: bool) -> serde_json::Value {
+    let mut attrs = serde_json::Map::new();
+    if let Some(seconds) = max_duration_seconds {
+        attrs.insert("max_duration_seconds".into(), seconds.into());
+    }
+    if server_made {
+        attrs.insert("server_made".into(), true.into());
+    }
+    attrs.into()
+}
+
+/// Whether `duration` (probed, in seconds) is longer than `purpose` takes.
+pub fn too_long(cfg: &MediaConfig, purpose: AssetPurpose, duration: f64) -> bool {
+    max_duration_seconds(cfg, purpose).is_some_and(|max| duration > max as f64 + DURATION_TOLERANCE_SECONDS)
+}
+
 /// Whether an animated upload keeps its animation for this purpose (it is
 /// flattened to its first frame everywhere else).
 pub fn keeps_animation(purpose: AssetPurpose) -> bool {
@@ -300,6 +360,30 @@ mod tests {
         assert_eq!(max_bytes(&cfg, ASSET_PURPOSE_STORY, ContentClass::Image), Some(megabytes(25)));
         assert_eq!(max_bytes(&cfg, ASSET_PURPOSE_STORY, ContentClass::AvContainer), Some(megabytes(200)));
         assert_eq!(max_bytes(&cfg, ASSET_PURPOSE_LIVE_ARCHIVE, ContentClass::AvContainer), None);
+    }
+
+    #[test]
+    fn every_purpose_has_its_longest_duration() {
+        use AssetPurpose::*;
+        let cfg = MediaConfig::default();
+        let max = |purpose| max_duration_seconds(&cfg, purpose);
+        assert_eq!(max(ASSET_PURPOSE_CHAT_AUDIO), Some(300), "voice messages: 5 minutes");
+        assert_eq!(max(ASSET_PURPOSE_CHAT_VIDEO), Some(600), "chat videos: 10 minutes");
+        assert_eq!(max(ASSET_PURPOSE_NOTE_VIDEO), Some(600));
+        assert_eq!(max(ASSET_PURPOSE_STORY), Some(60));
+        assert_eq!(max(ASSET_PURPOSE_SHORT), Some(180));
+        assert_eq!(max(ASSET_PURPOSE_AVATAR_VIDEO), Some(15));
+        assert_eq!(max(ASSET_PURPOSE_VIDEO), Some(3 * 3600), "long-form video: 3 hours by default");
+        assert_eq!(max(ASSET_PURPOSE_LIVE_ARCHIVE), None, "live limits its own streams");
+        let longer = MediaConfig { max_video_hours: 12, ..MediaConfig::default() };
+        assert_eq!(max_duration_seconds(&longer, ASSET_PURPOSE_VIDEO), Some(12 * 3600));
+
+        assert!(!too_long(&cfg, ASSET_PURPOSE_STORY, 60.0));
+        assert!(!too_long(&cfg, ASSET_PURPOSE_STORY, 60.9), "a recorder stopping a few frames late is fine");
+        assert!(too_long(&cfg, ASSET_PURPOSE_STORY, 61.5));
+        assert!(too_long(&cfg, ASSET_PURPOSE_AVATAR_VIDEO, 16.5));
+        assert!(too_long(&cfg, ASSET_PURPOSE_CHAT_AUDIO, 5.0 * 60.0 + 2.0));
+        assert!(!too_long(&cfg, ASSET_PURPOSE_LIVE_ARCHIVE, 20.0 * 3600.0));
     }
 
     #[test]

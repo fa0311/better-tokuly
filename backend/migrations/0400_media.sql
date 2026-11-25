@@ -110,6 +110,31 @@ CREATE TABLE media_asset_holders (
 
 CREATE INDEX media_asset_holders_holder ON media_asset_holders (holder);
 
+-- Seconds of video transcoded per account, for the daily transcoding budget
+-- (`TOKULY_MEDIA_DAILY_TRANSCODE_MINUTES`). One row per asset, booked when
+-- its duration is probed and before the transcode starts; it stays when the
+-- asset fails or is deleted afterwards (the work was done or reserved), and
+-- the janitor drops rows older than two days. Media the server makes itself
+-- (live archives and clips) is not booked.
+CREATE TABLE media_transcode_usage (
+    asset_id   uuid PRIMARY KEY,
+    owner_id   uuid             NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    seconds    double precision NOT NULL,
+    created_at timestamptz      NOT NULL DEFAULT now()
+);
+
+CREATE INDEX media_transcode_usage_owner ON media_transcode_usage (owner_id, created_at);
+CREATE INDEX media_transcode_usage_created ON media_transcode_usage (created_at);
+
+-- When each account's video last got a turn on the transcoder: among owners
+-- with an equal share, the one served longest ago goes next (round-robin;
+-- see lifecycle::claim_next_transcode). Written under the claim lock; the
+-- janitor drops rows older than a day.
+CREATE TABLE media_transcode_turns (
+    owner_id     uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    last_turn_at timestamptz NOT NULL
+);
+
 -- Cached Open Graph lookups for link previews.
 CREATE TABLE link_previews (
     -- Hex SHA-256 of the normalized URL.

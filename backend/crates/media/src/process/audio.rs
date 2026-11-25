@@ -135,9 +135,7 @@ impl Media {
         if samples == 0 || duration <= 0.0 {
             return Err(ProcessError::rejected("CORRUPT_MEDIA", "the audio cannot be decoded"));
         }
-        if duration > self.cfg.max_video_seconds() {
-            return Err(ProcessError::rejected("MEDIA_TOO_LONG", format!("{duration:.0} s")));
-        }
+        self.check_duration(asset, duration)?;
         let timeout = timeout_for(duration);
         progress.set(30).await?;
 

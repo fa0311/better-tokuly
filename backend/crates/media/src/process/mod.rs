@@ -27,7 +27,7 @@ use crate::{
     Media,
     assets::AssetRow,
     lifecycle::{self, MAX_ATTEMPTS, ProcessJob, Processed},
-    store,
+    recipe, store,
     upload::checksum_deferred,
 };
 
@@ -163,10 +163,35 @@ impl Media {
     /// Handles one processing job. Returns `Err` only when the job should be
     /// retried; every final outcome (READY, FAILED, nothing to do) is `Ok`.
     pub(crate) async fn run_job(&self, job: ProcessJob) -> AppResult<()> {
-        let core = &self.core;
-        let Some(asset) = lifecycle::begin_attempt(core, job.asset_id).await? else {
+        let Some(asset) = lifecycle::begin_attempt(&self.core, job.asset_id).await? else {
             return Ok(()); // finished, failed or deleted in the meantime
         };
+        self.work_on(asset).await
+    }
+
+    /// Handles one `media.transcode` job: a turn on the transcoder, spent on
+    /// whichever video is fairest to transcode next
+    /// ([`lifecycle::claim_next_transcode`]), not necessarily the one whose
+    /// arrival queued the job. Returns the asset it worked on.
+    pub(crate) async fn run_transcode_turn(&self, _job: ProcessJob) -> AppResult<Option<Uuid>> {
+        let core = &self.core;
+        let Some(asset) = lifecycle::claim_next_transcode(core, self.cfg.transcodes_per_account).await? else {
+            // Nothing may start now. A video held back by its owner's limit
+            // gets the turn queued when one of their transcodes ends.
+            return Ok(None);
+        };
+        let result = self.work_on(asset.clone()).await;
+        // A turn that found every waiting owner at their limit was spent on
+        // nothing: give the next one a turn now that a slot is free.
+        if lifecycle::transcodes_waiting(core).await? {
+            lifecycle::enqueue_transcode_turn(core, &asset).await?;
+        }
+        result.map(|()| Some(asset.id))
+    }
+
+    /// Processes an asset this worker has claimed.
+    async fn work_on(&self, asset: AssetRow) -> AppResult<()> {
+        let core = &self.core;
         if asset.attempts > MAX_ATTEMPTS {
             tracing::error!(asset_id = %asset.id, attempts = asset.attempts, "asset gave up after repeated processing failures");
             lifecycle::fail(core, asset.id, "PROCESSING_FAILED").await?;
@@ -230,6 +255,30 @@ impl Media {
             AssetKind::ASSET_KIND_FILE => self.process_file(asset).await,
             AssetKind::ASSET_KIND_UNSPECIFIED => Err(ProcessError::rejected("UNSUPPORTED_CONTENT", "asset has no kind")),
         }
+    }
+
+    /// Refuses a recording longer than its purpose takes
+    /// ([`recipe::max_duration_seconds`]).
+    pub(crate) fn check_duration(&self, asset: &AssetRow, duration: f64) -> ProcessResult<()> {
+        if recipe::too_long(&self.cfg, asset.asset_purpose(), duration) {
+            return Err(ProcessError::rejected("MEDIA_TOO_LONG", format!("{duration:.0} s")));
+        }
+        Ok(())
+    }
+
+    /// Books a video's minutes on its owner's daily transcoding budget
+    /// (`TOKULY_MEDIA_DAILY_TRANSCODE_MINUTES`) before the transcode starts.
+    /// Media the server produces itself (live archives and clips) is bounded
+    /// by the domain that makes it and is not counted.
+    pub(crate) async fn reserve_transcode(&self, asset: &AssetRow, duration: f64) -> ProcessResult<()> {
+        let Some(budget) = self.cfg.daily_transcode_seconds() else { return Ok(()) };
+        if asset.is_server_made() {
+            return Ok(());
+        }
+        if !lifecycle::book_transcode(&self.core, asset, duration, budget).await? {
+            return Err(ProcessError::rejected("DAILY_TRANSCODE_LIMIT_EXCEEDED", format!("{duration:.0} s over the daily budget")));
+        }
+        Ok(())
     }
 
     /// A scratch directory for one job, removed when dropped.

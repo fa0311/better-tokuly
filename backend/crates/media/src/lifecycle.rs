@@ -137,6 +137,133 @@ pub(crate) async fn begin_attempt(core: &Core, asset_id: Uuid) -> AppResult<Opti
     Ok(row)
 }
 
+/// Claims the video that is fairest to transcode next and counts the
+/// attempt; `None` when no waiting video may start now.
+///
+/// A `media.transcode` job is a turn on the transcoder, not a ticket for
+/// one asset: whichever worker takes a job transcodes the video whose
+/// owner has waited longest for their share. Videos are taken round-robin
+/// across owners (each owner's oldest waiting video first, an owner with
+/// videos already running further back, and among equals the owner served
+/// longest ago), and an owner with
+/// `per_account` transcodes running gets no more until one ends. So one
+/// account's backlog never holds up another account's first video.
+///
+/// Claims are serialized on one advisory lock, so two workers cannot both
+/// start an owner's third video; every read happens on the lock's
+/// transaction.
+pub(crate) async fn claim_next_transcode(core: &Core, per_account: i64) -> AppResult<Option<AssetRow>> {
+    let mut tx = core.db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('media:transcode-claim', 0))").execute(&mut *tx).await?;
+    let next: Option<Uuid> = sqlx::query_scalar(
+        "WITH processing AS (
+             SELECT id, owner_id, created_at, heartbeat_at IS NOT NULL AND heartbeat_at >= now() - make_interval(secs => $3) AS running
+             FROM media_assets
+             WHERE status = $1 AND kind = $2 AND deleted_at IS NULL
+         ), running AS (
+             SELECT owner_id, count(*) AS n FROM processing WHERE running GROUP BY owner_id
+         ), waiting AS (
+             SELECT id, owner_id, created_at, row_number() OVER (PARTITION BY owner_id ORDER BY created_at, id) AS turn
+             FROM processing WHERE NOT running
+         )
+         SELECT w.id FROM waiting w
+         LEFT JOIN running r ON r.owner_id = w.owner_id
+         LEFT JOIN media_transcode_turns t ON t.owner_id = w.owner_id
+         WHERE COALESCE(r.n, 0) < $4
+         ORDER BY COALESCE(r.n, 0) + w.turn, t.last_turn_at ASC NULLS FIRST, w.created_at, w.id
+         LIMIT 1",
+    )
+    .bind(AssetStatus::ASSET_STATUS_PROCESSING as i32)
+    .bind(AssetKind::ASSET_KIND_VIDEO as i32)
+    .bind(CLAIM_SECONDS as f64)
+    .bind(per_account.max(1))
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(asset_id) = next else {
+        tx.commit().await?;
+        return Ok(None);
+    };
+    let row: Option<AssetRow> = sqlx::query_as(returning(
+        "UPDATE media_assets SET attempts = attempts + 1, heartbeat_at = now()
+         WHERE id = $1 AND status = $2 AND deleted_at IS NULL
+           AND (heartbeat_at IS NULL OR heartbeat_at < now() - make_interval(secs => $3))",
+    ))
+    .bind(asset_id)
+    .bind(AssetStatus::ASSET_STATUS_PROCESSING as i32)
+    .bind(CLAIM_SECONDS as f64)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(row) = &row {
+        sqlx::query(
+            "INSERT INTO media_transcode_turns (owner_id, last_turn_at) VALUES ($1, clock_timestamp())
+             ON CONFLICT (owner_id) DO UPDATE SET last_turn_at = EXCLUDED.last_turn_at",
+        )
+        .bind(row.owner_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(row)
+}
+
+/// Whether some video is waiting for a transcoder (nobody is on it).
+pub(crate) async fn transcodes_waiting(core: &Core) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM media_assets
+                        WHERE status = $1 AND kind = $2 AND deleted_at IS NULL
+                          AND (heartbeat_at IS NULL OR heartbeat_at < now() - make_interval(secs => $3)))",
+    )
+    .bind(AssetStatus::ASSET_STATUS_PROCESSING as i32)
+    .bind(AssetKind::ASSET_KIND_VIDEO as i32)
+    .bind(CLAIM_SECONDS as f64)
+    .fetch_one(&core.db)
+    .await?)
+}
+
+/// Queues another turn on the transcoder (see [`claim_next_transcode`]).
+/// `after` names the turn that asks for it, so a redelivered job does not
+/// queue two.
+pub(crate) async fn enqueue_transcode_turn(core: &Core, after: &AssetRow) -> AppResult<()> {
+    core.jobs.enqueue_unique(JOB_TRANSCODE, &format!("turn:{}:{}", after.id, after.attempts), &ProcessJob { asset_id: after.id }).await
+}
+
+/// Books `seconds` of transcoding on the owner's daily budget for `asset`,
+/// or returns `false` when the owner's last 24 hours plus this video would
+/// exceed `budget_seconds`. An asset is booked once, whatever the number of
+/// attempts; what was booked stays booked when the asset fails or is
+/// deleted later (the work was done or reserved). Serialized per owner, so
+/// two of their videos probed at the same moment cannot both squeeze in.
+pub(crate) async fn book_transcode(core: &Core, asset: &AssetRow, seconds: f64, budget_seconds: f64) -> AppResult<bool> {
+    let mut tx = core.db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('media:transcode-budget:' || $1::text, 0))")
+        .bind(asset.owner_id)
+        .execute(&mut *tx)
+        .await?;
+    let used: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(seconds), 0)::float8 FROM media_transcode_usage
+         WHERE owner_id = $1 AND created_at > now() - interval '24 hours' AND asset_id <> $2",
+    )
+    .bind(asset.owner_id)
+    .bind(asset.id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if used + seconds > budget_seconds {
+        tx.commit().await?;
+        return Ok(false);
+    }
+    sqlx::query(
+        "INSERT INTO media_transcode_usage (asset_id, owner_id, seconds) VALUES ($1, $2, $3)
+         ON CONFLICT (asset_id) DO NOTHING",
+    )
+    .bind(asset.id)
+    .bind(asset.owner_id)
+    .bind(seconds)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(true)
+}
+
 /// Renews the claim of a running job.
 pub(crate) async fn heartbeat(core: &Core, asset_id: Uuid) -> AppResult<()> {
     sqlx::query("UPDATE media_assets SET heartbeat_at = now() WHERE id = $1 AND status = $2 AND deleted_at IS NULL")

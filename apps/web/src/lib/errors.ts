@@ -1,4 +1,5 @@
 import { Code, errorReason, isApiError } from "@tokuly/api";
+import { AssetFailedError } from "#/lib/asset-error";
 import i18n from "#/lib/i18n";
 
 export interface ErrorMessageOptions {
@@ -34,6 +35,7 @@ function reasonMessage(reason: string, namespace?: string): string | undefined {
  * never arrived, a generic apology otherwise.
  */
 export function errorMessage(error: unknown, options: ErrorMessageOptions = {}): string {
+  if (error instanceof AssetFailedError) return assetFailureMessage(error, options.namespace);
   const reason = errorReason(error);
   const known = reason ? reasonMessage(reason, options.namespace) : undefined;
   if (known) return known;
@@ -42,4 +44,25 @@ export function errorMessage(error: unknown, options: ErrorMessageOptions = {}):
   if (!isApiError(error) || error.code === Code.Unavailable || error.code === Code.Unknown)
     return i18n.t("network", { ns: "errors" });
   return i18n.t("generic", { ns: "errors" });
+}
+
+/**
+ * A duration limit in words: "60秒", "10分", "3時間" ("60 sec", "10 min",
+ * "3 hr"). Up to two minutes count in seconds, as phones show them.
+ */
+export function durationLimit(seconds: number): string {
+  if (seconds <= 120 || seconds % 60 !== 0)
+    return i18n.t("limit.seconds", { ns: "errors", count: seconds });
+  if (seconds % 3600 === 0) return i18n.t("limit.hours", { ns: "errors", count: seconds / 3600 });
+  return i18n.t("limit.minutes", { ns: "errors", count: seconds / 60 });
+}
+
+/** What to say about an upload the server refused after processing. */
+function assetFailureMessage(error: AssetFailedError, namespace?: string): string {
+  if (error.reason === "MEDIA_TOO_LONG" && error.maxDurationSeconds > 0)
+    return i18n.t("MEDIA_TOO_LONG_LIMIT", {
+      ns: "errors",
+      limit: durationLimit(error.maxDurationSeconds),
+    });
+  return reasonMessage(error.reason, namespace) ?? i18n.t("generic", { ns: "errors" });
 }

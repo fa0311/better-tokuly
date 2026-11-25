@@ -150,8 +150,10 @@ message Asset {
   int32 progress = 10;
   // Machine-readable failure reason when FAILED: UNSUPPORTED_CONTENT,
   // CORRUPT_MEDIA, NOT_A_VIDEO, NO_AUDIO, IMAGE_TOO_LARGE, ANIMATION_TOO_LARGE,
-  // VIDEO_TOO_LARGE, MEDIA_TOO_LONG, SIZE_MISMATCH, CHECKSUM_MISMATCH, or
-  // PROCESSING_FAILED (our fault, after retries).
+  // VIDEO_TOO_LARGE, MEDIA_TOO_LONG (longer than `max_duration_seconds`),
+  // DAILY_TRANSCODE_LIMIT_EXCEEDED (the owner had as many minutes of video
+  // transcoded as one account may in 24 hours), SIZE_MISMATCH,
+  // CHECKSUM_MISMATCH, or PROCESSING_FAILED (our fault, after retries).
   string error = 11;
 
   // Main rendition: the largest image variant, the animated WebP, the MP4 of
@@ -165,6 +167,12 @@ message Asset {
   VideoInfo video = 14;
   // Audio waveform peaks (0-255), ~64 samples; set for audio.
   bytes waveform = 15;
+  // The longest recording the asset's purpose takes, in seconds: voice
+  // messages 300, chat and note videos 600, stories 60, shorts 180, avatar
+  // videos 15, long-form videos 3 hours unless the server says otherwise.
+  // Longer ones fail with MEDIA_TOO_LONG. 0 when there is no such limit
+  // (images, files, live archives).
+  int32 max_duration_seconds = 16;
 }
 
 message VideoInfo {
@@ -224,6 +232,10 @@ message CreateUploadResponse {
   int32 part_count = 6;
   // After this the unfinished upload is discarded.
   google.protobuf.Timestamp expires_at = 7;
+  // The longest video or audio this upload may hold, in seconds (see
+  // `Asset.max_duration_seconds`); 0 when the content has no duration.
+  // Checked once the upload is processed; clients can warn earlier.
+  int32 max_duration_seconds = 8;
 }
 
 message GetUploadPartsRequest {

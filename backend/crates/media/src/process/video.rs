@@ -284,9 +284,8 @@ impl Media {
         if duration <= 0.0 {
             return Err(ProcessError::rejected("CORRUPT_MEDIA", "the video has no measurable duration"));
         }
-        if duration > self.cfg.max_video_seconds() {
-            return Err(ProcessError::rejected("MEDIA_TOO_LONG", format!("{duration:.0} s")));
-        }
+        self.check_duration(asset, duration)?;
+        self.reserve_transcode(asset, duration).await?;
         let timeout = timeout_for(duration);
         let tonemap = video.hdr && self.ffmpeg.has_filter("zscale").await && self.ffmpeg.has_filter("tonemap").await;
         if video.hdr && !tonemap {

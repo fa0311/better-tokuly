@@ -505,6 +505,8 @@ export default {
         NOT_A_VIDEO: "動画ファイルではないみたい。",
         VIDEO_TOO_LARGE: "ファイルが大きすぎます。",
         MEDIA_TOO_LONG: "動画が長すぎます。",
+        DAILY_TRANSCODE_LIMIT_EXCEEDED:
+          "今日変換できる動画の長さの上限に達したよ。また明日ためしてね!",
       },
     },
     editor: {

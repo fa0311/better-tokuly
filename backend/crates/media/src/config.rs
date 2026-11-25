@@ -76,9 +76,19 @@ pub struct MediaConfig {
     /// Adds an AV1 rendition of the top rung (smaller files, slower encode).
     #[arg(long, env = "TOKULY_MEDIA_AV1", default_value_t = false, action = clap::ArgAction::Set)]
     pub av1: bool,
-    /// Longest video accepted, in hours.
-    #[arg(long, env = "TOKULY_MEDIA_MAX_VIDEO_HOURS", default_value_t = 12)]
+    /// Longest long-form video (`ASSET_PURPOSE_VIDEO`) accepted, in hours.
+    /// The other purposes have fixed limits (`recipe::max_duration_seconds`).
+    #[arg(long, env = "TOKULY_MEDIA_MAX_VIDEO_HOURS", default_value_t = 3)]
     pub max_video_hours: i64,
+    /// Videos of one account transcoded at the same time, across all
+    /// workers. Jobs of an account at the limit wait, and the others' go
+    /// first (see `lifecycle::claim_next_transcode`).
+    #[arg(long, env = "TOKULY_MEDIA_TRANSCODES_PER_ACCOUNT", default_value_t = 2)]
+    pub transcodes_per_account: i64,
+    /// Minutes of video one account may have transcoded in any 24 hours, on
+    /// top of the daily byte budget. 0 switches the budget off.
+    #[arg(long, env = "TOKULY_MEDIA_DAILY_TRANSCODE_MINUTES", default_value_t = 720)]
+    pub daily_transcode_minutes: i64,
     #[arg(long, env = "TOKULY_MEDIA_FFMPEG_PATH", default_value = "ffmpeg")]
     pub ffmpeg_path: PathBuf,
     #[arg(long, env = "TOKULY_MEDIA_FFPROBE_PATH", default_value = "ffprobe")]
@@ -115,7 +125,9 @@ impl Default for MediaConfig {
             ffmpeg_threads: 0,
             x264_preset: "veryfast".to_owned(),
             av1: false,
-            max_video_hours: 12,
+            max_video_hours: 3,
+            transcodes_per_account: 2,
+            daily_transcode_minutes: 720,
             ffmpeg_path: PathBuf::from("ffmpeg"),
             ffprobe_path: PathBuf::from("ffprobe"),
             work_dir: None,
@@ -132,6 +144,9 @@ impl MediaConfig {
         );
         anyhow::ensure!(self.multipart_threshold_mb >= 1, "TOKULY_MEDIA_MULTIPART_THRESHOLD_MB must be at least 1");
         anyhow::ensure!(self.upload_ttl_hours >= 1, "TOKULY_MEDIA_UPLOAD_TTL_HOURS must be at least 1");
+        anyhow::ensure!(self.max_video_hours >= 1, "TOKULY_MEDIA_MAX_VIDEO_HOURS must be at least 1");
+        anyhow::ensure!(self.transcodes_per_account >= 1, "TOKULY_MEDIA_TRANSCODES_PER_ACCOUNT must be at least 1");
+        anyhow::ensure!(self.daily_transcode_minutes >= 0, "TOKULY_MEDIA_DAILY_TRANSCODE_MINUTES cannot be negative (0 disables the budget)");
         anyhow::ensure!(self.unattached_ttl_hours >= 0, "TOKULY_MEDIA_UNATTACHED_TTL_HOURS cannot be negative (0 disables collection)");
         Ok(())
     }
@@ -160,8 +175,10 @@ impl MediaConfig {
         (self.unattached_ttl_hours > 0).then(|| Duration::from_secs(self.unattached_ttl_hours as u64 * 3600))
     }
 
-    pub fn max_video_seconds(&self) -> f64 {
-        self.max_video_hours.max(1) as f64 * 3600.0
+    /// Seconds of video one account may have transcoded in any 24 hours;
+    /// `None` when there is no such budget.
+    pub fn daily_transcode_seconds(&self) -> Option<f64> {
+        (self.daily_transcode_minutes > 0).then(|| self.daily_transcode_minutes as f64 * 60.0)
     }
 
     /// Part size and part count for a multipart upload of `size_bytes`.

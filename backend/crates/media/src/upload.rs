@@ -58,6 +58,7 @@ struct NewRow<'a> {
     multipart_id: Option<&'a str>,
     part_size: i64,
     part_count: i32,
+    attrs: serde_json::Value,
 }
 
 fn is_sha256_hex(value: &str) -> bool {
@@ -107,7 +108,9 @@ impl Media {
             (None, 0, 0, url)
         };
 
+        let max_duration_seconds = recipe::max_duration_of(&self.cfg, purpose, kind);
         let row = NewRow {
+            attrs: recipe::new_asset_attrs(max_duration_seconds, false),
             asset_id,
             owner_id,
             purpose,
@@ -141,6 +144,7 @@ impl Media {
             part_size_bytes: part_size,
             part_count,
             expires_at: ts(created_at + self.cfg.upload_ttl()),
+            max_duration_seconds: max_duration_seconds.unwrap_or(0) as i32,
             ..Default::default()
         })
     }
@@ -194,8 +198,8 @@ impl Media {
         );
         let created_at = sqlx::query_scalar(
             "INSERT INTO media_assets
-                 (id, owner_id, purpose, kind, status, content_type, size_bytes, file_name, sha256, original_key, multipart_id, part_size, part_count)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                 (id, owner_id, purpose, kind, status, content_type, size_bytes, file_name, sha256, original_key, multipart_id, part_size, part_count, attrs)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
              RETURNING created_at",
         )
         .bind(row.asset_id)
@@ -211,6 +215,7 @@ impl Media {
         .bind(row.multipart_id)
         .bind(row.part_size)
         .bind(row.part_count)
+        .bind(&row.attrs)
         .fetch_one(&mut *tx)
         .await?;
         tx.commit().await?;

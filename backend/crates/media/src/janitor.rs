@@ -105,6 +105,9 @@ impl Media {
             sweep.requeued_assets += 1;
         }
 
+        // The daily transcoding budget looks back 24 hours.
+        sqlx::query("DELETE FROM media_transcode_usage WHERE created_at < now() - interval '2 days'").execute(&core.db).await?;
+        sqlx::query("DELETE FROM media_transcode_turns WHERE last_turn_at < now() - interval '1 day'").execute(&core.db).await?;
         sqlx::query("DELETE FROM link_previews WHERE fetched_at < now() - make_interval(days => $1)")
             .bind(link_preview::CACHE_RETENTION_DAYS)
             .execute(&core.db)

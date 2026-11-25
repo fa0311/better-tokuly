@@ -110,8 +110,8 @@ impl Media {
     /// Starts the processing workers, the janitor and the account-deletion
     /// consumer. Call once, in worker processes.
     pub fn spawn_workers(&self) {
-        self.spawn_job_worker(JOB_PROCESS, self.cfg.image_concurrency);
-        self.spawn_job_worker(JOB_TRANSCODE, self.cfg.video_concurrency);
+        self.spawn_job_worker(JOB_PROCESS, self.cfg.image_concurrency, false);
+        self.spawn_job_worker(JOB_TRANSCODE, self.cfg.video_concurrency, true);
 
         let media = self.clone();
         tokio::spawn(async move {
@@ -154,7 +154,16 @@ impl Media {
         self.run_job(ProcessJob { asset_id }).await
     }
 
-    fn spawn_job_worker(&self, queue: &'static str, concurrency: usize) {
+    /// Takes one turn on the transcoder right here, the way a
+    /// `media.transcode` job does: transcodes the waiting video that is
+    /// fairest to go next (round-robin across owners, within
+    /// `TOKULY_MEDIA_TRANSCODES_PER_ACCOUNT`) and returns its ID, or `None`
+    /// when no video may start. Meant for tests and tooling.
+    pub async fn transcode_next(&self) -> AppResult<Option<Uuid>> {
+        self.run_transcode_turn(ProcessJob { asset_id: Uuid::nil() }).await
+    }
+
+    fn spawn_job_worker(&self, queue: &'static str, concurrency: usize, fair_turns: bool) {
         let media = self.clone();
         tokio::spawn(async move {
             let handler = media.clone();
@@ -169,7 +178,9 @@ impl Media {
                 .jobs
                 .run(queue, options, media.core.shutdown.clone(), move |job: ProcessJob| {
                     let media = handler.clone();
-                    async move { media.run_job(job).await }
+                    async move {
+                        if fair_turns { media.run_transcode_turn(job).await.map(|_| ()) } else { media.run_job(job).await }
+                    }
                 })
                 .await;
         });

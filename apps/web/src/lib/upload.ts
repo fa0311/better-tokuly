@@ -1,5 +1,8 @@
 import { media } from "@tokuly/api";
 import { api } from "#/lib/api";
+import { AssetFailedError } from "#/lib/asset-error";
+
+export { AssetFailedError };
 
 const mediaClient = () => api().service(media.MediaService);
 
@@ -135,9 +138,9 @@ export async function waitForAsset(
     onUpdate?.(asset);
     if (asset.status === media.AssetStatus.READY) return asset;
     if (asset.status === media.AssetStatus.FAILED)
-      throw new Error(asset.error || "PROCESSING_FAILED");
+      throw new AssetFailedError(asset.error || "PROCESSING_FAILED", asset.maxDurationSeconds);
   }
-  throw new Error("PROCESSING_FAILED");
+  throw new AssetFailedError("PROCESSING_FAILED");
 }
 
 /** Upload and wait until the asset is usable: the common case for images. */
