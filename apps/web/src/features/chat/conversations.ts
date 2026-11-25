@@ -70,9 +70,21 @@ export function applyUnread(
   storeUnread(queryClient, unread);
 }
 
-/** Adjusts the unread totals for something that just happened (a realtime event). */
+/** How long after the last realtime adjustment the totals are checked against the server. */
+const SETTLE_MS = 1500;
+let settling: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Adjusts the unread totals for something that just happened (a realtime
+ * event), at once. An event can trail an answer that already counted its
+ * message (the answer was stored first, so `unreadVersion` cannot tell), so
+ * once events quiet down the server's totals settle it.
+ */
 export function adjustUnread(queryClient: QueryClient, change: (unread: Unread) => Unread): void {
-  if (adjustHeldUnread(queryClient, change)) adjustments += 1;
+  if (!adjustHeldUnread(queryClient, change)) return;
+  adjustments += 1;
+  clearTimeout(settling);
+  settling = setTimeout(() => refreshUnread(queryClient), SETTLE_MS);
 }
 
 export function refreshUnread(queryClient: QueryClient): void {
