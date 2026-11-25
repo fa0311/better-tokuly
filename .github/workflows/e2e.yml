@@ -62,7 +62,8 @@ jobs:
           # A few city blocks instead of greater Tokyo, the address of an admin account the tests
           # sign up as (and verify through Mailpit; see adminAccount in apps/web/e2e/support.ts),
           # and no request limits: the tests create hundreds of accounts from one address.
-          sed -i 's/^TOKULY_MAP_REGION_BBOX=.*/TOKULY_MAP_REGION_BBOX=139.695,35.655,139.705,35.665/; s/^TOKULY_MAP_REGION_MAXZOOM=.*/TOKULY_MAP_REGION_MAXZOOM=12/; s/^TOKULY_ADMIN_USER=.*/TOKULY_ADMIN_USER=e2e-admin@e2e.tokuly.test/' .env
+          sed -i 's/^TOKULY_MAP_REGION_BBOX=.*/TOKULY_MAP_REGION_BBOX=139.695,35.655,139.705,35.665/; s/^TOKULY_MAP_REGION_MAXZOOM=.*/TOKULY_MAP_REGION_MAXZOOM=12/' .env
+          echo 'TOKULY_ADMIN_USER=e2e-admin@e2e.tokuly.test' >> .env
           echo 'TOKULY_RATE_LIMITS=false' >> .env
 
       - name: Build the images this change touches

@@ -142,6 +142,14 @@ pub struct Resolved {
     pub console: HashMap<String, String>,
 }
 
+/// [`parse`] without requiring anything: whether every value given parses.
+pub fn check_values(argv: &[OsString], state: &State) {
+    let cmd = settings::apply(Cli::command(), &state.registry, &state.layers, false).mut_args(|a| a.required(false));
+    if let Err(e) = cmd.try_get_matches_from(argv) {
+        e.exit();
+    }
+}
+
 impl Resolved {
     /// Reads every layer but the console's. `argv` is the process's arguments.
     pub fn read(argv: &[OsString]) -> anyhow::Result<Self> {

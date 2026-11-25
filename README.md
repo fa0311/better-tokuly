@@ -72,8 +72,9 @@ docker compose up -d     # http://localhost
 （`docker compose restart api worker`）。管理画面の「設定を書き出す」で、いまの設定（秘密鍵以外）を
 `tokuly.toml` として保存できるので、画面で決めた設定をあとからファイルに移せます。
 
-以前の `.env`（全部の設定が並んでいたもの）もそのまま動きます。ただし `TOKULY_X=` のような空の行も
-「空に設定した」扱いなので、`tokuly.toml` や管理画面で決めたい設定の行は `.env` から消してください。
+以前の `.env`（全部の設定が並んでいたもの）もそのまま動きます。`TOKULY_X=` のような空の行は
+「設定なし」として扱われ、ほかで決まった値が使われるときは起動時に警告が出ます
+（空にしたい設定は `tokuly.toml` に `""` と書いてください）。
 `docker compose run --rm api config show` で、ファイルと環境変数から何が決まっているかを確かめられます。
 
 アプリのイメージは GitHub Container Registry のビルド済みのもの（`edge` = 通し検証を通った最新ビルド、

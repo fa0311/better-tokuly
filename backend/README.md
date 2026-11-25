@@ -202,7 +202,9 @@ repository root: `backend/target/.../tokuly config example > tokuly.example.toml
 
 Precedence, highest first: command line and environment, `tokuly.toml`
 (`TOKULY_CONFIG`), the console (table `server_settings`, history in
-`server_setting_changes`), the default.
+`server_setting_changes`), the default. An environment variable that is set
+but empty counts as not set (env files are full of `TOKULY_X=` lines); the
+start warns when such a line would have hidden another value.
 
 The server crate wires domains in `crates/server/src/app.rs`: the config in
 `DomainConfigs`, construction in `Domains::new` (in dependency order, and

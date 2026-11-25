@@ -51,6 +51,17 @@ fn the_environment_wins_over_the_file() {
     assert!(ok && out.contains("max_video_hours = 6  # from command line"), "{out}");
 }
 
+/// An empty `TOKULY_X=` line (env files are full of them) is not a value:
+/// tokuly.toml applies, and the start says the line is ignored.
+#[test]
+fn empty_variables_do_not_hide_the_file() {
+    let path = file("empty.toml", "[media]\nmax_video_hours = 5\n");
+    let (ok, out, err) = run(tokuly(&["config", "show"]).env("TOKULY_CONFIG", &path).env("TOKULY_MEDIA_MAX_VIDEO_HOURS", ""));
+    assert!(ok, "{err}");
+    assert!(out.contains("max_video_hours = 5  # from tokuly.toml"), "{out}");
+    assert!(err.contains("TOKULY_MEDIA_MAX_VIDEO_HOURS is empty and ignored"), "{err}");
+}
+
 #[test]
 fn typos_and_wrong_types_stop_the_start() {
     for (text, expected) in [

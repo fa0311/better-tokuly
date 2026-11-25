@@ -103,7 +103,14 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Some(Command::Config { action: ConfigAction::Show }) => {
-            print!("{}", settings::Resolved::read(&argv)?.show());
+            let resolved = settings::Resolved::read(&argv)?;
+            for warning in resolved.layers.empty_env_warnings(&resolved.registry) {
+                eprintln!("tokuly: {warning}");
+            }
+            // Every value parsed as a start would (without the console and
+            // without demanding the secret): a value clap refuses stops here too.
+            settings::check_values(&argv, &resolved.state());
+            print!("{}", resolved.show());
             return Ok(());
         }
         _ => {}
@@ -124,6 +131,9 @@ async fn main() -> anyhow::Result<()> {
     let _telemetry = telemetry::init(&cli.core, service);
     if let Some(file) = &resolved.file {
         tracing::info!(file = %file.display(), "settings file read");
+    }
+    for warning in state.layers.empty_env_warnings(&state.registry) {
+        tracing::warn!("settings: {warning}");
     }
     for (section, reason) in &state.rejected_sections {
         tracing::warn!(section, reason, "settings: the console values of this section are set aside; fix them in サーバー設定");

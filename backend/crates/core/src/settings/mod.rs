@@ -18,7 +18,7 @@ pub mod store;
 
 use std::{
     any::{Any, TypeId},
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     ffi::OsString,
     path::PathBuf,
     sync::{
@@ -65,6 +65,10 @@ pub struct Layers {
     pub env: HashMap<String, String>,
     pub file: HashMap<String, String>,
     pub console: HashMap<String, String>,
+    /// Settings whose environment variable is set but empty: treated as
+    /// unset (and clap is told not to read them), since an env file line
+    /// `TOKULY_X=` means "nothing here" far more often than "empty".
+    pub empty_env: BTreeSet<String>,
 }
 
 impl Layers {
@@ -86,7 +90,38 @@ impl Layers {
 
     /// The environment layer: every setting whose variable is set.
     pub fn read_env(&mut self, registry: &Registry, lookup: impl Fn(&str) -> Option<String>) {
-        self.env = registry.defs().iter().filter_map(|d| lookup(&d.env).map(|v| (d.id.clone(), v))).collect();
+        self.env.clear();
+        self.empty_env.clear();
+        for def in registry.defs() {
+            match lookup(&def.env) {
+                Some(value) if value.is_empty() => {
+                    self.empty_env.insert(def.id.clone());
+                }
+                Some(value) => {
+                    self.env.insert(def.id.clone(), value);
+                }
+                None => {}
+            }
+        }
+    }
+
+    /// What to tell the operator about empty variables that are ignored
+    /// while another value is in force (a line that once meant "empty").
+    pub fn empty_env_warnings(&self, registry: &Registry) -> Vec<String> {
+        self.empty_env
+            .iter()
+            .filter_map(|id| registry.by_id(id))
+            .filter_map(|def| match self.effective(def) {
+                (Some(value), source) if !value.is_empty() => Some(format!(
+                    "{} is empty and ignored; {} = {} from {} applies (delete the line, or set the value in tokuly.toml)",
+                    def.env,
+                    def.name(),
+                    if def.secret { "(secret)" } else { value },
+                    source.label()
+                )),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The command-line layer from a first, lenient parse of the arguments.
@@ -110,6 +145,7 @@ impl Layers {
 pub fn apply(cmd: Command, registry: &Registry, layers: &Layers, with_cli: bool) -> Command {
     cmd.mut_args(|arg| {
         let Some(def) = registry.by_id(arg.get_id().as_str()) else { return arg };
+        let arg = if layers.empty_env.contains(&def.id) { arg.env(None) } else { arg };
         let value = with_cli
             .then(|| layers.cli.get(&def.id))
             .flatten()
@@ -353,6 +389,16 @@ mod tests {
         assert_eq!(layers.effective(limit), (Some("8"), Source::Env));
         layers.cli.insert("limit".into(), "9".into());
         assert_eq!(layers.effective(limit), (Some("9"), Source::CommandLine));
+    }
+
+    /// `TOKULY_X=` in an env file means "not set", not "set to empty".
+    #[test]
+    fn empty_environment_variables_are_unset() {
+        let r = registry();
+        let mut layers = Layers::default();
+        layers.read_env(&r, |name| (name == "TOKULY_DEMOSET_LIMIT").then(String::new));
+        layers.file.insert("limit".into(), "7".into());
+        assert_eq!(layers.effective(def(&r, "limit")), (Some("7"), Source::File));
     }
 
     #[test]
