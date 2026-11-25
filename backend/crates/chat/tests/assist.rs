@@ -155,7 +155,12 @@ async fn messages(
             ),
         );
     }
-    let answer = answer_for(&system);
+    let answer = if prompt.contains("LONGANSWER") {
+        // A model that runs on and on.
+        serde_json::json!({ "translation": "あ".repeat(6000), "source_language": "ja" })
+    } else {
+        answer_for(&system)
+    };
     let response = serde_json::json!({
         "id": "msg_stub",
         "type": "message",
@@ -948,4 +953,21 @@ async fn the_consent_default_is_fixed_when_the_account_is_created_and_never_move
     let _: TranslateMessageResponse =
         ctx.call("Assist", "TranslateMessage", &taro, &translate(&message.id, "en")).await.unwrap();
     assert_eq!(stub.count(), 1);
+}
+
+#[tokio::test]
+async fn a_translation_is_no_longer_than_a_message() {
+    let (ctx, stub) = start_with_stub(|_| {}).await;
+    let (taro, hanako) = ctx.friends("taro", "hanako").await;
+    let direct = ctx.direct(&taro, &hanako).await;
+    let message = ctx.text(&hanako, &direct.id, "LONGANSWER please").await;
+    let max = tokuly_chat::content::MAX_TEXT_CHARS;
+    let first: TranslateMessageResponse =
+        ctx.call("Assist", "TranslateMessage", &taro, &translate(&message.id, "en")).await.unwrap();
+    assert_eq!(first.text.chars().count(), max);
+    // The cache holds the capped text too.
+    let again: TranslateMessageResponse =
+        ctx.call("Assist", "TranslateMessage", &hanako, &translate(&message.id, "en")).await.unwrap();
+    assert_eq!(stub.count(), 1, "answered from the cache");
+    assert_eq!(again.text.chars().count(), max);
 }

@@ -408,7 +408,8 @@ impl Chat {
             "source_language": { "type": "string", "description": "BCP 47 tag of the language the message is written in." },
         }));
         let translated: Translated = assistant.complete(TRANSLATE_SYSTEM, &prompt, schema).await?;
-        let translation = translated.translation.trim().to_owned();
+        // A translation is shown like a message: no longer than one.
+        let translation: String = translated.translation.trim().chars().take(content::MAX_TEXT_CHARS).collect();
         if translation.is_empty() {
             return Err(ai_unavailable());
         }
