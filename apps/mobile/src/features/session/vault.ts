@@ -54,3 +54,16 @@ export async function keepParked(sessionIds: ReadonlySet<string>): Promise<void>
   const kept = Object.fromEntries(Object.entries(tokens).filter(([id]) => sessionIds.has(id)));
   if (Object.keys(kept).length !== Object.keys(tokens).length) await writeJson(PARKED_KEY, kept);
 }
+
+/**
+ * The token store of one parked account: a refresh made for it (work its
+ * session still owes, `asParked`) keeps the rotated token in its place, and a
+ * session the server ended is forgotten.
+ */
+export function parkedTokenStore(sessionId: string): RefreshTokenStore {
+  return {
+    get: async () => (await parkedTokens())[sessionId] ?? null,
+    set: (token) => rotateParked(sessionId, token),
+    clear: () => forgetParked(sessionId),
+  };
+}

@@ -4,7 +4,7 @@ import { getLocales } from "expo-localization";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 import { create } from "zustand";
-import { onBeforeLeave, useMe } from "#/features/session/session";
+import { asParked, onBeforeLeave, useMe, useSessionStore } from "#/features/session/session";
 import { api } from "#/lib/api";
 import { APNS_SANDBOX } from "#/lib/config";
 import { platform } from "#/platform/device";
@@ -17,7 +17,7 @@ import {
   type PushPermission,
   readPushPermission,
 } from "#/platform/notifications";
-import { readSecure, writeSecure } from "#/platform/secure-storage";
+import { readJson, readSecure, writeJson, writeSecure } from "#/platform/secure-storage";
 
 export const pushClient = () => api().service(notify.PushService);
 
@@ -115,7 +115,7 @@ async function setChoice(userId: string, choice: PushChoice): Promise<void> {
  * permission and the server's channels are read, and when all three say yes
  * the token is registered for this session.
  */
-export async function startPush(userId: string): Promise<void> {
+export async function startPush(userId: string, sessionId: string): Promise<void> {
   usePush.setState({
     userId,
     loaded: false,
@@ -125,6 +125,7 @@ export async function startPush(userId: string): Promise<void> {
     failed: false,
     leaving: false,
   });
+  await settleOwed(sessionId);
   const [stored, permission, available] = await Promise.all([
     readSecure(pushChoiceKey(userId)),
     readPushPermission().catch((): PushPermission => "denied"),
@@ -156,16 +157,53 @@ export async function disablePush(): Promise<void> {
 }
 
 /**
- * Takes this session's registrations off the server. When the server cannot
- * be told, the token itself is thrown away: whatever stays registered for the
- * account then reaches nobody.
+ * Takes this session's registrations off the server. Resolves to false when
+ * the server could not be told: the token itself is thrown away then
+ * (Android hands out a new one; iOS may keep the same, so the removal is
+ * also owed, see `UNREGISTER_OWED_KEY`).
  */
-async function unregister(): Promise<void> {
+async function unregister(): Promise<boolean> {
   await registering;
   try {
     await pushClient().unregisterDevice({ deviceId: "" });
+    return true;
   } catch {
     await dropDevicePushToken().catch(() => {});
+    return false;
+  }
+}
+
+/**
+ * Sessions that left this device while their registration could not be
+ * removed (offline at a switch). Each start tries again as that session,
+ * parked here, until the server has it: like a stop of location sharing that
+ * did not reach the server.
+ */
+export const UNREGISTER_OWED_KEY = "tokuly.push.unregisterOwed";
+
+async function owed(): Promise<string[]> {
+  return readJson<string[]>(UNREGISTER_OWED_KEY, []);
+}
+
+async function setOwed(sessionId: string, isOwed: boolean): Promise<void> {
+  const rest = (await owed()).filter((id) => id !== sessionId);
+  await writeJson(UNREGISTER_OWED_KEY, isOwed ? [...rest, sessionId] : rest);
+}
+
+/** Removes the registrations still owed: as the active session, or as a parked one. */
+async function settleOwed(activeSessionId: string): Promise<void> {
+  for (const sessionId of await owed()) {
+    try {
+      if (sessionId === activeSessionId) await pushClient().unregisterDevice({ deviceId: "" });
+      // `null`: the device holds that account no more (signed out), and nothing can be done as it.
+      else
+        await asParked(sessionId, (account) =>
+          account.service(notify.PushService).unregisterDevice({ deviceId: "" }),
+        );
+      await setOwed(sessionId, false);
+    } catch {
+      // Still offline, or the session cannot be resumed yet: the next start tries again.
+    }
   }
 }
 
@@ -175,12 +213,12 @@ async function unregister(): Promise<void> {
  * its pushes reach the phone in the next account's hands, and what it had on
  * the screen is cleared.
  */
-export async function leavePush(): Promise<void> {
+export async function leavePush(sessionId: string): Promise<void> {
   usePush.setState({ leaving: true });
   // Whatever this launch knows about the account's choice (it may still be
   // reading it), a registration from an earlier launch can be alive: the
   // removal always goes out, and the server takes it as done when there is none.
-  await unregister();
+  if (!(await unregister())) await setOwed(sessionId, true);
   await clearPresented().catch(() => {});
 }
 
@@ -191,10 +229,13 @@ export async function leavePush(): Promise<void> {
  */
 export function usePushRegistration(): void {
   const myId = useMe()?.user?.id ?? null;
+  const sessionId = useSessionStore((s) =>
+    s.state.status === "signedIn" ? s.state.sessionId : null,
+  );
   useEffect(() => {
-    if (!myId) return;
-    void startPush(myId);
-    const offLeave = onBeforeLeave(leavePush);
+    if (!myId || !sessionId) return;
+    void startPush(myId, sessionId);
+    const offLeave = onBeforeLeave(() => leavePush(sessionId));
     const offToken = onPushTokenChange(() => {
       if (stillFor(myId)) void register(myId);
     });
@@ -212,7 +253,7 @@ export function usePushRegistration(): void {
       offToken();
       appState.remove();
     };
-  }, [myId]);
+  }, [myId, sessionId]);
 }
 
 /** What the push row in the inbox and the settings shows. */

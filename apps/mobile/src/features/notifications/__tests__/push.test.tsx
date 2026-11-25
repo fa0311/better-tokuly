@@ -3,6 +3,7 @@ import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 import { create, identity, notify } from "@tokuly/api";
 import { signOut, switchAccount, useSessionStore } from "#/features/session/session";
+import { parkedTokens } from "#/features/session/vault";
 import { api, resetApi } from "#/lib/api";
 import { pushChoiceKey, usePush, usePushRegistration } from "../push";
 
@@ -53,6 +54,15 @@ async function mockServer(input: string, init: { body: Uint8Array; headers?: Hea
           headers: { "content-type": "application/json" },
         });
       return ok();
+    case "RefreshToken": {
+      // A parked account's session, woken for what it still owes: its token rotates.
+      const request = fromBinary(identity.RefreshTokenRequestSchema, init.body);
+      calls.push(`refresh ${request.refreshToken}`);
+      const user = request.refreshToken.replace(/^rt-/, "").replace(/-\d+$/, "");
+      const answer = signedInAs(user, `s-${user}`);
+      answer.refreshToken = `rt-${user}-2`;
+      return ok(toBinary(identity.AuthResponseSchema, answer));
+    }
     case "SwitchAccount":
       calls.push(`switch as ${bearer}`);
       return ok(toBinary(identity.AuthResponseSchema, switchAnswer));
@@ -205,5 +215,31 @@ describe("push registration", () => {
     expect(calls).toContain("unregister as main");
     expect(device).toEqual(["token dropped", "tray cleared"]);
     hook.unmount();
+  });
+
+  it("removes, on the next start, a registration a switch could not remove", async () => {
+    const hook = await signedInMain();
+    await waitFor(() => expect(calls).toContain("register as main: apns"));
+    unregisterFails = true;
+    await act(() => switchAccount("s-alt"));
+    expect(calls).toContain("unregister as main");
+    hook.unmount();
+
+    // Next launch, as the other account: the parked session that still owes it is woken for it.
+    unregisterFails = false;
+    calls.length = 0;
+    const next = await renderHook(() => usePushRegistration());
+    // (The switch's own start already tried once, offline still.)
+    await waitFor(() => expect(calls).toEqual(["refresh rt-main-2", "unregister as main"]));
+    // The parked token rotated by the refresh is the one kept.
+    await waitFor(async () => expect((await parkedTokens())["s-main"]).toBe("rt-main-2"));
+
+    // Owed once: a later start has nothing left to do.
+    next.unmount();
+    calls.length = 0;
+    const later = await renderHook(() => usePushRegistration());
+    await waitFor(() => expect(usePush.getState()).toMatchObject({ userId: "alt", loaded: true }));
+    expect(calls).toEqual([]);
+    later.unmount();
   });
 });

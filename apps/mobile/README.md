@@ -74,8 +74,11 @@ its tests) and the web switches to it.
   push is the account's decision on this device (`features/notifications/push.ts`):
   the token is registered for an account's session only once it said yes here;
   before it signs out or another account takes over, its registration is
-  removed, and when the server cannot be told the token itself is thrown away,
-  so the next account never gets the previous one's pushes. What a push shows
+  removed (the server waits for a registration of that session still being
+  written). When the server cannot be told, the token itself is thrown away
+  and the removal is owed: each start tries again as that session, parked on
+  the device, until it goes through — so the next account never gets the
+  previous one's pushes. What a push shows
   on the lock screen is the account's preview setting, applied by the server;
   Android channels (one per category) keep the system's lock-screen rule. A tap
   opens the screen the notification is about (`features/notifications/target.ts`),

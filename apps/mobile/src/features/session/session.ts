@@ -1,6 +1,6 @@
-import { Code, ConnectError, type identity, type SessionState } from "@tokuly/api";
+import { type Api, Code, ConnectError, type identity, type SessionState } from "@tokuly/api";
 import { create } from "zustand";
-import { api, authClient, resetApi } from "#/lib/api";
+import { api, apiWith, authClient, resetApi } from "#/lib/api";
 import { prepareRealtime, resetRealtime } from "#/lib/realtime";
 import { DEVICE_ID_KEY } from "#/platform/device";
 import { forgetPreviousInstall } from "#/platform/install";
@@ -9,6 +9,7 @@ import {
   activeTokenStore,
   forgetParked,
   parkActive,
+  parkedTokenStore,
   parkedTokens,
   rotateParked,
 } from "./vault";
@@ -127,6 +128,34 @@ export async function enterAccount(response: identity.AuthResponse): Promise<voi
   await startOver(response);
 }
 
+/**
+ * Work done as a parked account's session (`asParked`), one at a time. A
+ * switch or a removal waits for it: both read the parked token, which such
+ * work may be rotating, and a spent token sent back revokes the session.
+ */
+let parkedWork: Promise<unknown> = Promise.resolve();
+
+/**
+ * Runs `work` as a parked account's session without making it the active
+ * one (what it still owes the server, such as removing a push registration
+ * a switch could not remove). Resolves to `null` when the device no longer
+ * holds that account.
+ */
+export function asParked<T>(
+  sessionId: string,
+  work: (account: Api) => Promise<T>,
+): Promise<T | null> {
+  const run = parkedWork.then(async () => {
+    if (!(await parkedTokens())[sessionId]) return null;
+    const account = apiWith(parkedTokenStore(sessionId));
+    if (!(await account.session.restore()))
+      throw new Error("the parked session could not be resumed");
+    return work(account);
+  });
+  parkedWork = run.catch(() => {});
+  return run;
+}
+
 export type SwitchResult = "switched" | "needsCode";
 
 /**
@@ -134,6 +163,7 @@ export type SwitchResult = "switched" | "needsCode";
  * authentication may answer `needsCode`: ask for it and call again.
  */
 export async function switchAccount(sessionId: string, totpCode = ""): Promise<SwitchResult> {
+  await parkedWork;
   const token = (await parkedTokens())[sessionId];
   if (!token) {
     await forgetParked(sessionId);
@@ -161,6 +191,7 @@ export async function switchAccount(sessionId: string, totpCode = ""): Promise<S
 
 /** Signs a parked account out of this device; the others stay. */
 export async function removeParkedAccount(sessionId: string): Promise<void> {
+  await parkedWork;
   const token = (await parkedTokens())[sessionId];
   if (token) await authClient().removeDeviceAccount({ refreshToken: token });
   await forgetParked(sessionId);
