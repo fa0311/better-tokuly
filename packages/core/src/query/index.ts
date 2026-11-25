@@ -24,3 +24,8 @@ export function shouldRetry(failures: number, error: unknown): boolean {
  * client is only asked for when the query runs. Each app passes its own.
  */
 export type ClientSource<S extends DescService> = () => Client<S>;
+
+/** `getNextPageParam` for the API's cursor pages: the next cursor, or the end. */
+export function nextCursor(last: { page?: { nextCursor: string } }): string | undefined {
+  return last.page?.nextCursor || undefined;
+}

@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { shorts } from "@tokuly/api";
+import { imageUrl } from "@tokuly/core/shorts";
 import {
   BarChart3,
   Eye,
@@ -35,7 +36,6 @@ import {
   shortClient,
   shortKeys,
 } from "../api";
-import { imageUrl } from "../model";
 import { ChoiceChips } from "../sort-chips";
 import { visibilityKey } from "./settings-fields";
 

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useBlocker, useNavigate } from "@tanstack/react-router";
 import { common, live, media, shorts } from "@tokuly/api";
+import { clock, imageUrl, MAX_ASPECT, MAX_SECONDS } from "@tokuly/core/shorts";
 import { Plus, Scissors, Shuffle, UploadCloud, X } from "lucide-react";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,7 +21,6 @@ import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess, uploadFile } from "#/lib/upload";
 import { useMe } from "#/stores/session";
 import { shortClient, shortKeys, useShort } from "../api";
-import { clock, imageUrl, MAX_ASPECT, MAX_SECONDS } from "../model";
 import { useSound } from "../sound-screen";
 import { CaptionField } from "./caption-field";
 import { type CoverChoice, CoverPicker } from "./cover-picker";

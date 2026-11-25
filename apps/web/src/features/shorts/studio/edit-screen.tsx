@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { media, shorts } from "@tokuly/api";
+import { imageUrl, soundTitle } from "@tokuly/core/shorts";
 import { BarChart3, Music2, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,7 +19,6 @@ import {
   shortKeys,
   useShort,
 } from "../api";
-import { imageUrl, soundTitle } from "../model";
 import { CaptionField } from "./caption-field";
 import { type CoverChoice, CoverPicker } from "./cover-picker";
 import { FormSection } from "./form-section";

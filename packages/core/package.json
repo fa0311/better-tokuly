@@ -12,6 +12,7 @@
     "./chat": "./src/chat/index.ts",
     "./map": "./src/map/index.ts",
     "./notifications": "./src/notifications/index.ts",
+    "./shorts": "./src/shorts/index.ts",
     "./stories": "./src/stories/index.ts"
   },
   "scripts": {

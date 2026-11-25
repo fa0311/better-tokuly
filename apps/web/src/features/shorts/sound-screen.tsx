@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { shorts } from "@tokuly/api";
+import { imageUrl } from "@tokuly/core/shorts";
 import { Music2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
@@ -9,7 +10,6 @@ import { compactCount } from "#/features/engagement";
 import { ChannelName } from "#/features/video";
 import { errorMessage } from "#/lib/errors";
 import { discoveryClient, shortKeys } from "./api";
-import { imageUrl } from "./model";
 import { ShortList } from "./short-tile";
 
 /** A sound by its ID. */

@@ -1,10 +1,10 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import type { FeedContext } from "@tokuly/core/shorts";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ProfileSection, ProfileSectionProps } from "#/seams/profile";
 import { listQuery } from "./lists";
-import type { FeedContext } from "./model";
 import { ShortTile } from "./short-tile";
 
 /** How many shorts a profile shows before "see all". */

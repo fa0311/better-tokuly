@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { shorts } from "@tokuly/api";
+import { type FeedContext, imageUrl, searchOfContext } from "@tokuly/core/shorts";
 import { Pin, Play } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,6 @@ import { compactCount } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { type ListOptions, listQuery } from "./lists";
-import { type FeedContext, imageUrl, searchOfContext } from "./model";
 
 export interface ShortTileProps {
   short: shorts.Short;

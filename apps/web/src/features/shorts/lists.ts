@@ -1,7 +1,7 @@
 import { infiniteQueryOptions } from "@tanstack/react-query";
 import type { common, shorts } from "@tokuly/api";
+import type { FeedContext } from "@tokuly/core/shorts";
 import { discoveryClient, feedClient, nextCursor, shortClient } from "./api";
-import type { FeedContext } from "./model";
 
 /** One entry of a swipe feed: the short, and what the feed says about it. */
 export interface FeedEntry {

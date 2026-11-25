@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { identity } from "@tokuly/api";
+import { completeToken, MAX_CAPTION, tokenAtCaret } from "@tokuly/core/shorts";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -8,7 +9,6 @@ import { EmojiSuggestBar } from "#/features/emoji";
 import { compactCount } from "#/features/engagement";
 import { api } from "#/lib/api";
 import { discoveryClient, shortKeys } from "../api";
-import { completeToken, MAX_CAPTION, tokenAtCaret } from "../model";
 
 const chip =
   "flex h-9 shrink-0 items-center gap-1.5 rounded-full border-2 border-line bg-surface px-3 text-sm font-bold hover:border-ink-faint";

@@ -1,10 +1,8 @@
 import type { notes } from "@tokuly/api";
-import type { ClientSource } from "../query";
+import { type ClientSource, nextCursor } from "../query";
 import { storyKeys } from "./keys";
 
 type Stories = ClientSource<typeof notes.StoryService>;
-
-const nextCursor = (last: { page?: { nextCursor: string } }) => last.page?.nextCursor || undefined;
 
 /** Query options of stories. Each app adds `enabled` and its hooks around them. */
 export const storyQueries = {

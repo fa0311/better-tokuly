@@ -20,8 +20,8 @@
  * `/shorts/new?clip=<clip id>` starts a short from a clip.
  */
 
+export { type FeedContext, shortSubject } from "@tokuly/core/shorts";
 export { Caption } from "./caption";
-export { type FeedContext, shortSubject } from "./model";
 export {
   ShortGrid,
   ShortGridSkeleton,
