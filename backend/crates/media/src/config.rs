@@ -89,8 +89,10 @@ pub struct MediaConfig {
     /// top of the daily byte budget. 0 switches the budget off.
     #[arg(long, env = "TOKULY_MEDIA_DAILY_TRANSCODE_MINUTES", default_value_t = 720)]
     pub daily_transcode_minutes: i64,
+    /// The ffmpeg executable.
     #[arg(long, env = "TOKULY_MEDIA_FFMPEG_PATH", default_value = "ffmpeg")]
     pub ffmpeg_path: PathBuf,
+    /// The ffprobe executable.
     #[arg(long, env = "TOKULY_MEDIA_FFPROBE_PATH", default_value = "ffprobe")]
     pub ffprobe_path: PathBuf,
     /// Scratch directory for transcodes; needs room for the largest upload

@@ -23,6 +23,7 @@ pub struct IdentityConfig {
     /// Leave empty to disable the integration.
     #[arg(long, env = "TOKULY_SPOTIFY_CLIENT_ID", default_value = "")]
     pub spotify_client_id: String,
+    /// Spotify app client secret (profile music connection).
     #[arg(long, env = "TOKULY_SPOTIFY_CLIENT_SECRET", default_value = "", hide_env_values = true)]
     pub spotify_client_secret: String,
     /// Base URL of the Spotify Web API (a test double in tests).

@@ -94,6 +94,14 @@ impl Media {
         Ok(Self(Arc::new(MediaInner { core, cfg, originals, ffmpeg, previews, animation_slot: tokio::sync::Semaphore::new(1) })))
     }
 
+    /// The settings in force now. The upload and transcoding limits are
+    /// read through this, so a change in the staff console applies without
+    /// a restart (they are the live `[media]` keys of the server's settings).
+    /// Without registered settings (tests) it is the configuration given to [`Media::new`].
+    pub fn live(&self) -> Arc<MediaConfig> {
+        self.core.settings.current::<MediaConfig>("media").unwrap_or_else(|| Arc::new(self.cfg.clone()))
+    }
+
     /// Registers this domain's RPC service on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
         use tokuly_proto::media::MediaServiceExt;

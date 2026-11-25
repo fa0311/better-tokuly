@@ -23,6 +23,7 @@ pub struct ChatConfig {
     )]
     pub livekit_public_url: String,
 
+    /// LiveKit API key.
     #[arg(
         id = "chat_livekit_api_key",
         long = "chat-livekit-api-key",
@@ -32,6 +33,7 @@ pub struct ChatConfig {
     )]
     pub livekit_api_key: String,
 
+    /// LiveKit API secret.
     #[arg(
         id = "chat_livekit_api_secret",
         long = "chat-livekit-api-secret",

@@ -16,11 +16,14 @@ use crate::{
     livekit::LiveKit,
     mail::Mailer,
     realtime::{Realtime, TopicGuards},
+    settings::{self, Settings},
     storage::Storage,
     subject::Subjects,
 };
 
 const SESSION_REVOKED_SUBJECT: &str = "sys.session.revoked";
+/// Broadcast after a console settings change: every process reloads the console layer.
+const SETTINGS_CHANGED_SUBJECT: &str = "sys.settings.changed";
 
 pub struct CoreInner {
     pub cfg: Config,
@@ -47,6 +50,8 @@ pub struct CoreInner {
     pub topic_guards: TopicGuards,
     pub exporters: Exporters,
     pub flags: Flags,
+    /// Every setting with where its value comes from; the live ones are read through it.
+    pub settings: Settings,
     /// Cancelled when the process is asked to stop; background loops watch it.
     pub shutdown: CancellationToken,
 }
@@ -67,6 +72,12 @@ impl Core {
     /// Connects to every backing service. Fails fast with a readable error
     /// when a required dependency is unreachable.
     pub async fn connect(cfg: Config) -> anyhow::Result<Self> {
+        Self::connect_with(cfg, Settings::default()).await
+    }
+
+    /// [`Self::connect`] for a process whose settings were resolved from
+    /// their layers (the server binary).
+    pub async fn connect_with(cfg: Config, settings: Settings) -> anyhow::Result<Self> {
         cfg.validate()?;
         let keys = Keys::new(&cfg.secret);
         let db = db::connect(&cfg.database_url, cfg.database_max_connections).await?;
@@ -79,7 +90,7 @@ impl Core {
         let tokens = Tokens::new(&keys)?.with_revocations(cache.clone());
         let api_tokens = ApiTokens::default();
         let auth_layer =
-            AuthLayer::new(tokens.clone(), cfg.trusted_proxies()?).with_api_tokens(api_tokens.clone(), cfg.rate_limits.then(|| cache.clone()));
+            AuthLayer::new(tokens.clone(), cfg.trusted_proxies()?).with_api_tokens(api_tokens.clone(), Some(cache.clone()));
         let storage = Storage::new(&cfg);
         let mail = Mailer::new(&cfg.smtp_url, &cfg.mail_from)?;
         let analytics = Analytics::new(bus.clone(), &cfg);
@@ -112,6 +123,7 @@ impl Core {
             http,
             livekit,
             subjects: Subjects::default(),
+            settings,
             shutdown: CancellationToken::new(),
         }));
         core.spawn_system_listeners().await?;
@@ -121,8 +133,27 @@ impl Core {
         Ok(core)
     }
 
-    /// Process-wide listeners every service needs (session revocations).
+    /// Process-wide listeners every service needs (session revocations, settings changes).
     async fn spawn_system_listeners(&self) -> anyhow::Result<()> {
+        let mut changed = self
+            .bus
+            .subscribe(SETTINGS_CHANGED_SUBJECT)
+            .await
+            .map_err(|e| anyhow::anyhow!("cannot subscribe to system subjects: {e}"))?;
+        let core = self.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = core.shutdown.cancelled() => break,
+                    message = changed.next() => {
+                        if message.is_none() { break }
+                        if let Err(e) = core.reload_settings().await {
+                            tracing::warn!(error = %e, "settings: reloading the console layer failed");
+                        }
+                    }
+                }
+            }
+        });
         let mut revoked = self
             .bus
             .subscribe(SESSION_REVOKED_SUBJECT)
@@ -157,6 +188,28 @@ impl Core {
         {
             tracing::warn!(error = %e, "session revocation broadcast failed");
         }
+    }
+
+    /// Reads the console layer of the settings again and applies the live
+    /// settings core owns (the rate limits). Does nothing without registered settings.
+    pub async fn reload_settings(&self) -> anyhow::Result<()> {
+        let Some(state) = self.settings.state() else { return Ok(()) };
+        let console = settings::store::load(&self.db, &state.registry, &self.keys).await?;
+        self.settings.set_console(console);
+        if let Some(cfg) = self.settings.current::<Config>("core") {
+            self.cache.set_rate_limits(cfg.rate_limits);
+        }
+        Ok(())
+    }
+
+    /// After a console settings change was committed: applies it here and
+    /// tells the other processes to do the same.
+    pub async fn settings_changed(&self) -> anyhow::Result<()> {
+        self.reload_settings().await?;
+        if let Err(e) = self.bus.publish(SETTINGS_CHANGED_SUBJECT, String::new()).await {
+            tracing::warn!(error = %e, "settings change broadcast failed");
+        }
+        Ok(())
     }
 
     /// Emits a domain event outside of a transaction. Prefer

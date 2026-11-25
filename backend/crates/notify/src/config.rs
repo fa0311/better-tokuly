@@ -42,8 +42,10 @@ pub struct NotifyConfig {
     /// all set.
     #[arg(long, env = "TOKULY_APNS_KEY_P8", default_value = "", hide_env_values = true)]
     pub apns_key_p8: String,
+    /// Key ID of the APNs signing key.
     #[arg(long, env = "TOKULY_APNS_KEY_ID", default_value = "")]
     pub apns_key_id: String,
+    /// Apple developer team ID (APNs).
     #[arg(long, env = "TOKULY_APNS_TEAM_ID", default_value = "")]
     pub apns_team_id: String,
     /// The iOS app's bundle ID.

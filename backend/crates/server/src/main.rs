@@ -9,20 +9,27 @@
 //! - `tokuly all`       everything in one process (development)
 //!
 //! `tokuly healthcheck <url>` is the container health probe for these roles.
-use std::net::SocketAddr;
+//!
+//! Settings come from the command line, the `TOKULY_*` environment, the
+//! `tokuly.toml` named by `TOKULY_CONFIG` and the staff console, in that
+//! order (see `settings.rs`); `tokuly config example` prints every one.
+use std::ffi::OsString;
 
-use clap::{Args, Parser, Subcommand};
-use tokuly_core::{Core, config::Config, telemetry};
+use clap::{Parser, Subcommand};
+use tokuly_core::{Core, config::Config, settings::Settings, telemetry};
 
 mod app;
 mod bridges;
 mod healthcheck;
+mod settings;
 
 #[derive(Parser)]
 #[command(name = "tokuly", version, about = "Tokuly backend")]
 struct Cli {
     #[command(flatten)]
     core: Config,
+    #[command(flatten)]
+    api: settings::ApiConfig,
     #[command(flatten)]
     domains: app::DomainConfigs,
     #[command(subcommand)]
@@ -32,7 +39,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Serve the Connect RPC API.
-    Api(ApiArgs),
+    Api,
     /// Run the realtime gateway.
     Realtime,
     /// Run background workers.
@@ -40,12 +47,19 @@ enum Command {
     /// Apply database migrations and prepare buckets, streams and indexes.
     Migrate,
     /// Run the API, the realtime gateway and the workers in one process (development).
-    All(ApiArgs),
+    All,
     /// Give an existing account the `admin` role (the operator's way back in,
     /// e.g. after the bootstrap admin lost access). Prints whether it changed.
     PromoteAdmin {
         /// Handle or e-mail address of the account.
         account: String,
+    },
+    /// Settings files: `example` prints every setting with its default (the
+    /// source of `tokuly.example.toml`); `show` prints what the command line,
+    /// the environment and `tokuly.toml` set (console values not included).
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
     },
     /// Exit with 0 if a health endpoint of this container answers 200 (container health checks).
     Healthcheck {
@@ -54,36 +68,65 @@ enum Command {
     },
 }
 
-#[derive(Args, Clone)]
-struct ApiArgs {
-    /// Address the API listens on.
-    #[arg(long, env = "TOKULY_API_LISTEN", default_value = "0.0.0.0:8081")]
-    listen: SocketAddr,
-    /// Extra origins allowed to call the API from browsers (comma separated).
-    /// The public URL is always allowed; in development so is any localhost port.
-    #[arg(long, env = "TOKULY_CORS_ORIGINS", value_delimiter = ',', default_value = "")]
-    cors_origins: Vec<String>,
+#[derive(Subcommand, Clone, Copy)]
+enum ConfigAction {
+    /// Print `tokuly.example.toml`: every setting, commented out at its default.
+    Example,
+    /// Check `tokuly.toml` and print the settings it, the environment and the command line set.
+    Show,
+}
+
+/// What the first word of the command line asks for, read before the
+/// settings are (some commands need none of them).
+fn early_command(argv: &[OsString]) -> Option<Command> {
+    let lenient = <Cli as clap::CommandFactory>::command().mut_args(|a| a.required(false)).ignore_errors(true);
+    let matches = lenient.try_get_matches_from(argv).ok()?;
+    match matches.subcommand() {
+        Some(("healthcheck", sub)) => sub.get_one::<String>("url").map(|url| Command::Healthcheck { url: url.clone() }),
+        Some(("config", sub)) => match sub.subcommand_name() {
+            Some("example") => Some(Command::Config { action: ConfigAction::Example }),
+            Some("show") => Some(Command::Config { action: ConfigAction::Show }),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
-    // The probe talks to a server that is already running: it needs none of the infrastructure.
-    if let Command::Healthcheck { url } = &cli.command {
-        return healthcheck::run(url).await;
+    let argv: Vec<OsString> = std::env::args_os().collect();
+    match early_command(&argv) {
+        // The probe talks to a server that is already running: it needs none of the infrastructure.
+        Some(Command::Healthcheck { url }) => return healthcheck::run(&url).await,
+        Some(Command::Config { action: ConfigAction::Example }) => {
+            print!("{}", tokuly_core::settings::file::example(&settings::registry()?));
+            return Ok(());
+        }
+        Some(Command::Config { action: ConfigAction::Show }) => {
+            print!("{}", settings::Resolved::read(&argv)?.show());
+            return Ok(());
+        }
+        _ => {}
     }
+    let mut resolved = settings::Resolved::read(&argv)?;
+    resolved.read_console().await?;
+    let cli = resolved.parse(&argv);
     let service = match &cli.command {
-        Command::Api(_) => "tokuly-api",
+        Command::Api => "tokuly-api",
         Command::Realtime => "tokuly-realtime",
         Command::Worker => "tokuly-worker",
         Command::Migrate => "tokuly-migrate",
-        Command::All(_) => "tokuly-all",
+        Command::All => "tokuly-all",
         Command::PromoteAdmin { .. } => "tokuly-admin",
-        Command::Healthcheck { .. } => unreachable!("handled above"),
+        Command::Healthcheck { .. } | Command::Config { .. } => unreachable!("handled above"),
     };
     let _telemetry = telemetry::init(&cli.core, service);
+    if let Some(file) = &resolved.file {
+        tracing::info!(file = %file.display(), "settings file read");
+    }
+    let settings = Settings::new(resolved.into_state(cli.core.is_production()));
 
-    let core = Core::connect(cli.core).await?;
+    let core = Core::connect_with(cli.core, settings).await?;
     spawn_shutdown_listener(core.clone());
 
     let domains = app::Domains::new(core.clone(), cli.domains)?;
@@ -97,13 +140,13 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("{account}: no such account, or it already is an admin");
             }
         }
-        Command::Api(args) => app::serve_api(core, domains, args.listen, args.cors_origins).await?,
+        Command::Api => app::serve_api(core, domains, cli.api.listen, cli.api.cors_origins).await?,
         Command::Realtime => domains.gateway.run().await?,
         Command::Worker => {
             app::spawn_workers(&core, &domains);
             core.shutdown.cancelled().await;
         }
-        Command::All(args) => {
+        Command::All => {
             app::migrate(&core, &domains).await?;
             app::spawn_workers(&core, &domains);
             let gateway = domains.gateway.clone();
@@ -114,9 +157,9 @@ async fn main() -> anyhow::Result<()> {
                     shutdown.cancel();
                 }
             });
-            app::serve_api(core, domains, args.listen, args.cors_origins).await?;
+            app::serve_api(core, domains, cli.api.listen, cli.api.cors_origins).await?;
         }
-        Command::Healthcheck { .. } => unreachable!("handled above"),
+        Command::Healthcheck { .. } | Command::Config { .. } => unreachable!("handled above"),
     }
     Ok(())
 }

@@ -190,6 +190,7 @@ pub struct LiveConfig {
         default_value = "ffmpeg"
     )]
     pub ffmpeg_path: String,
+    /// The ffprobe executable used on recordings.
     #[arg(
         id = "live_ffprobe_path",
         long = "live-ffprobe-path",

@@ -96,7 +96,7 @@ end
 return 1";
 
 async fn ensure_room_for_each(core: &Core, user_id: Uuid, recipients: &[Uuid]) -> AppResult<()> {
-    if !core.cfg.rate_limits {
+    if !core.cache.enforces_rate_limits() {
         return Ok(());
     }
     let script = redis::Script::new(COUNT_EACH_OR_NONE);
