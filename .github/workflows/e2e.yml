@@ -255,7 +255,7 @@ jobs:
           TOKULY_WEB_URL: http://localhost
           TOKULY_MAILPIT_URL: http://localhost:8025
           SHARD: ${{ matrix.shard }}/${{ needs.changes.outputs.shard-count }}
-        run: pnpm --filter @tokuly/web e2e --workers=3 --shard="$SHARD" --reporter=blob,list
+        run: pnpm --filter @tokuly/web e2e --workers=2 --shard="$SHARD" --reporter=blob,list
 
       - name: Keep this shard's results for the report
         if: ${{ !cancelled() }}
