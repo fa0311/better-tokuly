@@ -21,7 +21,10 @@ use std::{
     collections::HashMap,
     ffi::OsString,
     path::PathBuf,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use clap::{ArgMatches, Command, parser::ValueSource};
@@ -143,12 +146,15 @@ pub struct State {
     /// The `tokuly.toml` that was read, if any.
     pub file: Option<PathBuf>,
     pub production: bool,
+    /// Counts the states a process has had: what [`Settings::current`]
+    /// caches its parses by (an address would be reused once freed).
+    generation: u64,
 }
 
 impl State {
     pub fn new(registry: Arc<Registry>, layers: Layers, file: Option<PathBuf>, production: bool) -> Self {
         let started = registry.defs().iter().map(|d| (d.id.clone(), layers.effective(d).0.map(str::to_owned))).collect();
-        Self { registry, layers, started, file, production }
+        Self { registry, layers, started, file, production, generation: 0 }
     }
 
     /// Whether this process runs with another value than the one in force
@@ -166,8 +172,10 @@ pub struct Settings(Arc<SettingsInner>);
 #[derive(Default)]
 struct SettingsInner {
     state: RwLock<Option<Arc<State>>>,
-    /// Sections re-parsed by [`Settings::current`], with the state they were parsed from.
-    parsed: Mutex<HashMap<TypeId, (usize, Arc<dyn Any + Send + Sync>)>>,
+    /// The generation of the next state installed.
+    next_generation: AtomicU64,
+    /// Sections re-parsed by [`Settings::current`], with the generation of the state they were parsed from.
+    parsed: Mutex<HashMap<TypeId, (u64, Arc<dyn Any + Send + Sync>)>>,
 }
 
 impl Settings {
@@ -177,8 +185,10 @@ impl Settings {
         settings
     }
 
-    pub fn install(&self, state: State) {
-        *self.0.state.write() = Some(Arc::new(state));
+    pub fn install(&self, mut state: State) {
+        let mut guard = self.0.state.write();
+        state.generation = self.0.next_generation.fetch_add(1, Ordering::Relaxed);
+        *guard = Some(Arc::new(state));
     }
 
     pub fn state(&self) -> Option<Arc<State>> {
@@ -195,6 +205,7 @@ impl Settings {
                 started: state.started.clone(),
                 file: state.file.clone(),
                 production: state.production,
+                generation: self.0.next_generation.fetch_add(1, Ordering::Relaxed),
             };
             *guard = Some(Arc::new(next));
         }
@@ -209,7 +220,7 @@ impl Settings {
         C: clap::Args + clap::FromArgMatches + Send + Sync + 'static,
     {
         let state = self.state()?;
-        let stamp = Arc::as_ptr(&state) as usize;
+        let stamp = state.generation;
         if let Some((parsed_from, value)) = self.0.parsed.lock().get(&TypeId::of::<C>())
             && *parsed_from == stamp
         {
@@ -309,5 +320,24 @@ mod tests {
         // The command line wins over the console, so nothing changed for the token.
         assert!(!state.restart_pending(def(&r, "token")));
         assert!(Settings::default().current::<Demo>("demoset").is_none());
+    }
+
+    /// Every change is seen, also when the allocator hands out a freed
+    /// state's address again (the parse cache once keyed on it).
+    #[test]
+    fn current_sees_every_change_in_a_row() {
+        let mut layers = Layers::default();
+        layers.cli.insert("token".into(), "t".into());
+        let settings = Settings::new(State::new(registry(), layers, None, false));
+        let set = |limit: i64| settings.set_console(HashMap::from([("limit".to_owned(), limit.to_string())]));
+        for limit in (5..200).step_by(2) {
+            set(limit);
+            assert_eq!(settings.current::<Demo>("demoset").unwrap().limit, limit);
+            // Two changes without a read in between: the second state may
+            // sit where the first one was.
+            set(limit + 100);
+            set(limit + 1);
+            assert_eq!(settings.current::<Demo>("demoset").unwrap().limit, limit + 1);
+        }
     }
 }
