@@ -158,16 +158,17 @@ async function unregister(): Promise<void> {
 }
 
 /**
- * Before `userId` leaves this device (sign-out, another account taking
+ * Before the signed-in account leaves this device (sign-out, another account taking
  * over), while its session still works: its registration goes, so none of
  * its pushes reach the phone in the next account's hands, and what it had on
  * the screen is cleared.
  */
-export async function leavePush(userId: string): Promise<void> {
-  const state = usePush.getState();
+export async function leavePush(): Promise<void> {
   usePush.setState({ leaving: true });
-  const registered = state.userId === userId && state.choice === "on";
-  if (registered) await unregister();
+  // Whatever this launch knows about the account's choice (it may still be
+  // reading it), a registration from an earlier launch can be alive: the
+  // removal always goes out, and the server takes it as done when there is none.
+  await unregister();
   await clearPresented().catch(() => {});
 }
 
@@ -181,7 +182,7 @@ export function usePushRegistration(): void {
   useEffect(() => {
     if (!myId) return;
     void startPush(myId);
-    const offLeave = onBeforeLeave(() => leavePush(myId));
+    const offLeave = onBeforeLeave(leavePush);
     const offToken = onPushTokenChange(() => {
       if (stillFor(myId)) void register(myId);
     });

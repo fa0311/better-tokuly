@@ -13,6 +13,8 @@ import { pushChoiceKey, usePush, usePushRegistration } from "../push";
  */
 const calls: string[] = [];
 let unregisterFails = false;
+/** While set, GetPushConfig waits for it: a slow network at start-up. */
+let configGate: Promise<void> | null = null;
 let switchAnswer: identity.AuthResponse;
 
 const ok = (body: Uint8Array = new Uint8Array()) =>
@@ -23,6 +25,7 @@ async function mockServer(input: string, init: { body: Uint8Array; headers?: Hea
   const bearer = new Headers(init.headers).get("authorization")?.replace("Bearer access-", "");
   switch (method) {
     case "GetPushConfig":
+      if (configGate) await configGate;
       return ok(
         toBinary(
           notify.GetPushConfigResponseSchema,
@@ -98,6 +101,7 @@ beforeEach(() => {
   calls.length = 0;
   device.length = 0;
   unregisterFails = false;
+  configGate = null;
   switchAnswer = signedInAs("alt", "s-alt");
 });
 
@@ -124,6 +128,25 @@ describe("push registration", () => {
     await waitFor(() => expect(usePush.getState()).toMatchObject({ userId: "alt", loaded: true }));
     expect(usePush.getState().choice).toBeNull();
     expect(calls.filter((call) => call.startsWith("register"))).toEqual(["register as main: apns"]);
+    hook.unmount();
+  });
+
+  it("unregisters the account that leaves before its start-up finished", async () => {
+    let release = () => {};
+    configGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const hook = await signedInMain();
+    // Still asking the server for its push channels when the switch comes:
+    // a registration from an earlier launch may be alive all the same.
+    await act(async () => {
+      await expect(switchAccount("s-alt")).resolves.toBe("switched");
+    });
+    expect(calls).toContain("unregister as main");
+    release();
+    hook.rerender({});
+    await waitFor(() => expect(usePush.getState()).toMatchObject({ userId: "alt", loaded: true }));
+    expect(calls.filter((call) => call.startsWith("register"))).toEqual([]);
     hook.unmount();
   });
 
