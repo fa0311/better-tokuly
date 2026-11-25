@@ -2,28 +2,39 @@
 //! suggest quick replies, translate a message.
 //!
 //! **Message text leaves this server when these features are used**: they
-//! call Anthropic's Messages API (`POST {base}/v1/messages`). Only the text
-//! a feature needs is sent — the draft; the last few text messages of a
-//! conversation labelled "me"/"other"; the text of one message — never
-//! names, handles, IDs or attachments. Nothing is sent unless a user calls
-//! one of the three RPCs, and the assistant only exists when an API key is
-//! configured.
+//! call the AI service the user's requests are routed to ([`settings`]):
+//! Anthropic, OpenAI, or an OpenAI-compatible server the operator chose
+//! ([`providers`]). Only the text a feature needs is sent — the draft; the
+//! last few text messages of a conversation labelled "me"/"other"; the
+//! text of one message — never names, handles, IDs or attachments. Nothing
+//! is sent unless a user calls one of the three RPCs.
+//!
+//! Other people's messages are only sent when their author allows it
+//! ([`Chat::ai_message_use_allowed`]): suggestions leave the others out,
+//! translation refuses.
 //!
 //! Text written by users is data, not instructions: it travels inside tags
 //! the system prompt declares as material to transform. Answers are
-//! requested as JSON matching a schema (`output_config.format`), so they
-//! parse or fail — a model that starts chatting cannot leak into a draft.
+//! requested as JSON matching a schema, so they parse or fail — a model
+//! that starts chatting cannot leak into a draft.
 use std::time::Duration;
 
 use serde::{Deserialize, de::DeserializeOwned};
 use sha2::{Digest as _, Sha256};
 use tokuly_core::prelude::*;
-use tokuly_proto::chat as pb;
+use tokuly_proto::chat::{self as pb, AiProvider};
 
 use crate::{
-    Chat, ChatConfig, content,
+    Chat, content,
     model::{MSG, MessageRow, msg},
 };
+
+pub(crate) mod providers;
+pub(crate) mod settings;
+mod svc;
+
+use providers::{Anthropic, Endpoint, Failure, OpenAi, Provider, Task};
+use settings::{NoRoute, Route};
 
 /// Longest draft that can be rewritten, in characters.
 const MAX_DRAFT_CHARS: usize = 2000;
@@ -36,13 +47,8 @@ const MAX_SUGGESTIONS: usize = 3;
 const MAX_SUGGESTION_CHARS: usize = 200;
 /// How long a translation is remembered.
 const TRANSLATION_CACHE_TTL: Duration = Duration::from_secs(24 * 3600);
-/// Room for the answer. The model thinks before it writes, and thinking
-/// counts towards this limit, so it is far more than the answers need.
-const MAX_TOKENS: u32 = 16000;
 /// Attempts per request: the first try and two retries of transient failures.
 const MAX_ATTEMPTS: u32 = 3;
-/// Beta that enables `fallbacks: "default"`.
-const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 
 const REWRITE_SYSTEM: &str = "You rewrite drafts of chat messages for users of a messaging app. \
 Rewrite the draft inside the <draft> tags in the requested tone. Keep its meaning, its language, and everything specific in it: \
@@ -71,6 +77,19 @@ fn ai_unavailable() -> AppError {
 
 fn ai_refused() -> AppError {
     AppError::precondition("AI_REFUSED", "the AI assistant declined this text")
+}
+
+impl From<NoRoute> for AppError {
+    fn from(no_route: NoRoute) -> Self {
+        match no_route {
+            NoRoute::Disabled => ai_disabled(),
+            NoRoute::TurnedOff => AppError::precondition("AI_TURNED_OFF", "you switched the AI assistant off"),
+            NoRoute::ChoiceUnavailable => AppError::precondition(
+                "AI_PROVIDER_UNAVAILABLE",
+                "the AI provider you chose is not available; choose another in the chat settings",
+            ),
+        }
+    }
 }
 
 /// How a tone is described to the model.
@@ -115,114 +134,55 @@ struct Translated {
     source_language: String,
 }
 
-/// Why a request to the AI service did not produce an answer.
-#[derive(Debug, PartialEq, Eq)]
-enum Failure {
-    /// Worth another attempt: the service is overloaded or unreachable.
-    Transient(String),
-    /// Will not get better by retrying (a rejected request, a wrong key).
-    Permanent(String),
-    /// The model declined the text.
-    Refused,
-}
-
-/// A configured connection to the Anthropic Messages API.
+/// A provider ready for one user's requests.
 pub(crate) struct Assistant {
-    http: reqwest::Client,
-    endpoint: String,
-    api_key: String,
-    version: String,
+    provider: Box<dyn Provider>,
+    kind: AiProvider,
     model: String,
-    effort: String,
-    refusal_fallback: bool,
+    base_url: String,
     timeout: Duration,
 }
 
 impl Assistant {
-    /// `None` when no API key is configured.
-    pub fn from_config(cfg: &ChatConfig) -> anyhow::Result<Option<Self>> {
-        if !cfg.assist_enabled() {
-            return Ok(None);
-        }
-        let timeout = Duration::from_secs(cfg.ai_timeout_seconds);
-        let http = reqwest::Client::builder()
-            .user_agent("Tokuly/1.0")
-            .timeout(timeout)
-            .build()
-            .map_err(|e| anyhow::anyhow!("AI http client: {e}"))?;
-        Ok(Some(Self {
-            http,
-            endpoint: format!("{}/v1/messages", cfg.anthropic_base_url.trim_end_matches('/')),
-            api_key: cfg.anthropic_api_key.clone(),
-            version: cfg.anthropic_version.clone(),
-            model: cfg.ai_model.clone(),
-            effort: cfg.ai_effort.clone(),
-            refusal_fallback: cfg.ai_refusal_fallback,
-            timeout,
-        }))
-    }
-
-    /// The body of a Messages API request answering in JSON of `schema`.
-    fn request_body(&self, system: &str, user: &str, schema: &serde_json::Value) -> serde_json::Value {
-        let mut output_config = serde_json::json!({ "format": { "type": "json_schema", "schema": schema } });
-        if !self.effort.is_empty() {
-            output_config["effort"] = serde_json::Value::String(self.effort.clone());
-        }
-        let mut body = serde_json::json!({
-            "model": self.model,
-            "max_tokens": MAX_TOKENS,
-            "system": system,
-            "messages": [{ "role": "user", "content": user }],
-            "output_config": output_config,
-        });
-        if self.refusal_fallback {
-            // A request the safety classifiers decline is retried by the API
-            // on the fallback model Anthropic recommends for that case.
-            body["fallbacks"] = serde_json::Value::String("default".to_owned());
-        }
-        body
-    }
-
-    async fn attempt(&self, body: &serde_json::Value) -> Result<serde_json::Value, Failure> {
-        let mut request = self
-            .http
-            .post(&self.endpoint)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", &self.version)
-            .header("content-type", "application/json");
-        if self.refusal_fallback {
-            request = request.header("anthropic-beta", FALLBACK_BETA);
-        }
-        let response =
-            request.json(body).send().await.map_err(|e| Failure::Transient(format!("request failed: {e}")))?;
-        let status = response.status();
-        let bytes = response.bytes().await.map_err(|e| Failure::Transient(format!("answer could not be read: {e}")))?;
-        if status.is_success() {
-            return serde_json::from_slice(&bytes).map_err(|e| Failure::Transient(format!("undecodable answer: {e}")));
-        }
-        // The error type is safe to log; the message may quote user text.
-        let error_type = serde_json::from_slice::<serde_json::Value>(&bytes)
-            .ok()
-            .and_then(|json| json.pointer("/error/type").and_then(|kind| kind.as_str()).map(str::to_owned))
-            .unwrap_or_default();
-        let description = format!("HTTP {status} {error_type}");
-        if matches!(status.as_u16(), 408 | 409 | 429) || status.is_server_error() {
-            Err(Failure::Transient(description))
-        } else {
-            Err(Failure::Permanent(description))
-        }
+    /// Connects a route to its service.
+    fn new(chat: &Chat, route: Route) -> AppResult<Self> {
+        let Route { settings, api_key } = route;
+        let timeout = Duration::from_secs(chat.cfg.ai_timeout_seconds);
+        let invalid_url = |e: url::ParseError| {
+            tracing::error!(provider = ?settings.provider, error = %e, "the AI base URL does not parse");
+            ai_unavailable()
+        };
+        let endpoint = |url| Endpoint { url, policy: chat.ai_policy(), allowance: settings.allowance(), timeout };
+        let provider: Box<dyn Provider> = match settings.provider {
+            AiProvider::AI_PROVIDER_ANTHROPIC => Box::new(Anthropic {
+                endpoint: endpoint(Anthropic::endpoint_url(&settings.base_url).map_err(invalid_url)?),
+                api_key: api_key.unwrap_or_default(),
+                version: chat.cfg.anthropic_version.clone(),
+                model: settings.model.clone(),
+                effort: chat.cfg.ai_effort.clone(),
+                refusal_fallback: chat.cfg.ai_refusal_fallback,
+            }),
+            kind => Box::new(OpenAi {
+                endpoint: endpoint(OpenAi::endpoint_url(&settings.base_url).map_err(invalid_url)?),
+                api_key,
+                model: settings.model.clone(),
+                reasoning_effort: chat.cfg.openai_reasoning_effort.clone(),
+                compatible: kind == AiProvider::AI_PROVIDER_OPENAI_COMPATIBLE,
+            }),
+        };
+        Ok(Self { provider, kind: settings.provider, model: settings.model, base_url: settings.base_url, timeout })
     }
 
     /// Sends one request and returns the model's answer parsed as `T`.
     async fn complete<T: DeserializeOwned>(&self, system: &str, user: &str, schema: serde_json::Value) -> AppResult<T> {
-        let body = self.request_body(system, user, &schema);
+        let task = Task { system, user, schema: &schema };
         let exchange = async {
             let mut attempt = 1;
             loop {
-                match self.attempt(&body).await {
+                match self.provider.attempt(&task).await {
                     Ok(answer) => break Ok(answer),
                     Err(Failure::Transient(reason)) if attempt < MAX_ATTEMPTS => {
-                        tracing::warn!(attempt, %reason, "AI request failed; retrying");
+                        tracing::warn!(attempt, %reason, provider = ?self.kind, "AI request failed; retrying");
                         tokio::time::sleep(Duration::from_millis(400 * u64::from(attempt) * u64::from(attempt))).await;
                         attempt += 1;
                     }
@@ -234,57 +194,49 @@ impl Assistant {
         let answer = match tokio::time::timeout(self.timeout, exchange).await {
             Ok(Ok(answer)) => answer,
             Ok(Err(Failure::Permanent(reason))) => {
-                tracing::error!(%reason, model = %self.model, "AI request rejected; check the AI configuration");
+                tracing::error!(%reason, provider = ?self.kind, model = %self.model, "AI request rejected; check the AI configuration");
                 return Err(ai_unavailable());
             }
             Ok(Err(Failure::Transient(reason))) => {
-                tracing::warn!(%reason, "AI request failed");
+                tracing::warn!(%reason, provider = ?self.kind, "AI request failed");
                 return Err(ai_unavailable());
             }
             Ok(Err(Failure::Refused)) => return Err(ai_refused()),
             Err(_) => {
-                tracing::warn!("AI request timed out");
+                tracing::warn!(provider = ?self.kind, "AI request timed out");
                 return Err(ai_unavailable());
             }
         };
-        parse_answer(&answer).map_err(|failure| match failure {
-            Failure::Refused => ai_refused(),
-            Failure::Transient(reason) | Failure::Permanent(reason) => {
-                tracing::warn!(%reason, "AI answer could not be used");
-                ai_unavailable()
-            }
+        decode_answer(answer).map_err(|reason| {
+            tracing::warn!(%reason, provider = ?self.kind, "AI answer does not match the schema");
+            ai_unavailable()
         })
     }
 }
 
-/// Extracts the structured answer from a Messages API response.
-fn parse_answer<T: DeserializeOwned>(answer: &serde_json::Value) -> Result<T, Failure> {
-    // A refusal is a successful response whose content must not be read.
-    match answer.get("stop_reason").and_then(|reason| reason.as_str()) {
-        Some("refusal") => return Err(Failure::Refused),
-        Some("max_tokens") => return Err(Failure::Permanent("the answer was cut off".to_owned())),
-        _ => {}
-    }
-    // Thinking and fallback blocks may surround the text.
-    let text: String = answer
-        .get("content")
-        .and_then(|content| content.as_array())
-        .map(|blocks| {
-            blocks
-                .iter()
-                .filter(|block| block.get("type").and_then(|kind| kind.as_str()) == Some("text"))
-                .filter_map(|block| block.get("text").and_then(|text| text.as_str()))
-                .collect()
-        })
-        .unwrap_or_default();
-    serde_json::from_str(text.trim())
-        .map_err(|e| Failure::Permanent(format!("the answer is not the requested JSON: {e}")))
+/// The answer as `T`, or a description of why not that is safe to log:
+/// serde's own messages quote the values they could not use, which here is
+/// model output derived from user text.
+fn decode_answer<T: DeserializeOwned>(answer: serde_json::Value) -> Result<T, String> {
+    serde_json::from_value(answer).map_err(|e| providers::json_error(&e))
 }
 
-/// A cache key for the translation of `text` into `language`.
-fn translation_key(message_id: Uuid, text: &str, language: &str) -> String {
-    let digest = hex::encode(Sha256::digest(text.as_bytes()));
-    format!("chat:translation:{}:{}:{}", message_id.simple(), language.to_ascii_lowercase(), &digest[..16])
+/// A cache key for the translation of `text` into `language` by one model:
+/// another provider or model translates again.
+fn translation_key(assistant_id: &str, message_id: Uuid, text: &str, language: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(assistant_id.as_bytes());
+    digest.update([0]);
+    digest.update(text.as_bytes());
+    let digest = hex::encode(digest.finalize());
+    format!("chat:translation:{}:{}:{}", message_id.simple(), language.to_ascii_lowercase(), &digest[..24])
+}
+
+impl Assistant {
+    /// What identifies the translations of this assistant.
+    fn cache_id(&self) -> String {
+        format!("{}|{}|{}", self.kind as i32, self.model, self.base_url)
+    }
 }
 
 /// Tidies suggested replies: trimmed, without empties and repeats, at most
@@ -305,8 +257,24 @@ fn tidy_suggestions(replies: Vec<String>) -> Vec<String> {
 }
 
 impl Chat {
-    fn assistant(&self) -> AppResult<&Assistant> {
-        self.assist.as_ref().ok_or_else(ai_disabled)
+    /// The assistant for `user_id`'s requests, or why there is none.
+    async fn assistant_for(&self, user_id: Uuid) -> AppResult<Assistant> {
+        let instance = self.ai_instance().await?;
+        let user = self.ai_user_settings(user_id).await?;
+        let own_keys = self.ai_own_keys(user_id).await?;
+        let route = settings::route(&instance, &user, &own_keys)?;
+        Assistant::new(self, route)
+    }
+
+    /// Whether the assistant works for `user_id` (`Capabilities.assist_enabled`).
+    pub(crate) async fn assist_enabled_for(&self, user_id: Uuid) -> AppResult<bool> {
+        let instance = self.ai_instance().await?;
+        if !instance.any_enabled() {
+            return Ok(false);
+        }
+        let user = self.ai_user_settings(user_id).await?;
+        let own_keys = self.ai_own_keys(user_id).await?;
+        Ok(settings::route(&instance, &user, &own_keys).is_ok())
     }
 
     async fn limit_assist(&self, user_id: Uuid) -> AppResult<()> {
@@ -323,7 +291,7 @@ impl Chat {
         text: &str,
         tone: Option<pb::RewriteTone>,
     ) -> AppResult<String> {
-        let assistant = self.assistant()?;
+        let assistant = self.assistant_for(user_id).await?;
         let text = text.trim();
         ensure!(!text.is_empty(), invalid, "TEXT_EMPTY", "there is nothing to rewrite");
         ensure!(
@@ -348,10 +316,12 @@ impl Chat {
         Ok(rewritten.chars().take(content::MAX_TEXT_CHARS).collect())
     }
 
-    /// Suggests replies to the latest messages of a conversation. Sends
-    /// the text of those messages to the AI service.
-    pub(crate) async fn suggest_replies(&self, user_id: Uuid, conversation_id: Uuid) -> AppResult<Vec<String>> {
-        let assistant = self.assistant()?;
+    /// Suggests replies to the latest messages of a conversation: the
+    /// replies and how many messages were left out because their authors do
+    /// not allow AI use. Sends the text of the other messages to the AI
+    /// service.
+    pub(crate) async fn suggest_replies(&self, user_id: Uuid, conversation_id: Uuid) -> AppResult<(Vec<String>, i32)> {
+        let assistant = self.assistant_for(user_id).await?;
         let access = self.access(user_id, conversation_id).await?;
         let mut recent: Vec<MessageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {MSG} FROM chat_messages x
@@ -365,9 +335,21 @@ impl Chat {
         .bind(SUGGESTION_CONTEXT_MESSAGES)
         .fetch_all(&self.core.db)
         .await?;
+        // The others' messages go only with their authors' consent.
+        let mut others: Vec<Uuid> = recent.iter().filter_map(|row| row.sender_id).filter(|id| *id != user_id).collect();
+        others.sort_unstable();
+        others.dedup();
+        let allowed = self.ai_message_use_allowed(&others).await?;
+        let before = recent.len();
+        recent.retain(|row| match row.sender_id {
+            Some(sender) if sender == user_id => true,
+            Some(sender) => allowed.get(&sender).copied().unwrap_or(false),
+            None => false,
+        });
+        let skipped = i32::try_from(before - recent.len()).unwrap_or(i32::MAX);
         // Without anything somebody else said there is nothing to reply to.
         if !recent.iter().any(|row| row.sender_id != Some(user_id)) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), skipped));
         }
         recent.reverse();
         self.limit_assist(user_id).await?;
@@ -383,18 +365,19 @@ impl Chat {
             "replies": { "type": "array", "items": { "type": "string" }, "description": "Up to three short replies the user could send next." }
         }));
         let suggested: Suggested = assistant.complete(SUGGEST_SYSTEM, &prompt, schema).await?;
-        Ok(tidy_suggestions(suggested.replies))
+        Ok((tidy_suggestions(suggested.replies), skipped))
     }
 
     /// Translates the text of a message: `(translation, source language,
-    /// target language)`. Sends the text of that message to the AI service.
+    /// target language)`. Sends the text of that message to the AI service,
+    /// when its author allows it (or is the caller).
     pub(crate) async fn translate_message(
         &self,
         user_id: Uuid,
         message_id: Uuid,
         target_language: &str,
     ) -> AppResult<(String, String, String)> {
-        let assistant = self.assistant()?;
+        let assistant = self.assistant_for(user_id).await?;
         let (_, row) = self.message_access(user_id, message_id).await?;
         ensure!(
             !row.is_deleted() && !row.text.trim().is_empty(),
@@ -402,6 +385,15 @@ impl Chat {
             "NOTHING_TO_TRANSLATE",
             "this message has no text"
         );
+        if let Some(sender) = row.sender_id.filter(|sender| *sender != user_id) {
+            let allowed = self.ai_message_use_allowed(&[sender]).await?;
+            ensure!(
+                allowed.get(&sender).copied().unwrap_or(false),
+                precondition,
+                "SENDER_DISALLOWS_AI",
+                "the author of this message does not allow AI use of their messages"
+            );
+        }
         let target = if target_language.trim().is_empty() {
             // The language of the caller's account.
             let locale: Option<String> = sqlx::query_scalar("SELECT locale FROM users WHERE id = $1")
@@ -412,7 +404,7 @@ impl Chat {
         } else {
             content::normalize_language_tag(target_language)?
         };
-        let key = translation_key(message_id, &row.text, &target);
+        let key = translation_key(&assistant.cache_id(), message_id, &row.text, &target);
         if let Some((translation, source)) = self.core.cache.get_json::<(String, String)>(&key).await? {
             return Ok((translation, source, target));
         }
@@ -423,7 +415,8 @@ impl Chat {
             "source_language": { "type": "string", "description": "BCP 47 tag of the language the message is written in." },
         }));
         let translated: Translated = assistant.complete(TRANSLATE_SYSTEM, &prompt, schema).await?;
-        let translation = translated.translation.trim().to_owned();
+        // A translation is shown like a message: no longer than one.
+        let translation: String = translated.translation.trim().chars().take(content::MAX_TEXT_CHARS).collect();
         if translation.is_empty() {
             return Err(ai_unavailable());
         }
@@ -436,67 +429,6 @@ impl Chat {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn assistant(refusal_fallback: bool, effort: &str) -> Assistant {
-        let cfg = ChatConfig {
-            anthropic_api_key: "sk-test".into(),
-            anthropic_base_url: "http://127.0.0.1:1/".into(),
-            ai_effort: effort.into(),
-            ai_refusal_fallback: refusal_fallback,
-            ..Default::default()
-        };
-        Assistant::from_config(&cfg).unwrap().expect("configured")
-    }
-
-    #[test]
-    fn the_assistant_needs_an_api_key() {
-        assert!(Assistant::from_config(&ChatConfig::default()).unwrap().is_none());
-        assert_eq!(assistant(true, "low").endpoint, "http://127.0.0.1:1/v1/messages");
-    }
-
-    #[test]
-    fn requests_ask_for_json_and_carry_no_sampling_parameters() {
-        let schema = object_schema(serde_json::json!({ "text": { "type": "string" } }));
-        let body = assistant(true, "low").request_body("system prompt", "user text", &schema);
-        assert_eq!(body["model"], "claude-opus-5-5");
-        assert_eq!(body["system"], "system prompt");
-        assert_eq!(body["messages"], serde_json::json!([{ "role": "user", "content": "user text" }]));
-        assert_eq!(body["output_config"]["effort"], "low");
-        assert_eq!(body["output_config"]["format"]["type"], "json_schema");
-        assert_eq!(body["output_config"]["format"]["schema"]["required"], serde_json::json!(["text"]));
-        assert_eq!(body["output_config"]["format"]["schema"]["additionalProperties"], false);
-        assert_eq!(body["fallbacks"], "default");
-        for removed in ["temperature", "top_p", "top_k", "thinking"] {
-            assert!(body.get(removed).is_none(), "{removed} must not be sent");
-        }
-
-        let plain = assistant(false, "").request_body("s", "u", &schema);
-        assert!(plain.get("fallbacks").is_none());
-        assert!(plain["output_config"].get("effort").is_none());
-    }
-
-    #[test]
-    fn answers_are_read_from_the_text_blocks() {
-        let answer = serde_json::json!({
-            "stop_reason": "end_turn",
-            "content": [
-                { "type": "thinking", "thinking": "" },
-                { "type": "text", "text": "{\"text\": \"おはよう！\"}" },
-            ],
-        });
-        assert_eq!(parse_answer::<Rewritten>(&answer).unwrap().text, "おはよう！");
-    }
-
-    #[test]
-    fn refusals_and_broken_answers_are_told_apart() {
-        let refusal = serde_json::json!({ "stop_reason": "refusal", "content": [] });
-        assert_eq!(parse_answer::<Rewritten>(&refusal).unwrap_err(), Failure::Refused);
-        let cut = serde_json::json!({ "stop_reason": "max_tokens", "content": [{ "type": "text", "text": "{\"text\": \"お" }] });
-        assert!(matches!(parse_answer::<Rewritten>(&cut), Err(Failure::Permanent(_))));
-        let chatty = serde_json::json!({ "stop_reason": "end_turn", "content": [{ "type": "text", "text": "Sure! Here you go" }] });
-        assert!(matches!(parse_answer::<Rewritten>(&chatty), Err(Failure::Permanent(_))));
-        assert!(matches!(parse_answer::<Rewritten>(&serde_json::json!({})), Err(Failure::Permanent(_))));
-    }
 
     #[test]
     fn every_tone_has_an_instruction() {
@@ -516,6 +448,18 @@ mod tests {
     }
 
     #[test]
+    fn schema_mismatches_are_logged_without_the_model_output() {
+        let answer = serde_json::json!({ "replies": "SECRET-MODEL-TEXT about the user's draft" });
+        let raw = serde_json::from_value::<Suggested>(answer.clone()).err().unwrap().to_string();
+        assert!(raw.contains("SECRET-MODEL-TEXT"), "serde quotes the value: {raw}");
+        let logged = decode_answer::<Suggested>(answer).err().unwrap();
+        assert!(!logged.contains("SECRET"), "{logged}");
+        assert!(logged.contains("Data"), "the category is kept: {logged}");
+        let unknown = decode_answer::<Rewritten>(serde_json::json!({ "txt": "SECRET-MODEL-TEXT" })).err().unwrap();
+        assert!(!unknown.contains("SECRET"), "{unknown}");
+    }
+
+    #[test]
     fn suggestions_are_tidied() {
         let replies = vec![
             "  いいね！ ".to_owned(),
@@ -530,11 +474,21 @@ mod tests {
     }
 
     #[test]
-    fn translation_cache_keys_follow_the_text() {
+    fn translation_cache_keys_follow_the_text_and_the_model() {
         let message_id = Uuid::now_v7();
-        let key = translation_key(message_id, "こんにちは", "en-US");
-        assert_eq!(key, translation_key(message_id, "こんにちは", "EN-us"));
-        assert_ne!(key, translation_key(message_id, "こんばんは", "en-US"), "an edited message is translated again");
-        assert_ne!(key, translation_key(message_id, "こんにちは", "ko"));
+        let claude = "1|claude-opus-5-5|https://api.anthropic.com";
+        let key = translation_key(claude, message_id, "こんにちは", "en-US");
+        assert_eq!(key, translation_key(claude, message_id, "こんにちは", "EN-us"));
+        assert_ne!(
+            key,
+            translation_key(claude, message_id, "こんばんは", "en-US"),
+            "an edited message is translated again"
+        );
+        assert_ne!(key, translation_key(claude, message_id, "こんにちは", "ko"));
+        assert_ne!(key, translation_key("2|gpt-5-mini|https://api.openai.com/v1", message_id, "こんにちは", "en-US"));
+        assert_ne!(
+            key,
+            translation_key("1|claude-haiku-5-5|https://api.anthropic.com", message_id, "こんにちは", "en-US")
+        );
     }
 }

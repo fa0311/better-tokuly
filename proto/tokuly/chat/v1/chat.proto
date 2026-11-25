@@ -259,7 +259,8 @@ message Capabilities {
   bool calls_enabled = 9;
   // How long an unanswered call rings.
   int32 ring_seconds = 10;
-  // The AI assistant is configured (AssistService works).
+  // The AI assistant works for the caller: the operator enabled a provider
+  // they can use and they did not switch it off.
   bool assist_enabled = 11;
 }
 
@@ -1276,31 +1277,259 @@ message ListCallsResponse {
 // Optional writing help ("AI搭載でチャットがより盛り上がる!"): rewrite a draft
 // in another tone, suggest quick replies, translate a message.
 //
-// PRIVACY: these RPCs send message text to Anthropic's API (a third party
-// outside this server). RewriteDraft sends the draft; SuggestReplies sends
+// PRIVACY: these RPCs send message text to an AI service outside this
+// server: Anthropic (Claude), OpenAI, or an OpenAI-compatible server the
+// operator runs (LM Studio, Ollama, vLLM… on their network; the text still
+// leaves the user's device). Which one is the user's choice among those the
+// operator enabled (GetAssistSettings names the company or host that
+// receives the text). RewriteDraft sends the draft; SuggestReplies sends
 // the text of the last few text messages of the conversation, labelled only
 // "me" / "other" (no names, handles, IDs or attachments); TranslateMessage
-// sends the text of that one message.
-// Nothing is sent unless one of these RPCs is called, and clients must make
-// that clear to the user before offering them.
+// sends the text of that one message. Nothing is sent unless one of these
+// RPCs is called, and clients must make that clear to the user before
+// offering them.
 //
-// Available only when the server has an Anthropic API key configured
-// (`Capabilities.assist_enabled`); otherwise every RPC fails with AI_DISABLED
-// (unimplemented). Other shared errors: AI_UNAVAILABLE (the AI service
-// failed or timed out; retry later), AI_REFUSED (the model declined the
-// text), RATE_LIMITED (per user and hour).
+// Consent of the people quoted: other people's messages are only sent when
+// their author allows it (AssistSettings.allow_message_use, 「AI に自分の
+// メッセージを使ってもいい」, default off for accounts of minors and on for
+// adults, fixed when the account is created). SuggestReplies leaves out the messages of authors who do not
+// allow it; TranslateMessage refuses them (SENDER_DISALLOWS_AI). The
+// caller's own messages and drafts are always theirs to send.
+//
+// Available only when the operator enabled at least one provider
+// (`Capabilities.assist_enabled`, which is also false for a user who turned
+// the assistant off or has no usable provider); otherwise the three
+// assistant RPCs fail with AI_DISABLED (unimplemented), or AI_TURNED_OFF
+// (failed_precondition) for a user who switched it off. Other shared
+// errors: AI_UNAVAILABLE (the AI service failed or timed out; retry later),
+// AI_REFUSED (the model declined the text), RATE_LIMITED (per user and
+// hour).
 service AssistService {
   // Rewrites a draft in the chosen tone, keeping its meaning and language.
   // Errors: TEXT_EMPTY, TEXT_TOO_LONG (more than 2000 characters), TONE_INVALID.
   rpc RewriteDraft(RewriteDraftRequest) returns (RewriteDraftResponse);
   // Up to three short replies the caller could send next, in the language of
-  // the conversation. Empty when there is no recent text to reply to.
+  // the conversation. Empty when there is no recent text to reply to (from
+  // people who allow AI use of their messages).
   // Errors: CONVERSATION_NOT_FOUND.
   rpc SuggestReplies(SuggestRepliesRequest) returns (SuggestRepliesResponse);
-  // Translates the text of a message. Results are cached for a while.
+  // Translates the text of a message. Results are cached for a while (per
+  // provider and model).
   // Errors: MESSAGE_NOT_FOUND, NOTHING_TO_TRANSLATE (no text),
-  // LANGUAGE_INVALID.
+  // LANGUAGE_INVALID, SENDER_DISALLOWS_AI (the author does not allow AI use
+  // of their messages).
   rpc TranslateMessage(TranslateMessageRequest) returns (TranslateMessageResponse);
+
+  // The caller's assistant settings: the providers they can choose, their
+  // choice, their own API keys (never the keys themselves) and their
+  // consent setting. Works when no provider is enabled too (empty list).
+  rpc GetAssistSettings(GetAssistSettingsRequest) returns (GetAssistSettingsResponse);
+  // Chooses the provider (UNSPECIFIED: the server's default) or switches
+  // the assistant off. Errors: PROVIDER_NOT_AVAILABLE (not enabled by the
+  // operator).
+  rpc ChooseAssistProvider(ChooseAssistProviderRequest) returns (ChooseAssistProviderResponse);
+  // Stores the caller's own API key for Anthropic or OpenAI, encrypted, for
+  // their own requests only (the operator's base URL and model are used; a
+  // user can never point the server at an address). The key is never
+  // returned. Errors: PROVIDER_INVALID (only Anthropic and OpenAI take
+  // users' keys), API_KEY_INVALID, RATE_LIMITED.
+  rpc SetOwnApiKey(SetOwnApiKeyRequest) returns (SetOwnApiKeyResponse);
+  // Forgets the caller's own key for a provider. Errors: PROVIDER_INVALID.
+  rpc RemoveOwnApiKey(RemoveOwnApiKeyRequest) returns (RemoveOwnApiKeyResponse);
+  // 「AI に自分のメッセージを使ってもいい」: whether other people's reply
+  // suggestions and translations may send the caller's messages to the AI
+  // service.
+  rpc SetAiMessageConsent(SetAiMessageConsentRequest) returns (SetAiMessageConsentResponse);
+}
+
+// The AI services the assistant can send text to.
+enum AiProvider {
+  AI_PROVIDER_UNSPECIFIED = 0;
+  // Anthropic's Messages API (Claude).
+  AI_PROVIDER_ANTHROPIC = 1;
+  // OpenAI's Chat Completions API.
+  AI_PROVIDER_OPENAI = 2;
+  // A server speaking OpenAI's protocol that the operator chose, e.g.
+  // LM Studio with a local model.
+  AI_PROVIDER_OPENAI_COMPATIBLE = 3;
+}
+
+// A provider the caller can choose.
+message AssistProviderOption {
+  AiProvider provider = 1;
+  // Who receives the text: "Anthropic", "OpenAI", or the host of the
+  // compatible server's base URL (e.g. "lmstudio.local").
+  string recipient = 2;
+  string model = 3;
+  // The server's default.
+  bool is_default = 4;
+  // The caller may store an API key of their own for it.
+  bool accepts_own_key = 5;
+  // It can serve the caller now: the operator set a key, the caller brought
+  // one, or the provider needs none.
+  bool usable = 6;
+}
+
+// An API key the caller stored. The key itself is never sent back.
+message OwnApiKey {
+  AiProvider provider = 1;
+  // The last four characters, to recognize it.
+  string last4 = 2;
+  google.protobuf.Timestamp set_at = 3;
+}
+
+message AssistSettings {
+  // The providers the operator enabled.
+  repeated AssistProviderOption providers = 1;
+  // The caller's choice; UNSPECIFIED: the server's default.
+  AiProvider chosen_provider = 2;
+  // The caller switched the assistant off.
+  bool off = 3;
+  // What the assistant uses for the caller right now (the choice, or the
+  // default when the choice is not usable); UNSPECIFIED when off or nothing
+  // is usable.
+  AiProvider effective_provider = 4;
+  // Who receives the text with `effective_provider` (see
+  // AssistProviderOption.recipient).
+  string effective_recipient = 5;
+  repeated OwnApiKey own_keys = 6;
+  // 「AI に自分のメッセージを使ってもいい」.
+  bool allow_message_use = 7;
+  // True while the caller never chose: then it is the default stored when
+  // the account was created (off for a minor, on for an adult; turning 18
+  // does not change it).
+  bool allow_message_use_is_default = 8;
+}
+
+message GetAssistSettingsRequest {}
+
+message GetAssistSettingsResponse {
+  AssistSettings settings = 1;
+}
+
+message ChooseAssistProviderRequest {
+  // UNSPECIFIED: follow the server's default.
+  AiProvider provider = 1;
+  // Switch the assistant off (the provider is then ignored).
+  bool off = 2;
+}
+
+message ChooseAssistProviderResponse {
+  AssistSettings settings = 1;
+}
+
+message SetOwnApiKeyRequest {
+  AiProvider provider = 1;
+  string api_key = 2;
+}
+
+message SetOwnApiKeyResponse {
+  AssistSettings settings = 1;
+}
+
+message RemoveOwnApiKeyRequest {
+  AiProvider provider = 1;
+}
+
+message RemoveOwnApiKeyResponse {
+  AssistSettings settings = 1;
+}
+
+message SetAiMessageConsentRequest {
+  bool allow = 1;
+}
+
+message SetAiMessageConsentResponse {
+  AssistSettings settings = 1;
+}
+
+// Operator settings of the AI assistant: which providers this server offers,
+// with which keys, models and addresses. Every RPC needs the `admin` role.
+// The environment (TOKULY_ANTHROPIC_*, TOKULY_OPENAI_*,
+// TOKULY_OPENAI_COMPAT_*, TOKULY_AI_DEFAULT_PROVIDER) gives the initial
+// values; once a provider is saved here, the saved values win. API keys are
+// stored encrypted and never returned (only whether one is set and its last
+// four characters). Every change is recorded as a `chat.assist.*` event.
+service AssistAdminService {
+  // Every provider with its settings, and the default.
+  rpc GetAssistInstance(GetAssistInstanceRequest) returns (GetAssistInstanceResponse);
+  // Saves one provider's settings as a whole. Errors: PROVIDER_INVALID,
+  // MODEL_INVALID, BASE_URL_INVALID (not an http(s) URL, credentials, query
+  // or fragment in it), BASE_URL_NOT_ALLOWED (a private address without the
+  // allowance), API_KEY_INVALID, PRIVATE_HOST_NOT_ALLOWED (the allowance is
+  // only for the compatible provider).
+  rpc UpdateAssistProvider(UpdateAssistProviderRequest) returns (UpdateAssistProviderResponse);
+  // Chooses the default provider (UNSPECIFIED: the first enabled one).
+  // Errors: PROVIDER_NOT_AVAILABLE (disabled).
+  rpc SetDefaultAssistProvider(SetDefaultAssistProviderRequest) returns (SetDefaultAssistProviderResponse);
+}
+
+message AssistProviderConfig {
+  AiProvider provider = 1;
+  bool enabled = 2;
+  string model = 3;
+  string base_url = 4;
+  bool api_key_set = 5;
+  // The last four characters of the key, when one is set.
+  string api_key_last4 = 6;
+  // OpenAI-compatible only: the base URL's host may be a private (LAN) or
+  // loopback address. A deliberate exception to the outbound guard for that
+  // one host; link-local and every other special range stay refused, and
+  // every other address still goes through the guard.
+  bool allow_private_host = 7;
+  // Never saved in the console: these are the environment's values.
+  bool from_environment = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  // Enabled with what it needs: a key for Anthropic and OpenAI (users who
+  // brought their own key can use it without one), a base URL and a model.
+  bool ready = 10;
+}
+
+message AssistInstance {
+  repeated AssistProviderConfig providers = 1;
+  // The default as saved; UNSPECIFIED: the first enabled provider.
+  AiProvider default_provider = 2;
+  // What users without a choice of their own get now.
+  AiProvider effective_default = 3;
+}
+
+message GetAssistInstanceRequest {}
+
+message GetAssistInstanceResponse {
+  AssistInstance instance = 1;
+}
+
+// What to do with a provider's API key.
+enum ApiKeyChange {
+  // Keep the key as it is.
+  API_KEY_CHANGE_UNSPECIFIED = 0;
+  // Replace it with `api_key`.
+  API_KEY_CHANGE_SET = 1;
+  // Remove it.
+  API_KEY_CHANGE_CLEAR = 2;
+}
+
+message UpdateAssistProviderRequest {
+  AiProvider provider = 1;
+  bool enabled = 2;
+  string model = 3;
+  string base_url = 4;
+  ApiKeyChange api_key_change = 5;
+  string api_key = 6;
+  // See AssistProviderConfig.allow_private_host.
+  bool allow_private_host = 7;
+}
+
+message UpdateAssistProviderResponse {
+  AssistInstance instance = 1;
+}
+
+message SetDefaultAssistProviderRequest {
+  AiProvider provider = 1;
+}
+
+message SetDefaultAssistProviderResponse {
+  AssistInstance instance = 1;
 }
 
 enum RewriteTone {
@@ -1338,6 +1567,9 @@ message SuggestRepliesRequest {
 
 message SuggestRepliesResponse {
   repeated string replies = 1;
+  // Recent messages left out because their authors do not allow AI use of
+  // their messages.
+  int32 skipped_messages = 2;
 }
 
 message TranslateMessageRequest {

@@ -235,6 +235,16 @@ impl DataExporter for ChatExporter {
                         'state', state, 'requested_at', created_at, 'answered_at', answered_at, 'saved', saved_at IS NOT NULL)
                  FROM chat_pov_requests WHERE requester_id = $1 OR target_id = $1 ORDER BY id"
             ).await?,
+            // AI assistant settings; of own API keys only which exist (the
+            // keys themselves never leave the server).
+            "ai_settings": section(
+                "SELECT jsonb_build_object('provider', provider, 'off', off, 'allow_message_use', allow_message_use, 'updated_at', updated_at)
+                 FROM chat_ai_user_settings WHERE user_id = $1"
+            ).await?,
+            "ai_own_keys": section(
+                "SELECT jsonb_build_object('provider', provider, 'last4', last4, 'set_at', created_at)
+                 FROM chat_ai_user_keys WHERE user_id = $1 ORDER BY provider"
+            ).await?,
         }))
     }
 }

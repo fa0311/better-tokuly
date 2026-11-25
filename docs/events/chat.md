@@ -63,6 +63,8 @@ transaction of the change they describe.
 | `chat.message.deleted` | `{ message_id, conversation_id, sender_id, deleted_by, moderated }` | A message was deleted for everyone: by its sender, a group manager above them (the owner: anyone; an admin: plain members), moderation (`moderated: true`) or because its last upload was taken down (`deleted_by` null). |
 | `chat.call.started` | `{ call_id, conversation_id, started_by, video }` | A call began ringing. |
 | `chat.call.ended` | `{ call_id, conversation_id, end_reason, duration_seconds, participant_ids }` | A call ended. `end_reason` is `CallEndReason` as its number; `participant_ids` are the users who were connected at some point. |
+| `chat.assist.provider_updated` | `{ provider, enabled, model, base_url, api_key, allow_private_host, private_host }` | An admin saved an AI provider's operator settings (actor: the admin). `provider` is `AiProvider` as its number; `api_key` is `kept`, `set` or `cleared` (the key itself is never in it); `private_host` names the host the outbound guard's exception covers, when it is on. The record of who changed the AI configuration. |
+| `chat.assist.default_changed` | `{ provider }` | An admin chose the default AI provider (`0`: the first enabled one). |
 
 Sending a message emits **no** domain event (it happens far too often);
 messages are counted through analytics (below).
@@ -74,6 +76,7 @@ Durable consumer `chat`. Every handler is idempotent.
 | Topic | Reaction |
 |---|---|
 | `identity.user.deleted` `{ user_id }` | The user's memberships, reactions and co-presence go. Their messages stay (the sender renders as a deleted user). Direct conversations become read-only for the other side (a live call fails, an open POV request is cancelled). Groups lose a member, with the usual system message; a group they owned passes to the longest standing admin, else member; a group nobody is left in is deleted with its uploads released. |
+| `identity.user.created` `{ user_id }` | Stores the account's default for 「AI に自分のメッセージを使ってもいい」 (off for a minor, on for an adult, by the age at creation), unless a value is stored already. Idempotent. |
 | `social.user.blocked` / `social.user.unblocked` `{ user_id, blocked_id }` | The direct conversation of the two becomes read-only for both (live call ends as `FAILED`, open POV request is cancelled), or writable again. Sending already checks blocks live, so the event only maintains the flag lists show. Groups are not touched. |
 | `social.friend.accepted` `{ user_id, friend_id, … }` | A message request waiting between the two is accepted (friends need none). |
 | `media.asset.ready` / `media.asset.failed` `{ asset_id, … }` | Messages showing the upload (a video sent while transcoding) get the final attachment and are pushed again (`MESSAGE_UPDATE_REASON_ATTACHMENT`). |
@@ -202,8 +205,9 @@ out anyone who connects again without being a joined participant.
 ## Data export
 
 Exporter `chat`: the user's conversations (with role and preferences), the
-messages they sent, their reactions, the calls they took part in and their
-POV requests.
+messages they sent, their reactions, the calls they took part in, their
+POV requests, their AI assistant settings and which own API keys they
+stored (provider and last four characters; never the keys).
 
 ## Configuration
 
@@ -213,10 +217,20 @@ POV requests.
 | `TOKULY_LIVEKIT_PUBLIC_URL` (`--chat-livekit-public-url`) | empty | What clients connect to (`ws://…` / `wss://…`). |
 | `TOKULY_LIVEKIT_API_KEY` / `TOKULY_LIVEKIT_API_SECRET` (`--chat-livekit-api-key` / `-secret`) | empty | Credentials tokens are signed with. Calls need all four LiveKit settings; with none of them every call RPC that needs the media server fails with `CALLS_DISABLED`. Setting only some is a startup error. |
 | `TOKULY_CHAT_RING_SECONDS` (`--chat-ring-seconds`) | `45` | How long an unanswered call rings (5–300). |
-| `TOKULY_ANTHROPIC_API_KEY` (`--chat-anthropic-api-key`) | empty | Enables the AI assistant. **When it is used, message text leaves the server** (Anthropic Messages API). |
-| `TOKULY_ANTHROPIC_BASE_URL` (`--chat-anthropic-base-url`) | `https://api.anthropic.com` | Base URL of the Messages API (tests point it at a stub). |
+| `TOKULY_ANTHROPIC_API_KEY` (`--chat-anthropic-api-key`) | empty | Enables Anthropic for the AI assistant. **When it is used, message text leaves the server.** Like every provider setting below it is the initial value: once the provider is saved in the staff console, the saved values win. |
+| `TOKULY_ANTHROPIC_BASE_URL` (`--chat-anthropic-base-url`) | `https://api.anthropic.com` | Base URL of the Messages API. |
 | `TOKULY_ANTHROPIC_VERSION` (`--chat-anthropic-version`) | `2023-06-01` | `anthropic-version` header. |
-| `TOKULY_AI_MODEL` (`--chat-ai-model`) | `claude-opus-5-5` | Model of the assistant. |
+| `TOKULY_AI_MODEL` (`--chat-ai-model`) | `claude-opus-5-5` | Anthropic model. |
+| `TOKULY_OPENAI_API_KEY` (`--chat-openai-api-key`) | empty | Enables OpenAI. |
+| `TOKULY_OPENAI_BASE_URL` (`--chat-openai-base-url`) | `https://api.openai.com/v1` | Base URL of the Chat Completions API. |
+| `TOKULY_OPENAI_MODEL` (`--chat-openai-model`) | `gpt-5-mini` | OpenAI model. |
+| `TOKULY_OPENAI_REASONING_EFFORT` (`--chat-openai-reasoning-effort`) | `low` | `reasoning_effort` sent to OpenAI; empty omits it. |
+| `TOKULY_OPENAI_COMPAT_BASE_URL` (`--chat-openai-compat-base-url`) | empty | Enables an OpenAI-compatible server (LM Studio, Ollama, vLLM…), e.g. `http://lmstudio.local:1234/v1`. Needs `TOKULY_OPENAI_COMPAT_MODEL`. |
+| `TOKULY_OPENAI_COMPAT_API_KEY` (`--chat-openai-compat-api-key`) | empty | Its key, if it wants one. |
+| `TOKULY_OPENAI_COMPAT_MODEL` (`--chat-openai-compat-model`) | empty | Model name on that server. |
+| `TOKULY_OPENAI_COMPAT_ALLOW_PRIVATE_HOST` (`--chat-openai-compat-allow-private-host`) | `false` | Lets that one base URL's host be on a private network (see below). |
+| `TOKULY_AI_DEFAULT_PROVIDER` (`--chat-ai-default-provider`) | empty | `anthropic`, `openai` or `openai-compatible`; empty: the first enabled one. |
+| `TOKULY_AI_ALLOW_LOOPBACK` (`--chat-ai-allow-loopback`) | `false` | Lets the Anthropic and OpenAI base URLs reach loopback on any port (stubs in tests and development). Refused in production. |
 | `TOKULY_AI_EFFORT` (`--chat-ai-effort`) | `low` | `output_config.effort`; empty omits it (for models without effort levels). |
 | `TOKULY_AI_REFUSAL_FALLBACK` (`--chat-ai-refusal-fallback`) | `true` | Sends `fallbacks: "default"` with the beta header `server-side-fallback-2026-07-01`, so a request the safety classifiers decline is retried by the API on the recommended fallback model. Switch off for models or platforms without server-side fallbacks. |
 | `TOKULY_AI_HOURLY_LIMIT` (`--chat-ai-hourly-limit`) | `60` | Assistant requests per user and hour. |
@@ -234,11 +248,60 @@ pinned messages per conversation, 20 different emoji per message, 10
 messages × 10 conversations per forward, 200-character POV notes, 4 uploads
 per POV answer, 2000-character drafts for the assistant.
 
-### AI assistant: what is sent
+### AI assistant: providers, keys and consent
 
-`POST {base}/v1/messages` with `x-api-key`, `anthropic-version` and a JSON
-schema for the answer (`output_config.format`); no sampling parameters, and
-thinking is left to the model's default.
+Three providers sit behind one trait (`assist::providers`):
+
+- **Anthropic**: `POST {base}/v1/messages` with `x-api-key`,
+  `anthropic-version` and a JSON schema for the answer
+  (`output_config.format`).
+- **OpenAI**: `POST {base}/chat/completions` with a bearer key and
+  `response_format: { type: "json_schema", strict: true }`.
+- **OpenAI-compatible** (LM Studio…): the same protocol, key optional. A
+  server that rejects `response_format` (400/415/422/501) is asked once
+  more without it, with the schema spelled out in the system prompt, and
+  its answer is read as plain JSON (code fences, prose and `<think>`
+  sections around the object are tolerated).
+
+No sampling parameters are sent. Operator settings (staff console,
+`AssistAdminService`, admin role) live in `chat_ai_providers` /
+`chat_ai_instance`; operator keys are sealed (`chat/ai-key/instance`),
+shown only as "set" plus the last four characters, and never logged.
+Users pick among the enabled providers (`chat_ai_user_settings`) and may
+store their own Anthropic or OpenAI key (`chat_ai_user_keys`, sealed under
+`chat/ai-key/user`), used only for their own requests against the
+operator's base URL and model; users can never set an address. A user's
+explicit choice is the only provider their text goes to
+(`AI_PROVIDER_UNAVAILABLE` when it is disabled); without a choice the
+instance default is used.
+
+Every request goes through the shared outbound guard
+(`tokuly_core::egress`): default ports and public addresses only. The one
+exception is the compatible provider's host when the operator grants
+`allow_private_host`: that host (and only that host) may resolve to
+private, carrier-NAT, unique-local or loopback addresses on any port;
+link-local (cloud metadata), multicast and the other special ranges stay
+refused. Granting it is recorded (`chat.assist.provider_updated` with
+`private_host`) and logged.
+
+**Consent of the people quoted**: 「AI に自分のメッセージを使ってもいい」
+(`SetAiMessageConsent`). Never chosen, it is **off for accounts of minors
+and on for adults**, stored when the account is created
+(`identity.user.created`, by the age at creation) and kept until the owner
+chooses: it is never derived from today's date, so turning 18 changes
+nothing anybody can see (a translation that starts working would give a
+hidden birthday away). A value a lost event left unstored is filled the
+same way when first read; accounts that existed before were filled by the
+migration, by their age then. An unknown age counts as a minor. `RewriteDraft` only sends the
+caller's own draft. `SuggestReplies` leaves out the messages of authors who
+do not allow it (`skipped_messages` counts them) and makes no request when
+nothing from someone else remains. `TranslateMessage` refuses another
+person's message with `SENDER_DISALLOWS_AI`, before the translation cache
+is consulted. The local provider counts the same: the text still leaves
+the device.
+
+Translations are cached per message, target language, text and
+provider + model + base URL.
 
 | RPC | Sent | Never sent |
 |---|---|---|
@@ -246,10 +309,14 @@ thinking is left to the model's default.
 | `SuggestReplies` | the text (≤ 500 characters each) of the last ≤ 12 text messages of the conversation, labelled `me:` / `other:` | names, handles, IDs, attachments, deleted messages, POV answers |
 | `TranslateMessage` | the text of that one message and the target language | sender, conversation |
 
+Of other people's messages, only those whose authors allow it (above).
+
 Nothing is sent when a request is invalid, rate limited, answered from the
 translation cache, or when there is nothing to reply to. Transient failures
 (408/409/429/5xx, connection errors) are retried twice; a refusal
-(`stop_reason: "refusal"`) is `AI_REFUSED`.
+(Anthropic `stop_reason: "refusal"`, OpenAI `message.refusal` or
+`finish_reason: "content_filter"`) is `AI_REFUSED`. Answers are read up to
+1 MiB.
 
 ## Rate limits
 
@@ -269,5 +336,6 @@ translation cache, or when there is nothing to reply to. Transient failures
 | `chat-call:<user>` | 20 / 10 minutes |
 | `chat-join:<user>` | 60 / 10 minutes (`JoinCall`) |
 | `chat-ai:<user>` | `TOKULY_AI_HOURLY_LIMIT` / hour |
+| `chat-ai-key:<user>` | 10 own API keys stored / hour (`SetOwnApiKey`) |
 | `chat-link:<sender>` | 30 link previews / minute (silently none beyond) |
 | `chat-typing:<user>`, `chat-presence:<user>` | 120 signals / minute each (silently dropped beyond) |

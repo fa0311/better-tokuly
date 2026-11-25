@@ -77,8 +77,37 @@ pub struct CallEnded {
     pub participant_ids: Vec<Uuid>,
 }
 
+/// `chat.assist.provider_updated`: an admin saved an AI provider's
+/// operator settings (the actor). The record of who changed what; the key
+/// itself is never in it.
+pub const ASSIST_PROVIDER_UPDATED: &str = "chat.assist.provider_updated";
+/// `chat.assist.default_changed`: an admin chose the default provider.
+pub const ASSIST_DEFAULT_CHANGED: &str = "chat.assist.default_changed";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssistProviderUpdated {
+    /// `tokuly.chat.v1.AiProvider` as its number.
+    pub provider: i32,
+    pub enabled: bool,
+    pub model: String,
+    pub base_url: String,
+    /// `kept`, `set` or `cleared`.
+    pub api_key: String,
+    /// The outbound guard's exception for the base URL's host.
+    pub allow_private_host: bool,
+    /// The host the exception covers, when it is on.
+    pub private_host: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssistDefaultChanged {
+    /// `tokuly.chat.v1.AiProvider` as its number; 0: the first enabled one.
+    pub provider: i32,
+}
+
 // ── consumed ──
 
+pub const USER_CREATED: &str = "identity.user.created";
 pub const USER_DELETED: &str = "identity.user.deleted";
 pub const USER_BLOCKED: &str = "social.user.blocked";
 pub const USER_UNBLOCKED: &str = "social.user.unblocked";

@@ -50,8 +50,13 @@ pub struct ChatConfig {
     )]
     pub ring_seconds: i64,
 
-    // ── AI assistant (Anthropic) ──
-    /// Anthropic API key. Empty disables the AI assistant.
+    // ── AI assistant ──
+    //
+    // These are the initial values of the operator settings: once a
+    // provider is saved in the staff console (AssistAdminService), the saved
+    // values win.
+    /// Anthropic API key. Empty leaves Anthropic off (until the operator
+    /// enables it in the staff console).
     #[arg(
         id = "chat_anthropic_api_key",
         long = "chat-anthropic-api-key",
@@ -79,9 +84,104 @@ pub struct ChatConfig {
     )]
     pub anthropic_version: String,
 
-    /// Model used by the AI assistant.
+    /// Anthropic model used by the AI assistant.
     #[arg(id = "chat_ai_model", long = "chat-ai-model", env = "TOKULY_AI_MODEL", default_value = "claude-opus-5-5")]
     pub ai_model: String,
+
+    /// OpenAI API key. Empty leaves OpenAI off.
+    #[arg(
+        id = "chat_openai_api_key",
+        long = "chat-openai-api-key",
+        env = "TOKULY_OPENAI_API_KEY",
+        default_value = "",
+        hide_env_values = true
+    )]
+    pub openai_api_key: String,
+
+    /// Base URL of the OpenAI API, up to and including `/v1`.
+    #[arg(
+        id = "chat_openai_base_url",
+        long = "chat-openai-base-url",
+        env = "TOKULY_OPENAI_BASE_URL",
+        default_value = "https://api.openai.com/v1"
+    )]
+    pub openai_base_url: String,
+
+    /// OpenAI model used by the AI assistant.
+    #[arg(id = "chat_openai_model", long = "chat-openai-model", env = "TOKULY_OPENAI_MODEL", default_value = "gpt-5-mini")]
+    pub openai_model: String,
+
+    /// `reasoning_effort` sent to OpenAI (`minimal`, `low`, `medium`,
+    /// `high`). Empty omits it, for models without reasoning.
+    #[arg(
+        id = "chat_openai_reasoning_effort",
+        long = "chat-openai-reasoning-effort",
+        env = "TOKULY_OPENAI_REASONING_EFFORT",
+        default_value = "low"
+    )]
+    pub openai_reasoning_effort: String,
+
+    /// Base URL of an OpenAI-compatible server (LM Studio, Ollama, vLLM…),
+    /// up to and including `/v1`, e.g. `http://lmstudio.local:1234/v1`.
+    /// Empty leaves the compatible provider off.
+    #[arg(
+        id = "chat_openai_compat_base_url",
+        long = "chat-openai-compat-base-url",
+        env = "TOKULY_OPENAI_COMPAT_BASE_URL",
+        default_value = ""
+    )]
+    pub compat_base_url: String,
+
+    /// API key of the compatible server, if it wants one.
+    #[arg(
+        id = "chat_openai_compat_api_key",
+        long = "chat-openai-compat-api-key",
+        env = "TOKULY_OPENAI_COMPAT_API_KEY",
+        default_value = "",
+        hide_env_values = true
+    )]
+    pub compat_api_key: String,
+
+    /// Model name on the compatible server.
+    #[arg(
+        id = "chat_openai_compat_model",
+        long = "chat-openai-compat-model",
+        env = "TOKULY_OPENAI_COMPAT_MODEL",
+        default_value = ""
+    )]
+    pub compat_model: String,
+
+    /// Let the compatible server's host be on a private network (LAN,
+    /// loopback, VPN): an exception to the outbound guard for that one host.
+    #[arg(
+        id = "chat_openai_compat_allow_private_host",
+        long = "chat-openai-compat-allow-private-host",
+        env = "TOKULY_OPENAI_COMPAT_ALLOW_PRIVATE_HOST",
+        default_value_t = false,
+        action = clap::ArgAction::Set
+    )]
+    pub compat_allow_private_host: bool,
+
+    /// The provider users get unless they choose another: `anthropic`,
+    /// `openai` or `openai-compatible`. Empty: the first enabled one.
+    #[arg(
+        id = "chat_ai_default_provider",
+        long = "chat-ai-default-provider",
+        env = "TOKULY_AI_DEFAULT_PROVIDER",
+        default_value = ""
+    )]
+    pub ai_default_provider: String,
+
+    /// Let the Anthropic and OpenAI base URLs point at loopback addresses on
+    /// any port (stubs in tests and development). Refused in production.
+    #[arg(
+        id = "chat_ai_allow_loopback",
+        long = "chat-ai-allow-loopback",
+        env = "TOKULY_AI_ALLOW_LOOPBACK",
+        default_value_t = false,
+        action = clap::ArgAction::Set
+    )]
+    pub ai_allow_loopback: bool,
 
     /// `output_config.effort` sent with every request (`low`, `medium`,
     /// `high`…). Rewrites and translations are short, simple tasks. Empty
@@ -187,6 +287,16 @@ impl Default for ChatConfig {
             anthropic_base_url: "https://api.anthropic.com".to_owned(),
             anthropic_version: "2023-06-01".to_owned(),
             ai_model: "claude-opus-5-5".to_owned(),
+            openai_api_key: String::new(),
+            openai_base_url: "https://api.openai.com/v1".to_owned(),
+            openai_model: "gpt-5-mini".to_owned(),
+            openai_reasoning_effort: "low".to_owned(),
+            compat_base_url: String::new(),
+            compat_api_key: String::new(),
+            compat_model: String::new(),
+            compat_allow_private_host: false,
+            ai_default_provider: String::new(),
+            ai_allow_loopback: false,
             ai_effort: "low".to_owned(),
             ai_refusal_fallback: true,
             ai_hourly_limit: 60,
@@ -222,8 +332,21 @@ impl ChatConfig {
             && !self.livekit_api_secret.is_empty()
     }
 
-    pub fn assist_enabled(&self) -> bool {
-        !self.anthropic_api_key.is_empty()
+    /// The provider named by `TOKULY_AI_DEFAULT_PROVIDER`, `None` for
+    /// "the first enabled one".
+    pub fn default_provider(&self) -> anyhow::Result<Option<tokuly_proto::chat::AiProvider>> {
+        use tokuly_proto::chat::AiProvider;
+        Ok(match self.ai_default_provider.trim().to_ascii_lowercase().as_str() {
+            "" => None,
+            "anthropic" | "claude" => Some(AiProvider::AI_PROVIDER_ANTHROPIC),
+            "openai" => Some(AiProvider::AI_PROVIDER_OPENAI),
+            "openai-compatible" | "openai_compatible" | "compatible" | "lmstudio" => {
+                Some(AiProvider::AI_PROVIDER_OPENAI_COMPATIBLE)
+            }
+            other => anyhow::bail!(
+                "TOKULY_AI_DEFAULT_PROVIDER must be anthropic, openai or openai-compatible, not {other:?}"
+            ),
+        })
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -246,13 +369,24 @@ impl ChatConfig {
             set == 0 || set == livekit.len(),
             "calls need all of TOKULY_LIVEKIT_URL, TOKULY_LIVEKIT_PUBLIC_URL, TOKULY_LIVEKIT_API_KEY and TOKULY_LIVEKIT_API_SECRET (or none, to disable calls)"
         );
-        if self.assist_enabled() {
+        let http = |value: &str| value.starts_with("http://") || value.starts_with("https://");
+        anyhow::ensure!(http(&self.anthropic_base_url), "TOKULY_ANTHROPIC_BASE_URL must be an http(s) URL");
+        anyhow::ensure!(http(&self.openai_base_url), "TOKULY_OPENAI_BASE_URL must be an http(s) URL");
+        anyhow::ensure!(
+            self.compat_base_url.is_empty() || http(&self.compat_base_url),
+            "TOKULY_OPENAI_COMPAT_BASE_URL must be an http(s) URL"
+        );
+        if !self.anthropic_api_key.is_empty() {
             anyhow::ensure!(!self.ai_model.is_empty(), "TOKULY_AI_MODEL must not be empty");
-            anyhow::ensure!(
-                self.anthropic_base_url.starts_with("http://") || self.anthropic_base_url.starts_with("https://"),
-                "TOKULY_ANTHROPIC_BASE_URL must be an http(s) URL"
-            );
         }
+        if !self.openai_api_key.is_empty() {
+            anyhow::ensure!(!self.openai_model.is_empty(), "TOKULY_OPENAI_MODEL must not be empty");
+        }
+        anyhow::ensure!(
+            self.compat_base_url.is_empty() || !self.compat_model.is_empty(),
+            "TOKULY_OPENAI_COMPAT_MODEL must be set with TOKULY_OPENAI_COMPAT_BASE_URL"
+        );
+        self.default_provider()?;
         Ok(())
     }
 }
@@ -293,7 +427,7 @@ mod tests {
     #[test]
     fn features_need_their_whole_configuration() {
         let mut cfg = ChatConfig::default();
-        assert!(!cfg.calls_enabled() && !cfg.assist_enabled());
+        assert!(!cfg.calls_enabled());
         assert!(cfg.validate().is_ok());
         cfg.livekit_url = "http://127.0.0.1:7880".into();
         assert!(cfg.validate().is_err(), "a partial LiveKit configuration is a mistake, not a way to disable calls");
@@ -302,8 +436,17 @@ mod tests {
         cfg.livekit_api_secret = "secret".into();
         assert!(cfg.validate().is_ok() && cfg.calls_enabled());
         cfg.anthropic_api_key = "sk-test".into();
-        assert!(cfg.assist_enabled() && cfg.validate().is_ok());
+        assert!(cfg.validate().is_ok());
         cfg.anthropic_base_url = "ftp://example".into();
         assert!(cfg.validate().is_err());
+        cfg.anthropic_base_url = "https://api.anthropic.com".into();
+        cfg.compat_base_url = "http://lmstudio.local:1234/v1".into();
+        assert!(cfg.validate().is_err(), "a compatible server needs a model name");
+        cfg.compat_model = "qwen3-8b".into();
+        assert!(cfg.validate().is_ok());
+        cfg.ai_default_provider = "gemini".into();
+        assert!(cfg.validate().is_err());
+        cfg.ai_default_provider = "openai-compatible".into();
+        assert!(cfg.validate().is_ok());
     }
 }

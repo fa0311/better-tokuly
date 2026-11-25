@@ -929,26 +929,53 @@ test("the AI assistant rewrites a draft, suggests replies and translates, once t
   const { friend, conversationId } = await withFriend(request, me);
   await sendText(request, friend, conversationId, "See you at the station at five!");
 
-  // The assistant is not configured here: its controls are absent.
-  await openConversation(page, conversationId);
-  await expect(page.getByRole("button", { name: "AIアシスト" })).toHaveCount(0);
-
-  // With a server that offers it (its answers stand in for the real ones here).
   const answer = (bytes: Uint8Array) => ({
     status: 200,
     contentType: "application/proto",
     body: Buffer.from(bytes),
   });
-  const capabilities = create(chat.GetCapabilitiesResponseSchema, {
-    capabilities: {
-      maxTextLength: 4000,
-      maxAttachments: 10,
-      editWindowSeconds: 900,
-      assistEnabled: true,
-    },
-  });
+  const offered = (assistEnabled: boolean) =>
+    answer(
+      toBinary(
+        chat.GetCapabilitiesResponseSchema,
+        create(chat.GetCapabilitiesResponseSchema, {
+          capabilities: {
+            maxTextLength: 4000,
+            maxAttachments: 10,
+            editWindowSeconds: 900,
+            assistEnabled,
+          },
+        }),
+      ),
+    );
+
+  // Without the assistant (on this server, or for this person), its controls are absent.
   await page.route("**/api/tokuly.chat.v1.ConversationService/GetCapabilities", (route) =>
-    route.fulfill(answer(toBinary(chat.GetCapabilitiesResponseSchema, capabilities))),
+    route.fulfill(offered(false)),
+  );
+  await openConversation(page, conversationId);
+  await expect(page.getByRole("button", { name: "AIアシスト" })).toHaveCount(0);
+  await page.unroute("**/api/tokuly.chat.v1.ConversationService/GetCapabilities");
+
+  // With a server that offers it (its answers stand in for the real ones here).
+  await page.route("**/api/tokuly.chat.v1.AssistService/GetAssistSettings", (route) =>
+    route.fulfill(
+      answer(
+        toBinary(
+          chat.GetAssistSettingsResponseSchema,
+          create(chat.GetAssistSettingsResponseSchema, {
+            settings: {
+              effectiveProvider: chat.AiProvider.ANTHROPIC,
+              effectiveRecipient: "Anthropic",
+              allowMessageUse: true,
+            },
+          }),
+        ),
+      ),
+    ),
+  );
+  await page.route("**/api/tokuly.chat.v1.ConversationService/GetCapabilities", (route) =>
+    route.fulfill(offered(true)),
   );
   await page.route("**/api/tokuly.chat.v1.AssistService/SuggestReplies", (route) =>
     route.fulfill(

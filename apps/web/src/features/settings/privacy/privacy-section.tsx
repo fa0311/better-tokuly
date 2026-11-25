@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
+import { AiMessageConsentSwitch } from "#/features/chat";
 import { useChangeSettings, useSettings } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";
 
@@ -118,6 +119,7 @@ export function PrivacySection() {
       <Group title={t("privacy.groups.talk.title")} flush>
         {audience("directMessagesFrom")}
         {audience("callsFrom")}
+        <AiMessageConsentSwitch />
       </Group>
 
       <Group title={t("privacy.groups.map.title")} lead={t("privacy.groups.map.lead")} flush>
