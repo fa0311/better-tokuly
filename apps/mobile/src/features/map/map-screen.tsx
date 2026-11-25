@@ -1,4 +1,5 @@
 import { Camera, type CameraRef, Map as MapLibre, Marker } from "@maplibre/maplibre-react-native";
+import type { geo } from "@tokuly/api";
 import { buildMapStyle } from "@tokuly/core/map";
 import { Ghost, LocateFixed, X } from "lucide-react-native";
 import { useRef, useState } from "react";
@@ -10,6 +11,7 @@ import { sticker, useTheme } from "#/lib/theme";
 import { useNow } from "./clock";
 import { useFriendsById, useGhostSettings } from "./data";
 import { FriendCard } from "./friend-card";
+import { FriendList } from "./friend-list";
 import { FriendPin, OwnDot } from "./friend-pin";
 import { GhostPanel, ghostChipText } from "./ghost";
 import { useLocations } from "./locations-store";
@@ -18,7 +20,12 @@ import { SharingCard } from "./sharing-card";
 /** Tokyo, until this device or a friend says where to look. */
 const DEFAULT_CENTER: [number, number] = [139.7006, 35.6595];
 
-type Panel = { kind: "friend"; userId: string } | { kind: "ghost" } | { kind: "sharing" } | null;
+type Panel =
+  | { kind: "friend"; userId: string }
+  | { kind: "list" }
+  | { kind: "ghost" }
+  | { kind: "sharing" }
+  | null;
 
 /**
  * Pins are `Marker`s, real native views: Android draws a `ViewAnnotation`'s
@@ -55,6 +62,10 @@ export function MapScreen() {
 
   const focus = (lng: number, lat: number) =>
     camera.current?.easeTo({ center: [lng, lat], zoom: 15, duration: 600 });
+  const openFriend = (location: geo.FriendLocation) => {
+    setPanel({ kind: "friend", userId: location.userId });
+    if (location.position) focus(location.position.lng, location.position.lat);
+  };
 
   return (
     <View className="flex-1 bg-bg" testID="map-screen">
@@ -85,10 +96,7 @@ export function MapScreen() {
               location={location}
               online={Boolean(online[location.userId])}
               now={now}
-              onPress={() => {
-                setPanel({ kind: "friend", userId: location.userId });
-                if (location.position) focus(location.position.lng, location.position.lat);
-              }}
+              onPress={() => openFriend(location)}
             />
           </Marker>
         ))}
@@ -113,9 +121,17 @@ export function MapScreen() {
           icon={<Text>{own ? "🟢" : "⚪️"}</Text>}
           onPress={() => setPanel({ kind: "sharing" })}
         />
-        <Text className="ml-auto rounded-full bg-surface/90 px-3 py-1.5 text-xs font-black text-ink">
-          {tm("map.friendsOnMap", { count: pins.length })}
-        </Text>
+        <Pressable
+          testID="map-friends-chip"
+          accessibilityRole="button"
+          disabled={pins.length === 0}
+          onPress={() => setPanel({ kind: "list" })}
+          className="ml-auto rounded-full bg-surface/90 px-3 py-1.5"
+        >
+          <Text className="text-xs font-black text-ink">
+            {tm("map.friendsOnMap", { count: pins.length })}
+          </Text>
+        </Pressable>
       </View>
 
       <View pointerEvents="box-none" className="absolute inset-x-0 bottom-0 gap-3 px-4 pb-4">
@@ -137,6 +153,14 @@ export function MapScreen() {
               location={locations[selected]}
               online={Boolean(online[selected])}
               now={now}
+            />
+          ) : panel?.kind === "list" ? (
+            <FriendList
+              friends={friends}
+              locations={pins}
+              online={online}
+              now={now}
+              onPick={openFriend}
             />
           ) : panel?.kind === "ghost" ? (
             <GhostPanel now={now} />
