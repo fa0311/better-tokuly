@@ -7,6 +7,7 @@
 //! not announce session revocations as events, so checking `sessions` at the
 //! moment of sending is what guarantees a signed-out device stays silent.
 use sha2::{Digest as _, Sha256};
+use sqlx::{Postgres, Transaction};
 use tokuly_core::{keys::b64url_decode, prelude::*};
 use tokuly_proto::{
     common::Platform,
@@ -174,6 +175,18 @@ impl DeviceRow {
     }
 }
 
+/// Takes the registrations of `session_id` for the rest of the transaction.
+///
+/// A session holds one registration per channel: two registrations of one
+/// session at once (an app re-registering on launch while a permission
+/// prompt also does) must replace each other in turn, not collide on the
+/// unique index. And a registration still being written must not outlive an
+/// unregistration of its session that started meanwhile: under READ
+/// COMMITTED the removal cannot see the uncommitted row, so it waits here.
+pub async fn lock_session(tx: &mut Transaction<'_, Postgres>, session_id: Uuid) -> AppResult<()> {
+    locks::lock(tx, locks::key(session_id)).await
+}
+
 /// Stores a registration for `session_id`. A session holds one token per
 /// channel, and a token belongs to one session: the token it replaces is
 /// dropped, and a token another session (or account) registered earlier —
@@ -181,11 +194,7 @@ impl DeviceRow {
 pub async fn register(core: &Core, user_id: Uuid, session_id: Uuid, device: &NewDevice) -> AppResult<DeviceRow> {
     let channel = device.channel as i32;
     let mut tx = core.db.begin().await?;
-    // A session holds one registration per channel: two registrations of
-    // one session at once (an app re-registering on launch while a
-    // permission prompt also does) must replace each other in turn, not
-    // collide on the unique index.
-    locks::lock(&mut tx, locks::key(session_id)).await?;
+    lock_session(&mut tx, session_id).await?;
     sqlx::query("DELETE FROM push_devices WHERE session_id = $1 AND channel = $2 AND token <> $3")
         .bind(session_id)
         .bind(channel)
@@ -218,6 +227,21 @@ pub async fn register(core: &Core, user_id: Uuid, session_id: Uuid, device: &New
     .await?;
     tx.commit().await?;
     Ok(row)
+}
+
+/// Removes every registration of `session_id` (the app signing out, or
+/// another account taking over the device). It waits for a registration of
+/// the session that is still being written, so that one goes too.
+pub async fn unregister_session(core: &Core, user_id: Uuid, session_id: Uuid) -> AppResult<()> {
+    let mut tx = core.db.begin().await?;
+    lock_session(&mut tx, session_id).await?;
+    sqlx::query("DELETE FROM push_devices WHERE session_id = $1 AND user_id = $2")
+        .bind(session_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 /// A user's registrations whose session is still alive, newest first.

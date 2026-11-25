@@ -333,3 +333,32 @@ async fn a_test_push_is_queued_for_registered_devices() {
     }
     assert!(limited);
 }
+
+#[tokio::test]
+async fn unregistering_a_session_waits_for_its_registration_in_flight() {
+    let ctx = start().await;
+    let alice = ctx.app.user("alice").await;
+    // A registration of Alice's session is being written: it holds the
+    // session and its row is not committed yet.
+    let mut tx = ctx.app.core.db.begin().await.unwrap();
+    tokuly_notify::devices::lock_session(&mut tx, alice.session_id).await.unwrap();
+    let token = format!("fcm-{}", Uuid::now_v7().simple());
+    sqlx::query(
+        "INSERT INTO push_devices (user_id, session_id, channel, token, token_hash) VALUES ($1, $2, $3, $4, sha256($4::bytea))",
+    )
+    .bind(alice.id)
+    .bind(alice.session_id)
+    .bind(PushChannelKind::PUSH_CHANNEL_KIND_FCM as i32)
+    .bind(&token)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    // The app signs out meanwhile: the registration may not survive it.
+    let (unregistered, ()) = tokio::join!(unregister(&ctx, &alice, ""), async {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        tx.commit().await.unwrap();
+    });
+    unregistered.unwrap();
+    assert!(ctx.devices(&alice).await.is_empty(), "the registration written meanwhile is gone too");
+}

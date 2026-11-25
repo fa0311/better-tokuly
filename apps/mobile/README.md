@@ -52,7 +52,11 @@ its tests) and the web switches to it.
   (`features/session/vault.ts`). Switching accounts, adding one, signing out:
   `features/session/session.ts`. Each starts the signed-in tree over (a new
   API object, realtime connection, query cache and navigation stack), the way
-  a page load does on the web.
+  a page load does on the web. A sign-out shows at once; the session's token
+  is kept aside (`departed`) until the server has removed its push
+  registrations and ended it, retried on each start when it was offline.
+  Every use of a parked or departed token waits its turn, so none is ever
+  sent twice.
 - **Location.** The same rules as the web (`features/map/sharing.ts`): nothing
   is sent for an account until it says yes on this device; stopping, a
   revoked permission, a sign-out or a switch tell the server, and a stop that
@@ -60,6 +64,29 @@ its tests) and the web switches to it.
   the server's cadence (`reportDecision` in `@tokuly/core/map`); off screen,
   with "always" allowed, the background task sends what the OS delivers
   (50 m distance filter, deferred batches, paused while still).
+- **Chat.** The rules are `@tokuly/core/chat`: realtime events go into the
+  cache through `applyChatEvent` (`features/chat/sync.ts`), timelines page
+  through `MessagePager`, the unread totals through `UnreadTotals`; the phone
+  keeps only its live state (typing, read cursors) and its outbox (messages on
+  their way, photos uploaded first through the media upload flow, sent in
+  order with an idempotency key, retried by hand). Calls and the AI assistant
+  stay on the web for now; the conversation says so and opens it.
+- **Push.** The phones' own services through `expo-notifications`, no Expo push
+  service: FCM on Android (the build needs `GOOGLE_SERVICES_JSON`, the path of
+  the Firebase project's `google-services.json`), APNs on iOS
+  (`EXPO_PUBLIC_APNS_ENV=production` for store builds). Like location sharing,
+  push is the account's decision on this device (`features/notifications/push.ts`):
+  the token is registered for an account's session only once it said yes here;
+  before it signs out or another account takes over, its registration is
+  removed (the server waits for a registration of that session still being
+  written). When the server cannot be told, the token itself is thrown away
+  and the removal is owed: each start tries again as that session, parked on
+  the device, until it goes through — so the next account never gets the
+  previous one's pushes. What a push shows
+  on the lock screen is the account's preview setting, applied by the server;
+  Android channels (one per category) keep the system's lock-screen rule. A tap
+  opens the screen the notification is about (`features/notifications/target.ts`),
+  the inbox otherwise.
 - **Settings** not native yet open the web in an in-app browser. The backend
   has no flow to hand a session over to the web safely (a one-time code
   exchanged for the cookie), and tokens never go into URLs, so the web asks to
@@ -79,7 +106,9 @@ the screens that matter and mock only the edges: the network (`expo/fetch`),
 device modules, the clock.
 
 The Maestro flows (`maestro/flows`) sign up and in, switch accounts, accept a
-friend and see them on the map, use ghost mode and sharing. CI
+friend and see them on the map, use ghost mode and sharing, open a chat with an
+unread message, send one, receive one from a second account (through the API),
+start a chat and open the inbox. CI
 (the End to end workflow, `.github/workflows/e2e.yml`) builds a release APK for the emulator and
 runs them against the Compose stack; locally, with an emulator and a stack:
 

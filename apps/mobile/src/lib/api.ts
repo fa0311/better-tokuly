@@ -1,4 +1,4 @@
-import { type Api, createApi, identity } from "@tokuly/api";
+import { type Api, createApi, identity, type RefreshTokenStore } from "@tokuly/api";
 import { fetch as expoFetch } from "expo/fetch";
 import { activeTokenStore } from "#/features/session/vault";
 import { API_URL } from "#/lib/config";
@@ -14,14 +14,19 @@ let instance: Api | null = null;
  * whoever is active now. `expo/fetch` streams, which server-streaming RPCs need.
  */
 export function api(): Api {
-  instance ??= createApi({
+  instance ??= apiWith(activeTokenStore);
+  return instance;
+}
+
+/** The API as the session whose refresh token `store` keeps (the active one, or a parked one). */
+export function apiWith(store: RefreshTokenStore): Api {
+  return createApi({
     baseUrl: API_URL,
     client: apiClientKind,
-    refreshTokenStore: activeTokenStore,
+    refreshTokenStore: store,
     fetch: expoFetch as unknown as typeof globalThis.fetch,
     language: () => i18n.language,
   });
-  return instance;
 }
 
 export function resetApi(): void {

@@ -1,12 +1,8 @@
 import { type AnyRouter, useRouter } from "@tanstack/react-router";
+import { resolveTarget, type Target } from "@tokuly/core/notifications";
 import { appPathOf } from "#/features/community";
 
-/** Where a server-sent "path in the app" leads. */
-export type Target =
-  /** A page of this app: path, search and hash, ready for the router. */
-  | { type: "internal"; href: string }
-  /** Somewhere else on the web; opened in a new tab. */
-  | { type: "external"; url: string };
+export type { Target };
 
 /**
  * Paths the backend sends that live elsewhere in the web app. The test push
@@ -28,26 +24,19 @@ export function notificationPath(kind: string | undefined, path: string): string
 }
 
 /**
- * Reads a notification's `path` (or any target the server hands out: `/chat/42`,
- * `/u/alice?tab=notes`, a full URL of this site, occasionally an outside link).
- * `null` when there is nowhere to go: an empty path, or a scheme that is not http(s).
+ * Reads a notification's `path` (`resolveTarget` of `@tokuly/core/notifications`)
+ * for this site, with the web's own aliases. `null` when it leads nowhere.
  */
 export function resolveTargetPath(
   path: string,
   origin: string = window.location.origin,
 ): Target | null {
-  const trimmed = path.trim();
-  if (!trimmed) return null;
-  let url: URL;
-  try {
-    url = new URL(trimmed, origin);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-  if (url.origin !== origin) return { type: "external", url: url.href };
-  const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") : url.pathname;
-  return { type: "internal", href: (ALIASES[pathname] ?? pathname) + url.search + url.hash };
+  const target = resolveTarget(path, origin);
+  if (target?.type !== "internal") return target;
+  const end = target.href.search(/[?#]/);
+  const pathname = end < 0 ? target.href : target.href.slice(0, end);
+  const rest = end < 0 ? "" : target.href.slice(end);
+  return { type: "internal", href: (ALIASES[pathname] ?? pathname) + rest };
 }
 
 /**

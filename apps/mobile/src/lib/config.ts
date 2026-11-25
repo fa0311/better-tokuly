@@ -13,6 +13,13 @@ export const SERVER_URL = (process.env.EXPO_PUBLIC_TOKULY_URL ?? "http://localho
 
 export const API_URL = `${SERVER_URL}/api`;
 
+/**
+ * Which APNs environment this build's device tokens belong to
+ * (`EXPO_PUBLIC_APNS_ENV`, the same value `app.config.ts` gives the
+ * entitlement): a development build talks to the sandbox.
+ */
+export const APNS_SANDBOX = process.env.EXPO_PUBLIC_APNS_ENV !== "production";
+
 /** The web app, for what is not native yet. */
 export const WEB_URL = SERVER_URL;
 

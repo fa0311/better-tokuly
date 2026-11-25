@@ -1,14 +1,20 @@
-import { Code, ConnectError, type identity, type SessionState } from "@tokuly/api";
+import { type Api, Code, ConnectError, identity, notify, type SessionState } from "@tokuly/api";
 import { create } from "zustand";
-import { api, authClient, resetApi } from "#/lib/api";
+import { api, apiWith, authClient, resetApi } from "#/lib/api";
 import { prepareRealtime, resetRealtime } from "#/lib/realtime";
 import { DEVICE_ID_KEY } from "#/platform/device";
 import { forgetPreviousInstall } from "#/platform/install";
 import {
   ACCOUNT_KEYS,
   activeTokenStore,
+  addDeparted,
+  departedTokenStore,
+  departedTokens,
+  departPreviousInstall,
+  forgetDeparted,
   forgetParked,
   parkActive,
+  parkedTokenStore,
   parkedTokens,
   rotateParked,
 } from "./vault";
@@ -42,17 +48,18 @@ function bindStore(): void {
 /**
  * On app start: resumes the active account from the refresh token in secure
  * storage, unless this is a new install (its keychain may hold a previous
- * one's accounts). Never leaves the session unknown, which would keep the
+ * one's accounts: they are ended on the server, best effort, and forgotten). Never leaves the session unknown, which would keep the
  * splash screen up for good: when the device's storage fails, the app starts
  * signed out.
  */
 export async function startSession(): Promise<void> {
   try {
-    await forgetPreviousInstall([...ACCOUNT_KEYS, DEVICE_ID_KEY]);
+    await forgetPreviousInstall([...ACCOUNT_KEYS, DEVICE_ID_KEY], departPreviousInstall);
     await prepareRealtime();
     bindStore();
     if (await activeTokenStore.get()) await api().session.restore();
     else api().session.assumeSignedOut();
+    void settleDeparted();
   } catch (error) {
     // Not knowing whose tokens storage holds (this install's or a previous one's), nobody is signed in by itself.
     console.warn("Could not resume the session; starting signed out.", error);
@@ -122,9 +129,42 @@ export async function enterAccount(response: identity.AuthResponse): Promise<voi
   const current = activeSessionId();
   if (current) {
     await leave();
-    await parkActive(current);
+    await withParkedTokens(() => parkActive(current));
   }
   await startOver(response);
+}
+
+/**
+ * Everything that reads or rotates a parked account's refresh token (a
+ * switch, a removal, parking an account, work done as a parked session) runs
+ * one after the other: a token sent twice — a switch and a refresh of the
+ * same session at once — revokes that session (REFRESH_TOKEN_REUSE).
+ */
+let parkedQueue: Promise<unknown> = Promise.resolve();
+
+function withParkedTokens<T>(work: () => Promise<T>): Promise<T> {
+  const run = parkedQueue.then(work);
+  parkedQueue = run.catch(() => {});
+  return run;
+}
+
+/**
+ * Runs `work` as a parked account's session without making it the active
+ * one (what it still owes the server, such as removing a push registration
+ * a switch could not remove). Resolves to `null` when the device no longer
+ * holds that account.
+ */
+export function asParked<T>(
+  sessionId: string,
+  work: (account: Api) => Promise<T>,
+): Promise<T | null> {
+  return withParkedTokens(async () => {
+    if (!(await parkedTokens())[sessionId]) return null;
+    const account = apiWith(parkedTokenStore(sessionId));
+    if (!(await account.session.restore()))
+      throw new Error("the parked session could not be resumed");
+    return work(account);
+  });
 }
 
 export type SwitchResult = "switched" | "needsCode";
@@ -133,7 +173,11 @@ export type SwitchResult = "switched" | "needsCode";
  * Makes a parked account the active one. An account with two-factor
  * authentication may answer `needsCode`: ask for it and call again.
  */
-export async function switchAccount(sessionId: string, totpCode = ""): Promise<SwitchResult> {
+export function switchAccount(sessionId: string, totpCode = ""): Promise<SwitchResult> {
+  return withParkedTokens(() => switchTo(sessionId, totpCode));
+}
+
+async function switchTo(sessionId: string, totpCode: string): Promise<SwitchResult> {
   const token = (await parkedTokens())[sessionId];
   if (!token) {
     await forgetParked(sessionId);
@@ -160,15 +204,56 @@ export async function switchAccount(sessionId: string, totpCode = ""): Promise<S
 }
 
 /** Signs a parked account out of this device; the others stay. */
-export async function removeParkedAccount(sessionId: string): Promise<void> {
-  const token = (await parkedTokens())[sessionId];
-  if (token) await authClient().removeDeviceAccount({ refreshToken: token });
-  await forgetParked(sessionId);
+export function removeParkedAccount(sessionId: string): Promise<void> {
+  return withParkedTokens(async () => {
+    const token = (await parkedTokens())[sessionId];
+    if (token) await authClient().removeDeviceAccount({ refreshToken: token });
+    await forgetParked(sessionId);
+  });
 }
 
-/** Signs the active account out of this device. Parked accounts stay and can be continued with. */
-export async function signOut(allSessions = false): Promise<void> {
+/**
+ * Signs the active account out of this device (and, with `allSessions`, out
+ * of every device). Parked accounts stay and can be continued with. The app
+ * is signed out at once; the session's refresh token is kept aside until the
+ * server is known to have ended it (offline, the sign-out does not reach it):
+ * see `settleDeparted`. `everywherePending`: every session was to end, and
+ * the server has not done it yet — the person is told it will be.
+ */
+export async function signOut(allSessions = false): Promise<{ everywherePending: boolean }> {
   await leave();
+  const sessionId = activeSessionId();
+  const token = await activeTokenStore.get();
+  if (sessionId && token)
+    await withParkedTokens(() => addDeparted(sessionId, { token, allSessions }));
   await api().session.signOut(allSessions);
   await startOver(null);
+  await settleDeparted();
+  const pending = sessionId ? (await departedTokens())[sessionId] : undefined;
+  return { everywherePending: Boolean(allSessions && pending) };
+}
+
+/**
+ * Finishes the sessions that left this device while the server may not know
+ * (`departedTokens`): each is resumed, its push registrations are removed
+ * (its pushes must not reach the phone in someone else's hands) and it is
+ * signed out on the server. A session the server already ended refuses to
+ * resume and is simply forgotten; one that cannot be reached yet waits for
+ * the next start. Runs in the queue of the device's tokens.
+ */
+export function settleDeparted(): Promise<void> {
+  return withParkedTokens(async () => {
+    for (const [sessionId, { allSessions }] of Object.entries(await departedTokens())) {
+      try {
+        const account = apiWith(departedTokenStore(sessionId));
+        // Refused (already ended): its store forgets it. Unreachable: kept for next time.
+        if (!(await account.session.restore())) continue;
+        await account.service(notify.PushService).unregisterDevice({ deviceId: "" });
+        await account.service(identity.AuthService).signOut({ allSessions });
+        await forgetDeparted(sessionId);
+      } catch {
+        // Offline again: the next start tries once more.
+      }
+    }
+  });
 }

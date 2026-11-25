@@ -1,6 +1,6 @@
-/** The screens only the phone app has: tabs, location permission, background sharing, settings. */
+/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, settings. */
 export default {
-  tabs: { map: "マップ", friends: "ともだち", me: "じぶん" },
+  tabs: { map: "マップ", chat: "チャット", friends: "ともだち", inbox: "お知らせ", me: "じぶん" },
   welcome: {
     signUp: "はじめる",
     signIn: "ログイン",
@@ -76,6 +76,9 @@ export default {
     webHint: "まだアプリにない設定は、Webでひらくよ",
     webNote: "Webでもう一度ログインしてね。アプリのログイン情報は、安全のためWebに渡さないよ。",
     signOut: "ログアウト",
+    signOutAll: "すべての端末からログアウト",
+    signOutAllPending:
+      "オフラインだったので、ほかの端末のログアウトはスマホがオンラインに戻ったときにやるよ！",
     signOutConfirm:
       "このアカウントをこの端末からログアウトしますか？ほかのアカウントはそのままです。",
     version: "バージョン {{version}}",
@@ -84,5 +87,62 @@ export default {
   profile: {
     me: "じぶん",
     viewOnWeb: "Webでひらく",
+  },
+  chat: {
+    newChat: "新しいチャット",
+    newLead: "話したいともだちをえらんでね！ふたり以上えらぶとグループになるよ",
+    startDirect: "{{name}}と話す",
+    startGroup: "{{count}}人でグループをつくる",
+    groupName: "グループ名（例: 放課後メンバー）",
+    photoLibrary: "写真をえらぶ",
+    camera: "カメラで撮る",
+    photoDenied: "写真へのアクセスが許可されてないよ。設定アプリで許可してね",
+    cameraDenied: "カメラが許可されてないよ。設定アプリで許可してね",
+    sending: "送信中…",
+    uploading: "アップロード中 {{percent}}%",
+    loadingOlder: "前のメッセージを読み込み中…",
+    calls: {
+      title: "通話はWebでできるよ！",
+      body: "アプリからの通話はもうすぐ！いまはWebのTokulyからかけてね。",
+    },
+    assist: {
+      title: "AIアシスタントはWebで使えるよ",
+      body: "返信の提案や翻訳は、WebのTokulyでためしてね！",
+    },
+    openWeb: "Webでひらく",
+    react: "リアクション",
+    conversationMenu: "{{name}}のメニュー",
+  },
+  push: {
+    title: "プッシュ通知",
+    lead: {
+      on: "アプリを閉じていても、ともだちからのお知らせがすぐ届くよ！",
+      off: "オンにすると、アプリを閉じているときもお知らせを受け取れるよ！",
+      denied: "通知が許可されてないよ。設定アプリで Tokuly の通知をオンにしてね。",
+      unavailable: "このサーバーではスマホのプッシュ通知がまだ使えないよ。",
+    },
+    enable: "オンにする",
+    disable: "この端末でオフにする",
+    failed: "プッシュ通知を登録できなかったよ。少し待ってからもう一度ためしてね",
+    channels: {
+      social: "ともだち",
+      chat: "チャット・通話",
+      geo: "マップ",
+      notes: "ノート",
+      video: "動画",
+      live: "ライブ",
+      shorts: "ショート",
+      engagement: "リアクション・コメント",
+      stamp: "スタンプ",
+      wallet: "ウォレット",
+      spaces: "ルーム",
+      ask: "質問箱・ほめ投票",
+      plans: "予定・ひま",
+      school: "学校・勉強",
+      community: "コミュニティ",
+      quest: "クエスト・連続記録",
+      feed: "フィード",
+      system: "Tokulyから",
+    },
   },
 } as const;

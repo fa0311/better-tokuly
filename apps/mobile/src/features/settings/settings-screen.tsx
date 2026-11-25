@@ -4,20 +4,31 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
 import { Page, Section } from "#/components/page";
+import { PushCard } from "#/features/notifications/push-card";
 import { signOut } from "#/features/session/session";
 import { SERVER_URL } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
 import { appVersion } from "#/platform/device";
 import { openWebSettings } from "./web-settings";
 
-/** The native settings so far: accounts and signing out; the rest opens on the web. */
+/** The native settings so far: accounts, push on this device and signing out; the rest opens on the web. */
 export function SettingsScreen() {
   const { t } = useTranslation("mobile");
   const { t: tc } = useTranslation("common");
   const { colors } = useTheme();
+  // Offline, the other devices are signed out later: the person is told, not left to assume.
+  const signOutEverywhere = async () => {
+    const { everywherePending } = await signOut(true);
+    if (everywherePending) Alert.alert(t("settings.signOutAllPending"));
+  };
   const confirmSignOut = () =>
     Alert.alert(t("settings.signOutConfirm"), undefined, [
       { text: tc("actions.cancel"), style: "cancel" },
+      {
+        text: t("settings.signOutAll"),
+        style: "destructive",
+        onPress: () => void signOutEverywhere(),
+      },
       { text: t("settings.signOut"), style: "destructive", onPress: () => void signOut() },
     ]);
   return (
@@ -38,6 +49,7 @@ export function SettingsScreen() {
         />
       </Section>
       <Text className="px-1 text-xs text-ink-soft">{t("settings.webNote")}</Text>
+      <PushCard />
       <Section>
         <Row
           testID="settings-sign-out"

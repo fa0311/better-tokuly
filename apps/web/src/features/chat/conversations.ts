@@ -6,23 +6,21 @@ import {
 } from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
 import {
-  adjustUnread as adjustHeldUnread,
   aheadOf,
   findInLists,
   type ListPage,
   NO_UNREAD,
   putInLists,
   readConversation,
-  storeUnread,
   type Unread,
-  unreadOf,
+  UnreadTotals,
 } from "@tokuly/core/chat";
 import { chatKeys, conversationClient, LIST_FILTERS, type ListFilter } from "./api";
 import { useLive } from "./live";
 
 /**
  * Conversations in the web app's query cache: the hooks that load them and the
- * unread totals' version counter. The cache edits themselves are
+ * unread totals. The cache edits themselves are
  * `@tokuly/core/chat` (`putConversation`, `patchConversation`, …), re-exported
  * here for the folder.
  */
@@ -40,73 +38,33 @@ export {
 const PAGE_SIZE = 30;
 
 /**
- * How many realtime adjustments the unread totals have had. An answer from the server
- * reflects the moment it was asked: one asked before an adjustment may predate the
- * message behind it, and replacing the adjusted totals with it would lose that message.
+ * The unread totals: answers from the server and realtime adjustments,
+ * without one undoing the other (`UnreadTotals` in `@tokuly/core/chat`).
  */
-let adjustments = 0;
+export const unreadTotals = new UnreadTotals();
 
 /** Taken before asking the server for anything that carries unread totals; see `applyUnread`. */
 export function unreadVersion(): number {
-  return adjustments;
+  return unreadTotals.version();
 }
 
-/**
- * Stores the unread totals the server just reported (list, mark-read and count responses
- * carry them). `askedAt` is `unreadVersion()` from before the request: when realtime
- * events adjusted the totals meanwhile, the answer may be older than what is held, so the
- * totals are read again instead.
- */
+/** Stores the unread totals the server just reported; `askedAt` is `unreadVersion()` from before the request. */
 export function applyUnread(
   queryClient: QueryClient,
   unread: chat.UnreadCounts | undefined,
   askedAt: number,
 ): void {
-  if (!unread) return;
-  if (askedAt !== adjustments) {
-    refreshUnread(queryClient);
-    return;
-  }
-  storeUnread(queryClient, unread);
-}
-
-/** How long after the last realtime adjustment the totals are checked against the server. */
-const SETTLE_MS = 1500;
-let settling: ReturnType<typeof setTimeout> | undefined;
-
-/**
- * Adjusts the unread totals for something that just happened (a realtime
- * event), at once. An event can trail an answer that already counted its
- * message (the answer was stored first, so `unreadVersion` cannot tell), so
- * once events quiet down the server's totals settle it.
- */
-export function adjustUnread(queryClient: QueryClient, change: (unread: Unread) => Unread): void {
-  if (!adjustHeldUnread(queryClient, change)) return;
-  adjustments += 1;
-  clearTimeout(settling);
-  settling = setTimeout(() => refreshUnread(queryClient), SETTLE_MS);
+  unreadTotals.apply(queryClient, unread, askedAt);
 }
 
 export function refreshUnread(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({ queryKey: chatKeys.unread, exact: true });
+  unreadTotals.refresh(queryClient);
 }
 
 /** The unread totals: fetched once, then kept current by responses and realtime events. */
 export function useUnread(): Unread {
   const queryClient = useQueryClient();
-  const { data } = useQuery({
-    queryKey: chatKeys.unread,
-    queryFn: async () => {
-      const askedAt = adjustments;
-      const fresh = unreadOf((await conversationClient().getUnreadCounts({})).unread);
-      const held = queryClient.getQueryData<Unread>(chatKeys.unread);
-      if (askedAt === adjustments || !held) return fresh;
-      // A message arrived while this was asked: keep what counts it and ask once more.
-      setTimeout(() => refreshUnread(queryClient));
-      return held;
-    },
-    staleTime: Number.POSITIVE_INFINITY,
-  });
+  const { data } = useQuery(unreadTotals.query(queryClient, conversationClient));
   return data ?? NO_UNREAD;
 }
 
@@ -168,9 +126,4 @@ export function useConversation(id: string) {
     placeholderData: () => findInLists(queryClient, id),
     staleTime: 60_000,
   });
-}
-
-/** Re-reads the lists from the server (after a reconnect, or when in doubt). */
-export function rereadLists(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({ queryKey: chatKeys.lists });
 }

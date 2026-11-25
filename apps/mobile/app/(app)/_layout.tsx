@@ -1,8 +1,10 @@
 import { Redirect, Stack, usePathname } from "expo-router";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { ChatBackground } from "#/features/chat/background";
 import { useFriendsSync } from "#/features/friends/data";
 import { MapBackground } from "#/features/map/background";
+import { NotificationsBackground } from "#/features/notifications/background";
 import { routeFor, usePendingLink } from "#/features/session/routing";
 import { useSessionStore } from "#/features/session/session";
 import { useTheme } from "#/lib/theme";
@@ -30,6 +32,8 @@ function SignedIn() {
   return (
     <>
       <MapBackground />
+      <ChatBackground />
+      <NotificationsBackground />
       <Stack
         screenOptions={{
           headerTintColor: colors.ink,
@@ -53,6 +57,11 @@ function SignedIn() {
         <Stack.Screen
           name="create-account"
           options={{ title: ta("create"), presentation: "modal" }}
+        />
+        <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="new-chat"
+          options={{ title: t("chat.newChat"), presentation: "modal" }}
         />
         <Stack.Screen name="u/[handle]" options={{ title: "" }} />
         <Stack.Screen name="invite/[code]" options={{ title: "" }} />

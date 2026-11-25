@@ -1,0 +1,317 @@
+import type { DescMessage, MessageShape } from "@bufbuild/protobuf";
+import { QueryClient } from "@tanstack/query-core";
+import { chat, create, fromDate, type MessageInitShape } from "@tokuly/api";
+import { afterEach, describe, expect, it } from "vitest";
+import { type ListPage, readConversation } from "./conversation-cache";
+import { applyChatEvent, type ChatSync } from "./events";
+import { chatKeys } from "./keys";
+import { MessagePager } from "./pager";
+import type { Timeline } from "./timeline";
+import { UnreadTotals } from "./totals";
+import { NO_UNREAD, type Unread } from "./unread";
+
+const ME = "me";
+
+function make<Schema extends DescMessage>(
+  schema: Schema,
+  base: MessageInitShape<Schema>,
+  extra?: MessageInitShape<Schema>,
+): MessageShape<Schema> {
+  return create(schema, { ...(base as object), ...(extra as object) } as MessageInitShape<Schema>);
+}
+
+/** Nothing is fetched: the cases hold everything they need. */
+const sync: ChatSync = {
+  totals: new UnreadTotals(),
+  pager: new MessagePager(() => Promise.reject(new Error("offline"))),
+  fetchConversation: () => Promise.resolve(),
+};
+afterEach(() => sync.totals.dispose());
+const user = (id: string) => ({ id, handle: id, displayName: id });
+
+function conversation(
+  id: string,
+  viewer: MessageInitShape<typeof chat.ViewerStateSchema> = {},
+  extra: MessageInitShape<typeof chat.ConversationSchema> = {},
+): chat.Conversation {
+  return make(
+    chat.ConversationSchema,
+    {
+      id,
+      kind: chat.ConversationKind.DIRECT,
+      members: [user(ME), user("aoi")],
+      lastSeq: 2n,
+      lastActivityAt: fromDate(new Date(2026, 10, 3, 10)),
+      viewer: make(
+        chat.ViewerStateSchema,
+        { requestState: chat.RequestState.ACCEPTED, readSeq: 2n },
+        viewer,
+      ),
+    },
+    extra,
+  );
+}
+
+function message(
+  seq: number,
+  sender: string,
+  extra: MessageInitShape<typeof chat.MessageSchema> = {},
+): chat.Message {
+  return make(
+    chat.MessageSchema,
+    {
+      id: `m${seq}`,
+      conversationId: "c1",
+      seq: BigInt(seq),
+      sender: user(sender),
+      kind: chat.MessageKind.TEXT,
+      text: `text ${seq}`,
+      createdAt: fromDate(new Date(2026, 10, 3, 10, seq)),
+    },
+    extra,
+  );
+}
+
+/** A client holding an inbox with the given conversations and a timeline of "c1" at the live end. */
+function client(conversations: chat.Conversation[], unread: Unread = NO_UNREAD): QueryClient {
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(chatKeys.list("inbox"), {
+    pages: [{ conversations, nextCursor: "" } satisfies ListPage],
+    pageParams: [""],
+  });
+  queryClient.setQueryData(chatKeys.unread, unread);
+  queryClient.setQueryData<Timeline>(chatKeys.timeline("c1"), {
+    messages: [message(1, "aoi"), message(2, ME)],
+    olderCursor: "",
+    hasOlder: false,
+    newerCursor: "",
+    hasNewer: false,
+  });
+  return queryClient;
+}
+
+const created = (item: chat.Message): chat.ChatEvent["event"] => ({
+  case: "messageCreated",
+  value: create(chat.MessageCreatedSchema, { message: item }),
+});
+const context = { myId: ME, readingId: null };
+const unreadOf = (queryClient: QueryClient) => queryClient.getQueryData<Unread>(chatKeys.unread);
+const timelineOf = (queryClient: QueryClient) =>
+  queryClient
+    .getQueryData<Timeline>(chatKeys.timeline("c1"))
+    ?.messages.map((item) => Number(item.seq));
+
+describe("chat events", () => {
+  it("adds a message from someone else to the conversation, its preview and the unread counts", () => {
+    const queryClient = client([conversation("c1")]);
+    applyChatEvent(queryClient, created(message(3, "aoi", { text: "おはよ" })), context, sync);
+
+    expect(timelineOf(queryClient)).toEqual([1, 2, 3]);
+    const held = readConversation(queryClient, "c1");
+    expect(held?.lastMessage?.text).toBe("おはよ");
+    expect(held?.lastSeq).toBe(3n);
+    expect(held?.viewer?.unreadCount).toBe(1);
+    expect(unreadOf(queryClient)).toMatchObject({ badge: 1, unreadConversations: 1 });
+
+    // A second one: one more message, still one conversation with unread messages.
+    applyChatEvent(queryClient, created(message(4, "aoi")), context, sync);
+    expect(unreadOf(queryClient)).toMatchObject({ badge: 2, unreadConversations: 1 });
+  });
+
+  it("keeps a count that an answer asked for before the message would undo, and asks again", () => {
+    const queryClient = client([conversation("c1")]);
+    const askedAt = sync.totals.version();
+    // The message arrives while a list (or a mark-read) is on its way back…
+    applyChatEvent(queryClient, created(message(3, "aoi")), context, sync);
+    // …and the answer, counted before the message, says there is nothing unread.
+    const unread = create(chat.UnreadCountsSchema, { badge: 0 });
+    sync.totals.apply(queryClient, unread, askedAt);
+    expect(unreadOf(queryClient)).toMatchObject({ badge: 1 });
+    expect(queryClient.getQueryState(chatKeys.unread)?.isInvalidated).toBe(true);
+
+    // An answer asked for after the message is the truth.
+    sync.totals.apply(
+      queryClient,
+      create(chat.UnreadCountsSchema, { badge: 5 }),
+      sync.totals.version(),
+    );
+    expect(unreadOf(queryClient)).toMatchObject({ badge: 5 });
+  });
+
+  it("does not count a message twice when it is announced twice", () => {
+    const queryClient = client([conversation("c1")]);
+    applyChatEvent(queryClient, created(message(3, "aoi")), context, sync);
+    applyChatEvent(queryClient, created(message(3, "aoi")), context, sync);
+    expect(timelineOf(queryClient)).toEqual([1, 2, 3]);
+    expect(unreadOf(queryClient)?.badge).toBe(1);
+  });
+
+  it("counts nothing as unread in the conversation that is being read", () => {
+    const queryClient = client([conversation("c1")]);
+    applyChatEvent(queryClient, created(message(3, "aoi")), { myId: ME, readingId: "c1" }, sync);
+    expect(timelineOf(queryClient)).toEqual([1, 2, 3]);
+    expect(readConversation(queryClient, "c1")?.viewer?.unreadCount).toBe(0);
+    expect(unreadOf(queryClient)?.badge).toBe(0);
+  });
+
+  it("keeps a muted conversation out of the badge but still counts its unread messages", () => {
+    const queryClient = client([conversation("c1", { muted: true })]);
+    applyChatEvent(queryClient, created(message(3, "aoi")), context, sync);
+    expect(readConversation(queryClient, "c1")?.viewer?.unreadCount).toBe(1);
+    expect(unreadOf(queryClient)).toMatchObject({ badge: 0, unreadConversations: 1 });
+  });
+
+  it("notes a mention of the viewer", () => {
+    const queryClient = client([conversation("c1")]);
+    applyChatEvent(
+      queryClient,
+      created(message(3, "aoi", { mentions: [{ handle: ME, user: user(ME) }] })),
+      context,
+      sync,
+    );
+    expect(readConversation(queryClient, "c1")?.viewer?.unreadMentionCount).toBe(1);
+  });
+
+  it("treats the viewer's own message (sent from another device) as read, not unread", () => {
+    const queryClient = client([conversation("c1", { unreadCount: 0 })]);
+    applyChatEvent(queryClient, created(message(3, ME)), context, sync);
+    const viewer = readConversation(queryClient, "c1")?.viewer;
+    expect(viewer?.unreadCount).toBe(0);
+    expect(viewer?.readSeq).toBe(3n);
+    expect(unreadOf(queryClient)?.badge).toBe(0);
+  });
+
+  it("does not count system notices as unread", () => {
+    const queryClient = client([conversation("c1")]);
+    applyChatEvent(
+      queryClient,
+      created(message(3, "aoi", { kind: chat.MessageKind.SYSTEM, sender: undefined })),
+      context,
+      sync,
+    );
+    expect(readConversation(queryClient, "c1")?.viewer?.unreadCount).toBe(0);
+  });
+
+  it("replaces an edited or deleted message, also in the list preview", () => {
+    const queryClient = client([conversation("c1", {}, { lastMessage: message(2, ME) })]);
+    const event: chat.ChatEvent["event"] = {
+      case: "messageUpdated",
+      value: create(chat.MessageUpdatedSchema, {
+        message: message(2, ME, { text: "", deleted: true }),
+        reason: chat.MessageUpdateReason.DELETED,
+      }),
+    };
+    applyChatEvent(queryClient, event, context, sync);
+    expect(queryClient.getQueryData<Timeline>(chatKeys.timeline("c1"))?.messages[1]?.deleted).toBe(
+      true,
+    );
+    expect(readConversation(queryClient, "c1")?.lastMessage?.deleted).toBe(true);
+  });
+
+  it("tracks reactions, telling the viewer's own apart", () => {
+    const queryClient = client([conversation("c1")]);
+    const change = (userId: string, added: boolean, count: number): chat.ChatEvent["event"] => ({
+      case: "reactionChanged",
+      value: create(chat.ReactionChangedSchema, {
+        conversationId: "c1",
+        messageId: "m1",
+        emoji: "❤️",
+        userId,
+        added,
+        count,
+      }),
+    });
+    applyChatEvent(queryClient, change("aoi", true, 1), context, sync);
+    applyChatEvent(queryClient, change(ME, true, 2), context, sync);
+    const reactions = () =>
+      queryClient
+        .getQueryData<Timeline>(chatKeys.timeline("c1"))
+        ?.messages[0]?.reactions.map((reaction) => [reaction.count, reaction.reactedByMe]);
+    expect(reactions()).toEqual([[2, true]]);
+    applyChatEvent(queryClient, change("aoi", false, 1), context, sync);
+    expect(reactions()).toEqual([[1, true]]);
+  });
+
+  it("clears the viewer's counts when they read elsewhere", () => {
+    const queryClient = client([
+      conversation("c1", { unreadCount: 2, readSeq: 2n }, { lastSeq: 4n }),
+    ]);
+    const read = (userId: string, readSeq: bigint): chat.ChatEvent["event"] => ({
+      case: "readReceipt",
+      value: create(chat.ReadReceiptChangedSchema, { conversationId: "c1", userId, readSeq }),
+    });
+
+    // Someone else's cursor is live state of the app: the cache is not touched.
+    applyChatEvent(queryClient, read("aoi", 4n), context, sync);
+    expect(readConversation(queryClient, "c1")?.viewer?.unreadCount).toBe(2);
+
+    applyChatEvent(queryClient, read(ME, 4n), context, sync);
+    expect(readConversation(queryClient, "c1")?.viewer).toMatchObject({
+      unreadCount: 0,
+      readSeq: 4n,
+    });
+  });
+
+  it("keeps the viewer's own state when only the shared part of a conversation changed", () => {
+    const queryClient = client([
+      conversation(
+        "c1",
+        { unreadCount: 3, pinned: true },
+        { kind: chat.ConversationKind.GROUP, name: "old", lastMessage: message(2, ME) },
+      ),
+    ]);
+    const renamed = create(chat.ConversationSchema, {
+      id: "c1",
+      kind: chat.ConversationKind.GROUP,
+      name: "new",
+      lastSeq: 2n,
+      lastActivityAt: fromDate(new Date(2026, 10, 3, 10)),
+    });
+    applyChatEvent(
+      queryClient,
+      {
+        case: "conversationUpdated",
+        value: create(chat.ConversationUpdatedSchema, { conversation: renamed }),
+      },
+      context,
+      sync,
+    );
+    const held = readConversation(queryClient, "c1");
+    expect(held?.name).toBe("new");
+    expect(held?.viewer).toMatchObject({ unreadCount: 3, pinned: true });
+    expect(held?.lastMessage?.id).toBe("m2");
+  });
+
+  it("forgets a conversation that left the viewer's lists", () => {
+    const queryClient = client([conversation("c1"), conversation("c2")]);
+    applyChatEvent(
+      queryClient,
+      {
+        case: "conversationRemoved",
+        value: create(chat.ConversationRemovedSchema, {
+          conversationId: "c1",
+          reason: chat.ConversationRemovalReason.LEFT,
+        }),
+      },
+      context,
+      sync,
+    );
+    expect(readConversation(queryClient, "c1")).toBeUndefined();
+    expect(readConversation(queryClient, "c2")).toBeDefined();
+    expect(queryClient.getQueryData(chatKeys.timeline("c1"))).toBeUndefined();
+  });
+
+  it("marks the conversation of a call that is ringing, and clears it once the call ended", () => {
+    const queryClient = client([conversation("c1")]);
+    const call = (state: chat.CallState): chat.ChatEvent["event"] => ({
+      case: "call",
+      value: create(chat.CallChangedSchema, {
+        call: { id: "call1", conversationId: "c1", state, startedBy: user("aoi") },
+      }),
+    });
+    applyChatEvent(queryClient, call(chat.CallState.RINGING), context, sync);
+    expect(readConversation(queryClient, "c1")?.activeCallId).toBe("call1");
+    applyChatEvent(queryClient, call(chat.CallState.ENDED), context, sync);
+    expect(readConversation(queryClient, "c1")?.activeCallId).toBe("");
+  });
+});

@@ -9,6 +9,7 @@ import { readJson, readSecure, writeJson, writeSecure } from "#/platform/secure-
  */
 const ACTIVE_KEY = "tokuly.session.active";
 const PARKED_KEY = "tokuly.session.parked";
+const DEPARTED_KEY = "tokuly.session.departed";
 
 /** Every account this install holds, for forgetting them all at once. */
 export const ACCOUNT_KEYS = [ACTIVE_KEY, PARKED_KEY] as const;
@@ -53,4 +54,69 @@ export async function keepParked(sessionIds: ReadonlySet<string>): Promise<void>
   const tokens = await parkedTokens();
   const kept = Object.fromEntries(Object.entries(tokens).filter(([id]) => sessionIds.has(id)));
   if (Object.keys(kept).length !== Object.keys(tokens).length) await writeJson(PARKED_KEY, kept);
+}
+
+/**
+ * The token store of one parked account: a refresh made for it (work its
+ * session still owes, `asParked`) keeps the rotated token in its place, and a
+ * session the server ended is forgotten.
+ */
+export function parkedTokenStore(sessionId: string): RefreshTokenStore {
+  return {
+    get: async () => (await parkedTokens())[sessionId] ?? null,
+    set: (token) => rotateParked(sessionId, token),
+    clear: () => forgetParked(sessionId),
+  };
+}
+
+/** A session that left this device: its refresh token, and whether all of its account's sessions were to end. */
+export interface Departed {
+  token: string;
+  allSessions: boolean;
+}
+
+/**
+ * Accounts signed out of this device whose server may not know yet (signed
+ * out offline, or left behind by a previous install), by session ID: kept
+ * only until the server has removed their push registrations and ended them
+ * — every session of the account when that was asked (`settleDeparted`).
+ * The app shows nobody signed in for them.
+ */
+export function departedTokens(): Promise<Record<string, Departed>> {
+  return readJson<Record<string, Departed>>(DEPARTED_KEY, {});
+}
+
+export async function addDeparted(sessionId: string, departed: Departed): Promise<void> {
+  await writeJson(DEPARTED_KEY, { ...(await departedTokens()), [sessionId]: departed });
+}
+
+export async function forgetDeparted(sessionId: string): Promise<void> {
+  const { [sessionId]: _gone, ...rest } = await departedTokens();
+  await writeJson(DEPARTED_KEY, rest);
+}
+
+/** The token store of one departed session: a refresh keeps the rotated token, a refused one ends it here. */
+export function departedTokenStore(sessionId: string): RefreshTokenStore {
+  return {
+    get: async () => (await departedTokens())[sessionId]?.token ?? null,
+    set: async (token) => {
+      const held = (await departedTokens())[sessionId];
+      await addDeparted(sessionId, { token, allSessions: held?.allSessions ?? false });
+    },
+    clear: () => forgetDeparted(sessionId),
+  };
+}
+
+/**
+ * A new install found the accounts of a previous one in the keychain (iOS
+ * keeps it across an uninstall): they are not signed in here, but their
+ * sessions may be alive on the server with this phone's push token, so they
+ * go aside as departed, to be ended there.
+ */
+export async function departPreviousInstall(): Promise<void> {
+  const active = await activeTokenStore.get();
+  const parked = await parkedTokens();
+  if (active) await addDeparted("previous-install", { token: active, allSessions: false });
+  for (const [sessionId, token] of Object.entries(parked))
+    await addDeparted(sessionId, { token, allSessions: false });
 }

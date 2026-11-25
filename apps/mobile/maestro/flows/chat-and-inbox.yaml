@@ -1,0 +1,70 @@
+appId: app.tokuly.mobile
+name: Chat with a friend (unread, send, receive), start a chat, open the inbox
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/chat-friends.js
+- launchApp:
+    clearState: true
+- tapOn: { id: "welcome-sign-in" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.me}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+
+# The friend wrote first: the conversation waits with its unread count.
+- tapOn: { id: "tab-chats" }
+- extendedWaitUntil:
+    visible: { id: "${'unread-' + output.friendName}" }
+    timeout: 20000
+- tapOn: { id: "${'conversation-' + output.friendName}" }
+- extendedWaitUntil:
+    visible: "やっほー！あそぼ"
+    timeout: 15000
+
+# Send one (the device keyboard types ASCII only).
+- tapOn: { id: "composer-input" }
+- inputText: "hello from the phone"
+- hideKeyboard
+- tapOn: { id: "composer-send" }
+- extendedWaitUntil:
+    visible: "hello from the phone"
+    timeout: 15000
+
+# Receive one, live, while the conversation is open.
+- runScript: ../scripts/friend-replies.js
+- extendedWaitUntil:
+    visible: "いいね、またあとで！"
+    timeout: 20000
+
+# Read now: the unread count is gone from the list.
+- tapOn: { id: "conversation-call" }
+- assertVisible: "(通話はWebでできるよ！|Calls are on the web for now!)"
+- tapOn: "(キャンセル|Cancel|CANCEL)"
+- back
+- extendedWaitUntil:
+    notVisible: { id: "${'unread-' + output.friendName}" }
+    timeout: 15000
+
+# A new chat with the same friend opens the same conversation.
+- tapOn: { id: "chat-new" }
+- tapOn: { id: "${'pick-' + output.friend}" }
+- tapOn: { id: "new-chat-start" }
+- extendedWaitUntil:
+    visible: "いいね、またあとで！"
+    timeout: 15000
+- back
+
+# The inbox: the friend request is in it.
+- tapOn: { id: "tab-inbox" }
+- extendedWaitUntil:
+    visible: { id: "inbox-screen" }
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "${'.*' + output.friendName + '.*'}"
+    timeout: 15000
