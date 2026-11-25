@@ -11,6 +11,12 @@ allowBuilds:
   sharp: true
   '@parcel/watcher': false
 
+
+# Babel presets used by apps/mobile (babel-preset-expo, NativeWind) load
+# plugins by name without depending on all of them; Expo's Metro resolves
+# those from the app, so the @babel scope is hoisted to the root node_modules.
+publicHoistPattern:
+  - "@babel/*"
 # Single source of truth for dependency versions shared across the monorepo.
 # Reference with `"<pkg>": "catalog:"` in a package.json.
 catalog:
