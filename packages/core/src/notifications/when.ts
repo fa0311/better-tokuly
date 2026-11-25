@@ -17,17 +17,12 @@ export function dayBucket(atMs: number, nowMs: number): DayBucket {
 }
 
 /** "3分前" for the last week, then the date ("11月3日", with the year once it differs). */
-export function formatWhen(
-  i18n: I18n,
-  atMs: number,
-  nowMs: number,
-  language = i18n.language,
-): string {
+export function formatWhen(i18n: I18n, atMs: number, nowMs: number): string {
   if (nowMs - atMs < 7 * DAY_MS) return compactAge(i18n, atMs, nowMs);
   const date = new Date(atMs);
   const sameYear = date.getFullYear() === new Date(nowMs).getFullYear();
   return date.toLocaleDateString(
-    language,
+    i18n.language,
     sameYear
       ? { month: "short", day: "numeric" }
       : { year: "numeric", month: "short", day: "numeric" },

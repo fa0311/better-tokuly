@@ -25,7 +25,7 @@ export function NotificationRow({
   onRead(): void;
   onDelete(): void;
 }) {
-  const { t, i18n } = useTranslation("notifications");
+  const { t } = useTranslation("notifications");
   const swipe = useSwipeAway(onDelete);
   const target = resolveTargetPath(notificationPath(entry.kind, entry.path));
   const more = entry.groupCount - 1;
@@ -56,7 +56,7 @@ export function NotificationRow({
         )}
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-bold text-ink-faint">
           <time dateTime={new Date(toMillis(entry.occurredAt)).toISOString()}>
-            {formatWhen(toMillis(entry.occurredAt), now, i18n.language)}
+            {formatWhen(toMillis(entry.occurredAt), now)}
           </time>
           {more > 0 && (
             <Chip className="h-5 bg-surface px-2 text-[11px]">

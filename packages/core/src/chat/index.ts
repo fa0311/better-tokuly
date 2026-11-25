@@ -4,7 +4,6 @@
  * message window and its rows, text tokens and times, preview sentences.
  * Cache wiring, live state and outgoing messages stay in each app.
  */
-export { consentStorageKey } from "./assist-consent";
 export {
   type Capabilities,
   capabilitiesOf,

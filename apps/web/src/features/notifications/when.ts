@@ -10,8 +10,8 @@ export {
 } from "@tokuly/core/notifications";
 
 /** "3分前" for the last week, then the date ("11月3日", with the year once it differs). */
-export function formatWhen(atMs: number, nowMs: number, language: string): string {
-  return formatWhenIn(i18n, atMs, nowMs, language);
+export function formatWhen(atMs: number, nowMs: number): string {
+  return formatWhenIn(i18n, atMs, nowMs);
 }
 
 /** The current time, re-rendering the caller every `everyMs` so relative times stay true. */

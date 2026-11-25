@@ -28,7 +28,7 @@ function useMutedUsers() {
 
 /** People whose notifications never arrive, with a way to add and remove them. */
 export function MutedUsersCard() {
-  const { t, i18n } = useTranslation("notifications");
+  const { t } = useTranslation("notifications");
   const queryClient = useQueryClient();
   const now = useNow();
   const muted = useMutedUsers();
@@ -78,7 +78,7 @@ export function MutedUsersCard() {
                   <li key={user.id}>
                     <UserRow
                       user={user}
-                      subtitle={`@${user.handle} ・ ${t("muted.since", { when: formatWhen(toMillis(mutedAt), now, i18n.language) })}`}
+                      subtitle={`@${user.handle} ・ ${t("muted.since", { when: formatWhen(toMillis(mutedAt), now) })}`}
                       trailing={
                         <Button
                           variant="secondary"
