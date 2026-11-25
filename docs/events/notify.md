@@ -232,8 +232,10 @@ Default: decided when the account is created (`identity.user.created`) and
 stored, `SENDER_ONLY` for accounts under 18 and `FULL` for the others; the
 migration does the same for existing minors. It is never derived from the
 birthdate on a read, so an 18th birthday changes nothing anyone can see.
-Until the event is handled (`notify_settings.push_preview` is NULL) pushes
-show everything.
+When a push (or `GetPreferences`) finds nothing stored yet, because the
+event has not been handled or was given up after its retries, it decides and
+stores the default itself, the same idempotent way, so a minor's first push
+never shows everything.
 
 Collapse keys are sent to push services as a 32-character digest (Web Push
 `Topic`, FCM `collapse_key` and `android.notification.tag`, APNs

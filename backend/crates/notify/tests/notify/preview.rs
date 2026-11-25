@@ -158,3 +158,25 @@ async fn unknown_choices_are_refused_and_unspecified_keeps_the_choice() {
         .unwrap_err();
     assert_eq!(err.reason, "PUSH_PREVIEW_INVALID");
 }
+
+#[tokio::test]
+async fn a_minor_whose_sign_up_event_never_arrived_still_gets_sender_only() {
+    let ctx = start_insecure().await;
+    let stub = Stub::accepting().await;
+    let aoi = ctx.app.user("あおい").await;
+    // identity.user.created was never handled (dropped after its retries).
+    let minor = ctx.app.user("minor").await;
+    set_birthdate(&ctx, &minor, 15).await;
+    let (message, _) = pushed(&ctx, &minor, &aoi, &stub, "/push/minor-first").await;
+    assert_eq!(message["notification"]["body"], "あおいさんからメッセージが届いたよ");
+    assert!(!message.to_string().contains("やっほー"));
+    // Decided once and stored: the 18th birthday changes nothing.
+    set_birthdate(&ctx, &minor, 20).await;
+    assert_eq!(preview_of(&ctx, &minor).await, PushPreview::PUSH_PREVIEW_SENDER_ONLY);
+
+    // An adult in the same situation sees everything, and it is stored too.
+    let adult = ctx.app.user("adult").await;
+    assert_eq!(preview_of(&ctx, &adult).await, PushPreview::PUSH_PREVIEW_FULL);
+    set_birthdate(&ctx, &adult, 15).await;
+    assert_eq!(preview_of(&ctx, &adult).await, PushPreview::PUSH_PREVIEW_FULL);
+}

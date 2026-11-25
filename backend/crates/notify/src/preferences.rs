@@ -119,8 +119,8 @@ pub fn validate_quiet_hours(quiet: &QuietHours) -> AppResult<()> {
 /// Accounts younger than this are created with [`PushPreview::PUSH_PREVIEW_SENDER_ONLY`].
 pub const ADULT_AGE_YEARS: i32 = 18;
 
-/// The stored preview setting (`notify_settings.push_preview`); nothing
-/// stored (or a value this build does not know) reads as full.
+/// The stored preview setting (`notify_settings.push_preview`); a value
+/// this build does not know reads as full.
 pub fn push_preview_from(stored: Option<i16>) -> PushPreview {
     match stored {
         Some(2) => PushPreview::PUSH_PREVIEW_SENDER_ONLY,
@@ -129,13 +129,25 @@ pub fn push_preview_from(stored: Option<i16>) -> PushPreview {
     }
 }
 
-/// What `user_id`'s pushes show.
+/// What `user_id`'s pushes show. When nothing is stored yet, because
+/// `identity.user.created` has not been handled (or never will be: an event
+/// is given up after its retries), the default is decided and stored right
+/// here, the same way the event would ([`set_initial_push_preview`]): a
+/// minor's first push must not show everything.
 pub async fn push_preview_of(core: &Core, user_id: Uuid) -> AppResult<PushPreview> {
+    if let Some(stored) = stored_push_preview(core, user_id).await? {
+        return Ok(push_preview_from(Some(stored)));
+    }
+    set_initial_push_preview(core, user_id).await?;
+    Ok(push_preview_from(stored_push_preview(core, user_id).await?))
+}
+
+async fn stored_push_preview(core: &Core, user_id: Uuid) -> AppResult<Option<i16>> {
     let stored: Option<Option<i16>> = sqlx::query_scalar("SELECT push_preview FROM notify_settings WHERE user_id = $1")
         .bind(user_id)
         .fetch_optional(&core.db)
         .await?;
-    Ok(push_preview_from(stored.flatten()))
+    Ok(stored.flatten())
 }
 
 /// Stores the preview setting a new account starts with: sender only for
@@ -234,7 +246,11 @@ pub async fn load(core: &Core, user_id: Uuid) -> AppResult<Preferences> {
         quiet_now: settings.quiet_enabled
             && in_quiet_hours(&settings.time_zone, settings.quiet_start_minute, settings.quiet_end_minute, now),
         time_zone: settings.time_zone,
-        push_preview: push_preview_from(settings.push_preview).into(),
+        push_preview: match settings.push_preview {
+            Some(stored) => push_preview_from(Some(stored)),
+            None => push_preview_of(core, user_id).await?,
+        }
+        .into(),
         ..Default::default()
     })
 }
