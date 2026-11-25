@@ -7,7 +7,7 @@ use std::str::FromStr as _;
 use chrono::{DateTime, Duration, Utc};
 use common::*;
 use rand::RngExt as _;
-use tokuly_geo::GeoConfig;
+use tokuly_geo::{GeoConfig, math};
 use tokuly_proto::{
     common::BoundingBox,
     geo::{geo_event::Event as Push, *},
@@ -65,6 +65,23 @@ async fn ride_along(ctx: &Ctx, user: &TestUser, track: &[Point], start: DateTime
 /// Rides east from `from` for `meters`, starting at `start`.
 async fn ride(ctx: &Ctx, user: &TestUser, from: Point, meters: f64, start: DateTime<Utc>) {
     ride_along(ctx, user, &track(from, meters), start).await;
+}
+
+/// The centers of `count` neighbouring cells in a row heading east from
+/// `from`: a track that uncovers exactly `count` cells.
+fn cells_east(from: Point, count: usize) -> Vec<Point> {
+    let mut cell = math::cell_at(from.0, from.1, math::CELL_RESOLUTION).expect("valid coordinates");
+    let mut centers = vec![math::cell_center(cell)];
+    while centers.len() < count {
+        // The easternmost neighbour: always further east, so never a cell already in the row.
+        cell = cell
+            .grid_disk::<Vec<_>>(1)
+            .into_iter()
+            .max_by(|a, b| math::cell_center(*a).1.total_cmp(&math::cell_center(*b).1))
+            .expect("a cell has neighbours");
+        centers.push(math::cell_center(cell));
+    }
+    centers
 }
 
 /// A spot in the open South Pacific: no country, no town, no other test.
@@ -150,16 +167,24 @@ async fn moving_uncovers_cells_at_three_resolutions() {
     assert_eq!(town.resolution, 7);
     // Resolution 7 cells have edges of about 1.2 km: a 2 km ride from a random start touches
     // up to four of them when it passes near a corner.
-    assert!((1..=4).contains(&town.cells.len()) && town.cells.len() < fine.cells.len(), "{} town cells", town.cells.len());
-    let parents: std::collections::HashSet<String> = fine
-        .cells
-        .iter()
-        .map(|hex| h3o::CellIndex::from_str(hex).unwrap().parent(h3o::Resolution::Seven).unwrap().to_string())
-        .collect();
-    assert_eq!(town.cells.iter().cloned().collect::<std::collections::HashSet<_>>(), parents);
+    assert!(
+        (1..=4).contains(&town.cells.len()) && town.cells.len() < fine.cells.len(),
+        "{} town cells",
+        town.cells.len()
+    );
+    let parents = |resolution: h3o::Resolution| -> std::collections::HashSet<String> {
+        fine.cells
+            .iter()
+            .map(|hex| h3o::CellIndex::from_str(hex).unwrap().parent(resolution).unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(town.cells.iter().cloned().collect::<std::collections::HashSet<_>>(), parents(h3o::Resolution::Seven));
+    // Resolution 5 cells (edges of about 8.5 km) hold the whole ride: one,
+    // or up to three where it passes a corner.
     let country = cells(&ctx, &aoi, None, around(from, 5.0), 4.0).await.unwrap();
     assert_eq!(country.resolution, 5);
-    assert!((1..=2).contains(&country.cells.len()));
+    assert!((1..=3).contains(&country.cells.len()), "{} country cells", country.cells.len());
+    assert_eq!(country.cells.iter().cloned().collect::<std::collections::HashSet<_>>(), parents(h3o::Resolution::Five));
 
     // Only what is inside the viewport.
     let elsewhere = (from.0 + 1.0, from.1);
@@ -465,11 +490,13 @@ async fn leaderboards_rank_friends_and_respect_who_shows_their_map() {
     }
     ctx.set_privacy(&kai, |privacy| privacy.footprints_visible_to = Audience::AUDIENCE_NOBODY.into()).await;
     ctx.set_privacy(&star, |privacy| privacy.footprints_visible_to = Audience::AUDIENCE_EVERYONE.into()).await;
-    // Everyone rides a different distance along their own parallel.
-    for (index, (user, meters)) in
-        [(&aoi, 1500.0), (&ren, 3000.0), (&mio, 600.0), (&kai, 5000.0), (&star, 4000.0)].into_iter().enumerate()
-    {
-        ride(&ctx, user, (center.0 - 0.05 + index as f64 * 0.02, center.1 - 0.05), meters, minutes_ago(30)).await;
+    // Everyone uncovers a different number of cells along their own parallel.
+    // (Counted in cells, not meters: a ride along a row of hexagons uncovers
+    // about half as many as one that zigzags between two rows.)
+    let counts = [(&aoi, 6), (&ren, 12), (&mio, 3), (&kai, 20), (&star, 15)];
+    for (index, (user, count)) in counts.into_iter().enumerate() {
+        let from = (center.0 - 0.05 + index as f64 * 0.02, center.1 - 0.05);
+        ride_along(&ctx, user, &cells_east(from, count), minutes_ago(30)).await;
     }
 
     let board = |region_id: &str, scope: LeaderboardScope, limit: i32| {
@@ -496,10 +523,8 @@ async fn leaderboards_rank_friends_and_respect_who_shows_their_map() {
         (me.percent - me.cell_count as f64 * 0.105 / country_area * 100.0).abs() / me.percent < 0.25,
         "share of the country"
     );
-    assert!(
-        friends.entries[0].cell_count > friends.entries[1].cell_count
-            && friends.entries[0].percent > friends.entries[1].percent
-    );
+    assert_eq!(friends.entries.iter().map(|entry| entry.cell_count).collect::<Vec<_>>(), vec![12, 6, 3]);
+    assert!(friends.entries[0].percent > friends.entries[1].percent);
     // The unspecified scope means friends; a limit cuts the list but not the caller's own entry.
     let top: GetLeaderboardResponse =
         board(&country, LeaderboardScope::LEADERBOARD_SCOPE_UNSPECIFIED, 1).await.unwrap();
