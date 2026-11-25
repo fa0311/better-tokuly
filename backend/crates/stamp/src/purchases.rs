@@ -495,7 +495,8 @@ impl Stamp {
             ),
             pack.studio_path(),
         )
-        .actor(buyer_id)
+        // The text says "someone": nothing may name the buyer to the creator.
+        .unnamed_actor(buyer_id)
         .subject(SubjectType::SUBJECT_TYPE_STAMP_PACK, pack.id)
         // One entry per pack: a popular pack must not flood the inbox.
         .collapse(format!("stamp.pack.sold:{}", pack.id));

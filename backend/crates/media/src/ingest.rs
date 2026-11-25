@@ -42,8 +42,8 @@ pub async fn create_asset_from_file(core: &Core, owner_id: Uuid, purpose: AssetP
     // The row exists (as an upload in flight) before the bytes do, so a
     // crash in between leaves something the janitor will clean up.
     sqlx::query(
-        "INSERT INTO media_assets (id, owner_id, purpose, kind, status, content_type, size_bytes, file_name, original_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        "INSERT INTO media_assets (id, owner_id, purpose, kind, status, content_type, size_bytes, file_name, original_key, attrs)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(asset_id)
     .bind(owner_id)
@@ -54,6 +54,8 @@ pub async fn create_asset_from_file(core: &Core, owner_id: Uuid, purpose: AssetP
     .bind(size_bytes)
     .bind(&file_name)
     .bind(&key)
+    // Bounded by the domain that makes it, not by the daily transcoding budget.
+    .bind(recipe::new_asset_attrs(None, true))
     .execute(&core.db)
     .await?;
 

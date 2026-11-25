@@ -27,8 +27,9 @@ use crate::{
     delivery::PushJob,
     edits::{self, COMMENT_EDITED_TOPIC},
     events::{
-        FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC, USER_DELETED_TOPIC, USER_UNBLOCKED_TOPIC,
-        UserDeleted,
+        FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC, USER_CREATED_TOPIC, USER_DELETED_TOPIC,
+        USER_UNBLOCKED_TOPIC,
+        UserCreated, UserDeleted,
     },
     inbox::{self, NewNotification, NotificationRow},
     locks,
@@ -44,6 +45,7 @@ pub const CONSUMER_NAME: &str = "notify";
 pub const TOPICS: &[&str] = &[
     NOTIFY_TOPIC,
     FRIEND_PREFS_CHANGED_TOPIC,
+    USER_CREATED_TOPIC,
     USER_DELETED_TOPIC,
     USER_BLOCKED_TOPIC,
     USER_UNBLOCKED_TOPIC,
@@ -176,6 +178,7 @@ fn inbox_entry<'a>(
         kind: &request.kind,
         category: category.id,
         actor_id: request.actor_id,
+        actor_unnamed: request.actor_unnamed,
         title: &request.title,
         body: &request.body,
         image_url: request.image_url.as_deref(),
@@ -216,6 +219,7 @@ fn push_job(
         data: request.data.clone(),
         refs: withdrawable_refs.to_vec(),
         urgent: request.urgent,
+        actor_unnamed: request.actor_unnamed,
         created_at: event.occurred_at,
     }
 }
@@ -229,6 +233,11 @@ impl Notify {
             USER_BLOCKED_TOPIC => self.handle_block(&event, true).await,
             USER_UNBLOCKED_TOPIC => self.handle_block(&event, false).await,
             COMMENT_EDITED_TOPIC => self.handle_comment_edited(&event).await,
+            // What a new account's pushes show starts out by its age.
+            USER_CREATED_TOPIC => {
+                let created: UserCreated = event.data()?;
+                preferences::set_initial_push_preview(&self.core, created.user_id).await
+            }
             USER_DELETED_TOPIC => {
                 let deleted: UserDeleted = event.data()?;
                 self.purge_user(deleted.user_id).await
@@ -252,8 +261,12 @@ impl Notify {
             return Ok(RequestOutcome::Dropped(DropReason::OwnAction));
         }
         let category = categories::of_kind(&request.kind);
+        // An actor the recipient is not told about cannot be what they muted
+        // or blocked; holding such a notification back because of them would
+        // tell the recipient who it was.
+        let visible_actor = request.actor_id.filter(|_| !request.actor_unnamed);
         let Some(recipient) =
-            preferences::delivery_context(&self.core, request.user_id, category.id, request.actor_id).await?
+            preferences::delivery_context(&self.core, request.user_id, category.id, visible_actor).await?
         else {
             return Ok(RequestOutcome::Dropped(DropReason::RecipientGone));
         };
@@ -266,7 +279,7 @@ impl Notify {
         // withdrawn, nor held back by a block.
         let system = category.id == UNWITHDRAWABLE_CATEGORY;
         let withdrawable_refs: &[Uuid] = if system { &[] } else { &refs };
-        let blockable_actor = request.actor_id.filter(|_| !system);
+        let blockable_actor = visible_actor.filter(|_| !system);
 
         // Nothing above changed anything, so a redelivery may safely repeat
         // it. From here on the event ID guards against doing the work twice.

@@ -3,6 +3,7 @@
 //! Consumed:
 //! - `notify.requested` — `tokuly_core::outbound::NotificationRequest`
 //! - `social.friend.prefs_changed` — [`FriendPrefsChanged`]
+//! - `identity.user.created` — [`UserCreated`]
 //! - `identity.user.deleted` — [`UserDeleted`]
 //! - `social.user.blocked`, `social.user.unblocked` — [`UserBlocked`]
 //! - deletion events of other domains (see `withdraw.rs`)
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub const FRIEND_PREFS_CHANGED_TOPIC: &str = "social.friend.prefs_changed";
+pub const USER_CREATED_TOPIC: &str = "identity.user.created";
 pub const USER_DELETED_TOPIC: &str = "identity.user.deleted";
 pub const USER_BLOCKED_TOPIC: &str = "social.user.blocked";
 pub const USER_UNBLOCKED_TOPIC: &str = "social.user.unblocked";
@@ -33,6 +35,12 @@ pub struct FriendPrefsChanged {
 pub struct UserBlocked {
     pub user_id: Uuid,
     pub blocked_id: Uuid,
+}
+
+/// Our view of identity's `identity.user.created`: only who it is.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserCreated {
+    pub user_id: Uuid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

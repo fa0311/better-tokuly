@@ -16,7 +16,7 @@ use tokuly_proto::{
 /// Columns of [`NotificationRow`], for `SELECT` and `RETURNING`.
 macro_rules! notification_columns {
     () => {
-        "id, user_id, kind, category, actor_id, title_ja, title_en, body_ja, body_en, image_url, path, \
+        "id, user_id, kind, category, actor_id, actor_unnamed, title_ja, title_en, body_ja, body_en, image_url, path, \
          subject_type, subject_id, collapse_key, data, urgent, group_count, read_at, occurred_at"
     };
 }
@@ -29,6 +29,8 @@ pub struct NotificationRow {
     pub kind: String,
     pub category: String,
     pub actor_id: Option<Uuid>,
+    /// `actor_id` must not be shown to the recipient (see the column).
+    pub actor_unnamed: bool,
     pub title_ja: String,
     pub title_en: String,
     pub body_ja: String,
@@ -54,8 +56,16 @@ impl NotificationRow {
         Localized::new(&self.body_ja, &self.body_en)
     }
 
-    /// The entry as its recipient sees it, in their language.
+    /// Who the recipient may be shown as having caused the entry: nobody
+    /// when the producer leaves the actor unnamed.
+    pub fn shown_actor_id(&self) -> Option<Uuid> {
+        self.actor_id.filter(|_| !self.actor_unnamed)
+    }
+
+    /// The entry as its recipient sees it, in their language. `actor` is
+    /// dropped for an unnamed actor, whatever the caller passes.
     pub fn to_proto(&self, locale: &str, actor: Option<UserSummary>) -> Notification {
+        let actor = actor.filter(|_| !self.actor_unnamed);
         let subject = match (self.subject_type, self.subject_id) {
             (Some(subject_type), Some(id)) => {
                 Some(SubjectRef { r#type: subject_type.into(), id: id.to_string(), ..Default::default() })
@@ -75,6 +85,7 @@ impl NotificationRow {
             collapse_key: self.collapse_key.clone().unwrap_or_default(),
             group_count: self.group_count,
             urgent: self.urgent,
+            actor_unnamed: self.actor_unnamed && self.actor_id.is_some(),
             read: self.read_at.is_some(),
             read_at: opt_ts(self.read_at),
             occurred_at: ts(self.occurred_at),
@@ -90,6 +101,7 @@ pub struct NewNotification<'a> {
     pub kind: &'a str,
     pub category: &'a str,
     pub actor_id: Option<Uuid>,
+    pub actor_unnamed: bool,
     pub title: &'a Localized,
     pub body: &'a Localized,
     pub image_url: Option<&'a str>,
@@ -116,10 +128,11 @@ pub async fn upsert(
     let row = sqlx::query_as(concat!(
         "INSERT INTO notifications
             (user_id, kind, category, actor_id, title_ja, title_en, body_ja, body_en, image_url, path,
-             subject_type, subject_id, collapse_key, data, refs, urgent, occurred_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+             subject_type, subject_id, collapse_key, data, refs, urgent, occurred_at, actor_unnamed)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          ON CONFLICT (user_id, collapse_key) WHERE collapse_key IS NOT NULL DO UPDATE SET
             kind = EXCLUDED.kind, category = EXCLUDED.category, actor_id = EXCLUDED.actor_id,
+            actor_unnamed = EXCLUDED.actor_unnamed,
             title_ja = EXCLUDED.title_ja, title_en = EXCLUDED.title_en,
             body_ja = EXCLUDED.body_ja, body_en = EXCLUDED.body_en,
             image_url = EXCLUDED.image_url, path = EXCLUDED.path,
@@ -155,6 +168,7 @@ pub async fn upsert(
     .bind(new.refs)
     .bind(new.urgent)
     .bind(new.occurred_at)
+    .bind(new.actor_unnamed)
     .fetch_optional(&mut **tx)
     .await?;
     Ok(row)
@@ -179,11 +193,12 @@ pub async fn unread_count<'e, E: PgExecutor<'e>>(executor: E, user_id: Uuid) -> 
 
 /// Rows as API messages for a reader with `locale`, with their actors' summaries.
 pub async fn to_protos(core: &Core, rows: &[NotificationRow], locale: &str) -> AppResult<Vec<Notification>> {
-    let mut actor_ids: Vec<Uuid> = rows.iter().filter_map(|r| r.actor_id).collect();
+    // An unnamed actor is not even looked up.
+    let mut actor_ids: Vec<Uuid> = rows.iter().filter_map(NotificationRow::shown_actor_id).collect();
     actor_ids.sort_unstable();
     actor_ids.dedup();
     let actors = tokuly_identity::summaries(core, &actor_ids).await?;
-    Ok(rows.iter().map(|row| row.to_proto(locale, row.actor_id.and_then(|id| actors.get(&id).cloned()))).collect())
+    Ok(rows.iter().map(|row| row.to_proto(locale, row.shown_actor_id().and_then(|id| actors.get(&id).cloned()))).collect())
 }
 
 /// The language a user reads their notifications in.
@@ -204,6 +219,7 @@ mod tests {
             kind: "chat.message".into(),
             category: "chat".into(),
             actor_id: None,
+            actor_unnamed: false,
             title_ja: "新着メッセージ".into(),
             title_en: "New message".into(),
             body_ja: "やっほー".into(),
@@ -219,6 +235,20 @@ mod tests {
             read_at: None,
             occurred_at: now(),
         }
+    }
+
+    #[test]
+    fn an_unnamed_actor_is_never_shown() {
+        let actor_id = Uuid::now_v7();
+        let summary = || UserSummary { id: actor_id.to_string(), handle: "buyer".into(), ..Default::default() };
+        let named = NotificationRow { actor_id: Some(actor_id), ..row() };
+        assert_eq!(named.shown_actor_id(), Some(actor_id));
+        assert_eq!(named.to_proto("ja", Some(summary())).actor.as_option().map(|a| a.handle.as_str()), Some("buyer"));
+        let unnamed = NotificationRow { actor_unnamed: true, ..named };
+        assert_eq!(unnamed.shown_actor_id(), None);
+        let proto = unnamed.to_proto("ja", Some(summary()));
+        assert!(proto.actor.as_option().is_none(), "even when a caller hands one in");
+        assert!(proto.actor_unnamed, "clients are told someone did it");
     }
 
     #[test]

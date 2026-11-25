@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Spinner } from "#/components/ui/spinner";
+import { AssetFailedError } from "#/lib/asset-error";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
@@ -81,7 +82,7 @@ export function useUploads(rules: UploadRules) {
       if (controller.signal.aborted) return;
       remove(upload.key);
       toast.error(
-        error instanceof Error && /^[A-Z_]+$/.test(error.message)
+        error instanceof AssetFailedError && error.reason === "PROCESSING_FAILED"
           ? say("uploads.failed")
           : errorMessage(error),
       );

@@ -155,8 +155,35 @@ export default {
       already: "Muted",
     },
   },
+  someone: "Someone",
+  preview: {
+    title: "Show content in notifications",
+    lead: "Choose how much push notifications show on your lock screen.",
+    inbox: "Your in-app notifications always show everything.",
+    choices: {
+      full: {
+        label: "Show everything",
+        hint: "Who it's from and what it says",
+        sampleTitle: "Aoi",
+        sampleBody: "Free after school tomorrow?",
+      },
+      senderOnly: {
+        label: "Sender only",
+        hint: "Who it's from, without the message or comment",
+        sampleTitle: "Chat & calls",
+        sampleBody: "New message from Aoi",
+      },
+      hidden: {
+        label: "Show nothing",
+        hint: "No name, no content",
+        sampleTitle: "Tokuly",
+        sampleBody: "You have a new notification",
+      },
+    },
+  },
   settings: { title: "Notification settings" },
   errors: {
+    PUSH_PREVIEW_INVALID: "That option isn't available",
     CATEGORY_UNKNOWN: "That kind of notification wasn't found",
     CATEGORY_LOCKED: "This kind of notification can't be turned off",
     QUIET_HOURS_INVALID: "Check the start and end of your quiet hours",

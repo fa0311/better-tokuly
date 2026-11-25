@@ -144,6 +144,7 @@ impl PushService for Notify {
                 data: serde_json::Value::Null,
                 refs: Vec::new(),
                 urgent: false,
+                actor_unnamed: false,
                 created_at: now(),
             };
             self.enqueue_push(&job).await?;

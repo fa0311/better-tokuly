@@ -501,6 +501,8 @@ export default {
         NOT_A_VIDEO: "This does not look like a video file.",
         VIDEO_TOO_LARGE: "The file is too large.",
         MEDIA_TOO_LONG: "The video is too long.",
+        DAILY_TRANSCODE_LIMIT_EXCEEDED:
+          "You've reached today's limit for video processing. Try again tomorrow!",
       },
     },
     editor: {

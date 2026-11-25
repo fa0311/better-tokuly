@@ -247,7 +247,7 @@ impl DataExporter for NotifyExporter {
         let notifications = json(
             core,
             "SELECT COALESCE(jsonb_agg(to_jsonb(n) ORDER BY n.occurred_at DESC), '[]'::jsonb) FROM (
-                 SELECT id, kind, category, actor_id, title_ja, title_en, body_ja, body_en, image_url, path,
+                 SELECT id, kind, category, CASE WHEN actor_unnamed THEN NULL ELSE actor_id END AS actor_id, title_ja, title_en, body_ja, body_en, image_url, path,
                         collapse_key, data, urgent, group_count, read_at, occurred_at
                  FROM notifications WHERE user_id = $1
              ) n",

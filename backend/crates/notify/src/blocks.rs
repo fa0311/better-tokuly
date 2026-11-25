@@ -70,7 +70,9 @@ impl Notify {
         .await?;
         let removed: Vec<(Uuid, Uuid)> = if applied == Some(true) {
             sqlx::query_as(
-                "DELETE FROM notifications WHERE user_id = $1 AND actor_id = $2 AND category <> $3
+                // Entries whose actor is unnamed show no one: removing them
+                // would tell the blocker who was behind them.
+                "DELETE FROM notifications WHERE user_id = $1 AND actor_id = $2 AND category <> $3 AND NOT actor_unnamed
                  RETURNING user_id, id",
             )
             .bind(change.user_id)

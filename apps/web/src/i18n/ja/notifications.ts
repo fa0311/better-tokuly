@@ -155,8 +155,35 @@ export default {
       already: "ミュート中",
     },
   },
+  someone: "だれか",
+  preview: {
+    title: "通知に内容を表示",
+    lead: "ロック画面のプッシュ通知に、どこまで見せるか選べるよ。",
+    inbox: "アプリのお知らせ一覧には、いつでも全部表示されるよ。",
+    choices: {
+      full: {
+        label: "すべて表示",
+        hint: "だれから・なんて書いてあるかまで表示するよ",
+        sampleTitle: "あおい",
+        sampleBody: "明日の放課後ひま?",
+      },
+      senderOnly: {
+        label: "送り主だけ",
+        hint: "だれからかだけ。メッセージやコメントの中身は表示しないよ",
+        sampleTitle: "チャット・通話",
+        sampleBody: "あおいさんからメッセージが届いたよ",
+      },
+      hidden: {
+        label: "表示しない",
+        hint: "名前も中身も表示しないよ",
+        sampleTitle: "Tokuly",
+        sampleBody: "新しいお知らせがあるよ",
+      },
+    },
+  },
   settings: { title: "通知設定" },
   errors: {
+    PUSH_PREVIEW_INVALID: "その表示方法は選べないよ",
     CATEGORY_UNKNOWN: "この種類のお知らせは見つからなかったよ",
     CATEGORY_LOCKED: "この種類のお知らせはオフにできないよ",
     QUIET_HOURS_INVALID: "おやすみ時間のはじまりとおわりを確認してね",

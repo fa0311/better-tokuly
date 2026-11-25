@@ -73,6 +73,13 @@ pub struct NotificationRequest {
     /// Extra structured data for clients.
     #[serde(default)]
     pub data: serde_json::Value,
+    /// The text deliberately does not name the actor ("Someone bought your
+    /// pack"), so nothing may reveal them: no push or inbox entry names them,
+    /// and the recipient's blocks and mutes do not apply to them (an entry
+    /// that vanished or never came would say who it was). The actor is kept
+    /// for account deletion.
+    #[serde(default)]
+    pub actor_unnamed: bool,
 }
 
 impl NotificationRequest {
@@ -91,11 +98,19 @@ impl NotificationRequest {
             push: true,
             urgent: false,
             data: serde_json::Value::Null,
+            actor_unnamed: false,
         }
     }
 
     pub fn actor(mut self, actor_id: Uuid) -> Self {
         self.actor_id = Some(actor_id);
+        self
+    }
+
+    /// `actor_id` caused it but must not be named (see `actor_unnamed`).
+    pub fn unnamed_actor(mut self, actor_id: Uuid) -> Self {
+        self.actor_id = Some(actor_id);
+        self.actor_unnamed = true;
         self
     }
 

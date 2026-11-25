@@ -1,6 +1,14 @@
 import { createECDH, randomBytes } from "node:crypto";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { type Account, expect as baseExpect, befriend, createAccount, rpc, test } from "./support";
+import {
+  type Account,
+  expect as baseExpect,
+  befriend,
+  createAccount,
+  rpc,
+  signInAs,
+  test,
+} from "./support";
 
 // These tests share a machine with many other builds and browsers: a cold page
 // or a busy API can take a while to answer. Waiting longer costs nothing when
@@ -89,6 +97,7 @@ interface Preferences {
   quietHours?: { enabled?: boolean; startMinute?: number; endMinute?: number };
   pushPause?: { paused?: boolean; until?: string };
   timeZone: string;
+  pushPreview?: string;
 }
 
 async function preferencesOf(request: APIRequestContext, as: Account): Promise<Preferences> {
@@ -492,6 +501,41 @@ test("category switches are saved", async ({ page, request, me }) => {
   await expect
     .poll(saved)
     .toEqual({ chatInbox: true, chatPush: true, socialInbox: false, socialPush: true });
+});
+
+test("what pushes show on the lock screen is chosen and saved", async ({ page, request, me }) => {
+  await page.goto("/notifications/settings");
+  const choices = page.getByRole("group", { name: "通知に内容を表示" });
+  const full = choices.getByRole("radio", { name: /^すべて表示/ });
+  const senderOnly = choices.getByRole("radio", { name: /^送り主だけ/ });
+  const hidden = choices.getByRole("radio", { name: /^表示しない/ });
+  await expect(full).toBeChecked();
+  await expect(choices).toContainText("あおいさんからメッセージが届いたよ");
+
+  await senderOnly.click();
+  await expect(senderOnly).toBeChecked();
+  await expect(full).not.toBeChecked();
+  const saved = async () => (await preferencesOf(request, me)).pushPreview;
+  await expect.poll(saved).toBe("PUSH_PREVIEW_SENDER_ONLY");
+
+  await hidden.click();
+  await expect(hidden).toBeChecked();
+  await expect.poll(saved).toBe("PUSH_PREVIEW_HIDDEN");
+  await page.reload();
+  await expect(hidden).toBeChecked();
+});
+
+test("an account of a minor starts with only the sender shown", async ({ page, request }) => {
+  const teen = await createAccount(request, "teen", {
+    birthdate: `${new Date().getFullYear() - 15}-04-02`,
+  });
+  // Decided from the sign-up event, a moment after the account exists.
+  await expect
+    .poll(async () => (await preferencesOf(request, teen)).pushPreview)
+    .toBe("PUSH_PREVIEW_SENDER_ONLY");
+  await signInAs(page, teen);
+  await page.goto("/notifications/settings");
+  await expect(page.getByRole("radio", { name: /^送り主だけ/ })).toBeChecked();
 });
 
 test("quiet hours are saved with their times", async ({ page, request, me }) => {

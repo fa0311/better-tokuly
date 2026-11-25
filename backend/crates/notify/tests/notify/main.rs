@@ -15,4 +15,5 @@ mod inbox_changes;
 mod maintenance;
 mod mutes;
 mod preferences;
+mod preview;
 mod withdrawals;

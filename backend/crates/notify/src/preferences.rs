@@ -2,10 +2,12 @@
 //! hours and per-person mutes.
 //!
 //! Nothing is stored for a user until they change something: a missing row
-//! means "everything on".
+//! means "everything on". The one exception is what pushes show
+//! ([`PushPreview`]), which is decided when the account is created
+//! ([`set_initial_push_preview`]).
 use chrono::Timelike as _;
 use tokuly_core::prelude::*;
-use tokuly_proto::notify::{CategoryPreference, Preferences, PushPause, QuietHours};
+use tokuly_proto::notify::{CategoryPreference, Preferences, PushPause, PushPreview, QuietHours};
 
 use crate::categories::{self, CATEGORIES};
 
@@ -114,6 +116,60 @@ pub fn validate_quiet_hours(quiet: &QuietHours) -> AppResult<()> {
     Ok(())
 }
 
+/// Accounts younger than this are created with [`PushPreview::PUSH_PREVIEW_SENDER_ONLY`].
+pub const ADULT_AGE_YEARS: i32 = 18;
+
+/// The stored preview setting (`notify_settings.push_preview`); a value
+/// this build does not know reads as full.
+pub fn push_preview_from(stored: Option<i16>) -> PushPreview {
+    match stored {
+        Some(2) => PushPreview::PUSH_PREVIEW_SENDER_ONLY,
+        Some(3) => PushPreview::PUSH_PREVIEW_HIDDEN,
+        _ => PushPreview::PUSH_PREVIEW_FULL,
+    }
+}
+
+/// What `user_id`'s pushes show. When nothing is stored yet, because
+/// `identity.user.created` has not been handled (or never will be: an event
+/// is given up after its retries), the default is decided and stored right
+/// here, the same way the event would ([`set_initial_push_preview`]): a
+/// minor's first push must not show everything.
+pub async fn push_preview_of(core: &Core, user_id: Uuid) -> AppResult<PushPreview> {
+    if let Some(stored) = stored_push_preview(core, user_id).await? {
+        return Ok(push_preview_from(Some(stored)));
+    }
+    set_initial_push_preview(core, user_id).await?;
+    Ok(push_preview_from(stored_push_preview(core, user_id).await?))
+}
+
+async fn stored_push_preview(core: &Core, user_id: Uuid) -> AppResult<Option<i16>> {
+    let stored: Option<Option<i16>> = sqlx::query_scalar("SELECT push_preview FROM notify_settings WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_optional(&core.db)
+        .await?;
+    Ok(stored.flatten())
+}
+
+/// Stores the preview setting a new account starts with: sender only for
+/// minors, full for adults. The age is read once, here, when the account is
+/// created (`identity.user.created`), and the result is stored: computing it
+/// on every read would change the setting on the 18th birthday and tell
+/// anyone watching when that is. Idempotent, and never overrides a choice the
+/// owner already made.
+pub async fn set_initial_push_preview(core: &Core, user_id: Uuid) -> AppResult<()> {
+    sqlx::query(
+        "INSERT INTO notify_settings (user_id, push_preview)
+         SELECT id, CASE WHEN birthdate > current_date - make_interval(years => $2) THEN 2 ELSE 1 END
+         FROM users WHERE id = $1 AND deleted_at IS NULL
+         ON CONFLICT (user_id) DO UPDATE SET push_preview = COALESCE(notify_settings.push_preview, EXCLUDED.push_preview)",
+    )
+    .bind(user_id)
+    .bind(ADULT_AGE_YEARS)
+    .execute(&core.db)
+    .await?;
+    Ok(())
+}
+
 #[derive(sqlx::FromRow)]
 struct SettingsRow {
     locale: String,
@@ -123,6 +179,7 @@ struct SettingsRow {
     quiet_enabled: bool,
     quiet_start_minute: i16,
     quiet_end_minute: i16,
+    push_preview: Option<i16>,
 }
 
 /// The caller's preferences as the API presents them: every category (with
@@ -136,7 +193,8 @@ pub async fn load(core: &Core, user_id: Uuid) -> AppResult<Preferences> {
                 s.push_paused_until,
                 COALESCE(s.quiet_enabled, false) AS quiet_enabled,
                 COALESCE(s.quiet_start_minute, 1320::smallint) AS quiet_start_minute,
-                COALESCE(s.quiet_end_minute, 420::smallint) AS quiet_end_minute
+                COALESCE(s.quiet_end_minute, 420::smallint) AS quiet_end_minute,
+                s.push_preview
          FROM users u LEFT JOIN notify_settings s ON s.user_id = u.id
          WHERE u.id = $1",
     )
@@ -188,6 +246,11 @@ pub async fn load(core: &Core, user_id: Uuid) -> AppResult<Preferences> {
         quiet_now: settings.quiet_enabled
             && in_quiet_hours(&settings.time_zone, settings.quiet_start_minute, settings.quiet_end_minute, now),
         time_zone: settings.time_zone,
+        push_preview: match settings.push_preview {
+            Some(stored) => push_preview_from(Some(stored)),
+            None => push_preview_of(core, user_id).await?,
+        }
+        .into(),
         ..Default::default()
     })
 }

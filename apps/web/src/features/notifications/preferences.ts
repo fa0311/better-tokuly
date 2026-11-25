@@ -78,6 +78,16 @@ export function usePreferenceActions() {
     onError,
   });
 
+  const setPushPreview = useMutation({
+    mutationKey: MUTATION_KEY,
+    scope: IN_ORDER,
+    mutationFn: (pushPreview: notify.PushPreview) =>
+      preferencesClient().updatePreferences({ pushPreview }),
+    onMutate: (pushPreview) => guess((preferences) => ({ ...preferences, pushPreview })),
+    onSuccess: (response) => settle(response.preferences),
+    onError,
+  });
+
   const pause = useMutation({
     mutationKey: MUTATION_KEY,
     scope: IN_ORDER,
@@ -119,5 +129,5 @@ export function usePreferenceActions() {
     );
   };
 
-  return { setCategory, setQuietHours, latestQuietHours, pause, resume };
+  return { setCategory, setQuietHours, setPushPreview, latestQuietHours, pause, resume };
 }

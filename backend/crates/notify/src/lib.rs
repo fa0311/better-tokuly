@@ -14,7 +14,8 @@
 //!
 //! What a user receives is governed by their preferences ([`preferences`]):
 //! per-category toggles, a global push pause, quiet hours and per-person
-//! mutes. Push tokens are registered per session ([`devices`]).
+//! mutes, and what pushes show on the lock screen ([`preview`]). Push tokens
+//! are registered per session ([`devices`]).
 use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 use tokuly_core::prelude::*;
@@ -34,6 +35,7 @@ mod locks;
 pub mod maintenance;
 pub mod preferences;
 mod preferences_svc;
+pub mod preview;
 pub mod push;
 mod push_svc;
 pub mod sanitize;

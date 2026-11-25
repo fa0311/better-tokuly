@@ -16,12 +16,13 @@ use std::{collections::HashSet, time::Duration};
 use redis::AsyncCommands as _;
 use serde::{Deserialize, Serialize};
 use tokuly_core::{jobs::JobOptions, outbound::Localized, prelude::*};
+use tokuly_proto::notify::PushPreview;
 
 use crate::{
     Notify, blocks, categories,
     devices::{self, DeliveryDevice},
     edits::{self, Current},
-    inbox,
+    inbox, preferences, preview,
     push::{PushMessage, PushOutcome, PushPriority},
     withdraw,
 };
@@ -64,6 +65,9 @@ pub struct PushJob {
     /// SOS): delivered at the highest priority every channel offers.
     #[serde(default)]
     pub urgent: bool,
+    /// The producer's text does not name `actor_id`, so no rendering may.
+    #[serde(default)]
+    pub actor_unnamed: bool,
     pub created_at: Time,
 }
 
@@ -160,6 +164,15 @@ impl Notify {
             return Ok(report);
         }
         let account_locale = inbox::locale_of(&self.core, job.user_id).await?;
+        // Read now rather than when the push was queued: a change to what
+        // pushes show applies to everything not yet sent.
+        let preview = preferences::push_preview_of(&self.core, job.user_id).await?;
+        // A sender-only push never shows more than the full one: an actor
+        // the producer's text leaves unnamed stays unnamed.
+        let actor_name = match (preview, job.actor_id) {
+            (PushPreview::PUSH_PREVIEW_SENDER_ONLY, Some(actor_id)) if !job.actor_unnamed => self.actor_name(actor_id).await?,
+            _ => None,
+        };
         let already_delivered = self.delivered_devices(job.id).await?;
 
         let mut sends = Vec::new();
@@ -179,7 +192,8 @@ impl Notify {
                 continue;
             };
             let locale = if device.locale.is_empty() { account_locale.as_str() } else { device.locale.as_str() };
-            let message = self.message_for(job, locale);
+            let mut message = self.message_for(job, locale);
+            preview::apply(&mut message, preview, actor_name.as_deref(), &self.core.web_url(preview::INBOX_PATH));
             sends.push(async move {
                 let outcome = channel.send(&device.target(), &message).await;
                 (device, outcome)
@@ -190,6 +204,17 @@ impl Notify {
             self.record_outcome(job, &device, outcome, &mut report).await?;
         }
         Ok(report)
+    }
+
+    /// The name a sender-only push shows for `actor_id`: their display name,
+    /// else their handle; `None` for an account that is gone.
+    async fn actor_name(&self, actor_id: Uuid) -> AppResult<Option<String>> {
+        let summary = tokuly_identity::summary(&self.core, actor_id).await?;
+        if summary.deleted {
+            return Ok(None);
+        }
+        let name = if summary.display_name.trim().is_empty() { summary.handle } else { summary.display_name };
+        Ok(Some(name).filter(|name| !name.trim().is_empty()))
     }
 
     /// The job's notification written for a device that reads `locale`.
@@ -301,6 +326,7 @@ mod tests {
             data: serde_json::Value::Null,
             refs: Vec::new(),
             urgent,
+            actor_unnamed: false,
             created_at: now(),
         }
     }

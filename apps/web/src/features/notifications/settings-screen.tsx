@@ -6,12 +6,13 @@ import { usePreferences } from "./api";
 import { CategoriesCard } from "./settings/categories-card";
 import { MutedUsersCard } from "./settings/muted-users-card";
 import { PauseCard } from "./settings/pause-card";
+import { PreviewCard } from "./settings/preview-card";
 import { PushCard } from "./settings/push-card";
 import { QuietHoursCard } from "./settings/quiet-hours-card";
 
 /**
- * Notification settings: push on this device and the account's devices, the
- * pause, quiet hours, what to be told about, and who never to hear from.
+ * Notification settings: push on this device and the account's devices, what
+ * pushes show, the pause, quiet hours, what to be told about, and who never to hear from.
  */
 export function NotificationSettingsScreen() {
   const { t } = useTranslation("notifications");
@@ -24,6 +25,7 @@ export function NotificationSettingsScreen() {
           <PushCard />
           {preferences.data ? (
             <>
+              <PreviewCard preferences={preferences.data} />
               <PauseCard preferences={preferences.data} />
               <QuietHoursCard preferences={preferences.data} />
             </>

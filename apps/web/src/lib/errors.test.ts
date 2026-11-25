@@ -1,6 +1,7 @@
 import { Code, ConnectError } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { errorMessage } from "./errors";
+import { AssetFailedError } from "./asset-error";
+import { durationLimit, errorMessage } from "./errors";
 
 /** An API error carrying a reason, as the server sends it. */
 const failure = (reason: string, code = Code.FailedPrecondition) =>
@@ -59,6 +60,23 @@ describe("error messages", () => {
     );
     expect(errorMessage(failure("", Code.ResourceExhausted))).toBe(
       "ちょっと待ってから、もう一度ためしてね",
+    );
+  });
+
+  it("say how long a refused recording may be", () => {
+    expect(errorMessage(new AssetFailedError("MEDIA_TOO_LONG", 600))).toBe(
+      "長すぎるよ!10分までにしてもう一度ためしてね",
+    );
+    expect(durationLimit(60)).toBe("60秒");
+    expect(durationLimit(15)).toBe("15秒");
+    expect(durationLimit(180)).toBe("3分");
+    expect(durationLimit(3 * 3600)).toBe("3時間");
+    // Without a known limit, the plain reason.
+    expect(errorMessage(new AssetFailedError("MEDIA_TOO_LONG"))).toBe(
+      "長すぎます。もう少し短いものでためしてね",
+    );
+    expect(errorMessage(new AssetFailedError("DAILY_TRANSCODE_LIMIT_EXCEEDED"))).toBe(
+      "今日変換できる動画の長さの上限に達したよ。また明日ためしてね!",
     );
   });
 });

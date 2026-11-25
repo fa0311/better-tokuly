@@ -44,6 +44,10 @@ export default {
   VIDEO_TOO_LARGE: "The video is too large",
   ANIMATION_TOO_LARGE: "The animation is too long or too large",
   MEDIA_TOO_LONG: "That's too long. Try something shorter",
+  MEDIA_TOO_LONG_LIMIT: "That's too long! Keep it to {{limit}} and try again",
+  DAILY_TRANSCODE_LIMIT_EXCEEDED:
+    "You've reached today's limit for video processing. Try again tomorrow!",
+  limit: { seconds: "{{count}} sec", minutes: "{{count}} min", hours: "{{count}} hr" },
   CORRUPT_MEDIA: "The file seems to be broken. Try another one",
   UNSUPPORTED_CONTENT_TYPE: "That file type isn't supported",
   UNSUPPORTED_CONTENT: "That file couldn't be used",

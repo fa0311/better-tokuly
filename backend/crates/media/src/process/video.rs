@@ -63,6 +63,8 @@ struct Source<'a> {
     audio: Option<&'a AudioStream>,
     /// Convert HDR to SDR (the renditions are 8-bit BT.709).
     tonemap: bool,
+    /// Seconds of the file to read at most (`recipe::read_limit_seconds`).
+    limit: Option<f64>,
 }
 
 impl Source<'_> {
@@ -105,7 +107,7 @@ fn ladder_args(source: &Source<'_>, rungs: &[Rung], preset: &str, threads: &[Str
         graph.push_str(&format!(";[s{index}]{}[v{index}]", rung_filter(rung)));
     }
 
-    let mut args = Args::new().input(source.path).arg("-filter_complex").arg(graph);
+    let mut args = Args::new().input_up_to(source.path, source.limit).arg("-filter_complex").arg(graph);
     for index in 0..rungs.len() {
         args = args.arg("-map").arg(format!("[v{index}]"));
     }
@@ -153,7 +155,7 @@ fn av1_args(source: &Source<'_>, rung: &Rung, threads: u32, out_dir: &Path) -> A
         params.push_str(&format!(":lp={threads}"));
     }
     let args = Args::new()
-        .input(source.path)
+        .input_up_to(source.path, source.limit)
         .arg("-map")
         .arg(format!("0:{}", source.video.index))
         .args(["-an", "-vf"])
@@ -263,6 +265,8 @@ struct Measured {
     codecs: String,
     bitrates: Bitrates,
     short_side: u32,
+    /// Length of the rendition's playlist.
+    seconds: f64,
 }
 
 impl Media {
@@ -280,19 +284,23 @@ impl Media {
         if video.width.max(video.height) > MAX_SOURCE_EDGE {
             return Err(ProcessError::rejected("VIDEO_TOO_LARGE", format!("{}x{} frames", video.width, video.height)));
         }
-        let duration = if probe.duration > 0.0 { probe.duration } else { self.ffmpeg.measure_duration(&path, timeout_for(0.0)).await? };
+        // The header's duration is whatever the file says; the packets tell
+        // how long it really plays (read without decoding). The longer wins.
+        let limit = recipe::read_limit_seconds(&self.cfg, asset.asset_purpose());
+        // One second past the limit is enough to tell a recording is too long.
+        let measured = self.ffmpeg.measure_duration(&path, probe.mov, limit.map(|s| s + 1.0), timeout_for(0.0)).await?;
+        let duration = probe.duration.max(measured);
         if duration <= 0.0 {
             return Err(ProcessError::rejected("CORRUPT_MEDIA", "the video has no measurable duration"));
         }
-        if duration > self.cfg.max_video_seconds() {
-            return Err(ProcessError::rejected("MEDIA_TOO_LONG", format!("{duration:.0} s")));
-        }
+        self.check_duration(asset, duration)?;
+        self.reserve_transcode(asset, duration).await?;
         let timeout = timeout_for(duration);
         let tonemap = video.hdr && self.ffmpeg.has_filter("zscale").await && self.ffmpeg.has_filter("tonemap").await;
         if video.hdr && !tonemap {
             tracing::warn!(asset_id = %asset.id, "HDR source but this ffmpeg lacks zscale/tonemap: colours will look washed out");
         }
-        let source = Source { path: &path, video: &video, audio: probe.audio.as_ref(), tonemap };
+        let source = Source { path: &path, video: &video, audio: probe.audio.as_ref(), tonemap, limit };
         let rungs = ladder::ladder(video.width, video.height, video.frame_rate, recipe::max_rung(asset.asset_purpose()));
 
         // A retry starts from a clean slate, never mixing two attempts' files.
@@ -308,6 +316,13 @@ impl Media {
         let mut renditions = Vec::with_capacity(rungs.len() + 1);
         for rung in &rungs {
             renditions.push(self.measure_rendition(&hls_dir, &rung.name, "h264").await?);
+        }
+        // The encoder stops at the read limit; an output that got there came
+        // from a longer source than every measurement showed, so it is
+        // refused rather than kept cut down.
+        let encoded = renditions.iter().map(|r| r.seconds).fold(0.0, f64::max);
+        if recipe::reached_read_limit(&self.cfg, asset.asset_purpose(), encoded) {
+            return Err(ProcessError::rejected("MEDIA_TOO_LONG", format!("{encoded:.0} s encoded")));
         }
         if self.cfg.av1 {
             let name = format!("{}-av1", rungs[0].name);
@@ -455,6 +470,7 @@ impl Media {
             codecs,
             bitrates,
             short_side: video.width.min(video.height),
+            seconds: playlist.duration(),
         })
     }
 
@@ -499,7 +515,7 @@ mod tests {
     fn ladder_command_encodes_every_rung_with_aligned_keyframes() {
         let video = video(false);
         let audio = AudioStream { index: 1, codec: "aac".into(), channels: 2 };
-        let source = Source { path: Path::new("/work/source"), video: &video, audio: Some(&audio), tonemap: false };
+        let source = Source { path: Path::new("/work/source"), video: &video, audio: Some(&audio), tonemap: false, limit: None };
         let rungs = ladder(1280, 720, 30.0, 1080);
         let args = rendered(ladder_args(&source, &rungs, "veryfast", &[], Path::new("/work/hls")));
         let joined = args.join(" ");
@@ -514,9 +530,20 @@ mod tests {
     }
 
     #[test]
+    fn a_purpose_limit_caps_what_the_encoders_read() {
+        let video = video(false);
+        let source = Source { path: Path::new("/work/source"), video: &video, audio: None, tonemap: false, limit: Some(61.0) };
+        let rungs = ladder(1280, 720, 30.0, 1080);
+        let joined = rendered(ladder_args(&source, &rungs, "veryfast", &[], Path::new("/work/hls"))).join(" ");
+        assert!(joined.starts_with("-t 61.000 -protocol_whitelist file -i /work/source"), "{joined}");
+        let joined = av1_args(&source, &rungs[0], 0, Path::new("/work/hls/av1")).to_strings().join(" ");
+        assert!(joined.contains("-t 61.000 -protocol_whitelist file -i /work/source"), "{joined}");
+    }
+
+    #[test]
     fn silent_and_special_sources_change_the_command() {
         let interlaced = video(true);
-        let source = Source { path: Path::new("/s"), video: &interlaced, audio: None, tonemap: true };
+        let source = Source { path: Path::new("/s"), video: &interlaced, audio: None, tonemap: true, limit: None };
         let joined = rendered(ladder_args(&source, &ladder(1280, 720, 30.0, 1080)[..1], "fast", &["-threads".into(), "2".into()], Path::new("/h"))).join(" ");
         assert!(joined.contains("[0:0]yadif,zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,split=1[s0]"));
         assert!(!joined.contains("-c:a") && !joined.contains("agroup"), "no audio stream to encode: {joined}");

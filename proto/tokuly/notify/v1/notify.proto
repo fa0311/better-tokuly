@@ -45,7 +45,8 @@ message Notification {
   string kind = 2;
   // Preference category the kind belongs to (`CategoryPreference.category`).
   string category = 3;
-  // Who caused it (their avatar is shown); unset for system notices.
+  // Who caused it (their avatar is shown); unset for system notices, and
+  // when `actor_unnamed`.
   tokuly.common.v1.UserSummary actor = 4;
   // Title and body in the recipient's language.
   string title = 5;
@@ -73,6 +74,10 @@ message Notification {
   // push was sent even during quiet hours and while pushes were paused.
   // Clients may present it more prominently.
   bool urgent = 16;
+  // Someone caused it, but the producing domain does not say who (a stamp
+  // pack bought by "someone"): nothing about them is sent. Clients show a
+  // neutral "someone" face instead of a system icon.
+  bool actor_unnamed = 17;
 }
 
 // Unread inbox entries. A grouped entry counts once.
@@ -155,9 +160,10 @@ message ClearNotificationsResponse {
 // on by default.
 service PreferencesService {
   rpc GetPreferences(GetPreferencesRequest) returns (GetPreferencesResponse);
-  // Changes category toggles and/or quiet hours; anything not mentioned keeps
-  // its value. Errors: CATEGORY_UNKNOWN, CATEGORY_LOCKED (the inbox toggle of
-  // that category cannot be turned off), QUIET_HOURS_INVALID.
+  // Changes category toggles, quiet hours and/or what pushes show; anything
+  // not mentioned keeps its value. Errors: CATEGORY_UNKNOWN, CATEGORY_LOCKED
+  // (the inbox toggle of that category cannot be turned off),
+  // QUIET_HOURS_INVALID, PUSH_PREVIEW_INVALID.
   rpc UpdatePreferences(UpdatePreferencesRequest) returns (UpdatePreferencesResponse);
   // Stops push notifications for a while or until `ResumePush`. The inbox
   // keeps recording, and urgent notifications (incoming calls, SOS) are
@@ -187,6 +193,27 @@ message Preferences {
   string time_zone = 4;
   // Whether quiet hours are in effect right now.
   bool quiet_now = 5;
+  // What push notifications show on the lock screen (「通知に内容を表示」).
+  // Starts as FULL for adults and SENDER_ONLY for accounts of minors (decided
+  // when the account is created and stored, never recomputed from the
+  // birthdate).
+  PushPreview push_preview = 6;
+}
+
+// How much of a notification its push carries. What is left out is not in
+// the payload at all (Web Push, FCM, APNs alike), not merely hidden by the
+// app; the in-app inbox always has the full notification.
+enum PushPreview {
+  PUSH_PREVIEW_UNSPECIFIED = 0;
+  // 「すべて表示」: title, text and picture.
+  PUSH_PREVIEW_FULL = 1;
+  // 「送り主だけ」: who it is from and which feature (「あおいさんからメッセージが
+  // 届いたよ」), without the message or comment text, the picture or the
+  // producer's extra data.
+  PUSH_PREVIEW_SENDER_ONLY = 2;
+  // 「表示しない」: 「新しいお知らせがあるよ」, no name, no feature, and a tap
+  // opens the inbox.
+  PUSH_PREVIEW_HIDDEN = 3;
 }
 
 message CategoryPreference {
@@ -243,6 +270,8 @@ message UpdatePreferencesRequest {
   // Replaces the quiet hours when set. A disabled window keeps its times so
   // the user can switch it back on.
   QuietHours quiet_hours = 2;
+  // Changes what pushes show; UNSPECIFIED keeps it.
+  PushPreview push_preview = 3;
 }
 
 message UpdatePreferencesResponse {

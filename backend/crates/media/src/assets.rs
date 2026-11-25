@@ -142,6 +142,18 @@ impl AssetRow {
         self.has_kind(AssetKind::ASSET_KIND_FILE) && !crate::recipe::publishes_files(self.asset_purpose())
     }
 
+    /// Whether the server produced the asset itself
+    /// ([`crate::create_asset_from_file`]) rather than a client uploading it.
+    pub fn is_server_made(&self) -> bool {
+        self.attrs.get("server_made").and_then(serde_json::Value::as_bool).unwrap_or(false)
+    }
+
+    /// The longest video or audio the asset's purpose took when it was
+    /// created, in seconds (see `recipe::max_duration_seconds`).
+    pub fn max_duration_seconds(&self) -> i32 {
+        self.attrs.get("max_duration_seconds").and_then(serde_json::Value::as_i64).map_or(0, |s| s.clamp(0, i64::from(i32::MAX)) as i32)
+    }
+
     pub fn image(&self) -> Option<Image> {
         self.image.clone().and_then(|v| serde_json::from_value(v).ok())
     }
@@ -168,6 +180,7 @@ impl AssetRow {
             image: self.image().into(),
             video: self.video().into(),
             waveform: self.waveform.clone().unwrap_or_default(),
+            max_duration_seconds: self.max_duration_seconds(),
             ..Default::default()
         }
     }

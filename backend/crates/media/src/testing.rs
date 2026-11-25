@@ -109,3 +109,16 @@ pub async fn ready_image(core: &Core, owner_id: Uuid, purpose: AssetPurpose) -> 
 pub async fn ready_video(core: &Core, owner_id: Uuid, purpose: AssetPurpose) -> AppResult<AssetRow> {
     ready_asset(core, owner_id, purpose, AssetKind::ASSET_KIND_VIDEO).await
 }
+
+/// Claims the next video the transcoder would take, the way a
+/// `media.transcode` job does, without transcoding it: the claim holds
+/// until [`release_claim`] (or until its heartbeat goes stale). Lets tests
+/// look at the order of the fair queue and its per-account limit.
+pub async fn claim_next_transcode(core: &Core, per_account: i64) -> AppResult<Option<Uuid>> {
+    Ok(crate::lifecycle::claim_next_transcode(core, per_account).await?.map(|row| row.id))
+}
+
+/// Gives a claim taken with [`claim_next_transcode`] back.
+pub async fn release_claim(core: &Core, asset_id: Uuid) -> AppResult<()> {
+    crate::lifecycle::release(core, asset_id).await
+}

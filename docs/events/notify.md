@@ -120,6 +120,7 @@ account's) for push.
 | `video.video.unpublished` | `VideoEvent` | hides `video_id` from everyone but `owner_id` |
 | `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to, changed_at }` | withdraws `note_id` (and what refers to it as its subject: likes, renotes, comments and mentions in comments on the note; likes on those comments name only the comment and stay) from everyone but `author_id` and `visible_to`, as far as the entries are not newer than `changed_at`; `visible_to = null` (public) withdraws nothing but is remembered, so an older narrowing handled after it does nothing. An event without `visible_to` withdraws only for `visibility` = 5 (private) |
 | `video.video.visibility_changed`, `shorts.short.visibility_changed`, `live.stream.visibility_changed` | `{ video_id \| id \| stream_id, owner_id, visibility, visible_to, changed_at, … }` | the same for the video, short or stream: withdrawn from everyone but `owner_id` and `visible_to` up to `changed_at`; `visible_to = null` (open to everyone again) is remembered. Emitted when the owner shares it with another audience and, once per open item, when the owner locks or unlocks their account |
+| `identity.user.created` | `{ user_id, … }` (`tokuly_notify::events::UserCreated`) | stores what the new account's pushes show: `PUSH_PREVIEW_SENDER_ONLY` for minors (by the birthdate, read this once), `PUSH_PREVIEW_FULL` for adults; never overrides a choice already made, so a redelivery changes nothing |
 | `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, mutes on them, the remembered edits of their comments and audience changes of their content, and their name in the remembered mentions and audiences of others' |
 
 ## Events emitted
@@ -206,6 +207,52 @@ checked against `sessions.revoked_at` / `expires_at` when a push is sent (a
 revoked session's device gets nothing and its row is deleted) and swept hourly.
 
 ## Push payloads
+
+### What pushes show (「通知に内容を表示」)
+
+`Preferences.push_preview`, changed with `UpdatePreferences`:
+
+| Choice | Title | Text | Picture, producer data | Tap opens |
+|---|---|---|---|---|
+| `PUSH_PREVIEW_FULL` 「すべて表示」 | as requested | as requested | kept | the notification's path |
+| `PUSH_PREVIEW_SENDER_ONLY` 「送り主だけ」 | the category's name (「チャット・通話」) | 「あおいさんからメッセージが届いたよ」 (chat), 「あおいさんから動画のお知らせが届いたよ」 (others); without a nameable actor 「動画のお知らせが届いたよ」 | dropped | the notification's path |
+| `PUSH_PREVIEW_HIDDEN` 「表示しない」 | `Tokuly` | 「新しいお知らせがあるよ」 | dropped | `/notifications` (the inbox) |
+
+The name is the actor's display name (else handle) at delivery time. A
+sender-only push never shows more than the full one: producers leave the
+actor out of anonymous notifications, and one whose text does not name its
+actor on purpose marks it `NotificationRequest::unnamed_actor` (stamp's
+"someone bought your pack"), so neither is ever named.
+
+An unnamed actor is never returned to the recipient anywhere: the inbox
+entry (`ListNotifications`, the realtime `received` event) has no `actor`
+but `actor_unnamed = true` (the web shows a neutral 「だれか」 face), and the
+data export leaves `actor_id` out. Blocks and mutes do not apply to an
+unnamed actor either, in any direction: a block does not remove such
+entries, and a request is not held back (inbox or push) because its unnamed
+actor is blocked or muted. Anything else would let the recipient find out
+who it was (block someone, watch 「売れたよ」 disappear or stop arriving).
+`notifications.actor_id` is still stored for account deletion. A newer event folded into the same
+entry decides again whether its actor is shown. The rewrite happens in `delivery.rs` on the per-device message
+(`preview::apply`), before any channel builds its payload: what a choice
+leaves out is not in the Web Push plaintext, the FCM request or the APNs
+payload at all. The setting is read when the push is sent, so a change also
+applies to pushes still queued. `SENDER_ONLY` keeps `kind`, `category`
+(the Android channel), the collapse key and the badge. `HIDDEN` replaces
+them too: kind `notification`, category (Android channel) `general`, the
+collapse key `notification` (so such pushes replace one another, and no
+producer key with someone's ID in it, like `social.buzz:<peer>`, is sent),
+and no inbox entry ID; only the badge and the priority stay. The inbox always shows
+everything.
+
+Default: decided when the account is created (`identity.user.created`) and
+stored, `SENDER_ONLY` for accounts under 18 and `FULL` for the others; the
+migration does the same for existing minors. It is never derived from the
+birthdate on a read, so an 18th birthday changes nothing anyone can see.
+When a push (or `GetPreferences`) finds nothing stored yet, because the
+event has not been handled or was given up after its retries, it decides and
+stores the default itself, the same idempotent way, so a minor's first push
+never shows everything.
 
 Collapse keys are sent to push services as a 32-character digest (Web Push
 `Topic`, FCM `collapse_key` and `android.notification.tag`, APNs

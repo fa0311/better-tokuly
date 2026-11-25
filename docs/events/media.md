@@ -13,7 +13,7 @@ numbers of `AssetPurpose` / `AssetKind`). The actor is the asset's owner.
 | Topic | When | Notes |
 |---|---|---|
 | `media.asset.ready` | processing finished, the asset is READY | emitted in the transaction that makes it READY |
-| `media.asset.failed` | the upload was rejected or could not be processed | `error` holds the reason (`UNSUPPORTED_CONTENT`, `CORRUPT_MEDIA`, `NOT_A_VIDEO`, `NO_AUDIO`, `IMAGE_TOO_LARGE`, `ANIMATION_TOO_LARGE`, `VIDEO_TOO_LARGE`, `MEDIA_TOO_LONG`, `SIZE_MISMATCH`, `CHECKSUM_MISMATCH`, `PROCESSING_FAILED`) |
+| `media.asset.failed` | the upload was rejected or could not be processed | `error` holds the reason (`UNSUPPORTED_CONTENT`, `CORRUPT_MEDIA`, `NOT_A_VIDEO`, `NO_AUDIO`, `IMAGE_TOO_LARGE`, `ANIMATION_TOO_LARGE`, `VIDEO_TOO_LARGE`, `MEDIA_TOO_LONG`, `DAILY_TRANSCODE_LIMIT_EXCEEDED`, `SIZE_MISMATCH`, `CHECKSUM_MISMATCH`, `PROCESSING_FAILED`) |
 | `media.asset.deleted` | the owner, another domain (`assets::delete`) or the janitor removed a completed asset | not emitted for uploads aborted before completion (unless something held them), nor for the bulk removal of a deleted account's unheld assets |
 
 Domains that hold a not-yet-ready asset (a video being published, a message
@@ -80,17 +80,67 @@ None. Domains that own the content (video, chat…) notify about it.
 | Job | Payload | Concurrency | What |
 |---|---|---|---|
 | `media.process` | `ProcessJob { asset_id }` | `TOKULY_MEDIA_IMAGE_CONCURRENCY` | images, animations, voice messages, deferred file checks |
-| `media.transcode` | `ProcessJob { asset_id }` | `TOKULY_MEDIA_VIDEO_CONCURRENCY` | video |
+| `media.transcode` | `ProcessJob { asset_id }` | `TOKULY_MEDIA_VIDEO_CONCURRENCY` | video (a turn on the fair queue, below) |
 
 A job claims its asset (`media_assets.heartbeat_at`), so duplicates are
 no-ops. Infrastructure failures are retried up to 3 attempts per asset, then
 the asset fails with `PROCESSING_FAILED`; a rejected input fails at once.
 
+### How long a recording may be
+
+Checked before anything is transcoded, on the longest of what the container
+header claims, the packets' timestamps (read without decoding; for MP4 both
+as the edit list plays them and with the edit list ignored) and, for voice
+messages, the decoded length: a header that understates the length, an edit
+list that hides packets, or one that repeats a short span for hours (a 2 s
+file playing for two hours) does not get a recording through or past the
+budget. Measuring stops one second past the limit. A
+longer upload fails with `MEDIA_TOO_LONG` (1 s of slack for recorders that
+stop a few frames late). Every encoder also reads at most the limit plus
+that slack (`-t` on the input), and a video whose renditions reach that cap
+is refused with `MEDIA_TOO_LONG` instead of being kept cut down. The daily
+transcoding budget is charged with the measured length. The limit is in `CreateUploadResponse.max_duration_seconds`
+and `Asset.max_duration_seconds`, so clients can say what it is.
+
+| Purpose | Longest |
+|---|---|
+| `CHAT_AUDIO` (voice messages) | 5 min |
+| `CHAT_VIDEO`, `NOTE_VIDEO` | 10 min |
+| `STORY` | 60 s |
+| `SHORT` (live clips too: at most 60 s already) | 3 min (shorts checks its own `TOKULY_SHORTS_MAX_DURATION_SECONDS` on publishing) |
+| `AVATAR_VIDEO` | 15 s |
+| `VIDEO` | `TOKULY_MEDIA_MAX_VIDEO_HOURS` (3 h) |
+| `LIVE_ARCHIVE` | none here: live ends streams after `TOKULY_LIVE_MAX_HOURS` |
+
+### The fair transcoding queue
+
+A `media.transcode` job is a turn on the transcoder, not a ticket for its
+own asset: the worker that takes it transcodes the waiting video that is
+fairest to go next (`lifecycle::claim_next_transcode`). Owners take turns:
+each owner's oldest waiting video, ranked by how many of the owner's videos
+are running or ahead of it, then by how long the owner has waited (since
+the video arrived, or since their last turn when that came later: an owner
+just served goes after one who was waiting, and accounts arriving later
+never jump one that has waited since before). An owner
+with `TOKULY_MEDIA_TRANSCODES_PER_ACCOUNT` (2) transcodes running gets no
+more until one ends, and the turn that ends queues another one while videos
+are waiting. So one account's backlog never holds up anyone else's first
+video. Claims are serialized on an advisory lock. `Media::transcode_next`
+takes one turn in place (tests, tooling); `process_now` still processes the
+named asset.
+
+On top of the daily byte budget, an account may have
+`TOKULY_MEDIA_DAILY_TRANSCODE_MINUTES` (720) minutes of video transcoded in
+any 24 hours. A video is booked when probed (`media_transcode_usage`, once
+per asset, kept when it fails or is deleted later); one that does not fit
+fails with `DAILY_TRANSCODE_LIMIT_EXCEEDED`. Media the server makes itself
+(live archives and clips) is not booked.
+
 Timers (worker processes): the janitor sweeps every 5 minutes — aborts
 uploads unfinished after `TOKULY_MEDIA_UPLOAD_TTL_HOURS`, removes unheld
 FAILED assets after 7 days, deletes READY assets that nothing has held for
 `TOKULY_MEDIA_UNATTACHED_TTL_HOURS`, purges objects of deleted assets,
-re-queues PROCESSING assets whose worker died, drops link preview cache rows
+re-queues PROCESSING assets whose worker died, drops transcoding-budget rows older than two days and turn records older than one, drops link preview cache rows
 older than 30 days and cached preview pictures older than a day.
 
 ## Link previews of this instance
@@ -173,7 +223,9 @@ previews stored before the proxy existed show without one.
 | `TOKULY_MEDIA_FFMPEG_THREADS` | 0 | threads per ffmpeg process (0 = ffmpeg decides) |
 | `TOKULY_MEDIA_X264_PRESET` | `veryfast` | x264 preset of the HLS ladder |
 | `TOKULY_MEDIA_AV1` | `false` | add an AV1 (SVT-AV1) rendition of the top rung |
-| `TOKULY_MEDIA_MAX_VIDEO_HOURS` | 12 | longest video/audio accepted |
+| `TOKULY_MEDIA_MAX_VIDEO_HOURS` | 3 | longest long-form video (`ASSET_PURPOSE_VIDEO`); other purposes have fixed limits (above) |
+| `TOKULY_MEDIA_TRANSCODES_PER_ACCOUNT` | 2 | videos of one account transcoded at once, across all workers |
+| `TOKULY_MEDIA_DAILY_TRANSCODE_MINUTES` | 720 | per account: minutes of video transcoded in any 24 hours (0 = no budget); beyond it `DAILY_TRANSCODE_LIMIT_EXCEEDED` |
 | `TOKULY_MEDIA_FFMPEG_PATH` / `TOKULY_MEDIA_FFPROBE_PATH` | `ffmpeg` / `ffprobe` | binaries |
 | `TOKULY_MEDIA_WORK_DIR` | system temp | scratch space for transcodes |
 

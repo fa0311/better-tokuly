@@ -320,3 +320,110 @@ pub async fn tone(dir: &Path, name: &str, seconds: u32) -> PathBuf {
 pub async fn read(path: &Path) -> Vec<u8> {
     tokio::fs::read(path).await.expect("read fixture")
 }
+
+/// Rewrites the durations an MP4 declares (`mvhd`, `tkhd`, `mdhd`, `elst`)
+/// to `seconds`, leaving the samples alone: a file whose header says it is
+/// short while it plays for as long as it did.
+pub fn forge_mp4_duration(mut bytes: Vec<u8>, seconds: u32) -> Vec<u8> {
+    fn read(bytes: &[u8], at: usize, wide: bool) -> u64 {
+        if wide { u64::from_be_bytes(bytes[at..at + 8].try_into().unwrap()) } else { u64::from(u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap())) }
+    }
+    fn write(bytes: &mut [u8], at: usize, wide: bool, value: u64) {
+        if wide { bytes[at..at + 8].copy_from_slice(&value.to_be_bytes()) } else { bytes[at..at + 4].copy_from_slice(&(value as u32).to_be_bytes()) }
+    }
+    let find = |bytes: &[u8], tag: &[u8]| -> Vec<usize> { bytes.windows(4).enumerate().filter(|(_, w)| *w == tag).map(|(i, _)| i).collect() };
+    // Movie timescale first: tkhd and elst count in it.
+    let mvhd = find(&bytes, b"mvhd")[0];
+    let wide = bytes[mvhd + 4] == 1;
+    let (scale_at, duration_at) = if wide { (mvhd + 24, mvhd + 28) } else { (mvhd + 16, mvhd + 20) };
+    let movie_scale = read(&bytes, scale_at, false);
+    write(&mut bytes, duration_at, wide, movie_scale * u64::from(seconds));
+    for tkhd in find(&bytes, b"tkhd") {
+        let wide = bytes[tkhd + 4] == 1;
+        write(&mut bytes, if wide { tkhd + 32 } else { tkhd + 24 }, wide, movie_scale * u64::from(seconds));
+    }
+    for mdhd in find(&bytes, b"mdhd") {
+        let wide = bytes[mdhd + 4] == 1;
+        let (scale_at, duration_at) = if wide { (mdhd + 24, mdhd + 28) } else { (mdhd + 16, mdhd + 20) };
+        let scale = read(&bytes, scale_at, false);
+        write(&mut bytes, duration_at, wide, scale * u64::from(seconds));
+    }
+    for elst in find(&bytes, b"elst") {
+        let wide = bytes[elst + 4] == 1;
+        write(&mut bytes, elst + 12, wide, movie_scale * u64::from(seconds));
+    }
+    bytes
+}
+
+/// What ffprobe says a file lasts (the container's claim).
+pub async fn probed_seconds(path: &Path) -> f64 {
+    let output = tokio::process::Command::new("ffprobe")
+        .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"])
+        .arg(path)
+        .output()
+        .await
+        .expect("ffprobe must be on PATH to run the media tests");
+    String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0.0)
+}
+
+/// Gives the first track of an MP4 (whose `moov` comes last, as ffmpeg
+/// writes it) an edit list of `entries` copies of its whole span, leaving
+/// every header duration alone: a 2-second file that plays for
+/// `entries` × 2 seconds.
+pub fn repeat_edit_list(bytes: &[u8], entries: u32) -> Vec<u8> {
+    fn boxes(buf: &[u8], start: usize, end: usize) -> Vec<(usize, usize, [u8; 4])> {
+        let mut out = Vec::new();
+        let mut at = start;
+        while at + 8 <= end {
+            let size = u32::from_be_bytes(buf[at..at + 4].try_into().unwrap()) as usize;
+            out.push((at, size, buf[at + 4..at + 8].try_into().unwrap()));
+            at += size;
+        }
+        out
+    }
+    let top = boxes(bytes, 0, bytes.len());
+    let &(moov_at, moov_size, _) = top.iter().find(|b| &b.2 == b"moov").expect("a moov box");
+    assert_eq!(moov_at + moov_size, bytes.len(), "moov must come last");
+    let moov = &bytes[moov_at..];
+    let children = boxes(moov, 8, moov_size);
+    let &(mvhd, ..) = children.iter().find(|b| &b.2 == b"mvhd").unwrap();
+    // Version 0 mvhd: the duration is in movie timescale units.
+    let movie_duration = u32::from_be_bytes(moov[mvhd + 24..mvhd + 28].try_into().unwrap());
+    let mut new_moov = moov[..8].to_vec();
+    let mut edited = false;
+    for &(at, size, kind) in &children {
+        if &kind != b"trak" || edited {
+            new_moov.extend_from_slice(&moov[at..at + size]);
+            continue;
+        }
+        edited = true;
+        let trak = &moov[at..at + size];
+        let mut new_trak = trak[..8].to_vec();
+        for &(child, child_size, child_kind) in &boxes(trak, 8, size) {
+            if &child_kind == b"edts" {
+                continue;
+            }
+            new_trak.extend_from_slice(&trak[child..child + child_size]);
+            if &child_kind == b"tkhd" {
+                let mut elst = Vec::new();
+                elst.extend_from_slice(&(16 + 12 * entries).to_be_bytes());
+                elst.extend_from_slice(b"elst\0\0\0\0");
+                elst.extend_from_slice(&entries.to_be_bytes());
+                for _ in 0..entries {
+                    elst.extend_from_slice(&movie_duration.to_be_bytes());
+                    elst.extend_from_slice(&0i32.to_be_bytes());
+                    elst.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+                }
+                new_trak.extend_from_slice(&((8 + elst.len()) as u32).to_be_bytes());
+                new_trak.extend_from_slice(b"edts");
+                new_trak.extend_from_slice(&elst);
+            }
+        }
+        let trak_size = new_trak.len() as u32;
+        new_trak[..4].copy_from_slice(&trak_size.to_be_bytes());
+        new_moov.extend_from_slice(&new_trak);
+    }
+    let moov_size = new_moov.len() as u32;
+    new_moov[..4].copy_from_slice(&moov_size.to_be_bytes());
+    [&bytes[..moov_at], &new_moov[..]].concat()
+}

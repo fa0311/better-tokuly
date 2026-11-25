@@ -14,7 +14,7 @@ use super::{
     ProcessError, ProcessResult, Progress,
     ffmpeg::{Args, Stage, timeout_for},
 };
-use crate::{Media, assets::AssetRow, lifecycle::Processed, store};
+use crate::{Media, assets::AssetRow, lifecycle::Processed, recipe, store};
 
 /// Bars in a voice message's waveform.
 pub const WAVEFORM_BARS: usize = 64;
@@ -122,29 +122,34 @@ impl Media {
 
         // Decoding for the waveform also tells the real duration, which
         // browser recordings do not store in the file.
+        // Decoding stops a second past the purpose's limit: enough to tell
+        // that a recording is too long, whatever its header claims.
+        let limit = recipe::read_limit_seconds(&self.cfg, asset.asset_purpose());
         let mut collector = PeakCollector::default();
         let pcm = Args::new()
-            .input(&path)
+            .input_up_to(&path, limit.map(|seconds| seconds + 1.0))
             .args(["-map", &stream, "-vn", "-ac", "1", "-ar"])
             .arg(WAVEFORM_SAMPLE_RATE.to_string())
             .args(["-f", "s16le", "-"]);
         self.ffmpeg.capture(pcm, timeout_for(probe.duration), |chunk| collector.feed(chunk)).await?;
         let (peaks, samples) = collector.finish();
         let decoded_seconds = samples as f64 / f64::from(WAVEFORM_SAMPLE_RATE);
-        let duration = if probe.duration > 0.0 { probe.duration } else { decoded_seconds };
+        // Browser recordings store no duration, and a header or an edit list
+        // can lie: the longest of the header, the decoded length and the
+        // packets' timestamps counts.
+        let measured = self.ffmpeg.measure_duration(&path, probe.mov, limit.map(|s| s + 1.0), timeout_for(0.0)).await?;
+        let duration = probe.duration.max(decoded_seconds).max(measured);
         if samples == 0 || duration <= 0.0 {
             return Err(ProcessError::rejected("CORRUPT_MEDIA", "the audio cannot be decoded"));
         }
-        if duration > self.cfg.max_video_seconds() {
-            return Err(ProcessError::rejected("MEDIA_TOO_LONG", format!("{duration:.0} s")));
-        }
+        self.check_duration(asset, duration)?;
         let timeout = timeout_for(duration);
         progress.set(30).await?;
 
         let (m4a, webm) = (work.join("voice.m4a"), work.join("voice.webm"));
         let channels = audio.channels.clamp(1, 2).to_string();
         let encode = Args::new()
-            .input(&path)
+            .input_up_to(&path, limit)
             .args(["-map", &stream, "-vn", "-c:a", "aac", "-b:a"])
             .arg(format!("{AAC_BITRATE_KBPS}k"))
             .args(["-ac", &channels, "-ar", "48000", "-movflags", "+faststart"])

@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import zlib from "node:zlib";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { type Account, befriend, createAccount, expect, rpc, signInAs, test } from "./support";
@@ -454,4 +458,28 @@ test("when a friend ends the friendship, their notes and their story leave the o
   await expect(page.getByTestId("story-viewer")).toHaveCount(0, { timeout: 30_000 });
   await expect(page.getByTestId("story-reel")).toHaveCount(0);
   await expect(note).toHaveCount(0);
+});
+
+/** A tiny test-pattern MP4 of `seconds` (needs `ffmpeg` on PATH, like the media tests). */
+function testVideo(name: string, seconds: number) {
+  const path = join(mkdtempSync(join(tmpdir(), "tokuly-e2e-")), name);
+  execFileSync("ffmpeg", [
+    ...["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi"],
+    ...["-i", `testsrc2=size=64x64:rate=1:duration=${seconds}`],
+    ...["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", path],
+  ]);
+  return { name, mimeType: "video/mp4", buffer: readFileSync(path) };
+}
+
+test("a story video longer than a minute is refused, saying how long it may be", async ({
+  page,
+  me: _me,
+}) => {
+  await page.goto("/notes?tab=home");
+  await page.getByTestId("story-add").click();
+  await page.getByTestId("story-files").setInputFiles(testVideo("long.mp4", 62));
+  await expect(page.getByText("長すぎるよ!60秒までにしてもう一度ためしてね")).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.locator('[data-testid="upload"]')).toHaveCount(0);
 });

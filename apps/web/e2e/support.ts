@@ -94,8 +94,15 @@ function uniqueSuffix(): string {
   return `${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
-/** Signs up a fresh account. `name` becomes the display name and the start of the handle. */
-export async function createAccount(request: APIRequestContext, name: string): Promise<Account> {
+/**
+ * Signs up a fresh account. `name` becomes the display name and the start of
+ * the handle; `birthdate` (YYYY-MM-DD) defaults to an adult's.
+ */
+export async function createAccount(
+  request: APIRequestContext,
+  name: string,
+  { birthdate = "2000-04-02" }: { birthdate?: string } = {},
+): Promise<Account> {
   const handle = `${name
     .toLowerCase()
     .replace(/[^a-z0-9_]/g, "")
@@ -105,7 +112,7 @@ export async function createAccount(request: APIRequestContext, name: string): P
     password: PASSWORD,
     handle,
     displayName: name,
-    birthdate: "2000-04-02",
+    birthdate,
     acceptTerms: true,
   });
   return toAccount(auth);
