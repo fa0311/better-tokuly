@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/fa0311/better-tokuly/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/ci.yml)
 [![Stack](https://github.com/fa0311/better-tokuly/actions/workflows/stack.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/stack.yml)
+[![Mobile](https://github.com/fa0311/better-tokuly/actions/workflows/mobile.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/mobile.yml)
 
 友達と位置情報共有を楽しもう! — 位置情報共有・チャット・ノート・動画・ライブ・ショートがひとつになったスーパーアプリ。
 Bump（旧 Zenly）のような地図を中心に、初代 Tokuly の機能をすべて引き継いで作り直しています。
@@ -21,13 +22,13 @@ Bump（旧 Zenly）のような地図を中心に、初代 Tokuly の機能を�
 | スタンプ、カスタム絵文字、コイン（台帳・購入・収益・出金）、質問箱、ミッション、予定、学校、たまり場、コミュニティ、開発者 API | 動作中 |
 | 管理・モデレーション、機能フラグ、お知らせ | 動作中 |
 | Web アプリ（すべての領域の画面、PWA） | 動作中 |
-| モバイルアプリ（Expo）: ログイン・アカウント切り替え、ライブマップ（ゴーストモード、バックグラウンド位置共有）、フレンド、プロフィール | 作業中 |
+| モバイルアプリ（Expo）: ログイン・アカウント切り替え、ライブマップ（ゴーストモード、バックグラウンド位置共有）、フレンド、プロフィール。チャット・通知・ストーリー・ショートはこれから（[#28](https://github.com/fa0311/better-tokuly/issues/28)） | 作業中 |
 | 配信スタジオ（Tauri） | 未着手 |
-| Docker Compose（amd64 / arm64） | GitHub Actions で通し検証・ブラウザテスト |
+| Docker Compose（amd64 / arm64） | GitHub Actions で通し検証・ブラウザテスト（モバイルは Android エミュレーターで Maestro） |
 
 全領域がセキュリティ監査（[#44](https://github.com/fa0311/better-tokuly/issues/44)）を通っています。
-プレリリース版は [Releases](https://github.com/fa0311/better-tokuly/releases) にあります（アルファ版なので、
-データの互換性は保証しません）。
+プレリリース版（最新は v0.2.0-alpha.1）は [Releases](https://github.com/fa0311/better-tokuly/releases) にあります
+（アルファ版なので、データの互換性は保証しません）。
 
 ## 構成
 
@@ -37,6 +38,7 @@ backend/    Rust ワークスペース。ドメインごとに 1 クレート、
 apps/web    Web アプリ（TanStack Start, React 19, Tailwind 4, MapLibre GL）
 apps/mobile iOS / Android アプリ（Expo SDK 58, Expo Router, NativeWind, MapLibre Native）
 packages/   TypeScript の API・リアルタイムクライアント、共通ロジック（@tokuly/core）と文言（@tokuly/i18n）
+config/     tokuly.toml（設定ファイル）の置き場所。Compose がコンテナにマウント
 infra/      Docker Compose で使う設定とイメージ（Caddy, LiveKit, 地図タイル, PostGIS 入り PostgreSQL）
 docs/       ドメインごとの機能範囲（domains.md）とイベント一覧（events.md, events/）
 tools/      開発用スクリプト
@@ -103,8 +105,11 @@ eval "$(tools/dev/infra.sh env)"
 pnpm install && pnpm proto:gen && pnpm dev:web         # http://localhost:3000
 ```
 
+モバイルアプリは開発ビルド（Expo Go ではなく）で動かします。手順は [`apps/mobile/README.md`](apps/mobile/README.md)。
+
 バックエンドの規約は [`backend/README.md`](backend/README.md)、Web の規約は
-[`apps/web/README.md`](apps/web/README.md)、機能の範囲は [`docs/domains.md`](docs/domains.md) にあります。
+[`apps/web/README.md`](apps/web/README.md)、Web とモバイルで共有するロジックの規約は
+[`packages/README.md`](packages/README.md)、機能の範囲は [`docs/domains.md`](docs/domains.md) にあります。
 
 ## ライセンス
 
@@ -115,5 +120,7 @@ pnpm install && pnpm proto:gen && pnpm dev:web         # http://localhost:3000
 
 **English.** Tokuly is a super app built around a live map of your friends (in the spirit of Bump / Zenly):
 location sharing, chat and calls, notes and stories, video, live streaming, shorts, stickers and more.
-This repository is a ground-up rebuild of the original Tokuly and is under heavy development; see the table
-above for what works today.
+This repository is a ground-up rebuild of the original Tokuly and is under heavy development: the backend and
+the web app cover every area, the Expo mobile app covers accounts, the live map and friends so far.
+Run it with `tools/init-env.sh && docker compose up -d`; secrets go in `.env`, every other setting in
+`config/tokuly.toml` or the staff console. See the table above for what works today.

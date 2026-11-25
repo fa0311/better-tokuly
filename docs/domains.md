@@ -30,7 +30,7 @@ federation), YouTube / Twitch / TikTok (video, live, shorts), BeReal (POV),
 質問箱 / Gas (anonymous questions, compliment polls), Studyplus (study
 logs), 調整さん (date polls), Discord (communities, always-on voice rooms).
 
-## identity (done) · social · geo · realtime · media — contracts written
+## identity · social · geo · realtime · media
 
 See their proto files. Summary of behaviour that is not obvious from the API:
 
