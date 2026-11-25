@@ -261,8 +261,12 @@ impl Notify {
             return Ok(RequestOutcome::Dropped(DropReason::OwnAction));
         }
         let category = categories::of_kind(&request.kind);
+        // An actor the recipient is not told about cannot be what they muted
+        // or blocked; holding such a notification back because of them would
+        // tell the recipient who it was.
+        let visible_actor = request.actor_id.filter(|_| !request.actor_unnamed);
         let Some(recipient) =
-            preferences::delivery_context(&self.core, request.user_id, category.id, request.actor_id).await?
+            preferences::delivery_context(&self.core, request.user_id, category.id, visible_actor).await?
         else {
             return Ok(RequestOutcome::Dropped(DropReason::RecipientGone));
         };
@@ -275,7 +279,7 @@ impl Notify {
         // withdrawn, nor held back by a block.
         let system = category.id == UNWITHDRAWABLE_CATEGORY;
         let withdrawable_refs: &[Uuid] = if system { &[] } else { &refs };
-        let blockable_actor = request.actor_id.filter(|_| !system);
+        let blockable_actor = visible_actor.filter(|_| !system);
 
         // Nothing above changed anything, so a redelivery may safely repeat
         // it. From here on the event ID guards against doing the work twice.

@@ -73,10 +73,11 @@ pub struct NotificationRequest {
     /// Extra structured data for clients.
     #[serde(default)]
     pub data: serde_json::Value,
-    /// The actor is there so the recipient's mutes and blocks apply, but the
-    /// text deliberately does not name them ("Someone bought your pack"):
-    /// nothing that adds a name of its own (a sender-only push) may name
-    /// them either.
+    /// The text deliberately does not name the actor ("Someone bought your
+    /// pack"), so nothing may reveal them: no push or inbox entry names them,
+    /// and the recipient's blocks and mutes do not apply to them (an entry
+    /// that vanished or never came would say who it was). The actor is kept
+    /// for account deletion.
     #[serde(default)]
     pub actor_unnamed: bool,
 }

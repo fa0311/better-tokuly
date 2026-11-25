@@ -271,10 +271,21 @@ async fn the_inbox_never_returns_an_unnamed_actor() {
     let hidden = ctx.inbox(&creator).await.notifications.into_iter().find(|n| n.id == id).unwrap();
     assert!(hidden.actor.as_option().is_none());
 
-    // The actor still counts for blocks: blocking the buyer removes the entry.
+    // Blocking or muting the buyer changes nothing about such entries:
+    // otherwise 「売れたよ」 vanishing (or the next one never arriving)
+    // would tell the creator who bought.
     let block = event(USER_BLOCKED_TOPIC_NAME, serde_json::json!({ "user_id": creator.id, "blocked_id": buyer.id }));
     ctx.notify.handle_event(block).await.unwrap();
-    assert!(ctx.inbox(&creator).await.notifications.iter().all(|n| n.id != id), "blocking the buyer removes it");
+    assert!(ctx.inbox(&creator).await.notifications.iter().any(|n| n.id == id), "the sale stays after a block");
+    let again = ctx.deliver(&sale).await;
+    assert!(matches!(again, RequestOutcome::Handled { notification_id: Some(_), .. }), "a sale after the block still arrives: {again:?}");
+    let other = ctx.app.user("other").await;
+    let mute = tokuly_proto::notify::MuteUserRequest { user_id: buyer.id.to_string(), ..Default::default() };
+    let _: tokuly_proto::notify::MuteUserResponse =
+        ctx.app.call("tokuly.notify.v1.PreferencesService/MuteUser", Some(&other), &mute).await.unwrap();
+    let to_other = tokuly_core::outbound::NotificationRequest { user_id: other.id, ..sale.clone() };
+    let muted = ctx.deliver(&to_other).await;
+    assert!(matches!(muted, RequestOutcome::Handled { notification_id: Some(_), .. }), "a mute does not hold it back: {muted:?}");
 }
 
 const USER_BLOCKED_TOPIC_NAME: &str = "social.user.blocked";
