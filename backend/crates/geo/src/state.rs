@@ -96,7 +96,8 @@ pub struct Pin {
     pub charging: bool,
     /// `Activity` number.
     pub activity: i32,
-    /// False after `StopSharing`, until the next sample.
+    /// False after `StopSharing`, until a sample recorded after the stop
+    /// (see [`LiveState::stopped_ms`]).
     pub sharing: bool,
     /// Start and center of the confirmed stay, if the user is in one.
     pub stationary_since_ms: Option<i64>,
@@ -137,6 +138,11 @@ pub struct LiveState {
     pub mocked: bool,
     /// Device time of the latest sample accurate enough for stays, distance and footprints.
     pub last_fine_ms: i64,
+    /// Device time of the latest `StopSharing`: samples recorded at or before
+    /// it were on their way when the device stopped and are dropped, so they
+    /// cannot turn sharing back on.
+    #[serde(default)]
+    pub stopped_ms: i64,
     /// The latest fix that is the account's real position, for checking
     /// positions claimed in other domains (see [`crate::claims`]).
     #[serde(default)]

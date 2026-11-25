@@ -363,6 +363,35 @@ async fn stop_sharing_pauses_the_pin_where_it_is() {
 }
 
 #[tokio::test]
+async fn a_sample_still_on_its_way_when_sharing_stopped_does_not_resume_it() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let home = somewhere();
+    ctx.at(&aoi, home).await;
+    let mut rens = ctx.app.listen_user(ren.id).await;
+
+    // The device takes a fix, the user stops sharing, and only then does the fix reach the server.
+    let in_flight = sample(offset(home, 0.0, 60.0), next_fix_time(aoi.id));
+    let stopped_at = next_fix_time(aoi.id);
+    let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(stopped_at), ..Default::default() };
+    let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
+    assert!(next_pin(&mut rens).await.unwrap().sharing_paused);
+    assert_eq!(ctx.report(&aoi, vec![in_flight]).await.accepted_count, 0, "dropped");
+    assert!(pins(&mut rens, QUIET).await.is_empty(), "friends keep seeing the paused pin");
+    let seen = ctx.seen_by(&ren, &aoi).await.unwrap();
+    assert!(seen.sharing_paused);
+    assert_at!(pin_point(&seen), home);
+    assert!(!ctx.my_location(&aoi).await.sharing);
+    assert!(geoindex::get(&ctx.app.core.cache, aoi.id).await.unwrap().is_none());
+
+    // A fix taken after the stop is the device sharing again.
+    ctx.at(&aoi, home).await;
+    assert!(!next_pin(&mut rens).await.unwrap().sharing_paused);
+    assert!(ctx.my_location(&aoi).await.sharing);
+}
+
+#[tokio::test]
 async fn privacy_settings_withhold_battery_activity_and_the_online_halo() {
     let ctx = start().await;
     let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);

@@ -69,6 +69,18 @@ describe("switchAccount", () => {
     expect(generation).toBe(1);
   });
 
+  it("keeps the rotated token before the account in use leaves", async () => {
+    switchAnswer = signedInAs("alt", "s-alt", "rt-alt-rotated");
+    // What a restart would find if the app died while a leave hook was still running.
+    const stored: Record<string, string>[] = [];
+    const off = onBeforeLeave(async () => void stored.push(await parkedTokens()));
+
+    await expect(switchAccount("s-alt")).resolves.toBe("switched");
+    off();
+
+    expect(stored).toEqual([{ "s-alt": "rt-alt-rotated" }]);
+  });
+
   it("changes nothing until the second factor is given", async () => {
     switchAnswer = create(identity.AuthResponseSchema, { mfaRequired: true });
     const left = jest.fn();

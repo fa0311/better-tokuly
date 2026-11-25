@@ -34,6 +34,14 @@ export async function parkActive(sessionId: string): Promise<void> {
   await activeTokenStore.clear();
 }
 
+/**
+ * Keeps the token a parked account's session was just rotated to: the one it
+ * had is spent, and the server revokes a session whose spent token comes back.
+ */
+export async function rotateParked(sessionId: string, token: string): Promise<void> {
+  await writeJson(PARKED_KEY, { ...(await parkedTokens()), [sessionId]: token });
+}
+
 /** Forgets a parked account (it became the active one, or it was signed out of this device). */
 export async function forgetParked(sessionId: string): Promise<void> {
   const { [sessionId]: _gone, ...rest } = await parkedTokens();

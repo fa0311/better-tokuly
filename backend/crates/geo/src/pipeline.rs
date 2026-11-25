@@ -3,7 +3,8 @@
 //! through [`Geo::ingest_batch`].
 //!
 //! Per user, under their lock and in order:
-//! 1. validate; drop duplicates and samples older than the newest one known;
+//! 1. validate; drop duplicates, samples older than the newest one known and
+//!    samples recorded before the latest stop;
 //! 2. update the live state — stay detection, activity, area name, distance,
 //!    footprints, raw history, nights (history only if the user records it);
 //! 3. for a live sample: place alerts, the active trip, proximity to friends
@@ -18,7 +19,10 @@ use std::hash::{Hash as _, Hasher as _};
 
 use chrono::{DateTime, Duration, Utc};
 use tokuly_core::{geoindex, prelude::*, presence::LocationReport};
-use tokuly_proto::geo::{Activity, FootprintProgress, LocationSample, geo_event::Event};
+use tokuly_proto::{
+    Timestamp,
+    geo::{Activity, FootprintProgress, LocationSample, geo_event::Event},
+};
 use tokuly_social::graph;
 
 use crate::{
@@ -145,6 +149,19 @@ pub fn validate(sample: &LocationSample, received_at: DateTime<Utc>, max_age: Du
     })
 }
 
+/// When a device stopped sharing, by its own clock (the one its samples'
+/// times come from): the `stopped_at` it sent, or the server's time when it
+/// sent none. A time further ahead than any sample may be is capped there.
+pub fn stop_time(stopped_at: Option<&Timestamp>, received_at: DateTime<Utc>) -> i64 {
+    let latest = received_at + MAX_CLOCK_SKEW;
+    match stopped_at {
+        None => received_at.timestamp_millis(),
+        // Compared on the raw seconds: converting first would clamp nonsense into range.
+        Some(at) if at.seconds > latest.timestamp() => latest.timestamp_millis(),
+        Some(at) => from_ts(at).timestamp_millis().min(latest.timestamp_millis()),
+    }
+}
+
 /// Everything about a pin a friend could notice besides its position.
 fn fingerprint(state: &LiveState) -> u64 {
     let pin = &state.pin;
@@ -224,6 +241,10 @@ impl Geo {
         for (index, sample) in samples.iter().enumerate() {
             // Duplicates, stragglers and floods: the state only moves forward, a second at a time.
             if state.located() && sample.recorded_ms < state.pin.recorded_ms + MIN_SPACING_MS {
+                continue;
+            }
+            // Recorded before the device stopped, and only now arriving: it must not resume sharing.
+            if sample.recorded_ms <= state.stopped_ms {
                 continue;
             }
             self.apply(user_id, &ctx, &mut state, sample, &mut effects).await?;
@@ -583,14 +604,16 @@ impl Geo {
         Ok((!changes.is_empty()).then_some(changes))
     }
 
-    /// The device stopped sharing: the pin stays where it is and is marked
-    /// paused, the stay and gathering end, and the true-position index
-    /// forgets the user.
-    pub(crate) async fn stop_sharing(&self, user_id: Uuid) -> AppResult<()> {
+    /// The device stopped sharing at `stopped_ms` (device time, see
+    /// [`stop_time`]): the pin stays where it is and is marked paused, the
+    /// stay and gathering end, and the true-position index forgets the user.
+    /// Samples recorded until then are dropped from now on.
+    pub(crate) async fn stop_sharing(&self, user_id: Uuid, stopped_ms: i64) -> AppResult<()> {
         let ctx = self.ctx_of(user_id).await?;
         let (pin, news) = self
             .with_state(user_id, async |state| {
-                // Never shared, or already paused: nothing changes and nobody needs telling again.
+                state.stopped_ms = state.stopped_ms.max(stopped_ms);
+                // Never shared, or already paused: nothing else changes and nobody needs telling again.
                 if !state.located() || !state.pin.sharing {
                     return Ok((None, None));
                 }
@@ -665,6 +688,23 @@ mod tests {
             let bad = LocationSample { accuracy_meters: accuracy, ..reading(35.0, 139.0) };
             assert_eq!(validate(&bad, now, week()), Err(Rejection::BadAccuracy), "{accuracy}");
         }
+    }
+
+    #[test]
+    fn a_stop_is_timed_by_the_device_clock_and_capped_like_samples() {
+        let now = Utc::now();
+        let stamp = |time: DateTime<Utc>| Timestamp {
+            seconds: time.timestamp(),
+            nanos: time.timestamp_subsec_nanos() as i32,
+            ..Default::default()
+        };
+        let behind = now - Duration::minutes(5);
+        assert_eq!(stop_time(Some(&stamp(behind)), now), behind.timestamp_millis(), "a slow clock is kept");
+        assert_eq!(stop_time(None, now), now.timestamp_millis(), "nothing said: the server's time");
+        let cap = (now + MAX_CLOCK_SKEW).timestamp_millis();
+        assert_eq!(stop_time(Some(&stamp(now + Duration::days(400))), now), cap);
+        let absurd = Timestamp { seconds: i64::MAX, ..Default::default() };
+        assert_eq!(stop_time(Some(&absurd), now), cap);
     }
 
     #[test]

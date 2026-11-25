@@ -22,7 +22,11 @@ simulator ──▶ Geo::ingest ────────────────
 Samples that are unusable (no or impossible coordinates, accuracy negative or
 worse than 10 km, recorded more than 2 minutes in the future or longer ago
 than `TOKULY_GEO_MAX_SAMPLE_AGE_HOURS`), duplicates and samples older than the
-newest one already processed are skipped. Fixes worse than 100 m move the pin
+newest one already processed are skipped. So are samples recorded at or
+before the latest `StopSharing` (`stopped_at`, the device's own clock; the
+server's receive time when missing): an upload still on its way when the
+device stopped is dropped instead of turning sharing back on, and the first
+fix taken after the stop resumes it. Fixes worse than 100 m move the pin
 only when no good fix arrived in the last three minutes and never feed stays,
 distance or footprints. Mock locations move the pin but leave no footprints.
 A user who switched off `record_history` still shares live (pin, time on the
