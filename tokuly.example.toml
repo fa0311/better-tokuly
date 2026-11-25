@@ -345,11 +345,11 @@
 
 # Spotify application credentials for the "now playing" connection. Leave empty to disable the
 # integration.
-# (TOKULY_SPOTIFY_CLIENT_ID; console; restart: api, worker)
+# (TOKULY_SPOTIFY_CLIENT_ID; restart: api, worker)
 # spotify_client_id = ""
 
 # Spotify app client secret (profile music connection).
-# (TOKULY_SPOTIFY_CLIENT_SECRET; secret; console; restart: api, worker)
+# (TOKULY_SPOTIFY_CLIENT_SECRET; secret; restart: api, worker)
 # spotify_client_secret = ""
 
 # Base URL of the Spotify Web API (a test double in tests).

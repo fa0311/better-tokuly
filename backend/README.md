@@ -166,8 +166,9 @@ intervals, feature tuning and texts. Never list:
 - egress and SSRF switches (`*_allow_loopback`, `*_allow_private`,
   `*_allow_insecure`, allowed host lists);
 - what the server executes or writes to (executable paths, directories);
-- infrastructure names (index prefixes, keyspaces) and credentials of the
-  infrastructure;
+- infrastructure names (index prefixes, keyspaces), credentials of the
+  infrastructure, and the identity of the apps the server is registered as
+  with other services (OAuth client IDs and secrets, push keys);
 - protections and money: the rate limits switch, the minimum age, fees,
   exchange rates, coin rewards, the wallet's dev provider;
 - privacy floors (minimum group sizes of anonymous or aggregate features).

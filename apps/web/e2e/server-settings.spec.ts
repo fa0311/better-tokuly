@@ -75,19 +75,23 @@ test("an admin sees where each value comes from, changes one and exports the res
   await expect(hours.getByText("管理画面", { exact: true })).toBeVisible();
   await expect(hours.getByRole("definition").first()).toHaveText("4");
 
-  // A secret: write-only, applied on restart.
+  // The app's identity at another service: a secret the console never changes.
   await find(page, "spotify_client_secret");
   const secret = row(page, "identity.spotify_client_secret");
-  await secret.getByRole("button", { name: "identity.spotify_client_secret を変更" }).click();
+  await expect(secret.getByText("tokuly.toml か環境変数で設定してね")).toBeVisible();
+  await expect(secret.getByRole("button", { name: /を変更$/ })).toHaveCount(0);
+
+  // A setting applied on restart, with its history.
+  await find(page, "image_concurrency");
+  const workers = row(page, "media.image_concurrency");
+  await workers.getByRole("button", { name: "media.image_concurrency を変更" }).click();
   dialog = page.getByRole("dialog");
-  await dialog.getByLabel("新しい秘密の値").fill("very-private-9876");
+  await dialog.getByLabel("新しい値").fill("6");
   await dialog.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("保存したよ！再起動で反映されるよ")).toBeVisible();
-  await expect(secret.getByText("設定済み（末尾 9876）")).toBeVisible();
-  await expect(secret.getByText("再起動で反映されるよ（api / worker）")).toBeVisible();
-  await expect(page.getByText("very-private", { exact: false })).toHaveCount(0);
-  await secret.getByRole("button", { name: "identity.spotify_client_secret の履歴" }).click();
-  await expect(page.getByRole("dialog").getByText("未設定 → ••••")).toBeVisible();
+  await expect(workers.getByText("再起動で反映されるよ（api / worker）")).toBeVisible();
+  await workers.getByRole("button", { name: "media.image_concurrency の履歴" }).click();
+  await expect(page.getByRole("dialog").getByText("未設定 → 6")).toBeVisible();
   await page.keyboard.press("Escape");
 
   // The export: what is in force and not a default, without secrets.
@@ -100,12 +104,12 @@ test("an admin sees where each value comes from, changes one and exports the res
   expect(exported).toContain("[identity]\nregistration_open = true  # from tokuly.toml");
   expect(exported).toContain("max_video_hours = 4  # from 管理画面");
   expect(exported).toContain("rate_limits = false  # from TOKULY_RATE_LIMITS");
-  expect(exported).not.toContain("very-private");
+  expect(exported).toContain("image_concurrency = 6  # from 管理画面");
 
   // Both back to their defaults.
   for (const [query, name] of [
     ["max_video_hours", "media.max_video_hours"],
-    ["spotify_client_secret", "identity.spotify_client_secret"],
+    ["image_concurrency", "media.image_concurrency"],
   ] as const) {
     await find(page, query);
     await row(page, name)

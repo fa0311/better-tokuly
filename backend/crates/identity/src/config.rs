@@ -81,7 +81,5 @@ impl IdentityConfig {
         "deletion_grace_days",
         "device_account_limit",
         "account_switch_mfa_hours",
-        "spotify_client_id",
-        "spotify_client_secret",
     ];
 }

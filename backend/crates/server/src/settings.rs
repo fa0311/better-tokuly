@@ -348,6 +348,8 @@ mod tests {
         ("feed", "news_feeds"),
         ("identity", "profile_links_allow_loopback"),
         ("identity", "min_age"),
+        ("identity", "spotify_client_id"),
+        ("identity", "spotify_client_secret"),
         ("notify", "webpush_allow_insecure"),
         ("notify", "webpush_allowed_hosts"),
         ("media", "ffmpeg_path"),
