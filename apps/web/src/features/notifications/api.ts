@@ -1,42 +1,28 @@
-import {
-  type QueryClient,
-  useInfiniteQuery,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notify } from "@tokuly/api";
 import {
+  applyInboxChange,
   type InboxFilter,
-  type InboxPages,
   NOTHING_UNREAD,
   notifyKeys,
   PAGE_SIZE,
+  rereadInbox,
+  storeUnread,
   type Unread,
-  unreadOf,
   unreadQuery,
+  updateInboxLists,
 } from "@tokuly/core/notifications";
 import { api } from "#/lib/api";
 
-// The notify keys live in `@tokuly/core/notifications`; the folder reads them from here.
-export { notifyKeys, type Unread };
+// The notify keys and cache edits live in `@tokuly/core/notifications`; the folder reads them from here.
+export { applyInboxChange, notifyKeys, rereadInbox, type Unread, updateInboxLists };
 
 export const inboxClient = () => api().service(notify.InboxService);
 export const preferencesClient = () => api().service(notify.PreferencesService);
 export const pushClient = () => api().service(notify.PushService);
 
-/**
- * Stores the unread counts the server just told us (every inbox response and
- * realtime event carries them). The navigation badge follows this cache entry.
- */
-export function applyUnread(
-  queryClient: QueryClient,
-  unread: notify.UnreadCount | undefined,
-): void {
-  if (!unread) return;
-  queryClient.setQueryData<Unread>(notifyKeys.unread, unreadOf(unread));
-  // A count request still on its way was asked before this answer; it must not replace it.
-  void queryClient.cancelQueries({ queryKey: notifyKeys.unread, exact: true });
-}
+/** Stores the unread counts the server just told us; the navigation badge follows them. */
+export const applyUnread = storeUnread;
 
 /** The unread counts. Fetched once; kept current by responses and realtime events. */
 export function useUnread(): Unread {
@@ -61,45 +47,6 @@ export function useInbox(filter: InboxFilter) {
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
-}
-
-/**
- * Applies `update` to every inbox view in the cache (each has its own filter).
- *
- * A list request that is under way may have read the inbox before this
- * change, and its answer would undo it. Such requests are dropped; the return
- * value says whether any was, so the caller can re-read the lists once the
- * server has the change.
- */
-export function updateInboxLists(
-  queryClient: QueryClient,
-  update: (pages: InboxPages, filter: InboxFilter) => InboxPages,
-): boolean {
-  let dropped = false;
-  for (const query of queryClient.getQueryCache().findAll({ queryKey: notifyKeys.inbox })) {
-    const filter = query.queryKey[2] as InboxFilter;
-    queryClient.setQueryData<InboxPages>(query.queryKey, (pages) =>
-      pages ? update(pages, filter) : pages,
-    );
-    if (query.state.fetchStatus === "fetching") {
-      dropped = true;
-      void queryClient.cancelQueries({ queryKey: query.queryKey, exact: true });
-    }
-  }
-  return dropped;
-}
-
-/** Re-reads the inbox views: the ones on screen now, the others when they are next shown. */
-export function rereadInbox(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({ queryKey: notifyKeys.inbox });
-}
-
-/** A change the server already has (a realtime event): applied to the lists as they are. */
-export function applyInboxChange(
-  queryClient: QueryClient,
-  update: (pages: InboxPages, filter: InboxFilter) => InboxPages,
-): void {
-  if (updateInboxLists(queryClient, update)) rereadInbox(queryClient);
 }
 
 /** Preferences: category switches, quiet hours, the push pause and the account's time zone. */
