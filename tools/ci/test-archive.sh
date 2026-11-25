@@ -23,24 +23,24 @@ root="$PWD"
 
 pack() {
   local archive="$1" parts="$2"; shift 2
-  local work; work="$(mktemp -d)"
+  # Next to the build, so that the binaries are linked into it rather than copied.
+  local work; work="$(mktemp -d -p "$root/backend/target")"
   (cd backend && cargo test --no-run --message-format=json-render-diagnostics "$@") \
     | jq -r 'select(.reason == "compiler-artifact" and .executable != null)
              | "\(.profile.test)\t\(.manifest_path | sub("/Cargo.toml$"; ""))\t\(.executable)"' >"$work/artifacts"
-  mkdir "$work/bin" "$work/programs"
-  sed -n 's/^true\t//p' "$work/artifacts" >"$work/binaries"
+  mkdir "$work/bin" "$work/bin/programs"
   # The crates' programs too, where they were built: integration tests run them
   # through the path cargo compiled in (CARGO_BIN_EXE_<name>).
   sed -n 's/^false\t[^\t]*\t//p' "$work/artifacts" | sort -u >"$work/bin/programs.list"
-  while read -r exe; do cp "$exe" "$work/programs/$(basename "$exe")"; done <"$work/bin/programs.list"
-  mv "$work/programs" "$work/bin/"
-  # Each binary under a name of its own, with its crate's directory and number of tests.
-  while IFS=$'\t' read -r dir exe; do
-    name="$(basename "$exe")"
-    cp "$exe" "$work/bin/$name"
-    tests="$(cd "$dir" && "$exe" --list --format terse 2>/dev/null | grep -c ': test$' || true)"
-    printf '%s\t%s\t%s\n' "$tests" "${dir#"$root"/}" "$name"
-  done <"$work/binaries" | sort -rn >"$work/weighted"
+  while read -r exe; do ln -f "$exe" "$work/bin/programs/"; done <"$work/bin/programs.list"
+  # Each test binary under a name of its own, with its crate's directory and number of tests
+  # (listed in parallel: there are a few hundred).
+  sed -n 's/^true\t//p' "$work/artifacts" | while IFS=$'\t' read -r dir exe; do
+    ln -f "$exe" "$work/bin/"
+    printf '%s\0%s\0' "$dir" "$exe"
+  done | xargs -0 -n 2 -P "$(nproc)" sh -c '
+    tests="$(cd "$1" && "$2" --list --format terse 2>/dev/null | grep -c ": test$" || true)"
+    printf "%s\t%s\t%s\n" "$tests" "${1#"$0"/}" "$(basename "$2")"' "$root" | sort -rn >"$work/weighted"
   # Largest first, each to the group with the fewest tests so far.
   awk -F'\t' -v parts="$parts" '{
       best = 1; for (p = 2; p <= parts; p++) if (load[p] < load[best]) best = p
@@ -48,7 +48,7 @@ pack() {
     } END { for (p = 1; p <= parts; p++) printf "group %d: %d tests\n", p, load[p] > "/dev/stderr" }' \
     "$work/weighted" >"$work/bin/groups"
   tar -C "$work/bin" -cf - . | zstd -T0 -3 --long=30 -q -o "$archive"
-  echo "$(wc -l <"$work/binaries") test binaries, $(du -h "$archive" | cut -f1) archived"
+  echo "$(wc -l <"$work/weighted") test binaries, $(du -h "$archive" | cut -f1) archived"
   rm -rf "$work"
 }
 

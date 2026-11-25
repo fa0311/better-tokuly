@@ -53,7 +53,7 @@ permissions:
 
 env:
   # How many jobs the browser tests are split across, each with its own stack.
-  PLAYWRIGHT_SHARDS: 12
+  PLAYWRIGHT_SHARDS: 16
   REGISTRY: ghcr.io/${{ github.repository }}
 
 jobs:
