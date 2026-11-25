@@ -1,53 +1,18 @@
 import { infiniteQueryOptions } from "@tanstack/react-query";
-import type { common, shorts } from "@tokuly/api";
-import type { FeedContext } from "@tokuly/core/shorts";
+import {
+  type FeedContext,
+  isSwipeOnly,
+  type ListOptions,
+  type ListPage,
+  listKey,
+  loadListPage,
+  type ShortClients,
+} from "@tokuly/core/shorts";
 import { discoveryClient, feedClient, nextCursor, shortClient } from "./api";
 
-/** One entry of a swipe feed: the short, and what the feed says about it. */
-export interface FeedEntry {
-  short: shorts.Short;
-  reason?: shorts.FeedReason;
-  /** The hashtag that put it into the for-you feed. */
-  hashtag?: string;
-  /** The friend whose channel it is. */
-  friend?: common.UserSummary;
-  /** The viewer saw it before; it is shown again because nothing new is left. */
-  repeat?: boolean;
-}
+export type { FeedEntry, ListOptions } from "@tokuly/core/shorts";
 
-interface Page {
-  entries: FeedEntry[];
-  page?: { nextCursor: string };
-}
-
-const fromItems = (response: { items: shorts.FeedItem[]; page?: common.PageInfo }): Page => ({
-  entries: response.items.flatMap((item) =>
-    item.short
-      ? [
-          {
-            short: item.short,
-            reason: item.reason,
-            hashtag: item.hashtag,
-            friend: item.friend,
-            repeat: item.repeat,
-          },
-        ]
-      : [],
-  ),
-  page: response.page,
-});
-
-const fromShorts = (response: { shorts: shorts.Short[]; page?: common.PageInfo }): Page => ({
-  entries: response.shorts.map((short) => ({ short })),
-  page: response.page,
-});
-
-export interface ListOptions {
-  /** Following and friends feeds: leave out what the viewer has seen. */
-  skipSeen?: boolean;
-  /** Channel grid and hashtag page: the order (the API's enum value). */
-  sort?: number;
-}
+const clients: ShortClients = { shorts: shortClient, feed: feedClient, discovery: discoveryClient };
 
 /**
  * The paged list behind a feed context. Grids and the swipe feed opened from
@@ -55,63 +20,9 @@ export interface ListOptions {
  * that is already loaded.
  */
 export function listQuery(context: FeedContext, options: ListOptions = {}) {
-  const { skipSeen = false, sort = 0 } = options;
-  const key = "key" in context ? context.key : "";
-  const isFeed =
-    context.kind === "forYou" || context.kind === "following" || context.kind === "friends";
-  const load = (cursor: string): Promise<Page> => {
-    switch (context.kind) {
-      case "following":
-        return feedClient()
-          .getFollowingFeed({ page: { limit: 10, cursor }, skipSeen })
-          .then(fromItems);
-      case "friends":
-        return feedClient()
-          .getFriendsFeed({ page: { limit: 10, cursor }, skipSeen })
-          .then(fromItems);
-      case "channel":
-        return discoveryClient()
-          .listChannelShorts({ channelId: key, sort, page: { limit: 24, cursor } })
-          .then(fromShorts);
-      case "user":
-        return discoveryClient()
-          .listUserShorts({ userId: key, page: { limit: 24, cursor } })
-          .then(fromShorts);
-      case "hashtag":
-        return discoveryClient()
-          .listHashtagShorts({ tag: key, sort, page: { limit: 24, cursor } })
-          .then(fromShorts);
-      case "sound":
-        return discoveryClient()
-          .listSoundShorts({ soundId: key, page: { limit: 24, cursor } })
-          .then(fromShorts);
-      case "remixes":
-        return shortClient()
-          .listRemixes({ shortId: key, page: { limit: 24, cursor } })
-          .then(fromShorts);
-      case "saved":
-        return shortClient()
-          .listSavedShorts({ page: { limit: 24, cursor } })
-          .then(fromShorts);
-      case "liked":
-        return shortClient()
-          .listLikedShorts({ page: { limit: 24, cursor } })
-          .then(fromShorts);
-      default:
-        return feedClient()
-          .getForYouFeed({ page: { limit: 10, cursor } })
-          .then(fromItems);
-    }
-  };
-  const queryKey = [
-    "shorts",
-    isFeed || context.kind === "link" ? "feed" : "list",
-    context.kind === "link" ? "forYou" : context.kind,
-    key,
-    sort,
-    skipSeen,
-  ] as const;
-  const swipeOnly = isFeed || context.kind === "link";
+  const queryKey = listKey(context, options);
+  const load = (cursor: string) => loadListPage(clients, context, cursor, options);
+  const swipeOnly = isSwipeOnly(context);
   // The cursor each page was asked with, by the cursor of the page after it: what pages
   // dropped from the front are read again with when the viewer scrolls back.
   const cursorKey = JSON.stringify(queryKey);
@@ -121,7 +32,7 @@ export function listQuery(context: FeedContext, options: ListOptions = {}) {
     queryKey,
     queryFn: ({ pageParam }) => load(pageParam),
     initialPageParam: "",
-    getNextPageParam: (last: Page, _all: Page[], lastParam: string) => {
+    getNextPageParam: (last: ListPage, _all: ListPage[], lastParam: string) => {
       const next = nextCursor(last);
       if (next) before.set(next, lastParam);
       return next;
@@ -133,7 +44,7 @@ export function listQuery(context: FeedContext, options: ListOptions = {}) {
           refetchOnWindowFocus: false as const,
           // And it must not grow for ever: what lies far behind is let go, and read again on the way back.
           maxPages: FEED_MAX_PAGES,
-          getPreviousPageParam: (_first: Page, _all: Page[], firstParam: string) =>
+          getPreviousPageParam: (_first: ListPage, _all: ListPage[], firstParam: string) =>
             firstParam ? before.get(firstParam) : undefined,
         }
       : {}),
