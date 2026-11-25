@@ -179,6 +179,8 @@ export default {
       remove: "Remove “{{name}}”",
       add: "Add a passkey",
       unsupported: "This browser does not support passkeys",
+      unavailable:
+        "Passkeys are not available on this server. They work only when it is opened by a domain name, not an IP address",
       removed: "Passkey removed",
       removeTitle: "Remove “{{name}}”?",
       removeBody:

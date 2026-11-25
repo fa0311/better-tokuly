@@ -23,9 +23,15 @@ service AuthService {
 
   rpc CheckHandle(CheckHandleRequest) returns (CheckHandleResponse);
 
+  // What this server supports for signing in, so clients show only the ways
+  // that work. Needs no session: the sign-in screen asks it.
+  rpc GetAuthCapabilities(GetAuthCapabilitiesRequest) returns (GetAuthCapabilitiesResponse);
+
   // Passkeys (WebAuthn). Option/response payloads are the standard WebAuthn
   // JSON objects, passed through as strings.
   //
+  // All four: PASSKEYS_UNAVAILABLE when the server has no passkeys
+  // (`AuthCapabilities.passkeys_available` is false).
   // BeginPasskeyRegistration: INVALID_CREDENTIALS (wrong `current_password`),
   // TOO_MANY_PASSKEYS, RATE_LIMITED.
   rpc BeginPasskeyRegistration(BeginPasskeyRegistrationRequest) returns (BeginPasskeyRegistrationResponse);
@@ -163,6 +169,20 @@ message CheckHandleResponse {
   // the reserved words and anything that passes for Tokuly or its staff once
   // look-alike characters are folded (`t0kuly`, `tokuly_official`, `adm1n`).
   string reason = 3;
+}
+
+// Ways of signing in this server supports.
+message AuthCapabilities {
+  // Passkeys can be registered and used. False when the server is reached by
+  // an IP address (`TOKULY_PUBLIC_URL=http://192.168.1.10`): WebAuthn needs
+  // a domain name (localhost counts as one).
+  bool passkeys_available = 1;
+}
+
+message GetAuthCapabilitiesRequest {}
+
+message GetAuthCapabilitiesResponse {
+  AuthCapabilities capabilities = 1;
 }
 
 message BeginPasskeyRegistrationRequest {

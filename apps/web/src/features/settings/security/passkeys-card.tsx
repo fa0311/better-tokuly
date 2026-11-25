@@ -13,7 +13,7 @@ import { ListRow, Skeleton } from "#/components/ui/page";
 import { accountClient, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { PasswordField } from "../account/password-field";
-import { keys, refreshMe } from "../data";
+import { keys, refreshMe, usePasskeysAvailable } from "../data";
 import { Group } from "../shell/settings-page";
 
 /** A starting name for a new passkey, from what the browser says it runs on. */
@@ -49,6 +49,9 @@ export function PasskeysCard({ me }: { me: identity.Me }) {
     open: false,
   });
   const supported = browserSupportsWebAuthn();
+  // Passkeys added before the server moved to an IP address stay listed, so
+  // they can still be removed.
+  const available = usePasskeysAvailable();
 
   // The account carries the passkey count and whether a password exists.
   const changed = () =>
@@ -116,17 +119,25 @@ export function PasskeysCard({ me }: { me: identity.Me }) {
         </ul>
       )}
       <div className="px-2 pt-2 pb-1">
-        <Button
-          size="sm"
-          variant="secondary"
-          icon={<Plus className="size-4" />}
-          disabled={!supported}
-          onClick={() => setAdding(true)}
-        >
-          {t("security.passkeys.add")}
-        </Button>
-        {!supported && (
-          <p className="mt-2 px-1 text-sm text-ink-soft">{t("security.passkeys.unsupported")}</p>
+        {!available ? (
+          <p className="px-1 text-sm text-ink-soft">{t("security.passkeys.unavailable")}</p>
+        ) : (
+          <>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Plus className="size-4" />}
+              disabled={!supported}
+              onClick={() => setAdding(true)}
+            >
+              {t("security.passkeys.add")}
+            </Button>
+            {!supported && (
+              <p className="mt-2 px-1 text-sm text-ink-soft">
+                {t("security.passkeys.unsupported")}
+              </p>
+            )}
+          </>
         )}
       </div>
 

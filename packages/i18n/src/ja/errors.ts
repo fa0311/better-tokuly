@@ -26,6 +26,7 @@ export default {
   PASSKEY_FAILED: "パスキーを確認できませんでした",
   PASSKEY_UNKNOWN: "このパスキーは登録されていません",
   PASSKEY_EXPIRED: "時間切れです。もう一度ためしてね",
+  PASSKEYS_UNAVAILABLE: "このサーバーではパスキーが使えません",
   DEVICE_CODE_INVALID: "このコードは無効か、期限が切れています",
   DEVICE_CODE_USED: "このコードはすでに使われています",
   USER_NOT_FOUND: "ユーザーが見つかりません",

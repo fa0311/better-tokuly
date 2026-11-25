@@ -11,4 +11,4 @@
 export { enterAccount } from "./accounts/accounts-section";
 export { DeviceAccountsOnLogin } from "./accounts/device-accounts-on-login";
 export { type Appearance, useAppearance } from "./appearance/appearance-store";
-export { useSettings } from "./data";
+export { usePasskeysAvailable, useSettings } from "./data";

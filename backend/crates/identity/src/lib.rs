@@ -109,10 +109,32 @@ pub trait ProfileExtension: Send + Sync + 'static {
     }
 }
 
+/// The WebAuthn relying party for the public URL, or `None` when its host is
+/// an IP address: a relying party ID must be a domain name, so a server
+/// reached by LAN IP (`http://192.168.1.10`) runs without passkeys rather
+/// than not at all. Every other misconfiguration still fails start-up.
+fn webauthn_for(cfg: &tokuly_core::config::Config) -> anyhow::Result<Option<Webauthn>> {
+    let origin = url::Url::parse(cfg.public_url())?;
+    if matches!(origin.host(), Some(url::Host::Ipv4(_) | url::Host::Ipv6(_))) {
+        return Ok(None);
+    }
+    let rp_id = cfg.public_host();
+    let webauthn = WebauthnBuilder::new(&rp_id, &origin)
+        .map_err(|e| anyhow::anyhow!("webauthn configuration: {e}"))?
+        .rp_name("Tokuly")
+        // Development setups reach the app on several localhost ports.
+        .allow_any_port(!cfg.is_production())
+        .build()
+        .map_err(|e| anyhow::anyhow!("webauthn configuration: {e}"))?;
+    Ok(Some(webauthn))
+}
+
 pub struct IdentityInner {
     pub core: Core,
     pub cfg: IdentityConfig,
-    pub(crate) webauthn: Webauthn,
+    /// The WebAuthn relying party; `None` when the public URL cannot be one
+    /// (see [`webauthn_for`]), and the passkey RPCs answer PASSKEYS_UNAVAILABLE.
+    pub(crate) webauthn: Option<Webauthn>,
     extensions: RwLock<Vec<Arc<dyn ProfileExtension>>>,
     /// Fetches in flight per host for the profile link check.
     pub(crate) link_hosts: parking_lot::Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>,
@@ -136,15 +158,14 @@ impl Identity {
             !(core.cfg.is_production() && cfg.profile_links_allow_loopback),
             "TOKULY_PROFILE_LINKS_ALLOW_LOOPBACK must not be set in production"
         );
-        let origin = url::Url::parse(core.cfg.public_url())?;
-        let rp_id = core.cfg.public_host();
-        let webauthn = WebauthnBuilder::new(&rp_id, &origin)
-            .map_err(|e| anyhow::anyhow!("webauthn configuration: {e}"))?
-            .rp_name("Tokuly")
-            // Development setups reach the app on several localhost ports.
-            .allow_any_port(!core.cfg.is_production())
-            .build()
-            .map_err(|e| anyhow::anyhow!("webauthn configuration: {e}"))?;
+        let webauthn = webauthn_for(&core.cfg)?;
+        if webauthn.is_none() {
+            tracing::warn!(
+                public_url = core.cfg.public_url(),
+                "passkeys are disabled: the public URL is an IP address, and WebAuthn needs a domain name \
+                 (localhost works); set TOKULY_PUBLIC_URL to a domain to enable them"
+            );
+        }
         Ok(Self(Arc::new(IdentityInner {
             core,
             cfg,
@@ -152,6 +173,11 @@ impl Identity {
             extensions: RwLock::new(Vec::new()),
             link_hosts: parking_lot::Mutex::new(HashMap::new()),
         })))
+    }
+
+    /// Whether passkeys can be registered and used on this server.
+    pub fn passkeys_available(&self) -> bool {
+        self.webauthn.is_some()
     }
 
     /// Registers a domain that enriches profiles. Call once at startup.

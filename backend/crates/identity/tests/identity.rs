@@ -1821,3 +1821,80 @@ async fn a_ban_signs_the_account_out_even_when_the_banner_could_not() {
         .unwrap();
     assert_eq!(live, 1);
 }
+
+/// An app whose identity is built for `public_url` in production, as
+/// `tokuly api` would build it; `None` when start-up fails.
+async fn app_at(public_url: &str) -> Option<TestApp> {
+    let plain = app().await;
+    let mut cfg = plain.core.cfg.clone();
+    cfg.public_url = public_url.to_owned();
+    cfg.env = "production".to_owned();
+    let core = tokuly_core::Core::connect(cfg).await.unwrap();
+    let identity = tokuly_identity::Identity::new(core, tokuly_identity::IdentityConfig::default()).ok()?;
+    Some(TestApp::start(MIGRATIONS, move |_core, _identity, router| identity.clone().register(router)).await)
+}
+
+async fn passkeys_available(app: &TestApp) -> bool {
+    let response: GetAuthCapabilitiesResponse = app
+        .call("tokuly.identity.v1.AuthService/GetAuthCapabilities", None, &GetAuthCapabilitiesRequest::default())
+        .await
+        .unwrap();
+    response.capabilities.into_option().unwrap().passkeys_available
+}
+
+#[tokio::test]
+async fn a_server_reached_by_ip_address_starts_without_passkeys() {
+    for public_url in ["http://192.168.1.10", "http://192.168.1.10:8080", "http://[fd00::10]"] {
+        let app = app_at(public_url).await.unwrap_or_else(|| panic!("{public_url} must start"));
+        assert!(!passkeys_available(&app).await, "{public_url}");
+
+        let err = app
+            .call::<_, BeginPasskeySignInResponse>(
+                "tokuly.identity.v1.AuthService/BeginPasskeySignIn",
+                None,
+                &BeginPasskeySignInRequest::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.reason, "PASSKEYS_UNAVAILABLE", "{public_url}");
+        let err = app
+            .call::<_, AuthResponse>(
+                "tokuly.identity.v1.AuthService/FinishPasskeySignIn",
+                None,
+                &FinishPasskeySignInRequest {
+                    challenge_id: "x".into(),
+                    credential_json: "{}".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.reason, "PASSKEYS_UNAVAILABLE", "{public_url}");
+
+        // Said before the password is checked: there is nothing to confirm it for.
+        let user = app.user("ipowner").await;
+        let err = app
+            .call::<_, BeginPasskeyRegistrationResponse>(
+                "tokuly.identity.v1.AuthService/BeginPasskeyRegistration",
+                Some(&user),
+                &BeginPasskeyRegistrationRequest { name: "laptop".into(), ..Default::default() },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.reason, "PASSKEYS_UNAVAILABLE", "{public_url}");
+    }
+}
+
+#[tokio::test]
+async fn a_server_reached_by_a_domain_name_or_localhost_has_passkeys() {
+    assert!(passkeys_available(&app().await).await, "the localhost test app");
+    for public_url in ["https://tokuly.example", "http://localhost:8080"] {
+        let app = app_at(public_url).await.unwrap_or_else(|| panic!("{public_url} must start"));
+        assert!(passkeys_available(&app).await, "{public_url}");
+        let begin: BeginPasskeySignInResponse = app
+            .call("tokuly.identity.v1.AuthService/BeginPasskeySignIn", None, &BeginPasskeySignInRequest::default())
+            .await
+            .unwrap();
+        assert!(begin.options_json.contains("challenge"), "{public_url}");
+    }
+}

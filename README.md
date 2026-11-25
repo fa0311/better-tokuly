@@ -58,6 +58,12 @@ tools/init-env.sh        # .env に秘密鍵を生成、config/tokuly.toml の�
 docker compose up -d     # http://localhost
 ```
 
+家のサーバーに LAN の IP アドレスでつなぐ（`TOKULY_PUBLIC_URL=http://192.168.1.10`）こともできますが、
+そのときは**パスキーが使えません**。パスキー（WebAuthn）はドメイン名でひらいたときだけ動く仕組みなので、
+サーバーは起動時に警告を出してパスキーなしで動き、アプリはパスキーのボタンを出しません（パスワードと
+2段階認証はそのまま使えます）。パスキーを使うなら `tokuly.example.home` のようなドメイン名を割り当てて
+`TOKULY_PUBLIC_URL` にしてください。`http://localhost` はドメイン名あつかいなので、手元ではパスキーも動きます。
+
 ### 設定
 
 設定は 3 か所にあり、上にあるものほど優先されます。

@@ -175,6 +175,8 @@ export default {
       remove: "「{{name}}」を削除",
       add: "パスキーを追加",
       unsupported: "このブラウザはパスキーに対応していません",
+      unavailable:
+        "このサーバーではパスキーが使えません。IPアドレスではなくドメイン名でひらいたときだけ使えるよ",
       removed: "パスキーを削除しました",
       removeTitle: "「{{name}}」を削除する？",
       removeBody:
