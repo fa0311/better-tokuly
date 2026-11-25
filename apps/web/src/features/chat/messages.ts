@@ -1,15 +1,12 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
 import {
+  MessagePager,
+  type Position,
   reactionsAfter,
-  readTimeline,
   storeCreated as storeCreatedIn,
   storeOwnRead,
   storeUpdated,
-  type Timeline,
-  timelineOf,
-  withNewer,
-  withOlder,
   writeTimeline,
 } from "@tokuly/core/chat";
 import { chatKeys, conversationClient, messageClient } from "./api";
@@ -26,8 +23,6 @@ export { readTimeline, storeOwnRead, storeReaction, storeUpdated } from "@tokuly
 /** Messages fetched per request. */
 const PAGE = 40;
 
-type Position = chat.ListMessagesRequest["position"];
-
 async function fetchPage(
   conversationId: string,
   position: Position,
@@ -36,6 +31,9 @@ async function fetchPage(
   useLive.getState().setCursors(conversationId, response.readCursors);
   return response;
 }
+
+/** How the timelines are paged (`MessagePager` in `@tokuly/core/chat`). */
+export const pager = new MessagePager(fetchPage);
 
 /**
  * The messages of a conversation. The first load opens on `around` when
@@ -46,94 +44,22 @@ async function fetchPage(
 export function useTimeline(conversationId: string, around?: string) {
   return useQuery({
     queryKey: chatKeys.timeline(conversationId),
-    queryFn: async () => {
-      const position: Position = around
-        ? { case: "aroundMessageId", value: around }
-        : { case: "aroundUnread", value: true };
-      try {
-        return timelineOf(await fetchPage(conversationId, position));
-      } catch (error) {
-        // The message to open on is gone (deleted, or from before the viewer joined): open normally.
-        if (!around) throw error;
-        return timelineOf(await fetchPage(conversationId, { case: "aroundUnread", value: true }));
-      }
-    },
+    queryFn: () => pager.first(conversationId, around),
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 10 * 60_000,
   });
 }
 
-/** Requests under way, so scrolling does not start the same one twice. */
-const loading = new Set<string>();
-
-async function once(key: string, work: () => Promise<void>): Promise<void> {
-  if (loading.has(key)) return;
-  loading.add(key);
-  try {
-    await work();
-  } finally {
-    loading.delete(key);
-  }
-}
-
-/** Loads the page before the oldest message held. */
-export function loadOlder(queryClient: QueryClient, conversationId: string): Promise<void> {
-  return once(`older:${conversationId}`, async () => {
-    const timeline = readTimeline(queryClient, conversationId);
-    if (!timeline?.hasOlder) return;
-    const page = await fetchPage(conversationId, { case: "before", value: timeline.olderCursor });
-    writeTimeline(queryClient, conversationId, (current) => withOlder(current, page));
-  });
-}
-
-/** Loads the page after the newest message held (on the way back from the history, or to catch up). */
-export function loadNewer(queryClient: QueryClient, conversationId: string): Promise<void> {
-  return once(`newer:${conversationId}`, async () => {
-    const timeline = readTimeline(queryClient, conversationId);
-    if (!timeline) return;
-    const page = await fetchPage(conversationId, { case: "after", value: timeline.newerCursor });
-    writeTimeline(queryClient, conversationId, (current) => withNewer(current, page));
-  });
-}
-
-/**
- * Brings a timeline at the live end up to date after events may have been
- * missed. When too much happened meanwhile, it starts over at the newest
- * messages instead of paging through everything.
- */
-export async function catchUp(queryClient: QueryClient, conversationId: string): Promise<void> {
-  const timeline = readTimeline(queryClient, conversationId);
-  if (!timeline || timeline.hasNewer) return;
-  await loadNewer(queryClient, conversationId);
-  if (readTimeline(queryClient, conversationId)?.hasNewer)
-    await showNewest(queryClient, conversationId);
-}
-
-/** Replaces the timeline with the newest messages ("jump to latest"). */
-export function showNewest(queryClient: QueryClient, conversationId: string): Promise<void> {
-  return once(`newest:${conversationId}`, async () => {
-    const page = await fetchPage(conversationId, { case: undefined });
-    queryClient.setQueryData<Timeline>(chatKeys.timeline(conversationId), timelineOf(page));
-  });
-}
-
-/**
- * Makes sure a message is in the timeline (a reply's original, a search hit,
- * a pin): when it is not held, the timeline is replaced by the window around
- * it. Rejects with MESSAGE_NOT_FOUND when the viewer cannot see it.
- */
-export async function showMessage(
-  queryClient: QueryClient,
-  conversationId: string,
-  messageId: string,
-): Promise<void> {
-  if (
-    readTimeline(queryClient, conversationId)?.messages.some((message) => message.id === messageId)
-  )
-    return;
-  const page = await fetchPage(conversationId, { case: "aroundMessageId", value: messageId });
-  queryClient.setQueryData<Timeline>(chatKeys.timeline(conversationId), timelineOf(page));
-}
+export const loadOlder = (queryClient: QueryClient, conversationId: string) =>
+  pager.loadOlder(queryClient, conversationId);
+export const loadNewer = (queryClient: QueryClient, conversationId: string) =>
+  pager.loadNewer(queryClient, conversationId);
+export const catchUp = (queryClient: QueryClient, conversationId: string) =>
+  pager.catchUp(queryClient, conversationId);
+export const showNewest = (queryClient: QueryClient, conversationId: string) =>
+  pager.showNewest(queryClient, conversationId);
+export const showMessage = (queryClient: QueryClient, conversationId: string, messageId: string) =>
+  pager.showMessage(queryClient, conversationId, messageId);
 
 /**
  * Stores a message that was just created — one this client sent (from the
