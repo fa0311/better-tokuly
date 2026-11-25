@@ -1,20 +1,27 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
 import {
-  laterSeq,
-  leavesGap,
   reactionsAfter,
+  readTimeline,
+  storeCreated as storeCreatedIn,
+  storeOwnRead,
+  storeUpdated,
   type Timeline,
   timelineOf,
-  withCreated,
   withNewer,
   withOlder,
-  withReaction,
-  withUpdated,
+  writeTimeline,
 } from "@tokuly/core/chat";
 import { chatKeys, conversationClient, messageClient } from "./api";
-import { applyUnread, patchConversation, unreadVersion } from "./conversations";
+import { applyUnread, unreadVersion } from "./conversations";
 import { useLive } from "./live";
+
+/**
+ * Messages in the web app's query cache: the hooks and requests that load and
+ * change them. The cache edits are `@tokuly/core/chat`, re-exported here for
+ * the folder.
+ */
+export { readTimeline, storeOwnRead, storeReaction, storeUpdated } from "@tokuly/core/chat";
 
 /** Messages fetched per request. */
 const PAGE = 40;
@@ -28,23 +35,6 @@ async function fetchPage(
   const response = await messageClient().listMessages({ conversationId, limit: PAGE, position });
   useLive.getState().setCursors(conversationId, response.readCursors);
   return response;
-}
-
-export function readTimeline(
-  queryClient: QueryClient,
-  conversationId: string,
-): Timeline | undefined {
-  return queryClient.getQueryData<Timeline>(chatKeys.timeline(conversationId));
-}
-
-function writeTimeline(
-  queryClient: QueryClient,
-  conversationId: string,
-  change: (timeline: Timeline) => Timeline,
-): void {
-  queryClient.setQueryData<Timeline>(chatKeys.timeline(conversationId), (timeline) =>
-    timeline ? change(timeline) : undefined,
-  );
 }
 
 /**
@@ -145,86 +135,15 @@ export async function showMessage(
   queryClient.setQueryData<Timeline>(chatKeys.timeline(conversationId), timelineOf(page));
 }
 
-/** The conversation's list preview after a message was added. */
-function conversationWith(
-  conversation: chat.Conversation,
-  message: chat.Message,
-): chat.Conversation {
-  if (message.seq <= conversation.lastSeq && conversation.lastMessage?.id !== message.id)
-    return conversation;
-  return {
-    ...conversation,
-    lastMessage: message,
-    lastSeq: laterSeq(message.seq, conversation.lastSeq),
-    lastActivityAt: message.createdAt ?? conversation.lastActivityAt,
-  };
-}
-
 /**
  * Stores a message that was just created — one this client sent (from the
- * response) or one announced by an event. Returns false when the client does
- * not know the conversation yet.
+ * response) or one announced by an event — and fetches what was missed
+ * before it. Returns false when the client does not know the conversation yet.
  */
 export function storeCreated(queryClient: QueryClient, message: chat.Message): boolean {
-  const timeline = readTimeline(queryClient, message.conversationId);
-  if (timeline && !timeline.hasNewer && leavesGap(timeline, message)) {
-    // Something in between was missed: fetch it rather than leave a hole.
-    void catchUp(queryClient, message.conversationId);
-  } else {
-    writeTimeline(queryClient, message.conversationId, (current) => withCreated(current, message));
-  }
-  return patchConversation(queryClient, message.conversationId, (conversation) =>
-    conversationWith(conversation, message),
-  );
-}
-
-/** Stores a changed message (edited, deleted, pinned, preview arrived…). */
-export function storeUpdated(
-  queryClient: QueryClient,
-  message: chat.Message,
-  fromEvent: boolean,
-): void {
-  writeTimeline(queryClient, message.conversationId, (current) =>
-    withUpdated(current, message, fromEvent),
-  );
-  patchConversation(queryClient, message.conversationId, (conversation) =>
-    conversation.lastMessage?.id === message.id
-      ? { ...conversation, lastMessage: message }
-      : conversation,
-  );
-}
-
-/** Applies one person's reaction change to the stored message. */
-export function storeReaction(
-  queryClient: QueryClient,
-  conversationId: string,
-  messageId: string,
-  change: { emoji: string; added: boolean; count: number; byMe: boolean },
-): void {
-  writeTimeline(queryClient, conversationId, (current) => withReaction(current, messageId, change));
-}
-
-/** The viewer's side of a conversation after they read up to `readSeq`. */
-export function storeOwnRead(
-  queryClient: QueryClient,
-  conversationId: string,
-  readSeq: bigint,
-  unreadCount: number,
-): void {
-  patchConversation(queryClient, conversationId, (conversation) => {
-    const viewer = conversation.viewer;
-    if (!viewer || (viewer.readSeq >= readSeq && viewer.unreadCount === unreadCount))
-      return conversation;
-    return {
-      ...conversation,
-      viewer: {
-        ...viewer,
-        readSeq: laterSeq(readSeq, viewer.readSeq),
-        unreadCount,
-        unreadMentionCount: unreadCount === 0 ? 0 : viewer.unreadMentionCount,
-      },
-    };
-  });
+  const stored = storeCreatedIn(queryClient, message);
+  if (stored.missed) void catchUp(queryClient, message.conversationId);
+  return stored.known;
 }
 
 /**

@@ -11,7 +11,28 @@ export {
   capabilitiesQuery,
   DEFAULT_CAPABILITIES,
 } from "./capabilities";
+export {
+  aheadOf,
+  dropConversation,
+  findInLists,
+  type ListData,
+  type ListPage,
+  listAfter,
+  patchConversation,
+  putConversation,
+  putInLists,
+  readConversation,
+} from "./conversation-cache";
 export { chatKeys, LIST_FILTERS, type ListFilter } from "./keys";
+export {
+  readTimeline,
+  type Stored,
+  storeCreated,
+  storeOwnRead,
+  storeReaction,
+  storeUpdated,
+  writeTimeline,
+} from "./message-cache";
 export {
   abilitiesOf,
   canWrite,
@@ -50,4 +71,5 @@ export {
   withReaction,
   withUpdated,
 } from "./timeline";
+export { adjustUnread, NO_UNREAD, storeUnread, type Unread, unreadOf } from "./unread";
 export { PEAK_COUNT, peaksOf, waveformBars } from "./waveform";

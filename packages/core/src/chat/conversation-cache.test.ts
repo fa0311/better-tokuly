@@ -1,7 +1,7 @@
 import { chat, create, fromDate, type MessageInitShape } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { listAfter } from "./conversations";
-import { make } from "./test-support";
+import { make } from "../testing/make";
+import { listAfter } from "./conversation-cache";
 
 function conversation(
   id: string,
