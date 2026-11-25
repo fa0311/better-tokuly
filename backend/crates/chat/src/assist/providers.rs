@@ -98,12 +98,14 @@ impl Endpoint {
     }
 }
 
-/// How a failed HTTP status is treated. The error type is safe to log; the
-/// error message may quote user text, so it is not.
+/// How a failed HTTP status is treated. The error type is logged, the
+/// error message is not (it may quote user text). The type comes from any
+/// server an operator points an OpenAI-compatible provider at, so only a
+/// short identifier-like prefix of it is kept.
 fn status_failure(status: reqwest::StatusCode, bytes: &[u8], kind_pointer: &str) -> Failure {
     let error_type = serde_json::from_slice::<serde_json::Value>(bytes)
         .ok()
-        .and_then(|json| json.pointer(kind_pointer).and_then(|kind| kind.as_str()).map(str::to_owned))
+        .and_then(|json| json.pointer(kind_pointer).and_then(|kind| kind.as_str()).map(loggable_error_type))
         .unwrap_or_default();
     let description = format!("HTTP {status} {error_type}");
     if matches!(status.as_u16(), 408 | 409 | 429) || status.is_server_error() {
@@ -111,6 +113,24 @@ fn status_failure(status: reqwest::StatusCode, bytes: &[u8], kind_pointer: &str)
     } else {
         Failure::Permanent(description)
     }
+}
+
+/// Longest error type kept for a log line.
+const MAX_ERROR_TYPE_CHARS: usize = 40;
+
+/// An error type as a log line may carry it: ASCII letters, digits and
+/// `_-.:` only (anything else becomes `?`), at most
+/// [`MAX_ERROR_TYPE_CHARS`] characters, `...` marking a cut.
+fn loggable_error_type(kind: &str) -> String {
+    let mut out: String = kind
+        .chars()
+        .take(MAX_ERROR_TYPE_CHARS)
+        .map(|c| if c.is_ascii_alphanumeric() || "_-.:".contains(c) { c } else { '?' })
+        .collect();
+    if kind.chars().nth(MAX_ERROR_TYPE_CHARS).is_some() {
+        out.push_str("...");
+    }
+    out
 }
 
 fn decode(bytes: &[u8]) -> Result<serde_json::Value, Failure> {
@@ -472,5 +492,25 @@ mod tests {
             parse_openai(&answer("no json here", "stop"), JsonMode::Prompted),
             Err(Failure::Permanent(_))
         ));
+    }
+
+    #[test]
+    fn logged_error_types_are_short_and_ascii() {
+        let failure = |body: serde_json::Value| {
+            status_failure(reqwest::StatusCode::BAD_REQUEST, body.to_string().as_bytes(), "/error/type")
+        };
+        let description = |failure| match failure {
+            Failure::Permanent(description) => description,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            description(failure(serde_json::json!({ "error": { "type": "invalid_request_error" } }))),
+            "HTTP 400 Bad Request invalid_request_error"
+        );
+        let hostile = format!("bad\n{{\"x\": \"秘密\"}} {}", "a".repeat(500));
+        let logged = description(failure(serde_json::json!({ "error": { "type": hostile } })));
+        let error_type = logged.strip_prefix("HTTP 400 Bad Request ").unwrap();
+        assert_eq!(error_type, format!("bad???x?:???????{}...", "a".repeat(24)));
+        assert!(error_type.is_ascii() && !error_type.contains('\n'));
     }
 }

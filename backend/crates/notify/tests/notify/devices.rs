@@ -269,6 +269,7 @@ async fn unregistering_is_scoped_to_the_caller() {
 
 #[tokio::test]
 async fn registrations_end_with_their_session() {
+    let _sweep = retention_lock().await;
     let ctx = start().await;
     let alice = ctx.app.user("alice").await;
     let phone = ctx.app.sign_in(alice.id).await;

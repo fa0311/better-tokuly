@@ -48,6 +48,16 @@ pub async fn start_with(cfg: NotifyConfig) -> Ctx {
     Ctx { app, notify: holder.expect("register ran") }
 }
 
+/// Every test in this binary shares one database, and the retention sweep is
+/// global: one test's sweep removes the rows another test aged for its own
+/// sweep, which then reports nothing. A test that runs the sweep holds this
+/// from before it creates its rows until it has checked the result.
+static RETENTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub async fn retention_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    RETENTION.lock().await
+}
+
 // ───────────────────────────── events ─────────────────────────────
 
 pub fn event_at(topic: &str, data: impl Serialize, occurred_at: DateTime<Utc>) -> Event {

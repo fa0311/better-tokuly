@@ -303,10 +303,11 @@ CREATE TABLE chat_ai_user_settings (
     updated_at         timestamptz NOT NULL DEFAULT now()
 );
 
--- Accounts that existed before get the default for their age at this
--- migration, once. Unknown age: off.
+-- Accounts that existed before get the default the lazy fill would give
+-- them (store_message_use_default): by their age when the account was
+-- created, not at this migration. Unknown age: off.
 INSERT INTO chat_ai_user_settings (user_id, allow_message_use)
-SELECT id, birthdate IS NOT NULL AND birthdate <= (now() - interval '18 years')::date FROM users
+SELECT id, birthdate IS NOT NULL AND birthdate <= (created_at - interval '18 years')::date FROM users
 ON CONFLICT (user_id) DO UPDATE
     SET allow_message_use = COALESCE(chat_ai_user_settings.allow_message_use, EXCLUDED.allow_message_use);
 
