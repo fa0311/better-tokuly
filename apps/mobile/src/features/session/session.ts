@@ -213,19 +213,24 @@ export function removeParkedAccount(sessionId: string): Promise<void> {
 }
 
 /**
- * Signs the active account out of this device. Parked accounts stay and can
- * be continued with. The app is signed out at once; the session's refresh
- * token is kept aside until the server is known to have ended it (offline,
- * the sign-out does not reach it): see `settleDeparted`.
+ * Signs the active account out of this device (and, with `allSessions`, out
+ * of every device). Parked accounts stay and can be continued with. The app
+ * is signed out at once; the session's refresh token is kept aside until the
+ * server is known to have ended it (offline, the sign-out does not reach it):
+ * see `settleDeparted`. `everywherePending`: every session was to end, and
+ * the server has not done it yet — the person is told it will be.
  */
-export async function signOut(allSessions = false): Promise<void> {
+export async function signOut(allSessions = false): Promise<{ everywherePending: boolean }> {
   await leave();
   const sessionId = activeSessionId();
   const token = await activeTokenStore.get();
-  if (sessionId && token) await withParkedTokens(() => addDeparted(sessionId, token));
+  if (sessionId && token)
+    await withParkedTokens(() => addDeparted(sessionId, { token, allSessions }));
   await api().session.signOut(allSessions);
   await startOver(null);
-  void settleDeparted();
+  await settleDeparted();
+  const pending = sessionId ? (await departedTokens())[sessionId] : undefined;
+  return { everywherePending: Boolean(allSessions && pending) };
 }
 
 /**
@@ -238,13 +243,13 @@ export async function signOut(allSessions = false): Promise<void> {
  */
 export function settleDeparted(): Promise<void> {
   return withParkedTokens(async () => {
-    for (const sessionId of Object.keys(await departedTokens())) {
+    for (const [sessionId, { allSessions }] of Object.entries(await departedTokens())) {
       try {
         const account = apiWith(departedTokenStore(sessionId));
         // Refused (already ended): its store forgets it. Unreachable: kept for next time.
         if (!(await account.session.restore())) continue;
         await account.service(notify.PushService).unregisterDevice({ deviceId: "" });
-        await account.service(identity.AuthService).signOut({});
+        await account.service(identity.AuthService).signOut({ allSessions });
         await forgetDeparted(sessionId);
       } catch {
         // Offline again: the next start tries once more.

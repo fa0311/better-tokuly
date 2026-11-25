@@ -69,18 +69,25 @@ export function parkedTokenStore(sessionId: string): RefreshTokenStore {
   };
 }
 
-/**
- * Accounts signed out of this device whose server may not know yet (signed
- * out offline, or left behind by a previous install): session ID → refresh
- * token, kept only until the server has removed their push registrations and
- * ended them (`settleDeparted`). The app shows nobody signed in for them.
- */
-export function departedTokens(): Promise<ParkedTokens> {
-  return readJson<ParkedTokens>(DEPARTED_KEY, {});
+/** A session that left this device: its refresh token, and whether all of its account's sessions were to end. */
+export interface Departed {
+  token: string;
+  allSessions: boolean;
 }
 
-export async function addDeparted(sessionId: string, token: string): Promise<void> {
-  await writeJson(DEPARTED_KEY, { ...(await departedTokens()), [sessionId]: token });
+/**
+ * Accounts signed out of this device whose server may not know yet (signed
+ * out offline, or left behind by a previous install), by session ID: kept
+ * only until the server has removed their push registrations and ended them
+ * — every session of the account when that was asked (`settleDeparted`).
+ * The app shows nobody signed in for them.
+ */
+export function departedTokens(): Promise<Record<string, Departed>> {
+  return readJson<Record<string, Departed>>(DEPARTED_KEY, {});
+}
+
+export async function addDeparted(sessionId: string, departed: Departed): Promise<void> {
+  await writeJson(DEPARTED_KEY, { ...(await departedTokens()), [sessionId]: departed });
 }
 
 export async function forgetDeparted(sessionId: string): Promise<void> {
@@ -91,8 +98,11 @@ export async function forgetDeparted(sessionId: string): Promise<void> {
 /** The token store of one departed session: a refresh keeps the rotated token, a refused one ends it here. */
 export function departedTokenStore(sessionId: string): RefreshTokenStore {
   return {
-    get: async () => (await departedTokens())[sessionId] ?? null,
-    set: (token) => addDeparted(sessionId, token),
+    get: async () => (await departedTokens())[sessionId]?.token ?? null,
+    set: async (token) => {
+      const held = (await departedTokens())[sessionId];
+      await addDeparted(sessionId, { token, allSessions: held?.allSessions ?? false });
+    },
     clear: () => forgetDeparted(sessionId),
   };
 }
@@ -106,6 +116,7 @@ export function departedTokenStore(sessionId: string): RefreshTokenStore {
 export async function departPreviousInstall(): Promise<void> {
   const active = await activeTokenStore.get();
   const parked = await parkedTokens();
-  if (active) await addDeparted("previous-install", active);
-  for (const [sessionId, token] of Object.entries(parked)) await addDeparted(sessionId, token);
+  if (active) await addDeparted("previous-install", { token: active, allSessions: false });
+  for (const [sessionId, token] of Object.entries(parked))
+    await addDeparted(sessionId, { token, allSessions: false });
 }

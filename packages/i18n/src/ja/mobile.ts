@@ -76,6 +76,9 @@ export default {
     webHint: "まだアプリにない設定は、Webでひらくよ",
     webNote: "Webでもう一度ログインしてね。アプリのログイン情報は、安全のためWebに渡さないよ。",
     signOut: "ログアウト",
+    signOutAll: "すべての端末からログアウト",
+    signOutAllPending:
+      "オフラインだったので、ほかの端末のログアウトはスマホがオンラインに戻ったときにやるよ！",
     signOutConfirm:
       "このアカウントをこの端末からログアウトしますか？ほかのアカウントはそのままです。",
     version: "バージョン {{version}}",

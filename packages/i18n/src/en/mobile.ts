@@ -77,6 +77,9 @@ export default {
     webNote:
       "Sign in on the web again. For your safety the app never hands its sign-in to the web.",
     signOut: "Sign out",
+    signOutAll: "Sign out everywhere",
+    signOutAllPending:
+      "You were offline: your other devices are signed out as soon as this phone is back online.",
     signOutConfirm: "Sign this account out of this device? Your other accounts stay.",
     version: "Version {{version}}",
     server: "Server {{url}}",

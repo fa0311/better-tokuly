@@ -16,9 +16,19 @@ export function SettingsScreen() {
   const { t } = useTranslation("mobile");
   const { t: tc } = useTranslation("common");
   const { colors } = useTheme();
+  // Offline, the other devices are signed out later: the person is told, not left to assume.
+  const signOutEverywhere = async () => {
+    const { everywherePending } = await signOut(true);
+    if (everywherePending) Alert.alert(t("settings.signOutAllPending"));
+  };
   const confirmSignOut = () =>
     Alert.alert(t("settings.signOutConfirm"), undefined, [
       { text: tc("actions.cancel"), style: "cancel" },
+      {
+        text: t("settings.signOutAll"),
+        style: "destructive",
+        onPress: () => void signOutEverywhere(),
+      },
       { text: t("settings.signOut"), style: "destructive", onPress: () => void signOut() },
     ]);
   return (
