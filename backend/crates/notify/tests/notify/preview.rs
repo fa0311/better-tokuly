@@ -36,11 +36,27 @@ async fn set_birthdate(ctx: &Ctx, user: &TestUser, years_ago: i32) {
 /// Delivers a chat message from `from` to `to`'s browser and returns the
 /// decrypted push and the raw encrypted body.
 async fn pushed(ctx: &Ctx, to: &TestUser, from: &TestUser, stub: &Stub, path: &str) -> (serde_json::Value, Vec<u8>) {
+    pushed_keyed(ctx, to, from, stub, path, None).await
+}
+
+/// [`pushed`] with a collapse key on the request.
+async fn pushed_keyed(
+    ctx: &Ctx,
+    to: &TestUser,
+    from: &TestUser,
+    stub: &Stub,
+    path: &str,
+    collapse_key: Option<&str>,
+) -> (serde_json::Value, Vec<u8>) {
     let subscription = Subscription::new(&format!("{}{path}", stub.url));
     ctx.register(to, &RegisterDeviceRequest { locale: "ja".into(), ..subscription.request() }).await;
     let request = chat_message(to, from)
         .image("https://cdn.example/secret-photo.webp")
         .data(serde_json::json!({ "conversation_id": "42", "excerpt": "ひみつの話" }));
+    let request = match collapse_key {
+        Some(key) => request.collapse(key),
+        None => request,
+    };
     let job = ctx.deliver_for_push(&request).await;
     assert_eq!(ctx.notify.deliver_push(&job).await.unwrap().delivered, 1);
     let sent = stub.requests_to(path).pop().expect("a push was sent");
@@ -79,14 +95,20 @@ async fn each_choice_decides_what_the_push_payload_carries() {
     // 表示しない
     let hidden = ctx.app.user("hidden").await;
     choose(&ctx, &hidden, PushPreview::PUSH_PREVIEW_HIDDEN).await;
-    let (message, _) = pushed(&ctx, &hidden, &aoi, &stub, "/push/hidden").await;
+    let (message, _) = pushed_keyed(&ctx, &hidden, &aoi, &stub, "/push/hidden", Some(&format!("social.buzz:{}", aoi.id))).await;
     let notification = &message["notification"];
     assert_eq!((notification["title"].as_str(), notification["body"].as_str()), (Some("Tokuly"), Some("新しいお知らせがあるよ")));
     assert_eq!(notification["navigate"], "http://localhost:8080/notifications", "a tap opens the inbox");
     let decrypted = message.to_string();
-    for hidden_text in ["やっほー", "新着メッセージ", "secret-photo", "ひみつの話", "あおい", aoi.handle.as_str(), "/chat/42"] {
+    assert!(!decrypted.contains(&aoi.id.to_string()), "the peer's ID from the collapse key: {decrypted}");
+    for hidden_text in ["やっほー", "新着メッセージ", "secret-photo", "ひみつの話", "あおい", aoi.handle.as_str(), "/chat/42", "chat"] {
         assert!(!decrypted.contains(hidden_text), "{hidden_text:?} must not be in the payload: {decrypted}");
     }
+    // No feature, no IDs: a generic kind and tag, nothing pointing at the entry.
+    assert_eq!(notification["data"]["kind"], "notification");
+    assert_eq!(notification["data"]["category"], "general");
+    assert_eq!(notification["tag"], "notification");
+    assert!(notification["data"].get("id").is_none_or(|id| id.is_null()), "{decrypted}");
 
     // The inbox keeps everything.
     let inbox = ctx.inbox(&hidden).await;

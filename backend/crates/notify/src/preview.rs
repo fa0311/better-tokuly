@@ -13,6 +13,13 @@ use crate::{categories, push::PushMessage};
 pub const INBOX_PATH: &str = "/notifications";
 /// The title of a push that shows nothing.
 const APP_NAME: &str = "Tokuly";
+/// What a push that shows nothing says it is: not which feature (its kind
+/// and category would), and the one Android channel such pushes share.
+pub const HIDDEN_KIND: &str = "notification";
+pub const HIDDEN_CATEGORY: &str = "general";
+/// Pushes that show nothing replace one another, and their tag names no
+/// one (a producer's key can hold a person's ID: `social.buzz:<peer>`).
+pub const HIDDEN_COLLAPSE_KEY: &str = "notification";
 
 /// Rewrites `message` (already written in its device's language) to show
 /// only what `preview` allows. `actor_name` is the display name of who
@@ -35,6 +42,10 @@ pub fn apply(message: &mut PushMessage, preview: PushPreview, actor_name: Option
             // The path can name a person or a conversation (`/@aoi`, `/chat/42`).
             message.path = INBOX_PATH.to_owned();
             message.url = inbox_url.to_owned();
+            message.kind = HIDDEN_KIND.to_owned();
+            message.category = HIDDEN_CATEGORY.to_owned();
+            message.collapse_key = Some(HIDDEN_COLLAPSE_KEY.to_owned());
+            message.notification_id = None;
         }
     }
 }
@@ -110,6 +121,10 @@ mod tests {
         assert_eq!((message.path.as_str(), message.url.as_str()), (INBOX_PATH, "https://tokuly.example/notifications"));
         assert_eq!((message.image_url, message.data), (None, serde_json::Value::Null));
         assert_eq!(shown(PushPreview::PUSH_PREVIEW_HIDDEN, None, "en").body, "You have a new notification");
+        // Not even which feature, nor anything with an ID in it.
+        assert_eq!((message.kind.as_str(), message.category.as_str()), (HIDDEN_KIND, HIDDEN_CATEGORY));
+        assert_eq!(message.collapse_key.as_deref(), Some(HIDDEN_COLLAPSE_KEY));
+        assert_eq!(message.notification_id, None);
     }
 
     #[test]
@@ -124,6 +139,11 @@ mod tests {
                 assert!(!text.contains("cdn.example"), "no picture: {text}");
                 assert!(!text.contains("conversation_id"), "no extra data: {text}");
                 assert_eq!(text.contains("あおい"), preview == PushPreview::PUSH_PREVIEW_SENDER_ONLY, "{text}");
+                if preview == PushPreview::PUSH_PREVIEW_HIDDEN {
+                    for revealing in ["chat", "00000000-0000-0000-0000-000000000000", &crate::push::collapse_id("chat:42")] {
+                        assert!(!text.contains(revealing), "{revealing:?} in {text}");
+                    }
+                }
             }
         }
     }

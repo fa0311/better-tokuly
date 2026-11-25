@@ -224,8 +224,12 @@ named. The rewrite happens in `delivery.rs` on the per-device message
 (`preview::apply`), before any channel builds its payload: what a choice
 leaves out is not in the Web Push plaintext, the FCM request or the APNs
 payload at all. The setting is read when the push is sent, so a change also
-applies to pushes still queued. `kind`, `category` (the Android channel),
-the collapse digest and the badge are kept. The inbox always shows
+applies to pushes still queued. `SENDER_ONLY` keeps `kind`, `category`
+(the Android channel), the collapse key and the badge. `HIDDEN` replaces
+them too: kind `notification`, category (Android channel) `general`, the
+collapse key `notification` (so such pushes replace one another, and no
+producer key with someone's ID in it, like `social.buzz:<peer>`, is sent),
+and no inbox entry ID; only the badge and the priority stay. The inbox always shows
 everything.
 
 Default: decided when the account is created (`identity.user.created`) and
