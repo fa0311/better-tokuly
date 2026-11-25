@@ -271,7 +271,9 @@ its console values together with what the server builds from them at
 start-up (`SETTING_INVALID`). Console values a section does not pass its
 checks with (saved before a check existed, or by hand) are set aside, all of
 that section together, at start-up and on every reload; the page shows why
-(`console_rejected`). If the server still does not start with the console
+(`console_rejected`). So are values stored for settings the console may
+not change (saved before their domain took them off its list, or by hand);
+removing a value (`reset`) is allowed for every setting. If the server still does not start with the console
 values, it starts once more without any of them.
 
 ## Getting back in

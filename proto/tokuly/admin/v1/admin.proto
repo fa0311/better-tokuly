@@ -1142,7 +1142,9 @@ service ServerSettingsService {
   // Every setting, grouped by section in the order of `tokuly.example.toml`.
   // Role: `admin`.
   rpc ListServerSettings(ListServerSettingsRequest) returns (ListServerSettingsResponse);
-  // Saves a console value of a setting, or removes it (`reset`). The change
+  // Saves a console value of a setting, or removes it (`reset`, allowed for
+  // every setting: a value stored for one the console may not change is
+  // never applied, and is shown so it can be removed). The change
   // is checked by the setting's type and by its domain's own rules first,
   // applied at once for live settings and on the next restart of the
   // listed processes otherwise, recorded with who made it, and written to

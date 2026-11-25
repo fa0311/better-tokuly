@@ -174,6 +174,9 @@ pub fn check_section(registry: &Registry, layers: &Layers, section: &str, produc
     }
 }
 
+/// Why a stored value of a setting the console may not change is not applied.
+const NOT_A_CONSOLE_SETTING: &str = "not a console setting: set it in tokuly.toml or the environment, and remove this value";
+
 /// A console layer after [`admit_console`].
 #[derive(Debug, Default)]
 pub struct Admitted {
@@ -189,12 +192,17 @@ pub struct Admitted {
 /// server. Each refusal is logged.
 pub fn admit_console(registry: &Registry, base: &Layers, console: HashMap<String, String>, production: bool) -> Admitted {
     let mut by_section: BTreeMap<&str, HashMap<String, String>> = BTreeMap::new();
+    let mut admitted = Admitted::default();
     for (id, value) in console {
-        if let Some(def) = registry.by_id(&id) {
+        let Some(def) = registry.by_id(&id) else { continue };
+        if def.editable {
             by_section.entry(def.section).or_default().insert(id, value);
+        } else {
+            // Saved before its domain took it off the console's list, or by hand.
+            tracing::warn!(setting = def.name(), "settings: a console value of a setting the console may not change is ignored; remove it in サーバー設定");
+            admitted.rejected.insert(id, value);
         }
     }
-    let mut admitted = Admitted::default();
     for (section, values) in by_section {
         let candidate = Layers { console: values.clone(), ..base.clone() };
         match check_section(registry, &candidate, section, production) {
@@ -248,13 +256,24 @@ impl State {
 
     /// Why the console value of `def` is set aside, if it is.
     pub fn rejection(&self, def: &Def) -> Option<&str> {
-        self.rejected.contains_key(&def.id).then(|| self.rejected_sections.get(def.section).map(String::as_str)).flatten()
+        if !self.rejected.contains_key(&def.id) {
+            None
+        } else if !def.editable {
+            Some(NOT_A_CONSOLE_SETTING)
+        } else {
+            self.rejected_sections.get(def.section).map(String::as_str)
+        }
     }
 
     /// The console values of a section, set aside ones included: what a change is checked together with.
     pub fn console_of_section(&self, section: &str) -> HashMap<String, String> {
         let mut values = self.layers.console.clone();
-        values.extend(self.rejected.iter().filter(|(id, _)| self.registry.by_id(id).is_some_and(|d| d.section == section)).map(|(k, v)| (k.clone(), v.clone())));
+        values.extend(
+            self.rejected
+                .iter()
+                .filter(|(id, _)| self.registry.by_id(id).is_some_and(|d| d.section == section && d.editable))
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
         values
     }
 
@@ -382,7 +401,7 @@ mod tests {
     }
 
     fn registry() -> Arc<Registry> {
-        Arc::new(Registry::new(vec![SectionSpec::new("demoset", Demo::augment_args).live(&["limit"])]).unwrap())
+        Arc::new(Registry::new(vec![SectionSpec::new("demoset", Demo::augment_args).live(&["limit"]).editable(&["limit", "hosts", "token"])]).unwrap())
     }
 
     fn def<'a>(r: &'a Registry, key: &str) -> &'a Def {

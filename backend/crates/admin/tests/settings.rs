@@ -281,6 +281,25 @@ async fn console_values_that_break_their_section_are_set_aside() {
     assert_eq!((current.floor, current.other), (2, 5));
 }
 
+/// A value stored for a setting the console may not change (saved before
+/// its domain took it off the list, or by hand) is not applied, the page
+/// shows it, and it can still be removed.
+#[tokio::test]
+async fn stored_values_of_settings_the_console_may_not_change_are_ignored() {
+    let (app, boss) = start_settings().await;
+    sqlx::query("INSERT INTO server_settings (section, key, value) VALUES ('demo', 'listen', '0.0.0.0:9')").execute(&app.core.db).await.unwrap();
+    app.core.reload_settings().await.unwrap();
+    assert_eq!(demo(&app).listen, "0.0.0.0:1");
+    let listen = list(&app, &boss).await.settings.into_iter().find(|s| s.section == "demo" && s.key == "listen").unwrap();
+    assert_eq!(listen.source.as_known(), Some(ServerSettingSource::SERVER_SETTING_SOURCE_DEFAULT));
+    assert_eq!(listen.console_value.as_deref(), Some("0.0.0.0:9"));
+    assert!(!listen.console_rejected.is_empty());
+    let listen = reset(&app, &boss, "demo", "listen").await;
+    assert_eq!((listen.console_value.as_deref(), listen.console_rejected.as_str()), (None, ""));
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM server_settings WHERE section = 'demo' AND key = 'listen'").fetch_one(&app.core.db).await.unwrap();
+    assert_eq!(left, 0);
+}
+
 /// Switching the rate limits off is not the console's to do.
 #[tokio::test]
 async fn settings_a_domain_did_not_allow_are_refused() {

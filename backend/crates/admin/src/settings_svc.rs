@@ -107,6 +107,31 @@ impl Admin {
     fn setting_def<'a>(state: &'a State, section: &str, key: &str) -> AppResult<&'a Def> {
         state.registry.get(section.trim(), key.trim()).or_not_found("SETTING_NOT_FOUND", "no such setting")
     }
+
+    /// Stores (or removes) a console value with its history, audit entry
+    /// and event, applies it, and answers with the setting as it is now.
+    async fn save_setting(&self, staff: &Staff, def: &Def, value: Option<&str>) -> AppResult<UpdateServerSettingResponse> {
+        let mut tx = self.core.db.begin().await?;
+        let change = store::write(&mut tx, &self.core.keys, def, value, staff.id).await?;
+        if let Some(change) = &change {
+            Audit::by(staff, "server_setting.updated")
+                .setting(def.section, &def.key)
+                .before(serde_json::json!({ "value": change.old }))
+                .after(serde_json::json!({ "value": change.new }))
+                .record(&mut *tx)
+                .await?;
+            let payload = ServerSettingChanged { section: def.section.to_owned(), key: def.key.clone(), secret: def.secret, live: def.live };
+            core_events::emit(&mut *tx, SERVER_SETTING_CHANGED, Some(staff.id), &payload).await?;
+        }
+        tx.commit().await?;
+        if change.is_some() {
+            self.core.settings_changed().await.map_err(AppError::internal)?;
+        }
+        let state = self.settings_state()?;
+        let def = Self::setting_def(&state, def.section, &def.key)?;
+        let secrets = store::secrets(&self.core.db, &state.registry).await?;
+        Ok(UpdateServerSettingResponse { setting: setting_pb(&state, def, &secrets).into(), ..Default::default() })
+    }
 }
 
 impl ServerSettingsService for Admin {
@@ -138,6 +163,11 @@ impl ServerSettingsService for Admin {
             self.core.cache.rate_limit(&format!("admin:settings:{}", staff.id), UPDATES_PER_MINUTE, std::time::Duration::from_secs(60)).await?;
             let state = self.settings_state()?;
             let def = Self::setting_def(&state, request.section, request.key)?;
+            // Removing a stored value is always allowed: it may be one the
+            // console no longer applies, and nothing below it can break.
+            if request.reset {
+                return ok(self.save_setting(&staff, def, None).await?);
+            }
             if let Some(path) = def.managed_at {
                 bail!(precondition, "SETTING_MANAGED_ELSEWHERE", "{} is edited at {path}", def.name());
             }
@@ -146,43 +176,16 @@ impl ServerSettingsService for Admin {
             if source.locks() {
                 bail!(precondition, "SETTING_LOCKED", "{} is set by {}, which wins over the console", def.name(), source.label());
             }
-            let value = if request.reset {
-                None
-            } else {
-                ensure!(request.value.chars().count() <= VALUE_MAX_CHARS, invalid, "SETTING_TOO_LONG", "values are at most {VALUE_MAX_CHARS} characters");
-                Some(def.check_value(request.value).map_err(|e| AppError::invalid("SETTING_INVALID", e))?)
-            };
+            ensure!(request.value.chars().count() <= VALUE_MAX_CHARS, invalid, "SETTING_TOO_LONG", "values are at most {VALUE_MAX_CHARS} characters");
+            let value = def.check_value(request.value).map_err(|e| AppError::invalid("SETTING_INVALID", e))?;
             // The domain's own rules, over the section as it would be: with
             // every console value it has, set-aside ones included.
             let mut layers = state.layers.clone();
             layers.console = state.console_of_section(def.section);
-            match &value {
-                Some(value) => layers.console.insert(def.id.clone(), value.clone()),
-                None => layers.console.remove(&def.id),
-            };
+            layers.console.insert(def.id.clone(), value.clone());
             settings::check_section(&state.registry, &layers, def.section, state.production)
                 .map_err(|e| AppError::invalid("SETTING_INVALID", e.to_string()))?;
-
-            let mut tx = self.core.db.begin().await?;
-            let change = store::write(&mut tx, &self.core.keys, def, value.as_deref(), staff.id).await?;
-            if let Some(change) = &change {
-                Audit::by(&staff, "server_setting.updated")
-                    .setting(def.section, &def.key)
-                    .before(serde_json::json!({ "value": change.old }))
-                    .after(serde_json::json!({ "value": change.new }))
-                    .record(&mut *tx)
-                    .await?;
-                let payload = ServerSettingChanged { section: def.section.to_owned(), key: def.key.clone(), secret: def.secret, live: def.live };
-                core_events::emit(&mut *tx, SERVER_SETTING_CHANGED, Some(staff.id), &payload).await?;
-            }
-            tx.commit().await?;
-            if change.is_some() {
-                self.core.settings_changed().await.map_err(AppError::internal)?;
-            }
-            let state = self.settings_state()?;
-            let def = Self::setting_def(&state, def.section, &def.key)?;
-            let secrets = store::secrets(&self.core.db, &state.registry).await?;
-            ok(UpdateServerSettingResponse { setting: setting_pb(&state, def, &secrets).into(), ..Default::default() })
+            ok(self.save_setting(&staff, def, Some(&value)).await?)
         })
         .await
     }
