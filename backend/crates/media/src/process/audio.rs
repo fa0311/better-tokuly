@@ -137,7 +137,7 @@ impl Media {
         // Browser recordings store no duration, and a header or an edit list
         // can lie: the longest of the header, the decoded length and the
         // packets' timestamps counts.
-        let measured = self.ffmpeg.measure_duration(&path, probe.mov, timeout_for(0.0)).await?;
+        let measured = self.ffmpeg.measure_duration(&path, probe.mov, limit.map(|s| s + 1.0), timeout_for(0.0)).await?;
         let duration = probe.duration.max(decoded_seconds).max(measured);
         if samples == 0 || duration <= 0.0 {
             return Err(ProcessError::rejected("CORRUPT_MEDIA", "the audio cannot be decoded"));

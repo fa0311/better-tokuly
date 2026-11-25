@@ -446,20 +446,29 @@ impl Ffmpeg {
         Ok(())
     }
 
-    /// Measures a file's duration by remuxing it to nowhere, for containers
-    /// that do not record one. Reads every packet but decodes nothing.
-    ///
-    /// `ignore_editlist` (MP4/QuickTime only: other demuxers do not know the
-    /// option) counts every packet, not just what the edit list lets play:
-    /// an edit list can trim playback to anything it likes.
-    pub async fn measure_duration(&self, path: &Path, ignore_editlist: bool, timeout: Duration) -> ProcessResult<f64> {
+    /// How long a file really plays, measured by remuxing it to nowhere:
+    /// every packet is read, nothing is decoded. Neither the header nor the
+    /// edit list is believed alone: an MP4 edit list can trim playback
+    /// (hiding packets) or repeat a span thousands of times (a 2 s file that
+    /// plays for hours), so MP4/QuickTime files (`mov`) are measured both
+    /// with it, as the encoders will read them, and without it, and the
+    /// longer counts. Reading stops at `up_to` seconds when given: past a
+    /// purpose's limit the exact length no longer matters.
+    pub async fn measure_duration(&self, path: &Path, mov: bool, up_to: Option<f64>, timeout: Duration) -> ProcessResult<f64> {
+        let played = self.remux_seconds(path, false, up_to, timeout).await?;
+        if !mov {
+            return Ok(played);
+        }
+        Ok(played.max(self.remux_seconds(path, true, up_to, timeout).await?))
+    }
+
+    /// One measuring remux; `ignore_editlist` is only known to the MP4 demuxer.
+    async fn remux_seconds(&self, path: &Path, ignore_editlist: bool, up_to: Option<f64>, timeout: Duration) -> ProcessResult<f64> {
         let mut args = Args::new().args(["-progress", "pipe:1"]);
         if ignore_editlist {
             args = args.args(["-ignore_editlist", "1"]);
         }
-        let args = args
-            .input(path)
-            .args(["-map", "0", "-c", "copy", "-f", "null", "-"]);
+        let args = args.input_up_to(path, up_to).args(["-map", "0", "-c", "copy", "-f", "null", "-"]);
         let mut child = self.command(args).spawn().map_err(|e| Self::spawn_error(&self.ffmpeg, e))?;
         let stdout = child.stdout.take().expect("stdout is piped");
         let run = async {

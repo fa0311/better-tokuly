@@ -152,3 +152,24 @@ async fn the_budget_is_charged_with_the_real_length() {
     let asset = processed(&h, &alice, AssetPurpose::ASSET_PURPOSE_VIDEO, &lying).await;
     assert!(failed_as(&asset, "DAILY_TRANSCODE_LIMIT_EXCEEDED"), "{:?} {}", asset.status, asset.error);
 }
+
+#[tokio::test]
+async fn an_edit_list_that_repeats_a_short_file_for_hours_is_refused() {
+    let h = start_with(MediaConfig { daily_transcode_minutes: 60, ..MediaConfig::default() }).await;
+    let alice = h.app.user("alice").await;
+    let dir = fixture_dir();
+    // 2 s of video, an edit list playing it 3600 times: two hours, while
+    // the header and the packets say 2 s.
+    let short = video(dir.path(), "short.mp4", VideoSpec { size: "64x64", seconds: 2, rate: 5, audio: false }).await;
+    let amplified = dir.path().join("amplified.mp4");
+    tokio::fs::write(&amplified, repeat_edit_list(&read(&short).await, 3600)).await.unwrap();
+    let claimed = probed_seconds(&amplified).await;
+    assert!(claimed < 3.0, "the header still says {claimed} s");
+
+    // A story: refused, not cut down to a minute.
+    let asset = processed(&h, &alice, AssetPurpose::ASSET_PURPOSE_STORY, &amplified).await;
+    assert!(failed_as(&asset, "MEDIA_TOO_LONG"), "{:?} {}", asset.status, asset.error);
+    // A long-form video: within 3 hours, but two hours do not fit an hour's budget.
+    let asset = processed(&h, &alice, AssetPurpose::ASSET_PURPOSE_VIDEO, &amplified).await;
+    assert!(failed_as(&asset, "DAILY_TRANSCODE_LIMIT_EXCEEDED"), "{:?} {}", asset.status, asset.error);
+}

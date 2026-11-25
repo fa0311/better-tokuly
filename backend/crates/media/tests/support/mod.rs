@@ -365,3 +365,65 @@ pub async fn probed_seconds(path: &Path) -> f64 {
         .expect("ffprobe must be on PATH to run the media tests");
     String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0.0)
 }
+
+/// Gives the first track of an MP4 (whose `moov` comes last, as ffmpeg
+/// writes it) an edit list of `entries` copies of its whole span, leaving
+/// every header duration alone: a 2-second file that plays for
+/// `entries` × 2 seconds.
+pub fn repeat_edit_list(bytes: &[u8], entries: u32) -> Vec<u8> {
+    fn boxes(buf: &[u8], start: usize, end: usize) -> Vec<(usize, usize, [u8; 4])> {
+        let mut out = Vec::new();
+        let mut at = start;
+        while at + 8 <= end {
+            let size = u32::from_be_bytes(buf[at..at + 4].try_into().unwrap()) as usize;
+            out.push((at, size, buf[at + 4..at + 8].try_into().unwrap()));
+            at += size;
+        }
+        out
+    }
+    let top = boxes(bytes, 0, bytes.len());
+    let &(moov_at, moov_size, _) = top.iter().find(|b| &b.2 == b"moov").expect("a moov box");
+    assert_eq!(moov_at + moov_size, bytes.len(), "moov must come last");
+    let moov = &bytes[moov_at..];
+    let children = boxes(moov, 8, moov_size);
+    let &(mvhd, ..) = children.iter().find(|b| &b.2 == b"mvhd").unwrap();
+    // Version 0 mvhd: the duration is in movie timescale units.
+    let movie_duration = u32::from_be_bytes(moov[mvhd + 24..mvhd + 28].try_into().unwrap());
+    let mut new_moov = moov[..8].to_vec();
+    let mut edited = false;
+    for &(at, size, kind) in &children {
+        if &kind != b"trak" || edited {
+            new_moov.extend_from_slice(&moov[at..at + size]);
+            continue;
+        }
+        edited = true;
+        let trak = &moov[at..at + size];
+        let mut new_trak = trak[..8].to_vec();
+        for &(child, child_size, child_kind) in &boxes(trak, 8, size) {
+            if &child_kind == b"edts" {
+                continue;
+            }
+            new_trak.extend_from_slice(&trak[child..child + child_size]);
+            if &child_kind == b"tkhd" {
+                let mut elst = Vec::new();
+                elst.extend_from_slice(&(16 + 12 * entries).to_be_bytes());
+                elst.extend_from_slice(b"elst\0\0\0\0");
+                elst.extend_from_slice(&entries.to_be_bytes());
+                for _ in 0..entries {
+                    elst.extend_from_slice(&movie_duration.to_be_bytes());
+                    elst.extend_from_slice(&0i32.to_be_bytes());
+                    elst.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+                }
+                new_trak.extend_from_slice(&((8 + elst.len()) as u32).to_be_bytes());
+                new_trak.extend_from_slice(b"edts");
+                new_trak.extend_from_slice(&elst);
+            }
+        }
+        let trak_size = new_trak.len() as u32;
+        new_trak[..4].copy_from_slice(&trak_size.to_be_bytes());
+        new_moov.extend_from_slice(&new_trak);
+    }
+    let moov_size = new_moov.len() as u32;
+    new_moov[..4].copy_from_slice(&moov_size.to_be_bytes());
+    [&bytes[..moov_at], &new_moov[..]].concat()
+}

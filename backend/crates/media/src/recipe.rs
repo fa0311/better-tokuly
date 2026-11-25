@@ -183,6 +183,14 @@ pub fn read_limit_seconds(cfg: &MediaConfig, purpose: AssetPurpose) -> Option<f6
     max_duration_seconds(cfg, purpose).map(|max| max as f64 + DURATION_TOLERANCE_SECONDS)
 }
 
+/// Whether an encode or decode of a `purpose` recording that produced
+/// `seconds` ran into [`read_limit_seconds`]: the source was longer than
+/// the purpose takes, however its length was disguised, and the result is a
+/// cut-down copy that must not be kept.
+pub fn reached_read_limit(cfg: &MediaConfig, purpose: AssetPurpose, seconds: f64) -> bool {
+    read_limit_seconds(cfg, purpose).is_some_and(|limit| seconds >= limit - 0.05)
+}
+
 /// Whether `duration` (measured, in seconds) is longer than `purpose` takes.
 pub fn too_long(cfg: &MediaConfig, purpose: AssetPurpose, duration: f64) -> bool {
     max_duration_seconds(cfg, purpose).is_some_and(|max| duration > max as f64 + DURATION_TOLERANCE_SECONDS)
@@ -390,6 +398,12 @@ mod tests {
         assert!(too_long(&cfg, ASSET_PURPOSE_AVATAR_VIDEO, 16.5));
         assert!(too_long(&cfg, ASSET_PURPOSE_CHAT_AUDIO, 5.0 * 60.0 + 2.0));
         assert!(!too_long(&cfg, ASSET_PURPOSE_LIVE_ARCHIVE, 20.0 * 3600.0));
+
+        // An output that ran into the read limit (61 s for a story) means
+        // the source was longer.
+        assert!(!reached_read_limit(&cfg, ASSET_PURPOSE_STORY, 60.5));
+        assert!(reached_read_limit(&cfg, ASSET_PURPOSE_STORY, 61.0));
+        assert!(!reached_read_limit(&cfg, ASSET_PURPOSE_LIVE_ARCHIVE, 99_999.0));
     }
 
     #[test]

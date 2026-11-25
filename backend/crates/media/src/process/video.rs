@@ -265,6 +265,8 @@ struct Measured {
     codecs: String,
     bitrates: Bitrates,
     short_side: u32,
+    /// Length of the rendition's playlist.
+    seconds: f64,
 }
 
 impl Media {
@@ -284,7 +286,9 @@ impl Media {
         }
         // The header's duration is whatever the file says; the packets tell
         // how long it really plays (read without decoding). The longer wins.
-        let measured = self.ffmpeg.measure_duration(&path, probe.mov, timeout_for(0.0)).await?;
+        let limit = recipe::read_limit_seconds(&self.cfg, asset.asset_purpose());
+        // One second past the limit is enough to tell a recording is too long.
+        let measured = self.ffmpeg.measure_duration(&path, probe.mov, limit.map(|s| s + 1.0), timeout_for(0.0)).await?;
         let duration = probe.duration.max(measured);
         if duration <= 0.0 {
             return Err(ProcessError::rejected("CORRUPT_MEDIA", "the video has no measurable duration"));
@@ -296,7 +300,6 @@ impl Media {
         if video.hdr && !tonemap {
             tracing::warn!(asset_id = %asset.id, "HDR source but this ffmpeg lacks zscale/tonemap: colours will look washed out");
         }
-        let limit = recipe::read_limit_seconds(&self.cfg, asset.asset_purpose());
         let source = Source { path: &path, video: &video, audio: probe.audio.as_ref(), tonemap, limit };
         let rungs = ladder::ladder(video.width, video.height, video.frame_rate, recipe::max_rung(asset.asset_purpose()));
 
@@ -313,6 +316,13 @@ impl Media {
         let mut renditions = Vec::with_capacity(rungs.len() + 1);
         for rung in &rungs {
             renditions.push(self.measure_rendition(&hls_dir, &rung.name, "h264").await?);
+        }
+        // The encoder stops at the read limit; an output that got there came
+        // from a longer source than every measurement showed, so it is
+        // refused rather than kept cut down.
+        let encoded = renditions.iter().map(|r| r.seconds).fold(0.0, f64::max);
+        if recipe::reached_read_limit(&self.cfg, asset.asset_purpose(), encoded) {
+            return Err(ProcessError::rejected("MEDIA_TOO_LONG", format!("{encoded:.0} s encoded")));
         }
         if self.cfg.av1 {
             let name = format!("{}-av1", rungs[0].name);
@@ -460,6 +470,7 @@ impl Media {
             codecs,
             bitrates,
             short_side: video.width.min(video.height),
+            seconds: playlist.duration(),
         })
     }
 
