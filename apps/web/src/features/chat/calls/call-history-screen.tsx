@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { chat, toMillis } from "@tokuly/api";
+import { participantState } from "@tokuly/core/chat";
 import { ChevronLeft, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Video } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +14,6 @@ import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { callClient, chatKeys, useCapabilities } from "../api";
 import { readConversation } from "../conversations";
-import { participantState } from "../model";
 import { displayName, titleOf } from "../people";
 import { dateTime, playTime } from "../text";
 import { joinCall, startCall } from "./session";

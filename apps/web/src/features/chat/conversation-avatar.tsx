@@ -1,8 +1,8 @@
 import type { chat } from "@tokuly/api";
+import { isGroup, peerOf } from "@tokuly/core/chat";
 import { Users } from "lucide-react";
 import { Avatar } from "#/components/ui/avatar";
 import { cn } from "#/lib/cn";
-import { isGroup, peerOf } from "./model";
 import { useOnline } from "./people";
 
 const BOX = {

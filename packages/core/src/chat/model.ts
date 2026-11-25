@@ -1,5 +1,5 @@
 import { chat, type common, toMillis } from "@tokuly/api";
-import type { ListFilter } from "./api";
+import type { ListFilter } from "./keys";
 
 /** Pure reading helpers for the chat messages of the API. No state, no I/O. */
 

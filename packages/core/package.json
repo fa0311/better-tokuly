@@ -8,13 +8,16 @@
   "exports": {
     "./format": "./src/format/index.ts",
     "./errors": "./src/errors/index.ts",
-    "./query": "./src/query/index.ts"
+    "./query": "./src/query/index.ts",
+    "./chat": "./src/chat/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "catalog:",
+    "@connectrpc/connect": "catalog:",
     "@tokuly/api": "workspace:*",
     "@tokuly/i18n": "workspace:*",
     "i18next": "catalog:"

@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { chat, type common, create, fromDate } from "@tokuly/api";
+import type { PendingState } from "@tokuly/core/chat";
 import { create as createStore } from "zustand";
 import { realtime } from "#/lib/realtime";
 import { uploadAndProcess, uploadFile } from "#/lib/upload";
@@ -8,7 +9,6 @@ import { localAttachment, type OutgoingFile, PURPOSE, releaseFiles } from "./att
 import { fetchConversation, readConversation } from "./conversations";
 import { errorMessage } from "./errors";
 import { storeCreated, storeUpdated } from "./messages";
-import type { PendingState } from "./timeline";
 
 /**
  * Messages on their way to the server. A message appears in the conversation

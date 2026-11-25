@@ -1,3 +1,5 @@
+import type { DescService } from "@bufbuild/protobuf";
+import type { Client } from "@connectrpc/connect";
 import { Code, ConnectError } from "@tokuly/api";
 
 /** Errors that will not get better by asking again. */
@@ -15,3 +17,10 @@ const FINAL_CODES = new Set([
 export function shouldRetry(failures: number, error: unknown): boolean {
   return failures < 2 && !(error instanceof ConnectError && FINAL_CODES.has(error.code));
 }
+
+/**
+ * Where a query gets its typed API client: a function, so query options can
+ * be built while rendering before the API exists (a server render), and the
+ * client is only asked for when the query runs. Each app passes its own.
+ */
+export type ClientSource<S extends DescService> = () => Client<S>;

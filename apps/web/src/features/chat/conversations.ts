@@ -6,9 +6,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
+import { compareConversations, laterSeq, listOf } from "@tokuly/core/chat";
 import { chatKeys, conversationClient, LIST_FILTERS, type ListFilter } from "./api";
 import { useLive } from "./live";
-import { compareConversations, laterSeq, listOf } from "./model";
 
 /**
  * Conversations in the query cache.

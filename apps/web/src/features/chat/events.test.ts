@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { chat, create, fromDate, type MessageInitShape } from "@tokuly/api";
+import type { Timeline } from "@tokuly/core/chat";
 import { beforeEach, describe, expect, it } from "vitest";
 import { chatKeys } from "./api";
 import {
@@ -13,7 +14,6 @@ import {
 import { applyChatEvent } from "./events";
 import { useLive } from "./live";
 import { make } from "./test-support";
-import type { Timeline } from "./timeline";
 
 const ME = "me";
 const user = (id: string) => ({ id, handle: id, displayName: id });

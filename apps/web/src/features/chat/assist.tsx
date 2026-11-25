@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { chat } from "@tokuly/api";
+import { consentStorageKey } from "@tokuly/core/chat";
 import { Languages, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,7 +13,6 @@ import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
 import { useAssistSettings } from "./ai-settings";
 import { assistClient } from "./api";
-import { consentStorageKey } from "./assist-consent";
 import { errorMessage } from "./errors";
 
 /**

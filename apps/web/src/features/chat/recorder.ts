@@ -1,4 +1,4 @@
-import { peaksOf } from "./waveform";
+import { peaksOf } from "@tokuly/core/chat";
 
 /** Recording in the browser with `MediaRecorder`: voice messages and short videos. */
 

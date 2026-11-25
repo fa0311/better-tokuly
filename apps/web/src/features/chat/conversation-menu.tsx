@@ -1,4 +1,5 @@
 import { chat } from "@tokuly/api";
+import { isGroup, isMuted } from "@tokuly/core/chat";
 import {
   Archive,
   ArchiveRestore,
@@ -16,7 +17,6 @@ import { useTranslation } from "react-i18next";
 import type { MenuAction } from "#/components/ui/menu";
 import { useConversationActions } from "./actions";
 import type { ConversationDialog } from "./conversation-dialogs";
-import { isGroup, isMuted } from "./model";
 
 /** The actions on a whole conversation, as menu entries (list rows and the conversation's own menu share them). */
 export function useConversationMenu(

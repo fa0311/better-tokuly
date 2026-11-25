@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { chat, common, errorReason } from "@tokuly/api";
+import { buildRows, canWrite, isGroup, peerOf } from "@tokuly/core/chat";
 import {
   type DragEvent,
   type HTMLAttributes,
@@ -59,14 +60,12 @@ import {
   useMessageActions,
   useTimeline,
 } from "./messages";
-import { canWrite, isGroup, peerOf } from "./model";
 import { previewMessage, send, useOutgoing } from "./outbox";
 import { MediaPanel, PinnedPanel, SearchPanel, SidePanel } from "./panels";
 import { displayName } from "./people";
 import { PovRequestDialog } from "./pov";
 import { PovCamera } from "./pov-camera";
 import { contentText } from "./preview";
-import { buildRows } from "./timeline";
 
 /** A member who keeps a conversation open repeats that this often; the server forgets after 75 s. */
 const PRESENCE_EVERY_MS = 30_000;

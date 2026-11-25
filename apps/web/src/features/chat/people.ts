@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { type chat, type common, social } from "@tokuly/api";
+import { isGroup, peerOf } from "@tokuly/core/chat";
 import { api, profileClient } from "#/lib/api";
 import i18n from "#/lib/i18n";
 import { useLive } from "./live";
-import { isGroup, peerOf } from "./model";
 
 const friendClient = () => api().service(social.FriendService);
 

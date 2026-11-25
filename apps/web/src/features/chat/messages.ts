@@ -1,10 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
-import { chatKeys, conversationClient, messageClient } from "./api";
-import { applyUnread, patchConversation, unreadVersion } from "./conversations";
-import { useLive } from "./live";
-import { laterSeq } from "./model";
 import {
+  laterSeq,
   leavesGap,
   reactionsAfter,
   type Timeline,
@@ -14,7 +11,10 @@ import {
   withOlder,
   withReaction,
   withUpdated,
-} from "./timeline";
+} from "@tokuly/core/chat";
+import { chatKeys, conversationClient, messageClient } from "./api";
+import { applyUnread, patchConversation, unreadVersion } from "./conversations";
+import { useLive } from "./live";
 
 /** Messages fetched per request. */
 const PAGE = 40;

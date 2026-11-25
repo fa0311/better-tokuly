@@ -1,6 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { chat, toMillis } from "@tokuly/api";
+import type { PendingState, Row } from "@tokuly/core/chat";
+import { abilitiesOf, isGroup, type MessageAbilities } from "@tokuly/core/chat";
 import {
   CircleAlert,
   Copy,
@@ -41,14 +43,12 @@ import {
   ReplyQuote,
 } from "./message-content";
 import { useMessageActions } from "./messages";
-import { abilitiesOf, isGroup, type MessageAbilities } from "./model";
 import { CallCard, SystemLine } from "./notice-rows";
 import { discard, retry, send, useOutgoing } from "./outbox";
 import { ContextActions, useHover } from "./parts";
 import { displayName } from "./people";
 import { PovReplyFooter, PovRequestCard } from "./pov";
 import { clock } from "./text";
-import type { PendingState, Row } from "./timeline";
 
 type MessageRowData = Extract<Row, { type: "message" }>;
 

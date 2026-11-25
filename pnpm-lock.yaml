@@ -492,6 +492,12 @@ importers:
 
   packages/core:
     dependencies:
+      '@bufbuild/protobuf':
+        specifier: 'catalog:'
+        version: 2.17.0
+      '@connectrpc/connect':
+        specifier: 'catalog:'
+        version: 2.3.0(@bufbuild/protobuf@2.17.0)
       '@tokuly/api':
         specifier: workspace:*
         version: link:../api

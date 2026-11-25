@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { type chat, toMillis } from "@tokuly/api";
+import { isGroup, ringsFor } from "@tokuly/core/chat";
 import { Phone, PhoneOff, Video } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,6 @@ import { EmojiText } from "#/features/emoji";
 import { useMe } from "#/stores/session";
 import { useConversation } from "../conversations";
 import { useLive } from "../live";
-import { isGroup, ringsFor } from "../model";
 import { displayName, titleOf } from "../people";
 import { CallScreen } from "./call-screen";
 import { ring } from "./ringtone";

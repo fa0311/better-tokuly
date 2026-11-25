@@ -1,9 +1,9 @@
 import { chat } from "@tokuly/api";
+import { rowKey } from "@tokuly/core/chat";
 import { describe, expect, it } from "vitest";
 import { classify, needsConversion } from "./attachments";
 import { bigEmojiCount, type Outgoing, previewMessage } from "./outbox";
 import { extensionOf } from "./recorder";
-import { rowKey } from "./timeline";
 
 const me = {
   $typeName: "tokuly.common.v1.UserSummary" as const,

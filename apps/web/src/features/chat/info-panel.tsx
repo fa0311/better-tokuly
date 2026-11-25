@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { chat, type common } from "@tokuly/api";
+import { isGroup, isMuted, manages, peerOf } from "@tokuly/core/chat";
 import {
   Check,
   Crown,
@@ -40,7 +41,6 @@ import { errorMessage } from "./errors";
 import { FriendPicker } from "./friend-picker";
 import { GroupIconPicker } from "./group-icon";
 import { useMembers } from "./members";
-import { isGroup, isMuted, manages, peerOf } from "./model";
 import { SectionTitle } from "./parts";
 import { displayName, titleOf } from "./people";
 

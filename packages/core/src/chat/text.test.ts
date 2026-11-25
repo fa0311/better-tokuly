@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { dayLabel, fileSize, listTime, mentionAt, playTime, tokenize } from "./text";
+import { testI18n } from "../testing/i18n";
+import { chatTimes, fileSize, mentionAt, playTime, tokenize } from "./text";
+
+const { dayLabel, listTime } = chatTimes(testI18n());
 
 describe("message text", () => {
   it("makes links tappable and keeps the sentence's punctuation out of them", () => {
