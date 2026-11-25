@@ -1,9 +1,4 @@
-import {
-  Camera,
-  type CameraRef,
-  Map as MapLibre,
-  ViewAnnotation,
-} from "@maplibre/maplibre-react-native";
+import { Camera, type CameraRef, Map as MapLibre, Marker } from "@maplibre/maplibre-react-native";
 import { buildMapStyle } from "@tokuly/core/map";
 import { Ghost, LocateFixed, X } from "lucide-react-native";
 import { useRef, useState } from "react";
@@ -26,6 +21,10 @@ const DEFAULT_CENTER: [number, number] = [139.7006, 35.6595];
 type Panel = { kind: "friend"; userId: string } | { kind: "ghost" } | { kind: "sharing" } | null;
 
 /**
+ * Pins are `Marker`s, real native views: Android draws a `ViewAnnotation`'s
+ * children into a bitmap, which can neither be tapped nor read by a screen
+ * reader (or a test).
+ *
  * The live friend map: friends' faces where they are, a card for the one
  * tapped, this device's own dot, ghost mode and sharing one tap away. Pins
  * move as the realtime connection reports them (`useMapSync`).
@@ -70,12 +69,12 @@ export function MapScreen() {
       >
         <Camera ref={camera} initialViewState={{ center: DEFAULT_CENTER, zoom: 11 }} />
         {own && (
-          <ViewAnnotation id="own" lngLat={[own.lng, own.lat]}>
+          <Marker id="own" lngLat={[own.lng, own.lat]}>
             <OwnDot />
-          </ViewAnnotation>
+          </Marker>
         )}
         {pins.map((location) => (
-          <ViewAnnotation
+          <Marker
             key={location.userId}
             id={`friend-${location.userId}`}
             lngLat={[location.position?.lng ?? 0, location.position?.lat ?? 0]}
@@ -91,7 +90,7 @@ export function MapScreen() {
                 if (location.position) focus(location.position.lng, location.position.lat);
               }}
             />
-          </ViewAnnotation>
+          </Marker>
         ))}
       </MapLibre>
 
