@@ -18,6 +18,13 @@ import {
 // like LM Studio on the operator's network, reached through the operator's
 // private-host allowance.
 
+/**
+ * Where the API reaches this machine: loopback when it runs here, the Compose
+ * network's gateway when it runs in a container (set by the Browser tests
+ * workflow). The stand-in listens on that address only.
+ */
+const STUB_HOST = process.env.TOKULY_E2E_HOST_FROM_API ?? "127.0.0.1";
+
 const expect = baseExpect.configure({ timeout: 20_000 });
 test.describe.configure({ timeout: 120_000 });
 
@@ -70,10 +77,10 @@ async function startStub(): Promise<Stub> {
       );
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => server.listen(0, STUB_HOST, resolve));
   const { port } = server.address() as AddressInfo;
   return {
-    baseUrl: `http://127.0.0.1:${port}/v1`,
+    baseUrl: `http://${STUB_HOST}:${port}/v1`,
     requests,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
@@ -116,7 +123,7 @@ test("an operator offers a local model, a person picks it, and other people's me
     await form.getByLabel("ベースURL").fill(stub.baseUrl);
     const allow = form.getByRole("switch", { name: /プライベートネットワークで許可/ });
     if (await allow.isChecked()) await allow.click();
-    // A loopback address on its own port is refused without the allowance.
+    // A private address on its own port is refused without the allowance.
     await form.getByRole("button", { name: "保存" }).click();
     await expect(
       adminPage.getByText("このアドレスには接続できません", { exact: false }),
@@ -150,7 +157,7 @@ test("an operator offers a local model, a person picks it, and other people's me
     const local = page.getByRole("radio", { name: "OpenAI互換（LM Studio など）" });
     await local.click();
     await expect(local).toBeChecked();
-    await expect(page.getByTestId("ai-recipient")).toHaveText("いまの送り先: 127.0.0.1");
+    await expect(page.getByTestId("ai-recipient")).toHaveText(`いまの送り先: ${STUB_HOST}`);
 
     // In the conversation: asked first, naming the recipient, then reply ideas from the local model.
     await page.goto(`/chat/${conversationId}`);
@@ -158,7 +165,7 @@ test("an operator offers a local model, a person picks it, and other people's me
     await page.getByRole("button", { name: "AIアシスト" }).click();
     await page.getByRole("menuitem", { name: "返信のヒントをもらう" }).click();
     const consent = page.getByRole("dialog").filter({ hasText: "AIアシストを使う前に" });
-    await expect(consent).toContainText("127.0.0.1");
+    await expect(consent).toContainText(STUB_HOST);
     await consent.getByRole("button", { name: "わかった、使う" }).click();
     await page
       .getByTestId("suggested-replies")
