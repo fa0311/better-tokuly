@@ -274,7 +274,10 @@ that section together, at start-up and on every reload; the page shows why
 (`console_rejected`). So are values stored for settings the console may
 not change (saved before their domain took them off its list, or by hand);
 removing a value (`reset`) is allowed for every setting. If the server still does not start with the console
-values, it starts once more without any of them.
+values, it tries once more with them (the infrastructure may have been away
+for a moment) and then without them; only when it starts without them are
+they blamed, and the next re-read (within a minute) applies them again. A
+start that fails without them as well ends with the first error.
 
 ## Getting back in
 

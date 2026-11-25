@@ -231,6 +231,9 @@ pub struct State {
     pub rejected: HashMap<String, String>,
     /// Why, by section.
     pub rejected_sections: BTreeMap<String, String>,
+    /// The process started without its console values (the last resort,
+    /// see the server's start-up): the next re-read applies them again.
+    pub without_console: bool,
     /// Counts the states a process has had: what [`Settings::current`]
     /// caches its parses by (an address would be reused once freed).
     generation: u64,
@@ -239,7 +242,7 @@ pub struct State {
 impl State {
     pub fn new(registry: Arc<Registry>, layers: Layers, file: Option<PathBuf>, production: bool) -> Self {
         let started = registry.defs().iter().map(|d| (d.id.clone(), layers.effective(d).0.map(str::to_owned))).collect();
-        Self { registry, layers, started, file, production, rejected: HashMap::new(), rejected_sections: BTreeMap::new(), generation: 0 }
+        Self { registry, layers, started, file, production, rejected: HashMap::new(), rejected_sections: BTreeMap::new(), without_console: false, generation: 0 }
     }
 
     /// Like [`State::new`], with a console layer that is first checked
@@ -318,6 +321,11 @@ impl Settings {
         self.0.state.read().clone()
     }
 
+    /// Whether `loaded` (the console layer just read) must be applied.
+    pub fn needs_reload(&self, loaded: &HashMap<String, String>) -> bool {
+        self.state().is_some_and(|state| state.without_console) || self.console().as_ref() != Some(loaded)
+    }
+
     /// The console values as last loaded, set-aside ones included.
     pub fn console(&self) -> Option<HashMap<String, String>> {
         let state = self.state()?;
@@ -342,6 +350,7 @@ impl Settings {
                 production: state.production,
                 rejected: admitted.rejected,
                 rejected_sections: admitted.reasons,
+                without_console: false,
                 generation: self.0.next_generation.fetch_add(1, Ordering::Relaxed),
             };
             *guard = Some(Arc::new(next));
@@ -469,6 +478,25 @@ mod tests {
         // The command line wins over the console, so nothing changed for the token.
         assert!(!state.restart_pending(def(&r, "token")));
         assert!(Settings::default().current::<Demo>("demoset").is_none());
+    }
+
+    /// A process that started without its console values (the last
+    /// resort) takes them back at the next re-read, even though they did
+    /// not change since.
+    #[test]
+    fn a_start_without_the_console_takes_it_back() {
+        let mut layers = Layers::default();
+        layers.cli.insert("token".into(), "t".into());
+        let console = HashMap::from([("limit".to_owned(), "9".to_owned())]);
+        let mut state = State::new(registry(), layers, None, false);
+        state.rejected = console.clone();
+        state.without_console = true;
+        let settings = Settings::new(state);
+        assert_eq!(settings.current::<Demo>("demoset").unwrap().limit, 5);
+        assert!(settings.needs_reload(&console));
+        settings.set_console(console.clone());
+        assert_eq!(settings.current::<Demo>("demoset").unwrap().limit, 9);
+        assert!(!settings.needs_reload(&console));
     }
 
     /// A section that does not parse is logged once per state, not on

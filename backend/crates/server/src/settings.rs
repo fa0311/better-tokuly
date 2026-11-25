@@ -142,6 +142,40 @@ pub struct Resolved {
     pub console: HashMap<String, String>,
 }
 
+/// How the process started: with the console values, or (the last resort)
+/// without them, after the error they were blamed for.
+pub enum Started<T> {
+    WithConsole(T),
+    WithoutConsole(T, anyhow::Error),
+}
+
+/// Starts the process (`attempt(true)` with the console values,
+/// `attempt(false)` without them). A start that fails with the console
+/// values is tried once more with them (the infrastructure may have been
+/// away for a moment), then without them; only when that works are they
+/// blamed. A start without console values that fails too returns the
+/// first error: they were not the cause.
+pub async fn start_with_fallback<T, F, Fut>(has_console: bool, mut attempt: F) -> anyhow::Result<Started<T>>
+where
+    F: FnMut(bool) -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    let first = match attempt(true).await {
+        Ok(started) => return Ok(Started::WithConsole(started)),
+        Err(e) if has_console => e,
+        Err(e) => return Err(e),
+    };
+    tracing::warn!(error = %first, "the server did not start; trying again");
+    let again = match attempt(true).await {
+        Ok(started) => return Ok(Started::WithConsole(started)),
+        Err(e) => e,
+    };
+    match attempt(false).await {
+        Ok(started) => Ok(Started::WithoutConsole(started, again)),
+        Err(_) => Err(first),
+    }
+}
+
 /// [`parse`] without requiring anything: whether every value given parses.
 pub fn check_values(argv: &[OsString], state: &State) {
     let cmd = settings::apply(Cli::command(), &state.registry, &state.layers, false).mut_args(|a| a.required(false));
@@ -218,6 +252,7 @@ impl Resolved {
         let mut state = State::new(self.registry.clone(), self.layers.clone(), self.file.clone(), self.production());
         state.rejected_sections = self.console.keys().filter_map(|id| self.registry.by_id(id)).map(|d| (d.section.to_owned(), reason.to_owned())).collect();
         state.rejected = self.console.clone();
+        state.without_console = true;
         state
     }
 }
@@ -367,6 +402,36 @@ mod tests {
             .map(|d| d.env.as_str())
             .collect();
         assert!(missing.is_empty(), "list these in EMPTY_IS_A_VALUE: {missing:?}");
+    }
+
+    /// Runs [`start_with_fallback`] against scripted attempts; returns the
+    /// outcome and the attempts made (`true`: with the console values).
+    fn scripted(has_console: bool, results: &[(bool, bool)]) -> (Result<bool, String>, Vec<bool>) {
+        let script = std::cell::RefCell::new(results.iter().copied().collect::<std::collections::VecDeque<_>>());
+        let made = std::cell::RefCell::new(Vec::new());
+        let outcome = futures::executor::block_on(start_with_fallback(has_console, |with| {
+            made.borrow_mut().push(with);
+            let (expected, ok) = script.borrow_mut().pop_front().expect("an attempt nobody scripted");
+            assert_eq!(with, expected, "attempt {} with the console: {with}", made.borrow().len());
+            async move { if ok { Ok(()) } else { Err(anyhow::anyhow!("down")) } }
+        }));
+        let outcome = outcome.map(|started| matches!(started, Started::WithoutConsole(..))).map_err(|e| e.to_string());
+        (outcome, made.into_inner())
+    }
+
+    #[test]
+    fn a_passing_failure_is_retried_with_the_console() {
+        // NATS away for a moment: the second try with the console works.
+        assert_eq!(scripted(true, &[(true, false), (true, true)]), (Ok(false), vec![true, true]));
+    }
+
+    #[test]
+    fn the_console_is_blamed_only_when_the_start_works_without_it() {
+        assert_eq!(scripted(true, &[(true, false), (true, false), (false, true)]), (Ok(true), vec![true, true, false]));
+        // Failing without the console values too: they were not the cause.
+        assert_eq!(scripted(true, &[(true, false), (true, false), (false, false)]).0, Err("down".to_owned()));
+        // Nothing to blame without console values.
+        assert_eq!(scripted(false, &[(true, false)]), (Err("down".to_owned()), vec![true]));
     }
 
     #[test]

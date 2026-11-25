@@ -139,17 +139,35 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!(section, reason, "settings: the console values of this section are set aside; fix them in サーバー設定");
     }
     // A mistake saved in the console must never stop the server: when it
-    // does not start with the console values, it starts without them.
-    let (core, domains, cli) = match start(cli.core.clone(), cli.domains.clone(), state).await {
-        Ok((core, domains)) => (core, domains, cli),
-        Err(e) if !resolved.console.is_empty() => {
-            tracing::error!(error = %e, "the server does not start with the console settings; starting without them");
-            let state = resolved.state_without_console(&format!("the server did not start with them: {e}"));
-            let cli = settings::parse(&argv, &state);
+    // does not start with the console values (and does without them), it
+    // runs without them until the next re-read applies them again.
+    let mut first = Some((state, cli));
+    let started = settings::start_with_fallback(!resolved.console.is_empty(), |with_console| {
+        let (state, cli) = match (with_console, first.take()) {
+            (true, Some(prepared)) => prepared,
+            (true, None) => {
+                let state = resolved.state();
+                let cli = settings::parse(&argv, &state);
+                (state, cli)
+            }
+            (false, _) => {
+                let state = resolved.state_without_console("the server did not start with them");
+                let cli = settings::parse(&argv, &state);
+                (state, cli)
+            }
+        };
+        async move {
             let (core, domains) = start(cli.core.clone(), cli.domains.clone(), state).await?;
-            (core, domains, cli)
+            Ok((core, domains, cli))
         }
-        Err(e) => return Err(e),
+    })
+    .await?;
+    let (core, domains, cli) = match started {
+        settings::Started::WithConsole(started) => started,
+        settings::Started::WithoutConsole(started, e) => {
+            tracing::error!(error = %e, "the server does not start with the console settings; running without them (fix them in サーバー設定)");
+            started
+        }
     };
     spawn_shutdown_listener(core.clone());
 

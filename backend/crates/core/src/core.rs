@@ -204,7 +204,7 @@ impl Core {
         let Some(state) = self.settings.state() else { return Ok(()) };
         let console = settings::store::load(&self.db, &state.registry, &self.keys).await?;
         // Unchanged (the periodic check): keep the state, and the parses cached for it.
-        if self.settings.console().as_ref() == Some(&console) {
+        if !self.settings.needs_reload(&console) {
             return Ok(());
         }
         self.settings.set_console(console);
