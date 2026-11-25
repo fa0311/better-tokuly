@@ -6,6 +6,7 @@ use crate::common::*;
 
 #[tokio::test]
 async fn retention_removes_old_entries_and_stale_event_markers() {
+    let _sweep = retention_lock().await;
     let ctx = start().await;
     let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
     let db = &ctx.app.core.db;
@@ -225,6 +226,7 @@ async fn remember_edit_and_audience(
 
 #[tokio::test]
 async fn remembered_edits_and_audiences_are_swept_after_eight_days() {
+    let _sweep = retention_lock().await;
     let ctx = start().await;
     let (alice, bob) = (ctx.app.user("alice").await, ctx.app.user("bob").await);
     let (recent, old) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
