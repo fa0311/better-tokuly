@@ -178,6 +178,9 @@ pub struct Browser {
     router: axum::Router,
     pub jar: HashMap<String, String>,
     ip: std::net::IpAddr,
+    /// Send each cookie as a header field of its own, the parked accounts'
+    /// first — what an HTTP/2 hop (the edge's h2c to the API) may deliver.
+    pub split_cookies: bool,
 }
 
 impl Browser {
@@ -196,7 +199,7 @@ impl Browser {
             rng.random_range(0..255u8),
             rng.random_range(1..255u8),
         ]);
-        Self { router, jar: HashMap::new(), ip }
+        Self { router, jar: HashMap::new(), ip, split_cookies: false }
     }
 
     pub async fn call(&mut self, procedure: &str, access_token: Option<&str>, body: serde_json::Value) -> WebAnswer {
@@ -208,7 +211,14 @@ impl Browser {
             .header("x-tokuly-client", "web")
             .header("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/157.0.0.0 Safari/537.36")
             .extension(axum::extract::ConnectInfo(std::net::SocketAddr::new(self.ip, 0)));
-        if !cookie.is_empty() {
+        if self.split_cookies {
+            let mut cookie = cookie.clone();
+            // `tokuly_ra` before `tokuly_rt`: the order that used to hide the active account.
+            cookie.sort();
+            for one in cookie {
+                request = request.header("cookie", one);
+            }
+        } else if !cookie.is_empty() {
             request = request.header("cookie", cookie.join("; "));
         }
         if let Some(token) = access_token {
