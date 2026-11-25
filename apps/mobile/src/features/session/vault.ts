@@ -10,6 +10,9 @@ import { readJson, readSecure, writeJson, writeSecure } from "#/platform/secure-
 const ACTIVE_KEY = "tokuly.session.active";
 const PARKED_KEY = "tokuly.session.parked";
 
+/** Every account this install holds, for forgetting them all at once. */
+export const ACCOUNT_KEYS = [ACTIVE_KEY, PARKED_KEY] as const;
+
 /** session ID → refresh token of each parked account. */
 export type ParkedTokens = Record<string, string>;
 

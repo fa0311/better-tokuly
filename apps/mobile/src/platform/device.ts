@@ -6,7 +6,7 @@ import { getCalendars, getLocales } from "expo-localization";
 import { Platform } from "react-native";
 import { readSecure, writeSecure } from "./secure-storage";
 
-const DEVICE_ID_KEY = "tokuly.deviceId";
+export const DEVICE_ID_KEY = "tokuly.deviceId";
 let deviceIdValue: Promise<string> | null = null;
 
 /**

@@ -2,7 +2,9 @@ import { Code, ConnectError, type identity, type SessionState } from "@tokuly/ap
 import { create } from "zustand";
 import { api, authClient, resetApi } from "#/lib/api";
 import { prepareRealtime, resetRealtime } from "#/lib/realtime";
-import { activeTokenStore, forgetParked, parkActive, parkedTokens } from "./vault";
+import { DEVICE_ID_KEY } from "#/platform/device";
+import { forgetPreviousInstall } from "#/platform/install";
+import { ACCOUNT_KEYS, activeTokenStore, forgetParked, parkActive, parkedTokens } from "./vault";
 
 interface SessionStore {
   state: SessionState;
@@ -30,8 +32,13 @@ function bindStore(): void {
   useSessionStore.setState({ state: session.state });
 }
 
-/** On app start: resumes the active account from the refresh token in secure storage. */
+/**
+ * On app start: resumes the active account from the refresh token in secure
+ * storage, unless this is a new install (its keychain may hold a previous
+ * one's accounts).
+ */
 export async function startSession(): Promise<void> {
+  await forgetPreviousInstall([...ACCOUNT_KEYS, DEVICE_ID_KEY]);
   await prepareRealtime();
   bindStore();
   if (await activeTokenStore.get()) await api().session.restore();

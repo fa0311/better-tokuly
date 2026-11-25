@@ -165,7 +165,9 @@ export function useSharingState(): SharingState {
   if (choice === null) return "needsConsent";
   if (choice === "off") return "stopped";
   if (!access.servicesEnabled) return "servicesOff";
-  if (access.foreground !== "granted") return choice === "on" ? "blocked" : "needsConsent";
+  // Never asked on this install (a reinstall keeps the account's yes, not the OS permission).
+  if (access.foreground === "undetermined") return "needsConsent";
+  if (access.foreground !== "granted") return "blocked";
   return own ? "sharing" : "starting";
 }
 
