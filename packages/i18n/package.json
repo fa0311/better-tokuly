@@ -1,0 +1,22 @@
+{
+  "name": "@tokuly/i18n",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "UI strings (Japanese first, English) of the areas every Tokuly app has, and the language rules.",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ja/*": "./src/ja/*.ts",
+    "./en/*": "./src/en/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

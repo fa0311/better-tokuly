@@ -1,19 +1,13 @@
+import { type Language, normalizeLanguage } from "@tokuly/i18n";
 import { createInstance, type i18n as I18n } from "i18next";
 import { initReactI18next } from "react-i18next";
 import en from "#/i18n/en";
 import ja from "#/i18n/ja";
 
-export const SUPPORTED_LANGUAGES = ["ja", "en"] as const;
-export type Language = (typeof SUPPORTED_LANGUAGES)[number];
+export { type Language, normalizeLanguage, SUPPORTED_LANGUAGES } from "@tokuly/i18n";
 
 /** Cookie remembering the chosen language, so the server renders in it too. */
 export const LANGUAGE_COOKIE = "tokuly_lang";
-
-/** Japanese first: Tokuly's home audience. Anything else falls back to English. */
-export function normalizeLanguage(input: string | null | undefined): Language {
-  if (!input) return "ja";
-  return input.toLowerCase().startsWith("ja") ? "ja" : "en";
-}
 
 /** A ready-to-use (synchronously initialized) i18n instance in one language. */
 export function createI18n(language: Language): I18n {

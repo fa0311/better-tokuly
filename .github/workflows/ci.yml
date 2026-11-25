@@ -161,7 +161,9 @@ jobs:
       - name: Format and lint
         run: pnpm lint:web
       - name: Client packages
-        run: pnpm --filter @tokuly/api --filter @tokuly/realtime run --if-present test
+        run: pnpm --filter "./packages/*" run --if-present test
+      - name: Client packages type check
+        run: pnpm --filter "./packages/*" run --if-present typecheck
       # The build comes first: it writes the route tree the type check needs.
       - name: Build
         run: pnpm --filter @tokuly/web build

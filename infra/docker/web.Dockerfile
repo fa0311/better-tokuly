@@ -13,6 +13,7 @@ WORKDIR /src
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/api/package.json packages/api/
 COPY packages/realtime/package.json packages/realtime/
+COPY packages/i18n/package.json packages/i18n/
 COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile --filter @tokuly/web...

@@ -28,6 +28,7 @@
     "@tanstack/react-start": "catalog:",
     "@tanstack/react-virtual": "catalog:",
     "@tokuly/api": "workspace:*",
+    "@tokuly/i18n": "workspace:*",
     "@tokuly/realtime": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
