@@ -7,3 +7,4 @@ export const userAdminClient = () => api().service(admin.UserAdminService);
 export const flagClient = () => api().service(admin.FeatureFlagService);
 export const announcementAdminClient = () => api().service(admin.AnnouncementService);
 export const systemClient = () => api().service(admin.SystemService);
+export const serverSettingsClient = () => api().service(admin.ServerSettingsService);
