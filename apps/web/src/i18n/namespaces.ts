@@ -11,7 +11,7 @@ export function namespaces(
   modules: Record<string, { default: ResourceLanguage[string] }>,
   shared: ResourceLanguage,
 ): ResourceLanguage {
-  const own = Object.entries(modules).map(([path, module]) => [
+  const own = Object.entries(modules).map(([path, module]): [string, ResourceLanguage[string]] => [
     path.slice(path.lastIndexOf("/") + 1, -".ts".length),
     module.default,
   ]);

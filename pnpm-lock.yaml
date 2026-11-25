@@ -358,6 +358,9 @@ importers:
       '@tokuly/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@tokuly/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@tokuly/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
@@ -486,6 +489,28 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+
+  packages/core:
+    dependencies:
+      '@tokuly/api':
+        specifier: workspace:*
+        version: link:../api
+      '@tokuly/i18n':
+        specifier: workspace:*
+        version: link:../i18n
+      i18next:
+        specifier: 'catalog:'
+        version: 27.2.2(typescript@7.0.2)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 5.1.1(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0))
 
   packages/i18n:
     devDependencies:

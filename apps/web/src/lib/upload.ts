@@ -1,6 +1,6 @@
 import { media } from "@tokuly/api";
+import { AssetFailedError } from "@tokuly/core/errors";
 import { api } from "#/lib/api";
-import { AssetFailedError } from "#/lib/asset-error";
 
 export { AssetFailedError };
 
