@@ -6,4 +6,25 @@
  */
 export { mapKeys } from "./keys";
 export { fromSnapshot, type LiveLocations, withLocation, withoutFriend } from "./live";
-export * from "./model";
+export {
+  BLURRED_STALE_AFTER_MS,
+  BUMP_RADIUS_M,
+  BUZZ_RADIUS_M,
+  byDistance,
+  circleRing,
+  clusterOnScreen,
+  decodePolyline,
+  distanceTo,
+  fanOffset,
+  ghostRuleFor,
+  ghostSummary,
+  isBlurred,
+  isMoving,
+  MOVING_SPEED_MPS,
+  type PinState,
+  pinState,
+  type ScreenPoint,
+  STALE_AFTER_MS,
+  seeEachOther,
+  stayMillis,
+} from "./model";

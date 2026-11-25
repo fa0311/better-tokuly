@@ -12,8 +12,42 @@ export {
   DEFAULT_CAPABILITIES,
 } from "./capabilities";
 export { chatKeys, LIST_FILTERS, type ListFilter } from "./keys";
-export * from "./model";
+export {
+  abilitiesOf,
+  canWrite,
+  compareConversations,
+  countsAsUnread,
+  isGroup,
+  isMuted,
+  isUserContent,
+  joinedParticipants,
+  laterSeq,
+  listOf,
+  type MessageAbilities,
+  manages,
+  mentionsUser,
+  participantState,
+  peerOf,
+  ringsFor,
+} from "./model";
 export { chatSentences } from "./preview";
 export { chatTimes, fileSize, mentionAt, playTime, type Token, tokenize } from "./text";
-export * from "./timeline";
+export {
+  buildRows,
+  isBubble,
+  leavesGap,
+  type MessagePage,
+  mergeMessage,
+  type PendingState,
+  type Row,
+  reactionsAfter,
+  rowKey,
+  type Timeline,
+  timelineOf,
+  withCreated,
+  withNewer,
+  withOlder,
+  withReaction,
+  withUpdated,
+} from "./timeline";
 export { PEAK_COUNT, peaksOf, waveformBars } from "./waveform";

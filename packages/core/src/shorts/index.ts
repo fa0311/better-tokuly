@@ -5,4 +5,27 @@
  * The player, gestures, studio and feeds' query wiring stay in each app.
  */
 export { shortKeys } from "./keys";
-export * from "./model";
+export {
+  type CaptionPart,
+  captionParts,
+  clock,
+  completeToken,
+  contextOfSearch,
+  type FeedContext,
+  type FeedKind,
+  imageUrl,
+  LISTS,
+  type ListName,
+  MAX_ASPECT,
+  MAX_CAPTION,
+  MAX_SECONDS,
+  playbackSource,
+  type ShortSearch,
+  type SlideLoad,
+  searchOfContext,
+  shortSubject,
+  slideLoad,
+  soundTitle,
+  tokenAtCaret,
+  validateShortSearch,
+} from "./model";
