@@ -67,8 +67,10 @@ jobs:
     timeout-minutes: 120
     env:
       TOKULY_VERSION: edge
-      # The emulator reaches the host's edge proxy here.
-      SERVER: http://10.0.2.2
+      # The same edge proxy, seen from two places: the app on the emulator reaches the host
+      # at 10.0.2.2; Maestro's scripts (which arrange accounts) run on the runner itself.
+      APP_SERVER: http://10.0.2.2
+      SCRIPT_SERVER: http://localhost
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -97,7 +99,7 @@ jobs:
       - name: Build the Android app
         working-directory: apps/mobile
         env:
-          EXPO_PUBLIC_TOKULY_URL: ${{ env.SERVER }}
+          EXPO_PUBLIC_TOKULY_URL: ${{ env.APP_SERVER }}
           GRADLE_OPTS: -Xmx3g -Dorg.gradle.workers.max=2
         run: |
           pnpm exec expo prebuild --platform android --no-install
@@ -146,7 +148,7 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none
           script: |
             adb install "$RUNNER_TEMP/tokuly.apk"
-            maestro test apps/mobile/maestro --env SERVER=${{ env.SERVER }} --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro"
+            maestro test apps/mobile/maestro --env SERVER=${{ env.SCRIPT_SERVER }} --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro"
 
       - name: Keep the Maestro output
         if: always()

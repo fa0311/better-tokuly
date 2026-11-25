@@ -85,5 +85,5 @@ runs them against the Compose stack; locally, with an emulator and a stack:
 
 ```sh
 EXPO_PUBLIC_TOKULY_URL=http://10.0.2.2 pnpm --filter @tokuly/mobile android --variant release
-pnpm --filter @tokuly/mobile e2e --env SERVER=http://10.0.2.2
+pnpm --filter @tokuly/mobile e2e --env SERVER=http://localhost   # the scripts run on the host
 ```
