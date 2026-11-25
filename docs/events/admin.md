@@ -262,8 +262,9 @@ broadcasts `sys.settings.changed`; every process reloads the console layer,
 so live settings apply everywhere at once and the rest show
 `restart_pending` until the listed processes restart.
 
-Refused: settings the environment or the file set (`SETTING_LOCKED`),
-bootstrap settings (`SETTING_BOOTSTRAP`), settings with their own screen
+Refused: settings their domain does not let the console change
+(`SETTING_FILE_ONLY`; see `backend/README.md`, "Declaring a setting"),
+settings the environment or the file set (`SETTING_LOCKED`), settings with their own screen
 (`SETTING_MANAGED_ELSEWHERE`: the chat AI providers at `/admin/chat-ai`),
 values of the wrong type or against the section's checks, run over all of
 its console values together with what the server builds from them at

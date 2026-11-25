@@ -49,9 +49,10 @@ pub struct SectionSpec {
     pub processes: &'static [Process],
     /// Keys read anew on every use: a console change applies at once.
     pub live: &'static [&'static str],
-    /// Keys the console never changes: addresses of the infrastructure,
-    /// the master secret, listen addresses.
-    pub bootstrap: &'static [&'static str],
+    /// Keys the staff console may change. Everything else is set in
+    /// `tokuly.toml` or the environment only, so a new setting stays out of
+    /// the console until its domain lists it (`<Config>::CONSOLE_EDITABLE`).
+    pub editable: &'static [&'static str],
     /// Key prefixes that have a screen of their own in the console, with its path:
     /// the settings page links there instead of editing them.
     pub managed: &'static [(&'static str, &'static str)],
@@ -62,7 +63,7 @@ impl SectionSpec {
     /// A domain section, read by the API and the workers, every setting
     /// editable and applied on restart.
     pub fn new(name: &'static str, augment: fn(Command) -> Command) -> Self {
-        Self { name, augment, env_prefix: None, processes: &[Process::Api, Process::Worker], live: &[], bootstrap: &[], managed: &[], check: None }
+        Self { name, augment, env_prefix: None, processes: &[Process::Api, Process::Worker], live: &[], editable: &[], managed: &[], check: None }
     }
 
     pub fn env_prefix(mut self, prefix: &'static str) -> Self {
@@ -80,8 +81,8 @@ impl SectionSpec {
         self
     }
 
-    pub fn bootstrap(mut self, keys: &'static [&'static str]) -> Self {
-        self.bootstrap = keys;
+    pub fn editable(mut self, keys: &'static [&'static str]) -> Self {
+        self.editable = keys;
         self
     }
 
@@ -128,8 +129,8 @@ pub struct Def {
     pub choices: Vec<String>,
     /// Write-only: never shown, exported or logged.
     pub secret: bool,
-    /// Not editable from the console.
-    pub bootstrap: bool,
+    /// The console may change it ([`SectionSpec::editable`]).
+    pub editable: bool,
     pub live: bool,
     /// The console path of the screen this setting is edited on instead.
     pub managed_at: Option<&'static str>,
@@ -255,7 +256,7 @@ impl Registry {
                 let def = Def {
                     section: spec.name,
                     live: spec.live.contains(&key.as_str()),
-                    bootstrap: spec.bootstrap.contains(&key.as_str()),
+                    editable: spec.editable.contains(&key.as_str()),
                     secret: arg.is_hide_env_values_set(),
                     managed_at,
                     processes: spec.processes,
@@ -277,7 +278,7 @@ impl Registry {
                 anyhow::ensure!(by_id.insert(id.clone(), defs.len()).is_none(), "two settings have the argument ID `{id}`");
                 defs.push(def);
             }
-            for key in spec.live.iter().chain(spec.bootstrap) {
+            for key in spec.live.iter().chain(spec.editable) {
                 anyhow::ensure!(by_name.contains_key(&(spec.name.to_owned(), (*key).to_owned())), "[{}] names unknown setting `{key}`", spec.name);
             }
         }

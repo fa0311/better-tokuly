@@ -244,8 +244,8 @@ function SettingRow({
   const { t } = useTranslation("admin");
   const name = `${setting.section}.${setting.key}`;
   const lockText =
-    setting.lock === admin.ServerSettingLock.BOOTSTRAP
-      ? t("settings.lock.bootstrap")
+    setting.lock === admin.ServerSettingLock.FILE_ONLY
+      ? t("settings.lock.fileOnly")
       : setting.lock === admin.ServerSettingLock.OVERRIDDEN
         ? t("settings.lock.overridden", { source: sourceLabel(setting.source) })
         : setting.lock === admin.ServerSettingLock.MANAGED_ELSEWHERE

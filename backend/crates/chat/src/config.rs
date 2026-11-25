@@ -393,6 +393,29 @@ impl ChatConfig {
     }
 }
 
+impl ChatConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "ring_seconds",
+        "anthropic_version",
+        "openai_reasoning_effort",
+        "ai_effort",
+        "ai_refusal_fallback",
+        "ai_hourly_limit",
+        "ai_timeout_seconds",
+        "max_group_members",
+        "edit_window_seconds",
+        "request_message_limit",
+        "messages_per_minute",
+        "pov_answer_seconds",
+        "pov_reply_seconds",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;

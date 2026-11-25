@@ -175,6 +175,28 @@ impl FeedConfig {
     }
 }
 
+impl FeedConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "activity_retention_days",
+        "map_story_hours",
+        "burst_minutes",
+        "recap_cache_seconds",
+        "recap_min_activities",
+        "news_fetch_interval_seconds",
+        "news_fetch_timeout_seconds",
+        "news_max_feed_bytes",
+        "news_retention_days",
+        "news_random_share_percent",
+        "news_affinity_half_life_days",
+        "news_tag_keywords",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

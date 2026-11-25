@@ -53,34 +53,6 @@ pub struct ApiConfig {
 
 const ALL: &[Process] = &[Process::Api, Process::Realtime, Process::Worker];
 
-/// What the console must not change in `[core]`: where the infrastructure
-/// is, its credentials and the master secret.
-const CORE_BOOTSTRAP: &[&str] = &[
-    "public_url",
-    "api_path_prefix",
-    "secret",
-    "env",
-    "database_url",
-    "database_max_connections",
-    "valkey_url",
-    "nats_url",
-    "nats_prefix",
-    "s3_endpoint",
-    "s3_public_endpoint",
-    "s3_region",
-    "s3_access_key",
-    "s3_secret_key",
-    "s3_media_bucket",
-    "s3_private_bucket",
-    "media_url",
-    "clickhouse_url",
-    "clickhouse_user",
-    "clickhouse_password",
-    "clickhouse_database",
-    "meili_url",
-    "meili_key",
-];
-
 /// The AI provider settings, which the staff console edits on its own
 /// screen (with the environment as initial values).
 const CHAT_AI_SCREEN: &[(&str, &str)] = &[
@@ -123,37 +95,37 @@ macro_rules! check {
 /// Every section, in the order of the example file and the console.
 pub fn sections() -> Vec<SectionSpec> {
     vec![
-        SectionSpec::new("core", Config::augment_args).processes(ALL).live(&["rate_limits"]).bootstrap(CORE_BOOTSTRAP).check(check!(Config)),
-        SectionSpec::new("api", ApiConfig::augment_args).processes(&[Process::Api]).bootstrap(&["listen"]),
+        SectionSpec::new("core", Config::augment_args).processes(ALL).editable(Config::CONSOLE_EDITABLE).check(check!(Config)),
+        SectionSpec::new("api", ApiConfig::augment_args).processes(&[Process::Api]),
         SectionSpec::new("realtime", RealtimeConfig::augment_args)
             .env_prefix("RT")
             .processes(&[Process::Realtime])
-            .bootstrap(&["wt_listen", "ws_listen", "tls_cert", "tls_key"])
+            .editable(RealtimeConfig::CONSOLE_EDITABLE)
             .check(check!(RealtimeConfig)),
-        SectionSpec::new("identity", IdentityConfig::augment_args),
-        SectionSpec::new("media", MediaConfig::augment_args).live(MEDIA_LIVE).check(check!(MediaConfig)),
-        SectionSpec::new("social", SocialConfig::augment_args),
-        SectionSpec::new("geo", GeoConfig::augment_args).check(check!(GeoConfig)),
-        SectionSpec::new("stamp", StampConfig::augment_args),
-        SectionSpec::new("wallet", WalletConfig::augment_args).check(check!(WalletConfig)),
-        SectionSpec::new("notify", NotifyConfig::augment_args).check(check!(NotifyConfig, production)),
-        SectionSpec::new("admin", AdminConfig::augment_args).bootstrap(&["user"]).check(check!(AdminConfig)),
-        SectionSpec::new("feed", FeedConfig::augment_args).check(check!(FeedConfig, production)),
-        SectionSpec::new("chat", ChatConfig::augment_args).managed(CHAT_AI_SCREEN).check(check!(ChatConfig)),
-        SectionSpec::new("notes", NotesConfig::augment_args).check(check!(NotesConfig)),
-        SectionSpec::new("video", VideoConfig::augment_args).check(check!(VideoConfig)),
-        SectionSpec::new("search", SearchConfig::augment_args).check(check!(SearchConfig)),
-        SectionSpec::new("emoji", EmojiConfig::augment_args).check(check!(EmojiConfig)),
-        SectionSpec::new("ask", AskConfig::augment_args).check(check!(AskConfig)),
-        SectionSpec::new("plans", PlansConfig::augment_args),
-        SectionSpec::new("school", SchoolConfig::augment_args),
-        SectionSpec::new("quest", QuestConfig::augment_args).check(check!(QuestConfig)),
-        SectionSpec::new("live", LiveConfig::augment_args).check(check!(LiveConfig)),
-        SectionSpec::new("shorts", ShortsConfig::augment_args).check(check!(ShortsConfig)),
-        SectionSpec::new("spaces", SpacesConfig::augment_args).check(check!(SpacesConfig)),
-        SectionSpec::new("community", CommunityConfig::augment_args).check(check!(CommunityConfig)),
-        SectionSpec::new("dev", DevConfig::augment_args).check(check!(DevConfig, production)),
-        SectionSpec::new("engagement", EngagementConfig::augment_args),
+        SectionSpec::new("identity", IdentityConfig::augment_args).editable(IdentityConfig::CONSOLE_EDITABLE),
+        SectionSpec::new("media", MediaConfig::augment_args).editable(MediaConfig::CONSOLE_EDITABLE).live(MEDIA_LIVE).check(check!(MediaConfig)),
+        SectionSpec::new("social", SocialConfig::augment_args).editable(SocialConfig::CONSOLE_EDITABLE),
+        SectionSpec::new("geo", GeoConfig::augment_args).editable(GeoConfig::CONSOLE_EDITABLE).check(check!(GeoConfig)),
+        SectionSpec::new("stamp", StampConfig::augment_args).editable(StampConfig::CONSOLE_EDITABLE),
+        SectionSpec::new("wallet", WalletConfig::augment_args).editable(WalletConfig::CONSOLE_EDITABLE).check(check!(WalletConfig)),
+        SectionSpec::new("notify", NotifyConfig::augment_args).editable(NotifyConfig::CONSOLE_EDITABLE).check(check!(NotifyConfig, production)),
+        SectionSpec::new("admin", AdminConfig::augment_args).editable(AdminConfig::CONSOLE_EDITABLE).check(check!(AdminConfig)),
+        SectionSpec::new("feed", FeedConfig::augment_args).editable(FeedConfig::CONSOLE_EDITABLE).check(check!(FeedConfig, production)),
+        SectionSpec::new("chat", ChatConfig::augment_args).editable(ChatConfig::CONSOLE_EDITABLE).managed(CHAT_AI_SCREEN).check(check!(ChatConfig)),
+        SectionSpec::new("notes", NotesConfig::augment_args).editable(NotesConfig::CONSOLE_EDITABLE).check(check!(NotesConfig)),
+        SectionSpec::new("video", VideoConfig::augment_args).editable(VideoConfig::CONSOLE_EDITABLE).check(check!(VideoConfig)),
+        SectionSpec::new("search", SearchConfig::augment_args).editable(SearchConfig::CONSOLE_EDITABLE).check(check!(SearchConfig)),
+        SectionSpec::new("emoji", EmojiConfig::augment_args).editable(EmojiConfig::CONSOLE_EDITABLE).check(check!(EmojiConfig)),
+        SectionSpec::new("ask", AskConfig::augment_args).editable(AskConfig::CONSOLE_EDITABLE).check(check!(AskConfig)),
+        SectionSpec::new("plans", PlansConfig::augment_args).editable(PlansConfig::CONSOLE_EDITABLE),
+        SectionSpec::new("school", SchoolConfig::augment_args).editable(SchoolConfig::CONSOLE_EDITABLE),
+        SectionSpec::new("quest", QuestConfig::augment_args).editable(QuestConfig::CONSOLE_EDITABLE).check(check!(QuestConfig)),
+        SectionSpec::new("live", LiveConfig::augment_args).editable(LiveConfig::CONSOLE_EDITABLE).check(check!(LiveConfig)),
+        SectionSpec::new("shorts", ShortsConfig::augment_args).editable(ShortsConfig::CONSOLE_EDITABLE).check(check!(ShortsConfig)),
+        SectionSpec::new("spaces", SpacesConfig::augment_args).editable(SpacesConfig::CONSOLE_EDITABLE).check(check!(SpacesConfig)),
+        SectionSpec::new("community", CommunityConfig::augment_args).editable(CommunityConfig::CONSOLE_EDITABLE).check(check!(CommunityConfig)),
+        SectionSpec::new("dev", DevConfig::augment_args).editable(DevConfig::CONSOLE_EDITABLE).check(check!(DevConfig, production)),
+        SectionSpec::new("engagement", EngagementConfig::augment_args).editable(EngagementConfig::CONSOLE_EDITABLE),
     ]
 }
 
@@ -304,6 +276,73 @@ mod tests {
         let cli = parse(&argv, &state);
         assert_eq!(cli.core.mail_from, "Tokuly <no-reply@tokuly.localhost>");
         assert_eq!(cli.domains.media.max_video_hours, 4);
+    }
+
+    /// What the console must never change: where the server talks to
+    /// (and who may talk to it), what it executes and writes to, the egress
+    /// guards, the infrastructure, money, and privacy floors.
+    const NEVER_FROM_THE_CONSOLE: &[(&str, &str)] = &[
+        ("api", "cors_origins"),
+        ("realtime", "public_ws_url"),
+        ("realtime", "public_wt_url"),
+        ("realtime", "allowed_origins"),
+        ("realtime", "trusted_proxies"),
+        ("core", "trusted_proxies"),
+        ("core", "smtp_url"),
+        ("core", "rate_limits"),
+        ("core", "livekit_url"),
+        ("core", "livekit_api_secret"),
+        ("chat", "livekit_url"),
+        ("chat", "livekit_public_url"),
+        ("chat", "livekit_api_key"),
+        ("chat", "livekit_api_secret"),
+        ("chat", "ai_allow_loopback"),
+        ("geo", "geocoder_url"),
+        ("geo", "routing_url"),
+        ("geo", "weather_url"),
+        ("dev", "webhook_allow_private"),
+        ("feed", "news_allow_loopback"),
+        ("feed", "news_feeds"),
+        ("identity", "profile_links_allow_loopback"),
+        ("identity", "min_age"),
+        ("notify", "webpush_allow_insecure"),
+        ("notify", "webpush_allowed_hosts"),
+        ("media", "ffmpeg_path"),
+        ("media", "ffprobe_path"),
+        ("media", "work_dir"),
+        ("live", "ffmpeg_path"),
+        ("live", "ffprobe_path"),
+        ("live", "recordings_dir"),
+        ("live", "mediamtx_api_url"),
+        ("shorts", "ffmpeg_path"),
+        ("search", "index_prefix"),
+        ("quest", "keyspace"),
+        ("wallet", "dev_provider"),
+        ("wallet", "payout_minor_per_100_coins"),
+        ("wallet", "platform_fee_percent"),
+        ("stamp", "fee_percent"),
+        ("community", "anonymous_min_members"),
+        ("video", "analytics_min_audience"),
+    ];
+
+    fn console_editable(def: &tokuly_core::settings::Def) -> bool {
+        def.editable && def.managed_at.is_none()
+    }
+
+    #[test]
+    fn the_console_edits_only_what_domains_allow() {
+        let registry = registry().unwrap();
+        let editable: Vec<String> = NEVER_FROM_THE_CONSOLE
+            .iter()
+            .map(|(section, key)| registry.get(section, key).unwrap_or_else(|| panic!("[{section}] {key} does not exist")))
+            .filter(|d| console_editable(d))
+            .map(|d| d.name())
+            .collect();
+        assert!(editable.is_empty(), "editable from the console: {editable:?}");
+        // Limits and tuning stay editable.
+        for (section, key) in [("media", "max_video_hours"), ("admin", "moderator_sanctions_per_hour"), ("core", "mail_from"), ("chat", "max_group_members")] {
+            assert!(console_editable(registry.get(section, key).unwrap()), "[{section}] {key}");
+        }
     }
 
     #[test]

@@ -253,6 +253,37 @@ impl DevConfig {
     }
 }
 
+impl DevConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "max_tokens",
+        "max_apps",
+        "max_bots",
+        "max_bot_tokens",
+        "max_webhooks",
+        "rate_standard",
+        "rate_elevated",
+        "access_token_seconds",
+        "refresh_token_days",
+        "auth_code_seconds",
+        "device_code_seconds",
+        "device_poll_seconds",
+        "secret_overlap_hours",
+        "webhook_timeout_seconds",
+        "webhook_max_attempts",
+        "webhook_retry_seconds",
+        "webhook_disable_after_failures",
+        "webhook_disable_after_hours",
+        "webhook_rate_per_minute",
+        "bot_record_days",
+        "webhook_log_days",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;

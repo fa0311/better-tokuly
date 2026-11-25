@@ -175,6 +175,27 @@ impl CommunityConfig {
     }
 }
 
+impl CommunityConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "max_owned",
+        "max_joined",
+        "max_members",
+        "max_channels",
+        "auto_hide_reports",
+        "posts_per_minute",
+        "posts_per_hour",
+        "removed_retention_days",
+        "hot_interval_seconds",
+        "trend_interval_seconds",
+        "check_in_code_seconds",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

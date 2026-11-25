@@ -151,6 +151,26 @@ impl SearchConfig {
     }
 }
 
+impl SearchConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "index_batch",
+        "index_interval_ms",
+        "rate_per_minute",
+        "anonymous_rate_per_minute",
+        "suggest_rate_per_minute",
+        "trending_min_users",
+        "trending_window_hours",
+        "trending_half_life_hours",
+        "trending_refresh_seconds",
+        "trending_size",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

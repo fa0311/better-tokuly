@@ -149,6 +149,26 @@ impl EmojiConfig {
     }
 }
 
+impl EmojiConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "max_pending",
+        "max_image_kb",
+        "reserved_names",
+        "default_deck",
+        "usage_flush_seconds",
+        "popular_days",
+        "removal_retention_days",
+        "import_max_mb",
+        "import_max_entries",
+        "export_ttl_hours",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;

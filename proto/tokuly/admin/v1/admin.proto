@@ -1130,10 +1130,12 @@ message ListAuditLogResponse {
 
 // 「サーバー設定」: every setting of the backend with its value and where the
 // value comes from. Highest first: the environment (and command line),
-// `tokuly.toml`, this console, the default. A setting the environment or
-// the file sets is locked here; bootstrap settings (infrastructure
-// addresses, credentials, the master secret, listen addresses) and those
-// with a screen of their own are never edited here. Secrets are write-only:
+// `tokuly.toml`, this console, the default. Only settings their domain lets
+// the console change are edited here (limits, quotas, tuning, texts); the
+// rest (addresses, credentials, egress guards, paths, money, privacy floors)
+// are set in `tokuly.toml` or the environment only. A setting the
+// environment or the file sets is locked here, and so are those with a
+// screen of their own. Secrets are write-only:
 // only whether one is set and, for values saved here, its last four
 // characters are returned. Every RPC needs the `admin` role.
 service ServerSettingsService {
@@ -1146,7 +1148,7 @@ service ServerSettingsService {
   // listed processes otherwise, recorded with who made it, and written to
   // the audit log (`server_setting.updated`). Role: `admin`.
   // Errors: SETTING_NOT_FOUND, SETTING_LOCKED (set by the environment or
-  // `tokuly.toml`), SETTING_BOOTSTRAP, SETTING_MANAGED_ELSEWHERE,
+  // `tokuly.toml`), SETTING_FILE_ONLY (not a console setting), SETTING_MANAGED_ELSEWHERE,
   // SETTING_INVALID (with the reason), SETTING_TOO_LONG, RATE_LIMITED.
   rpc UpdateServerSetting(UpdateServerSettingRequest) returns (UpdateServerSettingResponse);
   // The settings in force that are not secrets and not defaults, as a
@@ -1192,8 +1194,8 @@ enum ServerSettingLock {
   SERVER_SETTING_LOCK_UNSPECIFIED = 0;
   // Editable.
   SERVER_SETTING_LOCK_NONE = 1;
-  // Infrastructure, credentials or listen addresses: only the environment or the file.
-  SERVER_SETTING_LOCK_BOOTSTRAP = 2;
+  // Not a console setting: only `tokuly.toml` or the environment set it.
+  SERVER_SETTING_LOCK_FILE_ONLY = 2;
   // The environment, the command line or `tokuly.toml` sets it (`source` says which).
   SERVER_SETTING_LOCK_OVERRIDDEN = 3;
   // Edited on another screen of the console (`managed_at`).

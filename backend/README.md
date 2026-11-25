@@ -154,19 +154,46 @@ and an entry of `tokuly.example.toml` (`tokuly_core::settings`). Per argument:
   four characters, the export leaves it out (`credentials_are_secrets` checks
   the obvious names).
 
+**The console changes only what the domain allows.** A setting is set in
+`tokuly.toml` or the environment unless its domain lists its key in
+`<YourConfig>::CONSOLE_EDITABLE` (next to the struct, in `config.rs`). The
+list is an allowlist on purpose: a new setting starts out of the console, so
+adding one can never open a hole in it. List limits, quotas, retention,
+intervals, feature tuning and texts. Never list:
+
+- addresses the server talks to or is reached at, and origins or proxies it
+  trusts (URLs, CORS / allowed origins, trusted proxies, LiveKit, MediaMTX);
+- egress and SSRF switches (`*_allow_loopback`, `*_allow_private`,
+  `*_allow_insecure`, allowed host lists);
+- what the server executes or writes to (executable paths, directories);
+- infrastructure names (index prefixes, keyspaces) and credentials of the
+  infrastructure;
+- protections and money: the rate limits switch, the minimum age, fees,
+  exchange rates, coin rewards, the wallet's dev provider;
+- privacy floors (minimum group sizes of anonymous or aggregate features).
+
+An admin account is one password away from all of this, and a mistake in
+these would let the console turn the server against its own network or
+users. The server test `the_console_edits_only_what_domains_allow` names
+the dangerous ones that must stay out.
+
 What clap does not know goes on the section's `SectionSpec` in
 `crates/server/src/settings.rs`:
+
+- `.editable(YourConfig::CONSOLE_EDITABLE)`: the allowlist above;
 
 - `.live(&["key", ..])`: the domain reads the value per use through
   `core.settings.current::<YourConfig>("section")` (see `Media::live`), so a
   console change applies at once. Everything else applies on restart and the
   console says so;
-- `.bootstrap(&[..])`: never editable in the console (addresses, credentials,
-  listen addresses);
 - `.managed(&[(prefix, path)])`: edited on a screen of its own, which the
   settings page links to;
 - `.check(check!(YourConfig))`: the domain's `validate()`, run on a console
-  change before it is saved.
+  change before it is saved (with every console value of the section), and
+  at start-up and on every reload: console values a section fails with are
+  set aside, so a console mistake never stops the server. Make `validate()`
+  build what the domain builds from its settings without the network, as
+  `Config::validate` builds the mailer.
 
 After adding or changing a setting, regenerate the example file from the
 repository root: `backend/target/.../tokuly config example > tokuly.example.toml`

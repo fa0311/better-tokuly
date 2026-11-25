@@ -1,9 +1,10 @@
 //! `ServerSettingsService`: 「サーバー設定」, the console layer of
 //! `tokuly_core::settings`. Every RPC needs the `admin` role.
 //!
-//! A value is saved only where no higher layer (the environment, the
-//! command line, `tokuly.toml`) sets the setting, never for bootstrap
-//! settings, and never for settings another screen of the console edits.
+//! A value is saved only for settings their domain lets the console change
+//! ([`settings::SectionSpec::editable`]), only where no higher layer (the
+//! environment, the command line, `tokuly.toml`) sets the setting, and
+//! never for settings another screen of the console edits.
 //! Secrets are write-only: what is returned about them is whether one is
 //! set and the last four characters of one saved here.
 use std::collections::HashMap;
@@ -59,8 +60,8 @@ fn process_pb(process: Process) -> ServerProcess {
 fn lock_of(def: &Def, source: Source) -> ServerSettingLock {
     if def.managed_at.is_some() {
         ServerSettingLock::SERVER_SETTING_LOCK_MANAGED_ELSEWHERE
-    } else if def.bootstrap {
-        ServerSettingLock::SERVER_SETTING_LOCK_BOOTSTRAP
+    } else if !def.editable {
+        ServerSettingLock::SERVER_SETTING_LOCK_FILE_ONLY
     } else if source.locks() {
         ServerSettingLock::SERVER_SETTING_LOCK_OVERRIDDEN
     } else {
@@ -140,7 +141,7 @@ impl ServerSettingsService for Admin {
             if let Some(path) = def.managed_at {
                 bail!(precondition, "SETTING_MANAGED_ELSEWHERE", "{} is edited at {path}", def.name());
             }
-            ensure!(!def.bootstrap, precondition, "SETTING_BOOTSTRAP", "bootstrap settings are set in the environment or tokuly.toml only");
+            ensure!(def.editable, precondition, "SETTING_FILE_ONLY", "this setting is set in tokuly.toml or the environment only");
             let (_, source) = state.layers.effective(def);
             if source.locks() {
                 bail!(precondition, "SETTING_LOCKED", "{} is set by {}, which wins over the console", def.name(), source.label());

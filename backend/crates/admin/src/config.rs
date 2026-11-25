@@ -72,6 +72,22 @@ impl AdminConfig {
     }
 }
 
+impl AdminConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "stats_time_zone",
+        "announcement_notify_active_days",
+        "announcement_notify_chunk",
+        "moderator_sanctions_per_hour",
+        "moderator_reveals_per_hour",
+        "moderation_evidence_days",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

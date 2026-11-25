@@ -149,6 +149,27 @@ impl NotesConfig {
     }
 }
 
+impl NotesConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "story_ttl_hours",
+        "posts_per_minute",
+        "stories_per_hour",
+        "view_window_hours",
+        "trend_interval_seconds",
+        "trend_window_hours",
+        "trend_min_authors",
+        "trend_min_account_age_hours",
+        "trend_new_account_days",
+        "schedule_interval_seconds",
+        "story_expiry_interval_seconds",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;

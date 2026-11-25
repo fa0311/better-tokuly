@@ -214,6 +214,32 @@ impl ShortsConfig {
     }
 }
 
+impl ShortsConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "max_duration_seconds",
+        "max_aspect_ratio",
+        "min_view_ms",
+        "view_dedupe_seconds",
+        "seen_cap",
+        "seen_ttl_days",
+        "flush_interval_seconds",
+        "ranking_interval_seconds",
+        "ranking_half_life_hours",
+        "feed_batch_size",
+        "feed_batch_ttl_seconds",
+        "announce_batch_size",
+        "announcements_per_day",
+        "reported_retention_days",
+        "signal_min_account_age_hours",
+        "max_saves",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

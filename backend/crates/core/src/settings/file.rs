@@ -149,7 +149,7 @@ const EXAMPLE_HEADER: &str = "\
 #   4. the default shown here
 #
 # Secrets (the master secret, passwords, API keys) are better kept in .env;
-# settings marked `bootstrap` cannot be changed from the console.
+# only settings marked `console` can be changed from the console.
 ";
 
 /// The example file: every setting, commented out at its default.
@@ -164,8 +164,8 @@ pub fn example(registry: &Registry) -> String {
             if def.secret {
                 notes.push("secret".to_owned());
             }
-            if def.bootstrap {
-                notes.push("bootstrap".to_owned());
+            if def.editable {
+                notes.push("console".to_owned());
             }
             if def.live {
                 notes.push("applies at once".to_owned());

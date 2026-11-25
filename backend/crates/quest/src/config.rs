@@ -138,6 +138,21 @@ impl QuestConfig {
     }
 }
 
+impl QuestConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "flush_delay_ms",
+        "streak_grace_minutes",
+        "streak_reminder_min_days",
+        "live_rule_days",
+        "rarity_interval_seconds",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

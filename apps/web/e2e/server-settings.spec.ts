@@ -34,25 +34,25 @@ test("an admin sees where each value comes from, changes one and exports the res
   await expect(page.getByRole("heading", { name: "サーバー設定" })).toBeVisible();
   await expect(page.getByText("読み込んだ設定ファイル:", { exact: false })).toBeVisible();
 
-  // Set by the environment and by tokuly.toml: locked, with the reason.
+  // Not a console setting (set by the environment here), and a console
+  // setting tokuly.toml sets: both locked, each with its reason.
   await find(page, "rate_limits");
   const rateLimits = row(page, "core.rate_limits");
   await expect(rateLimits.getByText("環境変数", { exact: true })).toBeVisible();
-  await expect(
-    rateLimits.getByText("環境変数で決まっているので、ここでは変えられないよ"),
-  ).toBeVisible();
+  await expect(rateLimits.getByText("tokuly.toml か環境変数で設定してね")).toBeVisible();
   await expect(rateLimits.getByRole("button", { name: /を変更$/ })).toHaveCount(0);
   await find(page, "registration_open");
   const registration = row(page, "identity.registration_open");
   await expect(registration.getByText("tokuly.toml", { exact: true })).toBeVisible();
+  await expect(
+    registration.getByText("tokuly.tomlで決まっているので、ここでは変えられないよ"),
+  ).toBeVisible();
   await expect(registration.getByRole("button", { name: /を変更$/ })).toHaveCount(0);
 
-  // A bootstrap setting and one with a screen of its own.
+  // Infrastructure, and a setting with a screen of its own.
   await find(page, "database_url");
   await expect(
-    row(page, "core.database_url").getByText(
-      "起動に必要な設定なので、環境変数か tokuly.toml でだけ変えられるよ",
-    ),
+    row(page, "core.database_url").getByText("tokuly.toml か環境変数で設定してね"),
   ).toBeVisible();
   await find(page, "openai_model");
   await expect(
@@ -130,9 +130,7 @@ test("the server settings speak English too", async ({ browser, request }, testI
     await expect(page.getByRole("heading", { name: "Server settings" })).toBeVisible();
     const rateLimits = row(page, "core.rate_limits");
     await expect(rateLimits.getByText("Environment", { exact: true })).toBeVisible();
-    await expect(
-      rateLimits.getByText("Environment sets it, so it cannot be changed here"),
-    ).toBeVisible();
+    await expect(rateLimits.getByText("Set this in tokuly.toml or the environment")).toBeVisible();
     await expect(page.getByRole("button", { name: "Export settings" })).toBeVisible();
   } finally {
     await context.close();

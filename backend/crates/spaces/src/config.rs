@@ -271,6 +271,36 @@ impl SpacesConfig {
     }
 }
 
+impl SpacesConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "max_speakers",
+        "max_cohosts",
+        "max_listeners",
+        "host_grace_seconds",
+        "empty_grace_seconds",
+        "connect_grace_seconds",
+        "reconnect_grace_seconds",
+        "reconcile_interval_seconds",
+        "token_ttl_seconds",
+        "max_schedule_days",
+        "max_scheduled",
+        "never_started_hours",
+        "retention_days",
+        "evidence_days",
+        "started_announce_seconds",
+        "reactions_per_10s",
+        "max_hangouts",
+        "max_hangout_members",
+        "max_hangout_memberships",
+        "hangout_announce_seconds",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use clap::{CommandFactory as _, Parser};

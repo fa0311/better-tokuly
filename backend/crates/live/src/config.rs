@@ -279,6 +279,25 @@ impl LiveConfig {
     }
 }
 
+impl LiveConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "reconcile_interval_seconds",
+        "reconnect_grace_seconds",
+        "max_hours",
+        "dvr_window_seconds",
+        "recordings_max_age_hours",
+        "deleted_retention_days",
+        "max_open_streams",
+        "report_interval_seconds",
+        "announce_batch_size",
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

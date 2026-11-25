@@ -13,33 +13,33 @@
 #   4. the default shown here
 #
 # Secrets (the master secret, passwords, API keys) are better kept in .env;
-# settings marked `bootstrap` cannot be changed from the console.
+# only settings marked `console` can be changed from the console.
 
 [core]
 
 # Public origin of the web app (scheme + host [+ port], no trailing slash).
-# (TOKULY_PUBLIC_URL; bootstrap; restart: api, realtime, worker)
+# (TOKULY_PUBLIC_URL; restart: api, realtime, worker)
 # public_url = "http://localhost:8080"
 
 # Path prefix under which the edge proxy exposes the API to browsers (it strips the prefix before
 # forwarding). Cookies scoped to RPC paths must include it. Empty when the API is served at the
 # origin root.
-# (TOKULY_API_PATH_PREFIX; bootstrap; restart: api, realtime, worker)
+# (TOKULY_API_PATH_PREFIX; restart: api, realtime, worker)
 # api_path_prefix = "/api"
 
 # Master secret (>= 32 chars). Signing keys, token peppers and cursor MACs are derived from it, so
 # every service must share the same value.
-# (TOKULY_SECRET; secret; bootstrap; restart: api, realtime, worker)
+# (TOKULY_SECRET; secret; restart: api, realtime, worker)
 # secret = ""  # not set by default
 
 # Deployment environment name: "development" | "production".
-# (TOKULY_ENV; bootstrap; restart: api, realtime, worker)
+# (TOKULY_ENV; restart: api, realtime, worker)
 # env = "development"
 
 # Enforce the per-user and per-address request limits that guard against abuse (sign-ups per hour,
 # messages per minute, ...). Turn off only for local development, automated browser tests and load
 # tests, where one address legitimately creates many accounts.
-# (TOKULY_RATE_LIMITS; applies at once)
+# (TOKULY_RATE_LIMITS; restart: api, realtime, worker)
 # rate_limits = true
 
 # Proxies in front of the API whose `X-Forwarded-For` header names the real client (addresses or
@@ -50,80 +50,80 @@
 # trusted_proxies = ["127.0.0.0/8", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"]
 
 # PostgreSQL connection URL (with the password).
-# (TOKULY_DATABASE_URL; secret; bootstrap; restart: api, realtime, worker)
+# (TOKULY_DATABASE_URL; secret; restart: api, realtime, worker)
 # database_url = "postgres://tokuly:tokuly@localhost:5432/tokuly"
 
 # Connections each process keeps in its PostgreSQL pool.
-# (TOKULY_DATABASE_MAX_CONNECTIONS; bootstrap; restart: api, realtime, worker)
+# (TOKULY_DATABASE_MAX_CONNECTIONS; restart: api, realtime, worker)
 # database_max_connections = 20
 
 # Valkey (Redis protocol) URL: caches, rate limits, short-lived tokens.
-# (TOKULY_VALKEY_URL; secret; bootstrap; restart: api, realtime, worker)
+# (TOKULY_VALKEY_URL; secret; restart: api, realtime, worker)
 # valkey_url = "redis://localhost:6379"
 
 # NATS URL: events, jobs and realtime fan-out.
-# (TOKULY_NATS_URL; secret; bootstrap; restart: api, realtime, worker)
+# (TOKULY_NATS_URL; secret; restart: api, realtime, worker)
 # nats_url = "nats://localhost:4222"
 
 # Namespace for NATS subjects and streams, so several deployments can share one NATS server.
 # Letters, digits and underscores only.
-# (TOKULY_NATS_PREFIX; bootstrap; restart: api, realtime, worker)
+# (TOKULY_NATS_PREFIX; restart: api, realtime, worker)
 # nats_prefix = ""
 
 # Endpoint the backend uses to reach the object store.
-# (TOKULY_S3_ENDPOINT; bootstrap; restart: api, realtime, worker)
+# (TOKULY_S3_ENDPOINT; restart: api, realtime, worker)
 # s3_endpoint = "http://localhost:9000"
 
 # Endpoint browsers and apps use for presigned uploads/downloads. Defaults to `TOKULY_S3_ENDPOINT`.
-# (TOKULY_S3_PUBLIC_ENDPOINT; bootstrap; restart: api, realtime, worker)
+# (TOKULY_S3_PUBLIC_ENDPOINT; restart: api, realtime, worker)
 # s3_public_endpoint = ""  # not set by default
 
 # Region the object store signs requests for.
-# (TOKULY_S3_REGION; bootstrap; restart: api, realtime, worker)
+# (TOKULY_S3_REGION; restart: api, realtime, worker)
 # s3_region = "us-east-1"
 
 # Access key of the object store.
-# (TOKULY_S3_ACCESS_KEY; secret; bootstrap; restart: api, realtime, worker)
+# (TOKULY_S3_ACCESS_KEY; secret; restart: api, realtime, worker)
 # s3_access_key = "tokuly"
 
 # Secret key of the object store.
-# (TOKULY_S3_SECRET_KEY; secret; bootstrap; restart: api, realtime, worker)
+# (TOKULY_S3_SECRET_KEY; secret; restart: api, realtime, worker)
 # s3_secret_key = "tokuly-secret"
 
 # Bucket for processed, publicly served media.
-# (TOKULY_S3_MEDIA_BUCKET; bootstrap; restart: api, realtime, worker)
+# (TOKULY_S3_MEDIA_BUCKET; restart: api, realtime, worker)
 # s3_media_bucket = "tokuly-media"
 
 # Bucket for original uploads and private files (presigned access only).
-# (TOKULY_S3_PRIVATE_BUCKET; bootstrap; restart: api, realtime, worker)
+# (TOKULY_S3_PRIVATE_BUCKET; restart: api, realtime, worker)
 # s3_private_bucket = "tokuly-private"
 
 # Base URL under which the media bucket is served to clients. Defaults to `{public_url}/media`.
-# (TOKULY_MEDIA_URL; bootstrap; restart: api, realtime, worker)
+# (TOKULY_MEDIA_URL; restart: api, realtime, worker)
 # media_url = ""  # not set by default
 
 # ClickHouse HTTP URL (product analytics).
-# (TOKULY_CLICKHOUSE_URL; bootstrap; restart: api, realtime, worker)
+# (TOKULY_CLICKHOUSE_URL; restart: api, realtime, worker)
 # clickhouse_url = "http://localhost:8123"
 
 # ClickHouse user.
-# (TOKULY_CLICKHOUSE_USER; bootstrap; restart: api, realtime, worker)
+# (TOKULY_CLICKHOUSE_USER; restart: api, realtime, worker)
 # clickhouse_user = "tokuly"
 
 # ClickHouse password.
-# (TOKULY_CLICKHOUSE_PASSWORD; secret; bootstrap; restart: api, realtime, worker)
+# (TOKULY_CLICKHOUSE_PASSWORD; secret; restart: api, realtime, worker)
 # clickhouse_password = "tokuly"
 
 # ClickHouse database holding the analytics tables.
-# (TOKULY_CLICKHOUSE_DATABASE; bootstrap; restart: api, realtime, worker)
+# (TOKULY_CLICKHOUSE_DATABASE; restart: api, realtime, worker)
 # clickhouse_database = "tokuly"
 
 # Meilisearch URL (search).
-# (TOKULY_MEILI_URL; bootstrap; restart: api, realtime, worker)
+# (TOKULY_MEILI_URL; restart: api, realtime, worker)
 # meili_url = "http://localhost:7700"
 
 # Meilisearch master key.
-# (TOKULY_MEILI_KEY; secret; bootstrap; restart: api, realtime, worker)
+# (TOKULY_MEILI_KEY; secret; restart: api, realtime, worker)
 # meili_key = "tokuly-meili-key"
 
 # SMTP URL, e.g. `smtp://mailpit:1025` or `smtps://user:pass@smtp.example.com`. Empty disables
@@ -132,7 +132,7 @@
 # smtp_url = ""
 
 # Sender of outgoing mail (`Name <address>`).
-# (TOKULY_MAIL_FROM; restart: api, realtime, worker)
+# (TOKULY_MAIL_FROM; console; restart: api, realtime, worker)
 # mail_from = "Tokuly <no-reply@tokuly.localhost>"
 
 # LiveKit server API (Twirp) endpoint, e.g. `http://livekit:7880`. Voice and video are off unless
@@ -163,7 +163,7 @@
 [api]
 
 # Address the API listens on.
-# (TOKULY_API_LISTEN; bootstrap; restart: api)
+# (TOKULY_API_LISTEN; restart: api)
 # listen = "0.0.0.0:8081"
 
 # Extra origins allowed to call the API from browsers (comma separated). The public URL is always
@@ -174,20 +174,20 @@
 [realtime]
 
 # UDP address of the WebTransport (HTTP/3) listener. Empty disables WebTransport.
-# (TOKULY_RT_WT_LISTEN; bootstrap; restart: realtime)
+# (TOKULY_RT_WT_LISTEN; restart: realtime)
 # wt_listen = "0.0.0.0:4433"
 
 # TCP address of the WebSocket fallback listener (`/rt/ws`, `/healthz`).
-# (TOKULY_RT_WS_LISTEN; bootstrap; restart: realtime)
+# (TOKULY_RT_WS_LISTEN; restart: realtime)
 # ws_listen = "0.0.0.0:8082"
 
 # PEM certificate chain. With `TOKULY_RT_TLS_KEY` it replaces the self-signed certificate; use a
 # publicly trusted one.
-# (TOKULY_RT_TLS_CERT; bootstrap; restart: realtime)
+# (TOKULY_RT_TLS_CERT; restart: realtime)
 # tls_cert = ""  # not set by default
 
 # PEM private key belonging to `TOKULY_RT_TLS_CERT`.
-# (TOKULY_RT_TLS_KEY; bootstrap; restart: realtime)
+# (TOKULY_RT_TLS_KEY; restart: realtime)
 # tls_key = ""  # not set by default
 
 # Lifetime of each self-signed certificate (at most 13 days). It is announced at 60% and replaced at
@@ -210,13 +210,13 @@
 # allowed_origins = []
 
 # Connections accepted by one gateway process before new ones are refused.
-# (TOKULY_RT_MAX_CONNECTIONS; restart: realtime)
+# (TOKULY_RT_MAX_CONNECTIONS; console; restart: realtime)
 # max_connections = 100000
 
 # Connections one client address (an IPv4 address or an IPv6 /64) may hold at a time, over both
 # transports; 0 disables the limit. The default leaves room for a campus or a mobile carrier behind
 # one address while keeping any single one far from filling the gateway.
-# (TOKULY_RT_MAX_CONNECTIONS_PER_IP; restart: realtime)
+# (TOKULY_RT_MAX_CONNECTIONS_PER_IP; console; restart: realtime)
 # max_connections_per_ip = 1024
 
 # Proxies whose `X-Forwarded-For` header names the real client of a WebSocket connection (addresses
@@ -254,7 +254,7 @@
 # max_frame_bytes = 65536
 
 # Topics one connection may be subscribed to at a time.
-# (TOKULY_RT_MAX_TOPICS; restart: realtime)
+# (TOKULY_RT_MAX_TOPICS; console; restart: realtime)
 # max_topics = 64
 
 # Reliable frames queued for a slow client before it is disconnected.
@@ -274,19 +274,19 @@
 # write_timeout = "15s"
 
 # Location samples one connection may send in a burst...
-# (TOKULY_RT_LOCATION_BURST; restart: realtime)
+# (TOKULY_RT_LOCATION_BURST; console; restart: realtime)
 # location_burst = 60
 
 # ...and per second once the burst is used up.
-# (TOKULY_RT_LOCATION_RATE; restart: realtime)
+# (TOKULY_RT_LOCATION_RATE; console; restart: realtime)
 # location_rate = 2
 
 # Suggested location report cadence while moving.
-# (TOKULY_RT_MOVING_INTERVAL; restart: realtime)
+# (TOKULY_RT_MOVING_INTERVAL; console; restart: realtime)
 # moving_interval = "5s"
 
 # Suggested location report cadence while stationary.
-# (TOKULY_RT_STATIONARY_INTERVAL; restart: realtime)
+# (TOKULY_RT_STATIONARY_INTERVAL; console; restart: realtime)
 # stationary_interval = "60s"
 
 # How often online markers of connected users are refreshed.
@@ -328,7 +328,7 @@
 [identity]
 
 # Allow new accounts to be created.
-# (TOKULY_REGISTRATION_OPEN; restart: api, worker)
+# (TOKULY_REGISTRATION_OPEN; console; restart: api, worker)
 # registration_open = true
 
 # Minimum age in years to sign up.
@@ -336,20 +336,20 @@
 # min_age = 13
 
 # Refresh token lifetime in days (sliding: renewed on every refresh).
-# (TOKULY_SESSION_DAYS; restart: api, worker)
+# (TOKULY_SESSION_DAYS; console; restart: api, worker)
 # session_days = 60
 
 # Days between an account deletion request and the actual purge.
-# (TOKULY_DELETION_GRACE_DAYS; restart: api, worker)
+# (TOKULY_DELETION_GRACE_DAYS; console; restart: api, worker)
 # deletion_grace_days = 30
 
 # Spotify application credentials for the "now playing" connection. Leave empty to disable the
 # integration.
-# (TOKULY_SPOTIFY_CLIENT_ID; restart: api, worker)
+# (TOKULY_SPOTIFY_CLIENT_ID; console; restart: api, worker)
 # spotify_client_id = ""
 
 # Spotify app client secret (profile music connection).
-# (TOKULY_SPOTIFY_CLIENT_SECRET; secret; restart: api, worker)
+# (TOKULY_SPOTIFY_CLIENT_SECRET; secret; console; restart: api, worker)
 # spotify_client_secret = ""
 
 # Base URL of the Spotify Web API (a test double in tests).
@@ -357,12 +357,12 @@
 # spotify_api_url = "https://api.spotify.com"
 
 # How many accounts one device may hold for quick switching.
-# (TOKULY_DEVICE_ACCOUNT_LIMIT; restart: api, worker)
+# (TOKULY_DEVICE_ACCOUNT_LIMIT; console; restart: api, worker)
 # device_account_limit = 5
 
 # A switch to an account with two-factor authentication asks for the code again when its session on
 # that device has not passed it within this many hours.
-# (TOKULY_ACCOUNT_SWITCH_MFA_HOURS; restart: api, worker)
+# (TOKULY_ACCOUNT_SWITCH_MFA_HOURS; console; restart: api, worker)
 # account_switch_mfa_hours = 12
 
 # Let the profile link check reach loopback addresses and other ports (development and tests only;
@@ -373,95 +373,95 @@
 [media]
 
 # Largest profile-style image: avatars, banners, channel art, thumbnails, stamps.
-# (TOKULY_MEDIA_MAX_AVATAR_MB; applies at once)
+# (TOKULY_MEDIA_MAX_AVATAR_MB; console; applies at once)
 # max_avatar_mb = 10
 
 # Largest photo in chats, notes, stories, places and day memos.
-# (TOKULY_MEDIA_MAX_IMAGE_MB; applies at once)
+# (TOKULY_MEDIA_MAX_IMAGE_MB; console; applies at once)
 # max_image_mb = 25
 
 # Largest short clip: chat and note videos, stories, avatar videos.
-# (TOKULY_MEDIA_MAX_CLIP_MB; applies at once)
+# (TOKULY_MEDIA_MAX_CLIP_MB; console; applies at once)
 # max_clip_mb = 200
 
 # Largest long-form video upload.
-# (TOKULY_MEDIA_MAX_VIDEO_MB; applies at once)
+# (TOKULY_MEDIA_MAX_VIDEO_MB; console; applies at once)
 # max_video_mb = 20480
 
 # Largest short (vertical video) upload.
-# (TOKULY_MEDIA_MAX_SHORT_MB; applies at once)
+# (TOKULY_MEDIA_MAX_SHORT_MB; console; applies at once)
 # max_short_mb = 1024
 
 # Largest voice message.
-# (TOKULY_MEDIA_MAX_AUDIO_MB; applies at once)
+# (TOKULY_MEDIA_MAX_AUDIO_MB; console; applies at once)
 # max_audio_mb = 25
 
 # Largest file attachment in chats.
-# (TOKULY_MEDIA_MAX_FILE_MB; applies at once)
+# (TOKULY_MEDIA_MAX_FILE_MB; console; applies at once)
 # max_file_mb = 100
 
 # Files up to this size are uploaded with one PUT; larger ones in parts.
-# (TOKULY_MEDIA_MULTIPART_THRESHOLD_MB; restart: api, worker)
+# (TOKULY_MEDIA_MULTIPART_THRESHOLD_MB; console; restart: api, worker)
 # multipart_threshold_mb = 16
 
 # Preferred part size of multipart uploads (grows for very large files so the part count stays
 # within the store's limit).
-# (TOKULY_MEDIA_PART_SIZE_MB; restart: api, worker)
+# (TOKULY_MEDIA_PART_SIZE_MB; console; restart: api, worker)
 # part_size_mb = 16
 
 # Hours an unfinished upload is kept before the janitor discards it.
-# (TOKULY_MEDIA_UPLOAD_TTL_HOURS; restart: api, worker)
+# (TOKULY_MEDIA_UPLOAD_TTL_HOURS; console; restart: api, worker)
 # upload_ttl_hours = 24
 
 # Hours a finished upload may stay unused (no holder) before the janitor deletes it. 0 keeps unused
 # uploads forever.
-# (TOKULY_MEDIA_UNATTACHED_TTL_HOURS; restart: api, worker)
+# (TOKULY_MEDIA_UNATTACHED_TTL_HOURS; console; restart: api, worker)
 # unattached_ttl_hours = 48
 
 # Gigabytes one account may have in uploads that nothing uses yet (unfinished, processing, or
 # finished but not attached anywhere). Bounds the storage one account can claim without publishing
 # anything.
-# (TOKULY_MEDIA_MAX_UNUSED_GB; applies at once)
+# (TOKULY_MEDIA_MAX_UNUSED_GB; console; applies at once)
 # max_unused_gb = 100
 
 # Gigabytes one account may upload in any 24 hours, used or not. Leaves room for one long-form video
 # at its largest (`TOKULY_MEDIA_MAX_VIDEO_MB`).
-# (TOKULY_MEDIA_DAILY_UPLOAD_GB; applies at once)
+# (TOKULY_MEDIA_DAILY_UPLOAD_GB; console; applies at once)
 # daily_upload_gb = 50
 
 # Images, animations and voice messages processed in parallel per worker process.
-# (TOKULY_MEDIA_IMAGE_CONCURRENCY; restart: api, worker)
+# (TOKULY_MEDIA_IMAGE_CONCURRENCY; console; restart: api, worker)
 # image_concurrency = 4
 
 # Videos transcoded in parallel per worker process.
-# (TOKULY_MEDIA_VIDEO_CONCURRENCY; restart: api, worker)
+# (TOKULY_MEDIA_VIDEO_CONCURRENCY; console; restart: api, worker)
 # video_concurrency = 1
 
 # Threads each ffmpeg process may use; 0 lets ffmpeg decide (all cores).
-# (TOKULY_MEDIA_FFMPEG_THREADS; restart: api, worker)
+# (TOKULY_MEDIA_FFMPEG_THREADS; console; restart: api, worker)
 # ffmpeg_threads = 0
 
 # x264 speed/quality preset for the HLS ladder.
-# (TOKULY_MEDIA_X264_PRESET; restart: api, worker)
+# (TOKULY_MEDIA_X264_PRESET; console; restart: api, worker)
 # x264_preset = "veryfast"
 
 # Adds an AV1 rendition of the top rung (smaller files, slower encode).
-# (TOKULY_MEDIA_AV1; restart: api, worker)
+# (TOKULY_MEDIA_AV1; console; restart: api, worker)
 # av1 = false
 
 # Longest long-form video (`ASSET_PURPOSE_VIDEO`) accepted, in hours. The other purposes have fixed
 # limits (`recipe::max_duration_seconds`).
-# (TOKULY_MEDIA_MAX_VIDEO_HOURS; applies at once)
+# (TOKULY_MEDIA_MAX_VIDEO_HOURS; console; applies at once)
 # max_video_hours = 3
 
 # Videos of one account transcoded at the same time, across all workers. Jobs of an account at the
 # limit wait, and the others' go first (see `lifecycle::claim_next_transcode`).
-# (TOKULY_MEDIA_TRANSCODES_PER_ACCOUNT; applies at once)
+# (TOKULY_MEDIA_TRANSCODES_PER_ACCOUNT; console; applies at once)
 # transcodes_per_account = 2
 
 # Minutes of video one account may have transcoded in any 24 hours, on top of the daily byte budget.
 # 0 switches the budget off.
-# (TOKULY_MEDIA_DAILY_TRANSCODE_MINUTES; applies at once)
+# (TOKULY_MEDIA_DAILY_TRANSCODE_MINUTES; console; applies at once)
 # daily_transcode_minutes = 720
 
 # The ffmpeg executable.
@@ -481,40 +481,40 @@
 
 # Most friends one account can have. Bounds every per-friend fan-out (presence, locations, "friends
 # bumped").
-# (TOKULY_SOCIAL_MAX_FRIENDS; restart: api, worker)
+# (TOKULY_SOCIAL_MAX_FRIENDS; console; restart: api, worker)
 # max_friends = 1000
 
 # Most accounts one user can follow (pending follow requests included).
-# (TOKULY_SOCIAL_MAX_FOLLOWING; restart: api, worker)
+# (TOKULY_SOCIAL_MAX_FOLLOWING; console; restart: api, worker)
 # max_following = 5000
 
 # How many friends the automatic best-friend ranking keeps per user.
-# (TOKULY_SOCIAL_BEST_FRIEND_COUNT; restart: api, worker)
+# (TOKULY_SOCIAL_BEST_FRIEND_COUNT; console; restart: api, worker)
 # best_friend_count = 8
 
 # Seconds between runs of the best-friend ranking worker.
-# (TOKULY_SOCIAL_RANKING_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_SOCIAL_RANKING_INTERVAL_SECONDS; console; restart: api, worker)
 # ranking_interval_seconds = 300
 
 # Radius of nearby discovery, in meters.
-# (TOKULY_SOCIAL_NEARBY_RADIUS_METERS; restart: api, worker)
+# (TOKULY_SOCIAL_NEARBY_RADIUS_METERS; console; restart: api, worker)
 # nearby_radius_meters = 50
 
 # How far apart two shaking phones may be to count as a bump, in meters.
-# (TOKULY_SOCIAL_BUMP_RADIUS_METERS; restart: api, worker)
+# (TOKULY_SOCIAL_BUMP_RADIUS_METERS; console; restart: api, worker)
 # bump_radius_meters = 30
 
 # How far apart in time two shakes may be to count as a bump, in milliseconds.
-# (TOKULY_SOCIAL_BUMP_WINDOW_MS; restart: api, worker)
+# (TOKULY_SOCIAL_BUMP_WINDOW_MS; console; restart: api, worker)
 # bump_window_ms = 4000
 
 # Seconds during which further shakes of the same two people return the bump they just made instead
 # of counting a new one.
-# (TOKULY_SOCIAL_BUMP_COOLDOWN_SECONDS; restart: api, worker)
+# (TOKULY_SOCIAL_BUMP_COOLDOWN_SECONDS; console; restart: api, worker)
 # bump_cooldown_seconds = 30
 
 # How close two friends must be for a buzz, in meters.
-# (TOKULY_SOCIAL_BUZZ_RADIUS_METERS; restart: api, worker)
+# (TOKULY_SOCIAL_BUZZ_RADIUS_METERS; console; restart: api, worker)
 # buzz_radius_meters = 200
 
 [geo]
@@ -535,56 +535,56 @@
 # weather_url = ""
 
 # A user is "staying" once they have been within this many meters...
-# (TOKULY_GEO_STAY_RADIUS_METERS; restart: api, worker)
+# (TOKULY_GEO_STAY_RADIUS_METERS; console; restart: api, worker)
 # stay_radius_meters = 80
 
 # ...for this many seconds.
-# (TOKULY_GEO_STAY_SECONDS; restart: api, worker)
+# (TOKULY_GEO_STAY_SECONDS; console; restart: api, worker)
 # stay_seconds = 300
 
 # Friends form a gathering once they have been within this many meters of each other...
-# (TOKULY_GEO_GATHERING_RADIUS_METERS; restart: api, worker)
+# (TOKULY_GEO_GATHERING_RADIUS_METERS; console; restart: api, worker)
 # gathering_radius_meters = 30
 
 # ...for this many seconds.
-# (TOKULY_GEO_GATHERING_SECONDS; restart: api, worker)
+# (TOKULY_GEO_GATHERING_SECONDS; console; restart: api, worker)
 # gathering_seconds = 120
 
 # Upload interval suggested to clients while moving.
-# (TOKULY_GEO_MOVING_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_GEO_MOVING_INTERVAL_SECONDS; console; restart: api, worker)
 # moving_interval_seconds = 5
 
 # Upload interval suggested to clients while still.
-# (TOKULY_GEO_STATIONARY_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_GEO_STATIONARY_INTERVAL_SECONDS; console; restart: api, worker)
 # stationary_interval_seconds = 300
 
 # Samples recorded longer ago than this are not accepted (backlog uploads).
-# (TOKULY_GEO_MAX_SAMPLE_AGE_HOURS; restart: api, worker)
+# (TOKULY_GEO_MAX_SAMPLE_AGE_HOURS; console; restart: api, worker)
 # max_sample_age_hours = 168
 
 # Nights at the same unlabelled spot before it is suggested as home.
-# (TOKULY_GEO_HOME_NIGHTS; restart: api, worker)
+# (TOKULY_GEO_HOME_NIGHTS; console; restart: api, worker)
 # home_nights = 3
 
 # A one-time place alert that has not fired lapses after this many hours.
-# (TOKULY_GEO_ONE_TIME_ALERT_HOURS; restart: api, worker)
+# (TOKULY_GEO_ONE_TIME_ALERT_HOURS; console; restart: api, worker)
 # one_time_alert_hours = 24
 
 # A recurring place alert waiting for approval lapses after this many days.
-# (TOKULY_GEO_PENDING_ALERT_DAYS; restart: api, worker)
+# (TOKULY_GEO_PENDING_ALERT_DAYS; console; restart: api, worker)
 # pending_alert_days = 7
 
 # An SOS nobody resolved ends by itself after this many hours (ghost mode applies again).
-# (TOKULY_GEO_SOS_MAX_HOURS; restart: api, worker)
+# (TOKULY_GEO_SOS_MAX_HOURS; console; restart: api, worker)
 # sos_max_hours = 24
 
 # Most cells `GetCells` returns for one viewport.
-# (TOKULY_GEO_MAX_CELLS; restart: api, worker)
+# (TOKULY_GEO_MAX_CELLS; console; restart: api, worker)
 # max_cells = 20000
 
 # Location samples from the realtime gateway processed in parallel by one worker process (samples of
 # one user always go through one lane).
-# (TOKULY_GEO_PIPELINE_LANES; restart: api, worker)
+# (TOKULY_GEO_PIPELINE_LANES; console; restart: api, worker)
 # pipeline_lanes = 16
 
 [stamp]
@@ -594,23 +594,23 @@
 # fee_percent = 30
 
 # Packs one creator may have, counting every status.
-# (TOKULY_STAMP_MAX_PACKS; restart: api, worker)
+# (TOKULY_STAMP_MAX_PACKS; console; restart: api, worker)
 # max_packs = 100
 
 # Personal (quick) stamps one user may keep.
-# (TOKULY_STAMP_MAX_PERSONAL; restart: api, worker)
+# (TOKULY_STAMP_MAX_PERSONAL; console; restart: api, worker)
 # max_personal = 300
 
 # Seconds between refreshes of the popularity ranking and send counters.
-# (TOKULY_STAMP_RANKING_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_STAMP_RANKING_INTERVAL_SECONDS; console; restart: api, worker)
 # ranking_interval_seconds = 300
 
 # Days a row of the usage log is kept. Daily statistics are kept forever.
-# (TOKULY_STAMP_USAGE_RETENTION_DAYS; restart: api, worker)
+# (TOKULY_STAMP_USAGE_RETENTION_DAYS; console; restart: api, worker)
 # usage_retention_days = 180
 
 # Create the built-in official packs when the workers start.
-# (TOKULY_STAMP_SEED_OFFICIAL; restart: api, worker)
+# (TOKULY_STAMP_SEED_OFFICIAL; console; restart: api, worker)
 # seed_official = true
 
 [wallet]
@@ -643,7 +643,7 @@
 # payout_minor_per_100_coins = 100
 
 # Minutes a purchase may stay unpaid before it expires.
-# (TOKULY_WALLET_PURCHASE_TTL_MINUTES; restart: api, worker)
+# (TOKULY_WALLET_PURCHASE_TTL_MINUTES; console; restart: api, worker)
 # purchase_ttl_minutes = 60
 
 [notify]
@@ -692,22 +692,22 @@
 # apns_topic = ""
 
 # How long a push service keeps a notification for an offline device.
-# (TOKULY_PUSH_TTL_SECONDS; restart: api, worker)
+# (TOKULY_PUSH_TTL_SECONDS; console; restart: api, worker)
 # push_ttl_seconds = 86400
 
 # Push notifications one user may receive per minute. Beyond it notifications are still recorded in
 # the inbox but not pushed.
-# (TOKULY_PUSH_RATE_PER_MINUTE; restart: api, worker)
+# (TOKULY_PUSH_RATE_PER_MINUTE; console; restart: api, worker)
 # push_rate_per_minute = 30
 
 # Push notifications one person may cause for one recipient per minute, so that one sender cannot
 # use up the recipient's whole budget. Urgent notifications have a budget of the same size of their
 # own. 0 = no cap.
-# (TOKULY_PUSH_RATE_PER_SENDER_PER_MINUTE; restart: api, worker)
+# (TOKULY_PUSH_RATE_PER_SENDER_PER_MINUTE; console; restart: api, worker)
 # push_rate_per_sender_per_minute = 10
 
 # Days an inbox entry is kept.
-# (TOKULY_NOTIFY_RETENTION_DAYS; restart: api, worker)
+# (TOKULY_NOTIFY_RETENTION_DAYS; console; restart: api, worker)
 # retention_days = 90
 
 [admin]
@@ -716,60 +716,60 @@
 # `admin` role once that address is verified (at startup, or the moment it is), and only once per
 # deployment and address: whoever holds the address later is not promoted. A handle is not accepted
 # (whoever signed up first would hold it). Empty: nobody is promoted automatically.
-# (TOKULY_ADMIN_USER; bootstrap; restart: api, worker)
+# (TOKULY_ADMIN_USER; restart: api, worker)
 # user = ""
 
 # IANA time zone whose midnight starts "today" in the server stats (new accounts today, daily active
 # users).
-# (TOKULY_ADMIN_STATS_TIME_ZONE; restart: api, worker)
+# (TOKULY_ADMIN_STATS_TIME_ZONE; console; restart: api, worker)
 # stats_time_zone = "Asia/Tokyo"
 
 # An announcement broadcast notifies accounts with a signed-in device that was active within this
 # many days.
-# (TOKULY_ANNOUNCEMENT_NOTIFY_ACTIVE_DAYS; restart: api, worker)
+# (TOKULY_ANNOUNCEMENT_NOTIFY_ACTIVE_DAYS; console; restart: api, worker)
 # announcement_notify_active_days = 30
 
 # Users notified per transaction during an announcement broadcast.
-# (TOKULY_ANNOUNCEMENT_NOTIFY_CHUNK; restart: api, worker)
+# (TOKULY_ANNOUNCEMENT_NOTIFY_CHUNK; console; restart: api, worker)
 # announcement_notify_chunk = 500
 
 # Suspensions, bans, warnings and takedowns one moderator may issue per hour. Admins are not
 # limited. Guards against a compromised or runaway moderator account.
-# (TOKULY_MODERATOR_SANCTIONS_PER_HOUR; restart: api, worker)
+# (TOKULY_MODERATOR_SANCTIONS_PER_HOUR; console; restart: api, worker)
 # moderator_sanctions_per_hour = 120
 
 # Authors of anonymous posts one staff member (admins included) may be shown per hour, counted once
 # per case. Guards the anonymity of every such post against a compromised or curious staff account.
-# (TOKULY_MODERATOR_REVEALS_PER_HOUR; restart: api, worker)
+# (TOKULY_MODERATOR_REVEALS_PER_HOUR; console; restart: api, worker)
 # moderator_reveals_per_hour = 30
 
 # Days the uploads of reported content stay held for a case after it is resolved (see
 # `evidence.rs`).
-# (TOKULY_MODERATION_EVIDENCE_DAYS; restart: api, worker)
+# (TOKULY_MODERATION_EVIDENCE_DAYS; console; restart: api, worker)
 # moderation_evidence_days = 90
 
 [feed]
 
 # Days an activity entry is kept before the retention sweep deletes it. 0 keeps entries forever.
-# (TOKULY_FEED_ACTIVITY_RETENTION_DAYS; restart: api, worker)
+# (TOKULY_FEED_ACTIVITY_RETENTION_DAYS; console; restart: api, worker)
 # activity_retention_days = 400
 
 # How far back map stories reach, in hours.
-# (TOKULY_FEED_MAP_STORY_HOURS; restart: api, worker)
+# (TOKULY_FEED_MAP_STORY_HOURS; console; restart: api, worker)
 # map_story_hours = 48
 
 # Entries of the same kind by the same person that are no further apart than this many minutes
 # become one card in the friends' and home feeds.
-# (TOKULY_FEED_BURST_MINUTES; restart: api, worker)
+# (TOKULY_FEED_BURST_MINUTES; console; restart: api, worker)
 # burst_minutes = 60
 
 # Seconds the recap of a period that is still running stays cached. Finished periods are cached for
 # six hours.
-# (TOKULY_FEED_RECAP_CACHE_SECONDS; restart: api, worker)
+# (TOKULY_FEED_RECAP_CACHE_SECONDS; console; restart: api, worker)
 # recap_cache_seconds = 300
 
 # Entries a user needs in a month to be told that their recap is ready.
-# (TOKULY_FEED_RECAP_MIN_ACTIVITIES; restart: api, worker)
+# (TOKULY_FEED_RECAP_MIN_ACTIVITIES; console; restart: api, worker)
 # recap_min_activities = 5
 
 # RSS/Atom feed URLs, comma separated, that exist as news sources from the first start (admins
@@ -778,15 +778,15 @@
 # news_feeds = ""
 
 # Seconds between two fetches of the same news source.
-# (TOKULY_NEWS_FETCH_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_NEWS_FETCH_INTERVAL_SECONDS; console; restart: api, worker)
 # news_fetch_interval_seconds = 900
 
 # Seconds one fetch may take, redirects included.
-# (TOKULY_NEWS_FETCH_TIMEOUT_SECONDS; restart: api, worker)
+# (TOKULY_NEWS_FETCH_TIMEOUT_SECONDS; console; restart: api, worker)
 # news_fetch_timeout_seconds = 15
 
 # Largest feed document accepted, in bytes (after decompression).
-# (TOKULY_NEWS_MAX_FEED_BYTES; restart: api, worker)
+# (TOKULY_NEWS_MAX_FEED_BYTES; console; restart: api, worker)
 # news_max_feed_bytes = 5242880
 
 # Development and tests only: let the news fetcher reach loopback addresses and non-default ports (a
@@ -795,21 +795,21 @@
 # news_allow_loopback = false
 
 # Days a news article is kept after it was published (and left its feed).
-# (TOKULY_NEWS_RETENTION_DAYS; restart: api, worker)
+# (TOKULY_NEWS_RETENTION_DAYS; console; restart: api, worker)
 # news_retention_days = 30
 
 # Share of the recommended news order filled with random recent articles, in percent (0-100).
-# (TOKULY_NEWS_RANDOM_SHARE_PERCENT; restart: api, worker)
+# (TOKULY_NEWS_RANDOM_SHARE_PERCENT; console; restart: api, worker)
 # news_random_share_percent = 20
 
 # Days after which a reader's interest in a tag has faded to half.
-# (TOKULY_NEWS_AFFINITY_HALF_LIFE_DAYS; restart: api, worker)
+# (TOKULY_NEWS_AFFINITY_HALF_LIFE_DAYS; console; restart: api, worker)
 # news_affinity_half_life_days = 30
 
 # Keyword dictionary for tagging articles: `tag=keyword|keyword;tag=...`. An article whose title or
 # summary contains a keyword gets the tag. Empty uses the built-in dictionary; `-` disables keyword
 # tagging.
-# (TOKULY_NEWS_TAG_KEYWORDS; restart: api, worker)
+# (TOKULY_NEWS_TAG_KEYWORDS; console; restart: api, worker)
 # news_tag_keywords = ""
 
 [chat]
@@ -832,7 +832,7 @@
 # livekit_api_secret = ""
 
 # Seconds an unanswered call rings.
-# (TOKULY_CHAT_RING_SECONDS; restart: api, worker)
+# (TOKULY_CHAT_RING_SECONDS; console; restart: api, worker)
 # ring_seconds = 45
 
 # Anthropic API key. Empty leaves Anthropic off (until the operator enables it in the staff
@@ -845,7 +845,7 @@
 # anthropic_base_url = "https://api.anthropic.com"
 
 # Value of the `anthropic-version` header.
-# (TOKULY_ANTHROPIC_VERSION; restart: api, worker)
+# (TOKULY_ANTHROPIC_VERSION; console; restart: api, worker)
 # anthropic_version = "2023-06-01"
 
 # Anthropic model used by the AI assistant.
@@ -866,7 +866,7 @@
 
 # `reasoning_effort` sent to OpenAI (`minimal`, `low`, `medium`, `high`). Empty omits it, for models
 # without reasoning.
-# (TOKULY_OPENAI_REASONING_EFFORT; restart: api, worker)
+# (TOKULY_OPENAI_REASONING_EFFORT; console; restart: api, worker)
 # openai_reasoning_effort = "low"
 
 # Base URL of an OpenAI-compatible server (LM Studio, Ollama, vLLM…), up to and including `/v1`,
@@ -899,152 +899,152 @@
 
 # `output_config.effort` sent with every request (`low`, `medium`, `high`…). Rewrites and
 # translations are short, simple tasks. Empty omits the parameter, for models that do not accept it.
-# (TOKULY_AI_EFFORT; restart: api, worker)
+# (TOKULY_AI_EFFORT; console; restart: api, worker)
 # ai_effort = "low"
 
 # Ask the API to retry a request its safety classifiers declined on the fallback model Anthropic
 # recommends (`fallbacks: "default"`). Switch off for models or platforms without server-side
 # fallbacks.
-# (TOKULY_AI_REFUSAL_FALLBACK; restart: api, worker)
+# (TOKULY_AI_REFUSAL_FALLBACK; console; restart: api, worker)
 # ai_refusal_fallback = true
 
 # AI assistant requests one user may make per hour.
-# (TOKULY_AI_HOURLY_LIMIT; restart: api, worker)
+# (TOKULY_AI_HOURLY_LIMIT; console; restart: api, worker)
 # ai_hourly_limit = 60
 
 # Seconds to wait for one answer of the AI service.
-# (TOKULY_AI_TIMEOUT_SECONDS; restart: api, worker)
+# (TOKULY_AI_TIMEOUT_SECONDS; console; restart: api, worker)
 # ai_timeout_seconds = 45
 
 # Members a group may have.
-# (TOKULY_CHAT_MAX_GROUP_MEMBERS; restart: api, worker)
+# (TOKULY_CHAT_MAX_GROUP_MEMBERS; console; restart: api, worker)
 # max_group_members = 100
 
 # Seconds after sending during which a message's text can be edited.
-# (TOKULY_CHAT_EDIT_WINDOW_SECONDS; restart: api, worker)
+# (TOKULY_CHAT_EDIT_WINDOW_SECONDS; console; restart: api, worker)
 # edit_window_seconds = 900
 
 # Messages a non-friend may send before their request is accepted.
-# (TOKULY_CHAT_REQUEST_MESSAGE_LIMIT; restart: api, worker)
+# (TOKULY_CHAT_REQUEST_MESSAGE_LIMIT; console; restart: api, worker)
 # request_message_limit = 3
 
 # Messages one user may send per minute (all conversations together).
-# (TOKULY_CHAT_MESSAGES_PER_MINUTE; restart: api, worker)
+# (TOKULY_CHAT_MESSAGES_PER_MINUTE; console; restart: api, worker)
 # messages_per_minute = 120
 
 # Seconds a POV request can be answered.
-# (TOKULY_CHAT_POV_ANSWER_SECONDS; restart: api, worker)
+# (TOKULY_CHAT_POV_ANSWER_SECONDS; console; restart: api, worker)
 # pov_answer_seconds = 7200
 
 # Seconds an unsaved POV answer lives.
-# (TOKULY_CHAT_POV_REPLY_SECONDS; restart: api, worker)
+# (TOKULY_CHAT_POV_REPLY_SECONDS; console; restart: api, worker)
 # pov_reply_seconds = 86400
 
 [notes]
 
 # Hours a story stays visible to friends before it moves to the archive.
-# (TOKULY_NOTES_STORY_TTL_HOURS; restart: api, worker)
+# (TOKULY_NOTES_STORY_TTL_HOURS; console; restart: api, worker)
 # story_ttl_hours = 24
 
 # Notes (replies and quotes included) one user may post per minute.
-# (TOKULY_NOTES_POSTS_PER_MINUTE; restart: api, worker)
+# (TOKULY_NOTES_POSTS_PER_MINUTE; console; restart: api, worker)
 # posts_per_minute = 30
 
 # Stories one user may post per hour.
-# (TOKULY_NOTES_STORIES_PER_HOUR; restart: api, worker)
+# (TOKULY_NOTES_STORIES_PER_HOUR; console; restart: api, worker)
 # stories_per_hour = 30
 
 # Hours within which repeated views of a note by the same viewer count once.
-# (TOKULY_NOTES_VIEW_WINDOW_HOURS; restart: api, worker)
+# (TOKULY_NOTES_VIEW_WINDOW_HOURS; console; restart: api, worker)
 # view_window_hours = 6
 
 # Seconds between recomputations of the trending hashtags.
-# (TOKULY_NOTES_TREND_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_NOTES_TREND_INTERVAL_SECONDS; console; restart: api, worker)
 # trend_interval_seconds = 300
 
 # Hours of public notes the trending ranking looks at.
-# (TOKULY_NOTES_TREND_WINDOW_HOURS; restart: api, worker)
+# (TOKULY_NOTES_TREND_WINDOW_HOURS; console; restart: api, worker)
 # trend_window_hours = 24
 
 # Different people who must have used a hashtag within the window for it to trend.
-# (TOKULY_NOTES_TREND_MIN_AUTHORS; restart: api, worker)
+# (TOKULY_NOTES_TREND_MIN_AUTHORS; console; restart: api, worker)
 # trend_min_authors = 2
 
 # Hours an account must exist before its posts and reactions count towards trends.
-# (TOKULY_NOTES_TREND_MIN_ACCOUNT_AGE_HOURS; restart: api, worker)
+# (TOKULY_NOTES_TREND_MIN_ACCOUNT_AGE_HOURS; console; restart: api, worker)
 # trend_min_account_age_hours = 72
 
 # Accounts younger than this many days that joined on the same day count as one person in trends.
-# (TOKULY_NOTES_TREND_NEW_ACCOUNT_DAYS; restart: api, worker)
+# (TOKULY_NOTES_TREND_NEW_ACCOUNT_DAYS; console; restart: api, worker)
 # trend_new_account_days = 30
 
 # Seconds between passes of the poll closing worker and the scheduler of notes.
-# (TOKULY_NOTES_SCHEDULE_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_NOTES_SCHEDULE_INTERVAL_SECONDS; console; restart: api, worker)
 # schedule_interval_seconds = 30
 
 # Seconds between passes of the story expiry worker.
-# (TOKULY_NOTES_STORY_EXPIRY_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_NOTES_STORY_EXPIRY_INTERVAL_SECONDS; console; restart: api, worker)
 # story_expiry_interval_seconds = 60
 
 [video]
 
 # Channels one account may own.
-# (TOKULY_VIDEO_MAX_CHANNELS; restart: api, worker)
+# (TOKULY_VIDEO_MAX_CHANNELS; console; restart: api, worker)
 # max_channels = 5
 
 # Seconds of watching after which a playback session counts as a view (half the duration for videos
 # shorter than twice this).
-# (TOKULY_VIDEO_MIN_VIEW_SECONDS; restart: api, worker)
+# (TOKULY_VIDEO_MIN_VIEW_SECONDS; console; restart: api, worker)
 # min_view_seconds = 10
 
 # Seconds during which further views of a video by the same viewer (account, or network address when
 # anonymous) are not counted again.
-# (TOKULY_VIDEO_VIEW_DEDUPE_SECONDS; restart: api, worker)
+# (TOKULY_VIDEO_VIEW_DEDUPE_SECONDS; console; restart: api, worker)
 # view_dedupe_seconds = 21600
 
 # How often clients are asked to report playback progress, in seconds.
-# (TOKULY_VIDEO_REPORT_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_VIDEO_REPORT_INTERVAL_SECONDS; console; restart: api, worker)
 # report_interval_seconds = 10
 
 # Seconds between runs of the publishing worker (scheduled videos and uploads whose processing
 # result was missed).
-# (TOKULY_VIDEO_PUBLISH_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_VIDEO_PUBLISH_INTERVAL_SECONDS; console; restart: api, worker)
 # publish_interval_seconds = 15
 
 # Seconds between refreshes of the trending scores.
-# (TOKULY_VIDEO_TRENDING_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_VIDEO_TRENDING_INTERVAL_SECONDS; console; restart: api, worker)
 # trending_interval_seconds = 300
 
 # Hours after which a view or like has lost half its weight in the trending score.
-# (TOKULY_VIDEO_TRENDING_HALF_LIFE_HOURS; restart: api, worker)
+# (TOKULY_VIDEO_TRENDING_HALF_LIFE_HOURS; console; restart: api, worker)
 # trending_half_life_hours = 24
 
 # Custom playlists one account may have.
-# (TOKULY_VIDEO_MAX_PLAYLISTS; restart: api, worker)
+# (TOKULY_VIDEO_MAX_PLAYLISTS; console; restart: api, worker)
 # max_playlists = 200
 
 # Videos one playlist may hold.
-# (TOKULY_VIDEO_MAX_PLAYLIST_ITEMS; restart: api, worker)
+# (TOKULY_VIDEO_MAX_PLAYLIST_ITEMS; console; restart: api, worker)
 # max_playlist_items = 5000
 
 # Subscribers notified per `video.announce` job when a channel publishes.
-# (TOKULY_VIDEO_ANNOUNCE_BATCH_SIZE; restart: api, worker)
+# (TOKULY_VIDEO_ANNOUNCE_BATCH_SIZE; console; restart: api, worker)
 # announce_batch_size = 500
 
 # Members a watch party takes, guests included.
-# (TOKULY_VIDEO_PARTY_MAX_MEMBERS; restart: api, worker)
+# (TOKULY_VIDEO_PARTY_MAX_MEMBERS; console; restart: api, worker)
 # party_max_members = 100
 
 # Open watch parties one account may host at a time.
-# (TOKULY_VIDEO_PARTY_MAX_HOSTED; restart: api, worker)
+# (TOKULY_VIDEO_PARTY_MAX_HOSTED; console; restart: api, worker)
 # party_max_hosted = 3
 
 # Hours after which a watch party ends on its own.
-# (TOKULY_VIDEO_PARTY_MAX_HOURS; restart: api, worker)
+# (TOKULY_VIDEO_PARTY_MAX_HOURS; console; restart: api, worker)
 # party_max_hours = 12
 
 # Seconds without a heartbeat after which a watch party member is dropped.
-# (TOKULY_VIDEO_PARTY_MEMBER_TIMEOUT_SECONDS; restart: api, worker)
+# (TOKULY_VIDEO_PARTY_MEMBER_TIMEOUT_SECONDS; console; restart: api, worker)
 # party_member_timeout_seconds = 60
 
 # Distinct viewers a video or channel needs within a report's range before analytics break its
@@ -1062,117 +1062,117 @@
 # index_prefix = "tokuly"
 
 # Documents written to Meilisearch per indexer pass.
-# (TOKULY_SEARCH_INDEX_BATCH; restart: api, worker)
+# (TOKULY_SEARCH_INDEX_BATCH; console; restart: api, worker)
 # index_batch = 1000
 
 # How long the indexer waits for more changes before it looks again.
-# (TOKULY_SEARCH_INDEX_INTERVAL_MS; restart: api, worker)
+# (TOKULY_SEARCH_INDEX_INTERVAL_MS; console; restart: api, worker)
 # index_interval_ms = 500
 
 # Searches one signed-in user may run per minute.
-# (TOKULY_SEARCH_RATE_PER_MINUTE; restart: api, worker)
+# (TOKULY_SEARCH_RATE_PER_MINUTE; console; restart: api, worker)
 # rate_per_minute = 120
 
 # Searches one client address may run per minute without signing in.
-# (TOKULY_SEARCH_ANONYMOUS_RATE_PER_MINUTE; restart: api, worker)
+# (TOKULY_SEARCH_ANONYMOUS_RATE_PER_MINUTE; console; restart: api, worker)
 # anonymous_rate_per_minute = 40
 
 # Typeahead requests per minute: signed-in users get this many, anonymous client addresses half.
-# (TOKULY_SEARCH_SUGGEST_RATE_PER_MINUTE; restart: api, worker)
+# (TOKULY_SEARCH_SUGGEST_RATE_PER_MINUTE; console; restart: api, worker)
 # suggest_rate_per_minute = 300
 
 # Distinct signed-in users who must have searched a query within the trending window before it may
 # trend or be offered as a completion.
-# (TOKULY_SEARCH_TRENDING_MIN_USERS; restart: api, worker)
+# (TOKULY_SEARCH_TRENDING_MIN_USERS; console; restart: api, worker)
 # trending_min_users = 5
 
 # Hours of searches the trending list looks back on (1-168).
-# (TOKULY_SEARCH_TRENDING_WINDOW_HOURS; restart: api, worker)
+# (TOKULY_SEARCH_TRENDING_WINDOW_HOURS; console; restart: api, worker)
 # trending_window_hours = 24
 
 # Hours after which a search counts half as much towards trending.
-# (TOKULY_SEARCH_TRENDING_HALF_LIFE_HOURS; restart: api, worker)
+# (TOKULY_SEARCH_TRENDING_HALF_LIFE_HOURS; console; restart: api, worker)
 # trending_half_life_hours = 6
 
 # Seconds between two computations of the trending list.
-# (TOKULY_SEARCH_TRENDING_REFRESH_SECONDS; restart: api, worker)
+# (TOKULY_SEARCH_TRENDING_REFRESH_SECONDS; console; restart: api, worker)
 # trending_refresh_seconds = 60
 
 # Queries kept in the trending list.
-# (TOKULY_SEARCH_TRENDING_SIZE; restart: api, worker)
+# (TOKULY_SEARCH_TRENDING_SIZE; console; restart: api, worker)
 # trending_size = 20
 
 [emoji]
 
 # Submissions one user may have waiting for review at the same time.
-# (TOKULY_EMOJI_MAX_PENDING; restart: api, worker)
+# (TOKULY_EMOJI_MAX_PENDING; console; restart: api, worker)
 # max_pending = 10
 
 # Largest upload accepted as an emoji picture, in kilobytes.
-# (TOKULY_EMOJI_MAX_IMAGE_KB; restart: api, worker)
+# (TOKULY_EMOJI_MAX_IMAGE_KB; console; restart: api, worker)
 # max_image_kb = 1024
 
 # Names users may not submit (moderators may add them), comma separated, on top of the built-in
 # list.
-# (TOKULY_EMOJI_RESERVED_NAMES; restart: api, worker)
+# (TOKULY_EMOJI_RESERVED_NAMES; console; restart: api, worker)
 # reserved_names = []
 
 # The deck of users who never saved one: `:name:` or a Unicode emoji each, comma separated.
-# (TOKULY_EMOJI_DEFAULT_DECK; restart: api, worker)
+# (TOKULY_EMOJI_DEFAULT_DECK; console; restart: api, worker)
 # default_deck = ["👍", "❤️", "😆", "🤔", "😮", "🎉", "💢", "😥", "😇", "🍮"]
 
 # Seconds between runs of the usage worker, which moves the use counters into the database and
 # recomputes "popular".
-# (TOKULY_EMOJI_USAGE_FLUSH_SECONDS; restart: api, worker)
+# (TOKULY_EMOJI_USAGE_FLUSH_SECONDS; console; restart: api, worker)
 # usage_flush_seconds = 60
 
 # Days of use that count towards "popular" (older days weigh less).
-# (TOKULY_EMOJI_POPULAR_DAYS; restart: api, worker)
+# (TOKULY_EMOJI_POPULAR_DAYS; console; restart: api, worker)
 # popular_days = 7
 
 # Days the catalogue remembers that an emoji was removed. A client that was away for longer
 # downloads the whole catalogue again.
-# (TOKULY_EMOJI_REMOVAL_RETENTION_DAYS; restart: api, worker)
+# (TOKULY_EMOJI_REMOVAL_RETENTION_DAYS; console; restart: api, worker)
 # removal_retention_days = 90
 
 # Largest emoji pack accepted for import, in megabytes.
-# (TOKULY_EMOJI_IMPORT_MAX_MB; restart: api, worker)
+# (TOKULY_EMOJI_IMPORT_MAX_MB; console; restart: api, worker)
 # import_max_mb = 100
 
 # Most entries an imported pack may have.
-# (TOKULY_EMOJI_IMPORT_MAX_ENTRIES; restart: api, worker)
+# (TOKULY_EMOJI_IMPORT_MAX_ENTRIES; console; restart: api, worker)
 # import_max_entries = 5000
 
 # Hours an export file can be downloaded before it is deleted.
-# (TOKULY_EMOJI_EXPORT_TTL_HOURS; restart: api, worker)
+# (TOKULY_EMOJI_EXPORT_TTL_HOURS; console; restart: api, worker)
 # export_ttl_hours = 168
 
 [ask]
 
 # Words (comma-separated) that hold a question or prompt response in the recipient's FILTERED
 # folder, on top of each owner's own muted words. Empty switches the server-wide list off.
-# (TOKULY_ASK_FILTER_WORDS; restart: api, worker)
+# (TOKULY_ASK_FILTER_WORDS; console; restart: api, worker)
 # filter_words = "死ね,死んで,氏ね,タヒね,殺す,殺して,ころすぞ,消えろ,きえろ,自殺しろ,くたばれ,きもい,キモい,キモイ,気持ち悪い,うざい,ウザい,ウザイ,ブス,デブ,ガイジ,クズ,嫌われてる,住所教えて,裸,下着,エッチ,やらせて,kys,kill yourself,go die,slut,whore,fag,retard,ugly,nudes,loser,nobody likes you"
 
 # Questions and prompt responses one account may send per hour.
-# (TOKULY_ASK_SENDS_PER_HOUR; restart: api, worker)
+# (TOKULY_ASK_SENDS_PER_HOUR; console; restart: api, worker)
 # sends_per_hour = 30
 
 # Questions and prompt responses one account may send to the same person per day.
-# (TOKULY_ASK_PAIR_SENDS_PER_DAY; restart: api, worker)
+# (TOKULY_ASK_PAIR_SENDS_PER_DAY; console; restart: api, worker)
 # pair_sends_per_day = 10
 
 # Questions and prompt responses one person may receive per hour, from everyone together: the brake
 # on a pile-on from many accounts.
-# (TOKULY_ASK_BOX_RECEIVES_PER_HOUR; restart: api, worker)
+# (TOKULY_ASK_BOX_RECEIVES_PER_HOUR; console; restart: api, worker)
 # box_receives_per_hour = 120
 
 # Polls in a compliment round.
-# (TOKULY_ASK_ROUND_POLLS; restart: api, worker)
+# (TOKULY_ASK_ROUND_POLLS; console; restart: api, worker)
 # round_polls = 12
 
 # Seconds between finishing a round and the next one opening.
-# (TOKULY_ASK_ROUND_COOLDOWN_SECONDS; restart: api, worker)
+# (TOKULY_ASK_ROUND_COOLDOWN_SECONDS; console; restart: api, worker)
 # round_cooldown_seconds = 3600
 
 # Coins for a round in which every poll was voted on; skipped polls earn nothing (a round of 12 with
@@ -1181,7 +1181,7 @@
 # round_reward_coins = 12
 
 # Times the four friends of one poll can be replaced.
-# (TOKULY_ASK_SHUFFLES_PER_POLL; restart: api, worker)
+# (TOKULY_ASK_SHUFFLES_PER_POLL; console; restart: api, worker)
 # shuffles_per_poll = 3
 
 # Price in coins of the first and the second hint about who sent a flame, separated by a comma.
@@ -1192,32 +1192,32 @@
 # Days a deleted, withdrawn or dropped question is kept for moderators before it is erased.
 # Unanswered questions leave the sender's "asked" list after the same time, so the erasure itself
 # tells the sender nothing.
-# (TOKULY_ASK_RETENTION_DAYS; restart: api, worker)
+# (TOKULY_ASK_RETENTION_DAYS; console; restart: api, worker)
 # retention_days = 180
 
 [plans]
 
 # Most people in one plan or one date poll, the host included. Bounds every per-participant fan-out
 # (notifications, realtime pushes).
-# (TOKULY_PLANS_MAX_PARTICIPANTS; restart: api, worker)
+# (TOKULY_PLANS_MAX_PARTICIPANTS; console; restart: api, worker)
 # max_participants = 100
 
 # Hours a "free now" status lasts.
-# (TOKULY_PLANS_FREE_NOW_HOURS; restart: api, worker)
+# (TOKULY_PLANS_FREE_NOW_HOURS; console; restart: api, worker)
 # free_now_hours = 3
 
 # Seconds between passes of the worker that sends reminders, closes polls and announces milestones.
-# (TOKULY_PLANS_WORKER_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_PLANS_WORKER_INTERVAL_SECONDS; console; restart: api, worker)
 # worker_interval_seconds = 30
 
 # Local hour (0-23) at which people are reminded, the day before, of a plan that has a day but no
 # time.
-# (TOKULY_PLANS_DAY_BEFORE_HOUR; restart: api, worker)
+# (TOKULY_PLANS_DAY_BEFORE_HOUR; console; restart: api, worker)
 # day_before_hour = 18
 
 # Local hour (0-23) at which "today is the day" notices go out: anniversary milestones and
 # countdowns that reached zero.
-# (TOKULY_PLANS_MORNING_HOUR; restart: api, worker)
+# (TOKULY_PLANS_MORNING_HOUR; console; restart: api, worker)
 # morning_hour = 8
 
 [school]
@@ -1225,43 +1225,43 @@
 # Seconds without a heartbeat after which a study session (and a stay in a study room) is ended by
 # the server. Time is only ever counted up to the last heartbeat, so this bounds how long a vanished
 # client still looks like it is studying.
-# (TOKULY_SCHOOL_SESSION_IDLE_SECONDS; restart: api, worker)
+# (TOKULY_SCHOOL_SESSION_IDLE_SECONDS; console; restart: api, worker)
 # session_idle_seconds = 900
 
 # How often clients are asked to send a heartbeat, in seconds.
-# (TOKULY_SCHOOL_HEARTBEAT_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_SCHOOL_HEARTBEAT_INTERVAL_SECONDS; console; restart: api, worker)
 # heartbeat_interval_seconds = 60
 
 # Seconds a session may stay paused before the server ends it.
-# (TOKULY_SCHOOL_SESSION_MAX_PAUSE_SECONDS; restart: api, worker)
+# (TOKULY_SCHOOL_SESSION_MAX_PAUSE_SECONDS; console; restart: api, worker)
 # session_max_pause_seconds = 10800
 
 # Longest a single session may last, in seconds (at most a day); the server ends it then.
-# (TOKULY_SCHOOL_SESSION_MAX_SECONDS; restart: api, worker)
+# (TOKULY_SCHOOL_SESSION_MAX_SECONDS; console; restart: api, worker)
 # session_max_seconds = 43200
 
 # Seconds an empty study room stays open before it closes by itself.
-# (TOKULY_SCHOOL_ROOM_EMPTY_CLOSE_SECONDS; restart: api, worker)
+# (TOKULY_SCHOOL_ROOM_EMPTY_CLOSE_SECONDS; console; restart: api, worker)
 # room_empty_close_seconds = 600
 
 # Member cap of a study room created without one (2-50).
-# (TOKULY_SCHOOL_ROOM_DEFAULT_MEMBER_CAP; restart: api, worker)
+# (TOKULY_SCHOOL_ROOM_DEFAULT_MEMBER_CAP; console; restart: api, worker)
 # room_default_member_cap = 20
 
 # Local hour (0-23) at which the "due tomorrow" assignment reminder is sent on the evening before.
-# (TOKULY_SCHOOL_ASSIGNMENT_EVENING_HOUR; restart: api, worker)
+# (TOKULY_SCHOOL_ASSIGNMENT_EVENING_HOUR; console; restart: api, worker)
 # assignment_evening_hour = 19
 
 # Seconds between passes of the background sweep (idle sessions, study room phases, empty rooms,
 # reminders).
-# (TOKULY_SCHOOL_SWEEP_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_SCHOOL_SWEEP_INTERVAL_SECONDS; console; restart: api, worker)
 # sweep_interval_seconds = 5
 
 [quest]
 
 # How long earnings are collected in Valkey before they are written to PostgreSQL and pushed to the
 # player, in milliseconds. A player gets at most one "XP gained" push per this interval.
-# (TOKULY_QUEST_FLUSH_DELAY_MS; restart: api, worker)
+# (TOKULY_QUEST_FLUSH_DELAY_MS; console; restart: api, worker)
 # flush_delay_ms = 3000
 
 # Coins granted on every level-up.
@@ -1278,20 +1278,20 @@
 
 # Minutes after a player's midnight before a running streak is declared lost, so events that arrive
 # late still count.
-# (TOKULY_QUEST_STREAK_GRACE_MINUTES; restart: api, worker)
+# (TOKULY_QUEST_STREAK_GRACE_MINUTES; console; restart: api, worker)
 # streak_grace_minutes = 10
 
 # Shortest streak a player is reminded about before it expires.
-# (TOKULY_QUEST_STREAK_REMINDER_MIN_DAYS; restart: api, worker)
+# (TOKULY_QUEST_STREAK_REMINDER_MIN_DAYS; console; restart: api, worker)
 # streak_reminder_min_days = 3
 
 # A rule counts as "live" when it fired for anyone within this many days. Missions and leaderboards
 # are only offered for live rules, so features that do not exist (yet) on this server never show up.
-# (TOKULY_QUEST_LIVE_RULE_DAYS; restart: api, worker)
+# (TOKULY_QUEST_LIVE_RULE_DAYS; console; restart: api, worker)
 # live_rule_days = 14
 
 # Seconds between two recomputations of badge rarity.
-# (TOKULY_QUEST_RARITY_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_QUEST_RARITY_INTERVAL_SECONDS; console; restart: api, worker)
 # rarity_interval_seconds = 3600
 
 # Namespace of the quest keys in Valkey. Deployments that share one Valkey but not one database must
@@ -1348,40 +1348,40 @@
 # recordings_dir = "/recordings"
 
 # Seconds between two looks at the media server (who is on air, who watches).
-# (TOKULY_LIVE_RECONCILE_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_LIVE_RECONCILE_INTERVAL_SECONDS; console; restart: api, worker)
 # reconcile_interval_seconds = 3
 
 # Seconds an encoder may stay away before its stream ends.
-# (TOKULY_LIVE_RECONNECT_GRACE_SECONDS; restart: api, worker)
+# (TOKULY_LIVE_RECONNECT_GRACE_SECONDS; console; restart: api, worker)
 # reconnect_grace_seconds = 60
 
 # Longest a stream may stay on air, in hours.
-# (TOKULY_LIVE_MAX_HOURS; restart: api, worker)
+# (TOKULY_LIVE_MAX_HOURS; console; restart: api, worker)
 # max_hours = 24
 
 # How far back viewers may rewind a stream with DVR, in seconds.
-# (TOKULY_LIVE_DVR_WINDOW_SECONDS; restart: api, worker)
+# (TOKULY_LIVE_DVR_WINDOW_SECONDS; console; restart: api, worker)
 # dvr_window_seconds = 3600
 
 # Hours after which a recording nobody claimed is deleted.
-# (TOKULY_LIVE_RECORDINGS_MAX_AGE_HOURS; restart: api, worker)
+# (TOKULY_LIVE_RECORDINGS_MAX_AGE_HOURS; console; restart: api, worker)
 # recordings_max_age_hours = 48
 
 # Days a deleted stream and its chat are kept before they are erased, counted from the deletion:
 # what was said can still be reported.
-# (TOKULY_LIVE_DELETED_RETENTION_DAYS; restart: api, worker)
+# (TOKULY_LIVE_DELETED_RETENTION_DAYS; console; restart: api, worker)
 # deleted_retention_days = 30
 
 # Streams a channel may have that are not over yet.
-# (TOKULY_LIVE_MAX_OPEN_STREAMS; restart: api, worker)
+# (TOKULY_LIVE_MAX_OPEN_STREAMS; console; restart: api, worker)
 # max_open_streams = 20
 
 # How often players report that they are watching, in seconds.
-# (TOKULY_LIVE_REPORT_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_LIVE_REPORT_INTERVAL_SECONDS; console; restart: api, worker)
 # report_interval_seconds = 15
 
 # Recipients per `live.announce` job.
-# (TOKULY_LIVE_ANNOUNCE_BATCH_SIZE; restart: api, worker)
+# (TOKULY_LIVE_ANNOUNCE_BATCH_SIZE; console; restart: api, worker)
 # announce_batch_size = 500
 
 # `ffmpeg` and `ffprobe` used for archives and clips.
@@ -1395,75 +1395,75 @@
 [shorts]
 
 # Longest short, in seconds. An upload that turns out longer fails.
-# (TOKULY_SHORTS_MAX_DURATION_SECONDS; restart: api, worker)
+# (TOKULY_SHORTS_MAX_DURATION_SECONDS; console; restart: api, worker)
 # max_duration_seconds = 180
 
 # Widest video accepted, as width divided by height. Portrait and square videos are below 1; the
 # default admits landscape up to 16:9, which players centre-crop.
-# (TOKULY_SHORTS_MAX_ASPECT_RATIO; restart: api, worker)
+# (TOKULY_SHORTS_MAX_ASPECT_RATIO; console; restart: api, worker)
 # max_aspect_ratio = 1.78
 
 # Milliseconds of playback after which a stay on a short counts as a view (the whole short when it
 # is shorter than this).
-# (TOKULY_SHORTS_MIN_VIEW_MS; restart: api, worker)
+# (TOKULY_SHORTS_MIN_VIEW_MS; console; restart: api, worker)
 # min_view_ms = 1000
 
 # Seconds during which further views of a short by the same viewer (account, or network address when
 # anonymous) are not counted again.
-# (TOKULY_SHORTS_VIEW_DEDUPE_SECONDS; restart: api, worker)
+# (TOKULY_SHORTS_VIEW_DEDUPE_SECONDS; console; restart: api, worker)
 # view_dedupe_seconds = 21600
 
 # Shorts remembered as seen per viewer; older ones may come round again.
-# (TOKULY_SHORTS_SEEN_CAP; restart: api, worker)
+# (TOKULY_SHORTS_SEEN_CAP; console; restart: api, worker)
 # seen_cap = 2000
 
 # Days without any playback after which a viewer's seen list is dropped.
-# (TOKULY_SHORTS_SEEN_TTL_DAYS; restart: api, worker)
+# (TOKULY_SHORTS_SEEN_TTL_DAYS; console; restart: api, worker)
 # seen_ttl_days = 30
 
 # Seconds between flushes of the buffered playback counters to PostgreSQL.
-# (TOKULY_SHORTS_FLUSH_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_SHORTS_FLUSH_INTERVAL_SECONDS; console; restart: api, worker)
 # flush_interval_seconds = 5
 
 # Seconds between runs of the ranking worker (scores, trending hashtags).
-# (TOKULY_SHORTS_RANKING_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_SHORTS_RANKING_INTERVAL_SECONDS; console; restart: api, worker)
 # ranking_interval_seconds = 60
 
 # Hours after which an engagement signal has lost half its weight in the ranking; a short's
 # freshness halves every three times this.
-# (TOKULY_SHORTS_RANKING_HALF_LIFE_HOURS; restart: api, worker)
+# (TOKULY_SHORTS_RANKING_HALF_LIFE_HOURS; console; restart: api, worker)
 # ranking_half_life_hours = 24
 
 # Shorts ranked and kept per for-you batch.
-# (TOKULY_SHORTS_FEED_BATCH_SIZE; restart: api, worker)
+# (TOKULY_SHORTS_FEED_BATCH_SIZE; console; restart: api, worker)
 # feed_batch_size = 200
 
 # Seconds a for-you batch stays readable through its cursor.
-# (TOKULY_SHORTS_FEED_BATCH_TTL_SECONDS; restart: api, worker)
+# (TOKULY_SHORTS_FEED_BATCH_TTL_SECONDS; console; restart: api, worker)
 # feed_batch_ttl_seconds = 1800
 
 # Subscribers notified per `shorts.announce` job when a channel posts.
-# (TOKULY_SHORTS_ANNOUNCE_BATCH_SIZE; restart: api, worker)
+# (TOKULY_SHORTS_ANNOUNCE_BATCH_SIZE; console; restart: api, worker)
 # announce_batch_size = 500
 
 # Shorts of one channel whose publication is announced to its subscribers per 24 hours. Further
 # shorts are published all the same; subscribers find them in their following feed.
-# (TOKULY_SHORTS_ANNOUNCEMENTS_PER_DAY; restart: api, worker)
+# (TOKULY_SHORTS_ANNOUNCEMENTS_PER_DAY; console; restart: api, worker)
 # announcements_per_day = 3
 
 # Days a short that had been reported stays reviewable by moderators after its owner deleted it,
 # counted from the deletion.
-# (TOKULY_SHORTS_REPORTED_RETENTION_DAYS; restart: api, worker)
+# (TOKULY_SHORTS_REPORTED_RETENTION_DAYS; console; restart: api, worker)
 # reported_retention_days = 30
 
 # Hours an account must have existed before what it does (views, watch-through, likes, comments,
 # saves, shares) moves a short's ranking. Younger accounts, like visitors, only add to the view
 # count.
-# (TOKULY_SHORTS_SIGNAL_MIN_ACCOUNT_AGE_HOURS; restart: api, worker)
+# (TOKULY_SHORTS_SIGNAL_MIN_ACCOUNT_AGE_HOURS; console; restart: api, worker)
 # signal_min_account_age_hours = 24
 
 # Shorts one account may keep saved.
-# (TOKULY_SHORTS_MAX_SAVES; restart: api, worker)
+# (TOKULY_SHORTS_MAX_SAVES; console; restart: api, worker)
 # max_saves = 5000
 
 # The ffmpeg binary used to cut cover frames.
@@ -1473,119 +1473,119 @@
 [spaces]
 
 # Seats on a room's stage, the host's included.
-# (TOKULY_SPACES_MAX_SPEAKERS; restart: api, worker)
+# (TOKULY_SPACES_MAX_SPEAKERS; console; restart: api, worker)
 # max_speakers = 10
 
 # Co-hosts a room can have.
-# (TOKULY_SPACES_MAX_COHOSTS; restart: api, worker)
+# (TOKULY_SPACES_MAX_COHOSTS; console; restart: api, worker)
 # max_cohosts = 2
 
 # People a room holds, the stage included.
-# (TOKULY_SPACES_MAX_LISTENERS; restart: api, worker)
+# (TOKULY_SPACES_MAX_LISTENERS; console; restart: api, worker)
 # max_listeners = 3000
 
 # Seconds a live room waits for a host who is not inside before it is handed to a co-host or ended.
-# (TOKULY_SPACES_HOST_GRACE_SECONDS; restart: api, worker)
+# (TOKULY_SPACES_HOST_GRACE_SECONDS; console; restart: api, worker)
 # host_grace_seconds = 180
 
 # Seconds a live room may stay empty before it is ended.
-# (TOKULY_SPACES_EMPTY_GRACE_SECONDS; restart: api, worker)
+# (TOKULY_SPACES_EMPTY_GRACE_SECONDS; console; restart: api, worker)
 # empty_grace_seconds = 120
 
 # Seconds someone who entered may take to connect to LiveKit before they count as gone.
-# (TOKULY_SPACES_CONNECT_GRACE_SECONDS; restart: api, worker)
+# (TOKULY_SPACES_CONNECT_GRACE_SECONDS; console; restart: api, worker)
 # connect_grace_seconds = 45
 
 # Seconds someone who was connected may be missing from LiveKit (a reconnect, a change of network)
 # before they count as gone.
-# (TOKULY_SPACES_RECONNECT_GRACE_SECONDS; restart: api, worker)
+# (TOKULY_SPACES_RECONNECT_GRACE_SECONDS; console; restart: api, worker)
 # reconnect_grace_seconds = 20
 
 # Seconds between two comparisons of who is inside with LiveKit.
-# (TOKULY_SPACES_RECONCILE_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_SPACES_RECONCILE_INTERVAL_SECONDS; console; restart: api, worker)
 # reconcile_interval_seconds = 20
 
 # Seconds an access token can be used to connect. Short on purpose: a token outlives a ban, and
 # entering again hands out a fresh one. (A connected client is also given tokens by LiveKit itself,
 # valid ten minutes; see `presence`.).
-# (TOKULY_SPACES_TOKEN_TTL_SECONDS; restart: api, worker)
+# (TOKULY_SPACES_TOKEN_TTL_SECONDS; console; restart: api, worker)
 # token_ttl_seconds = 120
 
 # How many days ahead a room can be scheduled.
-# (TOKULY_SPACES_MAX_SCHEDULE_DAYS; restart: api, worker)
+# (TOKULY_SPACES_MAX_SCHEDULE_DAYS; console; restart: api, worker)
 # max_schedule_days = 30
 
 # Upcoming rooms one host can have at a time.
-# (TOKULY_SPACES_MAX_SCHEDULED; restart: api, worker)
+# (TOKULY_SPACES_MAX_SCHEDULED; console; restart: api, worker)
 # max_scheduled = 10
 
 # Hours after its planned start at which a room nobody started is cancelled.
-# (TOKULY_SPACES_NEVER_STARTED_HOURS; restart: api, worker)
+# (TOKULY_SPACES_NEVER_STARTED_HOURS; console; restart: api, worker)
 # never_started_hours = 24
 
 # Days ended and cancelled rooms stay in their host's history.
-# (TOKULY_SPACES_RETENTION_DAYS; restart: api, worker)
+# (TOKULY_SPACES_RETENTION_DAYS; console; restart: api, worker)
 # retention_days = 90
 
 # Days a room or hangout stays on record after its owner deleted it, and a former member's trace in
 # a hangout after they left: time in which it can still be reported and moderators can look at it.
-# (TOKULY_SPACES_EVIDENCE_DAYS; restart: api, worker)
+# (TOKULY_SPACES_EVIDENCE_DAYS; console; restart: api, worker)
 # evidence_days = 30
 
 # Seconds between two "your friend started a room" announcements of the same host. A friends room
 # started sooner goes live quietly.
-# (TOKULY_SPACES_STARTED_ANNOUNCE_SECONDS; restart: api, worker)
+# (TOKULY_SPACES_STARTED_ANNOUNCE_SECONDS; console; restart: api, worker)
 # started_announce_seconds = 1800
 
 # Emoji bursts one person may send to a room in ten seconds.
-# (TOKULY_SPACES_REACTIONS_PER_10S; restart: api, worker)
+# (TOKULY_SPACES_REACTIONS_PER_10S; console; restart: api, worker)
 # reactions_per_10s = 20
 
 # Hangouts one person may own.
-# (TOKULY_SPACES_MAX_HANGOUTS; restart: api, worker)
+# (TOKULY_SPACES_MAX_HANGOUTS; console; restart: api, worker)
 # max_hangouts = 10
 
 # Members of a hangout, open invitations included.
-# (TOKULY_SPACES_MAX_HANGOUT_MEMBERS; restart: api, worker)
+# (TOKULY_SPACES_MAX_HANGOUT_MEMBERS; console; restart: api, worker)
 # max_hangout_members = 50
 
 # Hangouts one person may be a member of.
-# (TOKULY_SPACES_MAX_HANGOUT_MEMBERSHIPS; restart: api, worker)
+# (TOKULY_SPACES_MAX_HANGOUT_MEMBERSHIPS; console; restart: api, worker)
 # max_hangout_memberships = 100
 
 # Seconds between two "someone is in the hangout" announcements of the same hangout.
-# (TOKULY_SPACES_HANGOUT_ANNOUNCE_SECONDS; restart: api, worker)
+# (TOKULY_SPACES_HANGOUT_ANNOUNCE_SECONDS; console; restart: api, worker)
 # hangout_announce_seconds = 600
 
 [community]
 
 # Communities one account may own (the creation limit).
-# (TOKULY_COMMUNITY_MAX_OWNED; restart: api, worker)
+# (TOKULY_COMMUNITY_MAX_OWNED; console; restart: api, worker)
 # max_owned = 5
 
 # Communities one account may be a member of.
-# (TOKULY_COMMUNITY_MAX_JOINED; restart: api, worker)
+# (TOKULY_COMMUNITY_MAX_JOINED; console; restart: api, worker)
 # max_joined = 200
 
 # Members one community may have (the member cap).
-# (TOKULY_COMMUNITY_MAX_MEMBERS; restart: api, worker)
+# (TOKULY_COMMUNITY_MAX_MEMBERS; console; restart: api, worker)
 # max_members = 5000
 
 # Channels one community may have.
-# (TOKULY_COMMUNITY_MAX_CHANNELS; restart: api, worker)
+# (TOKULY_COMMUNITY_MAX_CHANNELS; console; restart: api, worker)
 # max_channels = 50
 
 # Reports by different members that hide a post until the staff reviewed it. A community may choose
 # its own number.
-# (TOKULY_COMMUNITY_AUTO_HIDE_REPORTS; restart: api, worker)
+# (TOKULY_COMMUNITY_AUTO_HIDE_REPORTS; console; restart: api, worker)
 # auto_hide_reports = 3
 
 # Threads and replies one member may write per minute.
-# (TOKULY_COMMUNITY_POSTS_PER_MINUTE; restart: api, worker)
+# (TOKULY_COMMUNITY_POSTS_PER_MINUTE; console; restart: api, worker)
 # posts_per_minute = 10
 
 # Threads and replies one member may write per hour.
-# (TOKULY_COMMUNITY_POSTS_PER_HOUR; restart: api, worker)
+# (TOKULY_COMMUNITY_POSTS_PER_HOUR; console; restart: api, worker)
 # posts_per_hour = 120
 
 # Members who could have written a post before an anonymous channel takes posts: "anonymous" among
@@ -1595,108 +1595,108 @@
 
 # Days a removed thread, reply or event keeps its content and uploads, counted from its removal, so
 # that it can still be reported and acted on. After that it is purged.
-# (TOKULY_COMMUNITY_REMOVED_RETENTION_DAYS; restart: api, worker)
+# (TOKULY_COMMUNITY_REMOVED_RETENTION_DAYS; console; restart: api, worker)
 # removed_retention_days = 30
 
 # Seconds between two passes of the worker that recomputes the "hot" order of threads.
-# (TOKULY_COMMUNITY_HOT_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_COMMUNITY_HOT_INTERVAL_SECONDS; console; restart: api, worker)
 # hot_interval_seconds = 300
 
 # Seconds between two passes of the worker that recomputes which communities are trending.
-# (TOKULY_COMMUNITY_TREND_INTERVAL_SECONDS; restart: api, worker)
+# (TOKULY_COMMUNITY_TREND_INTERVAL_SECONDS; console; restart: api, worker)
 # trend_interval_seconds = 900
 
 # Seconds an event check-in code is shown before it changes.
-# (TOKULY_COMMUNITY_CHECK_IN_CODE_SECONDS; restart: api, worker)
+# (TOKULY_COMMUNITY_CHECK_IN_CODE_SECONDS; console; restart: api, worker)
 # check_in_code_seconds = 60
 
 [dev]
 
 # Personal access tokens one account may have at a time.
-# (TOKULY_DEV_MAX_TOKENS; restart: api, worker)
+# (TOKULY_DEV_MAX_TOKENS; console; restart: api, worker)
 # max_tokens = 50
 
 # OAuth applications one account may register.
-# (TOKULY_DEV_MAX_APPS; restart: api, worker)
+# (TOKULY_DEV_MAX_APPS; console; restart: api, worker)
 # max_apps = 25
 
 # Bots one person may own.
-# (TOKULY_DEV_MAX_BOTS; restart: api, worker)
+# (TOKULY_DEV_MAX_BOTS; console; restart: api, worker)
 # max_bots = 5
 
 # Tokens one bot may have at a time.
-# (TOKULY_DEV_MAX_BOT_TOKENS; restart: api, worker)
+# (TOKULY_DEV_MAX_BOT_TOKENS; console; restart: api, worker)
 # max_bot_tokens = 10
 
 # Webhooks one account (a person or a bot) may have.
-# (TOKULY_DEV_MAX_WEBHOOKS; restart: api, worker)
+# (TOKULY_DEV_MAX_WEBHOOKS; console; restart: api, worker)
 # max_webhooks = 20
 
 # Requests per minute of a token in the `standard` tier (0 = unlimited).
-# (TOKULY_DEV_RATE_STANDARD; restart: api, worker)
+# (TOKULY_DEV_RATE_STANDARD; console; restart: api, worker)
 # rate_standard = 600
 
 # Requests per minute in the `elevated` tier, which an operator gives to an application or token
 # that needs more (0 = unlimited).
-# (TOKULY_DEV_RATE_ELEVATED; restart: api, worker)
+# (TOKULY_DEV_RATE_ELEVATED; console; restart: api, worker)
 # rate_elevated = 3000
 
 # Lifetime of an OAuth access token, in seconds.
-# (TOKULY_DEV_ACCESS_TOKEN_SECONDS; restart: api, worker)
+# (TOKULY_DEV_ACCESS_TOKEN_SECONDS; console; restart: api, worker)
 # access_token_seconds = 3600
 
 # Days an OAuth refresh token stays usable (renewed on every use).
-# (TOKULY_DEV_REFRESH_TOKEN_DAYS; restart: api, worker)
+# (TOKULY_DEV_REFRESH_TOKEN_DAYS; console; restart: api, worker)
 # refresh_token_days = 90
 
 # Seconds an authorization code is valid.
-# (TOKULY_DEV_AUTH_CODE_SECONDS; restart: api, worker)
+# (TOKULY_DEV_AUTH_CODE_SECONDS; console; restart: api, worker)
 # auth_code_seconds = 60
 
 # Seconds a device has to get its code approved (RFC 8628).
-# (TOKULY_DEV_DEVICE_CODE_SECONDS; restart: api, worker)
+# (TOKULY_DEV_DEVICE_CODE_SECONDS; console; restart: api, worker)
 # device_code_seconds = 900
 
 # Seconds a device must wait between polls of the token endpoint.
-# (TOKULY_DEV_DEVICE_POLL_SECONDS; restart: api, worker)
+# (TOKULY_DEV_DEVICE_POLL_SECONDS; console; restart: api, worker)
 # device_poll_seconds = 5
 
 # Hours a rotated client secret or webhook secret keeps working.
-# (TOKULY_DEV_SECRET_OVERLAP_HOURS; restart: api, worker)
+# (TOKULY_DEV_SECRET_OVERLAP_HOURS; console; restart: api, worker)
 # secret_overlap_hours = 24
 
 # Seconds a webhook endpoint has to answer.
-# (TOKULY_DEV_WEBHOOK_TIMEOUT_SECONDS; restart: api, worker)
+# (TOKULY_DEV_WEBHOOK_TIMEOUT_SECONDS; console; restart: api, worker)
 # webhook_timeout_seconds = 10
 
 # Attempts per delivery before giving up.
-# (TOKULY_DEV_WEBHOOK_MAX_ATTEMPTS; restart: api, worker)
+# (TOKULY_DEV_WEBHOOK_MAX_ATTEMPTS; console; restart: api, worker)
 # webhook_max_attempts = 8
 
 # Pause before the first retry, in seconds; each further one waits four times longer, up to a day.
-# (TOKULY_DEV_WEBHOOK_RETRY_SECONDS; restart: api, worker)
+# (TOKULY_DEV_WEBHOOK_RETRY_SECONDS; console; restart: api, worker)
 # webhook_retry_seconds = 60
 
 # A webhook is disabled once this many attempts in a row failed...
-# (TOKULY_DEV_WEBHOOK_DISABLE_AFTER_FAILURES; restart: api, worker)
+# (TOKULY_DEV_WEBHOOK_DISABLE_AFTER_FAILURES; console; restart: api, worker)
 # webhook_disable_after_failures = 20
 
 # ...and it has been failing for at least this many hours.
-# (TOKULY_DEV_WEBHOOK_DISABLE_AFTER_HOURS; restart: api, worker)
+# (TOKULY_DEV_WEBHOOK_DISABLE_AFTER_HOURS; console; restart: api, worker)
 # webhook_disable_after_hours = 48
 
 # Deliveries per minute that one person's webhooks (their bots' included) may send to one host;
 # events beyond that are dropped. Bounds what a webhook can be made to throw at somebody else's
 # server. 0 = unlimited.
-# (TOKULY_DEV_WEBHOOK_RATE_PER_MINUTE; restart: api, worker)
+# (TOKULY_DEV_WEBHOOK_RATE_PER_MINUTE; console; restart: api, worker)
 # webhook_rate_per_minute = 120
 
 # Days the record of who owned a deleted bot is kept, counted from the deletion.
-# (TOKULY_DEV_BOT_RECORD_DAYS; restart: api, worker)
+# (TOKULY_DEV_BOT_RECORD_DAYS; console; restart: api, worker)
 # bot_record_days = 180
 
 # Days the delivery log is kept.
-# (TOKULY_DEV_WEBHOOK_LOG_DAYS; restart: api, worker)
+# (TOKULY_DEV_WEBHOOK_LOG_DAYS; console; restart: api, worker)
 # webhook_log_days = 30
 
 # Development and tests: let webhooks use `http://` and reach private, loopback and link-local
@@ -1707,40 +1707,40 @@
 [engagement]
 
 # Comments (and replies) one user may write per minute.
-# (TOKULY_ENGAGEMENT_COMMENTS_PER_MINUTE; restart: api, worker)
+# (TOKULY_ENGAGEMENT_COMMENTS_PER_MINUTE; console; restart: api, worker)
 # comments_per_minute = 10
 
 # Comments (and replies) one user may write per hour.
-# (TOKULY_ENGAGEMENT_COMMENTS_PER_HOUR; restart: api, worker)
+# (TOKULY_ENGAGEMENT_COMMENTS_PER_HOUR; console; restart: api, worker)
 # comments_per_hour = 120
 
 # Reports one user may file per hour.
-# (TOKULY_ENGAGEMENT_REPORTS_PER_HOUR; restart: api, worker)
+# (TOKULY_ENGAGEMENT_REPORTS_PER_HOUR; console; restart: api, worker)
 # reports_per_hour = 20
 
 # Days after which an unanswered report no longer stops its reporter from reporting the same subject
 # again.
-# (TOKULY_ENGAGEMENT_REPORT_REPEAT_DAYS; restart: api, worker)
+# (TOKULY_ENGAGEMENT_REPORT_REPEAT_DAYS; console; restart: api, worker)
 # report_repeat_days = 7
 
 # Bookmark collections one user may have, counting the default one.
-# (TOKULY_ENGAGEMENT_MAX_COLLECTIONS; restart: api, worker)
+# (TOKULY_ENGAGEMENT_MAX_COLLECTIONS; console; restart: api, worker)
 # max_collections = 100
 
 # Subjects one bookmark collection may hold.
-# (TOKULY_ENGAGEMENT_MAX_BOOKMARKS; restart: api, worker)
+# (TOKULY_ENGAGEMENT_MAX_BOOKMARKS; console; restart: api, worker)
 # max_bookmarks = 5000
 
 # Distinct emoji one subject may carry. Once reached, only emoji already on it can be added
 # (Discord's rule for messages).
-# (TOKULY_ENGAGEMENT_REACTION_EMOJI_PER_SUBJECT; restart: api, worker)
+# (TOKULY_ENGAGEMENT_REACTION_EMOJI_PER_SUBJECT; console; restart: api, worker)
 # reaction_emoji_per_subject = 50
 
 # Emoji one person may hold at once on a subject that takes several.
-# (TOKULY_ENGAGEMENT_REACTIONS_PER_PERSON; restart: api, worker)
+# (TOKULY_ENGAGEMENT_REACTIONS_PER_PERSON; console; restart: api, worker)
 # reactions_per_person = 20
 
 # Subject types on which one person may hold several distinct emoji (`SubjectType` names without the
 # `SUBJECT_TYPE_` prefix, comma separated). Every other type takes one reaction per person.
-# (TOKULY_ENGAGEMENT_MULTI_REACTION_TYPES; restart: api, worker)
+# (TOKULY_ENGAGEMENT_MULTI_REACTION_TYPES; console; restart: api, worker)
 # multi_reaction_types = ["COMMUNITY_THREAD", "COMMUNITY_REPLY", "COMMUNITY_EVENT", "PLAN"]

@@ -34,7 +34,7 @@ struct Demo {
     /// Set in the environment by the test.
     #[arg(long = "demo-envd", env = "TOKULY_DEMO_ENVD", default_value = "a")]
     envd: String,
-    /// A bootstrap setting.
+    /// Not a console setting.
     #[arg(long = "demo-listen", env = "TOKULY_DEMO_LISTEN", default_value = "0.0.0.0:1")]
     listen: String,
     /// Edited on its own screen.
@@ -66,19 +66,19 @@ fn registry() -> Arc<Registry> {
     let core = SectionSpec::new("core", Config::augment_args)
         .processes(&[Process::Api, Process::Realtime, Process::Worker])
         .live(&["rate_limits"])
-        .bootstrap(&["secret", "database_url"])
+        .editable(&["mail_from"])
         .check(|m, _| {
             use clap::FromArgMatches as _;
             Config::from_arg_matches(m)?.validate()
         });
-    let spare = SectionSpec::new("spare", Spare::augment_args).check(|m, _| {
+    let spare = SectionSpec::new("spare", Spare::augment_args).editable(&["floor", "other"]).check(|m, _| {
         use clap::FromArgMatches as _;
         anyhow::ensure!(Spare::from_arg_matches(m)?.floor >= 1, "TOKULY_SPARE_FLOOR must be at least 1");
         Ok(())
     });
     let demo = SectionSpec::new("demo", Demo::augment_args)
         .live(&["limit"])
-        .bootstrap(&["listen"])
+        .editable(&["limit", "slow", "token", "filed", "envd", "ai_model", "min", "note", "race"])
         .managed(&[("ai_", "/admin/chat-ai")])
         .check(|m, _| {
             use clap::FromArgMatches as _;
@@ -150,7 +150,7 @@ async fn every_source_is_shown_and_the_console_sits_below_file_and_environment()
         Some(ServerSettingLock::SERVER_SETTING_LOCK_OVERRIDDEN)
     ));
     assert_eq!(by_key["envd"].source.as_known(), Some(ServerSettingSource::SERVER_SETTING_SOURCE_ENVIRONMENT));
-    assert_eq!(by_key["listen"].lock.as_known(), Some(ServerSettingLock::SERVER_SETTING_LOCK_BOOTSTRAP));
+    assert_eq!(by_key["listen"].lock.as_known(), Some(ServerSettingLock::SERVER_SETTING_LOCK_FILE_ONLY));
     let managed = &by_key["ai_model"];
     assert_eq!((managed.lock.as_known(), managed.managed_at.as_str()), (Some(ServerSettingLock::SERVER_SETTING_LOCK_MANAGED_ELSEWHERE), "/admin/chat-ai"));
     let slow = &by_key["slow"];
@@ -163,7 +163,7 @@ async fn every_source_is_shown_and_the_console_sits_below_file_and_environment()
         let err = update(&app, &boss, key, "x").await.unwrap_err();
         assert_eq!(err.reason, "SETTING_LOCKED", "{key}");
     }
-    assert_eq!(update(&app, &boss, "listen", "0.0.0.0:2").await.unwrap_err().reason, "SETTING_BOOTSTRAP");
+    assert_eq!(update(&app, &boss, "listen", "0.0.0.0:2").await.unwrap_err().reason, "SETTING_FILE_ONLY");
     assert_eq!(update(&app, &boss, "ai_model", "other").await.unwrap_err().reason, "SETTING_MANAGED_ELSEWHERE");
     assert_eq!(update(&app, &boss, "nope", "1").await.unwrap_err().reason, "SETTING_NOT_FOUND");
     // The type, and the domain's own rules.
@@ -175,7 +175,7 @@ async fn every_source_is_shown_and_the_console_sits_below_file_and_environment()
     assert_eq!(update(&app, &boss, "note", &"x".repeat(17 * 1024)).await.unwrap_err().reason, "SETTING_TOO_LONG");
     let bootstrap = UpdateServerSettingRequest { section: "core".into(), key: "secret".into(), value: "y".repeat(40), ..Default::default() };
     let err = app.call::<_, UpdateServerSettingResponse>(&format!("{SETTINGS}/UpdateServerSetting"), Some(&boss), &bootstrap).await.unwrap_err();
-    assert_eq!(err.reason, "SETTING_BOOTSTRAP");
+    assert_eq!(err.reason, "SETTING_FILE_ONLY");
 }
 
 #[tokio::test]
@@ -281,14 +281,15 @@ async fn console_values_that_break_their_section_are_set_aside() {
     assert_eq!((current.floor, current.other), (2, 5));
 }
 
+/// Switching the rate limits off is not the console's to do.
 #[tokio::test]
-async fn the_rate_limits_switch_is_live() {
+async fn settings_a_domain_did_not_allow_are_refused() {
     let (app, boss) = start_settings().await;
-    let request = |value: &str| UpdateServerSettingRequest { section: "core".into(), key: "rate_limits".into(), value: value.into(), ..Default::default() };
-    let _: UpdateServerSettingResponse = app.call(&format!("{SETTINGS}/UpdateServerSetting"), Some(&boss), &request("false")).await.unwrap();
-    assert!(!app.core.cache.enforces_rate_limits());
-    reset(&app, &boss, "core", "rate_limits").await;
-    assert!(app.core.cache.enforces_rate_limits());
+    let request = UpdateServerSettingRequest { section: "core".into(), key: "rate_limits".into(), value: "false".into(), ..Default::default() };
+    let err = app.call::<_, UpdateServerSettingResponse>(&format!("{SETTINGS}/UpdateServerSetting"), Some(&boss), &request).await.unwrap_err();
+    assert_eq!(err.reason, "SETTING_FILE_ONLY");
+    let rate_limits = list(&app, &boss).await.settings.into_iter().find(|s| s.section == "core" && s.key == "rate_limits").unwrap();
+    assert_eq!(rate_limits.lock.as_known(), Some(ServerSettingLock::SERVER_SETTING_LOCK_FILE_ONLY));
 }
 
 #[tokio::test]

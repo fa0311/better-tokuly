@@ -658,7 +658,7 @@ export default {
   settings: {
     title: "サーバー設定",
     intro:
-      "設定は「環境変数 → tokuly.toml → この画面 → 既定値」の順に優先されるよ。環境変数や tokuly.toml で決まっている設定はここでは変えられないので、ロックの理由を見てね。",
+      "設定は「環境変数 → tokuly.toml → この画面 → 既定値」の順に優先されるよ。ここで変えられるのは上限や調整用の設定だけ。ほかの設定や、環境変数・tokuly.toml で決まっている設定はロックされていて、理由が書いてあるよ。",
     file: "読み込んだ設定ファイル: {{path}}",
     noFile: "設定ファイル（tokuly.toml）は読み込まれていないよ",
     related: "専用の画面がある設定",
@@ -697,7 +697,7 @@ export default {
     restart: "再起動で反映（{{processes}}）",
     restartPending: "再起動で反映されるよ（{{processes}}）",
     lock: {
-      bootstrap: "起動に必要な設定なので、環境変数か tokuly.toml でだけ変えられるよ",
+      fileOnly: "tokuly.toml か環境変数で設定してね",
       overridden: "{{source}}で決まっているので、ここでは変えられないよ",
       managed: "この設定は専用の画面で変更してね",
     },
@@ -859,7 +859,7 @@ export default {
     TIME_RANGE_INVALID: "期間の指定が正しくありません",
     SETTING_NOT_FOUND: "この設定は見つからなかったよ",
     SETTING_LOCKED: "環境変数か tokuly.toml で決まっているので、ここでは変えられないよ",
-    SETTING_BOOTSTRAP: "起動に必要な設定は、環境変数か tokuly.toml でだけ変えられるよ",
+    SETTING_FILE_ONLY: "この設定は tokuly.toml か環境変数で設定してね",
     SETTING_MANAGED_ELSEWHERE: "この設定は専用の画面で変更してね",
     SETTING_INVALID: "その値は使えないよ",
     SETTING_TOO_LONG: "値が長すぎるよ",

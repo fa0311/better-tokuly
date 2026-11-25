@@ -115,3 +115,21 @@ impl SchoolConfig {
         Ok(())
     }
 }
+
+impl SchoolConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "session_idle_seconds",
+        "heartbeat_interval_seconds",
+        "session_max_pause_seconds",
+        "session_max_seconds",
+        "room_empty_close_seconds",
+        "room_default_member_cap",
+        "assignment_evening_hour",
+        "sweep_interval_seconds",
+    ];
+}

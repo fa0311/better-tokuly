@@ -68,3 +68,20 @@ impl IdentityConfig {
         !self.spotify_client_id.is_empty() && !self.spotify_client_secret.is_empty()
     }
 }
+
+impl IdentityConfig {
+    /// The settings the staff console (「サーバー設定」) may change, by
+    /// `tokuly.toml` key. Everything else is set in tokuly.toml or the
+    /// environment only: addresses, credentials, egress guards, paths,
+    /// money and privacy floors never belong here (backend/README.md,
+    /// "Declaring a setting").
+    pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
+        "registration_open",
+        "session_days",
+        "deletion_grace_days",
+        "device_account_limit",
+        "account_switch_mfa_hours",
+        "spotify_client_id",
+        "spotify_client_secret",
+    ];
+}

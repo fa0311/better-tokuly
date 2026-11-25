@@ -700,7 +700,7 @@ export default {
     restart: "Applies on restart ({{processes}})",
     restartPending: "Restart to apply ({{processes}})",
     lock: {
-      bootstrap: "Needed to start, so only the environment or tokuly.toml can change it",
+      fileOnly: "Set this in tokuly.toml or the environment",
       overridden: "{{source}} sets it, so it cannot be changed here",
       managed: "This setting is changed on its own page",
     },
@@ -862,8 +862,7 @@ export default {
     TIME_RANGE_INVALID: "That time range is not valid",
     SETTING_NOT_FOUND: "This setting was not found",
     SETTING_LOCKED: "The environment or tokuly.toml sets this, so it cannot be changed here",
-    SETTING_BOOTSTRAP:
-      "Settings needed to start can only be changed in the environment or tokuly.toml",
+    SETTING_FILE_ONLY: "This setting is set in tokuly.toml or the environment",
     SETTING_MANAGED_ELSEWHERE: "This setting is changed on its own page",
     SETTING_INVALID: "That value cannot be used",
     SETTING_TOO_LONG: "That value is too long",
