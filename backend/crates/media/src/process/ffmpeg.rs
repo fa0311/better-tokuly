@@ -69,6 +69,16 @@ impl Args {
         self.args(["-protocol_whitelist", "file"]).arg("-i").arg(path)
     }
 
+    /// [`Args::input`] that reads at most `seconds` of the file (`-t` on the
+    /// input), whatever its header claims: what a purpose's length limit
+    /// allows is all that is ever decoded or written.
+    pub fn input_up_to(self, path: &Path, seconds: Option<f64>) -> Self {
+        match seconds {
+            Some(seconds) => self.arg("-t").arg(format!("{seconds:.3}")).input(path),
+            None => self.input(path),
+        }
+    }
+
     /// `-i <playlist>` for an HLS playlist we wrote ourselves (its segments
     /// are local files; the HLS demuxer needs `crypto` allowed too).
     pub fn input_playlist(self, path: &Path) -> Self {
@@ -94,6 +104,9 @@ pub struct Probe {
     pub duration: f64,
     pub video: Option<VideoStream>,
     pub audio: Option<AudioStream>,
+    /// An MP4/QuickTime family container (`mov,mp4,m4a,3gp…`), whose edit
+    /// lists can trim what plays.
+    pub mov: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -131,6 +144,8 @@ struct RawProbe {
 #[derive(Deserialize, Default)]
 struct RawFormat {
     duration: Option<String>,
+    #[serde(default)]
+    format_name: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -249,7 +264,8 @@ pub fn parse_probe(json: &[u8]) -> Result<Probe, String> {
     let duration = seconds(&raw.format.duration)
         .or_else(|| raw.streams.iter().filter(|s| matches!(s.codec_type.as_str(), "video" | "audio")).filter_map(|s| seconds(&s.duration)).reduce(f64::max))
         .unwrap_or(0.0);
-    Ok(Probe { duration, video, audio })
+    let mov = raw.format.format_name.split(',').any(|name| name == "mov");
+    Ok(Probe { duration, video, audio, mov })
 }
 
 /// Reads `out_time_us=…` (microseconds of output written) from a line of
@@ -432,8 +448,18 @@ impl Ffmpeg {
 
     /// Measures a file's duration by remuxing it to nowhere, for containers
     /// that do not record one. Reads every packet but decodes nothing.
-    pub async fn measure_duration(&self, path: &Path, timeout: Duration) -> ProcessResult<f64> {
-        let args = Args::new().args(["-progress", "pipe:1"]).input(path).args(["-map", "0", "-c", "copy", "-f", "null", "-"]);
+    ///
+    /// `ignore_editlist` (MP4/QuickTime only: other demuxers do not know the
+    /// option) counts every packet, not just what the edit list lets play:
+    /// an edit list can trim playback to anything it likes.
+    pub async fn measure_duration(&self, path: &Path, ignore_editlist: bool, timeout: Duration) -> ProcessResult<f64> {
+        let mut args = Args::new().args(["-progress", "pipe:1"]);
+        if ignore_editlist {
+            args = args.args(["-ignore_editlist", "1"]);
+        }
+        let args = args
+            .input(path)
+            .args(["-map", "0", "-c", "copy", "-f", "null", "-"]);
         let mut child = self.command(args).spawn().map_err(|e| Self::spawn_error(&self.ffmpeg, e))?;
         let stdout = child.stdout.take().expect("stdout is piped");
         let run = async {
@@ -512,7 +538,7 @@ mod tests {
         assert!(!parse_probe(half_tagged).unwrap().video.unwrap().hdr);
 
         assert!(parse_probe(b"not json").is_err());
-        assert_eq!(parse_probe(b"{}").unwrap(), Probe { duration: 0.0, video: None, audio: None });
+        assert_eq!(parse_probe(b"{}").unwrap(), Probe { duration: 0.0, video: None, audio: None, mov: false });
     }
 
     #[test]

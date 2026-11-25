@@ -88,9 +88,14 @@ the asset fails with `PROCESSING_FAILED`; a rejected input fails at once.
 
 ### How long a recording may be
 
-Checked on the probed duration, before anything is transcoded; a longer
-upload fails with `MEDIA_TOO_LONG` (1 s of slack for recorders that stop a
-few frames late). The limit is in `CreateUploadResponse.max_duration_seconds`
+Checked before anything is transcoded, on the longest of what the container
+header claims, the packets' timestamps (read without decoding, MP4 edit
+lists ignored) and, for voice messages, the decoded length: a header or an
+edit list that understates the length does not get a recording through. A
+longer upload fails with `MEDIA_TOO_LONG` (1 s of slack for recorders that
+stop a few frames late). Every encoder also reads at most the limit plus
+that slack (`-t` on the input), and the daily transcoding budget is charged
+with the measured length. The limit is in `CreateUploadResponse.max_duration_seconds`
 and `Asset.max_duration_seconds`, so clients can say what it is.
 
 | Purpose | Longest |

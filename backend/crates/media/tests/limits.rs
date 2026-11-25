@@ -109,3 +109,46 @@ async fn the_daily_transcoding_budget_is_per_account_and_cannot_be_raced() {
     let asset = h.get_asset(&bob, &theirs.id).await.unwrap();
     assert_eq!(asset.status, AssetStatus::ASSET_STATUS_READY, "{}", asset.error);
 }
+
+/// Writes a copy of `path` whose MP4 header claims `seconds`, and checks the
+/// forgery took (ffprobe believes it).
+async fn forged(path: &std::path::Path, seconds: u32) -> std::path::PathBuf {
+    let out = path.with_file_name(format!("forged-{}", path.file_name().unwrap().to_string_lossy()));
+    tokio::fs::write(&out, forge_mp4_duration(read(path).await, seconds)).await.unwrap();
+    let claimed = probed_seconds(&out).await;
+    assert!((claimed - f64::from(seconds)).abs() < 1.0, "the forged header claims {claimed} s");
+    out
+}
+
+#[tokio::test]
+async fn a_header_that_lies_about_the_length_does_not_get_a_recording_through() {
+    let h = start().await;
+    let alice = h.app.user("alice").await;
+    let dir = fixture_dir();
+
+    // 120 s of video that says it lasts 10 s: still too long for a story.
+    let long = video(dir.path(), "long.mp4", tiny(120)).await;
+    let lying = forged(&long, 10).await;
+    let asset = processed(&h, &alice, AssetPurpose::ASSET_PURPOSE_STORY, &lying).await;
+    assert!(failed_as(&asset, "MEDIA_TOO_LONG"), "{:?} {}", asset.status, asset.error);
+
+    // The same for a voice message: 6 minutes claiming 10 s.
+    let voice = tone(dir.path(), "voice.m4a", 360).await;
+    let lying = forged(&voice, 10).await;
+    let uploaded = h.upload(&alice, AssetPurpose::ASSET_PURPOSE_CHAT_AUDIO, "voice.m4a", "audio/mp4", read(&lying).await).await;
+    h.media.process_now(asset_id(&uploaded)).await.unwrap();
+    let asset = h.get_asset(&alice, &uploaded.id).await.unwrap();
+    assert!(failed_as(&asset, "MEDIA_TOO_LONG"), "{:?} {}", asset.status, asset.error);
+}
+
+#[tokio::test]
+async fn the_budget_is_charged_with_the_real_length() {
+    // One minute a day; the file says 10 s but plays for 90.
+    let h = start_with(MediaConfig { daily_transcode_minutes: 1, ..MediaConfig::default() }).await;
+    let alice = h.app.user("alice").await;
+    let dir = fixture_dir();
+    let long = video(dir.path(), "long.mp4", tiny(90)).await;
+    let lying = forged(&long, 10).await;
+    let asset = processed(&h, &alice, AssetPurpose::ASSET_PURPOSE_VIDEO, &lying).await;
+    assert!(failed_as(&asset, "DAILY_TRANSCODE_LIMIT_EXCEEDED"), "{:?} {}", asset.status, asset.error);
+}

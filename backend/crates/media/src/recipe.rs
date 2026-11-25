@@ -177,7 +177,13 @@ pub fn new_asset_attrs(max_duration_seconds: Option<i64>, server_made: bool) -> 
     attrs.into()
 }
 
-/// Whether `duration` (probed, in seconds) is longer than `purpose` takes.
+/// The most of a recording of `purpose` that processing ever reads: its
+/// limit plus the tolerance. `None` where the purpose has no limit.
+pub fn read_limit_seconds(cfg: &MediaConfig, purpose: AssetPurpose) -> Option<f64> {
+    max_duration_seconds(cfg, purpose).map(|max| max as f64 + DURATION_TOLERANCE_SECONDS)
+}
+
+/// Whether `duration` (measured, in seconds) is longer than `purpose` takes.
 pub fn too_long(cfg: &MediaConfig, purpose: AssetPurpose, duration: f64) -> bool {
     max_duration_seconds(cfg, purpose).is_some_and(|max| duration > max as f64 + DURATION_TOLERANCE_SECONDS)
 }

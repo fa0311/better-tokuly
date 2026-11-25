@@ -320,3 +320,48 @@ pub async fn tone(dir: &Path, name: &str, seconds: u32) -> PathBuf {
 pub async fn read(path: &Path) -> Vec<u8> {
     tokio::fs::read(path).await.expect("read fixture")
 }
+
+/// Rewrites the durations an MP4 declares (`mvhd`, `tkhd`, `mdhd`, `elst`)
+/// to `seconds`, leaving the samples alone: a file whose header says it is
+/// short while it plays for as long as it did.
+pub fn forge_mp4_duration(mut bytes: Vec<u8>, seconds: u32) -> Vec<u8> {
+    fn read(bytes: &[u8], at: usize, wide: bool) -> u64 {
+        if wide { u64::from_be_bytes(bytes[at..at + 8].try_into().unwrap()) } else { u64::from(u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap())) }
+    }
+    fn write(bytes: &mut [u8], at: usize, wide: bool, value: u64) {
+        if wide { bytes[at..at + 8].copy_from_slice(&value.to_be_bytes()) } else { bytes[at..at + 4].copy_from_slice(&(value as u32).to_be_bytes()) }
+    }
+    let find = |bytes: &[u8], tag: &[u8]| -> Vec<usize> { bytes.windows(4).enumerate().filter(|(_, w)| *w == tag).map(|(i, _)| i).collect() };
+    // Movie timescale first: tkhd and elst count in it.
+    let mvhd = find(&bytes, b"mvhd")[0];
+    let wide = bytes[mvhd + 4] == 1;
+    let (scale_at, duration_at) = if wide { (mvhd + 24, mvhd + 28) } else { (mvhd + 16, mvhd + 20) };
+    let movie_scale = read(&bytes, scale_at, false);
+    write(&mut bytes, duration_at, wide, movie_scale * u64::from(seconds));
+    for tkhd in find(&bytes, b"tkhd") {
+        let wide = bytes[tkhd + 4] == 1;
+        write(&mut bytes, if wide { tkhd + 32 } else { tkhd + 24 }, wide, movie_scale * u64::from(seconds));
+    }
+    for mdhd in find(&bytes, b"mdhd") {
+        let wide = bytes[mdhd + 4] == 1;
+        let (scale_at, duration_at) = if wide { (mdhd + 24, mdhd + 28) } else { (mdhd + 16, mdhd + 20) };
+        let scale = read(&bytes, scale_at, false);
+        write(&mut bytes, duration_at, wide, scale * u64::from(seconds));
+    }
+    for elst in find(&bytes, b"elst") {
+        let wide = bytes[elst + 4] == 1;
+        write(&mut bytes, elst + 12, wide, movie_scale * u64::from(seconds));
+    }
+    bytes
+}
+
+/// What ffprobe says a file lasts (the container's claim).
+pub async fn probed_seconds(path: &Path) -> f64 {
+    let output = tokio::process::Command::new("ffprobe")
+        .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"])
+        .arg(path)
+        .output()
+        .await
+        .expect("ffprobe must be on PATH to run the media tests");
+    String::from_utf8_lossy(&output.stdout).trim().parse().unwrap_or(0.0)
+}
