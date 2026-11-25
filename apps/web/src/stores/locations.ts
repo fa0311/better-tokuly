@@ -1,16 +1,8 @@
 import type { geo } from "@tokuly/api";
-import { fromSnapshot, withLocation, withoutFriend } from "@tokuly/core/map";
+import { fromSnapshot, type OwnPosition, withLocation, withoutFriend } from "@tokuly/core/map";
 import { create } from "zustand";
 
-/** The device's own position as last read from the browser. */
-export interface OwnPosition {
-  lat: number;
-  lng: number;
-  accuracyMeters: number;
-  speedMps: number | null;
-  headingDegrees: number | null;
-  recordedAt: number;
-}
+export type { OwnPosition } from "@tokuly/core/map";
 
 interface LocationsStore {
   /** Friends' latest locations by user ID, as the server lets us see them. */

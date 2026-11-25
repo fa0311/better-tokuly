@@ -1,0 +1,49 @@
+appId: app.tokuly.mobile
+name: Sign up, sign out, sign in again
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- launchApp:
+    clearState: true
+- evalScript: ${output.handle = 'm' + Date.now().toString(36)}
+- tapOn: { id: "welcome-sign-up" }
+- tapOn: { id: "sign-up-display-name" }
+- inputText: "Maestro"
+- tapOn: { id: "sign-up-handle" }
+- inputText: ${output.handle}
+- tapOn: { id: "sign-up-email" }
+- inputText: ${output.handle + '@e2e.tokuly.test'}
+- tapOn: { id: "sign-up-password" }
+- inputText: ${PASSWORD}
+- tapOn: { id: "sign-up-birthdate" }
+- inputText: "2008-04-01"
+- hideKeyboard
+- scrollUntilVisible:
+    element: { id: "sign-up-submit" }
+- tapOn: { id: "sign-up-terms" }
+- tapOn: { id: "sign-up-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+
+- tapOn: { id: "tab-me" }
+- extendedWaitUntil:
+    visible: ${'@' + output.handle}
+    timeout: 15000
+- tapOn: { id: "me-settings" }
+- tapOn: { id: "settings-sign-out" }
+- tapOn: "(Sign out|ログアウト)"
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 15000
+
+- tapOn: { id: "welcome-sign-in" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.handle}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000

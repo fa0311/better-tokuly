@@ -8,6 +8,7 @@ import errors from "./errors";
 import follows from "./follows";
 import friends from "./friends";
 import map from "./map";
+import mobile from "./mobile";
 import notifications from "./notifications";
 import profile from "./profile";
 import shorts from "./shorts";
@@ -26,4 +27,5 @@ export default {
   stories,
   shorts,
   profile,
+  mobile,
 };

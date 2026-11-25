@@ -19,7 +19,7 @@ Code that every Tokuly app (web, mobile, desktop) runs the same way.
 | `@tokuly/core/session`       | device accounts                                                               |
 | `@tokuly/core/profile`       | profile keys and options, the viewer's relationship                           |
 | `@tokuly/core/friends`       | follow and circle keys, the follow summary, what to re-read after a change    |
-| `@tokuly/core/map`           | map keys, pin and ghost rules, clustering, polylines, live location edits     |
+| `@tokuly/core/map`           | map keys, pin and ghost rules, clustering, live edits, fix reporting, style   |
 | `@tokuly/core/chat`          | chat keys, limits, message rules, the message window, tokens, times, previews |
 | `@tokuly/core/notifications` | notify keys, unread counts, inbox cache edits, inbox times                    |
 | `@tokuly/core/stories`       | story keys and options, story cache edits                                     |

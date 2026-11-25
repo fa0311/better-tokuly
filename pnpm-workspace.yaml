@@ -9,6 +9,7 @@ allowBuilds:
   '@tailwindcss/oxide': true
   esbuild: true
   sharp: true
+  '@parcel/watcher': false
 
 # Single source of truth for dependency versions shared across the monorepo.
 # Reference with `"<pkg>": "catalog:"` in a package.json.
@@ -72,6 +73,7 @@ catalog:
   maplibre-gl: 6.19.0
   pmtiles: 4.5.0
   "@protomaps/basemaps": 5.7.2
+  "@maplibre/maplibre-gl-style-spec": 26.8.0
   h3-js: 4.5.0
   supercluster: 9.1.0
 

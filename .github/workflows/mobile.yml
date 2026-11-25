@@ -1,0 +1,166 @@
+# The phone app (apps/mobile): type check, lint, component tests and the JS
+# bundles of both platforms on every change; then an Android build that runs
+# the Maestro flows (apps/mobile/maestro) on an emulator against the real
+# Compose stack.
+#
+# Memory: the runners have 16 GB. The Gradle build comes first and its daemon
+# is stopped before the stack starts; the stack, the emulator (3 GB) and
+# Maestro then share what is left.
+name: Mobile
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - apps/mobile/**
+      - packages/**
+      - proto/**
+      - pnpm-lock.yaml
+      - .github/workflows/mobile.yml
+  push:
+    branches: [main]
+    paths:
+      - apps/mobile/**
+      - packages/**
+      - proto/**
+      - pnpm-lock.yaml
+      - .github/workflows/mobile.yml
+
+# A newer push to a pull request replaces its run. On main a run that has started
+# finishes, so every result is seen; only runs still waiting are replaced.
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  checks:
+    name: Type check, lint, tests, bundles
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate the API client
+        run: pnpm proto:gen
+      - name: Type check
+        run: pnpm --filter @tokuly/mobile typecheck
+      - name: Format and lint
+        run: pnpm --filter @tokuly/mobile lint
+      - name: Component tests
+        run: pnpm --filter @tokuly/mobile test --ci
+      - name: JS bundles (Android and iOS)
+        run: pnpm --filter @tokuly/mobile export
+
+  maestro:
+    name: Maestro on an Android emulator
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      TOKULY_VERSION: edge
+      # The same edge proxy, seen from two places: the app on the emulator reaches the host
+      # at 10.0.2.2; Maestro's scripts (which arrange accounts) run on the runner itself.
+      APP_SERVER: http://10.0.2.2
+      SCRIPT_SERVER: http://localhost
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: changed
+        with:
+          filters: |
+            server:
+              - 'backend/**'
+              - 'proto/**'
+              - 'infra/**'
+              - 'compose.yaml'
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: pnpm install --frozen-lockfile
+      - name: Generate the API client
+        run: pnpm proto:gen
+
+      # A release build carries its JS bundle, built for the address the emulator sees.
+      - name: Build the Android app
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_TOKULY_URL: ${{ env.APP_SERVER }}
+          GRADLE_OPTS: -Xmx3g -Dorg.gradle.workers.max=2
+        run: |
+          pnpm exec expo prebuild --platform android --no-install
+          cd android
+          ./gradlew assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon
+          ./gradlew --stop || true
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/tokuly.apk"
+
+      - name: Write .env
+        run: |
+          tools/init-env.sh
+          # As in the browser tests: a small map region and no request limits (the flows make
+          # their accounts from one address). The public address is the one the emulator sees,
+          # so the API hands out realtime and media URLs it can reach.
+          sed -i 's/^TOKULY_MAP_REGION_BBOX=.*/TOKULY_MAP_REGION_BBOX=139.695,35.655,139.705,35.665/; s/^TOKULY_MAP_REGION_MAXZOOM=.*/TOKULY_MAP_REGION_MAXZOOM=12/; s|^TOKULY_PUBLIC_URL=.*|TOKULY_PUBLIC_URL=http://10.0.2.2|' .env
+          echo 'TOKULY_RATE_LIMITS=false' >> .env
+
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the images this change touches
+        if: steps.changed.outputs.server == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          # The backend alone first (see images.yml: in parallel with the web build it ran out of memory).
+          docker compose build --build-arg CARGO_BUILD_JOBS=4 migrate
+          docker compose build
+      - name: Start the stack
+        run: tools/ci/stack-up.sh
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Maestro flows
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          ram-size: 3072M
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none
+          script: |
+            adb install "$RUNNER_TEMP/tokuly.apk"
+            maestro test apps/mobile/maestro --env SERVER=${{ env.SCRIPT_SERVER }} --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro"
+
+      - name: Keep the Maestro output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: maestro
+          path: ${{ runner.temp }}/maestro*
+          retention-days: 7
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          free -m
+          docker compose ps -a
+          docker compose logs --tail 200 api realtime edge
