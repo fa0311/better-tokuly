@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { shorts } from "@tokuly/api";
+import { shortSubject } from "@tokuly/core/shorts";
 import {
   BarChart3,
   Bookmark,
@@ -30,7 +31,6 @@ import {
 } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { useNotInterested, useSaveShort, useShareShort, useShortLike } from "../actions";
-import { shortSubject } from "../model";
 import { RemixesDialog } from "../remixes-dialog";
 
 /** One control of the rail: an icon in a round target with its count underneath. */

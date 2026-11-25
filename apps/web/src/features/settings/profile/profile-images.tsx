@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type identity, media } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { Camera, Trash2 } from "lucide-react";
 import { type ChangeEvent, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -38,7 +39,7 @@ export function ProfileImages({ me }: { me: identity.Me }) {
 
   const applied = (response: identity.UpdateProfileResponse) => {
     adoptMe(response.me);
-    void queryClient.invalidateQueries({ queryKey: ["identity", "profile"] });
+    void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
   };
 
   const upload = useMutation({

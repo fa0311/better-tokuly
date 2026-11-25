@@ -1,5 +1,6 @@
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { shorts } from "@tokuly/api";
+import { shortKeys } from "@tokuly/core/shorts";
 import { api } from "#/lib/api";
 
 export const shortClient = () => api().service(shorts.ShortService);
@@ -7,22 +8,8 @@ export const feedClient = () => api().service(shorts.ShortFeedService);
 export const discoveryClient = () => api().service(shorts.ShortDiscoveryService);
 export const analyticsClient = () => api().service(shorts.ShortAnalyticsService);
 
-/** Query keys of the shorts domain. Everything starts with `"shorts"`, so one invalidation reaches all of it. */
-export const shortKeys = {
-  all: ["shorts"] as const,
-  short: (shortId: string) => ["shorts", "short", shortId] as const,
-  feeds: ["shorts", "feed"] as const,
-  lists: ["shorts", "list"] as const,
-  mine: (channelId: string, status: shorts.ShortStatus) =>
-    ["shorts", "list", "mine", channelId, status] as const,
-  hashtag: (tag: string) => ["shorts", "hashtag", tag] as const,
-  trendingHashtags: ["shorts", "hashtag", "trending"] as const,
-  hashtagSuggestions: (prefix: string) => ["shorts", "hashtag", "suggest", prefix] as const,
-  sound: (soundId: string) => ["shorts", "sound", soundId] as const,
-  soundSuggestions: (query: string) => ["shorts", "sound", "suggest", query] as const,
-  analytics: (kind: "short" | "channel", id: string, start: string, end: string) =>
-    ["shorts", "analytics", kind, id, start, end] as const,
-};
+// The shorts keys live in `@tokuly/core/shorts`; the folder reads them from here.
+export { shortKeys };
 
 /** One short as the viewer may see it. `shortId` is the UUID or the 11-character ID. */
 export function useShort(shortId: string | undefined) {
@@ -34,10 +21,7 @@ export function useShort(shortId: string | undefined) {
   });
 }
 
-/** `getNextPageParam` for the API's cursor pages. */
-export function nextCursor(last: { page?: { nextCursor: string } }): string | undefined {
-  return last.page?.nextCursor || undefined;
-}
+export { nextCursor } from "@tokuly/core/query";
 
 // ───────────────────────────── Cache patching ─────────────────────────────
 

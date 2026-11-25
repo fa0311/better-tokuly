@@ -1,4 +1,5 @@
 import { create, fromDate, geo } from "@tokuly/api";
+import { MOVING_SPEED_MPS } from "@tokuly/core/map";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { create as createStore } from "zustand";
@@ -9,7 +10,6 @@ import { realtime } from "#/lib/realtime";
 import { type OwnPosition, useLocations } from "#/stores/locations";
 import { onBeforeSignOut, useMe } from "#/stores/session";
 import { locationClient } from "./data";
-import { MOVING_SPEED_MPS } from "./model";
 
 /** Browsers on laptops report no speed: having moved this far since the last report counts as moving too. */
 const MOVED_METERS = 15;

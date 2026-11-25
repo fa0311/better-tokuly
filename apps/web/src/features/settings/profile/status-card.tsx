@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type identity, toMillis } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -127,7 +128,7 @@ function StatusDialog({
       accountClient().setStatus(input),
     onSuccess: (response, input) => {
       adoptMe({ ...me, status: response.status });
-      void queryClient.invalidateQueries({ queryKey: ["identity", "profile"] });
+      void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
       toast.success(
         input.emoji || input.text
           ? t("settings:profile.status.saved")

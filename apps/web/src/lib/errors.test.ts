@@ -1,6 +1,6 @@
 import { Code, ConnectError } from "@tokuly/api";
+import { AssetFailedError } from "@tokuly/core/errors";
 import { describe, expect, it } from "vitest";
-import { AssetFailedError } from "./asset-error";
 import { durationLimit, errorMessage } from "./errors";
 
 /** An API error carrying a reason, as the server sends it. */

@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { shorts } from "@tokuly/api";
+import { captionParts } from "@tokuly/core/shorts";
 import { EmojiText } from "#/features/emoji";
-import { captionParts } from "./model";
 
 /**
  * A short's caption with its hashtags leading to their pages and its

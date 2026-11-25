@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { geo } from "@tokuly/api";
+import { ghostSummary } from "@tokuly/core/map";
 import { BellRing, ChevronRight, Ghost, Link2, MapPinOff, Navigation, Play } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,7 +17,6 @@ import {
   useNow,
   usePlaceAlerts,
 } from "./data";
-import { ghostSummary } from "./model";
 import { useSharing, useSharingState } from "./own-location";
 import { MapSheet, SheetSection } from "./sheet";
 import { type Panel, useMapUi } from "./ui-store";

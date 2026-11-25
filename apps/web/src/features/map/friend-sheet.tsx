@@ -2,6 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { common, geo, toMillis } from "@tokuly/api";
 import {
+  BUMP_RADIUS_M,
+  BUZZ_RADIUS_M,
+  distanceTo,
+  ghostRuleFor,
+  isBlurred,
+  isMoving,
+  pinState,
+  seeEachOther,
+  stayMillis,
+} from "@tokuly/core/map";
+import {
   BellRing,
   Flag,
   Hand,
@@ -36,17 +47,6 @@ import {
   useGhostSettings,
   useNow,
 } from "./data";
-import {
-  BUMP_RADIUS_M,
-  BUZZ_RADIUS_M,
-  distanceTo,
-  ghostRuleFor,
-  isBlurred,
-  isMoving,
-  pinState,
-  seeEachOther,
-  stayMillis,
-} from "./model";
 import { ACTIVITY_EMOJI, ACTIVITY_KEYS, BatteryBadge } from "./pins";
 import { ReactionBar } from "./reaction-bar";
 import { CreateAlertDialog } from "./safety";

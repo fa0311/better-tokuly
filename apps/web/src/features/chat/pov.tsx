@@ -1,5 +1,6 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { chat, toMillis } from "@tokuly/api";
+import { peerOf } from "@tokuly/core/chat";
 import { BookmarkCheck, Camera, Clock } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,7 +13,6 @@ import { useConversationContext } from "./conversation-context";
 import { errorMessage } from "./errors";
 import { useLive } from "./live";
 import { readTimeline, storeCreated, storeUpdated } from "./messages";
-import { peerOf } from "./model";
 import { displayName } from "./people";
 import { playTime } from "./text";
 

@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { type chat, type common, social } from "@tokuly/api";
+import { isGroup, peerOf } from "@tokuly/core/chat";
+import { friendQueries } from "@tokuly/core/friends";
 import { api, profileClient } from "#/lib/api";
 import i18n from "#/lib/i18n";
 import { useLive } from "./live";
-import { isGroup, peerOf } from "./model";
 
 const friendClient = () => api().service(social.FriendService);
 
@@ -12,10 +13,7 @@ const friendClient = () => api().service(social.FriendService);
  * cache entry with the friends screen.
  */
 export function useFriends(query = "") {
-  return useQuery({
-    queryKey: ["social", "friends", "list", query],
-    queryFn: () => friendClient().listFriends({ query, page: { limit: 100 } }),
-  });
+  return useQuery(friendQueries.list(friendClient, query));
 }
 
 /** Whether a person has the app open: the latest presence event, else what the friend list said. */

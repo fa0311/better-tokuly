@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { shorts } from "@tokuly/api";
+import { soundTitle } from "@tokuly/core/shorts";
 import { Music2, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,6 @@ import { ListRow } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { compactCount } from "#/features/engagement";
 import { discoveryClient, shortKeys } from "../api";
-import { soundTitle } from "../model";
 import { ChoiceChips } from "../sort-chips";
 
 /** What a new short is set to. */

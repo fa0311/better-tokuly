@@ -1,5 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { chat } from "@tokuly/api";
+import type { Timeline } from "@tokuly/core/chat";
+import { countsAsUnread, isMuted, laterSeq, listOf, mentionsUser } from "@tokuly/core/chat";
 import { chatKeys } from "./api";
 import { callEnded } from "./calls/session";
 import {
@@ -14,9 +16,7 @@ import {
 } from "./conversations";
 import { useLive } from "./live";
 import { catchUp, storeCreated, storeOwnRead, storeReaction, storeUpdated } from "./messages";
-import { countsAsUnread, isMuted, laterSeq, listOf, mentionsUser } from "./model";
 import { settle } from "./outbox";
-import type { Timeline } from "./timeline";
 
 /** Where the applier needs to know about the person and what they are looking at. */
 export interface EventContext {

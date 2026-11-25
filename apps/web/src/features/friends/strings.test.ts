@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import enCircles from "#/i18n/en/circles";
-import enFollows from "#/i18n/en/follows";
-import enFriends from "#/i18n/en/friends";
 import jaCircles from "#/i18n/ja/circles";
-import jaFollows from "#/i18n/ja/follows";
-import jaFriends from "#/i18n/ja/friends";
 import { CIRCLE_COLORS } from "./follow-data";
 
 /** Every leaf of a strings file as "a.b.c". */
@@ -26,11 +22,7 @@ function at(strings: unknown, path: string): string {
     .reduce<unknown>((node, key) => (node as Record<string, unknown>)[key], strings) as string;
 }
 
-describe.each([
-  ["friends", jaFriends, enFriends],
-  ["follows", jaFollows, enFollows],
-  ["circles", jaCircles, enCircles],
-])("%s strings", (_name, ja, en) => {
+describe.each([["circles", jaCircles, enCircles]])("%s strings", (_name, ja, en) => {
   it("have the same keys in Japanese and English", () => {
     expect(paths(en).sort()).toEqual(paths(ja).sort());
   });

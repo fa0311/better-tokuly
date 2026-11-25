@@ -1,5 +1,6 @@
 import { chat, create, fromDate, type MessageInitShape } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
+import { make } from "../testing/make";
 import {
   abilitiesOf,
   compareConversations,
@@ -9,7 +10,6 @@ import {
   peerOf,
   ringsFor,
 } from "./model";
-import { make } from "./test-support";
 
 const user = (id: string) => ({ id, handle: id, displayName: id });
 

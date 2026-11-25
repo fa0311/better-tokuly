@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { testI18n } from "../testing/i18n";
 import { dayBucket, formatWhen, minutesToTime, timeToMinutes } from "./when";
+
+const i18n = testI18n();
 
 describe("notification times", () => {
   // Built from local-time parts, so the buckets hold in any time zone.
@@ -16,10 +19,10 @@ describe("notification times", () => {
   });
 
   it("shows an age for the last week and a date after that", () => {
-    expect(formatWhen(now - 3 * 60_000, now, "ja")).toBe("3分前");
-    expect(formatWhen(at(20, 15), now, "ja")).toBe("2日前");
-    expect(formatWhen(at(3, 9), now, "ja")).toBe("11月3日");
-    expect(formatWhen(new Date(2025, 11, 31, 9, 0).getTime(), now, "ja")).toBe("2025年12月31日");
+    expect(formatWhen(i18n, now - 3 * 60_000, now)).toBe("3分前");
+    expect(formatWhen(i18n, at(20, 15), now)).toBe("2日前");
+    expect(formatWhen(i18n, at(3, 9), now)).toBe("11月3日");
+    expect(formatWhen(i18n, new Date(2025, 11, 31, 9, 0).getTime(), now)).toBe("2025年12月31日");
   });
 
   it("converts between minutes after midnight and a time input's value", () => {

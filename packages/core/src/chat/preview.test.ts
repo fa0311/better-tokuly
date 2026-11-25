@@ -1,7 +1,10 @@
 import { chat, create, type MessageInitShape, media } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { callText, previewText, replyText, systemText } from "./preview";
-import { make } from "./test-support";
+import { testI18n } from "../testing/i18n";
+import { make } from "../testing/make";
+import { chatSentences } from "./preview";
+
+const { callText, previewText, replyText, systemText } = chatSentences(testI18n());
 
 const ME = "me";
 const user = (id: string, displayName = id) => ({ id, handle: id, displayName });

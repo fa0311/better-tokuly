@@ -5,36 +5,24 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { notify } from "@tokuly/api";
+import {
+  type InboxFilter,
+  type InboxPages,
+  NOTHING_UNREAD,
+  notifyKeys,
+  PAGE_SIZE,
+  type Unread,
+  unreadOf,
+  unreadQuery,
+} from "@tokuly/core/notifications";
 import { api } from "#/lib/api";
-import { type InboxFilter, type InboxPages, PAGE_SIZE } from "./inbox-cache";
+
+// The notify keys live in `@tokuly/core/notifications`; the folder reads them from here.
+export { notifyKeys, type Unread };
 
 export const inboxClient = () => api().service(notify.InboxService);
 export const preferencesClient = () => api().service(notify.PreferencesService);
 export const pushClient = () => api().service(notify.PushService);
-
-/** Query keys of the notify domain. Everything live-updated hangs under `inbox` and `unread`. */
-export const notifyKeys = {
-  all: ["notify"] as const,
-  inbox: ["notify", "inbox"] as const,
-  inboxList: (filter: InboxFilter) => ["notify", "inbox", filter] as const,
-  unread: ["notify", "unread"] as const,
-  preferences: ["notify", "preferences"] as const,
-  muted: ["notify", "muted"] as const,
-  pushConfig: ["notify", "push", "config"] as const,
-  devices: ["notify", "push", "devices"] as const,
-};
-
-/** Unread inbox entries: in total and per category (absent = 0). */
-export interface Unread {
-  total: number;
-  byCategory: Record<string, number>;
-}
-
-const NOTHING_UNREAD: Unread = { total: 0, byCategory: {} };
-
-function toUnread(unread: notify.UnreadCount | undefined): Unread {
-  return unread ? { total: unread.total, byCategory: { ...unread.byCategory } } : NOTHING_UNREAD;
-}
 
 /**
  * Stores the unread counts the server just told us (every inbox response and
@@ -45,18 +33,14 @@ export function applyUnread(
   unread: notify.UnreadCount | undefined,
 ): void {
   if (!unread) return;
-  queryClient.setQueryData<Unread>(notifyKeys.unread, toUnread(unread));
+  queryClient.setQueryData<Unread>(notifyKeys.unread, unreadOf(unread));
   // A count request still on its way was asked before this answer; it must not replace it.
   void queryClient.cancelQueries({ queryKey: notifyKeys.unread, exact: true });
 }
 
 /** The unread counts. Fetched once; kept current by responses and realtime events. */
 export function useUnread(): Unread {
-  const { data } = useQuery({
-    queryKey: notifyKeys.unread,
-    queryFn: async () => toUnread((await inboxClient().getUnreadCount({})).unread),
-    staleTime: Number.POSITIVE_INFINITY,
-  });
+  const { data } = useQuery(unreadQuery(inboxClient));
   return data ?? NOTHING_UNREAD;
 }
 

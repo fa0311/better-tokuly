@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useCanGoBack, useNavigate, useRouter } from "@tanstack/react-router";
 import type { shorts } from "@tokuly/api";
+import { type FeedContext, playbackSource } from "@tokuly/core/shorts";
 import {
   Bookmark,
   ChevronLeft,
@@ -21,7 +22,6 @@ import { errorMessage } from "#/lib/errors";
 import { useHideTabBar } from "#/stores/shell";
 import { useShort } from "../api";
 import { type FeedEntry, listQuery } from "../lists";
-import { type FeedContext, playbackSource } from "../model";
 import { ShortPager } from "./pager";
 import { setFeedMuted, useFeedSound } from "./use-short-video";
 import { type FeedWindow, moveWindow, type PageInWindow } from "./window";

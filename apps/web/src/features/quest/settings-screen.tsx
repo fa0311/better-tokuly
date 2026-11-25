@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MessageInitShape, quest } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Card } from "#/components/ui/card";
@@ -37,7 +38,7 @@ export function QuestSettingsScreen() {
       void queryClient.invalidateQueries({ queryKey: questKeys.leaderboards });
       void queryClient.invalidateQueries({ queryKey: questKeys.season });
       void queryClient.invalidateQueries({ queryKey: questKeys.profiles });
-      void queryClient.invalidateQueries({ queryKey: ["identity", "profile"] });
+      void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
     },
     onError: (error, _, before) => {
       if (before) queryClient.setQueryData(questKeys.preferences, before);

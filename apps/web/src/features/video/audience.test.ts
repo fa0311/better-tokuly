@@ -1,10 +1,10 @@
 import { common } from "@tokuly/api";
+import enShorts from "@tokuly/i18n/en/shorts";
+import jaShorts from "@tokuly/i18n/ja/shorts";
 import { describe, expect, it } from "vitest";
 import enLive from "#/i18n/en/live";
-import enShorts from "#/i18n/en/shorts";
 import enVideo from "#/i18n/en/video";
 import jaLive from "#/i18n/ja/live";
-import jaShorts from "#/i18n/ja/shorts";
 import jaVideo from "#/i18n/ja/video";
 import { VISIBILITIES as STREAM_VISIBILITIES } from "../live/labels";
 import { circleOf, DEFAULT_SETTINGS, visibilityKey } from "../shorts/studio/settings-fields";

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { quest } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { Check, GripVertical, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -29,7 +30,7 @@ export function ShowcaseScreen() {
   const afterChange = () => {
     void queryClient.invalidateQueries({ queryKey: questKeys.progress });
     void queryClient.invalidateQueries({ queryKey: questKeys.profiles });
-    void queryClient.invalidateQueries({ queryKey: ["identity", "profile"] });
+    void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
   };
   const onError = (error: unknown) => {
     toast.error(errorMessage(error, { namespace: "quest" }));

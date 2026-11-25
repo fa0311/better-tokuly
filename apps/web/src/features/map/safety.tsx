@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { create, geo, toMillis } from "@tokuly/api";
+import { pinState } from "@tokuly/core/map";
 import { BellPlus, Check, Siren, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -29,7 +30,6 @@ import {
   useNow,
   usePlaceAlerts,
 } from "./data";
-import { pinState } from "./model";
 import { MapSheet, SheetEmpty, SheetSection } from "./sheet";
 import { useMapUi } from "./ui-store";
 

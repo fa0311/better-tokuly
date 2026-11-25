@@ -1,5 +1,6 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { create, identity, social } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { accountClient, api } from "#/lib/api";
@@ -16,7 +17,7 @@ export const keys = {
   connections: ["identity", "connections"] as const,
   blocked: ["social", "blocked"] as const,
   /** Shared with the profile screen, so an edit shows there at once. */
-  profile: (handle: string) => ["identity", "profile", handle] as const,
+  profile: profileKeys.profile,
 };
 
 /** Everything cached here that belongs to the signed-in account alone (the profile is public). */

@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { chat, type common } from "@tokuly/api";
+import { isGroup } from "@tokuly/core/chat";
 import {
   Camera,
   CornerUpLeft,
@@ -39,7 +40,6 @@ import { errorMessage } from "./errors";
 import { LocationShareDialog } from "./location-dialog";
 import { useMembers } from "./members";
 import { useMessageActions } from "./messages";
-import { isGroup } from "./model";
 import { send } from "./outbox";
 import { useHover } from "./parts";
 import { displayName } from "./people";

@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { type notify, toMillis } from "@tokuly/api";
+import { entriesOf, type InboxFilter } from "@tokuly/core/notifications";
 import {
   CheckCheck,
   Inbox,
@@ -24,7 +25,6 @@ import { errorMessage } from "#/lib/errors";
 import { useInbox, usePreferences, useUnread } from "./api";
 import { CategoryIcon } from "./category";
 import { openNotification, useInboxActions } from "./inbox-actions";
-import { entriesOf, type InboxFilter } from "./inbox-cache";
 import { NotificationRow } from "./notification-row";
 import { PushPrompt } from "./push-prompt";
 import { type DayBucket, dayBucket, useNow } from "./when";

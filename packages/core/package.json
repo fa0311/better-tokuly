@@ -1,0 +1,38 @@
+{
+  "name": "@tokuly/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Platform-neutral app logic shared by web and mobile: query keys and options, domain rules, cache updates, formatting, error texts. No UI, no DOM.",
+  "license": "MIT",
+  "exports": {
+    "./format": "./src/format/index.ts",
+    "./errors": "./src/errors/index.ts",
+    "./query": "./src/query/index.ts",
+    "./chat": "./src/chat/index.ts",
+    "./friends": "./src/friends/index.ts",
+    "./map": "./src/map/index.ts",
+    "./notifications": "./src/notifications/index.ts",
+    "./profile": "./src/profile/index.ts",
+    "./session": "./src/session/index.ts",
+    "./shorts": "./src/shorts/index.ts",
+    "./stories": "./src/stories/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "catalog:",
+    "@connectrpc/connect": "catalog:",
+    "@tanstack/query-core": "catalog:",
+    "@tokuly/api": "workspace:*",
+    "@tokuly/i18n": "workspace:*",
+    "i18next": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

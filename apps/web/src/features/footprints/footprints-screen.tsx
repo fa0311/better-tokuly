@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Code, errorReason, geo, isApiError } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { Gift } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -263,7 +264,7 @@ function HereChip() {
 function FriendFootprints({ userId }: { userId: string }) {
   const { t } = useTranslation("footprints");
   const profile = useQuery({
-    queryKey: ["identity", "profile", "id", userId],
+    queryKey: profileKeys.byId(userId),
     queryFn: () => profileClient().getProfile({ by: { case: "userId", value: userId } }),
     retry: false,
   });

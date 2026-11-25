@@ -1,10 +1,10 @@
 import type { shorts } from "@tokuly/api";
+import { slideLoad } from "@tokuly/core/shorts";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
 import type { FeedEntry } from "../lists";
-import { slideLoad } from "../model";
 import { ShortSlide } from "./slide";
 import { setFeedMuted, useFeedSound } from "./use-short-video";
 

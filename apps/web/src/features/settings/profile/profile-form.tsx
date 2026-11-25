@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { identity } from "@tokuly/api";
 import { errorReason } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { Check, X } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -133,7 +134,7 @@ export function ProfileForm({ me }: { me: identity.Me }) {
       }
       setSchoolDraft(null);
       setFieldError(null);
-      void queryClient.invalidateQueries({ queryKey: ["identity", "profile"] });
+      void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
       toast.success(t("settings:profile.saved"));
     },
     onError: (error) => {

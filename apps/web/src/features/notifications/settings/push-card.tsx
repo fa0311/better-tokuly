@@ -19,7 +19,7 @@ const CHANNEL_NAMES: Record<number, string> = {
 
 /** Push on this browser (on / off / why not), and every device of the account that receives pushes. */
 export function PushCard() {
-  const { t, i18n } = useTranslation("notifications");
+  const { t } = useTranslation("notifications");
   const push = usePush();
   const now = useNow();
   const [removing, setRemoving] = useState<notify.PushDevice | null>(null);
@@ -123,11 +123,11 @@ export function PushCard() {
                       {[
                         CHANNEL_NAMES[device.channel],
                         t("devices.added", {
-                          when: formatWhen(toMillis(device.createdAt), now, i18n.language),
+                          when: formatWhen(toMillis(device.createdAt), now),
                         }),
                         delivered
                           ? t("devices.delivered", {
-                              when: formatWhen(delivered, now, i18n.language),
+                              when: formatWhen(delivered, now),
                             })
                           : t("devices.neverDelivered"),
                       ]

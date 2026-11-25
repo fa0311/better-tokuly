@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 import enEngagement from "#/i18n/en/engagement";
 import enNotes from "#/i18n/en/notes";
-import enStories from "#/i18n/en/stories";
 import jaEngagement from "#/i18n/ja/engagement";
 import jaNotes from "#/i18n/ja/notes";
-import jaStories from "#/i18n/ja/stories";
 
 /** Every leaf of a strings file as "a.b.c". */
 function paths(value: unknown, prefix = ""): string[] {
@@ -27,7 +25,6 @@ function at(strings: unknown, path: string): string {
 
 describe.each([
   ["notes", jaNotes, enNotes],
-  ["stories", jaStories, enStories],
   ["engagement", jaEngagement, enEngagement],
 ])("%s strings", (_name, ja, en) => {
   it("has the same keys in Japanese and English", () => {

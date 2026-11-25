@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { type chat, toMillis } from "@tokuly/api";
+import { isGroup, isMuted } from "@tokuly/core/chat";
 import { AtSign, BellOff, Check, MoreHorizontal, PhoneCall, Pin, SquarePen } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,7 +22,6 @@ import { type ConversationDialog, ConversationDialogs } from "./conversation-dia
 import { useConversationMenu } from "./conversation-menu";
 import { useConversationList, useUnread } from "./conversations";
 import { useTyping } from "./live";
-import { isGroup, isMuted } from "./model";
 import { NewChatDialog } from "./new-chat-dialog";
 import { useOpenDirect } from "./open-direct";
 import { ContextActions, SearchField, SectionTitle } from "./parts";

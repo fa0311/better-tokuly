@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import type { chat, common } from "@tokuly/api";
+import { canWrite, isGroup, peerOf } from "@tokuly/core/chat";
 import { Check } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,6 @@ import { useMe } from "#/stores/session";
 import { conversationClient } from "./api";
 import { ConversationAvatar } from "./conversation-avatar";
 import { putConversation, useConversationList } from "./conversations";
-import { canWrite, isGroup, peerOf } from "./model";
 import { SearchField, SectionTitle } from "./parts";
 import { displayName, matchesQuery, titleOf, useFriends } from "./people";
 

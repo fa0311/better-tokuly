@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { geo, toMillis } from "@tokuly/api";
+import { ghostRuleFor, ghostSummary } from "@tokuly/core/map";
 import { Ghost, Search } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -19,7 +20,6 @@ import {
   useNow,
 } from "./data";
 import { GHOST_MODES, GhostQuickPick } from "./friend-sheet";
-import { ghostRuleFor, ghostSummary } from "./model";
 import { MapSheet, SheetSection } from "./sheet";
 import { useMapUi } from "./ui-store";
 

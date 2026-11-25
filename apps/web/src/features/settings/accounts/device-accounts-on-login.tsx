@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { deviceAccountsQuery } from "@tokuly/core/session";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -7,7 +8,7 @@ import { TextField } from "#/components/ui/field";
 import { EmojiText } from "#/features/emoji";
 import { authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
-import { deviceAccountsKey, enterAccount } from "./accounts-section";
+import { enterAccount } from "./accounts-section";
 
 /**
  * On the sign-in screen: the accounts still signed in on this browser after
@@ -15,11 +16,7 @@ import { deviceAccountsKey, enterAccount } from "./accounts-section";
  */
 export function DeviceAccountsOnLogin() {
   const { t } = useTranslation("accounts");
-  const { data } = useQuery({
-    queryKey: deviceAccountsKey,
-    queryFn: () => authClient().listDeviceAccounts({}),
-    retry: false,
-  });
+  const { data } = useQuery({ ...deviceAccountsQuery(authClient), retry: false });
   const [asking, setAsking] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);

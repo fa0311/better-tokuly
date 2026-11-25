@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type chat, toMillis } from "@tokuly/api";
+import { isGroup, joinedParticipants, peerOf } from "@tokuly/core/chat";
 import {
   Camera,
   ChevronDown,
@@ -29,7 +30,6 @@ import type { ConversationDialog } from "./conversation-dialogs";
 import { useConversationMenu } from "./conversation-menu";
 import type { PanelKind } from "./info-panel";
 import { useLive, useLiveCall, usePresent, useTyping } from "./live";
-import { isGroup, joinedParticipants, peerOf } from "./model";
 import { displayName, titleOf, useOnline } from "./people";
 import { useCountdown } from "./pov";
 import { contentText } from "./preview";

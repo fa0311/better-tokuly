@@ -1,5 +1,5 @@
 import { geo, toMillis } from "@tokuly/api";
-import { distanceMeters } from "#/lib/format";
+import { distanceMeters } from "../format";
 
 /** Positions older than this are shown as stale (dimmed, with their age). */
 export const STALE_AFTER_MS = 10 * 60_000;

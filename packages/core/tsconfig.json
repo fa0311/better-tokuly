@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Shared by web and mobile: no DOM. The tests read the package's own files.
+    "lib": ["ES2024"],
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

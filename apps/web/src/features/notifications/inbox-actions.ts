@@ -1,10 +1,15 @@
 import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { AnyRouter } from "@tanstack/react-router";
+import {
+  type InboxFilter,
+  type InboxPages,
+  withRead,
+  withRemoved,
+} from "@tokuly/core/notifications";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
 import { applyUnread, inboxClient, rereadInbox, updateInboxLists } from "./api";
-import { type InboxFilter, type InboxPages, withRead, withRemoved } from "./inbox-cache";
 import { notificationPath, openTargetPath } from "./target";
 
 /**

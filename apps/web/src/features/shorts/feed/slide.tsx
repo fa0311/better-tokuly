@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { type common, shorts } from "@tokuly/api";
+import { imageUrl, type SlideLoad, shortSubject, soundTitle } from "@tokuly/core/shorts";
 import type { TFunction } from "i18next";
 import { Heart, Music2, Play, Shuffle, Volume2 } from "lucide-react";
 import { useRef, useState } from "react";
@@ -13,7 +14,6 @@ import { cn } from "#/lib/cn";
 import { useShortLike } from "../actions";
 import { Caption } from "../caption";
 import type { FeedEntry } from "../lists";
-import { imageUrl, type SlideLoad, shortSubject, soundTitle } from "../model";
 import { useSurfaceGestures } from "./gestures";
 import { ActionRail } from "./rail";
 import { SlideVideo, type SlideVideoHandle } from "./slide-video";

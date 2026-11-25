@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { type common, type geo, type social, toMillis } from "@tokuly/api";
+import { distanceTo, ghostRuleFor, isBlurred, seeEachOther } from "@tokuly/core/map";
 import { Search } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,7 +13,6 @@ import { useLocations } from "#/stores/locations";
 import { useFlyToUser } from "./camera";
 import { friendName, useFriendsById, useGhostSettings, useNow } from "./data";
 import { usePlaceText } from "./friend-sheet";
-import { distanceTo, ghostRuleFor, isBlurred, seeEachOther } from "./model";
 import { BatteryBadge, usePinCaption } from "./pins";
 import { MapSheet } from "./sheet";
 import { useMapUi } from "./ui-store";

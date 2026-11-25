@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { shorts } from "@tokuly/api";
+import { imageUrl } from "@tokuly/core/shorts";
 import type { TFunction } from "i18next";
 import { ChevronRight, Plus } from "lucide-react";
 import { useState } from "react";
@@ -14,7 +15,6 @@ import { shiftDate, useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { analyticsClient, shortKeys, useShort } from "../api";
-import { imageUrl } from "../model";
 import { ChoiceChips } from "../sort-chips";
 
 const { PlaybackSource } = shorts;

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { geo, toMillis } from "@tokuly/api";
+import { decodePolyline } from "@tokuly/core/map";
 import { Bike, Car, Footprints, Navigation, Plus, Search, TrainFront } from "lucide-react";
 import { type ComponentType, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -25,7 +26,6 @@ import {
   useNow,
 } from "./data";
 import { fitMapToPoints, RouteLine, useMap } from "./map-view";
-import { decodePolyline } from "./model";
 import { DestinationMarker } from "./pins";
 import { MapSheet, SheetEmpty, SheetSection } from "./sheet";
 import { useMapUi } from "./ui-store";

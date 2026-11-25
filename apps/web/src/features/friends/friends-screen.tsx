@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type common, errorReason, identity, social } from "@tokuly/api";
+import { friendKeys, friendQueries } from "@tokuly/core/friends";
 import { Check, ChevronRight, Copy, Radar, Star, UserPlus, X } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
@@ -32,11 +33,7 @@ type Tab = "friends" | "requests" | "find" | "invite";
 export function FriendsScreen() {
   const { t } = useTranslation("friends");
   const [tab, setTab] = useState<Tab>("friends");
-  const requests = useQuery({
-    queryKey: ["social", "requests", "incoming"],
-    queryFn: () =>
-      friendClient().listFriendRequests({ direction: social.FriendRequestDirection.INCOMING }),
-  });
+  const requests = useQuery(friendQueries.incoming(friendClient));
   const followRequests = useFollowRequestCount();
 
   return (
@@ -87,10 +84,7 @@ function CirclesLink() {
 function FriendList() {
   const { t } = useTranslation("friends");
   const [query, setQuery] = useState("");
-  const { data, isPending } = useQuery({
-    queryKey: ["social", "friends", "list", query],
-    queryFn: () => friendClient().listFriends({ query, page: { limit: 100 } }),
-  });
+  const { data, isPending } = useQuery(friendQueries.list(friendClient, query));
   const online = useLocations((s) => s.online);
 
   return (
@@ -142,17 +136,9 @@ function FriendList() {
 function Requests() {
   const { t } = useTranslation("friends");
   const queryClient = useQueryClient();
-  const incoming = useQuery({
-    queryKey: ["social", "requests", "incoming"],
-    queryFn: () =>
-      friendClient().listFriendRequests({ direction: social.FriendRequestDirection.INCOMING }),
-  });
-  const outgoing = useQuery({
-    queryKey: ["social", "requests", "outgoing"],
-    queryFn: () =>
-      friendClient().listFriendRequests({ direction: social.FriendRequestDirection.OUTGOING }),
-  });
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["social"] });
+  const incoming = useQuery(friendQueries.incoming(friendClient));
+  const outgoing = useQuery(friendQueries.outgoing(friendClient));
+  const refresh = () => queryClient.invalidateQueries({ queryKey: friendKeys.all });
 
   const respond = useMutation({
     mutationFn: (input: { requestId: string; accept: boolean }) =>
@@ -272,7 +258,7 @@ function RelationshipButton({
           ? t("toast.accepted")
           : t("toast.sent"),
       );
-      return queryClient.invalidateQueries({ queryKey: ["social"] });
+      return queryClient.invalidateQueries({ queryKey: friendKeys.all });
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -316,10 +302,7 @@ function Find() {
     queryFn: () => profileClient().searchUsers({ query: debounced }),
     enabled: debounced.length > 0,
   });
-  const suggestions = useQuery({
-    queryKey: ["social", "suggestions"],
-    queryFn: () => friendClient().listSuggestions({ limit: 20 }),
-  });
+  const suggestions = useQuery(friendQueries.suggestions(friendClient));
 
   return (
     <div className="flex flex-col gap-4">
@@ -518,10 +501,7 @@ function Nearby() {
 
 function Invite() {
   const { t } = useTranslation(["friends", "common"]);
-  const { data } = useQuery({
-    queryKey: ["social", "invite"],
-    queryFn: () => friendClient().getMyInvite({}),
-  });
+  const { data } = useQuery(friendQueries.invite(friendClient));
   const [qr, setQr] = useState<string | null>(null);
   const url = data?.invite?.url;
 

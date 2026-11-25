@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type common, plans } from "@tokuly/api";
+import { profileKeys } from "@tokuly/core/profile";
 import { SmilePlus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -74,7 +75,7 @@ export function CountdownDialog({
       void queryClient.invalidateQueries({ queryKey: keys.countdowns });
       void queryClient.invalidateQueries({ queryKey: keys.calendars });
       // Pinned countdowns are drawn on the profile.
-      void queryClient.invalidateQueries({ queryKey: ["identity", "profile"] });
+      void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
       onOpenChange(false);
       toast.success(countdown ? t("countdown.saved") : t("countdown.created"));
       if (saved) onSaved?.(saved);

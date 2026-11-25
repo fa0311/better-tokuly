@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { identity } from "@tokuly/api";
+import { accountKeys, canAddAccount, deviceAccountsQuery } from "@tokuly/core/session";
 import { Check, LogOut, Plus, ShieldCheck } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,8 +16,6 @@ import { authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { announceAccountChange, rememberSession } from "#/stores/session";
 import { Group, SettingsPage, StateChip } from "../shell/settings-page";
-
-export const deviceAccountsKey = ["identity", "device-accounts"] as const;
 
 /**
  * Opens the app as the account that just became active. Everything cached
@@ -37,10 +36,7 @@ export function enterAccount(): void {
 export function AccountsSection() {
   const { t } = useTranslation("accounts");
   const queryClient = useQueryClient();
-  const { data, isPending } = useQuery({
-    queryKey: deviceAccountsKey,
-    queryFn: () => authClient().listDeviceAccounts({}),
-  });
+  const { data, isPending } = useQuery(deviceAccountsQuery(authClient));
   const [asking, setAsking] = useState<identity.DeviceAccount | null>(null);
   const [code, setCode] = useState("");
 
@@ -61,13 +57,13 @@ export function AccountsSection() {
     mutationFn: (sessionId: string) => authClient().removeDeviceAccount({ sessionId }),
     onSuccess: () => {
       toast.success(t("removed"));
-      return queryClient.invalidateQueries({ queryKey: deviceAccountsKey });
+      return queryClient.invalidateQueries({ queryKey: accountKeys.deviceAccounts });
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: "accounts" })),
   });
 
   const accounts = data?.accounts ?? [];
-  const full = data ? accounts.length >= data.limit : false;
+  const full = !canAddAccount(data);
   const confirmCode = (event: FormEvent) => {
     event.preventDefault();
     if (asking) switchTo.mutate({ sessionId: asking.sessionId, totpCode: code });

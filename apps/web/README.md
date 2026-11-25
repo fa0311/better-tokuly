@@ -25,7 +25,7 @@ src/components/        app-wide pieces (AppShell, the hub and launcher, AuthLayo
 src/seams/             where features plug into the app (see "How a feature plugs in")
 src/lib/               api, realtime, i18n, formatting, errors, appearance, upload, account time
 src/stores/            zustand stores for live state (session, locations, badges, shell)
-src/i18n/{ja,en}/      strings, one file (= namespace) per feature area
+src/i18n/{ja,en}/      strings of the web-only areas, one file (= namespace) per feature area
 e2e/                   Playwright tests, one `<area>.spec.ts` per feature area
 ```
 
@@ -39,6 +39,29 @@ start the dev server or build once before `typecheck`.
 What a feature shares with other features is exported from
 `src/features/<area>/index.ts` (for example the stamp picker); everything
 else in the folder is private to it.
+
+## Shared with the other apps
+
+The mobile and desktop apps run the same logic as this one. It lives in
+`packages/` (see [`packages/README.md`](../../packages/README.md)), not here:
+
+- `@tokuly/i18n`: the strings of session, map, friends, chat, notifications,
+  stories, shorts, profile and the common words. `src/i18n/{ja,en}.ts` merge
+  them with the web-only namespaces in `src/i18n/{ja,en}/`.
+- `@tokuly/core/<area>`: query keys and options, domain rules, cache edits,
+  formatting and error texts of those areas. A feature folder keeps what is
+  the web's: hooks, stores, screens, components, the browser's APIs.
+
+> 「共通化の為に責務が多いコンポーネントになったりするのは本質的じゃない。
+> 工数を少なく出来るのは嬉しいが、バグが増えたり保守性も考慮するべきだ」
+
+So only logic is shared, never UI: no components, no hooks, no `window` or
+platform branches in a package. Where shared logic speaks or fetches, it takes
+the web's i18next instance or client as an argument; `#/lib/format`,
+`#/lib/errors` and the feature files that re-export from `@tokuly/core` pass
+them, so screens import as before. Moving more: the logic moves with its
+tests into the area's folder of `packages/core/src`, the feature imports it
+from there; anything that needs the browser stays here.
 
 ## How a feature plugs in
 
@@ -149,6 +172,8 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
   which maps the API's reason code to text: reasons any screen can hit live in
   `src/i18n/*/errors.ts`, reasons specific to a feature under an `errors` key
   in that feature's namespace (`stamps.ts` → `errors: { PACK_NOT_FOUND: … }`).
+  The rules are `@tokuly/core/errors`; the shared areas' namespaces are in
+  `@tokuly/i18n`.
 - Infinite lists: `useInfiniteQuery` + `<LoadMore query={query} />` after the
   last row.
 - Uploads: `uploadAndProcess(file, { purpose })` from `#/lib/upload`.
@@ -181,12 +206,15 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
 - Every string goes through `useTranslation("<namespace>")`, in Japanese
   (casual and friendly, like 「友達と位置情報共有を楽しもう!」) and English.
   A file in `src/i18n/ja/` and its twin in `src/i18n/en/` are a namespace
-  named after the file; nothing needs registering.
+  named after the file; nothing needs registering. The namespaces of the
+  areas every app has are in `packages/i18n/src/{ja,en}/` (listed in its
+  `index.ts`).
 
 **Checks**
 
 - `pnpm --filter @tokuly/web typecheck` and `test` must pass; `vite build`
-  must succeed.
+  must succeed. Changes to `packages/` also need
+  `pnpm --filter "./packages/*" test` and `typecheck`.
 - Formatting and lint: `pnpm lint:web` (repo root; Biome, line width 100,
   sorted imports) must be clean — CI checks it. `pnpm format:web` fixes what
   can be fixed automatically; run it before committing.

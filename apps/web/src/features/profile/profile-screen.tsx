@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, identity, social, toDate } from "@tokuly/api";
+import { profileKeys, profileQuery, relationshipOf } from "@tokuly/core/profile";
 import { Ban, LogOut, MessageCircle, Music, Settings, UserMinus, UserPlus } from "lucide-react";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -26,14 +27,10 @@ export function ProfileScreen({ handle }: { handle: string }) {
   const { t, i18n } = useTranslation("profile");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { data, isPending, isError } = useQuery({
-    queryKey: ["identity", "profile", handle],
-    queryFn: () => profileClient().getProfile({ by: { case: "handle", value: handle } }),
-  });
+  const { data, isPending, isError } = useQuery(profileQuery(profileClient, handle));
   const profile = data?.profile;
   const user = profile?.user;
-  const isSelf = profile?.relationship === identity.Relationship.SELF;
-  const isFriend = profile?.relationship === identity.Relationship.FRIENDS;
+  const { isSelf, isFriend } = relationshipOf(profile);
 
   // Count the visit once per open profile (the server de-duplicates per day).
   const userId = user?.id;
@@ -46,7 +43,7 @@ export function ProfileScreen({ handle }: { handle: string }) {
 
   const refresh = () =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["identity", "profile", handle] }),
+      queryClient.invalidateQueries({ queryKey: profileKeys.profile(handle) }),
       queryClient.invalidateQueries({ queryKey: ["social"] }),
     ]);
   const onError = (error: unknown) => toast.error(errorMessage(error));
