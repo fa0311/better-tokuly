@@ -194,6 +194,9 @@ catalogs:
     '@connectrpc/connect-web':
       specifier: 2.3.0
       version: 2.3.0
+    '@maplibre/maplibre-gl-style-spec':
+      specifier: 26.8.0
+      version: 26.8.0
     '@playwright/test':
       specifier: 1.65.1
       version: 1.65.1
@@ -501,6 +504,12 @@ importers:
       '@connectrpc/connect':
         specifier: 'catalog:'
         version: 2.3.0(@bufbuild/protobuf@2.17.0)
+      '@maplibre/maplibre-gl-style-spec':
+        specifier: 'catalog:'
+        version: 26.8.0
+      '@protomaps/basemaps':
+        specifier: 'catalog:'
+        version: 5.7.2
       '@tanstack/query-core':
         specifier: 'catalog:'
         version: 5.108.1

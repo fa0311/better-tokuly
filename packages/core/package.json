@@ -25,6 +25,8 @@
   "dependencies": {
     "@bufbuild/protobuf": "catalog:",
     "@connectrpc/connect": "catalog:",
+    "@maplibre/maplibre-gl-style-spec": "catalog:",
+    "@protomaps/basemaps": "catalog:",
     "@tanstack/query-core": "catalog:",
     "@tokuly/api": "workspace:*",
     "@tokuly/i18n": "workspace:*",

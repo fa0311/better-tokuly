@@ -1,18 +1,21 @@
-import { create, fromDate, geo } from "@tokuly/api";
-import { MOVING_SPEED_MPS } from "@tokuly/core/map";
+import type { geo } from "@tokuly/api";
+import {
+  finiteOrUndefined,
+  type LastReport,
+  locationSample,
+  type OwnPosition,
+  reportDecision,
+} from "@tokuly/core/map";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { create as createStore } from "zustand";
 import { errorMessage } from "#/lib/errors";
-import { distanceMeters } from "#/lib/format";
 import i18n from "#/lib/i18n";
 import { realtime } from "#/lib/realtime";
-import { type OwnPosition, useLocations } from "#/stores/locations";
+import { useLocations } from "#/stores/locations";
 import { onBeforeSignOut, useMe } from "#/stores/session";
 import { locationClient } from "./data";
 
-/** Browsers on laptops report no speed: having moved this far since the last report counts as moving too. */
-const MOVED_METERS = 15;
 /** Other tabs hear about a stop through a storage event; give them this long before the server is told. */
 const OTHER_TABS_MS = 300;
 /**
@@ -249,10 +252,6 @@ async function readBattery(): Promise<BatteryManager | null> {
   }
 }
 
-/** A number the API can take: browsers give `NaN` for the heading of a device that stands still. */
-const finite = (value: number | null) =>
-  value !== null && Number.isFinite(value) ? value : undefined;
-
 /**
  * Sends one fix. `stillSharing` is asked again after every wait: a stop (in
  * this tab or another) must not be followed by one more sample.
@@ -286,14 +285,8 @@ async function sampleOf(
 ): Promise<geo.LocationSample | null> {
   const battery = await readBattery();
   if (!stillSharing()) return null;
-  return create(geo.LocationSampleSchema, {
-    position: { lat: position.lat, lng: position.lng },
-    accuracyMeters: position.accuracyMeters,
-    speedMps: finite(position.speedMps),
-    headingDegrees: finite(position.headingDegrees),
-    // The moment the device took the fix, not the moment it is sent.
-    recordedAt: fromDate(new Date(position.recordedAt)),
-    batteryPercent: battery ? Math.round(battery.level * 100) : undefined,
+  return locationSample(position, {
+    batteryPercent: battery ? battery.level * 100 : undefined,
     charging: battery?.charging,
     foreground: document.visibilityState === "visible",
   });
@@ -337,8 +330,8 @@ function toOwnPosition(result: GeolocationPosition): OwnPosition {
     lat: result.coords.latitude,
     lng: result.coords.longitude,
     accuracyMeters: result.coords.accuracy,
-    speedMps: finite(result.coords.speed) ?? null,
-    headingDegrees: finite(result.coords.heading) ?? null,
+    speedMps: finiteOrUndefined(result.coords.speed) ?? null,
+    headingDegrees: finiteOrUndefined(result.coords.heading) ?? null,
     recordedAt: result.timestamp,
   };
 }
@@ -483,7 +476,7 @@ export function useOwnLocationReporting(): void {
     let live = true;
     // Another tab's stop or sign-out is in storage before its event reaches this tab.
     const stillSharing = () => live && sessionAlive() && readChoice(userId) === "on";
-    let lastReport: { at: number; position: OwnPosition } | null = null;
+    let lastReport: LastReport | null = null;
     /** The newest fix, until it has been sent. */
     let unsent: OwnPosition | null = null;
     let watchId: number | null = null;
@@ -492,18 +485,12 @@ export function useOwnLocationReporting(): void {
     const flush = (force = false) => {
       if (!unsent || !stillSharing()) return;
       const position = unsent;
-      const cadence = realtime().cadence;
       const now = Date.now();
-      const moving =
-        (position.speedMps ?? 0) >= MOVING_SPEED_MPS ||
-        (lastReport !== null &&
-          distanceMeters(lastReport.position, position) >=
-            Math.max(MOVED_METERS, position.accuracyMeters));
-      const interval = (moving ? cadence.movingSeconds : cadence.stationarySeconds) * 1000;
-      if (!force && lastReport && now - lastReport.at < interval) return;
+      const decision = reportDecision(position, lastReport, realtime().cadence, now, force);
+      if (decision === "wait") return;
       unsent = null;
       // The same fix again (a cached reading) tells the server nothing new.
-      if (lastReport && position.recordedAt <= lastReport.position.recordedAt) {
+      if (decision === "same" && lastReport) {
         lastReport.at = now;
         return;
       }
