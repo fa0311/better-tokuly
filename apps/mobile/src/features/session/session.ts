@@ -123,17 +123,24 @@ export async function enterAccount(response: identity.AuthResponse): Promise<voi
   const current = activeSessionId();
   if (current) {
     await leave();
-    await parkActive(current);
+    await withParkedTokens(() => parkActive(current));
   }
   await startOver(response);
 }
 
 /**
- * Work done as a parked account's session (`asParked`), one at a time. A
- * switch or a removal waits for it: both read the parked token, which such
- * work may be rotating, and a spent token sent back revokes the session.
+ * Everything that reads or rotates a parked account's refresh token (a
+ * switch, a removal, parking an account, work done as a parked session) runs
+ * one after the other: a token sent twice — a switch and a refresh of the
+ * same session at once — revokes that session (REFRESH_TOKEN_REUSE).
  */
-let parkedWork: Promise<unknown> = Promise.resolve();
+let parkedQueue: Promise<unknown> = Promise.resolve();
+
+function withParkedTokens<T>(work: () => Promise<T>): Promise<T> {
+  const run = parkedQueue.then(work);
+  parkedQueue = run.catch(() => {});
+  return run;
+}
 
 /**
  * Runs `work` as a parked account's session without making it the active
@@ -145,15 +152,13 @@ export function asParked<T>(
   sessionId: string,
   work: (account: Api) => Promise<T>,
 ): Promise<T | null> {
-  const run = parkedWork.then(async () => {
+  return withParkedTokens(async () => {
     if (!(await parkedTokens())[sessionId]) return null;
     const account = apiWith(parkedTokenStore(sessionId));
     if (!(await account.session.restore()))
       throw new Error("the parked session could not be resumed");
     return work(account);
   });
-  parkedWork = run.catch(() => {});
-  return run;
 }
 
 export type SwitchResult = "switched" | "needsCode";
@@ -162,8 +167,11 @@ export type SwitchResult = "switched" | "needsCode";
  * Makes a parked account the active one. An account with two-factor
  * authentication may answer `needsCode`: ask for it and call again.
  */
-export async function switchAccount(sessionId: string, totpCode = ""): Promise<SwitchResult> {
-  await parkedWork;
+export function switchAccount(sessionId: string, totpCode = ""): Promise<SwitchResult> {
+  return withParkedTokens(() => switchTo(sessionId, totpCode));
+}
+
+async function switchTo(sessionId: string, totpCode: string): Promise<SwitchResult> {
   const token = (await parkedTokens())[sessionId];
   if (!token) {
     await forgetParked(sessionId);
@@ -190,11 +198,12 @@ export async function switchAccount(sessionId: string, totpCode = ""): Promise<S
 }
 
 /** Signs a parked account out of this device; the others stay. */
-export async function removeParkedAccount(sessionId: string): Promise<void> {
-  await parkedWork;
-  const token = (await parkedTokens())[sessionId];
-  if (token) await authClient().removeDeviceAccount({ refreshToken: token });
-  await forgetParked(sessionId);
+export function removeParkedAccount(sessionId: string): Promise<void> {
+  return withParkedTokens(async () => {
+    const token = (await parkedTokens())[sessionId];
+    if (token) await authClient().removeDeviceAccount({ refreshToken: token });
+    await forgetParked(sessionId);
+  });
 }
 
 /** Signs the active account out of this device. Parked accounts stay and can be continued with. */
