@@ -409,6 +409,13 @@ function ActionTile({
   );
 }
 
+/**
+ * Knock taps stack until the finger pauses this long. People knock three to
+ * five times a second, so a burst holds together on any phone, and the knock
+ * still goes out soon after the last tap.
+ */
+const KNOCK_BURST_PAUSE_MS = 700;
+
 /** Bump, buzz and knock, each saying when it works. */
 function NudgeRow({
   userId,
@@ -457,7 +464,7 @@ function NudgeRow({
       } catch (error) {
         toast.error(errorMessage(error, { namespace: "map" }));
       }
-    }, 700);
+    }, KNOCK_BURST_PAUSE_MS);
   };
 
   const bumpOk = near(BUMP_RADIUS_M);
