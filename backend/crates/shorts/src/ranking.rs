@@ -129,6 +129,11 @@ pub fn base_score(engagement: f64, quality: f64, freshness: f64) -> f64 {
 /// were never scored. Also prunes hourly statistics that fell out of the
 /// window. Returns how many shorts were scored.
 ///
+/// A short that a request is changing at that moment is left for the next
+/// run (`SKIP LOCKED`): requests lock a short and then others (a remix
+/// locks its original), and this update goes through shorts in no
+/// particular order, so waiting for them could deadlock.
+///
 /// The SQL below is the formula of the module documentation; the
 /// integration test `scores_follow_the_documented_formula` holds it against
 /// the Rust functions above.
@@ -149,6 +154,7 @@ pub async fn refresh_scores(core: &Core, half_life_hours: f64) -> AppResult<u64>
              WHERE s.status = 2
                AND (s.scored_at IS NULL OR s.trending > 0 OR s.published_at > now() - interval '30 days'
                     OR s.id IN (SELECT short_id FROM engagement))
+             FOR UPDATE OF s SKIP LOCKED
          )
          UPDATE shorts s
          SET trending = COALESCE(e.points, 0),

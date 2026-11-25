@@ -368,12 +368,24 @@ test("my reaction, a knock and the rules of buzz and bump from a friend's sheet"
     )
     .toEqual(["MAP_REACTION_KIND_HEARTS"]);
 
-  // Three quick knocks go out as one burst.
+  // Three quick knocks go out as one burst: one request, three knocks. The
+  // taps are dispatched in one go: three separate clicks each wait for the
+  // page, and on a busy machine that can take longer than the pause that
+  // ends a burst.
+  const sent: string[] = [];
+  page.on("request", (sending) => {
+    if (sending.url().endsWith("/tokuly.social.v1.InteractionService/Knock"))
+      sent.push(sending.url());
+  });
   const knock = sheet.getByTestId("nudge-knock");
-  await knock.click();
-  await knock.click();
-  await knock.click();
+  await expect(knock).toBeVisible();
+  await knock.evaluate((button: HTMLElement) => {
+    button.click();
+    button.click();
+    button.click();
+  });
   await expect(page.getByText("Aoiを3回ノックしたよ！")).toBeVisible();
+  expect(sent).toHaveLength(1);
 });
 
 test("a buzz works for a friend who is right here", async ({ page, me, request }) => {

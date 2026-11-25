@@ -193,18 +193,35 @@ pub fn top_key(hashtag_id: Uuid) -> String {
 /// the top [`TRENDING_SIZE`] carried by at least [`TREND_MIN_CHANNELS`]
 /// channels are ranked. `view_count` is refreshed for every hashtag with
 /// active shorts. Returns how many hashtags trend.
+///
+/// The hashtags it rewrites are locked first, in tag order: the order in
+/// which a short being published or edited locks its hashtags (see
+/// `listing::sync_hashtags_in`), so the two wait for each other instead of
+/// deadlocking.
 pub async fn refresh_trending(core: &Core) -> AppResult<u64> {
     let mut tx = core.db.begin().await?;
-    // One refresh at a time (several instances, or a run that overlaps the next): two
-    // refreshes update the same hashtag rows in different orders and deadlock.
+    // One refresh at a time (several instances, or a run that overlaps the next).
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('shorts:trending', 0))").execute(&mut *tx).await?;
+    // Every hashtag that trends now or did at the last run.
+    let rewritten: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT h.id FROM short_hashtags h
+         WHERE h.trend_rank > 0 OR h.trend_score > 0
+            OR EXISTS (SELECT 1 FROM short_hashtag_uses u JOIN shorts s ON s.id = u.short_id
+                       WHERE u.hashtag_id = h.id AND s.listed AND s.trending > 0)
+         ORDER BY h.tag
+         FOR UPDATE OF h",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
     // Hashtags whose shorts have all gone quiet leave the ranking.
     sqlx::query(
         "UPDATE short_hashtags h SET trend_score = 0, trend_rank = 0
-         WHERE (h.trend_rank > 0 OR h.trend_score > 0)
+         WHERE h.id = ANY($1)
+           AND (h.trend_rank > 0 OR h.trend_score > 0)
            AND NOT EXISTS (SELECT 1 FROM short_hashtag_uses u JOIN shorts s ON s.id = u.short_id
                            WHERE u.hashtag_id = h.id AND s.listed AND s.trending > 0)",
     )
+    .bind(&rewritten)
     .execute(&mut *tx)
     .await?;
     let ranked: i64 = sqlx::query_scalar(
@@ -226,13 +243,14 @@ pub async fn refresh_trending(core: &Core) -> AppResult<u64> {
                  view_count = (SELECT COALESCE(sum(s.view_count), 0)::bigint
                                FROM short_hashtag_uses u JOIN shorts s ON s.id = u.short_id
                                WHERE u.hashtag_id = h.id)
-             FROM ranked r WHERE r.hashtag_id = h.id
+             FROM ranked r WHERE r.hashtag_id = h.id AND h.id = ANY($3)
              RETURNING h.trend_rank
          )
          SELECT count(*) FROM written WHERE trend_rank > 0",
     )
     .bind(TREND_MIN_CHANNELS)
     .bind(TRENDING_SIZE)
+    .bind(&rewritten)
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;

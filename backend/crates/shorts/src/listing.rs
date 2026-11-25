@@ -260,12 +260,23 @@ async fn sync_hashtags_in(tx: &mut Tx<'_>, row: &ShortRow, hashtags: &[String]) 
     .bind(row.id)
     .fetch_all(&mut **tx)
     .await?;
-    // Sorted, so two shorts adding the same hashtags lock them in one order.
     let mut added: Vec<&String> = hashtags.iter().filter(|tag| !current.iter().any(|(_, have)| have == *tag)).collect();
     added.sort();
-    let mut removed: Vec<Uuid> =
-        current.iter().filter(|(_, have)| !hashtags.contains(have)).map(|(id, _)| *id).collect();
-    removed.sort();
+    let gone: Vec<&(Uuid, String)> = current.iter().filter(|(_, have)| !hashtags.contains(have)).collect();
+    if added.is_empty() && gone.is_empty() {
+        return Ok(());
+    }
+    // Every hashtag this touches is locked in one pass, in tag order (new
+    // ones are created in that order too): the order other shorts and
+    // `hashtags::refresh_trending` lock them in, so they wait for each
+    // other instead of deadlocking.
+    let touched: Vec<&str> =
+        added.iter().map(|tag| tag.as_str()).chain(gone.iter().map(|(_, tag)| tag.as_str())).collect();
+    sqlx::query("SELECT 1 FROM short_hashtags WHERE tag = ANY($1) ORDER BY tag FOR UPDATE")
+        .bind(&touched)
+        .execute(&mut **tx)
+        .await?;
+    let removed: Vec<Uuid> = gone.iter().map(|(id, _)| *id).collect();
     if !added.is_empty() {
         sqlx::query(
             "WITH tags AS (
