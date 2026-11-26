@@ -64,6 +64,8 @@ async fn a_code_signs_the_web_view_in_once() {
     let cookie = cookies.iter().find(|c| c.starts_with("tokuly_rt=")).expect("the refresh cookie");
     assert!(cookie.contains("HttpOnly") && cookie.contains("SameSite=Lax"), "{cookie}");
     assert!(!cookie.contains("Secure"), "plain-HTTP test server: {cookie}");
+    // The web app's hint that a session waits (readable, nothing secret in it).
+    assert!(cookies.iter().any(|c| c.starts_with("tokuly_session_hint=1;") && !c.contains("HttpOnly")));
     // The session's token never shows in a URL.
     let refresh = web_view.jar["tokuly_rt"].clone();
     assert!(!location.unwrap().contains(&refresh));

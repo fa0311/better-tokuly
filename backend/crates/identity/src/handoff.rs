@@ -64,6 +64,10 @@ const CODES_PER_ACCOUNT: u32 = 60;
 const REDEEMS_PER_ADDRESS: u32 = 60;
 /// Where a code that does not work leads: the web's own sign-in.
 const SIGN_IN_PATH: &str = "/login";
+/// A readable cookie that tells the web app a session is waiting in its
+/// HttpOnly cookie (a fresh web view has no hint of its own that it should
+/// try to resume one). It carries nothing secret; the web removes it.
+pub const SESSION_HINT_COOKIE: &str = "tokuly_session_hint";
 
 /// The first path segments of the web app's screens: where a hand-off may
 /// lead. Everything else (its sign-in and e-mail flows, OAuth consent, the
@@ -334,28 +338,32 @@ async fn redeem(
         .map(|(_, value)| value.into_owned())
         .unwrap_or_default();
     match identity.redeem_web_handoff(&code, &meta).await {
-        Ok(Redeemed::SignedIn { cookie, path }) => redirect(&path, Some(&cookie)),
-        Ok(Redeemed::KeptOther { path }) => redirect(&path, None),
-        Ok(Redeemed::Refused) => redirect(SIGN_IN_PATH, None),
+        Ok(Redeemed::SignedIn { cookie, path }) => {
+            let secure = if identity.core.cfg.public_url.starts_with("https://") { "; Secure" } else { "" };
+            let hint = format!("{SESSION_HINT_COOKIE}=1; Path=/; Max-Age=120; SameSite=Lax{secure}");
+            redirect(&path, &[&cookie, &hint])
+        }
+        Ok(Redeemed::KeptOther { path }) => redirect(&path, &[]),
+        Ok(Redeemed::Refused) => redirect(SIGN_IN_PATH, &[]),
         Err(error) if error.reason == "RATE_LIMITED" => {
             no_store((StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response())
         }
         Err(error) => {
             tracing::warn!(error = %error, "web hand-off failed");
-            redirect(SIGN_IN_PATH, None)
+            redirect(SIGN_IN_PATH, &[])
         }
     }
 }
 
 /// A `303 See Other` to a path of this origin (checked by [`web_path`]).
-fn redirect(path: &str, cookie: Option<&str>) -> Response {
+fn redirect(path: &str, cookies: &[&str]) -> Response {
     let mut response = StatusCode::SEE_OTHER.into_response();
     let headers = response.headers_mut();
     if let Ok(location) = HeaderValue::from_str(path) {
         headers.insert(header::LOCATION, location);
     }
-    if let Some(cookie) = cookie.and_then(|c| HeaderValue::from_str(c).ok()) {
-        headers.insert(header::SET_COOKIE, cookie);
+    for cookie in cookies.iter().filter_map(|c| HeaderValue::from_str(c).ok()) {
+        headers.append(header::SET_COOKIE, cookie);
     }
     // The code is in this URL: it is not kept, and not passed on.
     headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
