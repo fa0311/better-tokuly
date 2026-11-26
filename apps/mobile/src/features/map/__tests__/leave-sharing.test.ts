@@ -79,7 +79,7 @@ describe("the map's beforeLeave", () => {
     await leaving;
 
     // Killed mid-request, the next start would still find it owed and try again.
-    expect(owedWhenSent).toEqual(["1"]);
+    expect(owedWhenSent).toEqual([expect.stringMatching(/^\d{13}$/)]);
     expect(await readSecure("tokuly.map.stopOwed.alice")).toBeNull();
   });
 });

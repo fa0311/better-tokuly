@@ -63,7 +63,8 @@ its tests) and the web switches to it.
 - **Location.** The same rules as the web (`features/map/sharing.ts`): nothing
   is sent for an account until it says yes on this device; stopping, a
   revoked permission, a sign-out or a switch tell the server, and a stop that
-  did not reach it is retried. On screen the position is watched and sent at
+  did not reach it is retried with the time sharing stopped (never once the
+  account shares from here again: the stop is void then). On screen the position is watched and sent at
   the server's cadence (`reportDecision` in `@tokuly/core/map`); off screen,
   with "always" allowed, the background task sends what the OS delivers
   (50 m distance filter, deferred batches, paused while still).
