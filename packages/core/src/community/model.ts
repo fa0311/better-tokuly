@@ -3,8 +3,8 @@ import { type common, community } from "@tokuly/api";
 /**
  * Pure rules of the community screens: what a viewer may do (always read
  * from the server's `viewer` blocks, never from a copy of the permission
- * table), the addresses of community pages in this app, and small helpers
- * for forms.
+ * table), the addresses of community pages in the apps, and small helpers for
+ * forms.
  */
 
 const P = community.Permission;
@@ -68,7 +68,7 @@ export function timeoutUntilMs(
 
 // ───────────── Addresses ─────────────
 //
-// The server publishes community pages under `/c/<handle>/…`; in this app
+// The server publishes community pages under `/c/<handle>/…`; in Tokuly
 // `/c/<handle>` is a video channel, so communities live under `/g/<handle>`
 // and invites under `/join/<code>`.
 

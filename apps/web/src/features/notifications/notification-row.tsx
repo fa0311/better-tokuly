@@ -1,4 +1,5 @@
 import { type notify, toMillis } from "@tokuly/api";
+import { notificationPath } from "@tokuly/core/notifications";
 import { MailCheck, MoreHorizontal, Trash2 } from "lucide-react";
 import { type MouseEvent, type PointerEvent, type ReactNode, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -7,7 +8,7 @@ import { Chip } from "#/components/ui/card";
 import { Menu } from "#/components/ui/menu";
 import { cn } from "#/lib/cn";
 import { NotificationFace } from "./notification-face";
-import { notificationPath, resolveTargetPath } from "./target";
+import { resolveTargetPath } from "./target";
 import { formatWhen } from "./when";
 
 /** One inbox entry: tap to open, swipe left (touch) or use the menu to delete. */

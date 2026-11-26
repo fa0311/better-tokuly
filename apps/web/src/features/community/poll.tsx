@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { community } from "@tokuly/api";
+import { patchThread, votePercent } from "@tokuly/core/community";
 import { Check } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,8 +9,7 @@ import { Button } from "#/components/ui/button";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { boardClient, NS, patchThread } from "./api";
-import { votePercent } from "./model";
+import { boardClient, NS } from "./api";
 import { useWhen } from "./parts";
 
 /**

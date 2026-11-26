@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { community, errorReason } from "@tokuly/api";
+import {
+  communityQueries,
+  imageUrl,
+  inviteHref,
+  refreshMembership,
+  storeCommunity,
+} from "@tokuly/core/community";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
@@ -12,8 +19,7 @@ import { PaneSpinner } from "#/components/ui/spinner";
 import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { useSessionStatus } from "#/stores/session";
-import { communityClient, keys, NS, refreshMembership, storeCommunity } from "./api";
-import { imageUrl, inviteHref } from "./model";
+import { communityClient, NS } from "./api";
 import { CommunityIcon, categoryOf, MemberCount, VisibilityChip } from "./parts";
 
 /**
@@ -28,8 +34,7 @@ export function InviteScreen({ code }: { code: string }) {
   const queryClient = useQueryClient();
   const here = inviteHref(code);
   const preview = useQuery({
-    queryKey: keys.invitePreview(code),
-    queryFn: () => communityClient().previewInvite({ inviteCode: code }),
+    ...communityQueries.invitePreview(communityClient, code),
     // The preview names the viewer's own standing once they are signed in.
     enabled: status !== "unknown",
   });

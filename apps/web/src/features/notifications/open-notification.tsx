@@ -1,9 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
+import { notificationPath } from "@tokuly/core/notifications";
 import { useEffect } from "react";
 import { PaneSpinner } from "#/components/ui/spinner";
 import { markRead } from "./inbox-actions";
-import { notificationPath, resolveTargetPath } from "./target";
+import { resolveTargetPath } from "./target";
 
 const INBOX_PATH = "/notifications";
 

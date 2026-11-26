@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { community } from "@tokuly/api";
+import { imageUrl } from "@tokuly/core/community";
 import {
   BarChart3,
   Heart,
@@ -15,7 +16,6 @@ import { EmojiText } from "#/features/emoji";
 import { compactCount } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { NS } from "./api";
-import { imageUrl } from "./model";
 import { PostAuthor } from "./parts";
 
 /** The chips that say what state a thread is in. */

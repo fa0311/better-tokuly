@@ -1,3 +1,4 @@
+import { isMember } from "@tokuly/core/community";
 import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
@@ -10,7 +11,6 @@ import { useCurrentCommunity } from "./context";
 import { EventsTab } from "./events";
 import { CommunityHeader } from "./header";
 import { MembersTab } from "./members";
-import { isMember } from "./model";
 import { ThreadCard } from "./thread-card";
 
 const TABS = ["boards", "events", "news", "members", "about"] as const;

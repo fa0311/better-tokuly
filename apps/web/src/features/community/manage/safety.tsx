@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { community } from "@tokuly/api";
+import { communityKeys } from "@tokuly/core/community";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,7 +10,7 @@ import { TextField } from "#/components/ui/field";
 import { Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { errorMessage } from "#/lib/errors";
-import { keys, moderationClient, NS, useChannels, useSafetySettings } from "../api";
+import { moderationClient, NS, useChannels, useSafetySettings } from "../api";
 import { Notice, SectionTitle, useDurationLabel } from "../parts";
 
 const SLOW = [0, 10, 30, 60, 300, 900, 3600, 21_600] as const;
@@ -33,7 +34,7 @@ export function SafetySection({ community: c }: { community: community.Community
         autoHideReports: change.autoHideReports,
       }),
     onSuccess: ({ settings }) => {
-      queryClient.setQueryData(keys.safety(c.id), settings);
+      queryClient.setQueryData(communityKeys.safety(c.id), settings);
       toast.success(t("saved"));
     },
     onError,
@@ -42,7 +43,7 @@ export function SafetySection({ community: c }: { community: community.Community
     mutationFn: (input: { channelId: string; seconds: number }) =>
       moderationClient().setSlowMode(input),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.channels(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.channels(c.id) });
       toast.success(t("saved"));
     },
     onError,

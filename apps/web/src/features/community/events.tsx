@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { community, fromDate, media } from "@tokuly/api";
+import { can, communityKeys, imageUrl, placesLeft } from "@tokuly/core/community";
 import { CalendarPlus, MapPin, Video } from "lucide-react";
 import { lazy, Suspense, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,8 +19,7 @@ import { useAccountTimeZone, zonedMoment, zonedTime } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
-import { eventClient, keys, NS, useEvents } from "./api";
-import { can, imageUrl, placesLeft } from "./model";
+import { eventClient, NS, useEvents } from "./api";
 import { useWhen } from "./parts";
 import type { LatLng } from "./place-picker";
 
@@ -269,9 +269,9 @@ export function EventFormDialog({
       return response.event;
     },
     onSuccess: (saved) => {
-      if (saved) queryClient.setQueryData(keys.event(saved.id), saved);
-      void queryClient.invalidateQueries({ queryKey: keys.eventLists(c.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.myEvents });
+      if (saved) queryClient.setQueryData(communityKeys.event(saved.id), saved);
+      void queryClient.invalidateQueries({ queryKey: communityKeys.eventLists(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.myEvents });
       toast.success(event ? t("saved") : t("event.created"));
       onClose();
     },

@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { community } from "@tokuly/api";
+import { communityKeys } from "@tokuly/core/community";
 import { GripVertical, Lock, Pencil, Plus, Trash2, VenetianMask } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,7 +16,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { EmojiPicker } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { boardClient, keys, NS, useChannels } from "../api";
+import { boardClient, NS, useChannels } from "../api";
 import { Notice } from "../parts";
 
 const MODERATORS = community.PostingPolicy.MODERATORS;
@@ -27,7 +28,8 @@ export function ChannelsSection({ community: c }: { community: community.Communi
   const channels = useChannels(c.id);
   const [editing, setEditing] = useState<community.Channel | "new">();
   const [deleting, setDeleting] = useState<community.Channel>();
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: keys.channels(c.id) });
+  const refresh = () =>
+    void queryClient.invalidateQueries({ queryKey: communityKeys.channels(c.id) });
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: NS }));
 
   const reorder = useMutation({
@@ -36,8 +38,8 @@ export function ChannelsSection({ community: c }: { community: community.Communi
         communityId: c.id,
         channelIds: ordered.map((channel) => channel.id),
       }),
-    onMutate: (ordered) => queryClient.setQueryData(keys.channels(c.id), ordered),
-    onSuccess: ({ channels: next }) => queryClient.setQueryData(keys.channels(c.id), next),
+    onMutate: (ordered) => queryClient.setQueryData(communityKeys.channels(c.id), ordered),
+    onSuccess: ({ channels: next }) => queryClient.setQueryData(communityKeys.channels(c.id), next),
     onError: (error) => {
       refresh();
       onError(error);
@@ -48,7 +50,7 @@ export function ChannelsSection({ community: c }: { community: community.Communi
     onSuccess: () => {
       setDeleting(undefined);
       refresh();
-      void queryClient.invalidateQueries({ queryKey: keys.threadLists(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.threadLists(c.id) });
       toast(t("manage.channels.deleted"));
     },
     onError,
@@ -182,7 +184,7 @@ function ChannelDialog({
         : boardClient().createChannel({ communityId, ...fields, anonymous });
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.channels(communityId) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.channels(communityId) });
       toast.success(channel ? t("saved") : t("manage.channels.added"));
       onClose();
     },

@@ -1,5 +1,5 @@
+import { appPathOf } from "@tokuly/core/community";
 import { GenericSubjectCard, type SubjectCardProps } from "#/features/engagement";
-import { appPathOf } from "./model";
 
 /**
  * A saved (or reacted-to) community, thread, reply or event: the generic

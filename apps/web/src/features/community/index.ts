@@ -15,6 +15,13 @@
  *   <CommunityIcon community={community} size="sm" />   // its picture, or the emoji of its category
  *   <CommunityLinkCard handle="neko" onOpen={open} fallback={plainLink} />   // a `/g/…` link in chat, as the viewer may see it
  */
+
+export {
+  appPathOf,
+  communityHref,
+  eventHref,
+  inviteHref,
+  threadHref,
+} from "@tokuly/core/community";
 export { CommunityLinkCard } from "./link-card";
-export { appPathOf, communityHref, eventHref, inviteHref, threadHref } from "./model";
 export { CommunityIcon } from "./parts";

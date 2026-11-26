@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { community } from "@tokuly/api";
+import { communityKeys, inviteHref } from "@tokuly/core/community";
 import { Copy, Plus, QrCode, Trash2 } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
@@ -15,8 +16,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { copyText } from "#/features/engagement";
 import { errorMessage } from "#/lib/errors";
-import { communityClient, keys, NS, useInvites } from "../api";
-import { inviteHref } from "../model";
+import { communityClient, NS, useInvites } from "../api";
 import { Notice, useDurationLabel, useWhen } from "../parts";
 
 const EXPIRIES = [0, 3600, 86_400, 7 * 86_400, 30 * 86_400] as const;
@@ -38,7 +38,7 @@ export function InvitesSection({ community: c }: { community: community.Communit
     mutationFn: (inviteId: string) => communityClient().revokeInvite({ inviteId }),
     onSuccess: () => {
       setRevoking(undefined);
-      void queryClient.invalidateQueries({ queryKey: keys.invites(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.invites(c.id) });
       toast(t("invite.revoked"));
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: NS })),
@@ -159,7 +159,7 @@ function CreateInviteDialog({
         note: note.trim(),
       }),
     onSuccess: ({ invite }) => {
-      void queryClient.invalidateQueries({ queryKey: keys.invites(communityId) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.invites(communityId) });
       onClose();
       if (invite) onCreated(invite);
     },

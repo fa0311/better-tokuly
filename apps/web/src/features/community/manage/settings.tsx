@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { community } from "@tokuly/api";
+import { can, communityKeys, refreshMembership, storeCommunity } from "@tokuly/core/community";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -8,7 +9,7 @@ import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { TextField } from "#/components/ui/field";
 import { errorMessage } from "#/lib/errors";
-import { communityClient, keys, NS, refreshMembership, storeCommunity } from "../api";
+import { communityClient, NS } from "../api";
 import {
   CommunityFields,
   draftFields,
@@ -18,7 +19,6 @@ import {
   draftTags,
   useHandleCheck,
 } from "../community-form";
-import { can } from "../model";
 import { Notice, SectionTitle } from "../parts";
 
 /** The community's profile, rules, join questions, visibility and switches; closing it for good. */
@@ -45,7 +45,7 @@ export function SettingsSection({ community: c }: { community: community.Communi
     onSuccess: ({ community: next }) => {
       if (!next) return;
       storeCommunity(queryClient, next);
-      void queryClient.invalidateQueries({ queryKey: keys.my });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.my });
       setDraft(draftOf(next));
       toast.success(t("saved"));
       // A new handle is a new address.
@@ -61,7 +61,7 @@ export function SettingsSection({ community: c }: { community: community.Communi
   const close = useMutation({
     mutationFn: () => communityClient().deleteCommunity({ communityId: c.id }),
     onSuccess: () => {
-      queryClient.removeQueries({ queryKey: keys.community(c.handle) });
+      queryClient.removeQueries({ queryKey: communityKeys.community(c.handle) });
       refreshMembership(queryClient, c.id);
       toast(t("manage.settings.closed"));
       void navigate({ to: "/communities" });

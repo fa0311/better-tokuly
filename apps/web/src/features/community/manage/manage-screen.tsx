@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { community } from "@tokuly/api";
+import { can, communityHref } from "@tokuly/core/community";
 import {
   Ban,
   ChevronRight,
@@ -17,7 +18,6 @@ import { CountBadge } from "#/components/ui/badge";
 import { EmptyState, Page } from "#/components/ui/page";
 import { NS } from "../api";
 import { useCurrentCommunity } from "../context";
-import { can, communityHref } from "../model";
 import { BansSection } from "./bans";
 import { ChannelsSection } from "./channels";
 import { InvitesSection } from "./invites";

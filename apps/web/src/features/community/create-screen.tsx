@@ -1,12 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { refreshMembership, storeCommunity } from "@tokuly/core/community";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import { communityClient, NS, refreshMembership, storeCommunity, useMyCommunities } from "./api";
+import { communityClient, NS, useMyCommunities } from "./api";
 import {
   CommunityFields,
   draftFields,

@@ -2,6 +2,19 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, community, errorReason } from "@tokuly/api";
 import {
+  can,
+  communityHref,
+  communityKeys,
+  isMember,
+  parseTags,
+  patchReplies,
+  patchThread,
+  pseudonymName,
+  threadHref,
+  timeoutUntilMs,
+  upsertReply,
+} from "@tokuly/core/community";
+import {
   ArrowDownUp,
   Bell,
   BellOff,
@@ -34,29 +47,10 @@ import { ReactionBar } from "#/features/engagement";
 import { StampImage, StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import {
-  boardClient,
-  keys,
-  NS,
-  patchReplies,
-  patchThread,
-  upsertReply,
-  useChannels,
-  useReplies,
-  useThread,
-} from "./api";
+import { boardClient, NS, useChannels, useReplies, useThread } from "./api";
 import { PostTextArea, ReplyComposer } from "./composer";
 import { useCurrentCommunity } from "./context";
 import { ContentHistoryDialog, ReasonDialog, RevealAuthorDialog } from "./mod-dialogs";
-import {
-  can,
-  communityHref,
-  isMember,
-  parseTags,
-  pseudonymName,
-  threadHref,
-  timeoutUntilMs,
-} from "./model";
 import { Notice, PostAuthor, PostBody, PostImages, TagList } from "./parts";
 import { PollCard } from "./poll";
 import { useShareMenu } from "./share";
@@ -94,9 +88,9 @@ export function ThreadScreen({
             ? { ...each, viewer: { ...each.viewer, unread: false, unreadReplyCount: 0 } }
             : each,
         );
-        void queryClient.invalidateQueries({ queryKey: keys.channels(c.id) });
-        void queryClient.invalidateQueries({ queryKey: keys.communities });
-        void queryClient.invalidateQueries({ queryKey: keys.my });
+        void queryClient.invalidateQueries({ queryKey: communityKeys.channels(c.id) });
+        void queryClient.invalidateQueries({ queryKey: communityKeys.communities });
+        void queryClient.invalidateQueries({ queryKey: communityKeys.my });
       })
       .catch(() => {});
   }, [threadUuid, member, unread, queryClient, c.id]);
@@ -292,7 +286,7 @@ function FollowButton({ thread }: { thread: community.Thread }) {
       patchThread(queryClient, thread.id, (each) =>
         each.viewer ? { ...each, viewer: { ...each.viewer, following: next } } : each,
       );
-      void queryClient.invalidateQueries({ queryKey: keys.followed });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.followed });
       toast(next ? t("follow.on") : t("follow.off"));
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: NS })),
@@ -338,8 +332,8 @@ function ThreadActions({
 
   const store = (next: community.Thread | undefined) => {
     if (next) patchThread(queryClient, thread.id, () => next);
-    void queryClient.invalidateQueries({ queryKey: keys.threadLists(c.id) });
-    void queryClient.invalidateQueries({ queryKey: keys.announcements(c.id) });
+    void queryClient.invalidateQueries({ queryKey: communityKeys.threadLists(c.id) });
+    void queryClient.invalidateQueries({ queryKey: communityKeys.announcements(c.id) });
   };
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: NS }));
   const pin = useMutation({
@@ -379,10 +373,10 @@ function ThreadActions({
     mutationFn: (reason: string) => boardClient().deleteThread({ threadId: thread.id, reason }),
     onSuccess: () => {
       setDeleting(false);
-      void queryClient.invalidateQueries({ queryKey: keys.threadLists(c.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.announcements(c.id) });
-      queryClient.removeQueries({ queryKey: keys.thread(thread.shortId) });
-      queryClient.removeQueries({ queryKey: keys.thread(thread.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.threadLists(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.announcements(c.id) });
+      queryClient.removeQueries({ queryKey: communityKeys.thread(thread.shortId) });
+      queryClient.removeQueries({ queryKey: communityKeys.thread(thread.id) });
       toast(t("thread.deleted"));
       void navigate({ to: "/g/$handle", params: { handle: c.handle } });
     },

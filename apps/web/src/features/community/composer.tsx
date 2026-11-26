@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type common, community, errorReason, fromDate } from "@tokuly/api";
+import { can, communityKeys, parseTags, pseudonymName, upsertReply } from "@tokuly/core/community";
 import { BarChart3, Plus, Smile, Sticker, Trash2, VenetianMask, X } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,8 +14,7 @@ import { EmojiPicker, EmojiSuggestBar, recordEmojiUse, shortcodesIn } from "#/fe
 import { StampImage, StampPicker } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { boardClient, keys, NS, upsertReply } from "./api";
-import { can, parseTags, pseudonymName } from "./model";
+import { boardClient, NS } from "./api";
 import {
   ImageAttachmentRow,
   ImagePickButton,
@@ -275,10 +275,10 @@ export function ThreadComposer({
       if (!thread || !channel) return;
       recordEmojiUse(shortcodesIn(`${title} ${body}`));
       if (slowApplies(c, channel)) noteSlowPost(channel.id, channel.slowModeSeconds);
-      void queryClient.invalidateQueries({ queryKey: keys.threadLists(c.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.channels(c.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.followed });
-      queryClient.setQueryData(keys.thread(thread.shortId), thread);
+      void queryClient.invalidateQueries({ queryKey: communityKeys.threadLists(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.channels(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.followed });
+      queryClient.setQueryData(communityKeys.thread(thread.shortId), thread);
       announcePost(t, thread.state, "thread");
       reset();
       onOpenChange(false);
@@ -479,9 +479,9 @@ export function ReplyComposer({
       onClearReplyTo();
       if (channel && slowApplies(c, channel)) noteSlowPost(channel.id, channel.slowModeSeconds);
       upsertReply(queryClient, reply);
-      void queryClient.invalidateQueries({ queryKey: keys.thread(thread.shortId) });
-      void queryClient.invalidateQueries({ queryKey: keys.thread(thread.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.followed });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.thread(thread.shortId) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.thread(thread.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.followed });
       announcePost(t, reply.state, "reply");
     },
     onError: (error) => {

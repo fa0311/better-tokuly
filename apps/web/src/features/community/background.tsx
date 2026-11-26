@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
+import { applyCommunityEvent, communityKeys } from "@tokuly/core/community";
 import { useEffect } from "react";
 import { registerSubjectCard } from "#/features/engagement";
 import { realtime, rereadListsAfterReconnect } from "#/lib/realtime";
-import { keys } from "./api";
-import { applyCommunityEvent } from "./live";
+import { boardClient } from "./api";
+
 import { CommunitySubjectCard } from "./subject-card";
 
 // Saved and reacted-to community pages open at this app's addresses for them.
@@ -28,14 +29,15 @@ export default function CommunityBackground() {
   useEffect(() => {
     const client = realtime();
     const off = client.onFrame((frame) => {
-      if (frame.body.case === "community") applyCommunityEvent(queryClient, frame.body.value.event);
+      if (frame.body.case === "community")
+        applyCommunityEvent(queryClient, frame.body.value.event, boardClient);
     });
     // What changed while the connection was down was not announced: the lists on screen (my
     // communities, invitations, queues) are read again. An open community's boards read
     // themselves again when its topic is back (`CommunityLayout`).
     const stop = rereadListsAfterReconnect(
       queryClient,
-      keys.all,
+      communityKeys.all,
       (key) => key[1] === "in" && client.isSubscribed(`community:${String(key[2])}`),
     );
     client.start();

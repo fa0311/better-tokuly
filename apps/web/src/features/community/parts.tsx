@@ -1,5 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import { type common, community, media } from "@tokuly/api";
+import {
+  imageUrl,
+  pseudonymName,
+  ROLE_KEYS,
+  safeColor,
+  splitMentions,
+} from "@tokuly/core/community";
 import { EyeOff, ImagePlus, Lock, Users, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,7 +22,6 @@ import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import { uploadAndProcess } from "#/lib/upload";
 import { NS } from "./api";
-import { imageUrl, pseudonymName, ROLE_KEYS, safeColor, splitMentions } from "./model";
 
 // ───────────── Words for enums ─────────────
 

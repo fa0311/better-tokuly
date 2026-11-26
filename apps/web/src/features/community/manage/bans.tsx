@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { community } from "@tokuly/api";
+import { communityKeys } from "@tokuly/core/community";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
@@ -8,7 +9,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
-import { keys, moderationClient, NS, useBans } from "../api";
+import { moderationClient, NS, useBans } from "../api";
 import { Notice, useWhen } from "../parts";
 
 /** Bans in force, newest first; lifting one lets the person join again. */
@@ -20,7 +21,7 @@ export function BansSection({ community: c }: { community: community.Community }
   const unban = useMutation({
     mutationFn: (userId: string) => moderationClient().unbanMember({ communityId: c.id, userId }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.bans(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.bans(c.id) });
       toast(t("manage.bans.lifted"));
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: NS })),

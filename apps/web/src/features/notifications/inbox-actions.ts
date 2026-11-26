@@ -3,6 +3,7 @@ import type { AnyRouter } from "@tanstack/react-router";
 import {
   type InboxFilter,
   type InboxPages,
+  notificationPath,
   withRead,
   withRemoved,
 } from "@tokuly/core/notifications";
@@ -10,7 +11,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
 import { applyUnread, inboxClient, rereadInbox, updateInboxLists } from "./api";
-import { notificationPath, openTargetPath } from "./target";
+import { openTargetPath } from "./target";
 
 /**
  * Runs a write to the inbox with its effect on the lists shown at once.

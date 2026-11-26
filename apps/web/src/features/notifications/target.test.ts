@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { notificationPath, resolveTargetPath } from "./target";
+import { resolveTargetPath } from "./target";
 
 const ORIGIN = "https://tokuly.example";
 const resolve = (path: string) => resolveTargetPath(path, ORIGIN);
@@ -49,24 +49,5 @@ describe("notification targets", () => {
     expect(resolve("   ")).toBeNull();
     expect(resolve("javascript:alert(1)")).toBeNull();
     expect(resolve("data:text/html,hi")).toBeNull();
-  });
-});
-
-describe("notification paths", () => {
-  it("sends community notifications to the community pages, not to a video channel", () => {
-    expect(notificationPath("community.reply", "/c/neko/t/bXou6FpLkfK")).toBe(
-      "/g/neko/t/bXou6FpLkfK",
-    );
-    expect(notificationPath("community.join_approved", "/c/neko")).toBe("/g/neko");
-    expect(notificationPath("community.review", "/c/neko/review")).toBe("/g/neko/manage/queue");
-    expect(notificationPath("community.event_reminder", "/c/neko/events/0199-ab")).toBe(
-      "/g/neko/events/0199-ab",
-    );
-  });
-
-  it("leaves every other path alone, and a community path it cannot read", () => {
-    expect(notificationPath("video.comment", "/c/someone")).toBe("/c/someone");
-    expect(notificationPath(undefined, "/c/someone")).toBe("/c/someone");
-    expect(notificationPath("community.review", "/c/neko/videos")).toBe("/c/neko/videos");
   });
 });
