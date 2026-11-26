@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { common, create, notes } from "@tokuly/api";
+import { router } from "expo-router";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { api } from "#/lib/api";
@@ -22,7 +23,13 @@ jest.mock("expo-crypto", () => ({ randomUUID: () => "idempotency-1" }));
 const FRIEND = create(common.UserSummarySchema, { id: "u-bob", handle: "bob", displayName: "Bob" });
 
 /** The API of one account: what each notes and social call was asked, answered the way a server would. */
-function account(options: { agreed?: boolean; draft?: notes.Draft } = {}) {
+function account(
+  options: {
+    agreed?: boolean;
+    draft?: notes.Draft;
+    createNote?: (request: Record<string, unknown>) => Promise<unknown>;
+  } = {},
+) {
   const calls: { method: string; request: Record<string, unknown> }[] = [];
   let agreed = options.agreed ?? true;
   const record =
@@ -43,9 +50,13 @@ function account(options: { agreed?: boolean; draft?: notes.Draft } = {}) {
         agreed = true;
         return {};
       }),
-      createNote: record("createNote", (request) => ({
-        note: create(notes.NoteSchema, { id: "n-new", text: request.text as string }),
-      })),
+      createNote: record(
+        "createNote",
+        options.createNote ??
+          ((request) => ({
+            note: create(notes.NoteSchema, { id: "n-new", text: request.text as string }),
+          })),
+      ),
       searchHashtags: async () => ({ hashtags: [] }),
     },
     "tokuly.notes.v1.NoteDraftService": {
@@ -83,6 +94,7 @@ async function open(element: React.ReactElement) {
 
 beforeEach(() => {
   mockLeaveGuard = undefined;
+  jest.mocked(router.back).mockClear();
   jest.spyOn(Alert, "alert").mockImplementation(() => {});
 });
 
@@ -122,6 +134,31 @@ describe("ComposeScreen", () => {
     expect(bob.calls).toEqual([]);
   });
 
+  it("leaves after a successful post without re-enabling the unsaved guard", async () => {
+    let finishPost!: (result: unknown) => void;
+    const pendingPost = new Promise<unknown>((resolve) => {
+      finishPost = resolve;
+    });
+    const alice = account({ createNote: () => pendingPost });
+    jest.mocked(api).mockReturnValue(alice.object as never);
+    await open(<ComposeScreen />);
+    await fireEvent.changeText(await screen.findByTestId("note-text"), "投稿したよ");
+    expect(mockLeaveGuard).toBeDefined();
+
+    await fireEvent.press(screen.getByTestId("note-post"));
+    await waitFor(() =>
+      expect(alice.calls.some((call) => call.method === "createNote")).toBe(true),
+    );
+    await waitFor(() => expect(mockLeaveGuard).toBeUndefined());
+    expect(router.back).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishPost({ note: create(notes.NoteSchema, { id: "n-new", text: "投稿したよ" }) });
+    });
+    expect(router.back).toHaveBeenCalledTimes(1);
+    expect(mockLeaveGuard).toBeUndefined();
+  });
+
   it("offers to keep what was written as a draft when leaving", async () => {
     const alice = account();
     jest.mocked(api).mockReturnValue(alice.object as never);
@@ -140,6 +177,8 @@ describe("ComposeScreen", () => {
         }),
       }),
     );
+    expect(router.back).toHaveBeenCalledTimes(1);
+    expect(mockLeaveGuard).toBeUndefined();
   });
 
   it("says who the note goes to when nothing is picked: the account's usual audience", async () => {
