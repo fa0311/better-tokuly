@@ -2,6 +2,8 @@
 
 Rust workspace. One binary (`tokuly`, crate `crates/server`) runs every role:
 `tokuly api`, `tokuly worker`, `tokuly migrate`, `tokuly all`.
+(`tokuly demo` is the odd one out: the demo simulator, which only calls the
+API over HTTP; see `crates/demo/src/lib.rs`.)
 
 ## Layout
 
@@ -13,6 +15,7 @@ backend/crates/core                       shared foundation (see below)
 backend/crates/testkit                    integration test harness
 backend/crates/<domain>                   one crate per domain
 backend/crates/server                     the binary; wires domains together
+backend/crates/demo                       the demo simulator (`tokuly demo`): a client of the API, not a domain
 ```
 
 Domains and their migration numbers. The binary serves all of them

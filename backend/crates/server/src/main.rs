@@ -11,6 +11,10 @@
 //! `tokuly healthcheck <url>` is the container health probe for these roles.
 //! `tokuly promote-admin` and `tokuly dead-letters` are the operator's tools.
 //!
+//! `tokuly demo` is not a role of the server but a client of it: the demo
+//! simulator (`tokuly-demo`), which needs the API's address and nothing of
+//! the infrastructure.
+//!
 //! Settings come from the command line, the `TOKULY_*` environment, the
 //! `tokuly.toml` named by `TOKULY_CONFIG` and the staff console, in that
 //! order (see `settings.rs`); `tokuly config example` prints every one.
@@ -73,6 +77,9 @@ enum Command {
         /// For example `http://127.0.0.1:8081/readyz`.
         url: String,
     },
+    /// Run the demo simulator against a running API: bots that walk around
+    /// a region of the map, chat and post (off until its operators are set).
+    Demo(Box<tokuly_demo::DemoConfig>),
 }
 
 #[derive(Subcommand, Clone)]
@@ -146,9 +153,33 @@ fn early_command(argv: &[OsString]) -> Option<Command> {
     }
 }
 
+/// The simulator's own command line, when the first word is `demo`. It is
+/// parsed by itself, strictly: none of the server's settings (the secret,
+/// the database) exist where the simulator runs.
+#[derive(Parser)]
+#[command(name = "tokuly demo", about = "Tokuly demo simulator")]
+struct DemoCli {
+    #[command(flatten)]
+    config: tokuly_demo::DemoConfig,
+}
+
+/// Runs the simulator until Ctrl-C or SIGTERM.
+async fn demo(config: tokuly_demo::DemoConfig) -> anyhow::Result<()> {
+    if config.operators().is_empty() {
+        // Not an error: the profile may be on before the demo is configured.
+        eprintln!("tokuly demo: off. Set TOKULY_DEV_DEMO_OPERATORS and TOKULY_DEMO_PASSWORD (tools/demo-env.sh writes them to .env), restart the server and start the demo again.");
+        return Ok(());
+    }
+    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+    tokuly_demo::run(config, shutdown_signal()).await.map(drop)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let argv: Vec<OsString> = std::env::args_os().collect();
+    if argv.get(1).is_some_and(|word| word == "demo") {
+        return demo(DemoCli::parse_from(std::iter::once(&OsString::from("tokuly demo")).chain(&argv[2..])).config).await;
+    }
     match early_command(&argv) {
         // The probe talks to a server that is already running: it needs none of the infrastructure.
         Some(Command::Healthcheck { url }) => return healthcheck::run(&url).await,
@@ -180,7 +211,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Migrate => "tokuly-migrate",
         Command::All => "tokuly-all",
         Command::PromoteAdmin { .. } | Command::DeadLetters { .. } => "tokuly-admin",
-        Command::Healthcheck { .. } | Command::Config { .. } => unreachable!("handled above"),
+        Command::Healthcheck { .. } | Command::Config { .. } | Command::Demo(_) => unreachable!("handled above"),
     };
     let _telemetry = telemetry::init(&cli.core, service);
     if let Some(file) = &resolved.file {
@@ -255,7 +286,7 @@ async fn main() -> anyhow::Result<()> {
             });
             app::serve_api(core, domains, cli.api).await?;
         }
-        Command::Healthcheck { .. } | Command::Config { .. } => unreachable!("handled above"),
+        Command::Healthcheck { .. } | Command::Config { .. } | Command::Demo(_) => unreachable!("handled above"),
     }
     Ok(())
 }
@@ -276,20 +307,25 @@ async fn start(cfg: Config, domains: app::DomainConfigs, state: tokuly_core::set
 /// Cancels `core.shutdown` on Ctrl-C or SIGTERM so servers and workers stop cleanly.
 fn spawn_shutdown_listener(core: Core) {
     tokio::spawn(async move {
-        let ctrl_c = tokio::signal::ctrl_c();
-        #[cfg(unix)]
-        {
-            let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("install SIGTERM handler");
-            tokio::select! {
-                _ = ctrl_c => {}
-                _ = term.recv() => {}
-            }
-        }
-        #[cfg(not(unix))]
-        let _ = ctrl_c.await;
+        shutdown_signal().await;
         tracing::info!("shutdown requested");
         core.shutdown.cancel();
     });
+}
+
+/// Completes on Ctrl-C or SIGTERM.
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("install SIGTERM handler");
+        tokio::select! {
+            _ = ctrl_c => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = ctrl_c.await;
 }
 
 #[cfg(test)]
