@@ -16,7 +16,14 @@ import { EmptyState, ErrorNote, Spinner } from "#/components/page";
 import { Tabs } from "#/components/tabs";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
-import { useHistoryActions, useRecentSearches, useResults, useSuggest, useTrending } from "./data";
+import {
+  type Asked,
+  useHistoryActions,
+  useRecentSearches,
+  useResults,
+  useSuggest,
+  useTrending,
+} from "./data";
 import { HitRow } from "./hit-row";
 import { openHit } from "./open";
 
@@ -36,16 +43,17 @@ export function SearchScreen({ start }: { start: SearchStart }) {
   const { t } = useTranslation("search");
   const { colors } = useTheme();
   const [text, setText] = useState(start.query ?? "");
-  const [asked, setAsked] = useState({
+  const [asked, setAsked] = useState<Asked & { kind?: Kind }>({
     query: start.query ?? "",
     kind: start.kind,
     remember: false,
+    at: 0,
   });
   const submit = (query: string) => {
     const trimmed = query.trim();
     if (!trimmed) return;
     setText(trimmed);
-    setAsked({ query: trimmed, kind: undefined, remember: true });
+    setAsked({ query: trimmed, kind: undefined, remember: true, at: Date.now() });
   };
   const typing = text.trim() !== asked.query;
   return (
@@ -85,9 +93,8 @@ export function SearchScreen({ start }: { start: SearchStart }) {
         <Typeahead text={text} onSearch={submit} />
       ) : (
         <Results
-          query={asked.query}
+          asked={asked}
           kind={asked.kind}
-          remember={asked.remember}
           onKind={(kind) => setAsked({ ...asked, kind })}
           onSearch={submit}
         />
@@ -288,22 +295,20 @@ type Tab = "all" | string;
 
 /** The results of an asked query, one tab per kind that has any. */
 function Results({
-  query,
+  asked,
   kind,
-  remember,
   onKind,
   onSearch,
 }: {
-  query: string;
+  asked: Asked;
   kind: Kind | undefined;
-  remember: boolean;
   onKind(kind: Kind | undefined): void;
   onSearch(query: string): void;
 }) {
   const { t } = useTranslation("search");
   // The counts come with the first page of every kind; a tab keeps the ones it was chosen from.
-  const all = useResults(query, undefined, remember);
-  const inTab = useResults(query, kind, remember, kind !== undefined);
+  const all = useResults(asked, undefined);
+  const inTab = useResults(asked, kind, kind !== undefined);
   const results = kind === undefined ? all : inTab;
   const counts = all.data?.pages[0]?.counts ?? [];
   const found = KINDS.filter((each) =>
@@ -351,7 +356,7 @@ function Results({
           ListEmptyComponent={
             <EmptyState
               emoji="🔍"
-              title={t("empty.title", { query })}
+              title={t("empty.title", { query: asked.query })}
               body={`${t("empty.tipSpelling")}\n${t("empty.tipFewer")}`}
             />
           }

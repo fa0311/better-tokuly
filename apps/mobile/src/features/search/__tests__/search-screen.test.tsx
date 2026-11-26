@@ -130,5 +130,15 @@ describe("SearchScreen", () => {
     await show({ query: "さくら", kind: K.NOTE });
     expect(await screen.findByText("さくらのノート")).toBeOnTheScreen();
     expect(asked.every((request) => request.skipHistory)).toBe(true);
+
+    // Asked for by the person after all, the same query is sent again to be remembered.
+    await fireEvent(screen.getByTestId("search-input"), "submitEditing");
+    await waitFor(() =>
+      expect(asked.at(-1)).toMatchObject({
+        query: "さくら",
+        kind: K.UNSPECIFIED,
+        skipHistory: false,
+      }),
+    );
   });
 });

@@ -50,28 +50,39 @@ export function useSuggest(text: string) {
   });
 }
 
-/**
- * The results of a query in one tab (`undefined`: every kind), page by page.
- * Only a query the person asked for themselves is `remember`ed in their
- * recent searches and counts towards trending; one opened from a link is not.
- */
-export function useResults(
-  query: string,
-  kind: Kind | undefined,
-  remember: boolean,
-  enabled = true,
-) {
+/** A query to show the results of. */
+export interface Asked {
+  query: string;
+  /**
+   * The person asked for it themselves: it is remembered in their recent
+   * searches and counts towards trending. One opened from a link is not.
+   */
+  remember: boolean;
+  /**
+   * When it was asked (0 for a link). Each asking is sent afresh, so it is
+   * remembered even when the same results were shown a moment ago (opened
+   * from a link, or asked before).
+   */
+  at: number;
+}
+
+/** The results of an asked query in one tab (`undefined`: every kind), page by page. */
+export function useResults(asked: Asked, kind: Kind | undefined, enabled = true) {
   const queryClient = useQueryClient();
+  const { query, remember, at } = asked;
   const tab = kind ?? search.SearchKind.UNSPECIFIED;
   return useInfiniteQuery({
-    queryKey: searchKeys.results(query, tab, undefined, undefined),
-    queryFn: async ({ pageParam }) => {
-      const response = await searchClient().search({
-        query,
-        kind: tab,
-        page: { cursor: pageParam, limit: 20 },
-        skipHistory: !remember || pageParam !== "",
-      });
+    queryKey: [...searchKeys.results(query, tab, undefined, undefined), at],
+    queryFn: async ({ pageParam, signal }) => {
+      const response = await searchClient().search(
+        {
+          query,
+          kind: tab,
+          page: { cursor: pageParam, limit: 20 },
+          skipHistory: !remember || pageParam !== "",
+        },
+        { signal },
+      );
       if (remember && pageParam === "")
         void queryClient.invalidateQueries({ queryKey: searchKeys.recent });
       return response;
