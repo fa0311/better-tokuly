@@ -1,0 +1,63 @@
+appId: app.tokuly.mobile
+name: Search for someone, open their profile, find the search in the history and forget it
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/search-people.js
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.me}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+
+# さがす is under the own profile.
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-search" }
+- tapOn: { id: "me-search" }
+- extendedWaitUntil:
+    visible: { id: "search-screen" }
+    timeout: 15000
+- tapOn: { id: "search-input" }
+- inputText: ${output.other}
+- pressKey: Enter
+# The index takes a moment to hold someone who just signed up.
+- repeat:
+    while:
+      notVisible: { id: "search-kind-people" }
+    times: 10
+    commands:
+      - tapOn: { id: "search-clear" }
+      - inputText: ${output.other}
+      - pressKey: Enter
+      - waitForAnimationToEnd
+- waitForAnimationToEnd
+- takeScreenshot: 14-search
+- tapOn: { id: "${output.otherHit}" }
+- extendedWaitUntil:
+    visible: { id: "${'profile-' + output.other}" }
+    timeout: 15000
+- back
+
+# The search is remembered for this account, and can be forgotten.
+- tapOn: { id: "search-clear" }
+- extendedWaitUntil:
+    visible: ${output.other}
+    timeout: 15000
+- takeScreenshot: 15-search-recent
+- tapOn: { id: "search-history-clear" }
+# The confirmation (the device runs in English, as in CI).
+- tapOn: "CLEAR ALL|Clear all|ぜんぶ消す"
+- extendedWaitUntil:
+    notVisible: ${output.other}
+    timeout: 15000
