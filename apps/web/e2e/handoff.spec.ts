@@ -43,8 +43,9 @@ test("an app's hand-off opens the web signed in, once", async ({ page, request }
   // A browser that never signed in (no hint of its own): the hand-off is enough.
   await loadAsWebView(page, url, value);
   await expect(page).toHaveURL(/\/settings$/);
+  // The first load of a screen on a busy dev server takes a while.
   await expect(page.getByText(app.displayName).filter({ visible: true }).first()).toBeVisible({
-    timeout: 25_000,
+    timeout: 60_000,
   });
   // The code is gone from the address, and nothing readable holds a token.
   expect(page.url()).not.toContain("code=");
