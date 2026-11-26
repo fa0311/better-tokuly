@@ -1,0 +1,19 @@
+appId: app.tokuly.mobile
+name: Pick the newest item in the system photo picker
+---
+# A permission prompt for the library, when the OS asks.
+- runFlow:
+    when:
+      visible: "(Allow all|Allow|すべて許可|許可)"
+    commands:
+      - tapOn: "(Allow all|Allow|すべて許可|許可)"
+- extendedWaitUntil:
+    visible: { id: "com.google.android.providers.media.module:id/icon_thumbnail" }
+    timeout: 20000
+- tapOn: { id: "com.google.android.providers.media.module:id/icon_thumbnail", index: 0 }
+# Several may be picked at once: then the choice is confirmed.
+- runFlow:
+    when:
+      visible: { id: "com.google.android.providers.media.module:id/button_add" }
+    commands:
+      - tapOn: { id: "com.google.android.providers.media.module:id/button_add" }
