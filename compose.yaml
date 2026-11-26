@@ -38,7 +38,17 @@
 
 name: tokuly
 
+# Container logs are kept by Docker without a limit unless told otherwise,
+# and a chatty service fills the disk of a small server within weeks. Every
+# service keeps its newest 50 MB (5 files of 10 MB).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 x-backend: &backend
+  logging: *logging
   image: ${TOKULY_IMAGES:-ghcr.io/fa0311/better-tokuly}/backend:${TOKULY_VERSION:-edge}
   build:
     context: .
@@ -98,6 +108,7 @@ x-backend: &backend
 services:
   # ── Entry point ────────────────────────────────────────────────────────────
   edge:
+    logging: *logging
     image: caddy:2.11.9-alpine
     restart: unless-stopped
     environment:
@@ -120,6 +131,7 @@ services:
         condition: service_healthy
 
   web:
+    logging: *logging
     image: ${TOKULY_IMAGES:-ghcr.io/fa0311/better-tokuly}/web:${TOKULY_VERSION:-edge}
     build:
       context: .
@@ -178,6 +190,7 @@ services:
 
   # ── Data ───────────────────────────────────────────────────────────────────
   postgres:
+    logging: *logging
     image: ${TOKULY_IMAGES:-ghcr.io/fa0311/better-tokuly}/postgres:${TOKULY_VERSION:-edge}
     build:
       context: infra/postgres
@@ -197,6 +210,7 @@ services:
       retries: 20
 
   valkey:
+    logging: *logging
     image: valkey/valkey:9.2-alpine
     restart: unless-stopped
     # Presence, rate limits and caches. Never evict: sessions being revoked live here too.
@@ -210,6 +224,7 @@ services:
       retries: 20
 
   nats:
+    logging: *logging
     image: nats:2.15.3-alpine
     restart: unless-stopped
     command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]
@@ -222,6 +237,7 @@ services:
       retries: 20
 
   storage:
+    logging: *logging
     image: rustfs/rustfs:1.0.6
     restart: unless-stopped
     environment:
@@ -241,6 +257,7 @@ services:
       retries: 30
 
   clickhouse:
+    logging: *logging
     image: clickhouse/clickhouse-server:26.9-alpine
     restart: unless-stopped
     environment:
@@ -259,6 +276,7 @@ services:
       retries: 30
 
   search:
+    logging: *logging
     image: getmeili/meilisearch:v1.57.0
     restart: unless-stopped
     environment:
@@ -278,6 +296,7 @@ services:
   # a street-level extract of TOKULY_MAP_REGION_BBOX (default: greater Tokyo),
   # plus the map fonts and icons. Later starts reuse what is in the volumes.
   tiles:
+    logging: *logging
     image: ${TOKULY_IMAGES:-ghcr.io/fa0311/better-tokuly}/tiles:${TOKULY_VERSION:-edge}
     build:
       context: infra/tiles
@@ -293,6 +312,7 @@ services:
 
   # ── Calls ──────────────────────────────────────────────────────────────────
   livekit:
+    logging: *logging
     image: livekit/livekit-server:v1.13.11
     restart: unless-stopped
     command: ["--config", "/etc/livekit.yaml"]
@@ -313,6 +333,7 @@ services:
   # watch is decided by the API: MediaMTX asks its hook every time, with the
   # hook secret as the password of the address below.
   mediamtx:
+    logging: *logging
     image: bluenviron/mediamtx:1.21.4
     restart: unless-stopped
     # The backend's user, so the worker can delete what this writes.
@@ -345,6 +366,7 @@ services:
   # Catches everything the backend sends (verification, password reset) and
   # shows it at http://localhost:8025. Unused once TOKULY_SMTP_URL is set.
   mailpit:
+    logging: *logging
     image: axllent/mailpit:v1.34.0
     restart: unless-stopped
     environment:
@@ -355,6 +377,7 @@ services:
   # ── Optional ───────────────────────────────────────────────────────────────
   # Traces, logs and metrics. Also set TOKULY_OTLP_ENDPOINT=http://observability:4317.
   observability:
+    logging: *logging
     profiles: ["observability"]
     image: grafana/otel-lgtm:0.41.1
     restart: unless-stopped
