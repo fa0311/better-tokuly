@@ -20,6 +20,7 @@ import { errorMessage } from "#/lib/errors";
 import { freshPage, useDeletedNotes, useTimeline } from "./data";
 import { onTimelineHint } from "./live";
 import { NoteCard } from "./note-card";
+import { shouldScrollToNewOwnEntry } from "./timeline-scroll";
 import { reportViewed, VIEWABILITY } from "./views";
 
 /** A timeline row whose note is there (a row without one has nothing to show). */
@@ -128,6 +129,26 @@ export function Timeline({ source, empty, header, testID }: TimelineProps) {
     ...pinned.map((note): Row => ({ kind: "pinned", note })),
     ...entries.map((entry): Row => ({ kind: "entry", entry })),
   ];
+  const newestEntry = entries[0];
+  const newestEntryKey = newestEntry ? entryKey(newestEntry) : undefined;
+  const previousNewestEntry = useRef<string | undefined>(undefined);
+
+  // A local post is prepended while this screen is behind the composer. FlashList preserves
+  // the old visible row when data is inserted before it, which can leave that post offscreen.
+  // Put the viewer's own new top entry in view when the composer returns.
+  useEffect(() => {
+    if (
+      shouldScrollToNewOwnEntry(
+        previousNewestEntry.current,
+        newestEntryKey,
+        newestEntry?.note.author?.id,
+        myId,
+      )
+    ) {
+      list.current?.scrollToOffset({ offset: 0, animated: false });
+    }
+    previousNewestEntry.current = newestEntryKey;
+  }, [newestEntryKey, newestEntry?.note.author?.id, myId]);
 
   if (timeline.isPending) return <Spinner />;
   if (timeline.isError)
