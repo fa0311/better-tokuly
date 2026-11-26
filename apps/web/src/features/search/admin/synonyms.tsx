@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { search } from "@tokuly/api";
+import { searchKeys } from "@tokuly/core/search";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,7 +10,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
-import { searchAdminClient, searchKeys } from "../api";
+import { searchAdminClient } from "../api";
 import { formatDateTime, Pane, staffErrorMessage } from "./parts";
 import { MAX_WORDS, MIN_WORDS, parseWords } from "./words";
 

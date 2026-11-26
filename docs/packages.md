@@ -19,6 +19,7 @@ listed in its `package.json`), each with its own tests:
 | `@tokuly/core/chat`          | chat keys, limits, message rules, the message window and its paging, realtime events in the cache, unread totals, tokens, times, previews   |
 | `@tokuly/core/notes`         | notes, list and clip keys, timeline pages and fresh rows, note cache edits, realtime events, text reading, audiences, polls                 |
 | `@tokuly/core/notifications` | notify keys, unread counts, inbox cache edits, inbox times, push targets                                                                    |
+| `@tokuly/core/search`        | search kinds and their names, hit fields, where a hit leads, trend and recent-search keys and options, tag queries, suggestion lists        |
 | `@tokuly/core/stories`       | story keys and options, story cache edits                                                                                                   |
 | `@tokuly/core/shorts`        | shorts keys, captions, feed contexts, the slide window                                                                                      |
 | `@tokuly/core/live`          | live keys and options, gift, chat and poll rules, a stream and its chat in the cache, pushed live events                                    |

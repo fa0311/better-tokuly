@@ -4,21 +4,18 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/video-channel.js
+- clearKeychain
 - launchApp:
     clearState: true
 - extendedWaitUntil:
     visible: { id: "welcome-screen" }
     timeout: 60000
 - tapOn: { id: "welcome-sign-in" }
-- tapOn: { id: "sign-in-identifier" }
-- inputText: ${output.me}
-- tapOn: { id: "sign-in-password" }
-- inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: { id: "sign-in-submit" }
-- extendedWaitUntil:
-    visible: { id: "map-screen" }
-    timeout: 30000
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
 
 # Videos are native now: the hub opens the feeds, not a web screen.
 - tapOn: { id: "tab-me" }
@@ -45,7 +42,7 @@ env:
     timeout: 10000
 
 # The library lists the subscription, and it leads back to the channel.
-- back
+- runFlow: ../subflows/back.yaml
 - tapOn: { id: "video-library" }
 - tapOn: { id: "library-subscriptions" }
 - extendedWaitUntil:

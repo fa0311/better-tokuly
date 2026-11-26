@@ -14,7 +14,7 @@ use tokuly_core::config::Config;
 use crate::{
     buckets, clickhouse, nats, postgres,
     run::{self, Run},
-    search_indexes,
+    search_indexes, valkey,
 };
 
 const REMOVE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -81,6 +81,7 @@ async fn set_up(migrations: Vec<String>) -> TestEnv {
     let mut cfg = base.clone();
     cfg.database_url = postgres::create(&base, run, &migrations).await;
     cfg.nats_prefix = nats::prefix(run);
+    cfg.valkey_url = valkey::for_tests(&base.valkey_url);
     let clickhouse = match clickhouse::create(&base, run).await {
         Some(database) => {
             cfg.clickhouse_database = database;

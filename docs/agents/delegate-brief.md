@@ -1,6 +1,12 @@
 # What every delegated agent is told
 
 Put this, plus the issue and the decisions already made, in the brief. Keep the brief itself short.
+Copy the first rule into the brief word for word: a link to it is not enough, agents forget it.
+
+- **Foreground only, never end your turn before the report**: never `run_in_background`; nothing wakes
+  you after your turn ends. Split anything longer than ten minutes into calls of at most 600000 ms; to
+  wait for something already running, loop in the foreground (`timeout 590 sh -c 'while pgrep -f gradle
+  >/dev/null; do sleep 30; done'`, repeated).
 
 - **Read first**: `CLAUDE.md`, the README of the area, `docs/collaboration.md`, the docs of the domain
   (`docs/events/<domain>.md`), and for backend work `docs/agents/backend-checklist.md` (binding).
@@ -9,8 +15,6 @@ Put this, plus the issue and the decisions already made, in the brief. Keep the 
 - **Your own checkout**: a worktree and a build directory `$TOKULY_DEV_HOME/target/<name>`;
   `CARGO_INCREMENTAL=0`; build and test only the crates you touch plus `tokuly-server`; delete
   `debug/incremental` and the directory when done. Never `cargo clean` anything else.
-- **Foreground only**: never `run_in_background`, never end your turn to wait — nothing wakes you. Split
-  anything longer than ten minutes.
 - **Keep the existing rules** of the area you extend: audiences and blocks both ways, withdrawal events,
   rate limits, the egress guard, session revocation, account safety on mobile (`apps/mobile/README.md`).
   Classify every new RPC in `backend/crates/core/src/api_access.rs` and the dev scope catalogue.

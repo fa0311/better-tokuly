@@ -1,0 +1,18 @@
+appId: app.tokuly.mobile
+name: Go back from a pushed screen
+---
+# Android has a back button. iOS has none (Maestro's `back` does nothing
+# there): the screen is swiped away from the left edge, as a person would.
+- runFlow:
+    when: { platform: Android }
+    commands:
+      - back
+- runFlow:
+    when: { platform: iOS }
+    commands:
+      - swipe:
+          start: 1%, 50%
+          end: 90%, 50%
+          duration: 400
+      - waitForAnimationToEnd:
+          timeout: 3000

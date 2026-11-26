@@ -6,7 +6,7 @@ use sqlx::{Postgres, Transaction};
 use tokuly_core::{events, outbound, prelude::*};
 use tokuly_identity::{settings, users};
 use tokuly_media::assets;
-use tokuly_proto::{chat as pb, identity::Audience as PrivacyAudience, media::AssetPurpose};
+use tokuly_proto::{chat as pb, common::SubjectType, identity::Audience as PrivacyAudience, media::AssetPurpose};
 use tokuly_social::graph;
 
 use crate::{
@@ -645,9 +645,32 @@ pub(crate) fn ensure_group(conv: &ConversationRow) -> AppResult<()> {
     if conv.is_group() { Ok(()) } else { Err(not_a_group()) }
 }
 
+/// Messages announced per statement when a conversation goes.
+const DELETE_BATCH: i64 = 1000;
+
 /// Deletes a group nobody is left in, releasing every upload its messages
-/// and its icon held.
+/// and its icon held. The messages go with it (`ON DELETE CASCADE`); those
+/// not deleted before get `subject.deleted` here, in batches, so that saves
+/// of them elsewhere go too (a deleted message was announced then).
 pub(crate) async fn delete_conversation(tx: &mut Transaction<'_, Postgres>, conversation_id: Uuid) -> AppResult<()> {
+    let mut after = 0_i64;
+    loop {
+        let batch: Vec<(i64, Uuid)> = sqlx::query_as(
+            "SELECT seq, id FROM chat_messages WHERE conversation_id = $1 AND seq > $2 AND deleted_at IS NULL
+             ORDER BY seq LIMIT $3",
+        )
+        .bind(conversation_id)
+        .bind(after)
+        .bind(DELETE_BATCH)
+        .fetch_all(&mut **tx)
+        .await?;
+        let message_ids: Vec<Uuid> = batch.iter().map(|(_, id)| *id).collect();
+        outbound::subjects_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_CHAT_MESSAGE, &message_ids).await?;
+        match batch.last() {
+            Some(&(seq, _)) if batch.len() as i64 == DELETE_BATCH => after = seq,
+            _ => break,
+        }
+    }
     let message_ids: Vec<Uuid> =
         sqlx::query_scalar("SELECT DISTINCT message_id FROM chat_message_assets WHERE conversation_id = $1")
             .bind(conversation_id)

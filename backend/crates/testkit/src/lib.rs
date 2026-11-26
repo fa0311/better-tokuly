@@ -21,6 +21,7 @@
 //! - a private PostgreSQL database per test binary with only the migrations
 //!   you list (so another domain's half-written migration cannot break you);
 //! - a private NATS namespace, so jobs and events never reach a dev server;
+//! - a Valkey database apart from a dev server's (shared by test runs);
 //! - private media and private-file buckets, so uploads never mix with a
 //!   dev server's;
 //! - a private ClickHouse database with `backend/clickhouse/*.sql` applied
@@ -38,6 +39,7 @@ mod nats;
 mod postgres;
 mod run;
 mod search_indexes;
+mod valkey;
 
 use std::time::Duration;
 

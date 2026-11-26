@@ -1,6 +1,20 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { search } from "@tokuly/api";
+import {
+  fromTagQuery,
+  isKind,
+  isTagQuery,
+  KINDS,
+  type Kind,
+  kindFromSlug,
+  kindSlug,
+  SORTS,
+  type Sort,
+  searchKeys,
+  sortValue,
+  toTagQuery,
+} from "@tokuly/core/search";
 import { ArrowUpDown, Check, ChevronRight, Hash, RotateCw, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,23 +28,13 @@ import { errorMessage } from "#/lib/errors";
 import {
   refreshRecentSearches,
   searchClient,
-  searchKeys,
   submitSearch,
   useTrending,
   wasSubmitted,
 } from "./api";
 import { formatCount } from "./format";
 import { HitCard, HitSkeleton } from "./hit-card";
-import { isKind, KINDS, type Kind, kindFromSlug, kindSlug } from "./kinds";
-import {
-  fromTagQuery,
-  isTagQuery,
-  type SearchParams,
-  SORTS,
-  type Sort,
-  sortValue,
-  toTagQuery,
-} from "./params";
+import type { SearchParams } from "./params";
 
 const ALL = search.SearchKind.UNSPECIFIED;
 /** Hits asked for in the "all" tab (the API's maximum): enough to show the best of every kind. */

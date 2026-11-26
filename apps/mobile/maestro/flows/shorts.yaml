@@ -7,21 +7,18 @@ env:
 # The emulator has no camera: the short is a video put in the library.
 - addMedia:
     - "../fixtures/short.mp4"
+- clearKeychain
 - launchApp:
     clearState: true
 - extendedWaitUntil:
     visible: { id: "welcome-screen" }
     timeout: 60000
 - tapOn: { id: "welcome-sign-in" }
-- tapOn: { id: "sign-in-identifier" }
-- inputText: ${output.creator}
-- tapOn: { id: "sign-in-password" }
-- inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: { id: "sign-in-submit" }
-- extendedWaitUntil:
-    visible: { id: "map-screen" }
-    timeout: 30000
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.creator}
+      PASSWORD: ${PASSWORD}
 
 # The creator posts a public short from the library.
 - tapOn: { id: "tab-shorts" }
@@ -52,20 +49,16 @@ env:
     timeout: 120000
 
 # Someone else, on the same phone: the for-you feed has the short.
-- back
+- runFlow: ../subflows/back.yaml
 - tapOn: { id: "tab-me" }
 - tapOn: { id: "me-settings" }
 - tapOn: { id: "settings-accounts" }
 - tapOn: { id: "accounts-add" }
-- tapOn: { id: "sign-in-identifier" }
-- inputText: ${output.me}
-- tapOn: { id: "sign-in-password" }
-- inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: { id: "sign-in-submit" }
-- extendedWaitUntil:
-    visible: { id: "map-screen" }
-    timeout: 30000
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
 - tapOn: { id: "tab-shorts" }
 - extendedWaitUntil:
     visible: { id: "shorts-feed" }

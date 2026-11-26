@@ -339,8 +339,8 @@ impl Live {
         .execute(&core.db)
         .await?;
         let mut tx = core.db.begin().await?;
+        chat::erase_lines_of(&mut tx, user_id).await?;
         for table in [
-            "live_chat_messages",
             "live_reminders",
             "live_moderators",
             "live_chat_restrictions",

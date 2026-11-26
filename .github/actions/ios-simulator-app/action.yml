@@ -1,0 +1,96 @@
+# The phone app built for the iOS simulator: `expo prebuild`, `pod install`
+# and an xcodebuild for the runner's own architecture (Apple silicon). No
+# certificates and no secrets: signed "to run locally" (ad hoc), which is
+# what gives the app its entitlements on the simulator (without them the
+# keychain, where the sessions are kept, refuses it). The step's output is the errors and
+# warnings; the whole log is kept as an artifact when the build fails.
+# Expects the JavaScript workspace (setup-js) to be set up.
+name: iOS simulator app
+description: Generate, install the pods and build the app for the simulator.
+inputs:
+  configuration:
+    description: "`Debug` (waits for a dev server, in the dev client's launcher) or `Release` (carries its JS bundle)."
+    required: true
+  server-url:
+    description: The Tokuly server the build talks to (EXPO_PUBLIC_TOKULY_URL); empty for the app's default.
+    default: ""
+outputs:
+  app:
+    description: Path of the built Tokuly.app.
+    value: ${{ steps.build.outputs.app }}
+runs:
+  using: composite
+  steps:
+    # The address is read at build time (app.config.ts, and the JS bundle).
+    - name: Generate the native project
+      shell: bash
+      working-directory: apps/mobile
+      env:
+        SERVER_URL: ${{ inputs.server-url }}
+      run: |
+        [ -z "$SERVER_URL" ] || export EXPO_PUBLIC_TOKULY_URL="$SERVER_URL"
+        pnpm exec expo prebuild --platform ios --no-install
+
+    # Pods depend on the generated Podfile and on the JS packages that bring native code.
+    - name: CocoaPods
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/Library/Caches/CocoaPods
+          apps/mobile/ios/Pods
+        key: ios-pods-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'apps/mobile/ios/Podfile.properties.json', 'pnpm-lock.yaml', 'apps/mobile/modules/*/ios/*.podspec') }}
+        restore-keys: ios-pods-${{ runner.os }}-
+    - name: Install the pods
+      shell: bash
+      working-directory: apps/mobile/ios
+      run: pod install
+
+    # Xcode's build products, per configuration: written on main, read everywhere (a pull
+    # request's cache is its own; main's is what every branch starts from).
+    - name: DerivedData
+      id: derived-data
+      uses: actions/cache/restore@v6
+      with:
+        path: apps/mobile/ios/build
+        key: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-${{ github.sha }}
+        restore-keys: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-
+
+    - name: Build for the simulator
+      id: build
+      shell: bash
+      working-directory: apps/mobile/ios
+      env:
+        CONFIGURATION: ${{ inputs.configuration }}
+        SERVER_URL: ${{ inputs.server-url }}
+      run: |
+        set -o pipefail
+        [ -z "$SERVER_URL" ] || export EXPO_PUBLIC_TOKULY_URL="$SERVER_URL"
+        xcodebuild build \
+          -workspace Tokuly.xcworkspace \
+          -scheme Tokuly \
+          -configuration "$CONFIGURATION" \
+          -sdk iphonesimulator \
+          -destination 'generic/platform=iOS Simulator' \
+          -derivedDataPath "$PWD/build" \
+          ARCHS=arm64 \
+          ONLY_ACTIVE_ARCH=YES \
+          CODE_SIGN_IDENTITY=- \
+          COMPILER_INDEX_STORE_ENABLE=NO \
+          | tee "$RUNNER_TEMP/xcodebuild.log" \
+          | grep -E '(: (error|warning):|\*\* BUILD)' || true
+        grep -q 'BUILD SUCCEEDED' "$RUNNER_TEMP/xcodebuild.log"
+        echo "app=$PWD/build/Build/Products/$CONFIGURATION-iphonesimulator/Tokuly.app" >> "$GITHUB_OUTPUT"
+
+    - if: github.ref == 'refs/heads/main' && steps.derived-data.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: apps/mobile/ios/build
+        key: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-${{ github.sha }}
+
+    - name: Keep the build log
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: xcodebuild-log-${{ inputs.configuration }}
+        path: ${{ runner.temp }}/xcodebuild.log
+        retention-days: 7

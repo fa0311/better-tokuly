@@ -1,8 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { search } from "@tokuly/api";
-import { searchClient, searchKeys, useRecentSearches, useTrending } from "./api";
+import { idleSuggestions, searchKeys, typedSuggestions } from "@tokuly/core/search";
+import { searchClient, useRecentSearches, useTrending } from "./api";
 import { useDebounced } from "./hooks";
-import { idleSuggestions, typedSuggestions } from "./suggestions";
 
 /** How long typing has to pause before the API is asked (the contract suggests ~150 ms). */
 const TYPEAHEAD_DELAY_MS = 150;

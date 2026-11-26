@@ -4,21 +4,18 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/note-friends.js
+- clearKeychain
 - launchApp:
     clearState: true
 - extendedWaitUntil:
     visible: { id: "welcome-screen" }
     timeout: 60000
 - tapOn: { id: "welcome-sign-in" }
-- tapOn: { id: "sign-in-identifier" }
-- inputText: ${output.me}
-- tapOn: { id: "sign-in-password" }
-- inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: { id: "sign-in-submit" }
-- extendedWaitUntil:
-    visible: { id: "map-screen" }
-    timeout: 30000
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
 
 # The friends' timeline has the friend's note; a like shows at once.
 - tapOn: { id: "tab-notes" }
@@ -49,7 +46,7 @@ env:
     timeout: 15000
 
 # A note of my own with a poll: it is on top of my timeline right away.
-- back
+- runFlow: ../subflows/back.yaml
 - tapOn: { id: "notes-compose" }
 - tapOn: { id: "note-text" }
 - inputText: ${output.mine}

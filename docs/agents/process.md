@@ -10,7 +10,10 @@ worktrees. The other agent (`agent:mac`) works through issues and pull requests 
   if someone asked something, an answer;
 - pull requests ready for review — review (below), then `tools/agent/merge-pr.sh <pr>`;
 - failed runs on `main` — one issue per failure, fixed in batches;
-- stuck agents — resume them in their own thread instead of starting over.
+- stuck agents — every running delegate thread whose last update is over 30 minutes old: read its last
+  items; if it hangs on a command, restart it in its own thread (`t3_thread_send`, mode `restart`) with
+  what to do next, instead of starting over;
+- idle capacity — fewer delegates running than the machine allows: start the next issues by priority.
 
 ## Delegating
 

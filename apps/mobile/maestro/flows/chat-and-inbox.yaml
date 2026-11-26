@@ -4,21 +4,18 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/chat-friends.js
+- clearKeychain
 - launchApp:
     clearState: true
 - extendedWaitUntil:
     visible: { id: "welcome-screen" }
     timeout: 60000
 - tapOn: { id: "welcome-sign-in" }
-- tapOn: { id: "sign-in-identifier" }
-- inputText: ${output.me}
-- tapOn: { id: "sign-in-password" }
-- inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: { id: "sign-in-submit" }
-- extendedWaitUntil:
-    visible: { id: "map-screen" }
-    timeout: 30000
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
 
 # The friend wrote first: the conversation waits with its unread count.
 - tapOn: { id: "tab-chats" }
@@ -53,7 +50,7 @@ env:
 - tapOn: { id: "conversation-call" }
 - assertVisible: "(通話はWebでできるよ！|Calls are on the web for now!)"
 - tapOn: "(キャンセル|Cancel|CANCEL)"
-- back
+- runFlow: ../subflows/back.yaml
 - extendedWaitUntil:
     notVisible: { id: "${'unread-' + output.friendName}" }
     timeout: 15000
@@ -65,7 +62,7 @@ env:
 - extendedWaitUntil:
     visible: "いいね、またあとで！"
     timeout: 15000
-- back
+- runFlow: ../subflows/back.yaml
 
 # The inbox: the friend request is in it.
 - tapOn: { id: "tab-inbox" }
