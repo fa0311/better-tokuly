@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
+import { Tabs } from "#/components/tabs";
 import { webScreenHref } from "#/features/web/handoff";
 import { realtime } from "#/lib/realtime";
 import { useTheme } from "#/lib/theme";
@@ -72,22 +73,17 @@ export function BrowseLiveScreen() {
   useListsAfterGaps();
   return (
     <View className="flex-1 bg-bg" testID="live-browse">
-      <View className="flex-row items-center gap-2 px-4 pt-3 pb-2">
-        {(["now", "upcoming"] as const).map((key) => (
-          <Pressable
-            key={key}
-            testID={`live-tab-${key}`}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: tab === key }}
-            onPress={() => setTab(key)}
-            className={`rounded-full px-4 py-2 ${tab === key ? "bg-ink" : "bg-surface"}`}
-          >
-            <Text className={`font-black ${tab === key ? "text-surface" : "text-ink"}`}>
-              {t(`browse.tabs.${key}`)}
-            </Text>
-          </Pressable>
-        ))}
-        <View className="ml-auto flex-row items-center gap-1">
+      <View className="flex-row items-center justify-between gap-2 px-4 pt-3 pb-2">
+        <Tabs
+          testID="live-tab"
+          items={(["now", "upcoming"] as const).map((key) => ({
+            value: key,
+            label: t(`browse.tabs.${key}`),
+          }))}
+          value={tab}
+          onChange={setTab}
+        />
+        <View className="flex-row items-center gap-1">
           <Pressable
             testID="live-gift-history"
             accessibilityRole="button"

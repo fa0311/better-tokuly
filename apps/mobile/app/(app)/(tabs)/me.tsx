@@ -1,7 +1,6 @@
-import { Link } from "expo-router";
+import { router } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
-import { Button } from "#/components/button";
+import { Row, Section } from "#/components/page";
 import { ProfileScreen } from "#/features/profile/profile-screen";
 import { useMe } from "#/features/session/store";
 import { useBadges } from "#/seams/badges";
@@ -13,21 +12,21 @@ export default function Me() {
   useTranslation();
   const me = useMe();
   const badges = useBadges();
-  const waiting = (key?: string) => (key && (badges[key] ?? 0) > 0 ? ` ${badges[key]}` : "");
   return (
     <ProfileScreen
       handle={me?.user?.handle ?? ""}
       footer={
-        <View className="gap-2">
+        <Section>
           {HUB_ENTRIES.map((entry) => (
-            <Link key={entry.id} href={entry.href} asChild>
-              <Button testID={`me-${entry.id}`} variant="secondary" block>
-                {entry.label()}
-                {waiting(entry.badge)}
-              </Button>
-            </Link>
+            <Row
+              key={entry.id}
+              testID={`me-${entry.id}`}
+              label={entry.label()}
+              badge={entry.badge ? badges[entry.badge] : undefined}
+              onPress={() => router.push(entry.href)}
+            />
           ))}
-        </View>
+        </Section>
       }
     />
   );

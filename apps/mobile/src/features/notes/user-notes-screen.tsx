@@ -1,7 +1,8 @@
 import { notes } from "@tokuly/api";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { View } from "react-native";
+import { Tabs } from "#/components/tabs";
 import { useMe } from "#/features/session/store";
 import { Timeline } from "./timeline";
 
@@ -20,27 +21,16 @@ export function UserNotesScreen({ userId }: { userId: string }) {
   const who = useMe()?.user?.id === userId ? "self" : "other";
   return (
     <View className="flex-1 bg-bg" testID="user-notes-screen">
-      <View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerClassName="gap-2 px-4 py-2"
-        >
-          {(Object.keys(FILTERS) as Tab[]).map((key) => (
-            <Pressable
-              key={key}
-              testID={`user-notes-tab-${key}`}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: tab === key }}
-              onPress={() => setTab(key)}
-              className={`rounded-full px-3 py-2 ${tab === key ? "bg-ink" : "bg-surface"}`}
-            >
-              <Text className={`font-black ${tab === key ? "text-surface" : "text-ink"}`}>
-                {t(`profile.tabs.${key}`)}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+      <View className="flex-row px-4 py-2">
+        <Tabs
+          testID="user-notes-tab"
+          items={(Object.keys(FILTERS) as Tab[]).map((key) => ({
+            value: key,
+            label: t(`profile.tabs.${key}`),
+          }))}
+          value={tab}
+          onChange={setTab}
+        />
       </View>
       <Timeline
         key={tab}

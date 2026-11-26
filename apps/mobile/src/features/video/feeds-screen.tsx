@@ -21,6 +21,7 @@ import {
   View,
 } from "react-native";
 import { EmptyState, Spinner } from "#/components/page";
+import { Tabs } from "#/components/tabs";
 import { useTheme } from "#/lib/theme";
 import { alertError, feedClient, useFeed } from "./data";
 import { VideoCard } from "./video-card";
@@ -94,21 +95,13 @@ export function FeedsScreen() {
         onEndReached={() => query.hasNextPage && void query.fetchNextPage()}
         ListHeaderComponent={
           <View className="gap-3 pt-3 pb-4">
-            <View className="flex-row gap-2 px-4">
-              {FEEDS.map((key) => (
-                <Pressable
-                  key={key}
-                  testID={`video-feed-${key}`}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: feed === key }}
-                  onPress={() => setFeed(key)}
-                  className={`h-9 justify-center rounded-full px-4 ${feed === key ? "bg-ink" : "bg-surface-2"}`}
-                >
-                  <Text className={`font-black ${feed === key ? "text-bg" : "text-ink"}`}>
-                    {t(`feeds.${key}`)}
-                  </Text>
-                </Pressable>
-              ))}
+            <View className="flex-row px-4">
+              <Tabs
+                testID="video-feed"
+                items={FEEDS.map((key) => ({ value: key, label: t(`feeds.${key}`) }))}
+                value={feed}
+                onChange={setFeed}
+              />
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View className="flex-row gap-2 px-4">

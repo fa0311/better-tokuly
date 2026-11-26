@@ -17,6 +17,7 @@ import { Alert, Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
+import { Tabs } from "#/components/tabs";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
 import { useTheme } from "#/lib/theme";
@@ -51,7 +52,7 @@ function Face({ entry }: { entry: notify.Notification }) {
   const { colors } = useTheme();
   if (entry.actor) return <Avatar user={entry.actor} size="md" />;
   return (
-    <View className="h-11 w-11 items-center justify-center rounded-xl bg-surface-3">
+    <View className="size-11 items-center justify-center rounded-xl bg-surface-3">
       {entry.actorUnnamed ? (
         <UserRound size={22} color={colors["ink-soft"]} />
       ) : (
@@ -89,28 +90,21 @@ export function InboxScreen() {
 
   return (
     <View className="flex-1 bg-bg" testID="inbox-screen">
-      <View className="flex-row items-center gap-2 px-4 pt-3 pb-2">
-        {(Object.keys(FILTERS) as Tab[]).map((key) => (
-          <Pressable
-            key={key}
-            testID={`inbox-tab-${key}`}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: tab === key }}
-            onPress={() => setTab(key)}
-            className={`rounded-full px-4 py-2 ${tab === key ? "bg-ink" : "bg-surface"}`}
-          >
-            <Text className={`font-black ${tab === key ? "text-surface" : "text-ink"}`}>
-              {t(`tabs.${key}`)}
-              {key === "unread" && unread.total > 0 ? ` ${unread.total}` : ""}
-            </Text>
-          </Pressable>
-        ))}
+      <View className="flex-row items-center justify-between gap-2 px-4 pt-3 pb-2">
+        <Tabs
+          testID="inbox-tab"
+          items={(Object.keys(FILTERS) as Tab[]).map((key) => ({
+            value: key,
+            label: t(`tabs.${key}`),
+            badge: key === "unread" ? unread.total : 0,
+          }))}
+          value={tab}
+          onChange={setTab}
+        />
         {unread.total > 0 && (
-          <View className="ml-auto">
-            <Button testID="inbox-read-all" size="sm" variant="secondary" onPress={readAll}>
-              {t("actions.markAllRead")}
-            </Button>
-          </View>
+          <Button testID="inbox-read-all" size="sm" variant="secondary" onPress={readAll}>
+            {t("actions.markAllRead")}
+          </Button>
         )}
       </View>
       {inbox.isPending ? (

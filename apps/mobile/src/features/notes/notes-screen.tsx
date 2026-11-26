@@ -3,10 +3,12 @@ import { router } from "expo-router";
 import { ListFilter, PenLine } from "lucide-react-native";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { View } from "react-native";
 import { ActionSheet, type SheetAction } from "#/components/action-sheet";
+import { IconButton } from "#/components/icon-button";
+import { Tabs } from "#/components/tabs";
 import { webScreenHref } from "#/features/web/handoff";
-import { sticker, useTheme } from "#/lib/theme";
+import { useTheme } from "#/lib/theme";
 import { composeHref } from "./compose-href";
 import { useAntennas, useReadableLists } from "./data";
 import { Timeline } from "./timeline";
@@ -106,47 +108,32 @@ export function NotesScreen() {
           };
   return (
     <View className="flex-1 bg-bg" testID="notes-screen">
-      <View className="flex-row items-center gap-2 py-2 pr-2">
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerClassName="gap-2 pl-4"
-        >
-          {TABS.map((tab) => (
-            <Pressable
-              key={tab}
-              testID={`notes-tab-${tab}`}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: shown.kind === tab }}
-              onPress={() => setShown({ kind: tab })}
-              className={`rounded-full px-3 py-2 ${shown.kind === tab ? "bg-ink" : "bg-surface"}`}
-            >
-              <Text className={`font-black ${shown.kind === tab ? "text-surface" : "text-ink"}`}>
-                {t(`tabs.${tab}`)}
-              </Text>
-            </Pressable>
-          ))}
-          {picked && (
-            <View
-              className="rounded-full bg-ink px-3 py-2"
-              accessibilityRole="tab"
-              accessibilityState={{ selected: true }}
-            >
-              <Text className="font-black text-surface" numberOfLines={1}>
-                {picked.kind === "list" ? "📋" : "📡"} {picked.name}
-              </Text>
-            </View>
-          )}
-        </ScrollView>
-        <Pressable
+      <View className="flex-row items-center justify-between gap-2 px-4 pt-3 pb-2">
+        <Tabs
+          testID="notes-tab"
+          items={[
+            ...TABS.map((tab) => ({ value: tab as string, label: t(`tabs.${tab}`) })),
+            ...(picked
+              ? [
+                  {
+                    value: sourceId(picked),
+                    label: `${picked.kind === "list" ? "📋" : "📡"} ${picked.name}`,
+                  },
+                ]
+              : []),
+          ]}
+          value={sourceId(shown)}
+          onChange={(value) => {
+            const tab = TABS.find((key) => key === value);
+            if (tab) setShown({ kind: tab });
+          }}
+        />
+        <IconButton
           testID="notes-sources"
-          accessibilityRole="button"
-          accessibilityLabel={tm("notes.sources")}
+          label={tm("notes.sources")}
+          icon={<ListFilter color={colors.ink} size={20} />}
           onPress={() => setPicking(true)}
-          className="rounded-full bg-surface p-2"
-        >
-          <ListFilter color={colors.ink} size={20} />
-        </Pressable>
+        />
       </View>
       <Timeline
         key={sourceId(shown)}
@@ -154,16 +141,15 @@ export function NotesScreen() {
         empty={empty}
         testID="notes-timeline"
       />
-      <Pressable
-        testID="notes-compose"
-        accessibilityRole="button"
-        accessibilityLabel={t("compose.open")}
-        onPress={() => router.push(composeHref())}
-        className="absolute right-5 bottom-5 size-14 items-center justify-center rounded-full bg-brand"
-        style={sticker(colors)}
-      >
-        <PenLine color={colors["on-brand"]} size={24} />
-      </Pressable>
+      <View className="absolute right-5 bottom-5">
+        <IconButton
+          testID="notes-compose"
+          look="primary"
+          label={t("compose.open")}
+          icon={<PenLine color={colors["on-brand"]} size={24} />}
+          onPress={() => router.push(composeHref())}
+        />
+      </View>
       <ActionSheet
         visible={picking}
         title={readable.length > 0 ? tm("notes.sources") : tm("notes.noSources")}

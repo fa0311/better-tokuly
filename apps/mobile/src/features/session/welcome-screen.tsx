@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "#/components/button";
+import { LogoMark } from "#/components/logo";
 import { Section } from "#/components/page";
 import { AccountList } from "./account-list";
 import { useDeviceAccounts } from "./device-accounts";
@@ -20,12 +21,12 @@ export function WelcomeScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg" testID="welcome-screen">
       <View className="flex-1 justify-center gap-3 px-6">
-        <Text className="text-5xl">📍</Text>
-        <Text className="text-4xl font-black text-ink">{tc("appName")}</Text>
-        <Text className="text-xl font-black text-brand">{t("landing.headline")}</Text>
+        <LogoMark size={88} />
+        <Text className="text-5xl font-black tracking-tight text-ink">{tc("appName")}</Text>
+        <Text className="text-2xl font-black text-brand">{t("landing.headline")}</Text>
         <Text className="text-base text-ink-soft">{tc("tagline")}</Text>
       </View>
-      <View className="gap-3 px-6 pb-6">
+      <View className="gap-4 px-6 pb-8">
         {parked.length > 0 && (
           <Section title={tm("accounts.continueTitle")}>
             <AccountList accounts={parked} />
