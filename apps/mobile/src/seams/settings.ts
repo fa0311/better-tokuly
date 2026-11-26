@@ -22,7 +22,7 @@ import rows from "#/generated/seams/settings-rows";
 export interface SettingsRow {
   /** Unique among the rows; the row's test ID is `settings-<id>`. */
   id: string;
-  /** Position in the list, ascending: accounts 10, the web's settings 20, licences 30. */
+  /** Position in the list, ascending: the account's own settings below 10, accounts 10, the web's settings 20, licences 30. */
   order: number;
   icon: LucideIcon;
   label(): string;
