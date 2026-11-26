@@ -36,26 +36,19 @@ See their proto files. Summary of behaviour that is not obvious from the API:
 
 - **identity**: accounts, sessions (rotating refresh tokens, passkeys, TOTP,
   device login), profiles and settings. Profiles carry the **プロフ帳**:
-  MBTI, blood type, zodiac (derived from the birthday), pronouns, 推し (with
-  an image or emoji and a link), favourite things as tags in categories
-  (music, games, food, anime…, suggested from what others show publicly),
-  links verified by a `rel="me"` link back (checked in the background
-  through the egress guard), a longer bio, a theme colour and style, a song
-  pinned from Spotify, and question-and-answer cards from a curated bank of
-  prompts ("好きな教科", "無人島に1つ持っていくなら") or free ones,
-  reorderable and hideable. Every field and every card has its own audience
-  (public / friends / only me); a block in either direction hides the whole
-  profile; moderators can open a profile in full. The public fields are in
-  the account's search document. **Birthdays** are shown per one privacy
-  setting (nobody / friends / everyone, month and day or the full date;
-  never the year to everyone under 18), which every domain reads.
-  **Bots** (made on the developer platform) carry the bot flag and their
-  owner on the account; bots never count as people (`bots::humans_only`).
-  **Several accounts on one device** (main, 裏垢, creator): each is added
-  by a full sign-in and keeps its own session; switching needs no password
-  but asks for the target's second factor when it has not passed it there
-  within 12 hours; the server never links the accounts, signing out one
-  leaves the others; at most 5 per device.
+  MBTI, blood type, zodiac, pronouns, 推し, favourite things as tags,
+  links verified by `rel="me"`, a longer bio, a theme colour and style, a
+  song pinned from Spotify, and question-and-answer cards (curated prompts
+  or free ones). Every field and card has its own audience (public /
+  friends / only me); a block in either direction hides the whole profile.
+  **Birthdays** follow one privacy setting that every domain reads (nobody /
+  friends / everyone, month and day or the full date; never the year to
+  everyone under 18). **Bots** (made on the developer platform) carry the
+  bot flag and their owner; bots never count as people.
+  **Several accounts on one device** (main, 裏垢, creator; at most 5): each
+  is added by a full sign-in and keeps its own session; switching needs no
+  password but asks for the target's second factor when it has not passed
+  it there within 12 hours; the server never links the accounts.
 
 - **social**: friendships are mutual; a request to someone who already
   requested you auto-accepts. Best friends are ranked automatically from
@@ -75,18 +68,14 @@ See their proto files. Summary of behaviour that is not obvious from the API:
   until the recipient opens the app.
   Follows sit next to friendships for public content: one way, with locked
   accounts (followers need approval, declining is silent; minors start
-  locked), removable followers, follower / following / mutual lists and
-  "followed by people you follow", counts on profiles, a per-followee mute
-  (optionally timed) and post notifications (all / none), and follow
-  suggestions scored from pluggable signals (follows you, friends of
-  friends, followed by people you follow, popular at your school). A
-  friendship does not imply a follow nor the reverse; both are audiences,
-  with friends inside "followers". Circles — the built-in close friends and
-  custom lists with a name, emoji and colour — take friends and followers
-  only, lose members whose tie ends, and never tell members; content shared
-  with close friends may carry a mark. Blocks end follows and circle
-  memberships both ways. Other domains decide visibility through one
-  audience API (public, followers, friends, close friends, a circle,
+  locked), removable followers, a per-followee mute (optionally timed), post
+  notifications and follow suggestions. A friendship does not imply a
+  follow nor the reverse; both are audiences, with friends inside
+  "followers". Circles — the built-in close friends and custom lists — take
+  friends and followers only, lose members whose tie ends, and never tell
+  members. Blocks end follows and circle memberships both ways. Other
+  domains decide visibility through one audience API (public, followers,
+  friends, close friends, a circle,
   private) with batched checks and fan-out lists.
 - **geo**: location samples arrive over the realtime gateway or
   `ReportLocations`. Latest state per user is kept in Valkey and fanned out to
@@ -249,15 +238,12 @@ Generic over `SubjectRef` (uses `core.subjects`).
   owner, creator heart, like/dislike on comments, sort top/new, comment as a
   channel identity, hold-for-review and blocked words per subject owner.
 - Reactions: like/dislike and emoji reactions on any subject, with counts.
-  Emoji are Unicode or custom (Misskey-style `:shortcode:`, approved in the
-  emoji catalogue; drawn with their picture and a still for reduced motion,
-  shown as text once taken down; usage feeds "recently used"/"popular").
-  One reaction per person on content (Misskey), several distinct emoji per
-  person on group conversation such as community threads and plans
-  (Discord); a cap of distinct emoji per subject. Owners choose whether
-  their content takes custom and sensitive emoji. "Who reacted" per emoji
-  without blocked or muted people; reactions pop live on the subject's
-  screens; the owner's notification is grouped ("Aと他2人がリアクション").
+  Emoji are Unicode or custom (`:shortcode:` from the emoji catalogue). One
+  reaction per person on content, several distinct emoji per person on
+  group conversation such as community threads and plans; a cap of distinct
+  emoji per subject. Owners choose whether their content takes custom and
+  sensitive emoji. "Who reacted" per emoji without blocked or muted people;
+  the owner's notification is grouped ("Aと他2人がリアクション").
 - Bookmarks/saves with collections, share tracking, view counters.
 - Reports: reason categories + text against any subject; feeds the admin queue.
 - Realtime `EngagementEvent` on `subject:{type}:{id}` topics.
