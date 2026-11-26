@@ -82,30 +82,62 @@ function stillSharing(userId: string, account: Api): boolean {
   );
 }
 
-async function setStopOwed(userId: string, owed: boolean): Promise<void> {
-  await writeSecure(stopOwedKey(userId), owed ? "1" : null);
-  if (useSharing.getState().userId === userId) useSharing.setState({ stopOwed: owed });
+/** When `userId` stopped sharing from here while the server has not heard of it yet (ms), or `null`. */
+async function stopOwedSince(userId: string): Promise<number | null> {
+  const since = Number(await readSecure(stopOwedKey(userId)));
+  return since > 0 ? since : null;
+}
+
+async function setStopOwed(userId: string, since: number | null): Promise<void> {
+  await writeSecure(stopOwedKey(userId), since === null ? null : String(since));
+  if (useSharing.getState().userId === userId) useSharing.setState({ stopOwed: since !== null });
 }
 
 /**
- * Tells the server that this account stopped sharing from here. The stop is
- * written down as owed before it is sent, so an app killed mid-request still
- * owes it at the next start; it is tried again until it goes through (next
- * start, the app coming back to the screen, the retry button). `account` is
+ * Writes down that `userId` stopped sharing from here just now and the
+ * server is owed the news — before anything is sent, so an app killed
+ * mid-request still owes it at the next start. A stop already owed keeps
+ * its time: nothing was shared from here since.
+ */
+async function oweStop(userId: string): Promise<void> {
+  if ((await stopOwedSince(userId)) === null) await setStopOwed(userId, Date.now());
+}
+
+/**
+ * Tells the server the stop `userId` owes it, with the time sharing
+ * stopped (the device's clock, as in its samples: what was sent before that
+ * moment never resumes sharing, what another device sent after it is not
+ * undone by a late retry). Tried again until it goes through: the next
+ * start, the app coming back to the screen, the retry button. Nothing owed
+ * (sharing was turned on again meanwhile), nothing is sent. `account` is
  * the API of `userId`, taken before the caller's first wait: by the time
  * this runs the active one may be the next account's, and its sharing must
  * not be stopped in this one's place.
  */
-async function tellServerStopped(userId: string, account: Api): Promise<boolean> {
-  await setStopOwed(userId, true);
+async function tellOwedStop(userId: string, account: Api): Promise<boolean> {
+  const since = await stopOwedSince(userId);
+  if (since === null) return true;
   try {
-    // The device's clock, as in its samples: what it sent before this moment never resumes sharing.
-    await account.service(geo.LocationService).stopSharing({ stoppedAt: fromDate(new Date()) });
+    await account
+      .service(geo.LocationService)
+      .stopSharing({ stoppedAt: fromDate(new Date(since)) });
   } catch {
     return false;
   }
-  await setStopOwed(userId, false);
+  // Unless sharing stopped once more while this one was on its way: that stop is still owed.
+  if ((await stopOwedSince(userId)) === since) await setStopOwed(userId, null);
   return true;
+}
+
+/** Sharing stopped from here just now: owed first, then told. */
+async function tellServerStopped(userId: string, account: Api): Promise<boolean> {
+  await oweStop(userId);
+  return tellOwedStop(userId, account);
+}
+
+/** Whether this device shares right now: the account said yes, the OS allows it, and it is not leaving. */
+function sharesNow({ choice, access, leaving }: SharingStore): boolean {
+  return choice === "on" && access?.foreground === "granted" && access.servicesEnabled && !leaving;
 }
 
 async function setChoice(userId: string, choice: SharingChoice): Promise<void> {
@@ -125,7 +157,8 @@ export async function turnOn(): Promise<void> {
   const access = await requestWhileUsing();
   useSharing.setState({ access });
   if (access.foreground !== "granted") return;
-  await setStopOwed(userId, false);
+  // Sharing again: a stop the server never heard of is void, and one on its way is not told again.
+  await setStopOwed(userId, null);
   await setChoice(userId, "on");
 }
 
@@ -140,14 +173,16 @@ export async function stopSharing(): Promise<void> {
   if (!userId) return;
   const account = api();
   await setChoice(userId, "off");
+  await oweStop(userId);
   await stopBackground();
   useLocations.getState().setOwn(null);
-  await tellServerStopped(userId, account);
+  await tellOwedStop(userId, account);
 }
 
+/** Tries the owed stop again (the retry button, the app coming back to the screen). */
 export async function confirmStop(): Promise<void> {
   const { userId } = useSharing.getState();
-  if (userId) await tellServerStopped(userId, api());
+  if (userId) await tellOwedStop(userId, api());
 }
 
 async function stopBackground(): Promise<void> {
@@ -211,8 +246,9 @@ export async function leaveSharing({ userId, api: account }: Account): Promise<v
   useSharing.setState({ leaving: true });
   useLocations.getState().setOwn(null);
   if (!wasSharing) return;
+  await oweStop(userId);
   await stopBackground();
-  await tellServerStopped(userId, account);
+  await tellOwedStop(userId, account);
 }
 
 /** Every few seconds the newest fix goes out if its turn came; a still device gets a fresh one. */
@@ -343,28 +379,26 @@ export function useOwnLocationSharing(): void {
     const account = api();
     let current = true;
     void (async () => {
-      const [stored, owed] = await Promise.all([
-        readSecure(choiceKey(myId)),
-        readSecure(stopOwedKey(myId)),
-      ]);
+      const [stored, owed] = await Promise.all([readSecure(choiceKey(myId)), stopOwedSince(myId)]);
       // Read too late: the account is leaving, and its yes must not come back into the store.
       if (!current || useSharing.getState().leaving) return;
       useSharing.setState({
         loaded: true,
         choice: stored === "on" || stored === "off" ? stored : null,
-        stopOwed: owed === "1",
+        stopOwed: owed !== null,
       });
       await refreshAccess();
       // A stop the server never heard of: try again, unless this device shares again by now.
       const state = useSharing.getState();
-      if (state.stopOwed && state.choice !== "on" && api() === account)
-        void tellServerStopped(myId, account);
+      if (state.stopOwed && state.choice !== "on" && current && api() === account)
+        void tellOwedStop(myId, account);
     })();
     // Back from the settings app: the permission may have changed.
     const appState = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
       void refreshAccess();
-      if (useSharing.getState().stopOwed) void confirmStop();
+      const sharing = useSharing.getState();
+      if (sharing.stopOwed && !sharesNow(sharing)) void confirmStop();
     });
     return () => {
       current = false;
@@ -387,6 +421,11 @@ export function useOwnLocationSharing(): void {
   const decided = useSharing((state) => (state.loaded ? state.userId : null)) === myId;
   const leaving = useSharing((state) => state.leaving);
   const active = decided && Boolean(myId) && choice === "on" && granted && !leaving;
+  // Sharing again (the account left while sharing and is back, the permission returned): a stop
+  // still owed from before is void — told now, it would take the live pin away.
+  useEffect(() => {
+    if (myId && active && useSharing.getState().stopOwed) void setStopOwed(myId, null);
+  }, [myId, active]);
   useForegroundReporting(myId, active, access?.approximate === false);
   // Nor before the OS permission was read: a start or a stop on a guess flashes the notification.
   useBackgroundTask(
