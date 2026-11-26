@@ -1,0 +1,101 @@
+# The phone app's iOS side, compiled: `expo prebuild`, `pod install` and an
+# unsigned build for the simulator, on a macOS runner of its own. No signing and
+# no secrets: it proves that the generated project, the config plugins, the
+# pods and our own Swift (modules/tokuly-trim) build, nothing more.
+#
+# The Maestro flows stay on the Android emulator (e2e.yml): they need the
+# Compose stack, and GitHub's macOS runners have no Docker.
+name: iOS
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - apps/mobile/**
+      - packages/**
+      - proto/**
+      - pnpm-lock.yaml
+      - .github/workflows/ios.yml
+      - .github/actions/**
+  push:
+    branches: [main]
+
+# A newer push to a pull request replaces its run. On main a run that has started
+# finishes, so every result is seen; only runs still waiting are replaced.
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  ios-app:
+    name: iOS app (simulator build)
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      DERIVED_DATA: ${{ github.workspace }}/apps/mobile/ios/build
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+
+      - name: Generate the native project
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --platform ios --no-install
+
+      # Pods depend on the generated Podfile and on the JS packages that bring native code.
+      - name: CocoaPods
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/Library/Caches/CocoaPods
+            apps/mobile/ios/Pods
+          key: ios-pods-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'apps/mobile/ios/Podfile.properties.json', 'pnpm-lock.yaml', 'apps/mobile/modules/*/ios/*.podspec') }}
+          restore-keys: ios-pods-${{ runner.os }}-
+      - name: Install the pods
+        working-directory: apps/mobile/ios
+        run: pod install
+
+      # Xcode's build products: written on main, read everywhere (a pull request's
+      # cache is its own; main's is what every branch starts from).
+      - name: DerivedData
+        id: derived-data
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.DERIVED_DATA }}
+          key: ios-derived-data-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ios-derived-data-${{ runner.os }}-
+
+      - name: Build for the simulator
+        working-directory: apps/mobile/ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -workspace Tokuly.xcworkspace \
+            -scheme Tokuly \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            | tee "$RUNNER_TEMP/xcodebuild.log" \
+            | grep -E '(error|warning: .*TokulyTrim|BUILD (SUCCEEDED|FAILED)|\*\* )' || true
+          grep -q 'BUILD SUCCEEDED' "$RUNNER_TEMP/xcodebuild.log"
+
+      - if: github.ref == 'refs/heads/main' && steps.derived-data.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.DERIVED_DATA }}
+          key: ios-derived-data-${{ runner.os }}-${{ github.sha }}
+
+      - name: Keep the build log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          retention-days: 7
