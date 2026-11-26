@@ -52,11 +52,9 @@ export function HubScreen() {
         <View className="flex-row items-center gap-2">
           <Text className="flex-1 font-black text-ink">{t("hub.myBox")}</Text>
           {settings.data && (
-            <View
-              testID="ask-box-state"
-              className={`rounded-full px-2.5 py-0.5 ${isOpen ? "bg-lime" : "bg-surface-3"}`}
-            >
+            <View className={`rounded-full px-2.5 py-0.5 ${isOpen ? "bg-lime" : "bg-surface-3"}`}>
               <Text
+                testID="ask-box-state"
                 className={`text-xs font-black ${isOpen ? "" : "text-ink-soft"}`}
                 style={isOpen ? { color: INK_ON_BRIGHT } : undefined}
               >
