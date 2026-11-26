@@ -2,6 +2,7 @@
 # Installs what tools/agent/android.sh needs into $TOKULY_DEV_HOME (survives container recreates):
 # a JDK 17, the Android SDK with the emulator and the CI's system image (API 34, google_apis, x86_64),
 # the AVD `tokuly` (Pixel 6) and Maestro. Needs /dev/kvm to be useful.
+: "${TOKULY_DEV_HOME:=$HOME/tokuly-dev}"
 set -euo pipefail
 D=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}
 mkdir -p "$D/jdk" "$D/android/cmdline-tools" "$D/android/avd"

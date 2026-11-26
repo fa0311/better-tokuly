@@ -4,6 +4,7 @@
 # the build that owned it fails and is simply run again, which is far cheaper than a reboot.
 # Never touches infrastructure, editors or agent processes.
 #   nohup $TOKULY_DEV_HOME/memguard.sh > $TOKULY_DEV_HOME/logs/memguard.log 2>&1 &
+: "${TOKULY_DEV_HOME:=$HOME/tokuly-dev}"
 set -u
 THRESHOLD_MB=${MEMGUARD_THRESHOLD_MB:-8000}
 while sleep 2; do

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Shared Rust build set-up for many agents on one machine: sccache (60 GB cache) behind rustc-gate,
 # which limits concurrent compilations machine-wide, wired into every cargo build via ~/.cargo/config.toml.
+: "${TOKULY_DEV_HOME:=$HOME/tokuly-dev}"
 set -euo pipefail
 D=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}
 mkdir -p "$D/libexec" "$HOME/.cargo/bin" "$HOME/.config/sccache"

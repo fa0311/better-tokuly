@@ -6,7 +6,7 @@
 # the task file. Run it as a background command; its last lines are the report.
 set -euo pipefail
 name=$1 base=$2 budget=$3 task=$4
-repo=$(git rev-parse --show-toplevel)
+repo=$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)
 wt=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/wt/$name
 notes=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/notes/api-runs
 git -C "$repo" fetch -q origin
@@ -17,7 +17,7 @@ if [ ! -d "$wt" ]; then
   else git -C "$repo" worktree add -q -B "$branch" "$wt" "$base"; fi
 fi
 cat "$notes/common.md" "$task" > "$notes/$name.prompt"
-"$(dirname "$0")/claude-api.sh" "$wt" claude-fable-5-2 "$budget" "$notes/$name.prompt" > "$notes/$name.report" 2>&1 || true
+"$(dirname "$(readlink -f "$0")")/claude-api.sh" "$wt" claude-fable-5-2 "$budget" "$notes/$name.prompt" > "$notes/$name.report" 2>&1 || true
 # The run may end before pushing (budget, crash): push whatever it committed.
 if [ -n "$(git -C "$wt" log --oneline "origin/$branch..$branch" 2>/dev/null || git -C "$wt" log --oneline "$base..$branch")" ]; then
   git -C "$wt" push -q -u origin "$branch" 2>&1 | grep -v '^remote:' || true

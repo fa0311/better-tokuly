@@ -2,6 +2,7 @@
 # Checks that the machine-wide build and safety set-up is actually in effect, not just
 # configured somewhere. Prints one line per check; exits non-zero if any check fails.
 # Run by the lead's hourly watchdog and after every restart.
+: "${TOKULY_DEV_HOME:=$HOME/tokuly-dev}"
 set -u
 fail=0
 ok()   { printf 'ok    %s\n' "$1"; }
@@ -9,7 +10,7 @@ bad()  { printf 'FAIL  %s\n' "$1"; fail=1; }
 note() { printf 'note  %s\n' "$1"; }
 
 # Every cargo build goes through the gate and sccache.
-wrapper=$(cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)/backend" 2>/dev/null && cargo config get build.rustc-wrapper -Z unstable-options 2>/dev/null | tr -d '"' | sed 's/.*= *//')
+wrapper=$(cd "$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)/backend" 2>/dev/null && cargo config get build.rustc-wrapper -Z unstable-options 2>/dev/null | tr -d '"' | sed 's/.*= *//')
 [ -z "$wrapper" ] && wrapper=$(grep -E '^rustc-wrapper' "$HOME/.cargo/config.toml" 2>/dev/null | sed 's/.*= *"\(.*\)"/\1/')
 if [ "$wrapper" = "$HOME/.cargo/bin/sccache" ]; then ok "cargo rustc-wrapper is the sccache gate"; else bad "cargo rustc-wrapper is '${wrapper:-unset}', expected $HOME/.cargo/bin/sccache"; fi
 grep -q 'REAL=' "$HOME/.cargo/bin/sccache" 2>/dev/null && ok "~/.cargo/bin/sccache is the gate script" || bad "~/.cargo/bin/sccache is not the gate script"
@@ -32,8 +33,8 @@ if [ "$bypass" -eq 0 ]; then ok "every running rustc compilation goes through sc
 else bad "$bypass rustc compilation(s) bypass sccache (see above)"; fi
 
 # Guards.
-pgrep -f 'tokuly-dev/memguard.sh' >/dev/null && ok "memguard running" || bad "memguard not running (nohup $TOKULY_DEV_HOME/memguard.sh > $TOKULY_DEV_HOME/logs/memguard.log 2>&1 &)"
-pgrep -f 'tokuly-dev/diskguard.sh' >/dev/null && ok "diskguard running" || bad "diskguard not running"
+pgrep -f 'memguard.sh' >/dev/null && ok "memguard running" || bad "memguard not running (see docs/agents/machine.md)"
+pgrep -f 'diskguard.sh' >/dev/null && ok "diskguard running" || bad "diskguard not running"
 
 # The prepaid API key (claude-api wrapper): private file, spending under the cap, never in the repo.
 key="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/secrets/anthropic-api-key"
@@ -41,7 +42,7 @@ if [ -f "$key" ]; then
   [ "$(stat -c %a "$key")" = 600 ] && ok "API key file is private (600)" || bad "API key file mode is $(stat -c %a "$key"), expected 600"
   spent=$(awk -F'\t' '{s+=$3} END {printf "%.2f", s+0}' "${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/secrets/api-ledger.tsv" 2>/dev/null)
   note "API credit used: \$${spent:-0} of the \$198 cap"
-  if git -C "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)" grep -qF "$(cut -c1-24 "$key")" 2>/dev/null; then bad "the API key appears in the repository"; else ok "API key not in the repository"; fi
+  if git -C "$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)" grep -qF "$(cut -c1-24 "$key")" 2>/dev/null; then bad "the API key appears in the repository"; else ok "API key not in the repository"; fi
 fi
 
 # Facts about the machine that briefs and replies rely on.
@@ -51,7 +52,7 @@ free_gb=$(df -BG --output=avail /home | tail -1 | tr -dc 0-9)
 if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ok "/dev/kvm usable (Android emulator, Docker VM)"
 else bad "/dev/kvm missing or not writable: check the agent container's compose (devices: /dev/kvm, group_add: 994)"; fi
 [ -x "${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/android/emulator/emulator" ] && [ -x "$HOME/.maestro/bin/maestro" ] \
-  && ok "Android SDK, emulator and Maestro installed ($TOKULY_DEV_HOME/bin/android.sh)" \
+  && ok "Android SDK, emulator and Maestro installed (tools/agent/android.sh)" \
   || bad "Android tooling missing ($TOKULY_DEV_HOME/android, ~/.maestro)"
 note "emulator: $("${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/bin/android.sh" status 2>/dev/null | head -1)"
 note "virtualisation: $(systemd-detect-virt 2>/dev/null || echo unknown)"

@@ -19,5 +19,5 @@ done
 gh api -X PUT "repos/$repo/pulls/$pr/merge" -f merge_method="$method" -f sha="$head" --jq .message
 # Only after a successful merge: the branch is not needed any more.
 gh api -X DELETE "repos/$repo/git/refs/heads/$branch" >/dev/null 2>&1 || true
-git -C "$(git rev-parse --show-toplevel)" pull -q --ff-only 2>/dev/null || true
+git -C "$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)" pull -q --ff-only 2>/dev/null || true
 echo "merged #$pr ($head) and deleted $branch"

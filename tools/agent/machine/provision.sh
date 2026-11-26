@@ -2,6 +2,7 @@
 # Re-installs the system packages this sandbox needs after the container is recreated
 # (the home directory survives a restart; anything installed with apt does not).
 #   $TOKULY_DEV_HOME/provision.sh && tools/dev/infra.sh up
+: "${TOKULY_DEV_HOME:=$HOME/tokuly-dev}"
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
