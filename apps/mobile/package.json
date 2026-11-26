@@ -11,12 +11,13 @@
     "ios": "expo run:ios",
     "prebuild": "expo prebuild --clean",
     "export": "expo export --platform android --platform ios --output-dir dist",
-    "typecheck": "node scripts/licenses.js && tsc --noEmit",
+    "typecheck": "node scripts/seams.js && node scripts/licenses.js && tsc --noEmit",
     "lint": "biome ci .",
     "format": "biome check --write .",
-    "test": "node scripts/licenses.js && jest",
+    "test": "node scripts/seams.js && node scripts/licenses.js && jest",
     "e2e": "maestro test maestro",
-    "licenses": "node scripts/licenses.js"
+    "licenses": "node scripts/licenses.js",
+    "seams": "node scripts/seams.js"
   },
   "dependencies": {
     "@bufbuild/protobuf": "catalog:",
