@@ -1,5 +1,4 @@
 import {
-  CalendarDays,
   Code,
   GraduationCap,
   type LucideIcon,
@@ -29,7 +28,6 @@ export interface WebFeature {
  */
 export const WEB_FEATURES: readonly WebFeature[] = [
   { key: "school", path: "/school", icon: GraduationCap },
-  { key: "plans", path: "/plans", icon: CalendarDays },
   { key: "ask", path: "/ask", icon: MessageCircleQuestion },
   { key: "quest", path: "/quest", icon: Trophy },
   { key: "emoji", path: "/emoji", icon: SmilePlus },

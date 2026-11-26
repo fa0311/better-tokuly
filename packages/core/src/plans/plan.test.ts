@@ -2,6 +2,7 @@ import { create, fromDate, plans } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
 import { testI18n } from "../testing/i18n";
 import {
+  canInvite,
   EMPTY_FORM,
   formFromPlan,
   formProblem,
@@ -92,5 +93,21 @@ describe("the time of a plan in words", () => {
     expect(untilText(i18n, timed("2026-11-22T15:30:00Z"), TOKYO, late)).toBe("あした");
     expect(untilText(i18n, timed("2026-11-22T15:30:00Z"), "UTC", late)).toBe("今日");
     expect(untilText(i18n, timed("2026-11-20T15:30:00Z"), TOKYO, late)).toBeUndefined();
+  });
+});
+
+describe("who may invite", () => {
+  const plan = (myRole: plans.PlanRole, myRsvp: plans.Rsvp, guestsCanInvite = true) =>
+    create(plans.PlanSchema, { status: plans.PlanStatus.ACTIVE, myRole, myRsvp, guestsCanInvite });
+
+  it("is the hosts, and guests who have not said no while the plan lets them", () => {
+    expect(canInvite(plan(plans.PlanRole.HOST, plans.Rsvp.GOING, false))).toBe(true);
+    expect(canInvite(plan(plans.PlanRole.GUEST, plans.Rsvp.MAYBE))).toBe(true);
+    expect(canInvite(plan(plans.PlanRole.GUEST, plans.Rsvp.INVITED))).toBe(true);
+    expect(canInvite(plan(plans.PlanRole.GUEST, plans.Rsvp.GOING, false))).toBe(false);
+  });
+
+  it("is not a guest who declined (the server refuses them)", () => {
+    expect(canInvite(plan(plans.PlanRole.GUEST, plans.Rsvp.DECLINED))).toBe(false);
   });
 });

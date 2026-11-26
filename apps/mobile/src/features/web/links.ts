@@ -5,9 +5,9 @@ import { webScreenHref } from "./handoff";
  * The web app's areas the phone has no screens for yet: a notification, a
  * push or a link into one of them opens it in the web view, signed in,
  * instead of the inbox. (Areas the app has — chat, profiles, friends, the
- * map, shorts, stories, videos, notes, live, search, spaces, communities —
- * are claimed by their own features; none is listed here.) The first path
- * segments are those the server's hand-off accepts (identity's
+ * map, shorts, stories, videos, notes, live, search, spaces, communities,
+ * plans — are claimed by their own features; none is listed here.) The first
+ * path segments are those the server's hand-off accepts (identity's
  * `handoff::WEB_ROUTES`).
  */
 const WEB_ONLY = [
@@ -25,7 +25,6 @@ const WEB_ONLY = [
   "news",
   "party",
   "places",
-  "plans",
   "quest",
   "recap",
   "school",

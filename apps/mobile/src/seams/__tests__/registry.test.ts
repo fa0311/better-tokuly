@@ -31,6 +31,7 @@ describe("the seam registries", () => {
       "community",
       "friends",
       "live",
+      "plans",
       "search",
       "settings",
       "spaces",
