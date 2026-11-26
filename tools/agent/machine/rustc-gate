@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Machine-wide limit on compiler processes, installed under the name `sccache` (cargo's
+# RUSTC_WRAPPER), in front of the real sccache.
+#
+# A dozen agents build at once here. Without a limit they start a hundred compilers on 16
+# cores, and the generated API crate alone takes 3-6 GB per compilation: the machine ran out
+# of memory and rebooted. With it, compilations beyond the limits wait their turn:
+#   - HEAVY_SLOTS at a time for the huge crates,
+#   - SLOTS at a time for everything else.
+# A slot is a flock(2) lock held by this process's `flock` child, so a build that is killed
+# frees its slot by itself; nothing can leak.
+set -u
+# The real binary keeps the name `sccache`: under any other name it believes it is
+# masquerading as a compiler of that name and waits on itself forever.
+REAL="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/libexec/sccache"
+SLOTS_DIR="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/run/rustc-slots"
+SLOTS=${RUSTC_GATE_SLOTS:-14}
+HEAVY_SLOTS=${RUSTC_GATE_HEAVY_SLOTS:-3}
+BUSY=222 # flock's exit code when a slot is taken; no compiler exits with it
+
+# sccache's own commands and cargo's version probes are not compilations.
+case " $* " in
+  *" --crate-name "*) ;;
+  *) exec "$REAL" "$@" ;;
+esac
+
+# The lead's integration builds do not queue behind the agents': merging finished work is
+# what unblocks everyone else. (RUSTC_GATE_BYPASS=1 in the environment of that build.)
+[ -n "${RUSTC_GATE_BYPASS:-}" ] && exec "$REAL" "$@"
+
+case " $* " in
+  *" --crate-name tokuly_proto "*) dir="$SLOTS_DIR/heavy"; count=$HEAVY_SLOTS ;;
+  *) dir="$SLOTS_DIR/normal"; count=$SLOTS ;;
+esac
+
+# Take the first free slot...
+for slot in $(seq 1 "$count"); do
+  flock --nonblock --conflict-exit-code "$BUSY" --close "$dir/$slot" "$REAL" "$@"
+  status=$?
+  [ "$status" -ne "$BUSY" ] && exit "$status"
+done
+# ...or queue for one picked at random, so waiters spread evenly.
+exec flock --close "$dir/$(( RANDOM % count + 1 ))" "$REAL" "$@"
