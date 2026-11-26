@@ -124,6 +124,12 @@ pnpm install && pnpm proto:gen && pnpm dev:web         # http://localhost:3000
 [MIT](LICENSE)。同梱している地名・境界データの出典とライセンスは
 [`backend/crates/geo/data/README.md`](backend/crates/geo/data/README.md) を参照してください。
 
+配布している `backend` イメージには、動画の変換に使う FFmpeg（[wader/static-ffmpeg](https://github.com/wader/static-ffmpeg)
+のビルド、x264 / x265 入り）が別プログラムとして入っています。この FFmpeg は GPL-3.0-or-later です。
+Tokuly 自身のコードは MIT のままですが、イメージを再配布するときは FFmpeg 部分に GPL の条件
+（ライセンス文の同梱とソースコードの入手方法の案内。ソースは上記リポジトリと
+[ffmpeg.org](https://ffmpeg.org/download.html) にあります）が付いてきます。
+
 ---
 
 **English.** Tokuly is a super app built around a live map of your friends (in the spirit of Bump / Zenly):
@@ -132,3 +138,5 @@ This repository is a ground-up rebuild of the original Tokuly and is under heavy
 the web app cover every area, the Expo mobile app covers accounts, the live map and friends so far.
 Run it with `tools/init-env.sh && docker compose up -d`; secrets go in `.env`, every other setting in
 `config/tokuly.toml` or the staff console. See the table above for what works today.
+The code is MIT; the published `backend` image also carries a GPL-3.0-or-later FFmpeg binary (run as a
+separate program), whose terms apply to that binary when the image is redistributed.

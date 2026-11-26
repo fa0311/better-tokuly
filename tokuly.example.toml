@@ -171,6 +171,12 @@
 # (TOKULY_CORS_ORIGINS; restart: api)
 # cors_origins = []
 
+# Seconds a call that is not a stream may take before the server gives up on it (DEADLINE_EXCEEDED):
+# what a client gets that names no timeout of its own, and the most it can ask for. Keep it above
+# the slowest thing a call waits for (the chat assistant's provider).
+# (TOKULY_API_REQUEST_TIMEOUT_SECONDS; restart: api)
+# request_timeout_seconds = 120
+
 [realtime]
 
 # UDP address of the WebTransport (HTTP/3) listener. Empty disables WebTransport.

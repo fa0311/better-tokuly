@@ -1898,3 +1898,86 @@ async fn a_server_reached_by_a_domain_name_or_localhost_has_passkeys() {
         assert!(begin.options_json.contains("challenge"), "{public_url}");
     }
 }
+
+/// What anyone can call without an account is limited per address: listing
+/// which handles exist, and asking for password hashes with made-up links.
+#[tokio::test]
+async fn anonymous_questions_are_limited_per_address() {
+    let app = app().await;
+    let check = || async {
+        app.call::<_, CheckHandleResponse>(
+            "tokuly.identity.v1.AuthService/CheckHandle",
+            None,
+            &CheckHandleRequest { handle: unique("probe"), ..Default::default() },
+        )
+        .await
+    };
+    for _ in 0..120 {
+        check().await.expect("as many as typing a handle asks");
+    }
+    assert_eq!(check().await.unwrap_err().reason, "RATE_LIMITED");
+
+    let reset = |token: String| async {
+        app.call::<_, ResetPasswordResponse>(
+            "tokuly.identity.v1.AuthService/ResetPassword",
+            None,
+            &ResetPasswordRequest { token, new_password: "a much better secret".into(), ..Default::default() },
+        )
+        .await
+    };
+    // A made-up link is refused before the password is hashed: thirty of
+    // them together take less time than ten hashes would.
+    let started = std::time::Instant::now();
+    for _ in 0..30 {
+        assert_eq!(reset(unique("link")).await.unwrap_err().reason, "TOKEN_INVALID");
+    }
+    let refusals = started.elapsed();
+    let started = std::time::Instant::now();
+    tokuly_identity::password::hash("a much better secret").await.unwrap();
+    assert!(refusals < started.elapsed() * 10, "made-up links cost no hashes: {refusals:?}");
+    assert_eq!(reset(unique("link")).await.unwrap_err().reason, "RATE_LIMITED");
+}
+
+/// Choosing a new handle in settings is counted per account: someone behind
+/// the same address (a school, a mobile carrier) who used up its allowance
+/// does not stop a signed-in member from checking theirs.
+#[tokio::test]
+async fn a_signed_in_handle_check_is_counted_per_account() {
+    let app = app().await;
+    let member = app.user("handlecheck").await;
+    let check = |who| {
+        let app = &app;
+        async move {
+            app.call::<_, CheckHandleResponse>(
+                "tokuly.identity.v1.AuthService/CheckHandle",
+                who,
+                &CheckHandleRequest { handle: unique("probe"), ..Default::default() },
+            )
+            .await
+        }
+    };
+    for _ in 0..120 {
+        check(None).await.expect("within the address's allowance");
+    }
+    assert_eq!(check(None).await.unwrap_err().reason, "RATE_LIMITED", "the address has used it up");
+    check(Some(&member)).await.expect("the account has an allowance of its own");
+}
+
+/// The cheap check changes nothing for a real link: it works once.
+#[tokio::test]
+async fn a_reset_link_works_once() {
+    let app = app().await;
+    let user = app.user("resetter").await;
+    let email: String = sqlx::query_scalar("SELECT email::text FROM users WHERE id = $1").bind(user.id).fetch_one(&app.core.db).await.unwrap();
+    let token = mailed_token(&app, user.id, "reset", &email).await;
+    let reset = || async {
+        app.call::<_, ResetPasswordResponse>(
+            "tokuly.identity.v1.AuthService/ResetPassword",
+            None,
+            &ResetPasswordRequest { token: token.clone(), new_password: "a much better secret".into(), ..Default::default() },
+        )
+        .await
+    };
+    reset().await.expect("the link is good");
+    assert_eq!(reset().await.unwrap_err().reason, "TOKEN_INVALID");
+}

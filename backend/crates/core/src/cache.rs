@@ -16,6 +16,20 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::{AppError, AppResult};
 
+/// Counts a hit in the window of `KEYS[1]` (`ARGV[1]` seconds) and returns
+/// the count. One step on the server: a counter can never be left without
+/// an expiry (a process stopped between an `INCR` and its `EXPIRE` would
+/// leave one that only grows, and whoever it counts locked out for good).
+/// A counter found without an expiry is given one, which heals those left
+/// by releases that counted in two steps.
+const COUNT_IN_WINDOW: &str = r"
+local count = redis.call('INCR', KEYS[1])
+if count == 1 or redis.call('TTL', KEYS[1]) < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return count
+";
+
 #[derive(Clone)]
 pub struct Cache {
     conn: ConnectionManager,
@@ -141,13 +155,11 @@ impl Cache {
         if !self.enforces_rate_limits() {
             return Ok(());
         }
-        let key = format!("rl:{key}");
-        let mut conn = self.conn();
-        let count: i64 = conn.incr(&key, 1).await?;
-        if count == 1 {
-            conn.expire::<_, ()>(&key, window.as_secs().max(1) as i64)
-                .await?;
-        }
+        let count: i64 = redis::Script::new(COUNT_IN_WINDOW)
+            .key(format!("rl:{key}"))
+            .arg(window.as_secs().max(1))
+            .invoke_async(&mut self.conn())
+            .await?;
         if count > max as i64 {
             return Err(AppError::rate_limited(
                 "RATE_LIMITED",

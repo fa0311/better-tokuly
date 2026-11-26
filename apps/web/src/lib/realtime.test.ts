@@ -18,7 +18,9 @@ vi.mock("@tokuly/realtime", () => ({
     isSubscribed = (topic: string) => topic === "space:covered";
   },
 }));
-vi.mock("#/lib/api", () => ({ api: () => ({}) }));
+vi.mock("#/lib/api", () => ({
+  api: () => ({ session: { state: { status: "unknown" }, subscribe: () => () => {} } }),
+}));
 vi.stubGlobal("document", { addEventListener: () => {} });
 vi.stubGlobal("window", { localStorage: { getItem: () => "device", setItem: () => {} } });
 

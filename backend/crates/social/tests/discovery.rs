@@ -502,3 +502,63 @@ async fn nearby_sessions_open_only_where_the_user_really_is() {
     let open = unchecked.app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&carol), &nearby_at(spot), 1, Duration::from_secs(3)).await;
     assert_eq!(open.unwrap_err().reason, "LOCATION_NOT_VERIFIED", "no check plugged in: fail closed");
 }
+
+/// A school is self-declared: on its own it introduces people of one age
+/// group only, so naming a school does not show an adult who goes there.
+#[tokio::test]
+async fn a_shared_school_suggests_only_within_an_age_group() {
+    let ctx = start().await;
+    let school = format!("桜ヶ丘高校 {}", Uuid::now_v7().simple());
+    let (pupil, classmate, adult, known_adult) =
+        (ctx.app.user("pupil").await, ctx.app.user("classmate").await, ctx.app.user("adult").await, ctx.app.user("senpai").await);
+    for user in [&pupil, &classmate, &adult, &known_adult] {
+        sqlx::query("UPDATE users SET school_name = $2 WHERE id = $1").bind(user.id).bind(&school).execute(&ctx.app.core.db).await.unwrap();
+    }
+    for minor in [&pupil, &classmate] {
+        sqlx::query("UPDATE users SET birthdate = current_date - interval '16 years' WHERE id = $1").bind(minor.id).execute(&ctx.app.core.db).await.unwrap();
+    }
+    // Someone the pupil is connected to through a friend is still suggested
+    // for that reason, whatever their age.
+    let friend = ctx.app.user("friend").await;
+    ctx.befriend(&pupil, &friend).await;
+    ctx.befriend(&friend, &known_adult).await;
+
+    let for_pupil = suggestions_for(&ctx, &pupil, 0).await;
+    let mut seen = suggested(&for_pupil);
+    seen.sort();
+    let mut expected = vec![(classmate.id, "SAME_SCHOOL"), (known_adult.id, "FRIEND_OF_FRIEND")];
+    expected.sort();
+    assert_eq!(seen, expected, "the unknown adult is not suggested");
+
+    let for_adult = suggestions_for(&ctx, &adult, 0).await;
+    assert_eq!(suggested(&for_adult), vec![(known_adult.id, "SAME_SCHOOL")], "an adult sees no pupils by naming their school");
+}
+
+/// The age group is part of finding schoolmates, not a filter on a first
+/// page of them: an adult naming a school with many pupils still meets the
+/// other adults there.
+#[tokio::test]
+async fn an_adult_at_a_big_school_still_meets_the_adults_there() {
+    let ctx = start().await;
+    let school = format!("市立第一中学校 {}", Uuid::now_v7().simple());
+    let (teacher, colleague) = (ctx.app.user("teacher").await, ctx.app.user("colleague").await);
+    for user in [&teacher, &colleague] {
+        sqlx::query("UPDATE users SET school_name = $2 WHERE id = $1").bind(user.id).bind(&school).execute(&ctx.app.core.db).await.unwrap();
+    }
+    // More pupils than one source of suggestions looks at, all newer than
+    // the colleague.
+    sqlx::query(
+        "INSERT INTO users (handle, display_name, email, email_verified_at, birthdate, school_name)
+         SELECT 'pupil_' || n || '_' || $2, 'pupil', 'pupil_' || n || '_' || $2 || '@test.tokuly.localhost', now(),
+                current_date - interval '14 years', $1
+         FROM generate_series(1, 150) AS n",
+    )
+    .bind(&school)
+    .bind(Uuid::now_v7().simple().to_string()[24..].to_owned())
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+
+    let for_teacher = suggestions_for(&ctx, &teacher, 0).await;
+    assert_eq!(suggested(&for_teacher), vec![(colleague.id, "SAME_SCHOOL")]);
+}

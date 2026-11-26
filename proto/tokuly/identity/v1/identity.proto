@@ -21,6 +21,8 @@ service AuthService {
   rpc RefreshToken(RefreshTokenRequest) returns (AuthResponse);
   rpc SignOut(SignOutRequest) returns (SignOutResponse);
 
+  // Whether a handle can be taken. RATE_LIMITED past 120 a minute per
+  // account, or per address when signed out.
   rpc CheckHandle(CheckHandleRequest) returns (CheckHandleResponse);
 
   // What this server supports for signing in, so clients show only the ways
@@ -37,6 +39,7 @@ service AuthService {
   rpc BeginPasskeyRegistration(BeginPasskeyRegistrationRequest) returns (BeginPasskeyRegistrationResponse);
   rpc FinishPasskeyRegistration(FinishPasskeyRegistrationRequest) returns (FinishPasskeyRegistrationResponse);
   rpc BeginPasskeySignIn(BeginPasskeySignInRequest) returns (BeginPasskeySignInResponse);
+  // RATE_LIMITED past 60 in 5 minutes per address (as BeginPasskeySignIn).
   rpc FinishPasskeySignIn(FinishPasskeySignInRequest) returns (AuthResponse);
 
   rpc RequestEmailVerification(RequestEmailVerificationRequest) returns (RequestEmailVerificationResponse);
@@ -49,6 +52,9 @@ service AuthService {
   // link stays usable).
   rpc VerifyEmail(VerifyEmailRequest) returns (VerifyEmailResponse);
   rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse);
+  // Sets a new password with the token of a reset mail and signs every
+  // device out. TOKEN_INVALID, the password reasons of SignUp, RATE_LIMITED
+  // past 30 an hour per address.
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
 
   // Device login: an app without a browser session (desktop Studio, TV, CLI)

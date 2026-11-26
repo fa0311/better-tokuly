@@ -58,6 +58,30 @@ pub(crate) async fn minors_among(core: &Core, user_ids: &[Uuid]) -> AppResult<Ha
     Ok(minors.into_iter().collect())
 }
 
+/// Up to `limit` people who name the same school as `user_id` and are in
+/// the same age group (minors with minors, adults with adults; no birthdate
+/// counts as adult, as in [`minors_among`]), newest accounts first.
+///
+/// A school is whatever an account types: on its own it must not show an
+/// adult a school's pupils, nor the other way round. The age group is part
+/// of the query, not a filter afterwards, so that an adult naming a big
+/// school still finds the adults there instead of a first page of pupils
+/// that is then thrown away.
+pub(crate) async fn schoolmates_of_age_group(core: &Core, user_id: Uuid, limit: i64) -> AppResult<Vec<Uuid>> {
+    Ok(sqlx::query_scalar(
+        "SELECT mate.id FROM users me JOIN users mate ON mate.school_name = me.school_name AND mate.id <> me.id
+         WHERE me.id = $1 AND me.school_name <> '' AND mate.deleted_at IS NULL AND mate.banned_at IS NULL AND NOT mate.bot
+           AND coalesce(mate.birthdate > current_date - make_interval(years => $3), false)
+             = coalesce(me.birthdate > current_date - make_interval(years => $3), false)
+         ORDER BY mate.id DESC LIMIT $2",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .bind(ADULT_AGE_YEARS)
+    .fetch_all(&core.db)
+    .await?)
+}
+
 /// An audience stored in privacy settings as the plain enum (unknown numbers
 /// read as unspecified, which [`crate::graph::allows`] treats cautiously).
 pub(crate) fn audience(value: &buffa::EnumValue<Audience>) -> Audience {

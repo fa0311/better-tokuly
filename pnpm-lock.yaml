@@ -245,9 +245,6 @@ catalogs:
     clsx:
       specifier: 2.1.1
       version: 2.1.1
-    date-fns:
-      specifier: 4.4.0
-      version: 4.4.0
     h3-js:
       specifier: 4.5.0
       version: 4.5.0
@@ -269,9 +266,6 @@ catalogs:
     motion:
       specifier: 14.14.0
       version: 14.14.0
-    pmtiles:
-      specifier: 4.5.0
-      version: 4.5.0
     qrcode:
       specifier: 1.5.4
       version: 1.5.4
@@ -542,9 +536,6 @@ importers:
       '@fontsource/m-plus-rounded-1c':
         specifier: ^5.2.9
         version: 5.3.0
-      '@protomaps/basemaps':
-        specifier: 'catalog:'
-        version: 5.7.2
       '@simplewebauthn/browser':
         specifier: 'catalog:'
         version: 14.0.0
@@ -578,9 +569,6 @@ importers:
       clsx:
         specifier: 'catalog:'
         version: 2.1.1
-      date-fns:
-        specifier: 'catalog:'
-        version: 4.4.0
       h3-js:
         specifier: 'catalog:'
         version: 4.5.0
@@ -605,9 +593,6 @@ importers:
       nitro:
         specifier: 3.0.261103-rc
         version: 3.0.261103-rc
-      pmtiles:
-        specifier: 'catalog:'
-        version: 4.5.0
       qrcode:
         specifier: 'catalog:'
         version: 1.5.4
@@ -4336,9 +4321,6 @@ packages:
   fetchdts@0.2.0:
     resolution: {integrity: sha512-PJb4ZTGT2/wK78RmVrxZITStWabhZlKBsL52VOgq+c7clEkdHdEB+0rtzrXCbZJqeYJj+IwNWYqB5/G6vouA6A==}
 
-  fflate@0.8.3:
-    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
-
   fill-range@7.1.1:
     resolution: {integrity: sha512-YsGpe3WHLK8ZYi4tWDg2Jy3ebRz2rXowDxnld4bkQB00cc/1Zw9AWnC0i9ztDJitivtQvaI9KaLyKrc+hBW0yg==}
     engines: {node: '>=8'}
@@ -5654,9 +5636,6 @@ packages:
   plist@3.1.1:
     resolution: {integrity: sha512-ZIfcLJC+7E7FBFnDxm9MPmt7D+DidyQ26lewieO75AdhA2ayMtsJSES0iWzqJQbcVRSrTufQoy0DR94xHue0oA==}
     engines: {node: '>=10.4.0'}
-
-  pmtiles@4.5.0:
-    resolution: {integrity: sha512-CBeD4SoUluFziGdy/8k7FOjQxQy486n+929W/tWophauvMICpkZ26vGBWhDt/6b1FZQWNaf4jFdT/5+q0Wii5w==}
 
   pngjs@3.4.0:
     resolution: {integrity: sha512-NCrCHhWmnQklfH4MtJMRjZ2a8c80qXeMlQMv2uVp9ISJMTt562SbGd6n2oq0PaPgKm7Z6pL9E2UlLIhC+SHL3w==}
@@ -10284,7 +10263,8 @@ snapshots:
       whatwg-mimetype: 4.0.0
       whatwg-url: 14.2.0
 
-  date-fns@4.4.0: {}
+  date-fns@4.4.0:
+    optional: true
 
   debug@2.6.9(supports-color@8.1.1):
     dependencies:
@@ -10833,8 +10813,6 @@ snapshots:
   fetch-nodeshim@0.4.11: {}
 
   fetchdts@0.2.0: {}
-
-  fflate@0.8.3: {}
 
   fill-range@7.1.1:
     dependencies:
@@ -12476,10 +12454,6 @@ snapshots:
       '@xmldom/xmldom': 0.9.12
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
-
-  pmtiles@4.5.0:
-    dependencies:
-      fflate: 0.8.3
 
   pngjs@3.4.0: {}
 

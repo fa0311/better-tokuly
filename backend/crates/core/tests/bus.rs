@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_nats::jetstream::consumer::{Consumer, pull};
 use futures::StreamExt as _;
-use tokuly_core::bus::{Bus, STREAM_ANALYTICS, STREAM_EVENTS, STREAM_JOBS, STREAM_LOCATIONS};
+use tokuly_core::bus::{Bus, STREAM_ANALYTICS, STREAM_DEAD, STREAM_EVENTS, STREAM_JOBS, STREAM_LOCATIONS};
 
 const ACK_WAIT: Duration = Duration::from_secs(30);
 
@@ -18,7 +18,7 @@ async fn isolated_bus() -> Bus {
 }
 
 async fn remove_streams(bus: &Bus) {
-    for name in [STREAM_EVENTS, STREAM_JOBS, STREAM_ANALYTICS, STREAM_LOCATIONS] {
+    for name in [STREAM_EVENTS, STREAM_JOBS, STREAM_ANALYTICS, STREAM_LOCATIONS, STREAM_DEAD] {
         bus.js.delete_stream(bus.stream_name(name)).await.expect("stream is deleted");
     }
 }

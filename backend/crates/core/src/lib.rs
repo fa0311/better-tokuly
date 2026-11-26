@@ -19,6 +19,7 @@ pub mod config;
 mod core;
 pub mod ctx;
 pub mod db;
+pub mod dead_letters;
 pub mod egress;
 pub mod error;
 pub mod events;
