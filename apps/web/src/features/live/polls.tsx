@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type live, toMillis } from "@tokuly/api";
+import { mergePoll, pollShares } from "@tokuly/core/live";
 import { BarChart3, Check, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,19 +12,8 @@ import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { liveKeys, patchStream, pollClient } from "./api";
-import { mergePoll, pollShares } from "./model";
 import { formatCount, useNow } from "./parts";
 import { clock } from "./player/live-player";
-
-/** How long a closed poll keeps showing its result to viewers. */
-export const POLL_RESULT_SECONDS = 20;
-
-/** Whether a poll still belongs on screen: open, or closed a moment ago. */
-export function pollVisible(poll: live.Poll | undefined, nowMs: number): poll is live.Poll {
-  if (!poll) return false;
-  if (!poll.endedAt) return true;
-  return nowMs - toMillis(poll.endedAt) < POLL_RESULT_SECONDS * 1000;
-}
 
 /**
  * A poll in a stream: tap an option to cast the one vote, then watch the

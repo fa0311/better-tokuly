@@ -1,7 +1,7 @@
 import { errorReason, type Timestamp, toMillis, video } from "@tokuly/api";
+import { pushesDuringRead } from "@tokuly/core/query";
 import { useEffect, useRef, useState } from "react";
 import { API_PATH, api } from "#/lib/api";
-import { pushesDuringRead } from "#/lib/pushes-during-read";
 import { realtime } from "#/lib/realtime";
 import { partyClient } from "../api";
 import type { SharedPlayback } from "./sync";

@@ -6,10 +6,15 @@ import { readSecure, writeSecure } from "#/platform/secure-storage";
 import { startSession } from "../session";
 import { useSessionStore } from "../store";
 
-// Of the features' hooks (`#/seams/lifecycle`), the one a session that left meets: its push registrations go.
+// Of the features' hooks (`#/seams/lifecycle`), the one a session that left meets (its push
+// registrations go), and what live keeps for the device's accounts (an unanswered gift).
 jest.mock("#/generated/seams/lifecycle", () => {
   const push = jest.requireActual("#/features/notifications/lifecycle").default;
-  return { __esModule: true, default: [{ beforeEnd: push.beforeEnd }] };
+  const live = jest.requireActual("#/features/live/lifecycle").default;
+  return {
+    __esModule: true,
+    default: [{ beforeEnd: push.beforeEnd }, { secureKeys: live.secureKeys }],
+  };
 });
 
 /** The app's own storage, at the edge: empty, as after a reinstall (the keychain outlived it). */
@@ -67,11 +72,17 @@ describe("a reinstall", () => {
   it("signs the previous install's accounts out on the server before forgetting them", async () => {
     await writeSecure("tokuly.session.active", "rt-before");
     await writeSecure("tokuly.session.parked", JSON.stringify({ "s-other": "rt-other" }));
+    await writeSecure(
+      "tokuly.live.gifts",
+      JSON.stringify({ before: { streamId: "s1", key: "gift-k", coins: "100", message: "" } }),
+    );
 
     await startSession();
     expect(useSessionStore.getState().state.status).toBe("signedOut");
     expect(await readSecure("tokuly.session.active")).toBeNull();
     expect(await readSecure("tokuly.session.parked")).toBeNull();
+    // A gift the previous install left unanswered is not the new install's to repeat.
+    expect(await readSecure("tokuly.live.gifts")).toBeNull();
 
     // Best effort, in the background: each session's push registrations go, then the session.
     await waitFor(() =>

@@ -16,7 +16,7 @@ Code that every Tokuly app (web, mobile, desktop) runs the same way.
 | `@tokuly/core/format`        | ages, durations, distances, speeds                                                                                                          |
 | `@tokuly/core/errors`        | an API reason or a refused upload → the text to show                                                                                        |
 | `@tokuly/core/engagement`    | subjects, counts and the viewer's reactions, a tap shown before the answer, realtime counters, engagement keys                              |
-| `@tokuly/core/query`         | the retry rule, `ClientSource`, `nextCursor`                                                                                                |
+| `@tokuly/core/query`         | the retry rule, `ClientSource`, `nextCursor`, pushes that arrive while a snapshot is read                                                   |
 | `@tokuly/core/session`       | device accounts                                                                                                                             |
 | `@tokuly/core/profile`       | profile keys and options, the viewer's relationship                                                                                         |
 | `@tokuly/core/friends`       | follow and circle keys, the follow summary, what to re-read after a change                                                                  |
@@ -26,6 +26,7 @@ Code that every Tokuly app (web, mobile, desktop) runs the same way.
 | `@tokuly/core/notifications` | notify keys, unread counts, inbox cache edits, inbox times, push targets                                                                    |
 | `@tokuly/core/stories`       | story keys and options, story cache edits                                                                                                   |
 | `@tokuly/core/shorts`        | shorts keys, captions, feed contexts, the slide window                                                                                      |
+| `@tokuly/core/live`          | live keys and options, gift, chat and poll rules, a stream and its chat in the cache, pushed live events                                    |
 | `@tokuly/core/video`         | video keys, cache edits, feeds, the watch page's rules (start position, chapters, description links), playlists, playback reporting, clocks |
 
 ## What belongs here
