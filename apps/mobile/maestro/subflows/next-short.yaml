@@ -1,0 +1,12 @@
+appId: app.tokuly.mobile
+name: Swipe the shorts feed on to the next short
+---
+# The feed pages: a slow swipe stops on the nearest short. The emulator draws
+# video in software and hands the release over late, so the swipe's speed is
+# lost and the distance alone decides: it covers more than half a short.
+- swipe:
+    start: 50%, 85%
+    end: 50%, 10%
+    duration: 1200
+- waitForAnimationToEnd:
+    timeout: 3000
