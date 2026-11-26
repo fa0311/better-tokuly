@@ -115,20 +115,26 @@ jobs:
     name: iOS end to end
     needs: [app, backend]
     runs-on: macos-26
-    timeout-minutes: 90
+    # Every step has a limit of its own too: nothing here may wait forever (a simulator that
+    # never boots, a driver that never answers). The flows take most of the time.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 3
       - uses: actions/download-artifact@v8
+        timeout-minutes: 5
         with:
           name: ios-simulator-app
           path: ${{ runner.temp }}/app
       - uses: actions/download-artifact@v8
+        timeout-minutes: 5
         with:
           name: backend-macos
           path: ${{ runner.temp }}/backend
 
       # The service binaries of tools/dev/infra.sh depend on nothing but its pinned versions.
       - name: Service binaries
+        timeout-minutes: 5
         uses: actions/cache@v6
         with:
           path: ~/tokuly-dev/bin
@@ -137,6 +143,7 @@ jobs:
       # backend's own, for the media pipeline (the image carries a static one). No calls in
       # the flows: LiveKit stays off.
       - name: Install the services
+        timeout-minutes: 15
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
@@ -146,6 +153,7 @@ jobs:
           brew install --quiet ffmpeg
           tools/dev/infra.sh install
       - name: Start the stack
+        timeout-minutes: 8
         env:
           TOKULY_DEV_LIVEKIT: "0"
         run: |
@@ -153,16 +161,19 @@ jobs:
           tools/ci/native-stack.sh "$RUNNER_TEMP/backend/tokuly"
 
       - uses: actions/setup-java@v5
+        timeout-minutes: 5
         with:
           distribution: temurin
           java-version: 17
       - name: Install Maestro
+        timeout-minutes: 5
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
       # The newest iPhone of the newest iOS the runner has.
       - name: Boot an iPhone simulator
+        timeout-minutes: 10
         run: |
           udid="$(xcrun simctl list devices available --json | python3 -c '
           import json, sys
@@ -176,6 +187,7 @@ jobs:
           xcrun simctl bootstatus "$udid" -b
           echo "UDID=$udid" >> "$GITHUB_ENV"
       - name: Install the app
+        timeout-minutes: 5
         run: |
           ditto -x -k "$RUNNER_TEMP/app/Tokuly.app.zip" "$RUNNER_TEMP/app"
           codesign --display --entitlements - "$RUNNER_TEMP/app/Tokuly.app"
@@ -185,6 +197,7 @@ jobs:
       # Maestro's driver (an XCTest runner it installs on the simulator) takes a while to
       # start on these runners; its default wait is too short.
       - name: Maestro flows
+        timeout-minutes: 25
         env:
           MAESTRO_DRIVER_STARTUP_TIMEOUT: "300000"
         run: |
@@ -196,6 +209,7 @@ jobs:
           }
 
       - name: Keep the Maestro output
+        timeout-minutes: 5
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -206,6 +220,7 @@ jobs:
             ~/.maestro/tests
           retention-days: 7
       - name: Keep the stack's logs
+        timeout-minutes: 5
         if: failure()
         uses: actions/upload-artifact@v7
         with:
