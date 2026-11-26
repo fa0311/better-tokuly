@@ -21,7 +21,8 @@ service AuthService {
   rpc RefreshToken(RefreshTokenRequest) returns (AuthResponse);
   rpc SignOut(SignOutRequest) returns (SignOutResponse);
 
-  // Whether a handle can be taken. RATE_LIMITED past 120 a minute per address.
+  // Whether a handle can be taken. RATE_LIMITED past 120 a minute per
+  // account, or per address when signed out.
   rpc CheckHandle(CheckHandleRequest) returns (CheckHandleResponse);
 
   // What this server supports for signing in, so clients show only the ways

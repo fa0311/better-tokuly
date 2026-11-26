@@ -1938,6 +1938,31 @@ async fn anonymous_questions_are_limited_per_address() {
     assert_eq!(reset(unique("link")).await.unwrap_err().reason, "RATE_LIMITED");
 }
 
+/// Choosing a new handle in settings is counted per account: someone behind
+/// the same address (a school, a mobile carrier) who used up its allowance
+/// does not stop a signed-in member from checking theirs.
+#[tokio::test]
+async fn a_signed_in_handle_check_is_counted_per_account() {
+    let app = app().await;
+    let member = app.user("handlecheck").await;
+    let check = |who| {
+        let app = &app;
+        async move {
+            app.call::<_, CheckHandleResponse>(
+                "tokuly.identity.v1.AuthService/CheckHandle",
+                who,
+                &CheckHandleRequest { handle: unique("probe"), ..Default::default() },
+            )
+            .await
+        }
+    };
+    for _ in 0..120 {
+        check(None).await.expect("within the address's allowance");
+    }
+    assert_eq!(check(None).await.unwrap_err().reason, "RATE_LIMITED", "the address has used it up");
+    check(Some(&member)).await.expect("the account has an allowance of its own");
+}
+
 /// The cheap check changes nothing for a real link: it works once.
 #[tokio::test]
 async fn a_reset_link_works_once() {

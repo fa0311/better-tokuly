@@ -522,8 +522,15 @@ impl AuthService for Identity {
     ) -> ServiceResult<CheckHandleResponse> {
         handle(async {
             // Asked while someone types a handle; far more than that is
-            // someone listing which handles exist.
-            self.core.cache.rate_limit(&format!("handle:check:ip:{}", ctx.client().ip), 120, Duration::from_secs(60)).await?;
+            // someone listing which handles exist. Counted per account when
+            // signed in (choosing a new handle in settings), so that a
+            // school's or a mobile carrier's shared address does not put
+            // its members in each other's way.
+            let limiter = match ctx.maybe_user_id()? {
+                Some(user_id) => format!("user:{user_id}"),
+                None => format!("ip:{}", ctx.client().ip),
+            };
+            self.core.cache.rate_limit(&format!("handle:check:{limiter}"), 120, Duration::from_secs(60)).await?;
             let normalized = match users::claimable_handle(request.handle) {
                 Ok(h) => h,
                 Err(reason) => {
