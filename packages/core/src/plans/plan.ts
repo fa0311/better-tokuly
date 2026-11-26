@@ -1,6 +1,15 @@
 import { type common, fromDate, type MessageInitShape, plans, toDate } from "@tokuly/api";
 import type { i18n as I18n } from "i18next";
-import { combine, daysBetween, formatDay, formatTime, timeOf, todayYmd, ymd } from "./dates";
+import {
+  addDays,
+  combine,
+  daysBetween,
+  formatDay,
+  formatTime,
+  timeOf,
+  todayYmd,
+  ymd,
+} from "./dates";
 
 /**
  * A plan's rules and its form: who may do what, how the time of a plan is
@@ -154,12 +163,24 @@ export function formProblem(
         combine(value.date, value.time, zone),
         combine(value.endDate || value.date, value.endTime, zone),
       ];
-      if (!end || !start || end < start) return "end";
+      // The server wants it to end after it starts; a time a daylight-saving jump skips is the jump's moment.
+      if (!end || !start || end <= start) return "end";
     }
   }
   if (value.capacity && !(Number.isInteger(Number(value.capacity)) && Number(value.capacity) >= 1))
     return "capacity";
   return null;
+}
+
+/**
+ * The form with a new end time. One at or before the start time on the
+ * start's day is taken as the next day (a night out past midnight); an end
+ * day already after the start stays.
+ */
+export function withEndTime(value: PlanFormValue, endTime: string): PlanFormValue {
+  const sameDay = !value.endDate || value.endDate === value.date;
+  const overnight = sameDay && value.date !== "" && value.time !== "" && endTime <= value.time;
+  return { ...value, endTime, ...(overnight ? { endDate: addDays(value.date, 1) } : {}) };
 }
 
 /** The form's time as the API takes it; an empty message means "to be decided". */
@@ -222,9 +243,9 @@ export function toCreateRequest(
 }
 
 /**
- * What changed between two states of the form, as an update. The time and
- * the place are only sent when they changed: each such change tells
- * everyone in the plan.
+ * What changed between two states of the form, as an update: only those
+ * fields, so someone else's change made meanwhile stays. A change of the
+ * time or the place tells everyone in the plan.
  */
 export function toUpdateRequest(
   planId: string,
@@ -235,20 +256,23 @@ export function toUpdateRequest(
   const same = (a: unknown, b: unknown) =>
     JSON.stringify(a, (_key, item) => (typeof item === "bigint" ? item.toString() : item)) ===
     JSON.stringify(b, (_key, item) => (typeof item === "bigint" ? item.toString() : item));
-  const time = toPlanTime(value, zone);
-  return {
-    planId,
-    title: value.title.trim(),
-    emoji: value.emoji,
-    description: value.description.trim(),
-    time: same(toPlanTime(before, zone), time) ? undefined : time,
-    place: same(toPlanPlace(before), toPlanPlace(value)) ? undefined : toPlanPlace(value),
-    guestsCanInvite: value.guestsCanInvite,
-    capacity: value.capacity ? Number(value.capacity) : 0,
-    remindDayBefore: value.remindDayBefore,
-    remindMinutesBefore: value.remindMinutesBefore,
-    currency: value.currency,
-  };
+  const fields = (form: PlanFormValue) => ({
+    title: form.title.trim(),
+    emoji: form.emoji,
+    description: form.description.trim(),
+    time: toPlanTime(form, zone),
+    place: toPlanPlace(form),
+    guestsCanInvite: form.guestsCanInvite,
+    capacity: form.capacity ? Number(form.capacity) : 0,
+    remindDayBefore: form.remindDayBefore,
+    remindMinutesBefore: form.remindMinutesBefore,
+    currency: form.currency,
+  });
+  const [was, now] = [fields(before), fields(value)];
+  const changed = Object.fromEntries(
+    Object.entries(now).filter(([key, item]) => !same(was[key as keyof typeof was], item)),
+  );
+  return { planId, ...changed };
 }
 
 /** "12月24日(火) 18:00〜21:00", "12月24日(火)", or "日にち未定", in the language of `i18n`. */

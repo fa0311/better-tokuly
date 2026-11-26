@@ -11,6 +11,7 @@ import {
   toCreateRequest,
   toUpdateRequest,
   untilText,
+  withEndTime,
 } from "./plan";
 
 const TOKYO = "Asia/Tokyo";
@@ -43,7 +44,34 @@ describe("the plan form", () => {
       ),
     ).toBe("end");
     expect(formProblem(form({ capacity: "0" }), TOKYO)).toBe("capacity");
+    expect(
+      formProblem(
+        form({ when: "date", date: "2026-12-24", hasEnd: true, endDate: "2026-12-24" }),
+        TOKYO,
+      ),
+    ).toBeNull();
     expect(formProblem(form({}), TOKYO)).toBeNull();
+  });
+
+  it("wants a timed plan to end after it starts, as the server does", () => {
+    const at = (time: string, endTime: string, date = "2026-12-24", zone = TOKYO) =>
+      formProblem(form({ when: "time", date, time, hasEnd: true, endTime }), zone);
+    expect(at("18:00", "18:00")).toBe("end");
+    expect(at("18:00", "18:05")).toBeNull();
+    // 02:00 and 02:30 are skipped in Los Angeles that night: both are 03:00.
+    expect(at("02:00", "02:30", "2026-03-08", "America/Los_Angeles")).toBe("end");
+  });
+
+  it("takes an end time earlier than the start as the next day: a night out past midnight", () => {
+    const night = form({ when: "time", date: "2026-12-24", time: "22:00", hasEnd: true });
+    const late = withEndTime(night, "01:00");
+    expect(late).toMatchObject({ endDate: "2026-12-25", endTime: "01:00" });
+    expect(formProblem(late, TOKYO)).toBeNull();
+    // Later the same day stays that day; an end day already after the start is kept.
+    expect(withEndTime(night, "23:30")).toMatchObject({ endDate: "" });
+    expect(withEndTime(late, "23:30")).toMatchObject({ endDate: "2026-12-25" });
+    const picked = { ...night, endDate: "2026-12-26" };
+    expect(withEndTime(picked, "01:00")).toMatchObject({ endDate: "2026-12-26" });
   });
 
   it("sends a day and a time as the instant the zone means, naming the zone", () => {
@@ -74,6 +102,26 @@ describe("the plan form", () => {
     expect(renamed.place).toBeUndefined();
     const moved = toUpdateRequest("p1", before, { ...before, time: "19:00" }, TOKYO);
     expect(moved.time).toBeDefined();
+  });
+
+  it("sends only what changed, so a co-host's edit at the same time is not undone", () => {
+    const plan = create(plans.PlanSchema, {
+      id: "p1",
+      title: "カラオケ",
+      capacity: 6,
+      remindMinutesBefore: 30,
+      time: timed("2026-12-24T09:00:00Z"),
+    });
+    const before = formFromPlan(plan, TOKYO);
+    expect(toUpdateRequest("p1", before, { ...before, title: " カラオケ! " }, TOKYO)).toEqual({
+      planId: "p1",
+      title: "カラオケ!",
+    });
+    expect(toUpdateRequest("p1", before, { ...before, capacity: "" }, TOKYO)).toEqual({
+      planId: "p1",
+      capacity: 0,
+    });
+    expect(toUpdateRequest("p1", before, before, TOKYO)).toEqual({ planId: "p1" });
   });
 });
 

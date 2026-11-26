@@ -57,22 +57,38 @@ export function zonedDate(ms: number, zone: string): string {
   return zonedTime(ms, zone).date;
 }
 
+/** What the clock in `zone` shows at `ms`, written as if it were UTC (to the minute). */
+function wallClock(ms: number, zone: string): number {
+  const shown = zonedTime(ms, zone);
+  const [year = 1970, month = 1, day = 1] = shown.date.split("-").map(Number);
+  return Date.UTC(year, month - 1, day, 0, shown.minute);
+}
+
 /**
  * The moment (epoch milliseconds) at which the clock in `zone` shows `date`
- * and `minute` after midnight. A time skipped by a daylight-saving jump
- * resolves to the moment the jump happens.
+ * and `minute` after midnight. A time shown twice (the clocks went back) is
+ * its first showing; a time a daylight-saving jump skips resolves to the
+ * moment the jump happens.
  */
 export function zonedMoment(date: string, minute: number, zone: string): number {
   const [year = 1970, month = 1, day = 1] = date.split("-").map(Number);
   const wanted = Date.UTC(year, month - 1, day, 0, minute);
-  // The zone's offset at a first guess, then once more at the corrected moment (offsets change twice a year).
-  let moment = wanted;
-  for (let pass = 0; pass < 2; pass++) {
-    const shown = zonedTime(moment, zone);
-    const [shownYear = 1970, shownMonth = 1, shownDay = 1] = shown.date.split("-").map(Number);
-    moment += wanted - Date.UTC(shownYear, shownMonth - 1, shownDay, 0, shown.minute);
+  // The zone's offset a day either side: the moment is wanted minus one of them.
+  const offsetAt = (ms: number) => wallClock(ms, zone) - Math.floor(ms / 60_000) * 60_000;
+  const [earlier, later] = [
+    wanted - offsetAt(wanted + 86_400_000),
+    wanted - offsetAt(wanted - 86_400_000),
+  ].sort((a, b) => a - b) as [number, number];
+  for (const moment of [earlier, later]) if (wallClock(moment, zone) === wanted) return moment;
+  // Skipped: the clock jumps somewhere between the two; find the first minute after it.
+  let [low, high] = [earlier, later];
+  const before = offsetAt(low);
+  while (high - low > 60_000) {
+    const middle = low + Math.floor((high - low) / 120_000) * 60_000;
+    if (offsetAt(middle) === before) low = middle;
+    else high = middle;
   }
-  return moment;
+  return high;
 }
 
 /** Milliseconds from `ms` until the date changes in `zone`. */

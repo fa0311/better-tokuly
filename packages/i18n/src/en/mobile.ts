@@ -290,6 +290,10 @@ export default {
     extrasOnWeb: "Things to bring, cost split, comments",
     extrasOnWebHint: "On this plan's web page",
     openInMaps: "Open in Maps",
+    choose: "Choose",
+    hour: "Hour",
+    minute: "Minute",
+    inviteToPlan: "Invite to a plan",
   },
   licenses: {
     title: "Open-source licences",

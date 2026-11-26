@@ -1,5 +1,5 @@
 appId: app.tokuly.mobile
-name: Answer a friend's plan and see its place on the map
+name: Answer a friend's plan and see its place on the map; make a plan and invite the friend
 env:
   PASSWORD: tokuly-e2e-pass
 ---
@@ -47,3 +47,33 @@ env:
     timeout: 10000
 - waitForAnimationToEnd
 - takeScreenshot: 28-plan
+
+# A plan of their own: a day of next month, a place, the friend invited.
+- runFlow: ../subflows/back.yaml
+- tapOn: { id: "plans-new" }
+- tapOn: { id: "plan-form-title" }
+- inputText: "e2e movie"
+- hideKeyboard
+- tapOn: { id: "plan-when-date" }
+- tapOn: { id: "plan-form-date" }
+- tapOn: { id: "plan-day-next" }
+- tapOn: { id: "plan-day-${output.day}" }
+- tapOn: { id: "plan-form-place" }
+- inputText: "Shinjuku"
+- hideKeyboard
+- scrollUntilVisible:
+    element: { id: "plan-form-invite" }
+- tapOn: { id: "plan-form-invite" }
+- tapOn: { id: "plan-friend-${output.friend}" }
+- tapOn: { id: "plan-friend-confirm" }
+- waitForAnimationToEnd
+- takeScreenshot: 29-plan-form
+- scrollUntilVisible:
+    element: { id: "plan-create" }
+- tapOn: { id: "plan-create" }
+- extendedWaitUntil:
+    visible: { id: "plan-screen" }
+    timeout: 15000
+- assertVisible: "e2e movie"
+- assertVisible: "Shinjuku"
+- takeScreenshot: 30-plan-created

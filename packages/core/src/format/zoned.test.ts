@@ -51,6 +51,19 @@ describe("the account's calendar on a device in another time zone", () => {
     expect(zonedMoment("2026-11-01", 12 * 60, DEVICE_ZONE)).toBe(Date.UTC(2026, 10, 1, 20, 0));
   });
 
+  it("puts a time a daylight-saving jump skips at the jump, never before it", () => {
+    // Los Angeles goes from 01:59 PST straight to 03:00 PDT (10:00 UTC) on 2026-03-08.
+    const jump = Date.UTC(2026, 2, 8, 10, 0);
+    expect(zonedMoment("2026-03-08", 1 * 60 + 55, DEVICE_ZONE)).toBe(Date.UTC(2026, 2, 8, 9, 55));
+    expect(zonedMoment("2026-03-08", 2 * 60, DEVICE_ZONE)).toBe(jump);
+    expect(zonedMoment("2026-03-08", 2 * 60 + 30, DEVICE_ZONE)).toBe(jump);
+    expect(zonedMoment("2026-03-08", 3 * 60, DEVICE_ZONE)).toBe(jump);
+    // Santiago skips its midnight (00:00 -04 to 01:00 -03) on 2026-09-06.
+    expect(zonedMoment("2026-09-06", 0, "America/Santiago")).toBe(Date.UTC(2026, 8, 6, 4, 0));
+    // A time shown twice when the clocks go back is its first showing.
+    expect(zonedMoment("2026-11-01", 1 * 60 + 30, DEVICE_ZONE)).toBe(Date.UTC(2026, 10, 1, 8, 30));
+  });
+
   it("round-trips a moment through a zone's clock", () => {
     for (const zone of [TOKYO, DEVICE_ZONE, "Asia/Kolkata", "Pacific/Kiritimati"]) {
       const shown = zonedTime(TUESDAY_MORNING_TOKYO, zone);

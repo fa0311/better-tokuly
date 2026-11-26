@@ -54,5 +54,6 @@ export {
   toUpdateRequest,
   untilText,
   type WhenKind,
+  withEndTime,
 } from "./plan";
 export { type PlanPage, planQueries } from "./queries";

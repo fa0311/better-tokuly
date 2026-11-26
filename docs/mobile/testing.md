@@ -26,7 +26,7 @@ release APK for the emulator and runs them against the Compose stack.
 | `community` | finds a public community, joins it, replies in and likes a thread, starts one and sees the members |
 | `settings` | changes the account's settings and avatar on the native screens and finds them kept when they open again |
 | `spaces` | finds a friend's room, enters it (audio over LiveKit, Bluetooth headsets declined), raises a hand, sends an emoji, comes back from the mini player and leaves; accepts a hangout invitation, enters, mutes from the mini player on the tabs and leaves |
-| `plans` | answers a friend's plan and sees its place on the map |
+| `plans` | answers a friend's plan and sees its place on the map, makes a plan on a chosen day with a place and invites the friend |
 | `web-screens` | opens a web-only feature from 「もっと見る」 and sees it signed in |
 
 The flows screenshot each main screen into the run's `--test-output-dir`
