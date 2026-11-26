@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type common, notes } from "@tokuly/api";
+import { charCount, listKeys, notesKeys } from "@tokuly/core/notes";
 import { Plus, X } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,10 +14,8 @@ import { ListRow } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { notesKeys } from "./api";
-import { ANTENNA_LIMITS, antennaClient, listKeys, useLists, useUserSearch } from "./lists-api";
+import { ANTENNA_LIMITS, antennaClient, useLists, useUserSearch } from "./lists-api";
 import { LISTS_NS } from "./lists-editor";
-import { charCount } from "./text";
 
 /** Words as typed in one field: split on blank space, duplicates once. */
 export function splitWords(text: string): string[] {

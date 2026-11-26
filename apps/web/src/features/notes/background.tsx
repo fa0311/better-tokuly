@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
+import { forgetUserNotes } from "@tokuly/core/notes";
 import { useEffect } from "react";
 import { registerSubjectCard } from "#/features/engagement";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
-import { forgetUserNotes, resetDeletedNotes } from "./api";
+import { resetDeletedNotes } from "./api";
 import { ComposeHost } from "./compose";
 import { closeCompose } from "./compose-store";
 import { discardAllDrafts } from "./drafts";

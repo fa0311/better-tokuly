@@ -1,6 +1,6 @@
 import type { common } from "@tokuly/api";
+import type { Audience } from "@tokuly/core/notes";
 import type { ComposeContext } from "./compose-store";
-import type { Audience } from "./visibility";
 
 /** What is kept of a note that was started and not posted. Uploads are not kept: they would be gone by the time the draft is opened again. */
 export interface Draft {

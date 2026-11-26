@@ -5,8 +5,8 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { identity, notes } from "@tokuly/api";
+import { listKeys, notesKeys } from "@tokuly/core/notes";
 import { api } from "#/lib/api";
-import { notesKeys } from "./api";
 
 export const listClient = () => api().service(notes.NoteListService);
 export const antennaClient = () => api().service(notes.AntennaService);
@@ -21,20 +21,6 @@ export const ANTENNA_LIMITS = {
   exclude: 10,
   users: 50,
 } as const;
-
-/** Query keys of lists and antennas. Their timelines live with the other timelines (`notesKeys.timeline`). */
-export const listKeys = {
-  all: ["notes", "lists"] as const,
-  mine: ["notes", "lists", "of", "me"] as const,
-  of: (userId: string) => ["notes", "lists", "of", userId] as const,
-  list: (listId: string) => ["notes", "lists", "one", listId] as const,
-  members: (listId: string) => ["notes", "lists", "members", listId] as const,
-  followed: ["notes", "lists", "followed"] as const,
-  containingMe: ["notes", "lists", "containing-me"] as const,
-  antennas: ["notes", "antennas"] as const,
-  antenna: (antennaId: string) => ["notes", "antennas", antennaId] as const,
-  userSearch: (query: string) => ["notes", "lists", "user-search", query] as const,
-};
 
 /** The lists of a person (all of them for oneself, public ones for others), in the owner's order. */
 export function useLists(userId?: string) {

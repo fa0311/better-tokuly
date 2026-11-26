@@ -2,6 +2,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useElementScrollRestoration } from "@tanstack/react-router";
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import type { notes } from "@tokuly/api";
+import {
+  countNewEntries,
+  entryKey,
+  notesKeys,
+  type TimelineData,
+  type TimelinePage,
+  type TimelineSource,
+  withFreshEntries,
+} from "@tokuly/core/notes";
 import { ArrowUp } from "lucide-react";
 import {
   type ReactNode,
@@ -18,18 +27,7 @@ import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import {
-  countNewEntries,
-  entryKey,
-  fetchTimeline,
-  notesKeys,
-  type TimelineData,
-  type TimelinePage,
-  type TimelineSource,
-  useDeletedNotes,
-  useTimeline,
-  withFreshEntries,
-} from "./api";
+import { fetchTimeline, useDeletedNotes, useTimeline } from "./api";
 import { onTimelineHint } from "./live";
 import { NoteCard } from "./note-card";
 import { useScroller } from "./shell";

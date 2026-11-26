@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import enEngagement from "#/i18n/en/engagement";
-import enNotes from "#/i18n/en/notes";
 import jaEngagement from "#/i18n/ja/engagement";
-import jaNotes from "#/i18n/ja/notes";
 
 /** Every leaf of a strings file as "a.b.c". */
 function paths(value: unknown, prefix = ""): string[] {
@@ -23,10 +21,8 @@ function at(strings: unknown, path: string): string {
     .reduce<unknown>((node, key) => (node as Record<string, unknown>)[key], strings) as string;
 }
 
-describe.each([
-  ["notes", jaNotes, enNotes],
-  ["engagement", jaEngagement, enEngagement],
-])("%s strings", (_name, ja, en) => {
+// The notes strings are `@tokuly/i18n`'s and checked there.
+describe.each([["engagement", jaEngagement, enEngagement]])("%s strings", (_name, ja, en) => {
   it("has the same keys in Japanese and English", () => {
     expect(paths(en).sort()).toEqual(paths(ja).sort());
   });
