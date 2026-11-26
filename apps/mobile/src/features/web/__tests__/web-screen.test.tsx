@@ -29,7 +29,19 @@ const mockEvents: string[] = [];
 jest.mock("#/platform/web-data", () => ({
   clearWebData: jest.fn(async () => void mockEvents.push("cleared")),
 }));
-jest.mock("expo-router", () => ({ useNavigation: () => ({ setOptions: jest.fn() }) }));
+/** The navigator, at the edge: what the screens on the stack asked to hear when they are back on show. */
+const mockFocusListeners = new Set<() => void>();
+jest.mock("expo-router", () => ({
+  useNavigation: () => ({
+    setOptions: jest.fn(),
+    addListener: (event: string, listener: () => void) => {
+      if (event === "focus") mockFocusListeners.add(listener);
+      return () => mockFocusListeners.delete(listener);
+    },
+  }),
+}));
+/** The screens come back on show, the oldest on the stack first. */
+const focus = (index: number) => [...mockFocusListeners][index]?.();
 
 /** The server, at the edge: each CreateWebHandoff waits until the test answers it. */
 interface Asked {
@@ -105,6 +117,7 @@ const loadedUrls = () => webViews.map((props) => (props.source as { uri: string 
 beforeEach(async () => {
   jest.clearAllMocks();
   mockEvents.length = 0;
+  mockFocusListeners.clear();
   webViews.length = 0;
   asked.length = 0;
   await becomeActive("alice", "s-alice");
@@ -207,6 +220,26 @@ describe("WebScreen", () => {
     await act(async () => asked[0]?.answer("code-alice"));
     await unmount();
     expect(mockEvents).toEqual(["cleared", "asked", "cleared"]);
+  });
+
+  it("opens again when it is back on show after a newer web screen took its session", async () => {
+    const first = await render(<WebScreen path="/wallet" />);
+    await act(async () => asked[0]?.answer("code-wallet"));
+    // Back on show with nothing opened since (a native screen was over it): it stays as it is.
+    await act(async () => focus(0));
+    expect(asked).toHaveLength(1);
+
+    // A push about a note opens over it: the server keeps one web session per app
+    // session, the newest, so the wallet's is over.
+    const second = await render(<WebScreen path="/notes" />);
+    await act(async () => asked[1]?.answer("code-notes"));
+    await second.unmount();
+    await act(async () => focus(0));
+    expect(asked).toHaveLength(3);
+    expect(asked[2]).toMatchObject({ path: "/wallet", bearer: "Bearer access-alice" });
+    await act(async () => asked[2]?.answer("code-wallet-again"));
+    expect(loadedUrls().at(-1)).toBe(`${SERVER_URL}/api/auth/handoff?code=code-wallet-again`);
+    await first.unmount();
   });
 
   it("leaves a web screen opened after it its data when it closes", async () => {

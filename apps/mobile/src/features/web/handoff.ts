@@ -41,7 +41,20 @@ export async function requestWebSession(account: Account, path: string): Promise
     .service(identity.AuthService)
     .createWebHandoff({ path, verifierHash });
   ensureActive(account);
-  return { sessionId: account.sessionId, url: `${SERVER_URL}${url}`, verifier };
+  newest = { sessionId: account.sessionId, url: `${SERVER_URL}${url}`, verifier };
+  return newest;
+}
+
+/** The hand-off asked for last. */
+let newest: WebSession | null = null;
+
+/**
+ * Whether `session` has been replaced: the server keeps one web session per
+ * app session, the newest hand-off's, so the web view of an earlier one is
+ * signed out as soon as a later one loads.
+ */
+export function isSuperseded(session: WebSession): boolean {
+  return session !== newest;
 }
 
 const ORIGIN = new URL(SERVER_URL).origin;

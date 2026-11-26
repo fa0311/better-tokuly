@@ -10,7 +10,13 @@ import { useSessionStore } from "#/features/session/store";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
 import { clearWebData } from "#/platform/web-data";
-import { requestWebSession, staysInApp, VERIFIER_HEADER, type WebSession } from "./handoff";
+import {
+  isSuperseded,
+  requestWebSession,
+  staysInApp,
+  VERIFIER_HEADER,
+  type WebSession,
+} from "./handoff";
 import { webScreenOpened } from "./open-screens";
 
 /**
@@ -45,6 +51,9 @@ function useActiveSessionId(): string | null {
  *   (`lib/api.ts`);
  * - a switch or a sign-out starts the signed-in screens over, which closes
  *   it, and the server ends the web session with the app's session.
+ *
+ * The server keeps one web session per app session. A web screen that is
+ * back on show after a newer one opened over it asks for a hand-off again.
  *
  * Links to anywhere but this server open in the system browser; embeds of
  * other sites (frames) stay in the page.
@@ -86,6 +95,16 @@ export function WebScreen({ path }: { path: string }) {
 
   // Closing it leaves nothing behind, once no other web screen is open.
   useEffect(() => webScreenOpened(), []);
+
+  // Back on show after a newer web screen opened over it (a push about a
+  // note while the wallet was open) and took the web session: it opens again.
+  useEffect(() => {
+    if (opening.status !== "ready") return;
+    const { session } = opening;
+    return navigation.addListener("focus", () => {
+      if (isSuperseded(session)) setAttempt((n) => n + 1);
+    });
+  }, [navigation, opening]);
 
   // Android's back button goes back in the web view first.
   useEffect(() => {
