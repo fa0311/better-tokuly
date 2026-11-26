@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import type { notes } from "@tokuly/api";
+import type { common, notes } from "@tokuly/api";
 import {
   type Audience,
   applyCompletion,
@@ -18,7 +18,7 @@ import {
 import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
 import { router, useNavigation, usePreventRemove } from "expo-router";
-import { BarChart3, ImagePlus, TriangleAlert, X } from "lucide-react-native";
+import { BarChart3, ImagePlus, Sticker, TriangleAlert, X } from "lucide-react-native";
 import { type ComponentRef, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -33,6 +33,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
+import { useStamp } from "#/features/stamps/data";
+import { StampPicker } from "#/features/stamps/picker";
+import { StampImage } from "#/features/stamps/stamp-image";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
 import { agreeToRules, type NoteContent, postNote, saveDraft } from "./actions";
@@ -190,6 +193,13 @@ function Composer({
       : undefined,
   );
   const photos = useNotePhotos(photosOfDraft(draft));
+  // A draft keeps only its stamp's ID: the picture is looked up until another is picked.
+  const [stamp, setStamp] = useState<common.StampRef>();
+  const [keptStampId, setKeptStampId] = useState(content?.stampId ?? "");
+  const kept = useStamp(stamp ? "" : keptStampId).data?.stamp?.stampRef;
+  const shownStamp = stamp ?? kept;
+  const stampId = stamp?.id ?? keptStampId;
+  const [pickingStamp, setPickingStamp] = useState(false);
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState<"post" | "draft">();
   const [idempotencyKey] = useState(() => randomUUID());
@@ -210,7 +220,8 @@ function Composer({
 
   const length = charCount(text.trim());
   const over = length > NOTE_MAX_CHARS;
-  const hasContent = text.trim() !== "" || photos.photos.length > 0 || poll !== undefined;
+  const hasContent =
+    text.trim() !== "" || photos.photos.length > 0 || stampId !== "" || poll !== undefined;
   const canPost =
     hasContent && !over && !photos.busy && !photos.failed && !busy && (!poll || pollReady(poll));
   // Set once the words are posted or kept: the screen goes without asking. Kept out of
@@ -221,6 +232,7 @@ function Composer({
   const draftContent = (): NoteContent => ({
     text: text.trim(),
     assetIds: photos.assetIds,
+    stampId,
     ...audienceFields(chosen),
     replyToId: replyTo?.id ?? content?.replyToId ?? "",
     quoteOfId: quote?.id ?? content?.quoteOfId ?? "",
@@ -409,6 +421,24 @@ function Composer({
               ))}
             </ScrollView>
           )}
+          {shownStamp && (
+            <View className="self-start">
+              <StampImage stamp={shownStamp} size={112} />
+              <Pressable
+                testID="note-remove-stamp"
+                accessibilityRole="button"
+                accessibilityLabel={tm("stamps.remove")}
+                onPress={() => {
+                  setStamp(undefined);
+                  setKeptStampId("");
+                  setTouched(true);
+                }}
+                className="absolute -top-1 -right-2 rounded-full bg-ink p-1"
+              >
+                <X color={colors.surface} size={14} />
+              </Pressable>
+            </View>
+          )}
           {poll && (
             <PollEditor
               poll={poll}
@@ -441,6 +471,15 @@ function Composer({
             className="rounded-full p-2.5"
           >
             <ImagePlus color={colors.brand} size={22} />
+          </Pressable>
+          <Pressable
+            testID="note-add-stamp"
+            accessibilityRole="button"
+            accessibilityLabel={tm("stamps.pick")}
+            onPress={() => setPickingStamp(true)}
+            className="rounded-full p-2.5"
+          >
+            <Sticker color={colors.brand} size={22} />
           </Pressable>
           <Pressable
             testID="note-add-poll"
@@ -488,6 +527,15 @@ function Composer({
           </Button>
         </View>
       </KeyboardAvoidingView>
+      <StampPicker
+        visible={pickingStamp}
+        onPick={(picked) => {
+          setStamp(picked);
+          setKeptStampId("");
+          setTouched(true);
+        }}
+        onClose={() => setPickingStamp(false)}
+      />
       {picking && (
         <AudienceSheet
           value={wanted}

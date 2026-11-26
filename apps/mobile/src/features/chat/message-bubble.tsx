@@ -5,8 +5,11 @@ import * as WebBrowser from "expo-web-browser";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
+import { StampImage } from "#/features/stamps/stamp-image";
 import { SERVER_URL } from "#/lib/config";
 import { clock, contentText, displayName, replyText, systemText } from "./text";
+
+const STAMP_SIZE = 140;
 
 const absolute = (url: string) => (url.startsWith("/") ? `${SERVER_URL}${url}` : url);
 
@@ -114,7 +117,11 @@ export function MessageBubble({
 
   const mine = message.sender?.id === myId;
   const hasText = message.text.length > 0 && !message.deleted;
-  const otherContent = !hasText && message.attachments.length === 0;
+  // A stamp stands on its own, without a bubble around it.
+  const stamp =
+    message.kind === chat.MessageKind.STAMP && !message.deleted ? message.stamp : undefined;
+  const onBrand = mine && !stamp;
+  const otherContent = !hasText && !stamp && message.attachments.length === 0;
   return (
     <View
       className={`flex-row gap-2 px-3 ${first ? "mt-2" : "mt-0.5"} ${mine ? "justify-end" : ""}`}
@@ -132,29 +139,30 @@ export function MessageBubble({
           testID={`message-${message.clientId || message.id}`}
           onLongPress={pending ? undefined : onLongPress}
           delayLongPress={300}
-          className={`gap-1.5 rounded-3xl px-3.5 py-2 ${mine ? "bg-brand" : "bg-surface"} ${
+          className={`gap-1.5 rounded-3xl ${stamp ? "" : `px-3.5 py-2 ${mine ? "bg-brand" : "bg-surface"}`} ${
             pending?.status === "sending" ? "opacity-60" : ""
           }`}
         >
           {message.replyTo && (
             <View
-              className={`rounded-xl border-l-4 px-2 py-1 ${mine ? "border-on-brand/60 bg-black/10" : "border-brand bg-surface-2"}`}
+              className={`rounded-xl border-l-4 px-2 py-1 ${onBrand ? "border-on-brand/60 bg-black/10" : "border-brand bg-surface-2"}`}
             >
               <Text
                 numberOfLines={1}
-                className={`text-xs font-black ${mine ? "text-on-brand" : "text-ink"}`}
+                className={`text-xs font-black ${onBrand ? "text-on-brand" : "text-ink"}`}
               >
                 {displayName(message.replyTo.sender)}
               </Text>
               <Text
                 numberOfLines={2}
-                className={`text-xs ${mine ? "text-on-brand" : "text-ink-soft"}`}
+                className={`text-xs ${onBrand ? "text-on-brand" : "text-ink-soft"}`}
               >
                 {replyText(message.replyTo, myId)}
               </Text>
             </View>
           )}
           {!message.deleted && <Photos attachments={message.attachments} />}
+          {stamp && <StampImage stamp={stamp} size={STAMP_SIZE} />}
           {message.deleted ? (
             <Text className={`text-sm italic ${mine ? "text-on-brand" : "text-ink-soft"}`}>
               {t("message.deleted")}

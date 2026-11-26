@@ -1,12 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { chat, create } from "@tokuly/api";
+import { chat, type common, create } from "@tokuly/api";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { ImagePlus, SendHorizontal, X } from "lucide-react-native";
+import { ImagePlus, SendHorizontal, Sticker, X } from "lucide-react-native";
 import { type ComponentRef, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { ActionSheet } from "#/components/action-sheet";
+import { StampPicker } from "#/features/stamps/picker";
 import { errorMessage } from "#/lib/errors";
 import { realtime } from "#/lib/realtime";
 import { useTheme } from "#/lib/theme";
@@ -30,7 +31,7 @@ function photoOf(asset: ImagePicker.ImagePickerAsset): OutgoingPhoto {
 
 /**
  * Writing in a conversation: text, photos from the library or the camera
- * (sent through the media upload flow), a reply to a message, or editing
+ * (sent through the media upload flow), a stamp, a reply to a message, or editing
  * one of the viewer's own messages. Others see "typing" while it goes on.
  */
 export function Composer({
@@ -47,7 +48,7 @@ export function Composer({
   editing: chat.Message | null;
   /** Clears the reply or the edit. */
   onDone(): void;
-  /** A message request still waiting: text only. */
+  /** A message request still waiting: text and stamps only. */
   textOnly: boolean;
 }) {
   const { t } = useTranslation("chat");
@@ -58,6 +59,7 @@ export function Composer({
   const [text, setText] = useState("");
   const [photos, setPhotos] = useState<OutgoingPhoto[]>([]);
   const [picking, setPicking] = useState(false);
+  const [stamps, setStamps] = useState(false);
   const typedAt = useRef(0);
   const input = useRef<ComponentRef<typeof TextInput>>(null);
 
@@ -137,6 +139,12 @@ export function Composer({
     onDone();
   };
 
+  // A stamp goes out on its own, as the answer to the message being replied to.
+  const sendStamp = (stamp: common.StampRef) => {
+    send(queryClient, conversationId, { text: "", stamp, replyTo: replyTo ?? undefined });
+    onDone();
+  };
+
   const banner = editing
     ? { title: t("composer.editing"), body: editing.text }
     : replyTo
@@ -206,6 +214,17 @@ export function Composer({
             <ImagePlus size={22} color={colors.ink} />
           </Pressable>
         )}
+        {!editing && (
+          <Pressable
+            testID="composer-stamp"
+            accessibilityRole="button"
+            accessibilityLabel={tm("stamps.pick")}
+            onPress={() => setStamps(true)}
+            className="h-11 w-11 items-center justify-center rounded-full bg-surface-2"
+          >
+            <Sticker size={22} color={colors.ink} />
+          </Pressable>
+        )}
         <TextInput
           ref={input}
           testID="composer-input"
@@ -231,6 +250,7 @@ export function Composer({
           <SendHorizontal size={20} color={canSend ? colors["on-brand"] : colors["ink-faint"]} />
         </Pressable>
       </View>
+      <StampPicker visible={stamps} onPick={sendStamp} onClose={() => setStamps(false)} />
       <ActionSheet
         visible={picking}
         onClose={() => setPicking(false)}

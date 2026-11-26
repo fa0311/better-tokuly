@@ -29,6 +29,8 @@ export interface Outgoing {
   createdAt: number;
   text: string;
   photos: OutgoingPhoto[];
+  /** A stamp goes alone: no text, no photos. */
+  stamp?: common.StampRef;
   replyTo?: chat.Message;
   status: "sending" | "failed";
   progress: number;
@@ -74,9 +76,14 @@ export function previewMessage(
     conversationId: item.conversationId,
     seq: BigInt(Number.MAX_SAFE_INTEGER),
     sender: me,
-    kind: item.photos.length > 0 ? chat.MessageKind.MEDIA : chat.MessageKind.TEXT,
+    kind: item.stamp
+      ? chat.MessageKind.STAMP
+      : item.photos.length > 0
+        ? chat.MessageKind.MEDIA
+        : chat.MessageKind.TEXT,
     clientId: item.clientId,
     text: item.text,
+    stamp: item.stamp,
     attachments: item.photos.map((photo) => ({
       kind: media.AssetKind.IMAGE,
       image: { url: photo.uri, width: photo.width ?? 0, height: photo.height ?? 0 },
@@ -155,6 +162,7 @@ function deliver(
         clientId,
         text: item.text,
         attachmentAssetIds: assetIds,
+        stampId: item.stamp?.id ?? "",
         replyToMessageId: item.replyTo?.id ?? "",
       });
       if (!message) return;
@@ -181,7 +189,12 @@ function deliver(
 export function send(
   queryClient: QueryClient,
   conversationId: string,
-  draft: { text: string; photos?: OutgoingPhoto[]; replyTo?: chat.Message },
+  draft: {
+    text: string;
+    photos?: OutgoingPhoto[];
+    stamp?: common.StampRef;
+    replyTo?: chat.Message;
+  },
 ): void {
   const item: Outgoing = {
     clientId: randomUUID(),
@@ -189,6 +202,7 @@ export function send(
     createdAt: Date.now(),
     text: draft.text,
     photos: draft.photos ?? [],
+    stamp: draft.stamp,
     replyTo: draft.replyTo,
     status: "sending",
     progress: 0,

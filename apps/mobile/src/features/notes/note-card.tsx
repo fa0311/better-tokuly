@@ -8,6 +8,7 @@ import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
+import { StampImage } from "#/features/stamps/stamp-image";
 import { SERVER_URL } from "#/lib/config";
 import i18n from "#/lib/i18n";
 import { useTheme } from "#/lib/theme";
@@ -176,6 +177,7 @@ export function NoteBody({ note }: { note: notes.Note }) {
     <View className="gap-2">
       <NoteRichText note={note} />
       <NoteMedia note={note} />
+      {note.stamp && <NoteStamp stamp={note.stamp} />}
       {note.poll && <NotePoll note={note} poll={note.poll} />}
       {note.quote && <QuoteEmbed quote={note.quote} />}
       {note.linkPreview?.url && !note.quote && <LinkPreview preview={note.linkPreview} />}
@@ -183,6 +185,23 @@ export function NoteBody({ note }: { note: notes.Note }) {
         <Text className="text-xs font-bold text-ink-soft">📍 {note.place.name}</Text>
       )}
     </View>
+  );
+}
+
+/** A note's stamp; a tap on one from a pack opens the pack, where it can be had too. */
+function NoteStamp({ stamp }: { stamp: common.StampRef }) {
+  const packId = stamp.packId;
+  return (
+    <Pressable
+      testID="note-stamp"
+      accessibilityRole={packId ? "link" : "image"}
+      accessibilityLabel={stamp.name}
+      disabled={!packId}
+      onPress={() => router.push({ pathname: "/stamps/[packId]", params: { packId } })}
+      className="self-start"
+    >
+      <StampImage stamp={stamp} size={120} />
+    </Pressable>
   );
 }
 

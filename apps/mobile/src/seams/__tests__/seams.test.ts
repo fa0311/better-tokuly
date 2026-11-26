@@ -44,6 +44,7 @@ describe("the features on the seams", () => {
       ["spaces", "/spaces"],
       ["ask", "/ask"],
       ["school", "/school"],
+      ["stamps", "/stamps"],
       ["more", "/more"],
       ["settings", "/settings"],
     ]);
@@ -124,6 +125,9 @@ describe("the features on the seams", () => {
       "spaces/[id]",
       "spaces/hangouts/[id]",
       "spaces/index",
+      "stamps/[packId]",
+      "stamps/index",
+      "stamps/library",
       "stories/[userId]",
       "stories/new",
       "u/[handle]",
@@ -166,7 +170,7 @@ describe("the features on the seams", () => {
     expect(screenFor("/notifications/settings")).toBe("/settings/notifications");
     expect(screenFor("/settings/data")).toBe(`/web?path=${encodeURIComponent("/settings/data")}`);
     // What only the web has opens in the app's web view, signed in.
-    expect(screenFor("/stamps")).toBe(`/web?path=${encodeURIComponent("/stamps")}`);
+    expect(screenFor("/wallet")).toBe(`/web?path=${encodeURIComponent("/wallet")}`);
     expect(screenFor("/notes/channels")).toBe(`/web?path=${encodeURIComponent("/notes/channels")}`);
     // What no feature claims opens on the web.
     expect(screenFor("/login")).toBeNull();
@@ -179,8 +183,8 @@ describe("the features on the seams", () => {
     expect(screenFor("/notes/n1?comment=c9#c9")).toBe("/notes/n1?comment=c9#c9");
     expect(screenFor("/notifications?tab=mentions")).toBe("/inbox?tab=mentions");
     // The web view opens the whole link, its query and fragment included.
-    expect(screenFor("/stamps?tab=new#top")).toBe(
-      `/web?path=${encodeURIComponent("/stamps?tab=new#top")}`,
+    expect(screenFor("/wallet?tab=history#top")).toBe(
+      `/web?path=${encodeURIComponent("/wallet?tab=history#top")}`,
     );
     // A page a feature leaves to the web keeps them inside the page's own path, like any web-only one.
     expect(screenFor("/notes/channels?tab=mine#top")).toBe(
