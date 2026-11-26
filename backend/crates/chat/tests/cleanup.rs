@@ -239,6 +239,54 @@ async fn two_accounts_erased_together_still_delete_their_direct_conversation_onc
     assert_eq!(announcements(&ctx, &history).await.len(), history.len(), "every message once");
 }
 
+/// A takedown locks the message and then moves the other member's unread
+/// count; the erasure that empties the conversation removes that member and
+/// then the message. Taken in opposite orders the two wait on each other.
+#[tokio::test]
+async fn a_takedown_during_the_second_erasure_does_not_deadlock_with_it() {
+    let ctx = start().await;
+    let (taro, hanako) = ctx.friends("taro", "hanako").await;
+    let (direct, history, _, _) = long_direct(&ctx, &taro, &hanako).await;
+    let moderator = ctx.app.user_with_roles("moderator", &["moderator"]).await;
+    let hanako_deleted = erase(&ctx, &hanako).await;
+    ctx.chat.handle_event(&hanako_deleted).await.unwrap();
+
+    // Messages of hanako that taro never read, taken down while taro is erased.
+    let unread: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM chat_messages WHERE conversation_id = $1::uuid AND sender_id = $2 AND deleted_at IS NULL
+         ORDER BY seq DESC LIMIT 4",
+    )
+    .bind(&direct.id)
+    .bind(hanako.id)
+    .fetch_all(&ctx.app.core.db)
+    .await
+    .unwrap();
+    let takedowns: Vec<Event> = unread
+        .iter()
+        .map(|message_id| {
+            event(
+                "admin.content.removed",
+                serde_json::json!({
+                    "subject_type": SubjectType::SUBJECT_TYPE_CHAT_MESSAGE as i32, "subject_id": message_id,
+                    "reason": "暴言", "moderator_id": moderator.id
+                }),
+            )
+        })
+        .collect();
+    let taro_deleted = erase(&ctx, &taro).await;
+    let (erased, taken_down) = tokio::join!(
+        ctx.chat.handle_event(&taro_deleted),
+        futures::future::join_all(takedowns.iter().map(|takedown| ctx.chat.handle_event(takedown))),
+    );
+    erased.unwrap();
+    for result in taken_down {
+        result.unwrap();
+    }
+
+    assert!(!conversation_exists(&ctx, &direct.id).await);
+    assert_eq!(announcements(&ctx, &history).await.len(), history.len(), "every message once");
+}
+
 #[tokio::test]
 async fn a_block_closes_a_direct_conversation_and_unblocking_reopens_it() {
     let ctx = start().await;
