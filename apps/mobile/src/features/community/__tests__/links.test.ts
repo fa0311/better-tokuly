@@ -12,7 +12,8 @@ describe("community links", () => {
     expect(screenFor("/join/Ab12Cd34Ef")).toBe("/g/join/Ab12Cd34Ef");
   });
 
-  it("leave events and the staff's pages on the web", () => {
+  it("leave making one, events and the staff's pages on the web", () => {
+    expect(screenFor("/communities/new")).toBe(web("/communities/new"));
     expect(screenFor("/g/neko/events/0199-ab")).toBe(web("/g/neko/events/0199-ab"));
     expect(screenFor("/g/neko/manage/queue")).toBe(web("/g/neko/manage/queue"));
   });
