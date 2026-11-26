@@ -13,11 +13,14 @@
     "./chat": "./src/chat/index.ts",
     "./friends": "./src/friends/index.ts",
     "./map": "./src/map/index.ts",
+    "./notes": "./src/notes/index.ts",
     "./notifications": "./src/notifications/index.ts",
     "./profile": "./src/profile/index.ts",
     "./session": "./src/session/index.ts",
     "./shorts": "./src/shorts/index.ts",
-    "./stories": "./src/stories/index.ts"
+    "./live": "./src/live/index.ts",
+    "./stories": "./src/stories/index.ts",
+    "./video": "./src/video/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

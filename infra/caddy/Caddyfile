@@ -12,6 +12,18 @@
 {$TOKULY_SITE_ADDRESS::80} {
 	encode zstd gzip
 
+	# For every answer of the edge. Nothing here is guessed from its bytes
+	# (a file served with the wrong type must not run as a script), and
+	# other sites learn the origin a link was followed from, never the
+	# page: a path can name a person, a conversation or a place.
+	header X-Content-Type-Options nosniff
+	header Referrer-Policy strict-origin-when-cross-origin
+	# Once reached over HTTPS, always over HTTPS (a year). Not sent over
+	# plain HTTP, where browsers ignore it: http://localhost and a LAN
+	# address keep working.
+	@https protocol https
+	header @https Strict-Transport-Security "max-age=31536000"
+
 	# Calls of our own infrastructure reach the API inside the stack
 	# (http://api:8081), never through the edge: from outside, these routes
 	# do not exist. LiveKit's webhook for audio rooms:

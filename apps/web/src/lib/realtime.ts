@@ -2,6 +2,7 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { common, realtime as rt } from "@tokuly/api";
 import { RealtimeClient } from "@tokuly/realtime";
 import { api } from "#/lib/api";
+import { restartWhenSessionChanges } from "#/lib/realtime-identity";
 
 const DEVICE_ID_KEY = "tokuly.deviceId";
 
@@ -35,6 +36,8 @@ export function realtime(): RealtimeClient {
       appVersion: "web",
       deviceId: deviceId(),
     });
+    const connection = client;
+    restartWhenSessionChanges(api().session, () => connection.restart());
     document.addEventListener("visibilitychange", () => {
       client?.setForeground(document.visibilityState === "visible");
     });

@@ -2,6 +2,8 @@
 
 Rust workspace. One binary (`tokuly`, crate `crates/server`) runs every role:
 `tokuly api`, `tokuly worker`, `tokuly migrate`, `tokuly all`.
+(`tokuly demo` is the odd one out: the demo simulator, which only calls the
+API over HTTP; see `crates/demo/src/lib.rs`.)
 
 ## Layout
 
@@ -13,6 +15,7 @@ backend/crates/core                       shared foundation (see below)
 backend/crates/testkit                    integration test harness
 backend/crates/<domain>                   one crate per domain
 backend/crates/server                     the binary; wires domains together
+backend/crates/demo                       the demo simulator (`tokuly demo`): a client of the API, not a domain
 ```
 
 Domains and their migration numbers. The binary serves all of them
@@ -27,11 +30,11 @@ Domains and their migration numbers. The binary serves all of them
 | media | 0400 | — |
 | stamp | 0500 | identity, media, wallet |
 | chat | 0600 | social, stamp, media |
-| notes | 0700 | social, stamp, media |
+| notes | 0700 | social, stamp, media, emoji |
 | video | 0800 | social, media |
 | live | 0900 | social, media, stamp, wallet, video |
 | shorts | 1000 | social, media, video |
-| engagement | 1100 | identity, social, media, stamp |
+| engagement | 1100 | identity, social, media, stamp, emoji |
 | notify | 1200 | identity |
 | feed | 1300 | identity, social |
 | wallet | 1400 | identity |
@@ -56,8 +59,9 @@ acyclic and domains stay replaceable.
 `tokuly-proto` compiles only the proto packages a build asks for: every
 package is a Cargo feature of the same name (`chat` is `proto/tokuly/chat`,
 `tokuly_proto::chat`), and nothing is on by default. A crate lists the
-packages it names in its own code, and in `[dev-dependencies]` the ones only
-its tests name:
+packages its code names, and in `[dev-dependencies]` the ones only its tests
+name; an unresolved import of `tokuly_proto::chat` means the feature is
+missing from your `Cargo.toml`.
 
 ```toml
 [dependencies]
@@ -67,18 +71,10 @@ tokuly-proto = { workspace = true, features = ["chat", "common", "media"] }
 tokuly-proto = { workspace = true, features = ["social"] }
 ```
 
-So `cargo test -p tokuly-wallet` compiles `common`, `wallet` and what `core`,
-`identity` and the testkit need, not the other twenty packages, and a change
-to another domain's `.proto` does not rebuild it at all. The price is one
-error to know: an unresolved import of `tokuly_proto::chat` means the `chat`
-feature is missing from your `Cargo.toml`.
-
 When a `.proto` starts importing another package, add that package to its
-feature in `backend/crates/proto/Cargo.toml` (the build says so, and
-`cargo test -p tokuly-proto` checks the whole table). A new package needs a
-feature there and an alias in `backend/crates/proto/src/lib.rs`. The
-generated Connect clients are behind the `client` feature, which nothing
-enables today.
+feature in `backend/crates/proto/Cargo.toml` (`cargo test -p tokuly-proto`
+checks the table). A new package needs a feature there and an alias in
+`backend/crates/proto/src/lib.rs`.
 
 ## Running
 
@@ -107,10 +103,8 @@ cargo test -p tokuly-<domain>         # needs the infrastructure and the env abo
   for. Enum values are `TYPE_NAME_VALUE` with `..._UNSPECIFIED = 0`.
 - Realtime pushes for a domain are a `oneof` inside its `<Domain>Event`
   message. The gateway carries it by its full name
-  (`tokuly.realtime.v1.Event { type, payload }`), so `realtime.proto` does
-  not import it: keep the name, and when a domain gets its first event
-  message add it to the list in `realtime.proto` and to the table in
-  `packages/realtime/src/events.ts`, which is how clients come to know it.
+  (`tokuly.realtime.v1.Event { type, payload }`): keep the name. A first
+  event message is registered in three places (see "Talking to other domains").
 - Errors: Connect code plus a SCREAMING_SNAKE reason in the `x-tokuly-error`
   header. Document the reasons an RPC can return in its proto comment.
 
@@ -137,81 +131,23 @@ test catches clashes).
 
 #### Declaring a setting
 
-A setting is one such argument, and nothing else needs writing by hand: it
-becomes a key of `tokuly.toml`, a row of the staff console's 「サーバー設定」
-and an entry of `tokuly.example.toml` (`tokuly_core::settings`). Per argument:
+A setting is one such argument with an `env = "TOKULY_<DOMAIN>_<NAME>"`, a
+`long` flag, a doc comment (its description in the console and in
+`tokuly.example.toml`) and a typed value; `bool` takes
+`action = clap::ArgAction::Set`, anything secret `hide_env_values = true`.
+Regenerate the example file after a change
+(`cargo run -p tokuly-server -- config example > tokuly.example.toml`).
 
-- an `env = "TOKULY_<DOMAIN>_<NAME>"` and a `long` flag. The key is the
-  variable without `TOKULY_` and the section prefix: `TOKULY_MEDIA_MAX_VIDEO_HOURS`
-  is `[media] max_video_hours` (a variable without the prefix keeps its whole name);
-- a doc comment: it is the description in the console and the example file
-  (the server test `every_setting_has_a_description` fails without one);
-- a value with a type: `bool` with `action = clap::ArgAction::Set` (never a
-  bare flag), integers, `f64`, text, or a list with `value_delimiter = ','`;
-  `value_parser = [..]` gives the console a choice;
-- `hide_env_values = true` for anything secret (keys, passwords, tokens,
-  URLs with credentials): the console then only writes it and shows the last
-  four characters, the export leaves it out (`credentials_are_secrets` checks
-  the obvious names).
+The staff console changes only the keys a domain lists in
+`<YourConfig>::CONSOLE_EDITABLE`. List limits, quotas, retention, intervals,
+feature tuning and texts. Never list addresses and trusted origins or
+proxies, egress and SSRF switches, executable paths and directories,
+infrastructure names and credentials, OAuth and push identities, protections
+and money (the rate limits switch, the minimum age, fees, rates, rewards),
+or privacy floors: an admin account is one password away from the console.
 
-**The console changes only what the domain allows.** A setting is set in
-`tokuly.toml` or the environment unless its domain lists its key in
-`<YourConfig>::CONSOLE_EDITABLE` (next to the struct, in `config.rs`). The
-list is an allowlist on purpose: a new setting starts out of the console, so
-adding one can never open a hole in it. List limits, quotas, retention,
-intervals, feature tuning and texts. Never list:
-
-- addresses the server talks to or is reached at, and origins or proxies it
-  trusts (URLs, CORS / allowed origins, trusted proxies, LiveKit, MediaMTX);
-- egress and SSRF switches (`*_allow_loopback`, `*_allow_private`,
-  `*_allow_insecure`, allowed host lists);
-- what the server executes or writes to (executable paths, directories);
-- infrastructure names (index prefixes, keyspaces), credentials of the
-  infrastructure, and the identity of the apps the server is registered as
-  with other services (OAuth client IDs and secrets, push keys);
-- protections and money: the rate limits switch, the minimum age, fees,
-  exchange rates, coin rewards, the wallet's dev provider;
-- privacy floors (minimum group sizes of anonymous or aggregate features).
-
-An admin account is one password away from all of this, and a mistake in
-these would let the console turn the server against its own network or
-users. The server test `the_console_edits_only_what_domains_allow` names
-the dangerous ones that must stay out.
-
-What clap does not know goes on the section's `SectionSpec` in
-`crates/server/src/settings.rs`:
-
-- `.editable(YourConfig::CONSOLE_EDITABLE)`: the allowlist above;
-
-- `.live(&["key", ..])`: the domain reads the value per use through
-  `core.settings.current::<YourConfig>("section")` (see `Media::live`), so a
-  console change applies at once. Everything else applies on restart and the
-  console says so;
-- `.managed(&[(prefix, path)])`: edited on a screen of its own, which the
-  settings page links to;
-- `.check(check!(YourConfig))`: the domain's `validate()`, run on a console
-  change before it is saved (with every console value of the section), and
-  at start-up and on every reload: console values a section fails with are
-  set aside, so a console mistake never stops the server. Make `validate()`
-  build what the domain builds from its settings without the network, as
-  `Config::validate` builds the mailer.
-
-After adding or changing a setting, regenerate the example file from the
-repository root: `backend/target/.../tokuly config example > tokuly.example.toml`
-(`cargo run -p tokuly-server -- config example`); the server test
-`the_example_file_is_current` fails until it matches.
-
-Precedence, highest first: command line and environment, `tokuly.toml`
-(`TOKULY_CONFIG`), the console (table `server_settings`, history in
-`server_setting_changes`), the default. An environment variable that is set
-but empty counts as not set (env files are full of `TOKULY_X=` lines); the
-start warns when such a line would have hidden another value. Where empty
-means something ("no proxies", "bonus off", "omit the parameter"), list the
-key in `<YourConfig>::EMPTY_IS_A_VALUE` and pass it to
-`.empty_is_value(..)`: an empty variable is then that value. The server test
-`documented_empty_values_are_kept` fails for a text or list setting with a
-non-empty default whose description mentions an empty value but is not
-listed.
+Keys, live values, validation, precedence and empty values:
+[`docs/backend/settings.md`](../docs/backend/settings.md).
 
 The server crate wires domains in `crates/server/src/app.rs`: the config in
 `DomainConfigs`, construction in `Domains::new` (in dependency order, and
@@ -317,6 +253,12 @@ Everything else is asynchronous, through `tokuly_core`:
 | Personal data export | register a `DataExporter` in `core.exporters` |
 | Extra profile fields / relationship | implement `tokuly_identity::ProfileExtension` |
 
+An event or job whose handler keeps failing is retried and then buried
+(`tokuly dead-letters list` / `redrive`, `docs/events.md`). Return an error
+from a handler only for something a retry can fix; for an event that can
+never be handled (the row is gone, the payload makes no sense) log and
+return `Ok(())`.
+
 Every domain must handle `identity.user.deleted` (payload `{ "user_id": … }`)
 by deleting or anonymizing that user's data.
 
@@ -338,18 +280,15 @@ message adds it in three places, which tests keep in step: the list at
 table in `packages/realtime/src/events.ts`.
 
 A topic's guard (`core.topic_guards`) runs when someone subscribes. When
-access ends later, end the subscriptions too, after the change is
-committed: `core.rt.revoke(user, topic)` / `revoke_prefix(user, "live")`
-(that user's subscriptions are checked against the guard again on every
-gateway and dropped where it refuses — harmless when nothing changed, so
-call it on anything that *might* end access: bans, removals, leaving,
-blocks and unfriendings), `core.rt.recheck_topic(topic)` (every subscriber,
-for an audience narrowed to members) and `core.rt.close_topic(topic)`
-(everyone, for a deleted room or an ended share). See
-`docs/events/realtime.md`, "Ending subscriptions". The `notify_*` methods
-log a failed publish instead of returning it: a push is an optimization on
-top of state that is already committed. Code that follows the bus itself (a
-streaming RPC) reads a frame with `frame.event::<ChatEvent>()`.
+access may have ended (bans, removals, leaving, blocks, unfriendings), end
+the subscriptions too, after the change is committed:
+`core.rt.revoke(user, topic)` / `revoke_prefix(user, "live")`,
+`core.rt.recheck_topic(topic)` for a narrowed audience,
+`core.rt.close_topic(topic)` for a deleted room (`docs/events/realtime.md`,
+"Ending subscriptions"). The `notify_*` methods log a failed publish instead
+of returning it: a push is an optimization on top of state that is already
+committed. Code that follows the bus itself (a streaming RPC) reads a frame
+with `frame.event::<ChatEvent>()`.
 
 User-facing text created on the server (notification titles, activity
 summaries) is always given in Japanese and English via `Localized::new(ja, en)`.
@@ -383,6 +322,30 @@ assert_eq!(err.reason, "NOT_A_MEMBER");
 - Cover every RPC: the happy path, authorization (someone else's data,
   anonymous), and the validation errors with their reasons. Pure logic gets
   unit tests next to the code.
+
+What a test binary creates on the shared infrastructure is named after its
+run, `<started unix time>_<random id>`, and goes away again
+(`crates/testkit/src/env.rs`):
+
+| resource | name |
+|---|---|
+| PostgreSQL database | `tokuly_test_<run>` |
+| ClickHouse database | `tokuly_test_<run>` |
+| NATS subjects, JetStream streams and their consumers | `T<run>_…` |
+| media and private buckets | `tokuly-test-<started>-<id>-media`, `…-private` |
+| Meilisearch indexes (`tokuly_testkit::search_index_prefix()`) | `tokuly_test_<run>_…` |
+
+- **At exit** the binary removes all of it, whether its tests passed or
+  panicked (an `atexit` hook; libtest exits through it either way). Each
+  removal gives up after 10 s and says so on stderr.
+- **At start-up** it sweeps leftovers of runs that were killed (Ctrl-C, a
+  timeout, `SIGKILL`) once they are more than six hours old, going by the
+  start time in the name. Only names in the table above are ever touched:
+  the dev API (no prefix) and `dev.sh api-here <name>` instances
+  (`tokuly_<name>`, `<name>_…`) are not testkit's.
+- Use the run's buckets through `app.core.storage` (never the bucket names
+  of the dev API), and give `search_index_prefix()` to `SearchConfig` so the
+  indexes are cleaned up with the rest.
 
 ## Checklist before a domain is done
 

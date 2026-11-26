@@ -117,6 +117,57 @@ async fn a_takedown_removes_a_comment_or_everything_on_a_subject() {
 }
 
 #[tokio::test]
+async fn content_its_owner_deleted_takes_what_was_attached_to_it() {
+    let ctx = start().await;
+    let (owner, bob, carol) = (ctx.app.user("Owner").await, ctx.app.user("Bob").await, ctx.app.user("Carol").await);
+    let (video, kept) = (ctx.video(&owner, "消した動画"), ctx.video(&owner, "残る動画"));
+    let top = ctx.comment(&bob, &video, "スレッド").await;
+    let reply = ctx.reply(&carol, &top.id, "返信").await;
+    ctx.react(&carol, comment_ref(&top.id), like()).await;
+    ctx.react(&bob, video.subject_ref(), emoji("🎉")).await;
+    for subject in [&video, &kept] {
+        let _: AddBookmarkResponse =
+            ctx.call("BookmarkService", "AddBookmark", Some(&bob), &save(subject.subject_ref())).await.unwrap();
+    }
+    ctx.comment(&bob, &kept, "残る動画のコメント").await;
+    let _: CreateReportResponse =
+        ctx.call("ReportService", "CreateReport", Some(&carol), &report(video.subject_ref())).await.unwrap();
+    // The author edited: the old text is kept for reports while the video is there.
+    let edit = UpdateCommentRequest { comment_id: top.id.clone(), text: "スレッド（編集）".into(), ..Default::default() };
+    let _: UpdateCommentResponse = ctx.call("CommentService", "UpdateComment", Some(&bob), &edit).await.unwrap();
+
+    let deleted = serde_json::json!({ "subject_type": 5, "subject_id": video.id });
+    ctx.videos.remove(video.id);
+    ctx.deliver("subject.deleted", None, deleted.clone()).await;
+
+    for table in ["comments", "reactions", "reaction_emoji_counts", "subject_stats", "bookmarks", "comment_removed_texts"]
+    {
+        let left = count(&ctx, &format!("SELECT count(*) FROM {table} WHERE subject_id = $1"), video.id).await;
+        assert_eq!(left, 0, "{table}");
+    }
+    // The comments went with what hung off them: the like on the thread, the reply.
+    let top_id = Uuid::parse_str(&top.id).unwrap();
+    assert_eq!(count(&ctx, "SELECT count(*) FROM reactions WHERE subject_id = $1", top_id).await, 0);
+    assert_eq!(ctx.get_comment(Some(&carol), &reply.id).await.unwrap_err().reason, "COMMENT_NOT_FOUND");
+    // Nothing of it is left in anyone's lists; the other video is untouched.
+    let collections: ListCollectionsResponse =
+        ctx.call("BookmarkService", "ListCollections", Some(&bob), &ListCollectionsRequest::default()).await.unwrap();
+    assert_eq!(collections.collections[0].item_count, 1);
+    assert_eq!(ctx.engagement_of(Some(&bob), &kept).await.bookmark_count, 1);
+    assert_eq!(texts(&ctx.comments(None, &kept).await.comments), ["残る動画のコメント"]);
+    // A deletion by the owner is not the moderators' answer: the report stays open.
+    let reports: ListMyReportsResponse =
+        ctx.call("ReportService", "ListMyReports", Some(&carol), &ListMyReportsRequest::default()).await.unwrap();
+    assert_eq!(reports.reports[0].status, ReportStatus::REPORT_STATUS_SUBMITTED);
+
+    // Delivered again, after the takedown's own event, or for a comment: nothing changes.
+    ctx.deliver("subject.deleted", None, deleted).await;
+    ctx.deliver("subject.deleted", None, serde_json::json!({ "subject_type": 10, "subject_id": top.id })).await;
+    assert_eq!(ctx.engagement_of(Some(&bob), &kept).await.bookmark_count, 1);
+    assert_eq!(ctx.videos.counter(kept.id, "comment_count"), 1);
+}
+
+#[tokio::test]
 async fn an_erased_account_leaves_nothing_behind() {
     let ctx = start().await;
     let (owner, gone, carol) = (ctx.app.user("Owner").await, ctx.app.user("Gone").await, ctx.app.user("Carol").await);

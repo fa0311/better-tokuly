@@ -34,18 +34,13 @@ Nothing is fanned out. Every list is a read of `activities` that decides
 So a friendship that ends, a block, or a changed preference needs no
 clean-up: the next read is already right.
 
-What the *content* behind an entry became is not known at read time, so
-the events of the producing domains are followed (`tokuly_feed::withdrawals`,
-table below): an entry about content that is gone is deleted (everyone's
-entries about it), a note's entries get the note's new audience when its
-visibility changes, and an expired story's entry becomes its owner's own
-memory (friends can no longer open the story, so its title and cover are
-not shown to them either); a video's entry follows its publication state;
-a deleted answer's entries go (without remembering anything: the question
-can be answered again). The latest change per subject is remembered in
-`feed_subject_changes` for 8 days, as long as events can still arrive late
-or twice: an `activity.recorded` delivered after the change gets the same
-treatment, and an older change delivered after a newer one is ignored.
+What the *content* behind an entry became is not known at read time, so the
+events of the producing domains are followed (table below): entries about
+content that is gone are deleted, entries follow a changed audience or
+publication state, and an expired story's entry becomes its owner's own
+memory. The latest change per subject is remembered for 8 days, so an
+`activity.recorded` delivered after the change gets the same treatment, and
+an older change delivered after a newer one is ignored.
 
 The consumer is idempotent on the event ID (`feed_processed_events`, written
 in the same transaction as the entry). The marker also keeps an entry its
@@ -129,6 +124,7 @@ The feed domain has no events of its own. It uses the outbound requests of
 |---|---|
 | `notify.requested` | the monthly recap notice (below) |
 | `search.changed` | a news article was stored, changed, hidden (source switched off), taken down or pruned: documents of kind `news` (`title`, `text` = excerpt, `tags`, `path` = `/news/articles/<id>`, `owner_id` = none, `extra` = `{ url, source_id, source_name, language }`) |
+| `subject.deleted` `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A news article was deleted (`SUBJECT_TYPE_NEWS_ARTICLE`): pruned after the retention period, or with its source (`DeleteNewsSource`). A takedown keeps the row as a tombstone and is announced by `admin.content.removed`. |
 
 ## Notification kinds
 
@@ -219,7 +215,7 @@ Computing a recap that is not cached is limited to 20 per user and minute
 | `TOKULY_FEED_BURST_MINUTES` | `60` | entries of one person and kind no further apart than this are one card; `0` disables collapsing |
 | `TOKULY_FEED_RECAP_CACHE_SECONDS` | `300` | cache time of a running period's recap |
 | `TOKULY_FEED_RECAP_MIN_ACTIVITIES` | `5` | entries in a month needed for the recap notice |
-| `TOKULY_NEWS_FEEDS` | empty | comma-separated RSS/Atom URLs created as sources at start |
+| `TOKULY_NEWS_FEEDS` | empty | comma-separated RSS/Atom URLs created as sources at start. A source whose feed is listed here (`ManagedNewsSource.configured`) cannot be deleted (`NEWS_SOURCE_CONFIGURED`): the next start would create it again, empty. Admins switch it off instead, or take the URL out of the setting first. |
 | `TOKULY_NEWS_FETCH_INTERVAL_SECONDS` | `900` | time between two fetches of a source (≥ 60) |
 | `TOKULY_NEWS_FETCH_TIMEOUT_SECONDS` | `15` | time one fetch may take, redirects included |
 | `TOKULY_NEWS_MAX_FEED_BYTES` | `5242880` | largest feed document accepted |

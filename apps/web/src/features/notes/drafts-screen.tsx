@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type notes, toMillis } from "@tokuly/api";
+import { notesKeys } from "@tokuly/core/notes";
 import { CalendarClock, Send, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { errorMessage } from "#/lib/errors";
-import { draftClient, notesKeys } from "./api";
+import { draftClient } from "./api";
 import { NotesPage } from "./shell";
 import { noteDateTime } from "./time";
 

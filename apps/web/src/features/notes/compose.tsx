@@ -3,6 +3,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { common, errorReason, media, type notes, social } from "@tokuly/api";
 import {
+  type Audience,
+  applyCompletion,
+  audienceOption,
+  type Completion,
+  charCount,
+  completionAt,
+  NOTE_MAX_CHARS,
+  newPoll,
+  noteAudience,
+  notesKeys,
+  type PollDraft,
+  pollInput,
+  pollReady,
+  replyAudience,
+} from "@tokuly/core/notes";
+import {
   BarChart3,
   CalendarClock,
   ChevronDown,
@@ -35,22 +51,14 @@ import { errorMessage } from "#/lib/errors";
 import { useLocations } from "#/stores/locations";
 import { useMe } from "#/stores/session";
 import { postNote } from "./actions";
-import { draftClient, notesKeys, useHashtagSearch, useTrendingHashtags } from "./api";
-import {
-  newPoll,
-  type PollDraft,
-  PollEditor,
-  pollInput,
-  pollReady,
-  ScheduleField,
-} from "./compose-extras";
+import { draftClient, useHashtagSearch, useTrendingHashtags } from "./api";
+import { PollEditor, ScheduleField } from "./compose-extras";
 import { type ComposeContext, closeCompose, useCompose } from "./compose-store";
 import { discardDraft, draftKey, loadDraft, saveDraft } from "./drafts";
 import { NoteBody } from "./note-card";
 import { RulesAgreement, useNoteRules } from "./rules";
-import { applyCompletion, type Completion, charCount, completionAt, NOTE_MAX_CHARS } from "./text";
 import { UploadTile, useUploads } from "./uploads";
-import { type Audience, audienceOption, noteAudience, VisibilityChoices } from "./visibility";
+import { AUDIENCE_ICONS, VisibilityChoices } from "./visibility";
 
 const friendClient = () => api().service(social.FriendService);
 
@@ -191,14 +199,10 @@ function Composer({ context, user }: { context: ComposeContext; user: common.Use
     visibility: settings.data?.privacy?.defaultNoteVisibility || common.Visibility.PUBLIC,
   };
   const wanted = chosenAudience ?? fallback;
-  const ceiling = context.replyTo ? audienceOption(noteAudience(context.replyTo)) : undefined;
-  const narrowed = ceiling !== undefined && ceiling.rank > audienceOption(wanted).rank;
-  const audience = narrowed
-    ? ceiling.rank >= 3
-      ? audienceOption({ visibility: common.Visibility.PRIVATE, direct: true })
-      : ceiling
-    : audienceOption(wanted);
-  const AudienceIcon = audience.icon;
+  const answered = context.replyTo ? noteAudience(context.replyTo) : undefined;
+  const ceiling = answered ? audienceOption(answered) : undefined;
+  const audience = replyAudience(wanted, answered);
+  const AudienceIcon = AUDIENCE_ICONS[audience.key];
 
   const length = charCount(text.trim());
   const over = length > NOTE_MAX_CHARS;

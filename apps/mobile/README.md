@@ -28,108 +28,97 @@ traffic in the Android build; an HTTPS one does not.
 ```
 app/                 Expo Router routes, thin: (auth) signed out, (app) signed in, (app)/(tabs)
 src/features/<area>/ one folder per product area: screens, components, hooks, stores
+src/seams/           where features plug into the app (see below)
 src/platform/        the device: secure storage, install ID, location and the background task, file transfers
 src/lib/             the API client, realtime, the query client, i18n, theme, config
 src/components/      small native primitives (Button, TextField, Avatar, Page)
-modules/             local Expo modules (native code of our own): tokuly-trim
+modules/             local Expo modules (native code of our own): tokuly-trim, tokuly-web-data
 maestro/             end-to-end flows (Maestro), their scripts and fixtures
 ```
 
 ## Shared with the web
 
-Logic comes from `packages/` (see [`packages/README.md`](../../packages/README.md)):
-query keys and options, domain rules and formatting from `@tokuly/core`,
-strings from `@tokuly/i18n` (the phone's own screens are its `mobile`
-namespace), the API and its session from `@tokuly/api`, the realtime client
-from `@tokuly/realtime`. The UI is written for the phone: nothing is imported
-from `apps/web`, no component is shared with it. When the app needs logic
-that is still in `apps/web`, it moves to the shared package first (pure, with
-its tests) and the web switches to it.
+Logic comes from `packages/` ([`packages/README.md`](../../packages/README.md)):
+`@tokuly/core`, `@tokuly/i18n` (the phone's own screens are its `mobile`
+namespace), `@tokuly/api`, `@tokuly/realtime`. The UI is written for the
+phone: nothing is imported from `apps/web`, no component is shared with it.
+Logic the app needs that is still in `apps/web` moves to the shared package
+first (pure, with its tests) and the web switches to it.
 
-## How it works
+What each area does and where its code is: [`docs/mobile/features.md`](../../docs/mobile/features.md).
+What the app does not have yet opens as a web screen (`features/web`); a
+feature that becomes native leaves `features/web/features.ts` and `links.ts`.
 
-- **Sessions.** Bearer tokens: the access token in memory, the refresh token
-  of the active account and those of parked accounts in secure storage
-  (`features/session/vault.ts`). Switching accounts, adding one, signing out:
-  `features/session/session.ts`. Each starts the signed-in tree over (a new
-  API object, realtime connection, query cache and navigation stack), the way
-  a page load does on the web. A sign-out shows at once; the session's token
-  is kept aside (`departed`) until the server has removed its push
-  registrations and ended it, retried on each start when it was offline.
-  Every use of a parked or departed token waits its turn, so none is ever
-  sent twice.
-- **Location.** The same rules as the web (`features/map/sharing.ts`): nothing
-  is sent for an account until it says yes on this device; stopping, a
-  revoked permission, a sign-out or a switch tell the server, and a stop that
-  did not reach it is retried. On screen the position is watched and sent at
-  the server's cadence (`reportDecision` in `@tokuly/core/map`); off screen,
-  with "always" allowed, the background task sends what the OS delivers
-  (50 m distance filter, deferred batches, paused while still).
-- **Chat.** The rules are `@tokuly/core/chat`: realtime events go into the
-  cache through `applyChatEvent` (`features/chat/sync.ts`), timelines page
-  through `MessagePager`, the unread totals through `UnreadTotals`; the phone
-  keeps only its live state (typing, read cursors) and its outbox (messages on
-  their way, photos uploaded first through the media upload flow, sent in
-  order with an idempotency key, retried by hand). Calls and the AI assistant
-  stay on the web for now; the conversation says so and opens it.
-- **Camera and uploads.** The camera is VisionCamera (`features/media/camera-screen.tsx`):
-  a tap takes a photo, holding records (a short: a tap starts and stops), front or
-  back, flash; the longest recording is the server's limit for the purpose
-  (stories 60 s, shorts 3 min; every upload's answer brings the server's own),
-  shown before anything is recorded. A library video that is longer is cut down
-  first: the trim screen picks the part, and the local module
-  `modules/tokuly-trim` cuts it on the device (Media3 Transformer on Android,
-  AVAssetExportSession on iOS; no FFmpeg in the app). A story or a short is a _post_ (`features/media/posts.ts`):
-  its files are copied into the app's documents, uploaded through the media flow
-  (`features/media/upload.ts`: one presigned PUT, or the parts the store does not
-  hold yet), then it is created. PUTs are the OS's own transfers (a background
-  URL session on iOS); a post that was interrupted (no network, the app closed)
-  goes on from where it stopped at the next start or return to the front. A post
-  belongs to the account it was started as and is only ever sent as it: every
-  request is made with that account's API and only while it is the active one, a
-  switch stops it first (`onBeforeLeave`) and it goes on once that account is
-  back; it is thrown away when that account leaves the device. A refusal shows
-  the server's reason (MEDIA_TOO_LONG with the limit, in ja/en).
-- **Stories.** The tray (above the chats) and the viewer come from
-  `@tokuly/core/stories`: tap the sides to go back and on, hold to pause, swipe
-  sideways between people and down to close; progress bars, a story counts as
-  watched once it is really shown (`features/stories/seen.ts`), reactions, and
-  replies, which are direct messages through the chat's outbox. The owner sees
-  who watched. Stories go to every friend or to the close friends picked for
-  that story (the story API's audiences).
-- **Shorts.** A tab of its own: the three swipe feeds from `@tokuly/core/shorts`
-  (its pages, cache edits and stay meter), one short a screen with expo-video
-  (HLS), the next one loading ahead, sound on or off for the whole feed, likes
-  (`@tokuly/core/engagement`), comments, the share sheet with the server's link,
-  hashtag and sound pages, posting (record or pick, trim, caption with hashtag
-  suggestions, who sees it: public, followers, friends, close friends, a circle,
-  only me) and the creator's own list with what is still being processed or
-  failed, and why.
-- **Push.** The phones' own services through `expo-notifications`, no Expo push
-  service: FCM on Android (the build needs `GOOGLE_SERVICES_JSON`, the path of
-  the Firebase project's `google-services.json`), APNs on iOS
-  (`EXPO_PUBLIC_APNS_ENV=production` for store builds). Like location sharing,
-  push is the account's decision on this device (`features/notifications/push.ts`):
-  the token is registered for an account's session only once it said yes here;
-  before it signs out or another account takes over, its registration is
-  removed (the server waits for a registration of that session still being
-  written). When the server cannot be told, the token itself is thrown away
-  and the removal is owed: each start tries again as that session, parked on
-  the device, until it goes through — so the next account never gets the
-  previous one's pushes. What a push shows
-  on the lock screen is the account's preview setting, applied by the server;
-  Android channels (one per category) keep the system's lock-screen rule. A tap
-  opens the screen the notification is about (`features/notifications/target.ts`),
-  the inbox otherwise.
-- **Open-source notices** (Settings → licences, needed for the stores) are
-  written at build time by `scripts/licenses.js`, which app.config.ts runs:
-  every production dependency the app bundles with its licence and text, and
-  the native libraries of the app's own modules (`modules/*/notices`). The
-  output, `src/generated/licenses.json`, is not checked in.
-- **Settings** not native yet open the web in an in-app browser. The backend
-  has no flow to hand a session over to the web safely (a one-time code
-  exchanged for the cookie), and tokens never go into URLs, so the web asks to
-  sign in there.
+## How a feature plugs in
+
+A feature never edits the tab bar, the signed-in layout, the hub, the settings
+screen, the profile screen, the push targets or the session code. It adds a
+file with a fixed name to its own folder and default-exports what it
+contributes; `src/seams/*` collects the files (each type is documented
+there). Two features can therefore be built side by side without touching the
+same file.
+
+| file in `src/features/<area>/` | default export                           | what it does                                                                  |
+| ------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `tabs.tsx`                     | `TabEntry[]` (`#/seams/tabs`)            | a tab; its route is `app/(app)/(tabs)/<name>.tsx`                             |
+| `hub.ts`                       | `HubEntry[]` (`#/seams/hub`)             | the area's way in from the last tab, for what has no tab (with its count)     |
+| `screens.ts`                   | `ScreenEntry[]` (`#/seams/screens`)      | how its routes under `app/(app)/` are presented: title, modal, no header      |
+| `links.ts`                     | `LinkTarget[]` (`#/seams/links`)         | which of the server's paths (notifications, pushes) open which of its screens |
+| `settings-rows.ts`             | `SettingsRow[]` (`#/seams/settings`)     | rows of the settings screen                                                   |
+| `settings-card.tsx`            | `SettingsCard` (`#/seams/settings`)      | a control on the settings screen itself                                       |
+| `badges.ts`                    | `BadgeSources` (`#/seams/badges`)        | unread counts by key, shown by the tabs that name the key                     |
+| `background.tsx`               | a component (usually rendering nothing)  | runs on every screen while someone is signed in: realtime listeners, sync     |
+| `lifecycle.ts`                 | `AccountLifecycle` (`#/seams/lifecycle`) | what it owes an account that leaves this device (see below)                   |
+| `profile.tsx`                  | `ProfileSection[]` (`#/seams/profile`)   | what the area shows on a person's profile, by slot                            |
+
+- The tab bar holds six at most (`src/seams/__tests__/seams.test.ts`).
+  Everything else is a `hub.ts` entry under the own profile, with its count.
+- Routes stay files: a route file under `app/` only renders a screen of the
+  feature; without an entry in `screens.ts` it gets the default header.
+- The seam registries (`src/generated/seams/`) are generated and not checked
+  in. After adding or removing a seam file while Metro runs:
+  `pnpm --filter @tokuly/mobile seams`.
+
+An example, why these six tabs and how the registries are built:
+[`docs/mobile/seams.md`](../../docs/mobile/seams.md).
+
+## Accounts: the rules a feature follows
+
+Several accounts live on one phone (a main one, a 裏垢, a creator account),
+and one must never speak, be seen or be notified as another. Every switch,
+added account and sign-out starts the signed-in tree over, which takes care
+of what a feature shows. What a feature _sends by itself_ is its own duty:
+
+- **Capture the account before the first await.** `api()` is whoever is
+  signed in _now_; after an await that may be someone else. Take
+  `currentAccount()` (`features/session/account.ts`) or the client first,
+  make every request of that piece of work with it, and after each await ask
+  `isActive(account)` / `ensureActive(account)` before going on. State in
+  secure storage is kept per user or session ID, never "the current one".
+- **Leave in `lifecycle.ts`.** `beforeLeave(account)` runs while the leaving
+  account's session still works: stop sending, wait for what is in flight,
+  tell the server. Each hook has 3 s; after that the account leaves anyway
+  and the hook goes on under the next account, so every request it makes
+  goes through `account.api`, never `api()` after an await.
+- **Owed work.** What must reach the server and could not is written down
+  _before_ it is tried, by session or user ID, and retried until it goes
+  through: at the next start as that account, or right away with
+  `asParked(sessionId, work)` (`features/session/parked.ts`). Copy
+  `features/notifications/push.ts` and `features/map/sharing.ts`.
+- **Parked tokens go through the one queue.** A refresh token sent twice
+  revokes its session. Nothing but `features/session` reads the vault's
+  tokens; work as a parked account is `asParked`.
+- **A session that left for good** is resumed once more before the server
+  ends it: `beforeEnd(session)` takes back what the feature left on the
+  server for it; throwing keeps the session aside for the next start. What a
+  feature keeps on the device for an account it drops once
+  `accountsOnDevice()` no longer lists the session.
+- **Consent is per account, per device.** Nothing is sent for an account
+  (its location, a push registration) until it said yes on this device, and
+  the server is told when it stops, leaves or is switched away from.
+- **Web views never see the app's tokens.** A web screen signs in through
+  the one-time hand-off, and everything web views stored is removed around
+  every switch and sign-out (`features/web`, [how](../../docs/mobile/features.md#web-screens)).
 
 ## Checks
 
@@ -140,21 +129,12 @@ pnpm --filter @tokuly/mobile test      # jest-expo + React Native Testing Librar
 pnpm --filter @tokuly/mobile export    # the JS bundles of both platforms
 ```
 
-Logic is tested in the shared packages (Vitest). Component tests here cover
-the screens that matter and mock only the edges: the network (`expo/fetch`),
-device modules, the clock.
-
-The Maestro flows (`maestro/flows`) sign up and in, switch accounts, accept a
-friend and see them on the map, use ghost mode and sharing, open a chat with an
-unread message, send one, receive one from a second account (through the API),
-start a chat and open the inbox, post a story from the library and watch it as
-a friend (the emulator has no camera: the pictures are put in its library, and
-the camera is covered by a component test), post a short, swipe the feed and
-like it. CI
-(the End to end workflow, `.github/workflows/e2e.yml`) builds a release APK for the emulator and
-runs them against the Compose stack; locally, with an emulator and a stack:
+Every native area has a Maestro flow in `maestro/flows`. With an emulator
+and a Compose stack:
 
 ```sh
 EXPO_PUBLIC_TOKULY_URL=http://10.0.2.2 pnpm --filter @tokuly/mobile android --variant release
 pnpm --filter @tokuly/mobile e2e --env SERVER=http://localhost   # the scripts run on the host
 ```
+
+What is tested where: [`docs/mobile/testing.md`](../../docs/mobile/testing.md).

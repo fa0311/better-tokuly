@@ -57,6 +57,7 @@ tokuly-school = { path = "crates/school" }
 tokuly-spaces = { path = "crates/spaces" }
 tokuly-community = { path = "crates/community" }
 tokuly-dev = { path = "crates/dev" }
+tokuly-demo = { path = "crates/demo" }
 tokuly-testkit = { path = "crates/testkit" }
 
 # ── async runtime & http ──
@@ -128,8 +129,9 @@ tzf-rs = "2.3"
 # ── errors, cli, logs ──
 thiserror = "2"
 anyhow = "1"
+libc = "0.2"
 clap = { version = "4.6", features = ["derive", "env", "string"] }
-toml = "0.9"
+toml = "1.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-opentelemetry = "0.34"

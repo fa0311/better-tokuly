@@ -135,8 +135,8 @@ async fn school_and_club_communities_take_the_creators_school() {
 async fn icons_and_banners_are_held_while_they_are_shown() {
     let ctx = start().await;
     let (owner, other) = (ctx.app.user("Owner").await, ctx.app.user("Other").await);
-    let icon = ctx.image(&owner, AssetPurpose::ASSET_PURPOSE_CHANNEL_ICON).await;
-    let banner = ctx.image(&owner, AssetPurpose::ASSET_PURPOSE_BANNER).await;
+    let icon = ctx.image(&owner, AssetPurpose::ASSET_PURPOSE_COMMUNITY_ICON).await;
+    let banner = ctx.image(&owner, AssetPurpose::ASSET_PURPOSE_COMMUNITY_BANNER).await;
     let request = CreateCommunityRequest {
         icon_asset_id: icon.clone(),
         banner_asset_id: banner.clone(),
@@ -149,6 +149,8 @@ async fn icons_and_banners_are_held_while_they_are_shown() {
     assert!(ctx.is_held(&banner, &format!("community:banner:{}", community.id)).await);
 
     // A new icon replaces the old one; an empty ID removes the banner.
+    // (An upload made as an avatar, what icons were before they had a
+    // purpose of their own, is still taken.)
     let new_icon = ctx.image(&owner, AssetPurpose::ASSET_PURPOSE_AVATAR).await;
     let update = UpdateCommunityRequest {
         community_id: community.id.clone(),

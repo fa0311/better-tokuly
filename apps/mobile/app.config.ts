@@ -62,6 +62,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "expo-localization",
     "expo-web-browser",
     "@maplibre/maplibre-react-native",
+    // Long videos keep playing in a small window (and on the lock screen) outside the app.
+    ["expo-video", { supportsPictureInPicture: true, supportsBackgroundPlayback: true }],
     ["expo-notifications", { mode: apnsMode, color: "#7c5cff" }],
     // The camera of stories and shorts is VisionCamera; these texts are the system's
     // prompts for it and for the library (the image picker's plugin writes them).

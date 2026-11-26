@@ -583,6 +583,7 @@ async fn clips_follow_their_source_and_belong_to_their_creator() {
     let _: DeleteClipResponse = ctx.call(CLIPS, "DeleteClip", Some(&alice), &delete).await.unwrap();
     assert_eq!(ctx.reason(CLIPS, "GetClip", Some(&bob), &get).await, "CLIP_NOT_FOUND");
     assert!(clips::find_ref(&ctx.app.core, &clip.short_id).await.unwrap().is_none());
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_CLIP, &clip.id).await);
 
     // A video that is deleted takes its clips with it.
     let other = video(&ctx, &alice, &channel, Visibility::VISIBILITY_PUBLIC).await;

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type notes, toMillis } from "@tokuly/api";
+import { listKeys } from "@tokuly/core/notes";
 import { MoreHorizontal, Pencil, Plus, Radio, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,7 @@ import { Menu } from "#/components/ui/menu";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
 import { AntennaEditor, sourceKey } from "./antennas-editor";
-import { ANTENNA_LIMITS, antennaClient, listKeys, useAntenna, useAntennas } from "./lists-api";
+import { ANTENNA_LIMITS, antennaClient, useAntenna, useAntennas } from "./lists-api";
 import { LISTS_NS } from "./lists-editor";
 import { ComposeButton, NotesPage } from "./shell";
 import { noteAge } from "./time";

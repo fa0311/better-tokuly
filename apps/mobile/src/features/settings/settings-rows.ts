@@ -1,0 +1,14 @@
+import { router } from "expo-router";
+import { Scale } from "lucide-react-native";
+import i18n from "#/lib/i18n";
+import type { SettingsRow } from "#/seams/settings";
+
+export default [
+  {
+    id: "licenses",
+    order: 30,
+    icon: Scale,
+    label: () => i18n.t("mobile:settings.licenses"),
+    onPress: () => router.push("/licenses"),
+  },
+] satisfies SettingsRow[];

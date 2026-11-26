@@ -103,7 +103,11 @@ interface Article {
 
 interface ManagedSource {
   id: string;
+  name: string;
   feedUrl: string;
+  enabled?: boolean;
+  /** The feed is listed in the server's `TOKULY_NEWS_FEEDS`. */
+  configured?: boolean;
   lastFetchedAt?: string;
   lastError?: string;
 }
@@ -520,6 +524,50 @@ test.describe("staff", () => {
       );
     } finally {
       await dropSource(request, admin, sourceId);
+    }
+  });
+
+  test("a source listed in the server settings is switched off, not deleted, and the console says why", async ({
+    page,
+    request,
+  }) => {
+    const admin = await adminAccount(request);
+    const source = (await managedSources(request, admin)).find((source) => source.configured);
+    test.skip(!source, "no source comes from the settings; run the API with TOKULY_NEWS_FEEDS");
+    if (!source) return;
+    const setEnabled = (enabled: boolean) =>
+      rpc(request, `${NEWS_ADMIN}/UpdateNewsSource`, { sourceId: source.id, enabled }, admin);
+    await setEnabled(true);
+    try {
+      // The API refuses, with a reason of its own.
+      const refusal = await rpc(
+        request,
+        `${NEWS_ADMIN}/DeleteNewsSource`,
+        { sourceId: source.id },
+        admin,
+      ).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(RpcError);
+      expect((refusal as RpcError).reason).toBe("NEWS_SOURCE_CONFIGURED");
+
+      await signInAs(page, admin);
+      await page.goto("/admin/news");
+      const row = sourceRows(page).filter({ hasText: source.feedUrl });
+      await expect(row).toContainText("設定にあり");
+      await row.getByRole("button", { name: `${source.name} の操作` }).click();
+      await page.getByRole("menuitem", { name: "削除する" }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog).toContainText("削除できないよ");
+      await expect(dialog).toContainText("TOKULY_NEWS_FEEDS");
+      await expect(dialog.getByRole("button", { name: "削除する" })).toHaveCount(0);
+
+      // What it offers instead works, and the source stays.
+      await dialog.getByRole("button", { name: "無効にする" }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(row).toContainText("無効");
+      const after = (await managedSources(request, admin)).find((it) => it.id === source.id);
+      expect(after?.enabled ?? false).toBe(false);
+    } finally {
+      await setEnabled(source.enabled ?? false);
     }
   });
 

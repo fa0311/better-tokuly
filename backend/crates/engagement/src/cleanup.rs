@@ -1,9 +1,9 @@
-//! What happens when things disappear: moderation takes content down, an
-//! account is erased, one user blocks another, an upload is deleted by
-//! force. These are the reactions to the events this domain consumes; every
+//! What happens when things disappear: moderation takes content down, its
+//! owner deletes it, an account is erased, one user blocks another, an
+//! upload is deleted by force. These are the reactions to the events this domain consumes; every
 //! one is idempotent, so a redelivered event changes nothing.
 use sqlx::PgConnection;
-use tokuly_core::{events, prelude::*};
+use tokuly_core::{events, outbound::SubjectDeleted, prelude::*};
 use tokuly_media::assets;
 use tokuly_social::graph;
 
@@ -117,12 +117,40 @@ impl Engagement {
         }
         reports::resolve_for_subject(&mut tx, key).await?;
         tx.commit().await?;
+        self.subject_gone(key, effects).await;
+        Ok(())
+    }
+
+    /// `subject.deleted`: the owning domain deleted content for good (its
+    /// owner did, or a moderator, or a retention timer). What this domain
+    /// kept about it is purged, as for a takedown — a second delivery, or
+    /// the takedown's own event for the same content, finds nothing left.
+    ///
+    /// Reports about it are not answered: a deletion by the owner is no
+    /// decision of the moderation team, whose case keeps what was reported.
+    /// Comments are this domain's own subjects and are never announced
+    /// this way.
+    pub(crate) async fn on_subject_deleted(&self, deleted: SubjectDeleted) -> AppResult<()> {
+        let key = SubjectKey { kind: deleted.subject_type, id: deleted.subject_id };
+        if key.is_comment() {
+            return Ok(());
+        }
+        let mut tx = self.core.db.begin().await?;
+        let mut effects = Effects::default();
+        purge_subject(&mut tx, &mut effects, key).await?;
+        tx.commit().await?;
+        self.subject_gone(key, effects).await;
+        Ok(())
+    }
+
+    /// After the purge of a subject committed: its effects, and for
+    /// anything but a comment the end of its topic — whoever followed its
+    /// counters stops.
+    async fn subject_gone(&self, key: SubjectKey, effects: Effects) {
         self.apply(effects).await;
         if !key.is_comment() {
-            // The subject is gone: whoever followed its counters stops.
             self.core.rt.close_topic(&key.topic()).await;
         }
-        Ok(())
     }
 
     /// `admin.report.resolved`: the moderation team decided about reports.

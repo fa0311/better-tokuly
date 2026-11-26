@@ -132,6 +132,7 @@ async fn an_upload_deleted_by_force_takes_its_emoji_along() {
     assert!(ctx.changes(version).await.removed_ids.contains(&emoji.emoji.id));
     let removed = ctx.emoji_events("emoji.emoji.removed", &emoji.emoji.id).await;
     assert_eq!((removed.len(), removed[0]["because"].as_str()), (1, Some("asset_deleted")));
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_CUSTOM_EMOJI, &emoji.emoji.id).await);
     assert!(ctx.search_changes(&emoji.emoji.id).await.last().unwrap().is_none());
 
     // Again, and for uploads no emoji uses: nothing happens.

@@ -2,7 +2,16 @@ import { create } from "@bufbuild/protobuf";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { errorReason, isApiError, live } from "@tokuly/api";
-import { useState } from "react";
+import {
+  exactCoins,
+  type GiftAttempt,
+  giftAttempt,
+  newIdempotencyKey,
+  parseCoins,
+  sameGift,
+  tierFor,
+} from "@tokuly/core/live";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
@@ -15,9 +24,12 @@ import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { giftClient, liveKeys, useGiftTiers } from "../api";
 import { GiftBubble } from "../chat/chat-line";
-import { type GiftAttempt, giftAttempt, parseCoins, sameGift, tierFor, tierStyle } from "../model";
+import { tierStyle } from "../model";
 import { formatCount } from "../parts";
 import { addOwnMessage } from "../room";
+import { keepPendingGift, readPendingGift, settlePendingGift } from "./pending-gift";
+
+const newGiftKey = () => newIdempotencyKey(() => crypto.randomUUID());
 
 /**
  * Sends a gift (super chat): pick an amount, see which of the twelve colours
@@ -41,12 +53,29 @@ export function GiftDialog({
   const [amountText, setAmountText] = useState("100");
   const [message, setMessage] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const userId = me?.user?.id ?? "";
+  const streamId = stream.summary?.id ?? "";
   /**
-   * The gift whose answer was lost, if any: confirming exactly that gift again
-   * repeats it under its key (nothing is paid twice). Changing the amount or
-   * the message, going back or closing makes the next send a new gift.
+   * The gift whose answer was lost, if any. It stays until the server
+   * answers it — through going back, closing the dialog and loading the page
+   * anew (`pending-gift.ts`): confirming exactly that gift again repeats it
+   * under its key, so nothing is paid twice. Another amount or message is a
+   * new gift.
    */
   const [lost, setLost] = useState<GiftAttempt | null>(null);
+  /** A press that is on its way: a second click in the same frame sends nothing. */
+  const inFlight = useRef(false);
+
+  // An unanswered gift on this stream comes back as it was, ready to be confirmed again.
+  useEffect(() => {
+    if (!open || !userId || !streamId) return;
+    const pending = readPendingGift(userId, streamId);
+    if (!pending) return;
+    setLost((current) => current ?? pending);
+    setAmountText(String(pending.coins));
+    setMessage(pending.message);
+    setConfirming(true);
+  }, [open, userId, streamId]);
 
   const tiers = tiersQuery.data?.tiers ?? [];
   const minCoins = tiersQuery.data?.minCoins ?? 10n;
@@ -59,50 +88,52 @@ export function GiftDialog({
   const short = inRange && balance.coins !== undefined && balance.coins < coins;
   const channelName = stream.summary?.channel?.name ?? "";
 
-  const reset = () => {
-    setConfirming(false);
-    setMessage("");
-    setLost(null);
+  const settle = (attempt: GiftAttempt) => {
+    settlePendingGift(userId, attempt);
+    setLost((current) => (current?.key === attempt.key ? null : current));
   };
-  const back = () => {
-    setConfirming(false);
-    setLost(null);
-  };
+  const back = () => setConfirming(false);
   const send = useMutation({
     mutationFn: async (attempt: GiftAttempt) => ({
       attempt,
       response: await giftClient().sendGift({
-        streamId: stream.summary?.id ?? "",
+        streamId,
         coins: attempt.coins,
         message: attempt.message,
         idempotencyKey: attempt.key,
       }),
     }),
-    onMutate: (attempt) => setLost(attempt),
+    onMutate: (attempt) => {
+      // Written down before it goes out: the answer may never come.
+      keepPendingGift(userId, streamId, attempt);
+      setLost(attempt);
+    },
     onSuccess: ({ attempt, response }) => {
       if (response.message) addOwnMessage(queryClient, response.message);
       void balance.refresh();
       void queryClient.invalidateQueries({ queryKey: liveKeys.gifts });
       void queryClient.invalidateQueries({
-        queryKey: liveKeys.supporters(stream.summary?.id ?? ""),
+        queryKey: liveKeys.supporters(streamId),
       });
       // Never claim a gift that was not the one sent: an earlier attempt can come back instead.
       if (response.gift && !sameGift(attempt, response.gift))
         toast.warning(
           t("gift.otherSent", {
-            coins: formatCount(response.gift.coins, i18n.language),
+            coins: exactCoins(response.gift.coins, i18n.language),
             name: channelName,
           }),
         );
       else toast.success(t("gift.sent", { name: channelName }));
-      reset();
+      settle(attempt);
+      setConfirming(false);
+      setMessage("");
       onOpenChange(false);
     },
-    onError: (error) => {
+    onError: (error, attempt) => {
       toast.error(errorMessage(error, { namespace: "live" }));
       // A refusal settles the attempt (nothing was paid); only a lost answer is retried under the same key.
       if (isApiError(error) && errorReason(error)) {
-        setLost(null);
+        settle(attempt);
         setConfirming(false);
         if (errorReason(error) === "GIFT_RETURNED" || errorReason(error) === "INSUFFICIENT_COINS")
           void balance.refresh();
@@ -135,9 +166,17 @@ export function GiftDialog({
             </Button>
             <Button
               loading={send.isPending}
-              onClick={() => send.mutate(giftAttempt(lost, coins ?? 0n, text))}
+              onClick={() => {
+                if (inFlight.current) return;
+                inFlight.current = true;
+                send.mutate(giftAttempt(lost, coins ?? 0n, text, newGiftKey), {
+                  onSettled: () => {
+                    inFlight.current = false;
+                  },
+                });
+              }}
             >
-              {t("gift.confirm", { coins: formatCount(coins ?? 0n, i18n.language) })}
+              {t("gift.confirm", { coins: exactCoins(coins ?? 0n, i18n.language) })}
             </Button>
           </>
         ) : short ? (
@@ -208,8 +247,8 @@ export function GiftDialog({
               error={
                 amountText && !inRange
                   ? t("gift.amountRange", {
-                      min: formatCount(minCoins, i18n.language),
-                      max: formatCount(maxCoins, i18n.language),
+                      min: exactCoins(minCoins, i18n.language),
+                      max: exactCoins(maxCoins, i18n.language),
                     })
                   : short
                     ? t("gift.short")

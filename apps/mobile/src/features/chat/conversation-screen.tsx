@@ -3,7 +3,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { chat, type common, errorReason } from "@tokuly/api";
 import { abilitiesOf, canWrite, isGroup, peerOf, type Row } from "@tokuly/core/chat";
 import { router } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
 import { ChevronLeft, Phone, Sparkles } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,8 +11,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ActionSheet, type SheetAction } from "#/components/action-sheet";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
-import { useMe } from "#/features/session/session";
-import { webLink } from "#/lib/config";
+import { useMe } from "#/features/session/store";
+import { webScreenHref } from "#/features/web/handoff";
 import { errorMessage } from "#/lib/errors";
 import { realtime } from "#/lib/realtime";
 import { useTheme } from "#/lib/theme";
@@ -86,7 +85,7 @@ function Header({ conversation, myId }: { conversation: chat.Conversation; myId:
       { text: t("actions.cancel"), style: "cancel" },
       {
         text: tm("chat.openWeb"),
-        onPress: () => void WebBrowser.openBrowserAsync(webLink(`/chat/${conversation.id}`)),
+        onPress: () => router.push(webScreenHref(`/chat/${conversation.id}`) as never),
       },
     ]);
   const peer = peerOf(conversation, myId);

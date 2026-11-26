@@ -241,6 +241,8 @@ async fn the_default_channel_can_be_switched_and_survives_deletion() {
     assert!(mine.channels[0].viewer.as_option().unwrap().is_default);
     assert_eq!(ctx.app.events_by("video.channel.deleted", alice.id).await.len(), 1);
     assert_eq!(ctx.app.events_by("video.video.deleted", alice.id).await.len(), 1);
+    // What other domains attached to the channel goes with it.
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_CHANNEL, &second.summary.id).await);
     assert!(search_docs(&ctx, &second.summary.id).await.last().unwrap().is_none(), "the channel left the search index");
 }
 

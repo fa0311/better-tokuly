@@ -11,15 +11,11 @@ env:
     visible: { id: "welcome-screen" }
     timeout: 60000
 - tapOn: { id: "welcome-sign-in" }
-- tapOn: { id: "sign-in-identifier" }
-- inputText: ${output.me}
-- tapOn: { id: "sign-in-password" }
-- inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: { id: "sign-in-submit" }
-- extendedWaitUntil:
-    visible: { id: "map-screen" }
-    timeout: 30000
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
 
 # The friend wrote first: the conversation waits with its unread count.
 - tapOn: { id: "tab-chats" }

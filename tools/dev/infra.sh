@@ -83,6 +83,9 @@ CADDY_VERSION=2.11.9 # the edge image of compose.yaml
 S3_ACCESS_KEY="${TOKULY_S3_ACCESS_KEY:-tokuly}"
 S3_SECRET_KEY="${TOKULY_S3_SECRET_KEY:-tokuly-secret}"
 MEILI_KEY="${TOKULY_MEILI_KEY:-tokuly-meili-key}"
+# The backend's defaults (an empty TOKULY_CLICKHOUSE_PASSWORD is ignored).
+CLICKHOUSE_USER=tokuly
+CLICKHOUSE_PASSWORD=tokuly
 LIVEKIT_KEY="${TOKULY_LIVEKIT_API_KEY:-tokulydev}"
 LIVEKIT_SECRET="${TOKULY_LIVEKIT_API_SECRET:-tokuly-livekit-dev-secret-0123456789}"
 # Two different secrets: what MediaMTX presents to the API's hook, and what
@@ -219,19 +222,14 @@ EOF
     || "$PG_BIN/createdb" -h 127.0.0.1 -p "$P_POSTGRES" -U tokuly tokuly
 }
 
-up() {
-  install_bins
-  echo "starting services (data: $DATA, logs: $LOGS)"
-  up_postgres
-  mkdir -p "$DATA/valkey" "$DATA/nats" "$DATA/rustfs" "$DATA/clickhouse" "$DATA/meili" "$DATA/mediamtx"
-  start valkey valkey-server --port "$P_VALKEY" --bind 127.0.0.1 --dir "$DATA/valkey" --save 60 100 --appendonly no
-  start nats "$BIN/nats-server" -a 127.0.0.1 -p "$P_NATS" -m "$P_NATS_HTTP" -js -sd "$DATA/nats"
-  RUSTFS_ACCESS_KEY="$S3_ACCESS_KEY" RUSTFS_SECRET_KEY="$S3_SECRET_KEY" \
-    start rustfs "$BIN/rustfs" server --address "127.0.0.1:$P_S3" --console-enable \
-    --console-address "127.0.0.1:$P_S3_CONSOLE" "$DATA/rustfs"
-  # The `default` user without a password, written down: the macOS build has
-  # no such user of its own when it runs without a configuration.
-  cat >"$DATA/clickhouse/users.xml" <<'EOF'
+# ClickHouse's users, written down (the server reads config.xml from its
+# working directory; it names the users file): the backend's own account at its
+# default password, and `default` without one for local tools. Without this the
+# server has users of its own (none at all on macOS). A server started before
+# these files existed keeps its own until it is restarted (see print_env).
+clickhouse_users() {
+  echo '<clickhouse><users_config>users.xml</users_config></clickhouse>' >"$DATA/clickhouse/config.xml"
+  cat >"$DATA/clickhouse/users.xml" <<EOF
 <clickhouse>
   <profiles><default/></profiles>
   <quotas><default/></quotas>
@@ -243,11 +241,31 @@ up() {
       <quota>default</quota>
       <access_management>1</access_management>
     </default>
+    <$CLICKHOUSE_USER>
+      <password>$CLICKHOUSE_PASSWORD</password>
+      <networks><ip>127.0.0.1</ip><ip>::1</ip></networks>
+      <profile>default</profile>
+      <quota>default</quota>
+      <access_management>1</access_management>
+    </$CLICKHOUSE_USER>
   </users>
 </clickhouse>
 EOF
+}
+
+up() {
+  install_bins
+  echo "starting services (data: $DATA, logs: $LOGS)"
+  up_postgres
+  mkdir -p "$DATA/valkey" "$DATA/nats" "$DATA/rustfs" "$DATA/clickhouse" "$DATA/meili" "$DATA/mediamtx"
+  start valkey valkey-server --port "$P_VALKEY" --bind 127.0.0.1 --dir "$DATA/valkey" --save 60 100 --appendonly no
+  start nats "$BIN/nats-server" -a 127.0.0.1 -p "$P_NATS" -m "$P_NATS_HTTP" -js -sd "$DATA/nats"
+  RUSTFS_ACCESS_KEY="$S3_ACCESS_KEY" RUSTFS_SECRET_KEY="$S3_SECRET_KEY" \
+    start rustfs "$BIN/rustfs" server --address "127.0.0.1:$P_S3" --console-enable \
+    --console-address "127.0.0.1:$P_S3_CONSOLE" "$DATA/rustfs"
+  running clickhouse || clickhouse_users
   (cd "$DATA/clickhouse" && start clickhouse "$BIN/clickhouse" server -- \
-    --path="$DATA/clickhouse/" --users_config="$DATA/clickhouse/users.xml" \
+    --path="$DATA/clickhouse/" \
     --http_port="$P_CLICKHOUSE_HTTP" --tcp_port="$P_CLICKHOUSE_TCP" \
     --mysql_port=0 --postgresql_port=0 --interserver_http_port=0 --listen_host=127.0.0.1 \
     --logger.console=1 --logger.level=warning)
@@ -302,6 +320,9 @@ status() {
 }
 
 print_env() {
+  # A ClickHouse started before its users were written down knows only `default`.
+  local ch_user=default ch_password=""
+  if [ -f "$DATA/clickhouse/users.xml" ]; then ch_user="$CLICKHOUSE_USER" ch_password="$CLICKHOUSE_PASSWORD"; fi
   cat <<EOF
 export TOKULY_DATABASE_URL="postgres://tokuly@127.0.0.1:$P_POSTGRES/tokuly"
 export TOKULY_VALKEY_URL="redis://127.0.0.1:$P_VALKEY"
@@ -311,8 +332,8 @@ export TOKULY_S3_PUBLIC_ENDPOINT="http://127.0.0.1:$P_S3"
 export TOKULY_S3_ACCESS_KEY="$S3_ACCESS_KEY"
 export TOKULY_S3_SECRET_KEY="$S3_SECRET_KEY"
 export TOKULY_CLICKHOUSE_URL="http://127.0.0.1:$P_CLICKHOUSE_HTTP"
-export TOKULY_CLICKHOUSE_USER="default"
-export TOKULY_CLICKHOUSE_PASSWORD=""
+export TOKULY_CLICKHOUSE_USER="$ch_user"
+export TOKULY_CLICKHOUSE_PASSWORD="$ch_password"
 export TOKULY_MEILI_URL="http://127.0.0.1:$P_MEILI"
 export TOKULY_MEILI_KEY="$MEILI_KEY"
 export TOKULY_SMTP_URL="smtp://127.0.0.1:$P_SMTP"

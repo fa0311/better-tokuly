@@ -15,7 +15,7 @@ use std::{collections::HashMap, time::Duration};
 
 use tokuly_core::{outbound, prelude::*, realtime::MAX_EXCEPT};
 use tokuly_proto::{
-    common::{Author, ChannelSummary, StampRef, UserSummary},
+    common::{Author, ChannelSummary, StampRef, SubjectType, UserSummary},
     live::{
         ChatAudience, ChatGift, ChatMessage, ChatMessageDeleted, ChatMessageKind, ChatNotice, ChatPinChanged,
         ChatRestriction, ChatRestrictionChanged, ChatRole, ChatSettings, ChatUserCleared, LinkPolicy, Moderator,
@@ -715,6 +715,9 @@ impl Live {
                 .await?
                 .rows_affected()
                 == 1;
+        if deleted {
+            outbound::subject_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, message.id).await?;
+        }
         tx.commit().await?;
         if deleted {
             let gone = ChatMessageDeleted {
@@ -832,7 +835,7 @@ impl Live {
                  FROM live_streams s
                  WHERE s.id = m.stream_id AND s.channel_id = $1 AND s.status < 3 AND m.user_id = $2 AND m.deleted_at IS NULL
                    AND m.kind <> 3
-                 RETURNING s.id, s.channel_id",
+                 RETURNING s.id, m.id",
             )
             .bind(channel.id)
             .bind(target_id)
@@ -841,6 +844,8 @@ impl Live {
         } else {
             Vec::new()
         };
+        let cleared_messages: Vec<Uuid> = cleared.iter().map(|(_, message_id)| *message_id).collect();
+        outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, &cleared_messages).await?;
         tx.commit().await?;
 
         let mut cleared_streams: Vec<Uuid> = cleared.into_iter().map(|(stream_id, _)| stream_id).collect();
@@ -959,7 +964,7 @@ impl Live {
                 ),
                 channel.path(),
             )
-            .subject(tokuly_proto::common::SubjectType::SUBJECT_TYPE_CHANNEL, channel.id)
+            .subject(SubjectType::SUBJECT_TYPE_CHANNEL, channel.id)
             .collapse(format!("live.moderator:{}", channel.id))
             .data(serde_json::json!({ "channel_id": channel.id, "channel_handle": channel.handle }));
             outbound::notify(&mut *tx, &request).await?;

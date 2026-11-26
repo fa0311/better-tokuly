@@ -1,0 +1,49 @@
+appId: app.tokuly.mobile
+name: Find a friend's scheduled stream, ask to be told when it starts, and chat before it does
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/live-friends.js
+- clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
+
+# The live list, from the last tab: the friend's stream is under 配信予定 with its countdown.
+- tapOn: { id: "tab-me" }
+- tapOn: { id: "me-live" }
+- extendedWaitUntil:
+    visible: { id: "live-browse" }
+    timeout: 15000
+- tapOn: { id: "live-tab-upcoming" }
+- extendedWaitUntil:
+    visible: { id: "friend-upcoming" }
+    timeout: 15000
+- tapOn: ${output.title}
+
+# Its page: not on air yet. Ask to be told when it starts.
+- extendedWaitUntil:
+    visible: { id: "upcoming-stage" }
+    timeout: 15000
+- tapOn: { id: "live-remind" }
+- extendedWaitUntil:
+    visible: "(始まったらお知らせするね！|We'll tell you when it starts!)"
+    timeout: 10000
+- tapOn: "OK"
+- assertVisible: "(通知オン|Reminder on)"
+
+# The chat is open before the start: a line goes out and shows.
+- tapOn: { id: "live-chat-input" }
+- inputText: "たのしみ！"
+- tapOn: { id: "live-chat-send" }
+- extendedWaitUntil:
+    visible: "たのしみ！"
+    timeout: 10000

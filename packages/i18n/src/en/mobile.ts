@@ -1,8 +1,9 @@
-/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, settings. */
+/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, notes, settings. */
 export default {
   tabs: {
     map: "Map",
     chat: "Chats",
+    notes: "Notes",
     shorts: "Shorts",
     friends: "Friends",
     inbox: "Inbox",
@@ -82,8 +83,7 @@ export default {
     accounts: "Switch accounts",
     web: "More settings",
     webHint: "Settings the app doesn't have yet open on the web",
-    webNote:
-      "Sign in on the web again. For your safety the app never hands its sign-in to the web.",
+    webNote: "Opens on the web, signed in as this account!",
     signOut: "Sign out",
     signOutAll: "Sign out everywhere",
     signOutAllPending:
@@ -91,6 +91,33 @@ export default {
     signOutConfirm: "Sign this account out of this device? Your other accounts stay.",
     version: "Version {{version}}",
     server: "Server {{url}}",
+  },
+  more: {
+    title: "More",
+    open: "More",
+    lead: "Everything the app doesn't have yet, right here!",
+    note: "These open as web pages for now. They're coming to the app one by one!",
+    features: {
+      video: "Videos",
+      live: "Live",
+      spaces: "Spaces",
+      community: "Communities",
+      school: "School",
+      plans: "Plans",
+      ask: "Ask box",
+      quest: "Quests",
+      emoji: "Emoji",
+      stamps: "Stamps",
+      wallet: "Wallet",
+      settings: "Settings",
+      dev: "Developers",
+      admin: "Admin",
+    },
+  },
+  web: {
+    loading: "Opening…",
+    failed: "Couldn't open it…",
+    retry: "Try again",
   },
   profile: {
     me: "Me",
@@ -211,6 +238,21 @@ export default {
     commentPlaceholder: "Add a comment…",
     commentSend: "Send",
     commentsOff: "Comments are off for this short",
+  },
+  notes: {
+    sources: "Timelines to read",
+    noSources: "No lists or antennas yet. You can make them on the web!",
+    clips: "Clips",
+    channels: "Channels (web)",
+    editLists: "Edit lists and antennas (web)",
+    react: "React",
+    share: "Share",
+    editOnWeb: "Edit (web)",
+    reportOnWeb: "Report (web)",
+    defaultAudience: "Your usual audience",
+    leaveTitle: "What about this note?",
+    keepWriting: "Keep writing",
+    seeAll: "See all notes",
   },
   licenses: {
     title: "Open-source licences",

@@ -925,6 +925,7 @@ async fn deleting_a_video_removes_everything_that_hangs_off_it() {
     let deleted = ctx.app.events_by("video.video.deleted", alice.id).await;
     assert_eq!(deleted.len(), 1);
     assert_eq!(deleted[0].data["video_id"], video_id);
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_VIDEO, &video_id).await);
     // Playlists that held it count one less.
     let lists: ListMyPlaylistsResponse =
         ctx.call(PLAYLISTS, "ListMyPlaylists", Some(&bob), &ListMyPlaylistsRequest::default()).await.unwrap();

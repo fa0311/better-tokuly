@@ -208,20 +208,15 @@ MediaMTX never deletes them (`recordDeleteAfter: 0s`); the worker does.
 ## Audiences and locked accounts
 
 Streams take the audiences of videos (see `docs/events/video.md`,
-"Audiences and locked accounts", and `tokuly_video::access`): PUBLIC,
-NO_FEED, UNLISTED, FOLLOWERS, FRIENDS, CLOSE_FRIENDS, CIRCLE (shown to
-everyone but the owner as FOLLOWERS on cards; `circle_id` in
-`StreamStudioInfo`) and PRIVATE. `live_streams.owner_locked` copies
-whether the owner is locked (`social.follow.settings_changed`, and when
-the stream is created). A locked account's open streams leave "live now",
-upcoming and search, need a playback token like FRIENDS streams, and
-reach only followers and friends; reads (and the media hook) check the
-social domain for rows that reach someone only through the copy, so a
-lock applies at the next read. Clips can be cut only from sources open to
-everyone whose owner is not locked. Who may follow a stream's topic or
-keep a media session is re-checked when a follow ends, a circle loses
-members or is deleted, a friendship ends, a block is made, the audience
-narrows or the owner locks the account.
+"Audiences and locked accounts"); CIRCLE is shown to everyone but the owner
+as FOLLOWERS (`circle_id` in `StreamStudioInfo`). A locked account's open
+streams leave "live now", upcoming and search, need a playback token like
+FRIENDS streams, and reach only followers and friends; a lock applies at
+the next read. Clips can be cut only from sources open to everyone whose
+owner is not locked. Who may follow a stream's topic or keep a media
+session is re-checked when a follow ends, a circle loses members or is
+deleted, a friendship ends, a block is made, the audience narrows or the
+owner locks the account.
 
 ## Events emitted
 
@@ -238,6 +233,7 @@ transaction of the change they describe.
 | `live.gift.sent` | `{ gift_id, stream_id?, channel_id, sender_id, recipient_id, coins, net_coins, tier }` | A gift settled (once per gift). Actor: the sender. |
 | `live.clip.ready` | `ClipEvent` | A clip finished processing. Actor: its creator. |
 | `live.clip.deleted` | `ClipEvent` | A clip is gone. |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. `SUBJECT_TYPE_LIVE_STREAM`: a deleted stream was erased (the retention sweep, account erasure) — not at `live.stream.deleted`, since a deleted stream and the comments on it stay reportable while it is kept. `SUBJECT_TYPE_CLIP`: a clip was deleted, next to `live.clip.deleted`. `SUBJECT_TYPE_LIVE_CHAT_MESSAGE`: a chat line was removed, one event per line (also for the lines cleared with a restriction). Lines that go with an erased stream are not announced one by one. |
 
 `StreamEvent` is `{ stream_id, short_id, channel_id, owner_id, visibility, end_reason, went_live }`;
 `ClipEvent` is `{ clip_id, short_id, creator_id, channel_id, stream_id?, video_id?, asset_id? }`.
@@ -382,40 +378,30 @@ Topics and their guards (registered in `Live::new`):
   after `overlay_changed { revoked }` the old topic is closed, so the page
   behind it is let go (`ServerFrame.unsubscribed`).
 
-Chat lines and blocks: a chat line (and a pin, for the pinned line) is
-one publish to `live:<id>` carrying an exception list
-(`Live::chat_exceptions`). The list travels in the bus message's
-`Tokuly-Except` header, never in the frame; every realtime gateway skips the
-connections signed in as one of those people
-(`tokuly_core::realtime::to_topic_except`). It holds at most
-`tokuly_core::realtime::MAX_EXCEPT` (1000) people, filled in this order:
+Chat lines and blocks: a chat line (and a pin, for the pinned line) is one
+publish to `live:<id>` that leaves out the people in a block with its
+author (`Realtime::to_topic_except`, at most 1000 people):
 
-- **The people the author blocked** — always. This part is the author's own
-  doing, so it fails closed: an author who blocked more than 1000 people
-  gets no live push at all; their lines appear on the next read.
-- **The people who blocked the author** — while the whole list fits.
-  Anybody can add to this part (throw-away accounts blocking someone), so it
-  never stops delivery: past the cap they are left out and the line is
-  still published. Then the second line of defence is what keeps them from
-  seeing it: the web app drops pushed lines and pins of people the viewer
-  blocked (and hides such a pin when the page loads with it).
-- **Not the streamer's relations**: the topic guard refuses anyone in a block
-  relation with the streamer when they subscribe.
+- **The people the author blocked** — always. An author who blocked more
+  than 1000 people gets no live push at all; their lines appear on the next
+  read.
+- **The people who blocked the author** — while the whole list fits. Past
+  the cap the line is still published (throw-away accounts must not be able
+  to stop delivery), and the web app drops pushed lines and pins of people
+  the viewer blocked.
+- **The streamer's relations** never subscribe: the topic guard refuses
+  anyone in a block with the streamer.
 
-The lists come from the social domain (who blocked whom, read once per
-line); nothing is read per viewer. A line whose list cannot be read is not
-pushed live. Lists, history and replay filter by the reader's blocks as
-before.
+A line whose list cannot be read is not pushed live. Lists, history and
+replay filter by the reader's blocks.
 
 Someone who loses access after subscribing loses the subscription too
-(`ServerFrame.unsubscribed`, see `docs/events/realtime.md`): a block
-between them and the streamer and an unfriending (both re-check the two
-people's `live:` subscriptions), a stream narrowed to friends or members
-(not a widening, nor a move between the visibilities open to everyone)
-or suspended (every subscriber re-checked), a deleted stream (the topic
-closes). Known limits: other events on the topic (`stream_updated`,
-`stats`, polls) are not filtered by blocks. A block made between reading the
-lists and the publication (milliseconds) can let that one line through.
+(`ServerFrame.unsubscribed`): a block with the streamer, an unfriending, a
+stream narrowed to friends or members or suspended (subscribers
+re-checked), a deleted stream (the topic closes). Known limits: other
+events on the topic (`stream_updated`, `stats`, polls) are not filtered by
+blocks, and a block made in the milliseconds before a publication can let
+that one line through.
 
 ## Moderators
 

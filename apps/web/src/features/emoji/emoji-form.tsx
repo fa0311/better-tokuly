@@ -105,7 +105,7 @@ export function EmojiForm({
     onUploading(true);
     try {
       const asset = await uploadAndProcess(file, {
-        purpose: media.AssetPurpose.STAMP,
+        purpose: media.AssetPurpose.CUSTOM_EMOJI,
         onProgress: setProgress,
       });
       onChange({ assetId: asset.id });

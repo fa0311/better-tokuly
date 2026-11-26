@@ -2,6 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, toMillis, video } from "@tokuly/api";
 import {
+  blockKind,
+  rateVideo,
+  startPosition,
+  validateWatchSearch,
+  type WatchSearch,
+} from "@tokuly/core/video";
+import {
   BarChart3,
   Clock3,
   ListPlus,
@@ -21,7 +28,7 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { feedClient, playlistClient, useVideo, videoClient, videoKeys } from "./api";
 import { audienceNote, Description } from "./description";
-import { formatCount, parseTimeParam } from "./format";
+import { formatCount } from "./format";
 import { visibilityOption } from "./labels";
 import { StartPartyDialog } from "./party/start-party";
 import { takeTrafficSource, usePlaybackSession } from "./playback-session";
@@ -31,33 +38,9 @@ import { openSaveDialog } from "./save-dialog";
 import { SubscribeButton } from "./subscribe-button";
 import { ChannelAvatar, ChannelName, imageUrl, VideoCard, VideoCardSkeleton } from "./video-card";
 
-const { Rating, PlaybackBlock, VideoStatus, ProcessingState, TrafficSource } = video;
+const { Rating, VideoStatus, TrafficSource } = video;
 
-export interface WatchSearch {
-  /** Where to start: seconds, `1:30` or `1m30s`. */
-  t?: string;
-  /** The playlist being played through. */
-  list?: string;
-  /** A comment to open the thread at. */
-  comment?: string;
-}
-
-export function validateWatchSearch(search: Record<string, unknown>): WatchSearch {
-  const text = (value: unknown) =>
-    typeof value === "string" && value
-      ? value
-      : typeof value === "number"
-        ? String(value)
-        : undefined;
-  const result: WatchSearch = {};
-  const t = text(search.t);
-  const list = text(search.list);
-  const comment = text(search.comment);
-  if (t) result.t = t;
-  if (list) result.list = list;
-  if (comment) result.comment = comment;
-  return result;
-}
+export { validateWatchSearch, type WatchSearch };
 
 const THEATRE_KEY = "tokuly.player.theatre";
 
@@ -330,14 +313,6 @@ export function WatchScreen({ videoId, search }: { videoId: string; search: Watc
   );
 }
 
-/** Where playback begins: the link's `?t=`, else where the viewer left off (unless that is the very end). */
-function startPosition(param: string | undefined, summary: video.VideoSummary): number {
-  const asked = parseTimeParam(param);
-  if (asked !== null) return Math.min(asked, Math.max(0, summary.durationSeconds - 1));
-  const resume = summary.resumePositionSeconds;
-  return summary.watched || resume < 3 || resume > summary.durationSeconds - 5 ? 0 : resume;
-}
-
 function WatchSkeleton() {
   return (
     <div
@@ -366,15 +341,8 @@ function Blocked({ item }: { item: video.Video }) {
   const { t } = useTranslation("video");
   const summary = item.summary;
   const poster = imageUrl(summary?.thumbnail, 640);
-  const failed = summary?.processing === ProcessingState.FAILED;
-  const [title, body] =
-    item.playbackBlock === PlaybackBlock.AGE_RESTRICTED
-      ? [t("watch.blocked.ageTitle"), t("watch.blocked.ageBody")]
-      : item.playbackBlock === PlaybackBlock.SIGN_IN_REQUIRED
-        ? [t("watch.blocked.signInTitle"), t("watch.blocked.signInBody")]
-        : failed
-          ? [t("watch.blocked.failedTitle"), t("watch.blocked.failedBody")]
-          : [t("watch.blocked.processingTitle"), t("watch.blocked.processingBody")];
+  const kind = blockKind(item);
+  const [title, body] = [t(`watch.blocked.${kind}Title`), t(`watch.blocked.${kind}Body`)];
   return (
     <div
       data-testid="video-blocked"
@@ -389,7 +357,7 @@ function Blocked({ item }: { item: video.Video }) {
       )}
       <div className="relative max-w-md p-6">
         <p className="text-4xl" aria-hidden>
-          {item.playbackBlock === PlaybackBlock.AGE_RESTRICTED ? "🔞" : failed ? "😢" : "⏳"}
+          {kind === "age" ? "🔞" : kind === "failed" ? "😢" : "⏳"}
         </p>
         <p className="mt-3 text-lg font-black">{title}</p>
         <p className="mt-1 text-sm leading-relaxed text-white/80">{body}</p>
@@ -459,34 +427,14 @@ function Actions({
     queryClient.setQueryData<video.Video>(key, (current) => (current ? change(current) : current));
 
   const rate = useMutation({
-    mutationFn: (next: video.Rating) =>
-      videoClient().rateVideo({ videoId: summary?.id ?? videoId, rating: next }),
     // The thumb answers at once; the server's count follows.
-    onMutate: (next) => {
-      const previous = queryClient.getQueryData<video.Video>(key);
-      patch((current) => ({
-        ...current,
-        viewer: current.viewer && { ...current.viewer, rating: next },
-        summary: current.summary && {
-          ...current.summary,
-          likeCount:
-            current.summary.likeCount +
-            (next === Rating.LIKE ? 1n : 0n) -
-            (rating === Rating.LIKE ? 1n : 0n),
-        },
-      }));
-      return { previous };
-    },
-    onSuccess: (response) => {
-      patch((current) => ({
-        ...current,
-        viewer: current.viewer && { ...current.viewer, rating: response.rating },
-        summary: current.summary && { ...current.summary, likeCount: response.likeCount },
-      }));
-      void queryClient.invalidateQueries({ queryKey: videoKeys.playlistItems("LL") });
-    },
-    onError: (error, _next, context) => {
-      queryClient.setQueryData(key, context?.previous);
+    mutationFn: (next: video.Rating) =>
+      rateVideo(queryClient, videoId, next, () =>
+        videoClient().rateVideo({ videoId: summary?.id ?? videoId, rating: next }),
+      ),
+    onSuccess: () =>
+      void queryClient.invalidateQueries({ queryKey: videoKeys.playlistItems("LL") }),
+    onError: (error) => {
       toast.error(errorMessage(error));
     },
   });

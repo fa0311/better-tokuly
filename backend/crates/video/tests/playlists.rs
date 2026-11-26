@@ -482,6 +482,7 @@ async fn playlists_can_be_edited_and_deleted_by_their_owner() {
     let deleted = ctx.app.events_by("video.playlist.deleted", alice.id).await;
     assert_eq!(deleted.len(), 1);
     assert_eq!(deleted[0].data["playlist_id"], playlist.id);
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_PLAYLIST, &playlist.id).await);
 }
 
 #[tokio::test]

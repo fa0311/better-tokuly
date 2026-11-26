@@ -139,9 +139,12 @@ pub struct Picture {
     pub animated: bool,
 }
 
-/// The purpose emoji pictures are uploaded with. Its limits fit small
-/// transparent images, and it keeps animations.
-pub const PICTURE_PURPOSE: AssetPurpose = AssetPurpose::ASSET_PURPOSE_STAMP;
+/// The purpose emoji pictures are uploaded with: small pictures, rendered
+/// no larger than an emoji is shown, animations kept.
+pub const PICTURE_PURPOSE: AssetPurpose = AssetPurpose::ASSET_PURPOSE_CUSTOM_EMOJI;
+/// The purposes an emoji picture may have: its own, and the stamps' one
+/// that emoji borrowed before (uploads made then, and clients built then).
+pub const PICTURE_PURPOSES: [AssetPurpose; 2] = [PICTURE_PURPOSE, AssetPurpose::ASSET_PURPOSE_STAMP];
 
 impl Picture {
     /// Checks that a READY upload can be an emoji and builds its `Image`:

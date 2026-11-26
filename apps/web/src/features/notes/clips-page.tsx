@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { clipKeys } from "@tokuly/core/notes";
 import { Globe, Lock, Pencil, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
-import { clipClient, clipKeys, storeClip, useClip, useClipNotes } from "./clips-api";
+import { clipClient, storeClip, useClip, useClipNotes } from "./clips-api";
 import { ClipForm } from "./clips-form";
 import { NoteCard } from "./note-card";
 

@@ -24,10 +24,21 @@ export function apiWith(store: RefreshTokenStore): Api {
     baseUrl: API_URL,
     client: apiClientKind,
     refreshTokenStore: store,
-    fetch: expoFetch as unknown as typeof globalThis.fetch,
+    fetch: withoutCookies,
     language: () => i18n.language,
   });
 }
+
+/**
+ * `expo/fetch` without cookies. The app proves who it is with its tokens
+ * alone; on Android its requests would otherwise share the cookie store of
+ * the web views (`features/web`), and carry a web session's cookie.
+ */
+const withoutCookies = ((input: string, init?: RequestInit) =>
+  expoFetch(input, {
+    ...(init as object),
+    credentials: "omit",
+  })) as unknown as typeof globalThis.fetch;
 
 export function resetApi(): void {
   instance = null;

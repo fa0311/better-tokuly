@@ -124,6 +124,9 @@ export default {
       empty: "ニュースソースがまだありません",
       emptyBody: "RSS / Atom フィードを追加すると、記事がニュースに並びはじめます。",
       fromConfig: "設定由来",
+      configured: "設定にあり",
+      configuredHint:
+        "サーバー設定（TOKULY_NEWS_FEEDS）にあるソースだよ。削除はできないので、止めたいときは無効にしてね",
       menu: "{{name}} の操作",
       refreshAll: "すべて今すぐ取得",
       refreshAllShort: "取得",
@@ -139,6 +142,10 @@ export default {
       deleteTitle: "「{{name}}」を削除する？",
       deleteBody: "このソースの記事 {{count}}件もいっしょに消えます。元にはもどせません。",
       deleted: "ソースを削除したよ",
+      configuredTitle: "「{{name}}」は削除できないよ",
+      configuredBody:
+        "サーバー設定（TOKULY_NEWS_FEEDS）にあるソースは、サーバーを起動するたびに作りなおされます。止めたいときは無効にしてね（取得が止まり、記事も一覧に出なくなります）。完全に消すには、先に設定から外してください。",
+      alreadyOff: "もう無効だよ",
       articles: "記事数",
       lastSuccess: "最終取得",
       nextFetch: "次回",
@@ -157,6 +164,8 @@ export default {
       TOO_MANY_NEWS_SOURCES: "ニュースソースは500件までだよ",
       NEWS_SOURCE_NOT_FOUND: "そのソースは見つかりません",
       NEWS_SOURCE_DISABLED: "無効のソースは取得できません。先に有効にしてね",
+      NEWS_SOURCE_CONFIGURED:
+        "サーバー設定（TOKULY_NEWS_FEEDS）にあるソースは削除できないよ。無効にするか、先に設定から外してね",
       NEWS_ARTICLE_NOT_FOUND: "その記事は見つかりません（もう取り下げ済みかも）",
     },
   },

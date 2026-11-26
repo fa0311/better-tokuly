@@ -13,7 +13,7 @@ use tokuly_core::prelude::*;
 use tokuly_identity::{settings, users};
 use tokuly_proto::social::{ContactMatch, Suggestion};
 
-use crate::{Social, graph};
+use crate::{Social, graph, people};
 
 const DEFAULT_SUGGESTIONS: usize = 20;
 const MAX_SUGGESTIONS: usize = 50;
@@ -159,7 +159,11 @@ impl Social {
         for candidate in friends_of_friends {
             consider(candidate, SuggestionReason::FriendOfFriend);
         }
-        for candidate in users::schoolmates(core, user_id, CANDIDATES_PER_SOURCE).await? {
+        // A school is whatever an account says it is. Where that is all two
+        // people have in common, they are suggested within their own age
+        // group only (as nearby discovery does); someone also found through
+        // a friend keeps that reason, whatever their age.
+        for candidate in people::schoolmates_of_age_group(core, user_id, CANDIDATES_PER_SOURCE).await? {
             consider(candidate, SuggestionReason::SameSchool);
         }
         reasons.remove(&user_id);

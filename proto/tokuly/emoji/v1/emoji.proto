@@ -357,9 +357,10 @@ message ClearRecentEmojiResponse {}
 // Submitting emoji and following one's own submissions. Every RPC needs an
 // account.
 //
-// The picture is a media upload with `ASSET_PURPOSE_STAMP` (a still PNG,
-// WebP, JPEG or GIF, or an animated GIF, APNG or WebP) that finished
-// processing. While an emoji exists it keeps its upload in use.
+// The picture is a media upload with `ASSET_PURPOSE_CUSTOM_EMOJI` (a still
+// PNG, WebP, JPEG or GIF, or an animated GIF, APNG or WebP) that finished
+// processing; uploads made with `ASSET_PURPOSE_STAMP`, the purpose emoji
+// used before, are still taken. While an emoji exists it keeps its upload in use.
 service EmojiSubmissionService {
   // The caller as a submitter: whether their emoji skip review, how many are
   // waiting, and the limits that apply.
@@ -430,7 +431,8 @@ message SubmitEmojiRequest {
   // 2-32 characters of `a-z`, `0-9` and `_`, with at least one letter or
   // digit. Capitals are accepted and lowered.
   string name = 1;
-  // A READY upload with `ASSET_PURPOSE_STAMP` owned by the caller.
+  // A READY upload with `ASSET_PURPOSE_CUSTOM_EMOJI` (or, as before,
+  // `ASSET_PURPOSE_STAMP`) owned by the caller.
   string asset_id = 2;
   // A category from `ListCategories`, or empty.
   string category = 3;
@@ -631,7 +633,8 @@ message ListEmojiResponse {
 
 message AddEmojiRequest {
   string name = 1;
-  // A READY upload with `ASSET_PURPOSE_STAMP` owned by the caller.
+  // A READY upload with `ASSET_PURPOSE_CUSTOM_EMOJI` (or, as before,
+  // `ASSET_PURPOSE_STAMP`) owned by the caller.
   string asset_id = 2;
   string category = 3;
   repeated string aliases = 4;

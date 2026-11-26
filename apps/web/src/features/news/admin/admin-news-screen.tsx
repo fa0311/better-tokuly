@@ -199,9 +199,16 @@ function Sources({
                         {source.language}
                       </span>
                     )}
-                    {source.fromConfig && (
-                      <span className="shrink-0 rounded bg-surface-2 px-1 text-[11px] font-bold text-ink-soft">
-                        {t("staff.sources.fromConfig")}
+                    {(source.configured || source.fromConfig) && (
+                      <span
+                        className="shrink-0 rounded bg-surface-2 px-1 text-[11px] font-bold text-ink-soft"
+                        title={source.configured ? t("staff.sources.configuredHint") : undefined}
+                      >
+                        {t(
+                          source.configured
+                            ? "staff.sources.configured"
+                            : "staff.sources.fromConfig",
+                        )}
                       </span>
                     )}
                   </p>
@@ -293,7 +300,7 @@ function Sources({
         />
       )}
       <ConfirmDialog
-        open={deleting !== undefined}
+        open={deleting !== undefined && !deleting.configured}
         onOpenChange={(open) => !open && setDeleting(undefined)}
         title={t("staff.sources.deleteTitle", { name: deleting?.name ?? "" })}
         description={t("staff.sources.deleteBody", { count: deleting?.articleCount ?? 0 })}
@@ -301,6 +308,21 @@ function Sources({
         danger
         loading={remove.isPending}
         onConfirm={() => deleting && remove.mutate(deleting)}
+      />
+      {/* A source the settings list is created again on every start: say why it stays, offer what works. */}
+      <ConfirmDialog
+        open={deleting?.configured === true}
+        onOpenChange={(open) => !open && setDeleting(undefined)}
+        title={t("staff.sources.configuredTitle", { name: deleting?.name ?? "" })}
+        description={t("staff.sources.configuredBody")}
+        confirmLabel={t(
+          deleting?.enabled === false ? "staff.sources.alreadyOff" : "staff.sources.switchOff",
+        )}
+        confirmDisabled={deleting?.enabled === false}
+        loading={toggle.isPending}
+        onConfirm={() =>
+          deleting && toggle.mutate(deleting, { onSettled: () => setDeleting(undefined) })
+        }
       />
     </Pane>
   );

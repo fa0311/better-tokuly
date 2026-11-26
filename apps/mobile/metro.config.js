@@ -1,6 +1,9 @@
 const { getDefaultConfig } = require("expo/metro-config");
 const { withNativeWind } = require("nativewind/metro");
 
+// The seam registries (which feature plugs in where) are written before anything is bundled.
+require("./scripts/seams").writeRegistries();
+
 const config = getDefaultConfig(__dirname);
 
 // The shared packages are TypeScript sources that import their siblings as `./x.js`

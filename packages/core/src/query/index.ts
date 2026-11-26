@@ -29,3 +29,5 @@ export type ClientSource<S extends DescService> = () => Client<S>;
 export function nextCursor(last: { page?: { nextCursor: string } }): string | undefined {
   return last.page?.nextCursor || undefined;
 }
+
+export { type PushesDuringRead, pushesDuringRead, pushesDuringReadByKey } from "./pushes";

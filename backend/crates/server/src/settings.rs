@@ -49,6 +49,29 @@ pub struct ApiConfig {
     /// The public URL is always allowed; in development so is any localhost port.
     #[arg(long, env = "TOKULY_CORS_ORIGINS", value_delimiter = ',', default_value = "")]
     pub cors_origins: Vec<String>,
+    /// Seconds a call that is not a stream may take before the server gives
+    /// up on it (DEADLINE_EXCEEDED): what a client gets that names no
+    /// timeout of its own, and the most it can ask for. Keep it above the
+    /// slowest thing a call waits for (the chat assistant's provider).
+    #[arg(long, env = "TOKULY_API_REQUEST_TIMEOUT_SECONDS", default_value_t = 120, value_parser = clap::value_parser!(u64).range(5..=3600))]
+    pub request_timeout_seconds: u64,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self { listen: ([0, 0, 0, 0], 8081).into(), cors_origins: Vec::new(), request_timeout_seconds: 120 }
+    }
+}
+
+impl ApiConfig {
+    /// How long calls may run. A client may ask for less, down to a second:
+    /// a deadline shorter than that is a way to have a handler dropped
+    /// half-way through at a moment of the caller's choosing. Streams are
+    /// only held to it until they open.
+    pub fn deadlines(&self) -> connectrpc::DeadlinePolicy {
+        let longest = std::time::Duration::from_secs(self.request_timeout_seconds);
+        connectrpc::DeadlinePolicy::new().with_min(std::time::Duration::from_secs(1)).with_max(longest).with_default_timeout(longest)
+    }
 }
 
 const ALL: &[Process] = &[Process::Api, Process::Realtime, Process::Worker];
@@ -70,6 +93,8 @@ const CHAT_AI_SCREEN: &[(&str, &str)] = &[
 const MEDIA_LIVE: &[&str] = &[
     "max_avatar_mb",
     "max_image_mb",
+    "max_comment_image_mb",
+    "max_emoji_mb",
     "max_clip_mb",
     "max_video_mb",
     "max_short_mb",
@@ -291,6 +316,16 @@ mod tests {
 
     use super::*;
 
+    /// A caller may shorten its deadline, never below a second and never
+    /// past the server's; saying nothing gets the server's.
+    #[test]
+    fn calls_are_held_to_the_api_timeout() {
+        let policy = ApiConfig { request_timeout_seconds: 45, ..Default::default() }.deadlines();
+        let seconds = std::time::Duration::from_secs;
+        assert_eq!((policy.min(), policy.max(), policy.default_timeout()), (seconds(1), Some(seconds(45)), Some(seconds(45))));
+        assert_eq!(ApiConfig::default().deadlines().max(), Some(seconds(120)));
+    }
+
     /// Environment variables that hold credentials: each must be a secret
     /// (`hide_env_values`), so the console never shows or exports it.
     #[test]
@@ -344,6 +379,8 @@ mod tests {
         ("geo", "routing_url"),
         ("geo", "weather_url"),
         ("dev", "webhook_allow_private"),
+        ("dev", "demo_operators"),
+        ("dev", "demo_password"),
         ("feed", "news_allow_loopback"),
         ("feed", "news_feeds"),
         ("identity", "profile_links_allow_loopback"),

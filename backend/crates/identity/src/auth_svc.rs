@@ -149,7 +149,7 @@ impl Identity {
         let device_id = client.map(|c| c.device_id.as_str()).unwrap_or_default();
         let (parked, others) =
             if add_account { self.make_room_for(user, &meta, current, device_id).await? } else { (Vec::new(), false) };
-        let origin = crate::sessions::SessionOrigin { mfa, added_by_switch: others };
+        let origin = crate::sessions::SessionOrigin { mfa, added_by_switch: others, ..Default::default() };
         let issued = self.create_session_with(user, client, &meta, origin).await?;
         let kind = if method == "signup" { "SIGN_UP" } else { "SIGN_IN" };
         let device_name = client.map(|c| c.device_name.as_str()).unwrap_or("");
@@ -177,6 +177,22 @@ impl Identity {
             .bind(user_id)
             .execute(&self.core.db)
             .await?;
+        Ok(())
+    }
+
+    /// Refuses a token [`Self::consume_email_token`] would refuse, with the
+    /// same answer and without using it up: the cheap check before work
+    /// that is only worth doing for a real link.
+    async fn require_live_email_token(&self, token: &str, purposes: &[&str]) -> AppResult<()> {
+        let live: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM email_tokens
+                           WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() AND purpose = ANY($2))",
+        )
+        .bind(self.core.keys.token_hash(token))
+        .bind(purposes.iter().map(|p| p.to_string()).collect::<Vec<_>>())
+        .fetch_one(&self.core.db)
+        .await?;
+        ensure!(live, invalid, "TOKEN_INVALID", "this link is invalid or has expired");
         Ok(())
     }
 
@@ -501,10 +517,20 @@ impl AuthService for Identity {
 
     async fn check_handle(
         &self,
-        _ctx: RequestContext,
+        ctx: RequestContext,
         request: ServiceRequest<'_, CheckHandleRequest>,
     ) -> ServiceResult<CheckHandleResponse> {
         handle(async {
+            // Asked while someone types a handle; far more than that is
+            // someone listing which handles exist. Counted per account when
+            // signed in (choosing a new handle in settings), so that a
+            // school's or a mobile carrier's shared address does not put
+            // its members in each other's way.
+            let limiter = match ctx.maybe_user_id()? {
+                Some(user_id) => format!("user:{user_id}"),
+                None => format!("ip:{}", ctx.client().ip),
+            };
+            self.core.cache.rate_limit(&format!("handle:check:{limiter}"), 120, Duration::from_secs(60)).await?;
             let normalized = match users::claimable_handle(request.handle) {
                 Ok(h) => h,
                 Err(reason) => {
@@ -606,6 +632,10 @@ impl AuthService for Identity {
     ) -> ServiceResult<AuthResponse> {
         handle(async {
             let req = request.to_owned_message();
+            self.core
+                .cache
+                .rate_limit(&format!("passkey:finish:ip:{}", ctx.client().ip), 60, Duration::from_secs(300))
+                .await?;
             let user = Identity::finish_passkey_sign_in(self, &req.challenge_id, &req.credential_json).await?;
             ensure!(user.banned_at.is_none(), denied, "ACCOUNT_BANNED", "this account has been suspended");
             // A passkey is possession + user verification, so no TOTP step
@@ -786,7 +816,11 @@ impl AuthService for Identity {
         request: ServiceRequest<'_, ResetPasswordRequest>,
     ) -> ServiceResult<ResetPasswordResponse> {
         handle(async {
+        self.core.cache.rate_limit(&format!("reset:finish:ip:{}", ctx.client().ip), 30, Duration::from_secs(3600)).await?;
         users::validate_password(request.new_password)?;
+        // Hashing a password is the most expensive thing an anonymous caller
+        // can ask for: only a link that would be accepted gets that far.
+        self.require_live_email_token(request.token, &["reset"]).await?;
         let hash = crate::password::hash(request.new_password).await?;
         let (user_id, _, email) = self.consume_email_token(request.token, &["reset"]).await?;
         // Receiving the reset mail proves control of the address.
@@ -994,6 +1028,14 @@ impl AuthService for Identity {
             })
         })
         .await
+    }
+
+    async fn create_web_handoff(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CreateWebHandoffRequest>,
+    ) -> ServiceResult<CreateWebHandoffResponse> {
+        self.create_web_handoff_rpc(ctx, request).await
     }
 }
 

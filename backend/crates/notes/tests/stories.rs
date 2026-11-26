@@ -557,6 +557,7 @@ async fn expiry_is_announced_once_and_deleting_removes_a_story_everywhere() {
     assert_eq!(views, 0);
     let deleted = ctx.app.events_by("notes.story.deleted", alice.id).await;
     assert_eq!(deleted.len(), 1);
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_STORY, &live.id).await);
     assert_eq!(
         (deleted[0].data["story_id"].clone(), deleted[0].data["reason"].clone()),
         (serde_json::json!(id(&live.id)), serde_json::json!("author"))

@@ -155,7 +155,7 @@ async fn comments_are_validated() {
 
     // Attachments and identities.
     let stamp = ctx.stamp(&bob).await;
-    let image = ctx.image(&bob, AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE).await;
+    let image = ctx.image(&bob, AssetPurpose::ASSET_PURPOSE_COMMENT_IMAGE).await;
     let both =
         CreateCommentRequest { stamp_id: stamp.clone(), image_asset_id: image.to_string(), ..create(&video, "") };
     assert_eq!(reason(both).await, "ATTACHMENT_CONFLICT");
@@ -191,6 +191,19 @@ async fn comments_are_validated() {
         reason(CreateCommentRequest { channel_id: carols_channel.to_string(), ..create(&video, "t") }).await,
         "CHANNEL_NOT_FOUND"
     );
+    // A picture uploaded for comments, or (as clients did before comments
+    // had a purpose of their own) for a note or a chat.
+    for purpose in [
+        AssetPurpose::ASSET_PURPOSE_COMMENT_IMAGE,
+        AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE,
+        AssetPurpose::ASSET_PURPOSE_CHAT_IMAGE,
+    ] {
+        let picture = ctx.image(&bob, purpose).await;
+        let text = format!("写真 {}", purpose as i32);
+        let request = CreateCommentRequest { image_asset_id: picture.to_string(), ..create(&video, &text) };
+        let posted: CreateCommentResponse = ctx.call(SVC, "CreateComment", Some(&bob), &request).await.unwrap();
+        assert_eq!(posted.comment.image.asset_id, picture.to_string(), "{purpose:?}");
+    }
 
     // The same comment twice in a row, however it is typed.
     ctx.comment(&bob, &video, "Hello").await;

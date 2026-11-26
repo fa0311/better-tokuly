@@ -4,8 +4,9 @@
 //!   as realtime frames and cache invalidations.
 //! - JetStream streams carry durable work: `EVENTS` (domain events from the
 //!   outbox), `JOBS` (background jobs), `ANALYTICS` (product analytics rows on
-//!   their way to ClickHouse) and `LOCATIONS` (location samples for the geo
-//!   pipeline).
+//!   their way to ClickHouse), `LOCATIONS` (location samples for the geo
+//!   pipeline) and `DEAD` (events and jobs their handlers gave up on, see
+//!   [`crate::dead_letters`]).
 use std::time::Duration;
 
 use async_nats::jetstream::{
@@ -22,6 +23,7 @@ pub const STREAM_EVENTS: &str = "EVENTS";
 pub const STREAM_JOBS: &str = "JOBS";
 pub const STREAM_ANALYTICS: &str = "ANALYTICS";
 pub const STREAM_LOCATIONS: &str = "LOCATIONS";
+pub const STREAM_DEAD: &str = "DEAD";
 
 #[derive(Clone)]
 pub struct Bus {
@@ -63,6 +65,15 @@ impl Bus {
         }
     }
 
+    /// A subject as received from the bus without this deployment's
+    /// namespace: the inverse of [`Self::subject`].
+    pub fn plain_subject<'a>(&self, subject: &'a str) -> &'a str {
+        if self.prefix.is_empty() {
+            return subject;
+        }
+        subject.strip_prefix(self.prefix.as_str()).and_then(|rest| rest.strip_prefix('.')).unwrap_or(subject)
+    }
+
     /// The namespaced form of a stream name.
     pub fn stream_name(&self, name: &str) -> String {
         if self.prefix.is_empty() {
@@ -99,6 +110,12 @@ impl Bus {
                 vec!["loc.>"],
                 RetentionPolicy::Limits,
                 day,
+            ),
+            (
+                STREAM_DEAD,
+                vec!["dead.>"],
+                RetentionPolicy::Limits,
+                crate::dead_letters::RETENTION,
             ),
         ];
         for (name, subjects, retention, max_age) in specs {
@@ -179,19 +196,28 @@ impl Bus {
         payload: impl Into<Bytes>,
         dedupe_id: Option<&str>,
     ) -> AppResult<()> {
+        let mut headers = async_nats::HeaderMap::new();
+        if let Some(id) = dedupe_id {
+            headers.insert("Nats-Msg-Id", id);
+        }
+        self.publish_durable_with_headers(subject, headers, payload).await
+    }
+
+    /// [`Self::publish_durable`] with headers of the caller's choosing.
+    pub async fn publish_durable_with_headers(
+        &self,
+        subject: impl Into<String>,
+        headers: async_nats::HeaderMap,
+        payload: impl Into<Bytes>,
+    ) -> AppResult<()> {
         let subject = self.subject(&subject.into());
         let unavailable = |e: String| {
             AppError::unavailable("BUS_UNAVAILABLE", format!("durable publish failed: {e}"))
         };
-        let ack = match dedupe_id {
-            Some(id) => {
-                let mut headers = async_nats::HeaderMap::new();
-                headers.insert("Nats-Msg-Id", id);
-                self.js
-                    .publish_with_headers(subject, headers, payload.into())
-                    .await
-            }
-            None => self.js.publish(subject, payload.into()).await,
+        let ack = if headers.is_empty() {
+            self.js.publish(subject, payload.into()).await
+        } else {
+            self.js.publish_with_headers(subject, headers, payload.into()).await
         }
         .map_err(|e| unavailable(e.to_string()))?;
         ack.await.map_err(|e| unavailable(e.to_string()))?;

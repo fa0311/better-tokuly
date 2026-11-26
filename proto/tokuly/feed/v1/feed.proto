@@ -537,8 +537,14 @@ service NewsAdminService {
   // site URL hands that field back to the feed. Errors: INVALID_ID,
   // NEWS_SOURCE_NOT_FOUND plus those of CreateNewsSource.
   rpc UpdateNewsSource(UpdateNewsSourceRequest) returns (UpdateNewsSourceResponse);
-  // Removes a source together with its articles.
-  // Errors: NEWS_SOURCE_NOT_FOUND.
+  // Removes a source together with its articles. A source whose feed is
+  // listed in the `TOKULY_NEWS_FEEDS` setting (`configured`) cannot be
+  // deleted: the server creates those on every start, so it would come back
+  // empty. Disable it instead (`UpdateNewsSource` with `enabled = false`: it
+  // is no longer fetched and its articles are no longer listed), or take
+  // the feed out of the setting first.
+  // Errors: NEWS_SOURCE_NOT_FOUND, NEWS_SOURCE_CONFIGURED (failed
+  // precondition).
   rpc DeleteNewsSource(DeleteNewsSourceRequest) returns (DeleteNewsSourceResponse);
   // Queues a fetch of one source, or of every enabled source, right away.
   // Errors: INVALID_ID, NEWS_SOURCE_NOT_FOUND, NEWS_SOURCE_DISABLED,
@@ -575,6 +581,10 @@ message ManagedNewsSource {
   int32 article_count = 15;
   google.protobuf.Timestamp created_at = 16;
   google.protobuf.Timestamp updated_at = 17;
+  // The feed is listed in `TOKULY_NEWS_FEEDS` right now, whoever created
+  // the source: it cannot be deleted (`NEWS_SOURCE_CONFIGURED`), only
+  // disabled.
+  bool configured = 18;
 }
 
 message ListManagedNewsSourcesRequest {}

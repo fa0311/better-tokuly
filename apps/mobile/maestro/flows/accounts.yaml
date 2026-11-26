@@ -11,30 +11,22 @@ env:
     visible: { id: "welcome-screen" }
     timeout: 60000
 - tapOn: { id: "welcome-sign-in" }
-- tapOn: { id: "sign-in-identifier" }
-- inputText: ${output.main}
-- tapOn: { id: "sign-in-password" }
-- inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: { id: "sign-in-submit" }
-- extendedWaitUntil:
-    visible: { id: "map-screen" }
-    timeout: 30000
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.main}
+      PASSWORD: ${PASSWORD}
 
 # A second account beside the first.
 - tapOn: { id: "tab-me" }
 - tapOn: { id: "me-settings" }
 - tapOn: { id: "settings-accounts" }
 - tapOn: { id: "accounts-add" }
-- tapOn: { id: "sign-in-identifier" }
-- inputText: ${output.second}
-- tapOn: { id: "sign-in-password" }
-- inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: { id: "sign-in-submit" }
-- extendedWaitUntil:
-    visible: { id: "map-screen" }
-    timeout: 30000
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.second}
+      PASSWORD: ${PASSWORD}
 - tapOn: { id: "tab-me" }
 - extendedWaitUntil:
     visible: ${'@' + output.second}

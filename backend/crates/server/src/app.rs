@@ -35,6 +35,8 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+use crate::settings::ApiConfig;
+
 /// Domain-specific settings, flattened into the command line.
 #[derive(Args, Clone)]
 pub struct DomainConfigs {
@@ -359,7 +361,7 @@ async fn readyz(State(core): State<Core>) -> (StatusCode, Json<serde_json::Value
     (status, Json(serde_json::json!({ "ready": ready, "postgres": postgres, "valkey": valkey, "nats": nats })))
 }
 
-pub fn api_router(core: Core, domains: &Domains, cors_origins: Vec<String>) -> axum::Router {
+pub fn api_router(core: Core, domains: &Domains, api: &ApiConfig) -> axum::Router {
     let connect = domains.connect_router();
     tracing::info!(methods = connect.methods().count(), "RPC methods registered");
     axum::Router::new()
@@ -371,7 +373,9 @@ pub fn api_router(core: Core, domains: &Domains, cors_origins: Vec<String>) -> a
         .merge(domains.dev.http_routes())
         // The pictures of link previews, fetched on the viewers' behalf.
         .merge(domains.media.http_routes())
-        .fallback_service(connect.into_axum_service())
+        // An app opening the web signed in (a one-time code for a cookie).
+        .merge(domains.identity.http_routes())
+        .fallback_service(connect.into_axum_service().with_deadline_policy(api.deadlines()))
         .layer(axum::middleware::from_fn_with_state(core.auth_layer.clone(), auth_middleware))
         // Our own infrastructure calling in. Both prove who they are in
         // `Authorization` with something that is not a token of ours, so they
@@ -381,16 +385,12 @@ pub fn api_router(core: Core, domains: &Domains, cors_origins: Vec<String>) -> a
         // The media server asking who may publish and watch a live stream:
         .nest("/hooks/live", domains.live.http_routes())
         .layer(TraceLayer::new_for_http())
-        .layer(cors_layer(&core, cors_origins))
+        .layer(cors_layer(&core, api.cors_origins.clone()))
 }
 
-pub async fn serve_api(
-    core: Core,
-    domains: Domains,
-    listen: SocketAddr,
-    cors_origins: Vec<String>,
-) -> anyhow::Result<()> {
-    let app = api_router(core.clone(), &domains, cors_origins);
+pub async fn serve_api(core: Core, domains: Domains, api: ApiConfig) -> anyhow::Result<()> {
+    let app = api_router(core.clone(), &domains, &api);
+    let listen = api.listen;
     let listener =
         tokio::net::TcpListener::bind(listen).await.map_err(|e| anyhow::anyhow!("cannot listen on {listen}: {e}"))?;
     tracing::info!(%listen, "API listening");
@@ -432,7 +432,7 @@ mod tests {
         let app = tokuly_testkit::TestApp::start(MIGRATIONS, |_, _, router| router).await;
         let core = app.core.clone();
         let domains = Domains::new(core.clone(), Settings::parse_from(["tokuly"]).domains).expect("domains");
-        let router = api_router(core.clone(), &domains, Vec::new());
+        let router = api_router(core.clone(), &domains, &ApiConfig::default());
         let get = |path: String, peer: std::net::IpAddr| {
             let router = router.clone();
             async move {

@@ -148,12 +148,12 @@ impl Ctx {
 
     /// A processed still image `owner` uploaded for an emoji.
     pub async fn picture(&self, owner: &TestUser) -> String {
-        self.upload(owner, AssetPurpose::ASSET_PURPOSE_STAMP, AssetKind::ASSET_KIND_IMAGE).await.to_string()
+        self.upload(owner, AssetPurpose::ASSET_PURPOSE_CUSTOM_EMOJI, AssetKind::ASSET_KIND_IMAGE).await.to_string()
     }
 
     /// A processed animation `owner` uploaded for an emoji.
     pub async fn animation(&self, owner: &TestUser) -> String {
-        self.upload(owner, AssetPurpose::ASSET_PURPOSE_STAMP, AssetKind::ASSET_KIND_ANIMATION).await.to_string()
+        self.upload(owner, AssetPurpose::ASSET_PURPOSE_CUSTOM_EMOJI, AssetKind::ASSET_KIND_ANIMATION).await.to_string()
     }
 
     /// How many holders keep an upload in use.

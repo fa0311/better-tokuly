@@ -13,12 +13,19 @@ pub const MAX_PARTS: i64 = 10_000;
 #[derive(Debug, Clone, Args)]
 pub struct MediaConfig {
     // ── upload limits (megabytes) ──
-    /// Largest profile-style image: avatars, banners, channel art, thumbnails, stamps.
+    /// Largest profile-style image: avatars, banners, channel and community art, thumbnails, stamps.
     #[arg(long, env = "TOKULY_MEDIA_MAX_AVATAR_MB", default_value_t = 10)]
     pub max_avatar_mb: i64,
     /// Largest photo in chats, notes, stories, places and day memos.
     #[arg(long, env = "TOKULY_MEDIA_MAX_IMAGE_MB", default_value_t = 25)]
     pub max_image_mb: i64,
+    /// Largest picture in a comment.
+    #[arg(long, env = "TOKULY_MEDIA_MAX_COMMENT_IMAGE_MB", default_value_t = 10)]
+    pub max_comment_image_mb: i64,
+    /// Largest custom emoji picture the media domain takes. The emoji domain
+    /// accepts less (`TOKULY_EMOJI_MAX_IMAGE_KB`); keep this one above it.
+    #[arg(long, env = "TOKULY_MEDIA_MAX_EMOJI_MB", default_value_t = 2)]
+    pub max_emoji_mb: i64,
     /// Largest short clip: chat and note videos, stories, avatar videos.
     #[arg(long, env = "TOKULY_MEDIA_MAX_CLIP_MB", default_value_t = 200)]
     pub max_clip_mb: i64,
@@ -111,6 +118,8 @@ impl Default for MediaConfig {
         Self {
             max_avatar_mb: 10,
             max_image_mb: 25,
+            max_comment_image_mb: 10,
+            max_emoji_mb: 2,
             max_clip_mb: 200,
             max_video_mb: 20 * 1024,
             max_short_mb: 1024,
@@ -211,6 +220,8 @@ impl MediaConfig {
     pub const CONSOLE_EDITABLE: &'static [&'static str] = &[
         "max_avatar_mb",
         "max_image_mb",
+        "max_comment_image_mb",
+        "max_emoji_mb",
         "max_clip_mb",
         "max_video_mb",
         "max_short_mb",

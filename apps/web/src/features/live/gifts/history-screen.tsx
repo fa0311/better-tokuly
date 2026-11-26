@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type live, toMillis } from "@tokuly/api";
+import { tierByLevel } from "@tokuly/core/live";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -13,7 +14,7 @@ import { EmojiText } from "#/features/emoji";
 import { useMyChannels } from "#/features/video";
 import { BalancePill } from "#/features/wallet";
 import { giftClient, liveKeys, nextCursor, useGiftTiers } from "../api";
-import { tierByLevel, tierStyle } from "../model";
+import { tierStyle } from "../model";
 import { ChannelFace, formatMoment } from "../parts";
 
 type Tab = "sent" | "received";

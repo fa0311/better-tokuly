@@ -25,10 +25,19 @@ use crate::{
     workers::SweepJob,
 };
 
-/// Upload purposes accepted for a community's icon and banner.
-const ICON_PURPOSES: [AssetPurpose; 2] = [AssetPurpose::ASSET_PURPOSE_AVATAR, AssetPurpose::ASSET_PURPOSE_CHANNEL_ICON];
-const BANNER_PURPOSES: [AssetPurpose; 2] =
-    [AssetPurpose::ASSET_PURPOSE_BANNER, AssetPurpose::ASSET_PURPOSE_CHANNEL_BANNER];
+/// Upload purposes accepted for a community's icon and banner: their own,
+/// and the ones communities borrowed before they had them (clients built
+/// then still upload with those).
+const ICON_PURPOSES: [AssetPurpose; 3] = [
+    AssetPurpose::ASSET_PURPOSE_COMMUNITY_ICON,
+    AssetPurpose::ASSET_PURPOSE_AVATAR,
+    AssetPurpose::ASSET_PURPOSE_CHANNEL_ICON,
+];
+const BANNER_PURPOSES: [AssetPurpose; 3] = [
+    AssetPurpose::ASSET_PURPOSE_COMMUNITY_BANNER,
+    AssetPurpose::ASSET_PURPOSE_BANNER,
+    AssetPurpose::ASSET_PURPOSE_CHANNEL_BANNER,
+];
 
 pub fn icon_holder(community_id: Uuid) -> String {
     format!("community:icon:{community_id}")

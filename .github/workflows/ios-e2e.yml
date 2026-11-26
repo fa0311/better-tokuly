@@ -200,7 +200,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: maestro-ios
-          path: ${{ runner.temp }}/maestro*
+          # Maestro keeps each flow's commands and a screenshot of each failure under ~/.maestro/tests.
+          path: |
+            ${{ runner.temp }}/maestro*
+            ~/.maestro/tests
           retention-days: 7
       - name: Keep the stack's logs
         if: failure()

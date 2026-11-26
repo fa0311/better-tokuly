@@ -56,7 +56,11 @@ pub fn max_bytes(cfg: &MediaConfig, purpose: AssetPurpose, declared: ContentClas
         | ASSET_PURPOSE_BANNER
         | ASSET_PURPOSE_THUMBNAIL
         | ASSET_PURPOSE_CHANNEL_ICON
-        | ASSET_PURPOSE_CHANNEL_BANNER => cfg.max_avatar_mb,
+        | ASSET_PURPOSE_CHANNEL_BANNER
+        | ASSET_PURPOSE_COMMUNITY_ICON
+        | ASSET_PURPOSE_COMMUNITY_BANNER => cfg.max_avatar_mb,
+        ASSET_PURPOSE_COMMENT_IMAGE => cfg.max_comment_image_mb,
+        ASSET_PURPOSE_CUSTOM_EMOJI => cfg.max_emoji_mb,
         ASSET_PURPOSE_STAMP => {
             return Some(if declared == ContentClass::Zip { MAX_LOTTIE_BYTES } else { megabytes(cfg.max_avatar_mb) });
         }
@@ -95,8 +99,12 @@ pub fn resolve(purpose: AssetPurpose, class: ContentClass) -> Option<AssetKind> 
             | ASSET_PURPOSE_THUMBNAIL
             | ASSET_PURPOSE_CHANNEL_ICON
             | ASSET_PURPOSE_CHANNEL_BANNER
+            | ASSET_PURPOSE_COMMUNITY_ICON
+            | ASSET_PURPOSE_COMMUNITY_BANNER
             | ASSET_PURPOSE_CHAT_IMAGE
             | ASSET_PURPOSE_NOTE_IMAGE
+            | ASSET_PURPOSE_COMMENT_IMAGE
+            | ASSET_PURPOSE_CUSTOM_EMOJI
             | ASSET_PURPOSE_PLACE_PHOTO
             | ASSET_PURPOSE_DAY_MEMO
             | ASSET_PURPOSE_STAMP
@@ -153,6 +161,10 @@ pub fn max_duration_seconds(cfg: &MediaConfig, purpose: AssetPurpose) -> Option<
         | ASSET_PURPOSE_DAY_MEMO
         | ASSET_PURPOSE_CHANNEL_ICON
         | ASSET_PURPOSE_CHANNEL_BANNER
+        | ASSET_PURPOSE_COMMENT_IMAGE
+        | ASSET_PURPOSE_CUSTOM_EMOJI
+        | ASSET_PURPOSE_COMMUNITY_ICON
+        | ASSET_PURPOSE_COMMUNITY_BANNER
         | ASSET_PURPOSE_UNSPECIFIED => None,
     }
 }
@@ -202,8 +214,37 @@ pub fn keeps_animation(purpose: AssetPurpose) -> bool {
     use AssetPurpose::*;
     matches!(
         purpose,
-        ASSET_PURPOSE_AVATAR | ASSET_PURPOSE_STAMP | ASSET_PURPOSE_CHAT_IMAGE | ASSET_PURPOSE_NOTE_IMAGE | ASSET_PURPOSE_STORY
+        ASSET_PURPOSE_AVATAR
+            | ASSET_PURPOSE_STAMP
+            | ASSET_PURPOSE_CHAT_IMAGE
+            | ASSET_PURPOSE_NOTE_IMAGE
+            | ASSET_PURPOSE_STORY
+            | ASSET_PURPOSE_COMMENT_IMAGE
+            | ASSET_PURPOSE_CUSTOM_EMOJI
+            | ASSET_PURPOSE_COMMUNITY_ICON
     )
+}
+
+/// The longest edge of the largest still rendered for a purpose (smaller
+/// variants follow from it, see `process::image::variant_sizes`). Pictures
+/// that are only ever shown small are not stored large: an emoji sits in a
+/// line of text, an icon in a list, a comment picture in a thread.
+pub fn largest_image_edge(purpose: AssetPurpose) -> u32 {
+    use AssetPurpose::*;
+    match purpose {
+        ASSET_PURPOSE_CUSTOM_EMOJI => 256,
+        ASSET_PURPOSE_COMMUNITY_ICON => 512,
+        ASSET_PURPOSE_COMMENT_IMAGE => 1024,
+        _ => crate::process::image::LARGEST_EDGE,
+    }
+}
+
+/// The longest edge of the animated rendition kept for a purpose.
+pub fn largest_animation_edge(purpose: AssetPurpose) -> u32 {
+    match purpose {
+        AssetPurpose::ASSET_PURPOSE_CUSTOM_EMOJI => 256,
+        _ => crate::process::animation::MAX_EDGE,
+    }
 }
 
 /// Whether files of this purpose are published in the media bucket instead
@@ -361,6 +402,48 @@ mod tests {
         assert_eq!(resolve(ASSET_PURPOSE_SUBTITLE, ContentClass::Other), None);
         assert_eq!(resolve(ASSET_PURPOSE_STAMP, ContentClass::Zip), Some(AssetKind::ASSET_KIND_FILE));
         assert_eq!(resolve(ASSET_PURPOSE_UNSPECIFIED, ContentClass::Image), None);
+        for picture in [
+            ASSET_PURPOSE_COMMENT_IMAGE,
+            ASSET_PURPOSE_CUSTOM_EMOJI,
+            ASSET_PURPOSE_COMMUNITY_ICON,
+            ASSET_PURPOSE_COMMUNITY_BANNER,
+        ] {
+            assert_eq!(resolve(picture, ContentClass::Image), Some(AssetKind::ASSET_KIND_IMAGE), "{picture:?}");
+            assert_eq!(resolve(picture, ContentClass::AvContainer), None, "{picture:?}");
+            assert_eq!(resolve(picture, ContentClass::Zip), None, "{picture:?}: no dotLottie outside stamps");
+            assert_eq!(max_duration_seconds(&MediaConfig::default(), picture), None);
+        }
+    }
+
+    #[test]
+    fn comment_images_emoji_and_community_art_have_limits_and_sizes_of_their_own() {
+        use AssetPurpose::*;
+        let cfg = MediaConfig { max_comment_image_mb: 7, max_emoji_mb: 3, max_avatar_mb: 5, max_image_mb: 40, ..MediaConfig::default() };
+        let max = |purpose| max_bytes(&cfg, purpose, ContentClass::Image);
+        assert_eq!(max(ASSET_PURPOSE_COMMENT_IMAGE), Some(megabytes(7)), "not the notes' or the chat's limit");
+        assert_eq!(max(ASSET_PURPOSE_CUSTOM_EMOJI), Some(megabytes(3)), "not the stamps' limit");
+        assert_eq!(max(ASSET_PURPOSE_COMMUNITY_ICON), Some(megabytes(5)));
+        assert_eq!(max(ASSET_PURPOSE_COMMUNITY_BANNER), Some(megabytes(5)));
+        let defaults = MediaConfig::default();
+        assert_eq!(max_bytes(&defaults, ASSET_PURPOSE_COMMENT_IMAGE, ContentClass::Image), Some(megabytes(10)));
+        assert_eq!(max_bytes(&defaults, ASSET_PURPOSE_CUSTOM_EMOJI, ContentClass::Image), Some(megabytes(2)));
+
+        // Rendered no larger than they are shown.
+        assert_eq!(largest_image_edge(ASSET_PURPOSE_CUSTOM_EMOJI), 256);
+        assert_eq!(largest_image_edge(ASSET_PURPOSE_COMMUNITY_ICON), 512);
+        assert_eq!(largest_image_edge(ASSET_PURPOSE_COMMENT_IMAGE), 1024);
+        for full in [ASSET_PURPOSE_COMMUNITY_BANNER, ASSET_PURPOSE_NOTE_IMAGE, ASSET_PURPOSE_STAMP, ASSET_PURPOSE_AVATAR] {
+            assert_eq!(largest_image_edge(full), 2048, "{full:?}");
+        }
+        assert_eq!(largest_animation_edge(ASSET_PURPOSE_CUSTOM_EMOJI), 256);
+        assert_eq!(largest_animation_edge(ASSET_PURPOSE_STAMP), 512);
+
+        // Emoji, comment pictures and icons move; a banner is a still.
+        for animated in [ASSET_PURPOSE_COMMENT_IMAGE, ASSET_PURPOSE_CUSTOM_EMOJI, ASSET_PURPOSE_COMMUNITY_ICON] {
+            assert!(keeps_animation(animated), "{animated:?}");
+        }
+        assert!(!keeps_animation(ASSET_PURPOSE_COMMUNITY_BANNER));
+        assert!(!publishes_files(ASSET_PURPOSE_CUSTOM_EMOJI));
     }
 
     #[test]

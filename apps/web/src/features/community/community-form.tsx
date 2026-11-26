@@ -255,7 +255,7 @@ export function CommunityFields({
         <ArtField
           label={t("form.icon")}
           shape="icon"
-          purpose={media.AssetPurpose.AVATAR}
+          purpose={media.AssetPurpose.COMMUNITY_ICON}
           draft={draft.icon}
           currentUrl={imageUrl(current?.icon, 96)}
           onChange={(icon) => set("icon", icon)}
@@ -263,7 +263,7 @@ export function CommunityFields({
         <ArtField
           label={t("form.banner")}
           shape="banner"
-          purpose={media.AssetPurpose.BANNER}
+          purpose={media.AssetPurpose.COMMUNITY_BANNER}
           draft={draft.banner}
           currentUrl={imageUrl(current?.banner, 320)}
           onChange={(banner) => set("banner", banner)}

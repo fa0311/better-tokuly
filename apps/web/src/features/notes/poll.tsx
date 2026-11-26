@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { type notes, toMillis } from "@tokuly/api";
+import { patchNote, pollRemaining } from "@tokuly/core/notes";
 import { Check } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,19 +10,8 @@ import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
-import { noteClient, patchNote } from "./api";
+import { noteClient } from "./api";
 import { useClock } from "./time";
-
-/** How long until a poll's end: the string key and its count. */
-function remaining(endsMs: number, nowMs: number): [string, number] {
-  const left = endsMs - nowMs;
-  if (left <= 0) return ["poll.ended", 0];
-  const minutes = Math.ceil(left / 60_000);
-  if (minutes < 60) return ["poll.minutesLeft", minutes];
-  const hours = Math.ceil(minutes / 60);
-  if (hours < 48) return ["poll.hoursLeft", hours];
-  return ["poll.daysLeft", Math.ceil(hours / 24)];
-}
 
 /**
  * A note's poll: the choices to vote for, or the results as bars when the
@@ -138,7 +128,7 @@ export function NotePoll({
           : t("poll.hidden")}
         {" · "}
         {(() => {
-          const [key, count] = remaining(toMillis(poll.endsAt), Date.now());
+          const [key, count] = pollRemaining(toMillis(poll.endsAt), Date.now());
           return t(key, { count });
         })()}
       </p>

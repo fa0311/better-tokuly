@@ -109,26 +109,19 @@ What follows from the rule, path by path:
   domain first (`tokuly_social::claims::PositionCheck`, plugged in by
   `Geo::new`). The answer is a verdict about the caller's own claim —
   plausible, not verified, or too coarse — never a position or distance.
-  The live state keeps `trust`: the real fix, its anchor and a run. Only
-  the newest sample of an upload counts, and all times are arrival times
-  (server clock; a phone whose clock is off is not locked out). A sample
-  accurate to 100 m and not mocked becomes the real fix when it follows
-  from the anchor: at most 90 m/s from it within 10 minutes, or within
-  1 km after a longer silence. Anything else is a jump, which becomes real
-  only after 3 consistent fixes (each within 5 minutes of the previous and
-  at ground speed from it) over at least 2 minutes. A mock sample drops the
-  real fix but not the anchor; an account's very first fix is taken as it
-  is. A claim is plausible when the real fix arrived at most 10 minutes ago
-  (45 while staying) and the claim is within 50 m plus both accuracies (the
-  claim's counted up to 50 m) plus walking speed since the fix, never more
-  than 300 m. A refused claim is "too coarse" when the latest sample was
-  refused only for its accuracy. Ghost rules play no part: what others see
-  is computed from the claim (`tests/claims.rs` runs two worlds that differ
-  only in where the claimer really is, with a series of claims in each).
-  What this guarantees: the real fix moves at ground speed or jumps after
-  two minutes of consistent reports. Samples are the device's word, so a
-  device that fakes a ground-speed track, or a new place steadily for two
-  minutes, moves its real fix there.
+  Ghost rules play no part: what others see is computed from the claim.
+  - *The real fix*: the newest sample of an upload, accurate to 100 m and
+    not mocked, that follows from the last one (at most 90 m/s within
+    10 minutes, or within 1 km after a longer silence). A jump becomes real
+    only after 3 consistent fixes over at least 2 minutes. Times are
+    arrival times (server clock). A mock sample drops the real fix.
+  - *Plausible*: the real fix arrived at most 10 minutes ago (45 while
+    staying) and the claim is within 50 m plus both accuracies plus walking
+    speed since the fix, never more than 300 m. "Too coarse" when the
+    latest sample was refused only for its accuracy.
+  - *Limit*: samples are the device's word; a device that fakes a
+    ground-speed track, or a new place steadily for two minutes, moves its
+    real fix there.
 - **Pushes to viewers who do not see precisely.** A blurred viewer is sent
   the stand-in when what they see changes (another cell, the battery, the
   paused flag, a new ten-minute step of `recorded_at`, which is rounded down
@@ -180,6 +173,7 @@ Known limits (accepted for now):
 | `notify.requested` | `NotificationRequest` | see "Notification kinds" |
 | `activity.recorded` | `ActivityEntry` | see "Activity entries" |
 | `search.changed` | `SearchChange` (kind `place`) | a place became public, changed while public, stopped being public or was deleted |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A place was removed for good (`SUBJECT_TYPE_PLACE`): by its owner, a moderator or account deletion. |
 
 The geo domain emits no domain events of its own: what other domains need
 from it is live (the `tokuly_core::geoindex` position index) or goes through
@@ -228,11 +222,9 @@ Durable consumer `geo` (`Geo::handle_event`). Every handler is idempotent.
 | `footprint_progress` | the user themselves | New cells; one extra event per region entered for the first time. |
 
 When a share ends (revoked, expired, the account deleted) its topic
-`share:<token>` is closed after `location_removed_user_id`
-(`Realtime::close_topic`): every follower gets
-`ServerFrame.unsubscribed { reason: TOPIC_CLOSED }` and hears nothing more.
-Friends' positions are user-scoped, so an unfriending or a block ends them
-by itself: `location_removed_user_id` to both, and no further `location`.
+`share:<token>` is closed after `location_removed_user_id`. Friends'
+positions are user-scoped: an unfriending or a block sends
+`location_removed_user_id` to both, and no further `location`.
 
 Topic `share:<token>` is deliberately unguarded: the 32-character token is the
 capability.

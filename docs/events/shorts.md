@@ -42,20 +42,15 @@ tokuly_shorts::Shorts::set_clip_directory(Arc<dyn ClipDirectory>)              /
 ## Audiences and locked accounts
 
 Shorts take the audiences of videos (see `docs/events/video.md`,
-"Audiences and locked accounts", and `tokuly_video::access`): PUBLIC,
-NO_FEED, UNLISTED, FOLLOWERS, FRIENDS, CLOSE_FRIENDS, CIRCLE (shown to its
-members as FOLLOWERS; `circle_id` is the owner's only, in
-`ShortStudioInfo`) and PRIVATE. `shorts.owner_locked` copies whether the
-owner is locked (`social.follow.settings_changed`, and when the short is
-created); `listed` is "PUBLISHED, PUBLIC, not suspended, owner not
-locked", so a locked account's shorts leave hashtag pages, sound pages,
-remix lists, the for-you candidates and search, and their counts
-(`use_count` of hashtags and sounds, `remix_count`). Reads check the
-social domain for rows that reach a viewer only through the copy, so a
-lock applies at the next read. The channel of a locked account looks like
-a channel without shorts to everyone but the owner's followers and
-friends. Mentioned accounts are told only while they are in the short's
-audience.
+"Audiences and locked accounts"); CIRCLE is shown to its members as
+FOLLOWERS (`circle_id` is the owner's only, in `ShortStudioInfo`). A short
+is `listed` when it is PUBLISHED, PUBLIC, not suspended and its owner not
+locked: only listed shorts are on hashtag pages, sound pages, remix lists,
+among the for-you candidates and in search, and only they count
+(`use_count`, `remix_count`). A lock applies at the next read. The channel
+of a locked account looks like a channel without shorts to everyone but the
+owner's followers and friends. Mentioned accounts are told only while they
+are in the short's audience.
 
 ## Events emitted
 
@@ -70,6 +65,7 @@ transaction of the change.
 | `shorts.short.published` | A short went live, or first reached an audience. `first_publication` is true exactly once per short: when it is first PUBLISHED and PUBLIC or shared with an audience (followers, friends, close friends, a circle). |
 | `shorts.short.visibility_changed` | `ShortEvent` + `{ visible_to, changed_at }`: a published short got another audience, or (once per published open short) its owner locked or unlocked their account. `visibility` is the audience now in effect (6 for a PUBLIC short of a locked owner; NO_FEED and UNLISTED keep their number); `visible_to` who besides the owner may still watch it (`null`: everyone; otherwise the audience as the social graph gives it, people in a block with the owner left out); `changed_at` taken while the short was locked. At most 5 000 people are named (`tokuly_core::events::MAX_VISIBLE_TO`): a longer list is narrowed to nobody (`[]`), which withdraws too much, never too little. **Never forward to outside parties.** |
 | `shorts.short.deleted` | A short is gone for everyone. `reason`: `owner`, `channel_deleted`, `account_deleted`, `moderation`, `asset_deleted`. Emitted once, also for a short that is only withdrawn (below). |
+| `subject.deleted` `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A short's row was deleted (`SUBJECT_TYPE_SHORT`). A short that was withdrawn instead of deleted (reported, or it told someone of a mention) is announced only when the retention purge removes it: until then what was written on it stays with it. |
 
 ## Events consumed
 

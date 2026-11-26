@@ -171,6 +171,12 @@
 # (TOKULY_CORS_ORIGINS; restart: api)
 # cors_origins = []
 
+# Seconds a call that is not a stream may take before the server gives up on it (DEADLINE_EXCEEDED):
+# what a client gets that names no timeout of its own, and the most it can ask for. Keep it above
+# the slowest thing a call waits for (the chat assistant's provider).
+# (TOKULY_API_REQUEST_TIMEOUT_SECONDS; restart: api)
+# request_timeout_seconds = 120
+
 [realtime]
 
 # UDP address of the WebTransport (HTTP/3) listener. Empty disables WebTransport.
@@ -372,13 +378,22 @@
 
 [media]
 
-# Largest profile-style image: avatars, banners, channel art, thumbnails, stamps.
+# Largest profile-style image: avatars, banners, channel and community art, thumbnails, stamps.
 # (TOKULY_MEDIA_MAX_AVATAR_MB; console; applies at once)
 # max_avatar_mb = 10
 
 # Largest photo in chats, notes, stories, places and day memos.
 # (TOKULY_MEDIA_MAX_IMAGE_MB; console; applies at once)
 # max_image_mb = 25
+
+# Largest picture in a comment.
+# (TOKULY_MEDIA_MAX_COMMENT_IMAGE_MB; console; applies at once)
+# max_comment_image_mb = 10
+
+# Largest custom emoji picture the media domain takes. The emoji domain accepts less
+# (`TOKULY_EMOJI_MAX_IMAGE_KB`); keep this one above it.
+# (TOKULY_MEDIA_MAX_EMOJI_MB; console; applies at once)
+# max_emoji_mb = 2
 
 # Largest short clip: chat and note videos, stories, avatar videos.
 # (TOKULY_MEDIA_MAX_CLIP_MB; console; applies at once)
@@ -773,7 +788,8 @@
 # recap_min_activities = 5
 
 # RSS/Atom feed URLs, comma separated, that exist as news sources from the first start (admins
-# manage the rest through the API).
+# manage the rest through the API). A source listed here is created again on every start, so the
+# console can switch it off but not delete it: take it out of this list first.
 # (TOKULY_NEWS_FEEDS; restart: api, worker)
 # news_feeds = ""
 
@@ -1703,6 +1719,20 @@
 # addresses. Refused in production.
 # (TOKULY_DEV_WEBHOOK_ALLOW_PRIVATE; restart: api, worker)
 # webhook_allow_private = false
+
+# E-mail addresses of the accounts the demo simulator (`tokuly demo`) signs up to own its bots,
+# comma-separated. Leave it unset unless the simulator runs against this server. Bots owned by these
+# accounts may be given tokens that write to every domain except the wallet, so they can move on the
+# map, chat and post like people, as long as the account's password is TOKULY_DEV_DEMO_PASSWORD;
+# every other bot stays limited to its own profile, uploads and inbox.
+# (TOKULY_DEV_DEMO_OPERATORS; restart: api, worker)
+# demo_operators = []
+
+# Password of the demo's operator accounts (at least 16 characters), shared with the simulator.
+# Signing up needs no verified address, so an address alone proves nothing: only an account that
+# also knows this password gets its bots the demo's write scopes.
+# (TOKULY_DEV_DEMO_PASSWORD; secret; restart: api, worker)
+# demo_password = ""
 
 [engagement]
 

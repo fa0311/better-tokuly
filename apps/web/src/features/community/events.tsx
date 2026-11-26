@@ -226,7 +226,9 @@ export function EventFormDialog({
   const pickCover = async (picked: File) => {
     setUploading(true);
     try {
-      const asset = await uploadAndProcess(picked, { purpose: media.AssetPurpose.BANNER });
+      const asset = await uploadAndProcess(picked, {
+        purpose: media.AssetPurpose.COMMUNITY_BANNER,
+      });
       setCover({ assetId: asset.id, preview: URL.createObjectURL(picked) });
     } catch (error) {
       toast.error(errorMessage(error, { namespace: NS }));

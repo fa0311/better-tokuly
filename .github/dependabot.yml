@@ -1,0 +1,64 @@
+# Dependency updates, once a week, grouped so that a week is a handful of
+# pull requests and not sixty. Security updates come on their own, at once.
+#
+# Third-party actions are pinned to a commit (the tag is in the comment
+# beside it): a tag can be moved to other code, a commit cannot. Dependabot
+# moves the pins and keeps the comments.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/*"]
+    schedule: { interval: weekly, day: monday }
+    groups:
+      actions: { patterns: ["*"] }
+
+  - package-ecosystem: cargo
+    directory: /backend
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      rust-patch-and-minor:
+        update-types: [minor, patch]
+
+  # The pnpm workspace: the catalog in pnpm-workspace.yaml and every package.json.
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      # Expo decides the versions of React Native and of its own modules
+      # (`npx expo install --fix`): they move together, by hand, per SDK.
+      expo-sdk:
+        patterns: ["expo", "expo-*", "@expo/*", "react-native", "react-native-*", "jest-expo", "babel-preset-expo"]
+      js-patch-and-minor:
+        update-types: [minor, patch]
+    ignore:
+      # NativeWind 4 is built on Tailwind CSS 3; the web app's Tailwind 4 comes from the catalog.
+      - dependency-name: tailwindcss
+        versions: [">=4"]
+      - dependency-name: expo
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-native
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # The rest of what Expo pins per SDK (`npx expo install --check`): native modules and
+      # the React it was built with. They move with the SDK, never on their own (#150 broke them).
+      - dependency-name: "react-native-*"
+      - dependency-name: "expo-*"
+      - dependency-name: "@expo/*"
+      - dependency-name: "@shopify/flash-list"
+      - dependency-name: "@maplibre/maplibre-react-native"
+      - dependency-name: react
+      - dependency-name: react-dom
+
+  - package-ecosystem: docker
+    directories: ["/infra/docker", "/infra/postgres", "/infra/tiles"]
+    schedule: { interval: weekly, day: monday }
+    groups:
+      base-images: { patterns: ["*"] }
+
+  # The images of compose.yaml and compose.dev.yaml (keep the two in step).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    groups:
+      stack-images: { patterns: ["*"] }

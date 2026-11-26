@@ -9,6 +9,11 @@
 //! - `tokuly all`       everything in one process (development)
 //!
 //! `tokuly healthcheck <url>` is the container health probe for these roles.
+//! `tokuly promote-admin` and `tokuly dead-letters` are the operator's tools.
+//!
+//! `tokuly demo` is not a role of the server but a client of it: the demo
+//! simulator (`tokuly-demo`), which needs the API's address and nothing of
+//! the infrastructure.
 //!
 //! Settings come from the command line, the `TOKULY_*` environment, the
 //! `tokuly.toml` named by `TOKULY_CONFIG` and the staff console, in that
@@ -54,6 +59,12 @@ enum Command {
         /// Handle or e-mail address of the account.
         account: String,
     },
+    /// Events and jobs their handlers gave up on (kept for 30 days): `list`
+    /// shows them, `redrive` sends them round again once the cause is fixed.
+    DeadLetters {
+        #[command(subcommand)]
+        action: DeadLettersAction,
+    },
     /// Settings files: `example` prints every setting with its default (the
     /// source of `tokuly.example.toml`); `show` prints what the command line,
     /// the environment and `tokuly.toml` set (console values not included).
@@ -66,6 +77,56 @@ enum Command {
         /// For example `http://127.0.0.1:8081/readyz`.
         url: String,
     },
+    /// Run the demo simulator against a running API: bots that walk around
+    /// a region of the map, chat and post (off until its operators are set).
+    Demo(Box<tokuly_demo::DemoConfig>),
+}
+
+#[derive(Subcommand, Clone)]
+enum DeadLettersAction {
+    /// Print the buried messages, oldest first: where each failed and why.
+    List {
+        /// Only what failed in consumers whose name starts with this
+        /// (`notify`, `job-media`).
+        consumer: Option<String>,
+    },
+    /// Publish the buried messages again and remove them from the list. A
+    /// redriven event reaches only the consumer it failed in.
+    Redrive {
+        /// Only what failed in consumers whose name starts with this.
+        consumer: Option<String>,
+    },
+}
+
+/// The most dead letters one command reads.
+const DEAD_LETTERS_PER_RUN: usize = 10_000;
+
+async fn dead_letters(core: &Core, action: DeadLettersAction) -> anyhow::Result<()> {
+    use tokuly_core::dead_letters::{list, redrive};
+    match action {
+        DeadLettersAction::List { consumer } => {
+            let buried = list(&core.bus, consumer.as_deref(), DEAD_LETTERS_PER_RUN).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            for item in &buried {
+                let letter = &item.letter;
+                println!(
+                    "{}\t{}\t{}\t{}\tafter {} deliveries: {}",
+                    item.sequence,
+                    letter.died_at.format("%Y-%m-%dT%H:%M:%SZ"),
+                    letter.consumer,
+                    letter.subject,
+                    letter.deliveries,
+                    letter.error.replace(['\n', '\t'], " "),
+                );
+            }
+            eprintln!("{} dead letter(s)", buried.len());
+        }
+        DeadLettersAction::Redrive { consumer } => {
+            let done = redrive(&core.bus, consumer.as_deref(), DEAD_LETTERS_PER_RUN).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("{} sent round again, {} could not be sent and stay buried", done.sent, done.failed);
+            anyhow::ensure!(done.failed == 0, "some dead letters could not be sent");
+        }
+    }
+    Ok(())
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -92,9 +153,33 @@ fn early_command(argv: &[OsString]) -> Option<Command> {
     }
 }
 
+/// The simulator's own command line, when the first word is `demo`. It is
+/// parsed by itself, strictly: none of the server's settings (the secret,
+/// the database) exist where the simulator runs.
+#[derive(Parser)]
+#[command(name = "tokuly demo", about = "Tokuly demo simulator")]
+struct DemoCli {
+    #[command(flatten)]
+    config: tokuly_demo::DemoConfig,
+}
+
+/// Runs the simulator until Ctrl-C or SIGTERM.
+async fn demo(config: tokuly_demo::DemoConfig) -> anyhow::Result<()> {
+    if config.operators().is_empty() {
+        // Not an error: the profile may be on before the demo is configured.
+        eprintln!("tokuly demo: off. Set TOKULY_DEV_DEMO_OPERATORS and TOKULY_DEV_DEMO_PASSWORD (tools/demo-env.sh writes them to .env), restart the server and start the demo again.");
+        return Ok(());
+    }
+    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+    tokuly_demo::run(config, shutdown_signal()).await.map(drop)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let argv: Vec<OsString> = std::env::args_os().collect();
+    if argv.get(1).is_some_and(|word| word == "demo") {
+        return demo(DemoCli::parse_from(std::iter::once(&OsString::from("tokuly demo")).chain(&argv[2..])).config).await;
+    }
     match early_command(&argv) {
         // The probe talks to a server that is already running: it needs none of the infrastructure.
         Some(Command::Healthcheck { url }) => return healthcheck::run(&url).await,
@@ -125,8 +210,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Worker => "tokuly-worker",
         Command::Migrate => "tokuly-migrate",
         Command::All => "tokuly-all",
-        Command::PromoteAdmin { .. } => "tokuly-admin",
-        Command::Healthcheck { .. } | Command::Config { .. } => unreachable!("handled above"),
+        Command::PromoteAdmin { .. } | Command::DeadLetters { .. } => "tokuly-admin",
+        Command::Healthcheck { .. } | Command::Config { .. } | Command::Demo(_) => unreachable!("handled above"),
     };
     let _telemetry = telemetry::init(&cli.core, service);
     if let Some(file) = &resolved.file {
@@ -181,7 +266,8 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("{account}: no such account, or it already is an admin");
             }
         }
-        Command::Api => app::serve_api(core, domains, cli.api.listen, cli.api.cors_origins).await?,
+        Command::DeadLetters { action } => dead_letters(&core, action).await?,
+        Command::Api => app::serve_api(core, domains, cli.api).await?,
         Command::Realtime => domains.gateway.run().await?,
         Command::Worker => {
             app::spawn_workers(&core, &domains);
@@ -198,9 +284,9 @@ async fn main() -> anyhow::Result<()> {
                     shutdown.cancel();
                 }
             });
-            app::serve_api(core, domains, cli.api.listen, cli.api.cors_origins).await?;
+            app::serve_api(core, domains, cli.api).await?;
         }
-        Command::Healthcheck { .. } | Command::Config { .. } => unreachable!("handled above"),
+        Command::Healthcheck { .. } | Command::Config { .. } | Command::Demo(_) => unreachable!("handled above"),
     }
     Ok(())
 }
@@ -221,20 +307,25 @@ async fn start(cfg: Config, domains: app::DomainConfigs, state: tokuly_core::set
 /// Cancels `core.shutdown` on Ctrl-C or SIGTERM so servers and workers stop cleanly.
 fn spawn_shutdown_listener(core: Core) {
     tokio::spawn(async move {
-        let ctrl_c = tokio::signal::ctrl_c();
-        #[cfg(unix)]
-        {
-            let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("install SIGTERM handler");
-            tokio::select! {
-                _ = ctrl_c => {}
-                _ = term.recv() => {}
-            }
-        }
-        #[cfg(not(unix))]
-        let _ = ctrl_c.await;
+        shutdown_signal().await;
         tracing::info!("shutdown requested");
         core.shutdown.cancel();
     });
+}
+
+/// Completes on Ctrl-C or SIGTERM.
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("install SIGTERM handler");
+        tokio::select! {
+            _ = ctrl_c => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = ctrl_c.await;
 }
 
 #[cfg(test)]

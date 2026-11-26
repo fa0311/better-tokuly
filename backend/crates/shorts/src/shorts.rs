@@ -1178,6 +1178,9 @@ pub async fn delete_in(
     if !short.is_withdrawn() {
         core_events::emit(&mut **tx, SHORT_DELETED, actor, &short.event(false, removal.reason())).await?;
     }
+    // Only now, also for a withdrawn short: until its row goes, what was
+    // written on it stays with it for the moderators.
+    outbound::subject_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_SHORT, short.id).await?;
     if short.owns_asset && removal != Removal::AssetDeleted {
         if removal == Removal::Moderation {
             aftermath.delete_by_force(short.asset_id);

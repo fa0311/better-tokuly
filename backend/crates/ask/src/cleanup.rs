@@ -308,7 +308,8 @@ impl Ask {
     /// The periodic purge: erases what was only kept for moderators
     /// (deleted, withdrawn, taken-down and dropped questions and prompt
     /// responses; deleted prompts) once the retention has passed, and old
-    /// rounds. Returns how many rows went.
+    /// rounds. Returns how many rows went. Only here is `subject.deleted`
+    /// emitted: until then the rows answer reports.
     ///
     /// The retention counts from the day something was removed, not the
     /// day it was written: a question taken down after a year is kept for
@@ -339,6 +340,8 @@ impl Ask {
                     assets::detach_holder(&mut *tx, &answer_holder(*question_id)).await?;
                 }
             }
+            let question_ids: Vec<Uuid> = gone.iter().map(|(question_id, ..)| *question_id).collect();
+            outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_QUESTION, &question_ids).await?;
             tx.commit().await?;
             purged += gone.len() as u64;
             if (gone.len() as i64) < PURGE_BATCH {
@@ -367,6 +370,8 @@ impl Ask {
                     assets::detach_holder(&mut *tx, &response_holder(*response_id)).await?;
                 }
             }
+            let response_ids: Vec<Uuid> = gone.iter().map(|(response_id, _)| *response_id).collect();
+            outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_QUESTION, &response_ids).await?;
             tx.commit().await?;
             purged += gone.len() as u64;
             if (gone.len() as i64) < PURGE_BATCH {
@@ -374,14 +379,19 @@ impl Ask {
             }
         }
         // By now such a prompt has no responses left.
-        let prompts = sqlx::query("DELETE FROM ask_prompts WHERE removed_at < now() - make_interval(days => $1)")
-            .bind(retention)
-            .execute(&self.core.db)
-            .await?;
+        let mut tx = self.core.db.begin().await?;
+        let prompts: Vec<Uuid> = sqlx::query_scalar(
+            "DELETE FROM ask_prompts WHERE removed_at < now() - make_interval(days => $1) RETURNING id",
+        )
+        .bind(retention)
+        .fetch_all(&mut *tx)
+        .await?;
+        outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_QUESTION, &prompts).await?;
+        tx.commit().await?;
         let rounds = sqlx::query("DELETE FROM ask_rounds WHERE completed_at < now() - make_interval(days => $1)")
             .bind(ROUND_RETENTION_DAYS)
             .execute(&self.core.db)
             .await?;
-        Ok(purged + prompts.rows_affected() + rounds.rows_affected())
+        Ok(purged + prompts.len() as u64 + rounds.rows_affected())
     }
 }

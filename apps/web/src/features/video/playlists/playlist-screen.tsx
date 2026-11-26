@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, toMillis, video } from "@tokuly/api";
+import { playlistTitle } from "@tokuly/core/video";
 import { GripVertical, ListVideo, ListX, Pencil, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,7 +24,6 @@ import { nextCursor, playlistClient, videoKeys } from "../api";
 import { formatAge } from "../format";
 import { visibilityOption } from "../labels";
 import { announceTrafficSource } from "../playback-session";
-import { playlistTitle } from "../save-dialog";
 import { ChannelName, imageUrl, VideoCard, VideoCardSkeleton, VisibilityChip } from "../video-card";
 import { movedItem } from "./order";
 import { PlaylistFormDialog } from "./playlist-form";

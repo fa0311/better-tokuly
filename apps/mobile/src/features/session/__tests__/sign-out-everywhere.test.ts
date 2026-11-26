@@ -2,7 +2,14 @@ import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { create, identity } from "@tokuly/api";
 import { api, resetApi } from "#/lib/api";
-import { settleDeparted, signOut, useSessionStore } from "../session";
+import { settleDeparted, signOut } from "../session";
+import { useSessionStore } from "../store";
+
+// Of the features' hooks (`#/seams/lifecycle`), the one a session that left meets: its push registrations go.
+jest.mock("#/generated/seams/lifecycle", () => {
+  const push = jest.requireActual("#/features/notifications/lifecycle").default;
+  return { __esModule: true, default: [{ beforeEnd: push.beforeEnd }] };
+});
 
 /** The server, at the edge: what it was asked, as whom. */
 const calls: string[] = [];

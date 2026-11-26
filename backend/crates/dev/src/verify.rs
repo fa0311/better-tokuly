@@ -104,6 +104,9 @@ struct TokenLookup {
     account_gone: bool,
     creator_gone: bool,
     creator_password_hash: Option<String>,
+    /// For a bot token the owner's address (a token of a handed-over bot is
+    /// revoked): what makes a bot a demo bot.
+    creator_email: Option<String>,
     bot_disabled: bool,
     /// A bot token made by someone who no longer owns the bot (it was handed over).
     creator_not_owner: bool,
@@ -139,6 +142,7 @@ impl Dev {
                     (u.banned_at IS NOT NULL OR u.deleted_at IS NOT NULL) AS account_gone,
                     (c.banned_at IS NOT NULL OR c.deleted_at IS NOT NULL) AS creator_gone,
                     c.password_hash AS creator_password_hash,
+                    c.email::text AS creator_email,
                     COALESCE(b.disabled_at IS NOT NULL, false) AS bot_disabled,
                     COALESCE(t.kind = 'bot' AND b.owner_id <> t.created_by, false) AS creator_not_owner
              FROM dev_tokens t
@@ -167,7 +171,8 @@ impl Dev {
         }
         let is_bot = row.kind == "bot";
         // The rule for bots holds whatever a token row says (it may predate the rule).
-        let scopes = row.scopes.into_iter().filter(|scope| !is_bot || crate::scopes::allowed_for_bots(scope));
+        let demo = is_bot && self.cfg.is_demo_operator(row.creator_email.as_deref());
+        let scopes = row.scopes.into_iter().filter(|scope| !is_bot || crate::scopes::allowed_for_bots(scope, demo));
         Ok(Verdict::Valid(ApiToken {
             kind: if is_bot { ApiTokenKind::Bot } else { ApiTokenKind::Personal },
             id: row.id,

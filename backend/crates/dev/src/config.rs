@@ -185,6 +185,35 @@ pub struct DevConfig {
     /// loopback and link-local addresses. Refused in production.
     #[arg(id = "dev_webhook_allow_private", long = "dev-webhook-allow-private", env = "TOKULY_DEV_WEBHOOK_ALLOW_PRIVATE", default_value_t = false, action = clap::ArgAction::Set)]
     pub webhook_allow_private: bool,
+
+    /// E-mail addresses of the accounts the demo simulator (`tokuly demo`)
+    /// signs up to own its bots, comma-separated. Leave it unset unless the
+    /// simulator runs against this server. Bots owned by these accounts may
+    /// be given tokens that write to every domain except the wallet, so
+    /// they can move on the map, chat and post like people, as long as the
+    /// account's password is TOKULY_DEV_DEMO_PASSWORD; every other bot
+    /// stays limited to its own profile, uploads and inbox.
+    #[arg(
+        id = "dev_demo_operators",
+        long = "dev-demo-operators",
+        env = "TOKULY_DEV_DEMO_OPERATORS",
+        value_delimiter = ',',
+        default_value = ""
+    )]
+    pub demo_operators: Vec<String>,
+
+    /// Password of the demo's operator accounts (at least 16 characters),
+    /// shared with the simulator. Signing up needs no verified address, so
+    /// an address alone proves nothing: only an account that also knows
+    /// this password gets its bots the demo's write scopes.
+    #[arg(
+        id = "dev_demo_password",
+        long = "dev-demo-password",
+        env = "TOKULY_DEV_DEMO_PASSWORD",
+        default_value = "",
+        hide_env_values = true
+    )]
+    pub demo_password: String,
 }
 
 impl Default for DevConfig {
@@ -212,6 +241,8 @@ impl Default for DevConfig {
             bot_record_days: 180,
             webhook_log_days: 30,
             webhook_allow_private: false,
+            demo_operators: Vec::new(),
+            demo_password: String::new(),
         }
     }
 }
@@ -221,6 +252,10 @@ impl DevConfig {
         anyhow::ensure!(
             !(production && self.webhook_allow_private),
             "TOKULY_DEV_WEBHOOK_ALLOW_PRIVATE must not be set in production"
+        );
+        anyhow::ensure!(
+            self.demo_operators().next().is_none() || self.demo_password.chars().count() >= 16,
+            "TOKULY_DEV_DEMO_OPERATORS needs TOKULY_DEV_DEMO_PASSWORD (at least 16 characters; tools/demo-env.sh makes one)"
         );
         anyhow::ensure!(self.access_token_seconds >= 60, "TOKULY_DEV_ACCESS_TOKEN_SECONDS must be at least 60");
         anyhow::ensure!(self.refresh_token_days >= 1, "TOKULY_DEV_REFRESH_TOKEN_DAYS must be at least 1");
@@ -236,6 +271,20 @@ impl DevConfig {
             "elevated" => RateTier { name: "elevated".into(), per_minute: self.rate_elevated },
             _ => RateTier { name: "standard".into(), per_minute: self.rate_standard },
         }
+    }
+
+    /// The demo operators' addresses, without blanks.
+    fn demo_operators(&self) -> impl Iterator<Item = &str> {
+        self.demo_operators.iter().map(|operator| operator.trim()).filter(|operator| !operator.is_empty())
+    }
+
+    /// Whether `email` is the address of a demo operator: an account whose
+    /// bots take part in the demo (see `demo_operators`). Only the address:
+    /// a new bot token also needs the password (`Dev::create_token`).
+    pub(crate) fn is_demo_operator(&self, email: Option<&str>) -> bool {
+        let Some(email) = email.map(str::trim).filter(|email| !email.is_empty()) else { return false };
+        self.demo_password.chars().count() >= 16
+            && self.demo_operators().any(|operator| operator.eq_ignore_ascii_case(email))
     }
 
     pub(crate) fn secret_overlap(&self) -> chrono::Duration {
@@ -297,8 +346,43 @@ mod tests {
     }
 
     #[test]
+    fn demo_operators_are_named_by_address_and_nobody_is_one_by_default() {
+        let parse = |flags: &[&str]| CommandLine::parse_from([&["tokuly"], flags].concat()).dev;
+        for cfg in [
+            DevConfig::default(),
+            parse(&[]),
+            parse(&["--dev-demo-operators", ""]),
+            parse(&["--dev-demo-operators", " , "]),
+        ] {
+            for address in [None, Some(""), Some(" "), Some("demo@example.com")] {
+                assert!(!cfg.is_demo_operator(address), "{address:?}");
+            }
+        }
+        let operators = ["--dev-demo-operators", "Demo-1@Example.com, demo-2@example.com"];
+        let named = parse(&[&operators[..], &["--dev-demo-password", "0123456789abcdef"]].concat());
+        assert!(
+            named.is_demo_operator(Some("demo-1@example.com")) && named.is_demo_operator(Some("DEMO-2@example.com"))
+        );
+        assert!(
+            !named.is_demo_operator(Some("demo-3@example.com"))
+                && !named.is_demo_operator(Some("example.com"))
+                && !named.is_demo_operator(None)
+        );
+        named.validate(true).unwrap();
+        // Addresses without a (long enough) password name nobody, and the server refuses to start.
+        for password in [&[][..], &["--dev-demo-password", "short"]] {
+            let unproven = parse(&[&operators[..], password].concat());
+            assert!(!unproven.is_demo_operator(Some("demo-1@example.com")));
+            assert!(unproven.validate(false).unwrap_err().to_string().contains("TOKULY_DEV_DEMO_PASSWORD"));
+        }
+    }
+
+    #[test]
     fn the_command_line_defaults_are_the_default_config() {
-        assert_eq!(CommandLine::parse_from(["tokuly"]).dev, DevConfig::default());
+        let defaults = CommandLine::parse_from(["tokuly"]).dev;
+        // An empty list setting parses as one empty entry: nobody.
+        assert!(defaults.demo_operators.iter().all(String::is_empty));
+        assert_eq!(DevConfig { demo_operators: Vec::new(), ..defaults }, DevConfig::default());
         // Every flag is prefixed, so it cannot clash with another domain's.
         let parsed =
             CommandLine::parse_from(["tokuly", "--dev-max-bots", "9", "--dev-webhook-allow-private", "true"]).dev;

@@ -1,0 +1,31 @@
+appId: app.tokuly.mobile
+name: Open a web-only feature from the hub, signed in
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/web-account.js
+- clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.handle}
+      PASSWORD: ${PASSWORD}
+
+# 「もっと見る」 lists what the app does not have yet; the web settings open signed in
+# (the hand-off), without asking for the password again.
+- tapOn: { id: "tab-me" }
+- tapOn: { id: "me-more" }
+- extendedWaitUntil:
+    visible: { id: "more-screen" }
+    timeout: 15000
+- tapOn: { id: "more-settings" }
+# The web's settings show the account's name only to that account, signed in.
+- extendedWaitUntil:
+    visible: ${output.displayName}
+    timeout: 60000

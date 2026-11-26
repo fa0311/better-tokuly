@@ -24,7 +24,7 @@ runs:
       shell: bash
       run: for tar in "$RUNNER_TEMP"/images/*.tar; do docker load -q -i "$tar"; done
     - name: Sign in to the registry (pulls)
-      uses: docker/login-action@v4
+      uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}

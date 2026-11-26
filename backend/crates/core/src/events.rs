@@ -5,7 +5,8 @@
 //! `EVENTS` JetStream stream, and any number of services consume them with
 //! [`consume`] — notifications, the activity log, search indexing, analytics.
 //! Delivery is at-least-once; consumers must be idempotent (event IDs are
-//! stable).
+//! stable). An event a consumer keeps failing on is retried for about
+//! twenty minutes and then buried ([`crate::dead_letters`]), not dropped.
 //!
 //! Topics are dotted lowercase names `<domain>.<entity>.<verb>`, e.g.
 //! `social.friend.accepted`. The payload is JSON; the producing crate exposes
@@ -22,6 +23,7 @@ use uuid::Uuid;
 
 use crate::{
     bus::{Bus, STREAM_EVENTS},
+    dead_letters,
     error::{AppError, AppResult},
 };
 
@@ -235,7 +237,8 @@ async fn relay_batch(db: &PgPool, bus: &Bus) -> AppResult<usize> {
 pub struct ConsumeOptions {
     /// How long a handler may run before the event is redelivered.
     pub ack_wait: Duration,
-    /// Deliveries before the event is dropped (and logged).
+    /// Deliveries before the consumer gives up on the event and buries it
+    /// ([`crate::dead_letters`]).
     pub max_deliver: i64,
     /// Events handled concurrently.
     pub concurrency: usize,
@@ -245,7 +248,9 @@ impl Default for ConsumeOptions {
     fn default() -> Self {
         Self {
             ack_wait: Duration::from_secs(30),
-            max_deliver: 8,
+            // With `retry_delay`: about twenty minutes of retries, enough
+            // for a restart of the database or the search engine.
+            max_deliver: 12,
             concurrency: 8,
         }
     }
@@ -318,33 +323,40 @@ pub async fn consume<F, Fut>(
             let handler = handler.clone();
             let durable = durable.to_owned();
             let max_deliver = options.max_deliver;
+            let bus = bus.clone();
             tokio::spawn(async move {
                 let _permit = permit;
-                handle_message(message, &durable, max_deliver, handler).await;
+                handle_message(&bus, message, &durable, max_deliver, handler).await;
             });
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
 
-async fn handle_message<F, Fut>(
-    message: jetstream::Message,
-    durable: &str,
-    max_deliver: i64,
-    handler: F,
-) where
+/// How long a failed event waits for its next delivery: 2 s, doubling up
+/// to 5 minutes.
+fn retry_delay(delivered: i64) -> Duration {
+    Duration::from_secs((1u64 << delivered.clamp(1, 9)).min(300))
+}
+
+async fn handle_message<F, Fut>(bus: &Bus, message: jetstream::Message, durable: &str, max_deliver: i64, handler: F)
+where
     F: Fn(Event) -> Fut,
     Fut: Future<Output = AppResult<()>>,
 {
+    if dead_letters::redriven_for_another(&message, durable) {
+        let _ = message.ack().await;
+        return;
+    }
+    let delivered = message.info().map(|i| i.delivered).unwrap_or(1);
     let event: Event = match serde_json::from_slice(&message.payload) {
         Ok(e) => e,
         Err(e) => {
-            tracing::error!(durable, subject = %message.subject, error = %e, "undecodable event dropped");
+            dead_letters::bury_or_log(bus, durable, &message.subject, &message.payload, &format!("undecodable event: {e}"), delivered).await;
             let _ = message.ack_with(AckKind::Term).await;
             return;
         }
     };
-    let delivered = message.info().map(|i| i.delivered).unwrap_or(1);
     let topic = event.topic.clone();
     let id = event.id;
     match handler(event).await {
@@ -354,12 +366,12 @@ async fn handle_message<F, Fut>(
             }
         }
         Err(e) if delivered >= max_deliver => {
-            tracing::error!(durable, %topic, %id, error = %e, "event failed permanently; dropped");
+            dead_letters::bury_or_log(bus, durable, &message.subject, &message.payload, &e.to_string(), delivered).await;
             let _ = message.ack_with(AckKind::Term).await;
         }
         Err(e) => {
-            let delay = Duration::from_secs((1u64 << delivered.clamp(0, 6)).min(60));
-            tracing::warn!(durable, %topic, %id, delivered, error = %e, "event handler failed; will retry");
+            let delay = retry_delay(delivered);
+            tracing::warn!(durable, %topic, %id, delivered, retry_in = ?delay, error = %e, "event handler failed; will retry");
             let _ = message.ack_with(AckKind::Nak(Some(delay))).await;
         }
     }
@@ -368,6 +380,17 @@ async fn handle_message<F, Fut>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failing_event_is_retried_for_about_twenty_minutes() {
+        assert_eq!(retry_delay(1), Duration::from_secs(2));
+        assert_eq!(retry_delay(8), Duration::from_secs(256));
+        assert_eq!(retry_delay(9), Duration::from_secs(300));
+        assert_eq!(retry_delay(40), Duration::from_secs(300));
+        let retries = 1..ConsumeOptions::default().max_deliver;
+        let waited: Duration = retries.map(retry_delay).sum();
+        assert!((Duration::from_secs(15 * 60)..Duration::from_secs(30 * 60)).contains(&waited), "{waited:?}");
+    }
 
     #[test]
     fn events_too_large_for_the_bus_are_told_apart() {

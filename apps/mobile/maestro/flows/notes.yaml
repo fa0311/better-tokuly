@@ -1,0 +1,61 @@
+appId: app.tokuly.mobile
+name: Read a friend's note, like it, reply after agreeing to the rules, post a poll
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/note-friends.js
+- clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
+
+# The friends' timeline has the friend's note; a like shows at once.
+- tapOn: { id: "tab-notes" }
+- extendedWaitUntil:
+    visible: ${output.friendNote}
+    timeout: 30000
+- tapOn: { id: "note-like" }
+
+# The note's thread; the first reply asks for the rules, then goes out.
+- tapOn: ${output.friendNote}
+- extendedWaitUntil:
+    visible: { id: "note-screen" }
+    timeout: 15000
+- tapOn: { id: "thread-reply" }
+- extendedWaitUntil:
+    visible: { id: "note-rules" }
+    timeout: 15000
+- tapOn: { id: "note-rules-agree" }
+- extendedWaitUntil:
+    visible: { id: "note-text" }
+    timeout: 15000
+- inputText: ${output.reply}
+- tapOn: { id: "note-post" }
+- extendedWaitUntil:
+    visible: ${output.reply}
+    timeout: 15000
+
+# A note of my own with a poll: it is on top of my timeline right away.
+- runFlow: ../subflows/back.yaml
+- tapOn: { id: "notes-compose" }
+- tapOn: { id: "note-text" }
+- inputText: ${output.mine}
+- tapOn: { id: "note-add-poll" }
+- tapOn: { id: "poll-input-0" }
+- inputText: "カラオケ"
+- tapOn: { id: "poll-input-1" }
+- inputText: "ボウリング"
+- hideKeyboard
+- tapOn: { id: "note-post" }
+- extendedWaitUntil:
+    visible: ${output.mine}
+    timeout: 15000
+- assertVisible: { id: "note-poll" }

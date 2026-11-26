@@ -313,7 +313,8 @@ message CreateCommentRequest {
   string text = 3;
   // A stamp the caller may send (see tokuly.stamp.v1).
   string stamp_id = 4;
-  // An uploaded image of the caller (purpose NOTE_IMAGE or CHAT_IMAGE).
+  // An uploaded image of the caller, purpose COMMENT_IMAGE (uploads made as
+  // NOTE_IMAGE or CHAT_IMAGE, what comments used before, are still taken).
   string image_asset_id = 5;
   // A moment of the video, in seconds from its start.
   optional int32 timestamp_seconds = 6;

@@ -55,33 +55,21 @@ community: wrote in that thread, is mentioned or answered by its author
 there, reported it to the community's staff, or wrote the post). A case
 marked hidden on a server without a lookup is withheld from everyone.
 
-`GetCase` is the one place a hidden author is named; everywhere else an
-account and an anonymous post meet, for every reader:
+`GetCase` is the one place a hidden author is named. Everywhere else an
+entry about an anonymous post is shown with `target_withheld`: without the
+account and without anything that could be matched against the account's own
+record.
 
-- The moderation log marks entries about such a post
-  (`moderation_actions.target_hidden`). `ListModerationActions`, the actions
-  in `GetCase` (unless that view named the author) and the answers to
-  changes show them with `target_withheld`, without the account, and without
-  anything that could be matched against the account's own record: no
-  `expires_at`, `reason` or `note`, and `created_at` cut to the day (UTC).
-  In the history of one account (`ListModerationActions` by `user_id`, the
-  staff view `GetUser`) they do not come at all. A dismissal records no
-  target.
-- A case shown without its author has no `resolution_reason`, and
-  `resolved_at` cut to the day.
-- The moderation record (`UserModerationSummary`) leaves the account's
-  anonymous posts out, except, in `GetCase`, the one whose author it names.
-- A suspension imposed for such a post shows no `case_id`, like a direct
-  one; its reason stays, so it does not stand out among the others.
-- The audit log marks entries about such a post
-  (`admin_audit_log.target_hidden`, with the post's subject) and shows them
-  with `target_withheld`, without the account, without a reason, cut to the
-  day, and with snapshots lacking `suspension_id`, `replaced_suspension_id`,
-  `expires_at` and `note`; filtered by that account, it leaves them out.
+| Where | What is withheld |
+|---|---|
+| moderation log (`ListModerationActions`, actions in `GetCase` unless that view named the author, answers to changes) | the account, `expires_at`, `reason`, `note`; `created_at` cut to the day (UTC). Left out entirely from the history of one account (by `user_id`, `GetUser`). A dismissal records no target. |
+| a case shown without its author | `resolution_reason`; `resolved_at` cut to the day |
+| moderation record (`UserModerationSummary`) | the account's anonymous posts, except in `GetCase` the one whose author it names |
+| a suspension imposed for such a post | `case_id` (like a direct one; the reason stays) |
+| audit log | the account, the reason, `suspension_id`, `replaced_suspension_id`, `expires_at` and `note` in snapshots; time cut to the day. Left out when filtered by that account. |
 
-What stays visible: that an account is suspended, and since when. On a
-quiet day, the day a case about an anonymous post was resolved with a
-suspension can still be compared with the accounts suspended that day.
+What stays visible: that an account is suspended, and since when (on a quiet
+day that can be compared with the day such a case was resolved).
 
 **Unmasking is limited.** `GetCase` names at most
 `TOKULY_MODERATOR_REVEALS_PER_HOUR` hidden authors per staff member and hour
@@ -100,28 +88,20 @@ admins do (`TARGET_IS_STAFF`).
 
 ## Evidence
 
-The uploads of reported content belong to the domain that keeps it, and
-media collects an upload nothing holds. So that an unsend, an edit or a
-deletion by the owner does not take the evidence with it, every case holds
-its subject's uploads under the media holder `admin:case:<case id>` from the
-moment a report files into it (on the transaction that files the report)
-until `TOKULY_MODERATION_EVIDENCE_DAYS` after it is resolved; a reopened
-case keeps them. The holding is done by a lookup the server hands in
-(`Admin::set_report_evidence`, trait `tokuly_admin::ReportEvidence`), since
-admin may not depend on media or the content domains. The server's bridge
-holds the uploads of chat messages (`tokuly_chat::hold_message_media`), the
-content whose sender can take its uploads back; other domains keep theirs
-until they delete the content. What a message no longer shows when the
-report is filed (unsent before the report reached the queue) cannot be held
-any more. A takedown still deletes the uploads (media drops the holds of what it
-deletes on a domain's authority).
+An unsend, an edit or a deletion by the owner does not take the evidence
+with it: every case holds its subject's uploads under the media holder
+`admin:case:<case id>` from the moment a report files into it until
+`TOKULY_MODERATION_EVIDENCE_DAYS` after it is resolved (a reopened case
+keeps them). The server hands in the lookup (`Admin::set_report_evidence`,
+trait `tokuly_admin::ReportEvidence`); it holds the uploads of chat
+messages, the content whose sender can take its uploads back. What was
+unsent before the report was filed cannot be held. A takedown still deletes
+the uploads.
 
-Everything a resolution does (case update, events, notifications, both logs)
-commits in one transaction, and so does a suspension's account lock
-(`tokuly_identity::moderation::set_banned_on`, on admin's transaction):
-nothing in it asks the pool for a second connection. The account is signed
-out once that transaction has committed; should that fail, identity's own
-consumer of `identity.user.banned` signs it out when the event arrives.
+Everything a resolution does (case update, events, notifications, both
+logs, a suspension's account lock) commits in one transaction. The account
+is signed out right after it; identity's consumer of `identity.user.banned`
+does so too, should that fail.
 
 ## Events emitted
 
@@ -194,23 +174,19 @@ announcement is visible at once, so API-only processes need no timer.
 
 ## Privacy
 
-The audit log is the record of what staff did with their powers, kept as a
-legitimate interest of the service: when a staff account is erased, its
-entries keep their actor (the account is anonymized, not removed, so the
-reference holds and shows the erased placeholder) and their before/after
-snapshots as they are. Only references to the erased person as the affected
-account are cut. Entries about anonymous posts never name their author to
-readers (see above).
+The audit log is the record of what staff did with their powers. When a
+staff account is erased, its entries keep their actor (shown as the erased
+placeholder) and their snapshots; only references to the erased person as
+the affected account are cut.
 
 ## Audit log
 
 Every state change made through this API writes one `admin_audit_log` row in
 the same transaction (identity-owned changes — roles, badge, sessions — right
 after identity committed). Nothing in the API changes or deletes a row; only
-the erasure of an account nulls its references. Entries about an anonymous
-post are shown to an involved admin without its author (see above).
-Role changes take turns and need the caller to still be an admin at that
-moment, so two admins demoting each other leave one of them. `SystemService.ListAuditLog` filters by an exact
+the erasure of an account nulls its references. Role changes need the caller
+to still be an admin at that moment, so two admins demoting each other leave
+one of them. `SystemService.ListAuditLog` filters by an exact
 action or by a prefix ending in a dot (`user.`).
 
 | Action | Target | before / after |
@@ -251,51 +227,43 @@ minute per client address; `GetServerStats` 30 a minute per admin;
 ## Server settings (「サーバー設定」)
 
 `ServerSettingsService` is the console layer of `tokuly_core::settings`
-(see `backend/README.md`, "Declaring a setting"): every setting of the
-binary with its value, default, description and source, highest first the
+(see `docs/backend/settings.md`): every setting of the binary with its
+value, default, description and source. Precedence, highest first: the
 environment / command line, `tokuly.toml`, this console, the default.
-Values are stored in core's `server_settings` (secrets sealed with the core
-keys, `last4` beside them) and every change in `server_setting_changes`
-(who, when, old → new; secrets as `••••`), plus the audit entry and the event
-above, all in one transaction. After the commit the API process reloads and
-broadcasts `sys.settings.changed`; every process reloads the console layer,
-so live settings apply everywhere at once and the rest show
-`restart_pending` until the listed processes restart.
+Secrets are stored sealed and shown as `••••` plus their last four
+characters. Every change is recorded (`server_setting_changes`, the audit
+entry and the event above) in one transaction. Live settings then apply in
+every process at once; the rest show `restart_pending` until the listed
+processes restart.
 
-Refused: settings their domain does not let the console change
-(`SETTING_FILE_ONLY`; see `backend/README.md`, "Declaring a setting"),
-settings the environment or the file set (`SETTING_LOCKED`), settings with their own screen
-(`SETTING_MANAGED_ELSEWHERE`: the chat AI providers at `/admin/chat-ai`),
-values of the wrong type or against the section's checks, run over all of
-its console values together with what the server builds from them at
-start-up (`SETTING_INVALID`). Console values a section does not pass its
-checks with (saved before a check existed, or by hand) are set aside, all of
-that section together, at start-up and on every reload; the page shows why
-(`console_rejected`). So are values stored for settings the console may
-not change (saved before their domain took them off its list, or by hand);
-removing a value (`reset`) is allowed for every setting. If the server still does not start with the console
-values, it tries once more with them (the infrastructure may have been away
-for a moment) and then without them; only when it starts without them are
-they blamed, and the next re-read (within a minute) applies them again. A
-start that fails without them as well ends with the first error.
+| Refused with | When |
+|---|---|
+| `SETTING_FILE_ONLY` | the setting's domain does not let the console change it |
+| `SETTING_LOCKED` | the environment or the file sets it |
+| `SETTING_MANAGED_ELSEWHERE` | it has its own screen (the chat AI providers at `/admin/chat-ai`) |
+| `SETTING_INVALID` | wrong type, or the section's checks fail with all of its console values together |
+
+Removing a value (`reset`) is always allowed. Console values a section does
+not pass its checks with are set aside, the whole section together, at
+start-up and on every reload; the page shows why (`console_rejected`). A
+server that does not start with the console values starts without them.
 
 ## Getting back in
 
 The bootstrap happens once per address. To make an account admin later
-(the bootstrap admin lost access, or a second operator), run the binary's
-subcommand with the deployment's configuration:
+(lost access, a second operator):
 
 ```sh
 docker compose exec api tokuly promote-admin you@example.com   # or a handle
 ```
 
-It grants the role in one transaction with a `user.roles_changed` audit
-entry (no actor), and fails when there is no such account or it already is
-an admin. To let `TOKULY_ADMIN_USER` bootstrap again instead (for example
-after changing it to an address nobody holds yet), delete its record:
+It writes a `user.roles_changed` audit entry (no actor) and fails when there
+is no such account or it already is an admin. To let `TOKULY_ADMIN_USER`
+bootstrap again instead, delete its record:
 
 ```sql
 DELETE FROM admin_audit_log WHERE action = 'admin.bootstrapped' AND target_type = 'bootstrap' AND target_id = 'you@example.com';
+```
 ```
 
 ## For the server crate
@@ -309,11 +277,9 @@ admin.set_hidden_owners(Arc<dyn tokuly_admin::HiddenOwners>);          // bridge
 admin.set_report_evidence(Arc<dyn tokuly_admin::ReportEvidence>);      // bridge: hold / release the uploads of reported content (holder admin:case:<id>)
 ```
 
-`grant_bootstrap_admin` returns `true` when it granted the role, `false`
-when the bootstrap already happened, the account already was an admin, or
-no account holds the address verified yet; the worker tries again when an
-account signs up or confirms an address. `ensure_admin(handle_or_email)`
-promotes a named account unconditionally (for tools and tests).
+`grant_bootstrap_admin` returns whether it granted the role;
+`ensure_admin(handle_or_email)` promotes a named account unconditionally
+(for tools and tests).
 
 ## Notes for other domains
 
@@ -331,10 +297,8 @@ promotes a named account unconditionally (for tools and tests).
   referenced by UUID as well; reported content referenced so is found the way
   its reporters see it (below), with its current title.
 - **Reported content its owner hid** (a video made private, a comment hidden
-  after the report): the server hands in `ReportedSubjects`
-  (`Admin::set_reported_subjects`, implemented with engagement's
-  `resolve_reported_subject`), which resolves a subject the way its reporters
-  can still see it. `GetCase` shows it as `ModerationCase.current_subject`
-  (title and path, never an owner), except in a case about the caller, for a
-  moderator involved in a hidden author's post, and for the subject's owner
-  or reporters. Nothing else uses it.
+  after the report): `GetCase` shows it as `ModerationCase.current_subject`
+  (title and path, never an owner), resolved the way its reporters can still
+  see it (`Admin::set_reported_subjects`). Not shown in a case about the
+  caller, to a moderator involved in a hidden author's post, or to the
+  subject's owner or reporters.

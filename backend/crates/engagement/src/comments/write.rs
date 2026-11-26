@@ -25,10 +25,14 @@ const MAX_TIMESTAMP_SECONDS: i32 = 7 * 24 * 3600;
 const DUPLICATE_WINDOW: Duration = Duration::from_secs(60);
 /// Edits one user may make per minute.
 const EDITS_PER_MINUTE: u32 = 30;
-/// Uploads a comment image may come from. There is no purpose of its own
-/// for comment images; both of these are processed as plain pictures.
-const IMAGE_PURPOSES: [AssetPurpose; 2] =
-    [AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE, AssetPurpose::ASSET_PURPOSE_CHAT_IMAGE];
+/// Uploads a comment image may come from: its own purpose, and the two
+/// comments borrowed before they had one — clients built then still upload
+/// with those, and all three are processed as pictures.
+const IMAGE_PURPOSES: [AssetPurpose; 3] = [
+    AssetPurpose::ASSET_PURPOSE_COMMENT_IMAGE,
+    AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE,
+    AssetPurpose::ASSET_PURPOSE_CHAT_IMAGE,
+];
 
 /// The domain event payload about a comment.
 pub(crate) fn comment_event(row: &CommentRow) -> CommentEvent {

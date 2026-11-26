@@ -4,7 +4,10 @@ use std::collections::{HashMap, HashSet};
 
 use sqlx::{PgExecutor, Postgres, Transaction};
 use tokuly_core::{ids::Ref, outbound, prelude::*};
-use tokuly_proto::{common::StampRef, stamp as pb};
+use tokuly_proto::{
+    common::{StampRef, SubjectType},
+    stamp as pb,
+};
 
 use crate::{
     Stamp,
@@ -54,11 +57,13 @@ pub async fn lock(tx: &mut Transaction<'_, Postgres>, pack_id: Uuid) -> AppResul
         .ok_or_else(not_found)
 }
 
-/// Deletes a pack with its stamps: their uploads are released, and a
-/// published pack leaves the search index. The pack must be locked.
+/// Deletes a pack with its stamps: their uploads are released, a published
+/// pack leaves the search index, and `subject.deleted` is emitted for the
+/// pack and each stamp. The pack must be locked.
 pub async fn delete(tx: &mut Transaction<'_, Postgres>, pack: &PackRow) -> AppResult<()> {
     stamps::delete_of_pack(tx, pack.id).await?;
     sqlx::query("DELETE FROM stamp_packs WHERE id = $1").bind(pack.id).execute(&mut **tx).await?;
+    outbound::subject_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_STAMP_PACK, pack.id).await?;
     if pack.is_published() {
         unindex(tx, pack.id).await?;
     }

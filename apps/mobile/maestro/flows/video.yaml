@@ -1,0 +1,52 @@
+appId: app.tokuly.mobile
+name: Open the video feeds from the hub, find a channel, subscribe, and see it in the library
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/video-channel.js
+- clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
+
+# Videos are native now: the hub opens the feeds, not a web screen.
+- tapOn: { id: "tab-me" }
+- tapOn: { id: "me-video" }
+- extendedWaitUntil:
+    visible: { id: "video-feeds" }
+    timeout: 15000
+- tapOn: { id: "video-feed-subscriptions" }
+- extendedWaitUntil:
+    visible: "(登録チャンネルの動画はまだありません|No videos from your subscriptions yet).*"
+    timeout: 15000
+
+# A link to a channel opens its page in the app; subscribing shows at once.
+- openLink: "tokuly://c/${output.channelHandle}"
+- extendedWaitUntil:
+    visible: { id: "channel-name" }
+    timeout: 15000
+- assertVisible: "${output.channelName}.*"
+- tapOn: { id: "video-subscribe" }
+- extendedWaitUntil:
+    visible: { id: "video-subscribed" }
+    timeout: 10000
+
+# The library lists the subscription, and it leads back to the channel.
+- runFlow: ../subflows/back.yaml
+- tapOn: { id: "video-library" }
+- tapOn: { id: "library-subscriptions" }
+- extendedWaitUntil:
+    visible: { id: "subscription-${output.channelHandle}" }
+    timeout: 15000
+- tapOn: { id: "subscription-${output.channelHandle}" }
+- extendedWaitUntil:
+    visible: { id: "channel-screen" }
+    timeout: 15000

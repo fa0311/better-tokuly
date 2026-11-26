@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { type common, live, toMillis } from "@tokuly/api";
+import { countdownParts } from "@tokuly/core/live";
 import { BadgeCheck, CalendarClock, Eye, Radio } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,7 +10,6 @@ import { EmojiText } from "#/features/emoji";
 import { accountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { categoryOf } from "./labels";
-import { countdownParts } from "./model";
 import { clock } from "./player/live-player";
 
 const { StreamStatus } = live;

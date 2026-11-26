@@ -19,6 +19,7 @@ use std::{collections::HashMap, time::Duration};
 use chrono::Duration as Span;
 use sqlx::{Postgres, Transaction};
 use tokuly_core::{outbound, prelude::*};
+use tokuly_proto::common::SubjectType;
 use url::Url;
 
 use super::{
@@ -370,7 +371,8 @@ impl Feed {
     }
 
     /// Deletes articles that are older than the retention period and no
-    /// longer in their feed, and takes them out of search. Returns how many.
+    /// longer in their feed, and takes them out of search and of what people
+    /// saved (`subject.deleted`). Returns how many.
     pub async fn prune_articles(&self, batch: i64) -> AppResult<u64> {
         let mut pruned = 0;
         loop {
@@ -397,6 +399,7 @@ impl Feed {
             for id in &ids {
                 outbound::unindex(&mut *tx, SEARCH_KIND, *id).await?;
             }
+            outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_NEWS_ARTICLE, &ids).await?;
             tx.commit().await?;
             pruned += ids.len() as u64;
             if (ids.len() as i64) < batch {

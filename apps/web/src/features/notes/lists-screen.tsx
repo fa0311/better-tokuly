@@ -1,6 +1,7 @@
 import { type InfiniteData, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { notes } from "@tokuly/api";
+import { listKeys } from "@tokuly/core/notes";
 import {
   Globe,
   ListPlus,
@@ -29,7 +30,6 @@ import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import {
   listClient,
-  listKeys,
   resetListTimeline,
   storeList,
   useFollowedLists,

@@ -1,8 +1,9 @@
-/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, settings. */
+/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, notes, settings. */
 export default {
   tabs: {
     map: "マップ",
     chat: "チャット",
+    notes: "ノート",
     shorts: "ショート",
     friends: "ともだち",
     inbox: "お知らせ",
@@ -82,7 +83,7 @@ export default {
     accounts: "アカウント切り替え",
     web: "そのほかの設定",
     webHint: "まだアプリにない設定は、Webでひらくよ",
-    webNote: "Webでもう一度ログインしてね。アプリのログイン情報は、安全のためWebに渡さないよ。",
+    webNote: "アプリのアカウントのまま、Webでひらくよ！",
     signOut: "ログアウト",
     signOutAll: "すべての端末からログアウト",
     signOutAllPending:
@@ -91,6 +92,33 @@ export default {
       "このアカウントをこの端末からログアウトしますか？ほかのアカウントはそのままです。",
     version: "バージョン {{version}}",
     server: "サーバー {{url}}",
+  },
+  more: {
+    title: "もっと見る",
+    open: "もっと見る",
+    lead: "アプリにまだない機能も、ここからぜんぶ使えるよ！",
+    note: "いまはWebの画面でひらくよ。順番にアプリにしていくから待っててね！",
+    features: {
+      video: "動画",
+      live: "ライブ",
+      spaces: "スペース",
+      community: "コミュニティ",
+      school: "学校",
+      plans: "予定",
+      ask: "質問箱",
+      quest: "クエスト",
+      emoji: "絵文字",
+      stamps: "スタンプ",
+      wallet: "ウォレット",
+      settings: "設定",
+      dev: "開発者",
+      admin: "管理",
+    },
+  },
+  web: {
+    loading: "ひらいてるよ…",
+    failed: "ひらけなかった…",
+    retry: "もう一度",
   },
   profile: {
     me: "じぶん",
@@ -211,6 +239,21 @@ export default {
     commentPlaceholder: "コメントを書く…",
     commentSend: "送る",
     commentsOff: "このショートはコメントを受けつけてないよ",
+  },
+  notes: {
+    sources: "見るタイムライン",
+    noSources: "リストもアンテナもまだないよ。Webでつくれるよ！",
+    clips: "クリップ",
+    channels: "チャンネル（Web）",
+    editLists: "リストとアンテナを編集（Web）",
+    react: "リアクション",
+    share: "シェアする",
+    editOnWeb: "編集する（Web）",
+    reportOnWeb: "通報する（Web）",
+    defaultAudience: "いつもの公開範囲",
+    leaveTitle: "書きかけのノート、どうする？",
+    keepWriting: "書きつづける",
+    seeAll: "ノートをぜんぶ見る",
   },
   licenses: {
     title: "オープンソースライセンス",

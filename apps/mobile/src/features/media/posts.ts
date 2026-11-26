@@ -1,9 +1,15 @@
 import { ConnectError, common, media, notes, shorts } from "@tokuly/api";
 import { randomUUID } from "expo-crypto";
 import { create } from "zustand";
+import {
+  type Account,
+  AccountChanged,
+  currentAccount,
+  ensureActive,
+  isActive,
+} from "#/features/session/account";
 import { errorMessage } from "#/lib/errors";
 import { forgetFiles, keepFile, keptPosts, readQueue, writeQueue } from "#/platform/transfer";
-import { type Account, AccountChanged, currentAccount, ensureActive, isActive } from "./account";
 import { type UploadState, uploadFile } from "./upload";
 
 /** A photo or video picked from the library or taken with the camera. */
