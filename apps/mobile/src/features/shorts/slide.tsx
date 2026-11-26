@@ -186,7 +186,10 @@ function Player({
 
   return (
     <Pressable testID="short-player" accessibilityRole="button" onPress={onTap} style={{ flex: 1 }}>
-      <VideoView player={player} style={{ flex: 1 }} contentFit="cover" nativeControls={false} />
+      {/* The native video view would take the touch: taps and the feed's swipe go around it. */}
+      <View pointerEvents="none" style={{ flex: 1 }}>
+        <VideoView player={player} style={{ flex: 1 }} contentFit="cover" nativeControls={false} />
+      </View>
       {!started && cover ? (
         <Image source={cover} style={{ position: "absolute", inset: 0 }} contentFit="cover" />
       ) : null}

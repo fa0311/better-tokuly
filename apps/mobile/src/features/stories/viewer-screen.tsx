@@ -279,12 +279,14 @@ function Player({ reels, startReel }: { reels: Reel[]; startReel: number }) {
       <GestureDetector gesture={Gesture.Race(swipe, hold, tap)}>
         <View className="absolute inset-0">
           {video ? (
-            <VideoView
-              player={player}
-              style={{ flex: 1 }}
-              contentFit="contain"
-              nativeControls={false}
-            />
+            <View pointerEvents="none" style={{ flex: 1 }}>
+              <VideoView
+                player={player}
+                style={{ flex: 1 }}
+                contentFit="contain"
+                nativeControls={false}
+              />
+            </View>
           ) : (
             <Image
               testID="story-picture"
