@@ -19,6 +19,6 @@ Put this, plus the issue and the decisions already made, in the brief. Keep the 
   tests, the browser or Maestro tests of the flows you changed (local emulator: `tools/agent/android.sh`).
   Do not wait for GitHub Actions.
 - **PR**: Draft with `agent:*` and area labels, `Fixes #n`; screenshots if the UI changed
-  (`tools/agent/pr-shots.sh`); when local checks pass, `gh pr ready` and `needs-review`.
+  (`gh pr create --attach`, later `tools/agent/pr-images.sh`); when local checks pass, `gh pr ready` and `needs-review`.
 - **Report** (your last message, the lead reads only this): what changed, what you checked, what is not done
   and why; last line `PR <url>, head <sha>, checks and reviews <state>`.
