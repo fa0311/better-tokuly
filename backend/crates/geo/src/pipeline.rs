@@ -679,7 +679,10 @@ impl Geo {
         };
         geoindex::remove(&self.core.cache, user_id).await?;
         self.leave_gathering(user_id).await?;
-        self.flush_history().await?;
+        // Friends must learn of the stop even while ClickHouse is down (rows stay buffered).
+        if let Err(e) = self.flush_history().await {
+            tracing::warn!(error = %e, "location history not written; will retry");
+        }
         if let Some(news) = news {
             self.push_visit_news(user_id, &ctx, &[news]).await?;
         }
