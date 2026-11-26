@@ -109,6 +109,9 @@ pub struct SessionOrigin {
     pub mfa: bool,
     /// Signed in beside other accounts of the device.
     pub added_by_switch: bool,
+    /// A web session opened from this app session (a hand-off): it ends
+    /// with it.
+    pub linked_to: Option<Uuid>,
 }
 
 /// Stops a web response from carrying a header value that cannot be one.

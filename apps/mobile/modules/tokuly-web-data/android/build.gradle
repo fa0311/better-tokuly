@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'app.tokuly'
+version = '0.1.0'
+
+android {
+  namespace "app.tokuly.webdata"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}

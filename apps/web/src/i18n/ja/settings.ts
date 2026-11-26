@@ -248,6 +248,7 @@ export default {
         MODERATOR_PROFILE_VIEW: "モデレーターとしてプロフィールを確認しました",
         SIGN_UP: "アカウントをつくりました",
         SIGN_IN: "ログインしました",
+        WEB_SIGN_IN_FROM_APP: "アプリからWebを開いてログインしました",
         SIGN_IN_FAILED: "ログインに失敗しました",
         SIGN_OUT: "ログアウトしました",
         PASSWORD_CHANGED: "パスワードを変更しました",

@@ -1,0 +1,179 @@
+import { useNavigation } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { ActivityIndicator, BackHandler, Linking, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { WebView, type WebViewNavigation } from "react-native-webview";
+import { Button } from "#/components/button";
+import { AccountChanged, currentAccount } from "#/features/session/account";
+import { useSessionStore } from "#/features/session/store";
+import { errorMessage } from "#/lib/errors";
+import { useTheme } from "#/lib/theme";
+import { clearWebData } from "#/platform/web-data";
+import {
+  isSuperseded,
+  opensOutside,
+  requestWebSession,
+  staysInApp,
+  VERIFIER_HEADER,
+  type WebSession,
+} from "./handoff";
+import { webScreenOpened } from "./open-screens";
+
+/**
+ * The web view without extra props. Its default (`P = undefined`) makes the
+ * props `WebViewProps & undefined`, which is `never` to TypeScript 7.
+ */
+const TokulyWebView = WebView<object>;
+
+type Opening =
+  | { status: "loading" }
+  | { status: "ready"; session: WebSession }
+  | { status: "failed"; message: string };
+
+/** The session of the account in use, or `null`. */
+function useActiveSessionId(): string | null {
+  return useSessionStore((s) => (s.state.status === "signedIn" ? s.state.sessionId : null));
+}
+
+/**
+ * A screen of the web app shown in the app, signed in as the account in use.
+ *
+ * Opening it asks for a one-time hand-off code as that account
+ * (`requestWebSession`) and loads it: the web view never sees the app's
+ * tokens. Nothing of one account reaches another:
+ * - a code that comes back after another account took over is dropped, and
+ *   the web view only shows while its account is still the active one;
+ * - the web view is incognito and keyed by its account's session, and the
+ *   web views' data (cookies on disk too, localStorage, cache: Android
+ *   shares them between all web views) is cleared before one opens, when
+ *   the last one closes (`open-screens.ts`) and before every switch or
+ *   sign-out (`lifecycle.ts`); the app's own API calls never carry cookies
+ *   (`lib/api.ts`);
+ * - a switch or a sign-out starts the signed-in screens over, which closes
+ *   it, and the server ends the web session with the app's session.
+ *
+ * The server keeps one web session per app session. A web screen that is
+ * back on show after a newer one opened over it asks for a hand-off again.
+ *
+ * Links to anywhere but this server open in the system browser (web, mail,
+ * phone and message links; nothing else leaves the page: `opensOutside`);
+ * embeds of other sites (frames) stay in the page.
+ */
+export function WebScreen({ path }: { path: string }) {
+  const { t } = useTranslation("mobile");
+  const { colors } = useTheme();
+  const navigation = useNavigation();
+  const activeSessionId = useActiveSessionId();
+  const [opening, setOpening] = useState<Opening>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const web = useRef<WebView<object>>(null);
+  const canGoBack = useRef(false);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the retry button: a new code each press.
+  useEffect(() => {
+    // The account is the one in use now, before anything awaits.
+    const account = currentAccount();
+    if (!account) return;
+    let current = true;
+    setOpening({ status: "loading" });
+    // Nothing an earlier web view stored (another account's storage, cookies
+    // a crash left on disk) is there when this one loads.
+    clearWebData()
+      .then(() => requestWebSession(account, path))
+      .then(
+        (session) => {
+          if (current) setOpening({ status: "ready", session });
+        },
+        (error: unknown) => {
+          if (current && !(error instanceof AccountChanged))
+            setOpening({ status: "failed", message: errorMessage(error) });
+        },
+      );
+    return () => {
+      current = false;
+    };
+  }, [path, attempt]);
+
+  // Closing it leaves nothing behind, once no other web screen is open.
+  useEffect(() => webScreenOpened(), []);
+
+  // Back on show after a newer web screen opened over it (a push about a
+  // note while the wallet was open) and took the web session: it opens again.
+  useEffect(() => {
+    if (opening.status !== "ready") return;
+    const { session } = opening;
+    return navigation.addListener("focus", () => {
+      if (isSuperseded(session)) setAttempt((n) => n + 1);
+    });
+  }, [navigation, opening]);
+
+  // Android's back button goes back in the web view first.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (!canGoBack.current) return false;
+      web.current?.goBack();
+      return true;
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const onNavigation = (state: WebViewNavigation) => {
+    canGoBack.current = state.canGoBack;
+    if (state.title && !state.loading) navigation.setOptions({ title: state.title });
+  };
+
+  if (opening.status === "failed")
+    return (
+      <View testID="web-failed" className="flex-1 items-center justify-center gap-3 bg-bg px-6">
+        <Text className="text-base font-black text-ink">{t("web.failed")}</Text>
+        <Text className="text-center text-sm text-ink-soft">{opening.message}</Text>
+        <Button variant="secondary" onPress={() => setAttempt((n) => n + 1)}>
+          {t("web.retry")}
+        </Button>
+      </View>
+    );
+  // Only ever the active account's web view.
+  if (opening.status === "loading" || opening.session.sessionId !== activeSessionId)
+    return (
+      <View testID="web-loading" className="flex-1 items-center justify-center gap-3 bg-bg">
+        <ActivityIndicator color={colors.brand} />
+        <Text className="text-sm text-ink-soft">{t("web.loading")}</Text>
+      </View>
+    );
+  return (
+    <SafeAreaView edges={["bottom"]} className="flex-1 bg-bg">
+      <TokulyWebView
+        key={opening.session.sessionId}
+        ref={web}
+        testID="web-view"
+        // The verifier goes with the first load only (react-native-webview
+        // sends `headers` on the initial request, not on the redirect or later pages).
+        source={{
+          uri: opening.session.url,
+          headers: { [VERIFIER_HEADER]: opening.session.verifier },
+        }}
+        incognito
+        sharedCookiesEnabled={false}
+        thirdPartyCookiesEnabled={false}
+        // `target="_blank"` stays in this web view, where the check below sees it.
+        setSupportMultipleWindows={false}
+        onShouldStartLoadWithRequest={(request) => {
+          // iOS asks for frames too: an embed in a note (a video, a song) loads in its frame.
+          // Android asks for the top frame only (`isTopFrame` is not given there).
+          if (request.isTopFrame === false || staysInApp(request.url)) return true;
+          if (opensOutside(request.url)) void Linking.openURL(request.url).catch(() => {});
+          return false;
+        }}
+        onNavigationStateChange={onNavigation}
+        startInLoadingState
+        renderLoading={() => (
+          <View className="absolute inset-0 items-center justify-center bg-bg">
+            <ActivityIndicator color={colors.brand} />
+          </View>
+        )}
+        style={{ flex: 1, backgroundColor: colors.bg }}
+      />
+    </SafeAreaView>
+  );
+}

@@ -525,6 +525,8 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("ListDeviceAccounts", Session),
         ("SwitchAccount", Session),
         ("RemoveDeviceAccount", Session),
+        // Turns the caller's session into a web session: minting credentials.
+        ("CreateWebHandoff", Session),
     ]),
     ("tokuly.identity.v1.AccountService", &[
         ("GetMe", Read),

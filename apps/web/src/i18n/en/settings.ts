@@ -252,6 +252,7 @@ export default {
         MODERATOR_PROFILE_VIEW: "Reviewed a profile as a moderator",
         SIGN_UP: "Account created",
         SIGN_IN: "Signed in",
+        WEB_SIGN_IN_FROM_APP: "Opened the web from the app, signed in",
         SIGN_IN_FAILED: "Sign-in failed",
         SIGN_OUT: "Signed out",
         PASSWORD_CHANGED: "Password changed",

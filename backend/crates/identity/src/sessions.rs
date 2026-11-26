@@ -42,6 +42,7 @@ struct SessionRow {
     expires_at: DateTime<Utc>,
     revoked_at: Option<DateTime<Utc>>,
     parked_at: Option<DateTime<Utc>>,
+    linked_to: Option<Uuid>,
 }
 
 fn new_refresh_token(session_id: Uuid) -> String {
@@ -85,23 +86,21 @@ impl Identity {
         };
 
         let mut tx = core.db.begin().await?;
+        let mut replaced = Vec::new();
         if !client.device_id.is_empty() {
             // One session per install: signing in again replaces the old one.
-            let replaced: Vec<Uuid> = sqlx::query_scalar(
+            replaced = sqlx::query_scalar(
                 "UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND device_id = $2 AND revoked_at IS NULL RETURNING id",
             )
             .bind(user.id)
             .bind(&client.device_id)
             .fetch_all(&mut *tx)
             .await?;
-            for id in replaced {
-                core.revoke_session(id).await;
-            }
         }
         sqlx::query(
             "INSERT INTO sessions (id, user_id, refresh_hash, refresh_sealed, platform, device_name, device_id, app_version, ip, user_agent, expires_at,
-                                   added_by_switch, mfa_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CASE WHEN $13 THEN now() END)",
+                                   added_by_switch, mfa_at, linked_to)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CASE WHEN $13 THEN now() END, $14)",
         )
         .bind(session_id)
         .bind(user.id)
@@ -116,9 +115,11 @@ impl Identity {
         .bind(Utc::now() + Duration::days(self.cfg.session_days))
         .bind(origin.added_by_switch)
         .bind(origin.mfa)
+        .bind(origin.linked_to)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
+        self.forget_session_tokens(&replaced).await?;
 
         let (access_token, access_expires_at) = core.tokens.issue(user.id, session_id, &user.roles)?;
         Ok(Issued { session_id, access_token, access_expires_at, refresh_token })
@@ -145,7 +146,7 @@ impl Identity {
         }
         let hash = core.keys.token_hash(presented);
         let row: Option<SessionRow> = sqlx::query_as(
-            "SELECT id, user_id, refresh_hash, refresh_sealed, rotated_at, expires_at, revoked_at, parked_at
+            "SELECT id, user_id, refresh_hash, refresh_sealed, rotated_at, expires_at, revoked_at, parked_at, linked_to
              FROM sessions WHERE refresh_hash = $1 OR previous_refresh_hash = $1",
         )
         .bind(&hash)
@@ -162,7 +163,7 @@ impl Identity {
                 .fetch_optional(&core.db)
                 .await?;
                 if let Some(user_id) = owner {
-                    core.revoke_session(session_id).await;
+                    self.forget_session_tokens(&[session_id]).await?;
                     self.log_security_event(
                         user_id,
                         "REFRESH_TOKEN_REUSE",
@@ -185,6 +186,14 @@ impl Identity {
             "SWITCH_REQUIRED",
             "another account is active on this device; switch to this one"
         );
+        // A web session from a hand-off lives while its app's session is the
+        // active one on that device (revoking it ends this one too; parked,
+        // another account took over the app).
+        if let Some(app_session) = row.linked_to
+            && !self.app_session_in_use(app_session).await?
+        {
+            return Err(AppError::unauthenticated("SESSION_EXPIRED", "sign in again"));
+        }
         let user = crate::users::get(core, row.user_id).await.map_err(|_| invalid())?;
         if user.deleted_at.is_some() {
             return Err(invalid());
@@ -225,7 +234,7 @@ impl Identity {
                     .bind(row.id)
                     .execute(&core.db)
                     .await?;
-                core.revoke_session(row.id).await;
+                self.forget_session_tokens(&[row.id]).await?;
                 self.log_security_event(
                     row.user_id,
                     "REFRESH_TOKEN_REUSE",
@@ -261,23 +270,69 @@ impl Identity {
                 .bind(user_id)
                 .execute(&self.core.db)
                 .await?;
-        self.core.revoke_session(session_id).await;
+        self.forget_session_tokens(&[session_id]).await?;
         Ok(done.rows_affected() > 0)
     }
 
-    /// Revokes every session of a user except `keep`.
+    /// Revokes every session of a user except `keep`. An app's session and
+    /// the web session it opened (a hand-off) count as one here: keeping
+    /// either keeps both, so changing the password in the app's web view
+    /// does not sign out the app around it.
     pub async fn revoke_all_sessions(&self, user_id: Uuid, keep: Option<Uuid>) -> AppResult<u64> {
         let ids: Vec<Uuid> = sqlx::query_scalar(
-            "UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL AND ($2::uuid IS NULL OR id <> $2) RETURNING id",
+            "WITH kept AS (
+                 SELECT $2::uuid AS id WHERE $2::uuid IS NOT NULL
+                 UNION SELECT linked_to FROM sessions WHERE id = $2 AND linked_to IS NOT NULL
+             )
+             UPDATE sessions SET revoked_at = now()
+             WHERE user_id = $1 AND revoked_at IS NULL
+               AND id NOT IN (SELECT id FROM kept)
+               AND (linked_to IS NULL OR linked_to NOT IN (SELECT id FROM kept))
+             RETURNING id",
         )
         .bind(user_id)
         .bind(keep)
         .fetch_all(&self.core.db)
         .await?;
-        for id in &ids {
+        self.forget_session_tokens(&ids).await?;
+        Ok(ids.len() as u64)
+    }
+
+    /// Refuses the access tokens of sessions that were just revoked, on
+    /// every instance at once, and of the web sessions linked to them (the
+    /// database revoked those with them: `sessions_revoke_linked`). Call it
+    /// after the revocation is committed, never while a transaction is open
+    /// (it reads through the pool).
+    pub(crate) async fn forget_session_tokens(&self, session_ids: &[Uuid]) -> AppResult<()> {
+        if session_ids.is_empty() {
+            return Ok(());
+        }
+        // A linked session revoked longer ago than an access token lives
+        // has no token left to refuse.
+        let linked: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM sessions
+             WHERE linked_to = ANY($1) AND (revoked_at IS NULL OR revoked_at > now() - make_interval(secs => $2))",
+        )
+        .bind(session_ids)
+        .bind(ACCESS_TOKEN_WINDOW_SECONDS)
+        .fetch_all(&self.core.db)
+        .await?;
+        for id in session_ids.iter().chain(&linked) {
             self.core.revoke_session(*id).await;
         }
-        Ok(ids.len() as u64)
+        Ok(())
+    }
+
+    /// Whether an app's session is live and the active account of its
+    /// device: what a web session linked to it needs in order to go on.
+    pub(crate) async fn app_session_in_use(&self, session_id: Uuid) -> AppResult<bool> {
+        let live: Option<bool> = sqlx::query_scalar(
+            "SELECT parked_at IS NULL FROM sessions WHERE id = $1 AND revoked_at IS NULL AND expires_at > now()",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.core.db)
+        .await?;
+        Ok(live == Some(true))
     }
 
     /// `identity.user.banned` (a suspension or a ban, from the admin domain
@@ -300,9 +355,7 @@ impl Identity {
         .bind(ACCESS_TOKEN_WINDOW_SECONDS)
         .fetch_all(&self.core.db)
         .await?;
-        for id in &ids {
-            self.core.revoke_session(*id).await;
-        }
+        self.forget_session_tokens(&ids).await?;
         Ok(ids.len())
     }
 

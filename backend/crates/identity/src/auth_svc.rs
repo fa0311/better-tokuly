@@ -149,7 +149,7 @@ impl Identity {
         let device_id = client.map(|c| c.device_id.as_str()).unwrap_or_default();
         let (parked, others) =
             if add_account { self.make_room_for(user, &meta, current, device_id).await? } else { (Vec::new(), false) };
-        let origin = crate::sessions::SessionOrigin { mfa, added_by_switch: others };
+        let origin = crate::sessions::SessionOrigin { mfa, added_by_switch: others, ..Default::default() };
         let issued = self.create_session_with(user, client, &meta, origin).await?;
         let kind = if method == "signup" { "SIGN_UP" } else { "SIGN_IN" };
         let device_name = client.map(|c| c.device_name.as_str()).unwrap_or("");
@@ -994,6 +994,14 @@ impl AuthService for Identity {
             })
         })
         .await
+    }
+
+    async fn create_web_handoff(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, CreateWebHandoffRequest>,
+    ) -> ServiceResult<CreateWebHandoffResponse> {
+        self.create_web_handoff_rpc(ctx, request).await
     }
 }
 

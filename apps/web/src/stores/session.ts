@@ -19,6 +19,23 @@ export const useSessionStore = create<SessionStore>(() => ({ state: { status: "u
  */
 const SESSION_HINT_KEY = "tokuly.signedIn";
 
+/**
+ * Set (readable, nothing secret in it) by the app's hand-off
+ * (`/api/auth/handoff`) beside the refresh cookie: a fresh in-app web view
+ * has no hint of its own, yet a session is waiting for it.
+ */
+const HANDOFF_HINT_COOKIE = "tokuly_session_hint";
+
+/** Takes the hand-off's hint, if it is there (once: it is removed). */
+function takeHandoffHint(): boolean {
+  const present = document.cookie
+    .split(";")
+    .some((pair) => pair.trim().startsWith(`${HANDOFF_HINT_COOKIE}=`));
+  // biome-ignore lint/suspicious/noDocumentCookie: a fixed value, and the Cookie Store API is not in every browser yet
+  if (present) document.cookie = `${HANDOFF_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+  return present;
+}
+
 let started = false;
 
 /**
@@ -86,7 +103,8 @@ export function startSession(): void {
     if (state.status === "signedIn") window.localStorage.setItem(SESSION_HINT_KEY, "1");
     else if (state.status === "signedOut") window.localStorage.removeItem(SESSION_HINT_KEY);
   });
-  if (window.localStorage.getItem(SESSION_HINT_KEY)) void session.restore();
+  const handedOff = takeHandoffHint();
+  if (handedOff || window.localStorage.getItem(SESSION_HINT_KEY)) void session.restore();
   else session.assumeSignedOut();
 }
 
