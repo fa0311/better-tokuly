@@ -2,7 +2,7 @@ import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-quer
 import { type Api, create, notify } from "@tokuly/api";
 import { notifyKeys } from "@tokuly/core/notifications";
 import { Alert } from "react-native";
-import { currentAccount } from "#/features/session/account";
+import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 
@@ -30,7 +30,8 @@ let unsaved = 0;
  * One change: shown at once (`guess`), sent as the account that made it, and
  * the server's answer (the whole preferences) then replaces the guess — unless
  * later changes are still on their way. A refusal reads the preferences again
- * and says why.
+ * and says why. Once that account is no longer the active one, its answer is
+ * not shown.
  */
 function change(
   query: QueryClient,
@@ -51,10 +52,12 @@ function change(
     try {
       const { preferences } = await send(preferencesService(account.api));
       unsaved -= 1;
+      if (!isActive(account)) return false;
       if (unsaved === 0 && preferences) query.setQueryData(notifyKeys.preferences, preferences);
       return true;
     } catch (error) {
       unsaved -= 1;
+      if (!isActive(account)) return false;
       Alert.alert(errorMessage(error, { namespace: "notifications" }));
       await query.invalidateQueries({ queryKey: notifyKeys.preferences });
       return false;

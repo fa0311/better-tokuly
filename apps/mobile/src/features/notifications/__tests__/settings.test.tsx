@@ -7,7 +7,10 @@ import { api } from "#/lib/api";
 import { NotificationSettingsScreen } from "../settings-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
-jest.mock("#/features/session/account", () => ({ currentAccount: jest.fn() }));
+jest.mock("#/features/session/account", () => ({
+  currentAccount: jest.fn(),
+  isActive: jest.fn(() => true),
+}));
 jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
 // Push on this device has its own tests (push.test.tsx).
 jest.mock("../push-card", () => ({ PushCard: () => null }));
