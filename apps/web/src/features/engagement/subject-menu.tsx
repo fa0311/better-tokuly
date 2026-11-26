@@ -1,9 +1,9 @@
+import type { Subject } from "@tokuly/core/engagement";
 import { Flag, Link2, MessageCircle, MoreHorizontal } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { cn } from "#/lib/cn";
-import type { Subject } from "./model";
 import { ReportDialog } from "./report-dialog";
 import { useCopySubjectLink, useShareToChat } from "./share-button";
 

@@ -1,5 +1,15 @@
 import { Link } from "@tanstack/react-router";
 import { engagement, isApiError, toMillis } from "@tokuly/api";
+import {
+  compactCount,
+  emojiReaction,
+  isCustomEmoji,
+  LIKE,
+  type ReactionPicture,
+  type Subject,
+  sameReaction,
+  toPicture,
+} from "@tokuly/core/engagement";
 import { Heart, SmilePlus, UsersRound } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,16 +24,6 @@ import { useEngagement, useReact, useReactors, useUnreact } from "./api";
 import { useBurst } from "./burst";
 import { EmojiPicker } from "./emoji-picker";
 import { useSubjectLive } from "./live";
-import {
-  compactCount,
-  emojiReaction,
-  isCustomEmoji,
-  LIKE,
-  type ReactionPicture,
-  type Subject,
-  sameReaction,
-  toPicture,
-} from "./model";
 import { useReactionPops } from "./pops";
 import { ReactionEmoji, reactionLabel } from "./reaction-emoji";
 

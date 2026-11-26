@@ -1,8 +1,8 @@
 import { engagement } from "@tokuly/api";
+import type { Subject, ViewerReaction } from "@tokuly/core/engagement";
 import { motion } from "motion/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { motionFactor } from "./burst";
-import type { Subject, ViewerReaction } from "./model";
 import { ReactionEmoji } from "./reaction-emoji";
 
 // Reactions from other people, popping up over a subject's reaction bar as they arrive (the realtime `reaction_added`).

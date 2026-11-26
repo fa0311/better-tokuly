@@ -363,6 +363,7 @@ export default {
     },
   },
   errors: {
+    CHANNEL_REQUIRED: "Make a channel first! It takes a minute on the web",
     SHORT_NOT_FOUND: "Short not found",
     SHORT_NOT_PUBLISHED: "Only live shorts can be pinned",
     SHORT_TOO_LONG: "Shorts can be up to 3 minutes",

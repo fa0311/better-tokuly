@@ -1,0 +1,96 @@
+appId: app.tokuly.mobile
+name: Post a short from the library, then swipe the feed as someone else and like it
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/short-creator.js
+# The emulator has no camera: the short is a video put in the library.
+- addMedia:
+    - "../fixtures/short.mp4"
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.creator}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+
+# The creator posts a public short from the library.
+- tapOn: { id: "tab-shorts" }
+- tapOn: { id: "shorts-new" }
+- tapOn: { id: "short-pick" }
+- runFlow: ../subflows/pick-first-media.yaml
+- extendedWaitUntil:
+    visible: { id: "short-video" }
+    timeout: 15000
+- tapOn: { id: "short-caption-input" }
+- inputText: ${output.caption}
+- hideKeyboard
+- scrollUntilVisible:
+    element: { id: "short-visibility-public" }
+- tapOn: { id: "short-visibility-public" }
+- scrollUntilVisible:
+    element: { id: "short-post" }
+- tapOn: { id: "short-post" }
+# My shorts: it goes up, then is processed, then is live.
+- extendedWaitUntil:
+    visible: { id: "my-shorts" }
+    timeout: 15000
+- extendedWaitUntil:
+    visible: { id: "post-done" }
+    timeout: 90000
+- extendedWaitUntil:
+    notVisible: "(処理中|Processing)"
+    timeout: 120000
+
+# Someone else, on the same phone: the for-you feed has the short.
+- back
+- tapOn: { id: "tab-me" }
+- tapOn: { id: "me-settings" }
+- tapOn: { id: "settings-accounts" }
+- tapOn: { id: "accounts-add" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.me}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+- tapOn: { id: "tab-shorts" }
+- extendedWaitUntil:
+    visible: { id: "shorts-feed" }
+    timeout: 20000
+- extendedWaitUntil:
+    visible: "${'.*' + output.caption + '.*'}"
+    timeout: 20000
+
+# Like it: the count goes up at once.
+- tapOn: { id: "short-like", index: 0 }
+- extendedWaitUntil:
+    visible: { id: "short-like-count", text: "1" }
+    timeout: 10000
+
+# Swipe on: the feed comes round again with it (nothing else is left to show), marked as a
+# repeat. The emulator draws video in software and hardly takes a swipe while one plays: a
+# tap pauses it first.
+- tapOn:
+    id: "short-player"
+    index: 0
+    waitToSettleTimeoutMs: 500
+- waitForAnimationToEnd:
+    timeout: 3000
+- scrollUntilVisible:
+    element: { id: "short-repeat" }
+    direction: DOWN
+    timeout: 40000
+    speed: 60

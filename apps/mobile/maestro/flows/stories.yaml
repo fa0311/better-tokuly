@@ -1,0 +1,79 @@
+appId: app.tokuly.mobile
+name: Post a story from the library, then watch it as a friend and react
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/story-friends.js
+# The emulator has no camera: the story is a picture put in the library.
+- addMedia:
+    - "../fixtures/story.jpg"
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.friend}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+
+# The friend leaves a story from the library.
+- tapOn: { id: "tab-chats" }
+- tapOn: { id: "story-add" }
+- tapOn: { id: "story-pick" }
+- runFlow: ../subflows/pick-first-media.yaml
+- extendedWaitUntil:
+    visible: { id: "story-caption-0" }
+    timeout: 15000
+- tapOn: { id: "story-title" }
+- inputText: "maestro day"
+- hideKeyboard
+- tapOn: { id: "story-post" }
+# It goes up in the background; the chat tab shows how it is doing.
+- extendedWaitUntil:
+    visible: { id: "post-done" }
+    timeout: 90000
+- tapOn: { id: "post-dismiss" }
+
+# The other account, beside this one, sees the new story first in the tray.
+- tapOn: { id: "tab-me" }
+- tapOn: { id: "me-settings" }
+- tapOn: { id: "settings-accounts" }
+- tapOn: { id: "accounts-add" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.me}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+- tapOn: { id: "tab-chats" }
+- extendedWaitUntil:
+    visible: { id: "${'story-unseen-' + output.friend}" }
+    timeout: 20000
+# A photo plays for five seconds, and this is the only reel: the viewer closes by itself
+# after it. The taps do not wait for the screen to settle (the progress bar keeps moving).
+- tapOn:
+    id: "${'story-ring-' + output.friend}"
+    waitToSettleTimeoutMs: 500
+- extendedWaitUntil:
+    visible: "maestro day"
+    timeout: 5000
+- tapOn:
+    id: "story-react-0"
+    waitToSettleTimeoutMs: 500
+# Watched: the viewer is gone, and the ring is no longer the unseen one.
+- extendedWaitUntil:
+    notVisible: { id: "story-viewer" }
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: { id: "${'story-unseen-' + output.friend}" }
+    timeout: 15000

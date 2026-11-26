@@ -5,3 +5,5 @@
 dist/
 expo-env.d.ts
 *.apk
+# Written at build time by scripts/licenses.js.
+/src/generated/

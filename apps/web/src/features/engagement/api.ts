@@ -5,11 +5,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { common, engagement } from "@tokuly/api";
-import { toast } from "sonner";
-import { api } from "#/lib/api";
-import { errorMessage } from "#/lib/errors";
 import {
   type Engagement,
+  engagementKeys,
   type ReactionChange,
   reactionFields,
   type Subject,
@@ -18,7 +16,10 @@ import {
   type ViewerReaction,
   withCounters,
   withReactionChange,
-} from "./model";
+} from "@tokuly/core/engagement";
+import { toast } from "sonner";
+import { api } from "#/lib/api";
+import { errorMessage } from "#/lib/errors";
 import { noteOwnReaction } from "./pops";
 
 export const reactionClient = () => api().service(engagement.ReactionService);
@@ -26,24 +27,8 @@ export const bookmarkClient = () => api().service(engagement.BookmarkService);
 export const engagementClient = () => api().service(engagement.EngagementService);
 export const reportClient = () => api().service(engagement.ReportService);
 
-/** Query keys of the engagement domain. */
-export const engagementKeys = {
-  all: ["engagement"] as const,
-  subjects: ["engagement", "subject"] as const,
-  subject: (subject: Subject) => ["engagement", "subject", subject.type, subject.id] as const,
-  reactors: (subject: Subject, emoji: string) =>
-    ["engagement", "reactors", subject.type, subject.id, emoji] as const,
-  myReactions: ["engagement", "my-reactions"] as const,
-  reactionSettings: ["engagement", "reaction-settings"] as const,
-  collections: ["engagement", "collections"] as const,
-  collectionsFor: (subject: Subject) =>
-    ["engagement", "collections", "for", subject.type, subject.id] as const,
-  bookmarks: ["engagement", "bookmarks"] as const,
-  bookmarkList: (collectionId: string) => ["engagement", "bookmarks", collectionId] as const,
-  reports: ["engagement", "reports"] as const,
-  shareStats: (subject: Subject) =>
-    ["engagement", "share-stats", subject.type, subject.id] as const,
-};
+// The keys live in `@tokuly/core/engagement`; the folder reads them from here.
+export { engagementKeys };
 
 // ───────────────────────────── Batched loading ─────────────────────────────
 

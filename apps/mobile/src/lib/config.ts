@@ -33,3 +33,9 @@ export const TILE_CONFIG: TileConfig = {
 export function webLink(path: string): string {
   return `${WEB_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
+
+/** A media URL the server gave as a path is on the app's own server. */
+export function mediaUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  return url.startsWith("/") ? `${SERVER_URL}${url}` : url;
+}

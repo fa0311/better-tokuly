@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { engagement } from "@tokuly/api";
+import type { Subject } from "@tokuly/core/engagement";
 import { Flag } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,6 @@ import { TextArea } from "#/components/ui/field";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { engagementKeys, reportClient } from "./api";
-import type { Subject } from "./model";
 
 /** The longest report text the server takes. */
 const TEXT_MAX = 1000;

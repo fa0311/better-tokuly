@@ -5,6 +5,9 @@ env:
 ---
 - launchApp:
     clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
 - evalScript: ${output.handle = 'm' + Date.now().toString(36)}
 - tapOn: { id: "welcome-sign-up" }
 - tapOn: { id: "sign-up-display-name" }
