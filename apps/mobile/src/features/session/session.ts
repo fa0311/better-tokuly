@@ -1,5 +1,5 @@
 import { Code, ConnectError, identity } from "@tokuly/api";
-import { api, apiWith, authClient, resetApi } from "#/lib/api";
+import { api, apiWith, authClient, resetApi, settleApi } from "#/lib/api";
 import { prepareRealtime, resetRealtime } from "#/lib/realtime";
 import { DEVICE_ID_KEY } from "#/platform/device";
 import { forgetPreviousInstall } from "#/platform/install";
@@ -71,6 +71,15 @@ async function startOver(response: identity.AuthResponse | null): Promise<void> 
   useSessionStore.setState((s) => ({ generation: s.generation + 1 }));
 }
 
+/**
+ * Parks the account in use. Its API is settled first: the token that is
+ * parked is the one its session ended up with, not one a refresh is spending.
+ */
+async function park(sessionId: string): Promise<void> {
+  await settleApi();
+  await parkActive(sessionId);
+}
+
 function activeSessionId(): string | null {
   const { state } = useSessionStore.getState();
   return state.status === "signedIn" ? state.sessionId : null;
@@ -84,7 +93,7 @@ export async function enterAccount(response: identity.AuthResponse): Promise<voi
   const current = activeSessionId();
   if (current) {
     await leave();
-    await withParkedTokens(() => parkActive(current));
+    await withParkedTokens(() => park(current));
   }
   await startOver(response);
 }
@@ -118,7 +127,7 @@ async function switchTo(sessionId: string, totpCode: string): Promise<SwitchResu
   await rotateParked(sessionId, response.refreshToken);
   if (current) {
     await leave();
-    await parkActive(current);
+    await park(current);
   }
   await forgetParked(sessionId);
   await startOver(response);
@@ -161,6 +170,8 @@ export async function signOut(allSessions = false): Promise<{ everywherePending:
 /** The account in use leaves and the app starts over signed out. Runs in the queue of the device's tokens. */
 async function signOutActive(allSessions: boolean): Promise<void> {
   await leave();
+  // The token set aside is the one the session ended up with (a refresh on its way lands first).
+  await settleApi();
   const sessionId = activeSessionId();
   const token = await activeTokenStore.get();
   if (sessionId && token) await addDeparted(sessionId, { token, allSessions });
