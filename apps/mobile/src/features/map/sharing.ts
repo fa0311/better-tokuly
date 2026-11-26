@@ -8,6 +8,7 @@ import {
 import { useEffect } from "react";
 import { AppState } from "react-native";
 import { create } from "zustand";
+import type { Account } from "#/features/session/account";
 import { useMe } from "#/features/session/store";
 import { api } from "#/lib/api";
 import i18n from "#/lib/i18n";
@@ -24,7 +25,6 @@ import {
   watchForeground,
 } from "#/platform/location";
 import { readSecure, writeSecure } from "#/platform/secure-storage";
-import { locationClient } from "./data";
 import { useLocations } from "./locations-store";
 
 /**
@@ -89,12 +89,15 @@ async function setStopOwed(userId: string, owed: boolean): Promise<void> {
 /**
  * Tells the server that this account stopped sharing from here. A failure is
  * never dropped: it is remembered, shown, and tried again (next start, the
- * app coming back to the screen, the retry button).
+ * app coming back to the screen, the retry button). `account` is the API of
+ * `userId`, taken before the caller's first wait: by the time this runs the
+ * active one may be the next account's, and its sharing must not be stopped
+ * in this one's place.
  */
-async function tellServerStopped(userId: string): Promise<boolean> {
+async function tellServerStopped(userId: string, account: Api): Promise<boolean> {
   try {
     // The device's clock, as in its samples: what it sent before this moment never resumes sharing.
-    await locationClient().stopSharing({ stoppedAt: fromDate(new Date()) });
+    await account.service(geo.LocationService).stopSharing({ stoppedAt: fromDate(new Date()) });
     await setStopOwed(userId, false);
     return true;
   } catch {
@@ -133,15 +136,16 @@ export async function askAlways(): Promise<void> {
 export async function stopSharing(): Promise<void> {
   const { userId } = useSharing.getState();
   if (!userId) return;
+  const account = api();
   await setChoice(userId, "off");
   await stopBackground();
   useLocations.getState().setOwn(null);
-  await tellServerStopped(userId);
+  await tellServerStopped(userId, account);
 }
 
 export async function confirmStop(): Promise<void> {
   const { userId } = useSharing.getState();
-  if (userId) await tellServerStopped(userId);
+  if (userId) await tellServerStopped(userId, api());
 }
 
 async function stopBackground(): Promise<void> {
@@ -193,18 +197,20 @@ export async function sendFix(position: OwnPosition, userId: string): Promise<vo
 }
 
 /**
- * Before `userId` leaves this device's screen (sign-out, a switch): nothing
+ * Before an account leaves this device's screen (sign-out, a switch): nothing
  * more is sent for it from the foreground or the background, then the
- * server hears that it stopped.
+ * server hears that it stopped — through the account's own API: the leave
+ * may give up waiting (`LEAVE_TIMEOUT_MS`) while the background task is
+ * still stopping, and the next account is the active one after that.
  */
-export async function leaveSharing(userId: string): Promise<void> {
+export async function leaveSharing({ userId, api: account }: Account): Promise<void> {
   const state = useSharing.getState();
   const wasSharing = state.userId === userId && state.choice === "on";
   useSharing.setState({ leaving: true });
   useLocations.getState().setOwn(null);
   if (!wasSharing) return;
   await stopBackground();
-  await tellServerStopped(userId);
+  await tellServerStopped(userId, account);
 }
 
 /** Every few seconds the newest fix goes out if its turn came; a still device gets a fresh one. */
@@ -332,6 +338,7 @@ export function useOwnLocationSharing(): void {
       leaving: false,
     });
     if (!myId) return;
+    const account = api();
     let current = true;
     void (async () => {
       const [stored, owed] = await Promise.all([
@@ -348,7 +355,8 @@ export function useOwnLocationSharing(): void {
       await refreshAccess();
       // A stop the server never heard of: try again, unless this device shares again by now.
       const state = useSharing.getState();
-      if (state.stopOwed && state.choice !== "on") void tellServerStopped(myId);
+      if (state.stopOwed && state.choice !== "on" && api() === account)
+        void tellServerStopped(myId, account);
     })();
     // Back from the settings app: the permission may have changed.
     const appState = AppState.addEventListener("change", (state) => {
@@ -369,7 +377,7 @@ export function useOwnLocationSharing(): void {
     if (!myId || choice !== "on" || !revoked) return;
     useLocations.getState().setOwn(null);
     void stopBackground();
-    void tellServerStopped(myId);
+    void tellServerStopped(myId, api());
   }, [myId, choice, revoked]);
 
   // Only once this account's own choice was read: right after a switch the store still holds
