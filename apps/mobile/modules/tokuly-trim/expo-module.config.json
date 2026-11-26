@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["TokulyTrimModule"]
+  },
+  "android": {
+    "modules": ["app.tokuly.trim.TokulyTrimModule"]
+  }
+}

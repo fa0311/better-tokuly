@@ -173,6 +173,11 @@ export default {
     stop: "録画をとめる",
   },
   media: {
+    trimTitle: "長さをととのえる",
+    trimLead: "わくを動かして、使うところをえらんでね（{{limit}}まで）",
+    trimRange: "{{from}} 〜 {{to}} の {{length}} を使うよ",
+    trimWindow: "使うところ",
+    trimFailed: "切りとれなかったよ。もう一度ためすか、ほかの動画にしてね",
     trimDone: "これでOK",
     trimCancel: "やめる",
   },

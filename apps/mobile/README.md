@@ -31,6 +31,7 @@ src/features/<area>/ one folder per product area: screens, components, hooks, st
 src/platform/        the device: secure storage, install ID, location and the background task, file transfers
 src/lib/             the API client, realtime, the query client, i18n, theme, config
 src/components/      small native primitives (Button, TextField, Avatar, Page)
+modules/             local Expo modules (native code of our own): tokuly-trim
 maestro/             end-to-end flows (Maestro), their scripts and fixtures
 ```
 
@@ -76,7 +77,9 @@ its tests) and the web switches to it.
   back, flash; the longest recording is the server's limit for the purpose
   (stories 60 s, shorts 3 min; every upload's answer brings the server's own),
   shown before anything is recorded. A library video that is longer is cut down
-  in the trimmer first. A story or a short is a _post_ (`features/media/posts.ts`):
+  first: the trim screen picks the part, and the local module
+  `modules/tokuly-trim` cuts it on the device (Media3 Transformer on Android,
+  AVAssetExportSession on iOS; no FFmpeg in the app). A story or a short is a _post_ (`features/media/posts.ts`):
   its files are copied into the app's documents, uploaded through the media flow
   (`features/media/upload.ts`: one presigned PUT, or the parts the store does not
   hold yet), then it is created. PUTs are the OS's own transfers (a background

@@ -15,8 +15,9 @@ import { Button } from "#/components/button";
 import { friendClient } from "#/features/friends/data";
 import { CameraScreen } from "#/features/media/camera-screen";
 import { recordingLimit, useRecordingLimits } from "#/features/media/limits";
-import { pickFromLibrary, trimVideo } from "#/features/media/pick";
+import { pickFromLibrary } from "#/features/media/pick";
 import { type LocalMedia, submitPost } from "#/features/media/posts";
+import { useTrimmer } from "#/features/media/trim-screen";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
 import { useTheme } from "#/lib/theme";
@@ -49,6 +50,7 @@ export function StoryComposerScreen() {
   const [picked, setPicked] = useState<string[]>([]);
   const [camera, setCamera] = useState(false);
   const [busy, setBusy] = useState(false);
+  const trimmer = useTrimmer();
   const friends = useQuery({
     ...friendQueries.list(friendClient, ""),
     enabled: audience === notes.StoryAudience.CLOSE_FRIENDS,
@@ -66,7 +68,7 @@ export function StoryComposerScreen() {
         fitted.push(item);
         continue;
       }
-      const trimmed = await trimVideo(item, recordingLimit(media.AssetPurpose.STORY));
+      const trimmed = await trimmer.trim(item, recordingLimit(media.AssetPurpose.STORY));
       if (trimmed) fitted.push(trimmed);
     }
     return fitted;
@@ -281,6 +283,7 @@ export function StoryComposerScreen() {
           {t("create.post")}
         </Button>
       </ScrollView>
+      {trimmer.element}
       <Modal visible={camera} animationType="slide" onRequestClose={() => setCamera(false)}>
         <CameraScreen
           limitSeconds={limit}

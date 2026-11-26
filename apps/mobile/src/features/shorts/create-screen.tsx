@@ -13,8 +13,9 @@ import { Button } from "#/components/button";
 import { useAccountLocked } from "#/features/friends/data";
 import { CameraScreen } from "#/features/media/camera-screen";
 import { useRecordingLimits } from "#/features/media/limits";
-import { pickFromLibrary, trimVideo } from "#/features/media/pick";
+import { pickFromLibrary } from "#/features/media/pick";
 import { type LocalMedia, submitPost } from "#/features/media/posts";
+import { useTrimmer } from "#/features/media/trim-screen";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
@@ -55,6 +56,7 @@ export function CreateShortScreen() {
   const [comments, setComments] = useState(true);
   const [camera, setCamera] = useState(false);
   const [busy, setBusy] = useState(false);
+  const trimmer = useTrimmer();
   const token = tokenAtCaret(caption, caret);
   const suggestions = useHashtagSuggestions(token?.kind === "hashtag" ? token.query : "");
   const circles = useQuery({
@@ -66,7 +68,7 @@ export function CreateShortScreen() {
   /** A video longer than the server takes is cut down first (or not taken). */
   const take = async (picked: LocalMedia) => {
     if (picked.duration && picked.duration > limit) {
-      const trimmed = await trimVideo(picked, limit);
+      const trimmed = await trimmer.trim(picked, limit);
       if (!trimmed) return;
       setVideo(trimmed);
     } else setVideo(picked);
@@ -248,6 +250,7 @@ export function CreateShortScreen() {
           {t("create.post")}
         </Button>
       </ScrollView>
+      {trimmer.element}
       <Modal visible={camera} animationType="slide" onRequestClose={() => setCamera(false)}>
         <CameraScreen
           limitSeconds={limit}

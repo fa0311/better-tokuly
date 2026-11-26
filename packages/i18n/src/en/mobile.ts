@@ -173,6 +173,11 @@ export default {
     stop: "Stop recording",
   },
   media: {
+    trimTitle: "Trim it",
+    trimLead: "Move the frame to pick the part to use (up to {{limit}})",
+    trimRange: "Using {{length}}, {{from}} to {{to}}",
+    trimWindow: "The part to use",
+    trimFailed: "Couldn't trim it. Try again, or pick another video",
     trimDone: "Done",
     trimCancel: "Cancel",
   },
