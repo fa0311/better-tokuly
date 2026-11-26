@@ -28,9 +28,15 @@ export function AskForm({ box }: { box: ask.QuestionBox }) {
   const owner = box.owner!;
   const name = owner.displayName;
 
-  // Anonymous by default; signed when the asker chooses it or when it is the only way in.
-  const signed = box.anonymousAvailable ? box.allowSigned && wantSigned : box.allowSigned;
+  // Anonymous by default; signed when the asker chooses it, or when it was the
+  // only way in from the start. A box that stops hiding its askers while one
+  // is writing (read again after its owner lost a friend) signs nothing by
+  // itself: the asker keeps the choice, and sending waits until they sign.
+  const [beganAnonymous] = useState(box.anonymousAvailable);
+  const choice = box.allowSigned && (box.anonymousAvailable || beganAnonymous);
+  const signed = box.allowSigned && (wantSigned || !choice);
   const possible = box.anonymousAvailable || box.allowSigned;
+  const allowed = signed || box.anonymousAvailable;
   const length = charCount(text.trim());
 
   const send = async () => {
@@ -97,7 +103,7 @@ export function AskForm({ box }: { box: ask.QuestionBox }) {
         </View>
       </View>
 
-      {box.anonymousAvailable && box.allowSigned && (
+      {choice && (
         <View
           accessibilityRole="radiogroup"
           className="flex-row gap-1 rounded-full bg-surface-3 p-1"
@@ -141,10 +147,12 @@ export function AskForm({ box }: { box: ask.QuestionBox }) {
         {signed ? (
           <Text className="text-sm font-bold text-ink">{t("askForm.signedNote", { name })}</Text>
         ) : (
-          <>
-            <Text className="text-sm font-bold text-ink">{t("askForm.anonymousNote")}</Text>
-            <Text className="text-xs text-ink-soft">{t("askForm.anonymousNote2")}</Text>
-          </>
+          allowed && (
+            <>
+              <Text className="text-sm font-bold text-ink">{t("askForm.anonymousNote")}</Text>
+              <Text className="text-xs text-ink-soft">{t("askForm.anonymousNote2")}</Text>
+            </>
+          )
         )}
       </View>
 
@@ -154,7 +162,7 @@ export function AskForm({ box }: { box: ask.QuestionBox }) {
         size="lg"
         icon={<Send size={20} color={colors["on-brand"]} />}
         loading={sending}
-        disabled={length === 0 || length > QUESTION_MAX}
+        disabled={!allowed || length === 0 || length > QUESTION_MAX}
         onPress={() => void send()}
       >
         {t("askForm.send")}

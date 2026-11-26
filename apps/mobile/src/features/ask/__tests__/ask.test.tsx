@@ -156,6 +156,24 @@ describe("asking", () => {
     await fireEvent.press(screen.getByTestId("ask-send"));
     await waitFor(() => expect(sent.askQuestion?.[0]).toMatchObject({ signed: true }));
   });
+
+  it("never signs for an asker who began anonymously, when the box stops hiding them", async () => {
+    const sent = server([]);
+    await show(<AskForm box={box({ anonymousAvailable: true, allowSigned: true })} />);
+    await fireEvent.changeText(screen.getByTestId("ask-input"), "すきな人いる?");
+    // The owner lost a friend and the box was read again while the asker was writing.
+    await screen.rerender(
+      framed(<AskForm box={box({ anonymousAvailable: false, allowSigned: true })} />),
+    );
+    expect(screen.getByText(/名前つきでだけ送れるよ/)).toBeTruthy();
+    await fireEvent.press(screen.getByTestId("ask-send"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent.askQuestion).toBeUndefined();
+
+    await fireEvent.press(screen.getByTestId("ask-signed"));
+    await fireEvent.press(screen.getByTestId("ask-send"));
+    await waitFor(() => expect(sent.askQuestion?.[0]).toMatchObject({ signed: true }));
+  });
 });
 
 describe("reporting", () => {
