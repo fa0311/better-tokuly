@@ -21,8 +21,9 @@ env:
       PASSWORD: ${PASSWORD}
 
 # The rooms, from the last tab: the friend's room is under ともだちがいるルーム.
-- tapOn: { id: "tab-me" }
-- tapOn: { id: "me-spaces" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: spaces }
 - extendedWaitUntil:
     visible: { id: "spaces-friends" }
     timeout: 15000
