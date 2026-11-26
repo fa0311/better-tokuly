@@ -1,9 +1,17 @@
 import { router } from "expo-router";
-import { LockKeyhole, Scale, ShieldHalf } from "lucide-react-native";
+import { LockKeyhole, Scale, ShieldHalf, UserRound } from "lucide-react-native";
 import i18n from "#/lib/i18n";
 import type { SettingsRow } from "#/seams/settings";
 
 export default [
+  {
+    id: "profile",
+    order: 2,
+    icon: UserRound,
+    label: () => i18n.t("settings:sections.profile.title"),
+    hint: () => i18n.t("settings:sections.profile.hint"),
+    onPress: () => router.push("/settings/profile"),
+  },
   {
     id: "privacy",
     order: 4,

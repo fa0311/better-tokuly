@@ -27,6 +27,27 @@ env:
     visible: { id: "settings-screen" }
     timeout: 15000
 
+# Profile: a new bio is saved and shows when the screen opens again.
+- tapOn: { id: "settings-profile" }
+- extendedWaitUntil:
+    visible: { id: "profile-edit" }
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 19-profile
+- tapOn: { id: "profile-bio" }
+- inputText: "ramen and maps"
+- hideKeyboard
+# The swipe starts on the banner: the bio field would scroll itself.
+- swipe:
+    start: 50%, 25%
+    end: 50%, 5%
+- tapOn: { id: "profile-save" }
+- tapOn: "OK"
+- back
+- tapOn: { id: "settings-profile" }
+- assertVisible: "ramen and maps"
+- back
+
 # Privacy: a choice and a switch save at once, and are still there when the screen opens again.
 - tapOn: { id: "settings-privacy" }
 - extendedWaitUntil:
