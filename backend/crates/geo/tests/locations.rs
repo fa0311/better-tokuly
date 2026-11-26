@@ -134,6 +134,7 @@ async fn ingest_processes_a_gateway_report_directly() {
     // What the realtime gateway puts on the LOCATIONS stream.
     let report = presence::LocationReport {
         user_id: aoi.id,
+        session_id: None,
         received_at: Utc::now(),
         sample: sample(here, next_fix_time(aoi.id)),
     };
@@ -143,7 +144,12 @@ async fn ingest_processes_a_gateway_report_directly() {
     ctx.geo.ingest(report).await.unwrap();
     assert!(pins(&mut rens, QUIET).await.is_empty());
     // An unusable report is not an error for the stream consumer, just nothing.
-    let bad = presence::LocationReport { user_id: aoi.id, received_at: Utc::now(), sample: LocationSample::default() };
+    let bad = presence::LocationReport {
+        user_id: aoi.id,
+        session_id: None,
+        received_at: Utc::now(),
+        sample: LocationSample::default(),
+    };
     ctx.geo.ingest(bad).await.unwrap();
     assert_at!(pin_point(ctx.my_location(&aoi).await.location.as_option().unwrap()), here);
 }
@@ -392,17 +398,18 @@ async fn a_sample_still_on_its_way_when_sharing_stopped_does_not_resume_it() {
 }
 
 #[tokio::test]
-async fn a_stop_overtaken_by_a_later_fix_does_not_pause_sharing() {
+async fn a_stop_overtaken_by_another_devices_fix_does_not_pause_sharing() {
     let ctx = start().await;
     let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
     ctx.befriend(&aoi, &ren).await;
+    let tablet = ctx.app.sign_in(aoi.id).await;
     let home = somewhere();
     ctx.at(&aoi, home).await;
 
-    // One phone stops; before its stop reaches the server, another phone of the
-    // account (or the same one, started again) reports a fix taken after it.
+    // The phone stops; before its stop reaches the server, the tablet, which
+    // goes on sharing, reports a fix taken after it.
     let stopped_at = next_fix_time(aoi.id);
-    ctx.at(&aoi, offset(home, 0.0, 60.0)).await;
+    ctx.at(&tablet, offset(home, 0.0, 60.0)).await;
     let mut rens = ctx.app.listen_user(ren.id).await;
     let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(stopped_at), ..Default::default() };
     let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
@@ -411,6 +418,50 @@ async fn a_stop_overtaken_by_a_later_fix_does_not_pause_sharing() {
     assert!(!ctx.seen_by(&ren, &aoi).await.unwrap().sharing_paused);
     assert!(ctx.my_location(&aoi).await.sharing);
     assert!(geoindex::get(&ctx.app.core.cache, aoi.id).await.unwrap().is_some(), "still in the true-position index");
+
+    // The tablet's own stop is not overtaken by its own fix, however it is timed.
+    let _: StopSharingResponse = ctx.location("StopSharing", &tablet, &stop).await.unwrap();
+    assert!(next_pin(&mut rens).await.unwrap().sharing_paused);
+}
+
+#[tokio::test]
+async fn a_stop_from_the_device_of_the_newest_fix_pauses_whatever_the_clocks_say() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let home = somewhere();
+    // Fixes carry the positioning clock's time, the stop the system clock's:
+    // here the first runs half a minute ahead of the second.
+    let fixed_at = Utc::now() + Duration::seconds(30);
+    assert_eq!(ctx.report(&aoi, vec![sample(home, fixed_at)]).await.accepted_count, 1);
+    let mut rens = ctx.app.listen_user(ren.id).await;
+
+    let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(Utc::now()), ..Default::default() };
+    let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
+    assert!(next_pin(&mut rens).await.unwrap().sharing_paused, "the only device stopped: the stop stops");
+    assert!(ctx.seen_by(&ren, &aoi).await.unwrap().sharing_paused);
+    assert!(!ctx.my_location(&aoi).await.sharing);
+    assert!(geoindex::get(&ctx.app.core.cache, aoi.id).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn a_stop_is_not_overtaken_by_a_fix_whose_device_is_unknown() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let stopped_at = next_fix_time(aoi.id);
+    let report = presence::LocationReport {
+        user_id: aoi.id,
+        session_id: None,
+        received_at: Utc::now(),
+        sample: sample(somewhere(), next_fix_time(aoi.id)),
+    };
+    ctx.geo.ingest(report).await.unwrap();
+    let mut rens = ctx.app.listen_user(ren.id).await;
+
+    let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(stopped_at), ..Default::default() };
+    let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
+    assert!(next_pin(&mut rens).await.unwrap().sharing_paused);
 }
 
 #[tokio::test]
@@ -631,6 +682,7 @@ async fn banned_and_deleted_accounts_disappear_from_the_map() {
     // Samples of a banned account are ignored.
     let report = presence::LocationReport {
         user_id: aoi.id,
+        session_id: None,
         received_at: Utc::now(),
         sample: sample(somewhere(), next_fix_time(aoi.id)),
     };

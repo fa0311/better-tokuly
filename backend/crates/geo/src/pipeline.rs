@@ -220,14 +220,16 @@ impl Geo {
     /// a process that does not run [`Geo::spawn_workers`] calls
     /// [`Geo::flush_history`] when it is done.
     pub async fn ingest(&self, report: LocationReport<LocationSample>) -> AppResult<()> {
-        self.ingest_batch(report.user_id, report.received_at, std::slice::from_ref(&report.sample)).await.map(|_| ())
+        let samples = std::slice::from_ref(&report.sample);
+        self.ingest_batch(report.user_id, report.session_id, report.received_at, samples).await.map(|_| ())
     }
 
     /// Processes samples of one user, oldest first, and returns how many
-    /// were accepted.
+    /// were accepted. `session` is the session they came in on, if any.
     pub(crate) async fn ingest_batch(
         &self,
         user_id: Uuid,
+        session: Option<Uuid>,
         received_at: DateTime<Utc>,
         samples: &[LocationSample],
     ) -> AppResult<usize> {
@@ -240,12 +242,18 @@ impl Geo {
         valid.sort_by_key(|sample| sample.recorded_ms);
         Gazetteer::ready().await;
         let lock = self.lock_user(user_id).await?;
-        let result = self.process(user_id, valid, &lock).await;
+        let result = self.process(user_id, session, valid, &lock).await;
         self.unlock_user(lock).await;
         result
     }
 
-    async fn process(&self, user_id: Uuid, samples: Vec<Sample>, lock: &UserLock) -> AppResult<usize> {
+    async fn process(
+        &self,
+        user_id: Uuid,
+        session: Option<Uuid>,
+        samples: Vec<Sample>,
+        lock: &UserLock,
+    ) -> AppResult<usize> {
         let ctx = self.ctx_of(user_id).await?;
         if !ctx.active {
             return Ok(0);
@@ -265,6 +273,7 @@ impl Geo {
                 continue;
             }
             self.apply(user_id, &ctx, &mut state, sample, &mut effects).await?;
+            state.pin_from = session;
             // Only the newest sample of an upload is the present (see `claims`).
             state.trust.take(&claims::Taken {
                 lat: sample.lat,
@@ -621,13 +630,18 @@ impl Geo {
         Ok((!changes.is_empty()).then_some(changes))
     }
 
-    /// A device stopped sharing: the pin stays where it is and is marked
-    /// paused, the stay and gathering end, and the true-position index
-    /// forgets the user. Samples recorded until the stop are dropped from now
-    /// on. A stop the device timed before the newest fix already processed
-    /// changes nothing else: that fix was taken after it (another device, or
-    /// the same one started again), and it is what resumed sharing.
-    pub(crate) async fn stop_sharing(&self, user_id: Uuid, stop: Stop) -> AppResult<()> {
+    /// The device signed in with `session` stopped sharing: the pin stays
+    /// where it is and is marked paused, the stay and gathering end, and the
+    /// true-position index forgets the user. Samples recorded until the stop
+    /// are dropped from now on.
+    ///
+    /// The account goes on sharing only when another device is known to: the
+    /// newest fix came in on another session and was taken after the stop.
+    /// Then nothing else changes. The stop of the device that reported the
+    /// newest fix always pauses, whatever the two times say: a fix carries
+    /// the positioning clock's time and a stop the system clock's, and
+    /// someone who pressed stop on their only device must disappear.
+    pub(crate) async fn stop_sharing(&self, user_id: Uuid, session: Uuid, stop: Stop) -> AppResult<()> {
         let ctx = self.ctx_of(user_id).await?;
         let paused = self
             .with_state(user_id, async |state| {
@@ -636,8 +650,9 @@ impl Geo {
                 if !state.located() || !state.pin.sharing {
                     return Ok(Some((None, None)));
                 }
-                // Overtaken: sharing went on after this stop.
-                if matches!(stop, Stop::Device(at) if at < state.pin.recorded_ms) {
+                // Overtaken: another device went on sharing after this stop.
+                let from_another_device = state.pin_from.is_some_and(|reporter| reporter != session);
+                if from_another_device && matches!(stop, Stop::Device(at) if at < state.pin.recorded_ms) {
                     return Ok(None);
                 }
                 let mut news = None;
@@ -658,7 +673,7 @@ impl Geo {
                 Ok(Some((Some(state.pin.clone()), news)))
             })
             .await?;
-        // Overtaken: the user is still sharing, so the index and the gathering stay.
+        // Overtaken: the account is still sharing, so the index and the gathering stay.
         let Some((pin, news)) = paused else {
             return Ok(());
         };

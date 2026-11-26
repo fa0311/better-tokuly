@@ -155,8 +155,12 @@ async fn friends_who_meet_at_the_same_instant_end_up_in_one_gathering() {
         let ctx = &ctx;
         let outcomes = join_all(users.iter().enumerate().map(|(index, user)| async move {
             let fix = sample(position(index), t - chrono::Duration::seconds(seconds_before));
-            let report =
-                tokuly_core::presence::LocationReport { user_id: user.id, received_at: Utc::now(), sample: fix };
+            let report = tokuly_core::presence::LocationReport {
+                user_id: user.id,
+                session_id: None,
+                received_at: Utc::now(),
+                sample: fix,
+            };
             ctx.geo.ingest(report).await
         }))
         .await;

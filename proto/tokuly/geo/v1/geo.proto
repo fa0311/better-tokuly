@@ -31,9 +31,10 @@ service LocationService {
   // Tells the server the device stopped sharing (permission revoked, signed
   // out, sharing paused) so friends see a stale pin right away. Sharing
   // resumes with the first sample recorded after the stop: the device
-  // starting to report again is the start. A stop timed before the newest
-  // sample the server already processed (from another device of the
-  // account, or a quick stop and start) does not pause sharing again.
+  // starting to report again is the start. The stop is this device's: when
+  // the newest sample the server already processed came from another device
+  // of the account (another session) and was recorded after the stop, that
+  // device goes on sharing and nothing is paused.
   rpc StopSharing(StopSharingRequest) returns (StopSharingResponse);
 
   // Snapshot of every friend the caller is allowed to see.
@@ -127,7 +128,7 @@ message StopSharingRequest {
   // a skewed device clock harmless. Missing means the server's receive time,
   // which a device clock running behind the server's turns into a short
   // wait before sharing can resume; such a stop always pauses, as it cannot
-  // be ordered against the samples. Values more than two minutes ahead of
+  // be ordered against another device's samples. Values more than two minutes ahead of
   // the server are taken as the server's time plus two minutes.
   google.protobuf.Timestamp stopped_at = 1;
 }
