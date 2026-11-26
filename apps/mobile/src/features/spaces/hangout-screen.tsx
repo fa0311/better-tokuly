@@ -219,7 +219,9 @@ function VoiceRoom({ hangout }: { hangout: spaces.Hangout }) {
             >
               {t(open ? "hangout.join" : "hangout.joinFirst")}
             </Button>
-            {audioOff && <Text className="text-center text-xs text-ink-soft">{t("audioOff")}</Text>}
+            <Text className="text-center text-xs text-ink-soft">
+              {audioOff ? t("audioOff") : tm("spaces.hangoutMicHint")}
+            </Text>
           </View>
         ) : (
           <>

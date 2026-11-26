@@ -275,6 +275,7 @@ export default {
     settingsOnWeb: "ルームの設定・ピン留め・招待（Web）",
     createHangoutOnWeb: "たまり場をつくる（Web）",
     hangoutOnWeb: "さそう・設定する（Web）",
+    hangoutMicHint: "入るとマイクがONになるよ。ミュートはいつでもできるよ",
   },
   licenses: {
     title: "オープンソースライセンス",

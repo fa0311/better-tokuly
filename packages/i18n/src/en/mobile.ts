@@ -274,6 +274,7 @@ export default {
     settingsOnWeb: "Room settings, pin & invites (web)",
     createHangoutOnWeb: "Make a hangout (web)",
     hangoutOnWeb: "Invite & settings (web)",
+    hangoutMicHint: "Your microphone turns on when you go in. You can mute it any time",
   },
   licenses: {
     title: "Open-source licences",
