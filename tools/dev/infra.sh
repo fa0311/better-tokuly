@@ -229,8 +229,26 @@ up() {
   RUSTFS_ACCESS_KEY="$S3_ACCESS_KEY" RUSTFS_SECRET_KEY="$S3_SECRET_KEY" \
     start rustfs "$BIN/rustfs" server --address "127.0.0.1:$P_S3" --console-enable \
     --console-address "127.0.0.1:$P_S3_CONSOLE" "$DATA/rustfs"
+  # The `default` user without a password, written down: the macOS build has
+  # no such user of its own when it runs without a configuration.
+  cat >"$DATA/clickhouse/users.xml" <<'EOF'
+<clickhouse>
+  <profiles><default/></profiles>
+  <quotas><default/></quotas>
+  <users>
+    <default>
+      <password></password>
+      <networks><ip>127.0.0.1</ip><ip>::1</ip></networks>
+      <profile>default</profile>
+      <quota>default</quota>
+      <access_management>1</access_management>
+    </default>
+  </users>
+</clickhouse>
+EOF
   (cd "$DATA/clickhouse" && start clickhouse "$BIN/clickhouse" server -- \
-    --path="$DATA/clickhouse/" --http_port="$P_CLICKHOUSE_HTTP" --tcp_port="$P_CLICKHOUSE_TCP" \
+    --path="$DATA/clickhouse/" --users_config="$DATA/clickhouse/users.xml" \
+    --http_port="$P_CLICKHOUSE_HTTP" --tcp_port="$P_CLICKHOUSE_TCP" \
     --mysql_port=0 --postgresql_port=0 --interserver_http_port=0 --listen_host=127.0.0.1 \
     --logger.console=1 --logger.level=warning)
   start meili "$BIN/meilisearch" --http-addr "127.0.0.1:$P_MEILI" --master-key "$MEILI_KEY" \

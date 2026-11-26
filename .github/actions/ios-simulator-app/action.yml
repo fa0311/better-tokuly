@@ -1,6 +1,8 @@
 # The phone app built for the iOS simulator: `expo prebuild`, `pod install`
-# and an unsigned xcodebuild for the runner's own architecture (Apple
-# silicon). No signing and no secrets. The step's output is the errors and
+# and an xcodebuild for the runner's own architecture (Apple silicon). No
+# certificates and no secrets: signed "to run locally" (ad hoc), which is
+# what gives the app its entitlements on the simulator (without them the
+# keychain, where the sessions are kept, refuses it). The step's output is the errors and
 # warnings; the whole log is kept as an artifact when the build fails.
 # Expects the JavaScript workspace (setup-js) to be set up.
 name: iOS simulator app
@@ -72,9 +74,7 @@ runs:
           -derivedDataPath "$PWD/build" \
           ARCHS=arm64 \
           ONLY_ACTIVE_ARCH=YES \
-          CODE_SIGNING_ALLOWED=NO \
-          CODE_SIGNING_REQUIRED=NO \
-          CODE_SIGN_IDENTITY="" \
+          CODE_SIGN_IDENTITY=- \
           COMPILER_INDEX_STORE_ENABLE=NO \
           | tee "$RUNNER_TEMP/xcodebuild.log" \
           | grep -E '(: (error|warning):|\*\* BUILD)' || true

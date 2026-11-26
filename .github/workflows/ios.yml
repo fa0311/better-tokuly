@@ -1,6 +1,6 @@
 # The phone app's iOS side, compiled: `expo prebuild`, `pod install` and an
-# unsigned build for the simulator, on a macOS runner of its own. No signing and
-# no secrets: it proves that the generated project, the config plugins, the
+# ad-hoc signed build for the simulator, on a macOS runner of its own. No
+# certificates and no secrets: it proves that the generated project, the config plugins, the
 # pods and our own Swift (modules/tokuly-trim) build, nothing more.
 #
 # The Maestro flows on an iPhone simulator are ios-e2e.yml.

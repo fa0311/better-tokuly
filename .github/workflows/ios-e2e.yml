@@ -84,7 +84,8 @@ jobs:
   backend:
     name: Backend for macOS
     runs-on: macos-26
-    timeout-minutes: 90
+    # About an hour without the cache (which the repository's cache limit can evict).
+    timeout-minutes: 120
     env:
       CARGO_INCREMENTAL: "0"
     steps:
@@ -177,6 +178,7 @@ jobs:
       - name: Install the app
         run: |
           ditto -x -k "$RUNNER_TEMP/app/Tokuly.app.zip" "$RUNNER_TEMP/app"
+          codesign --display --entitlements - "$RUNNER_TEMP/app/Tokuly.app"
           xcrun simctl install "$UDID" "$RUNNER_TEMP/app/Tokuly.app"
 
       # On failure, also what the simulator shows and what the app logged.
