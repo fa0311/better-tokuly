@@ -45,10 +45,8 @@ intervals, feature tuning and texts. Never list:
   exchange rates, coin rewards, the wallet's dev provider;
 - privacy floors (minimum group sizes of anonymous or aggregate features).
 
-An admin account is one password away from all of this, and a mistake in
-these would let the console turn the server against its own network or
-users. The server test `the_console_edits_only_what_domains_allow` names
-the dangerous ones that must stay out.
+The server test `the_console_edits_only_what_domains_allow` names the
+dangerous ones that must stay out.
 
 ## The section
 
@@ -62,30 +60,23 @@ What clap does not know goes on the section's `SectionSpec` in
   console says so;
 - `.managed(&[(prefix, path)])`: edited on a screen of its own, which the
   settings page links to;
-- `.check(check!(YourConfig))`: the domain's `validate()`, run on a console
-  change before it is saved (with every console value of the section), and
-  at start-up and on every reload: console values a section fails with are
-  set aside, so a console mistake never stops the server. Make `validate()`
-  build what the domain builds from its settings without the network, as
-  `Config::validate` builds the mailer.
+- `.check(check!(YourConfig))`: the domain's `validate()`, run before a
+  console change is saved, at start-up and on every reload (console values a
+  section fails with are set aside, so a console mistake never stops the
+  server). `validate()` builds what the domain builds from its settings,
+  without the network.
 
 ## The example file
 
-After adding or changing a setting, regenerate the example file from the
-repository root: `backend/target/.../tokuly config example > tokuly.example.toml`
-(`cargo run -p tokuly-server -- config example`); the server test
-`the_example_file_is_current` fails until it matches.
+After adding or changing a setting, regenerate it from the repository root:
+`cargo run -p tokuly-server -- config example > tokuly.example.toml` (the
+server test `the_example_file_is_current` fails until it matches).
 
 ## Precedence and empty values
 
 Highest first: command line and environment, `tokuly.toml`
-(`TOKULY_CONFIG`), the console (table `server_settings`, history in
-`server_setting_changes`), the default. An environment variable that is set
-but empty counts as not set (env files are full of `TOKULY_X=` lines); the
-start warns when such a line would have hidden another value. Where empty
-means something ("no proxies", "bonus off", "omit the parameter"), list the
-key in `<YourConfig>::EMPTY_IS_A_VALUE` and pass it to
-`.empty_is_value(..)`: an empty variable is then that value. The server test
-`documented_empty_values_are_kept` fails for a text or list setting with a
-non-empty default whose description mentions an empty value but is not
-listed.
+(`TOKULY_CONFIG`), the console, the default. An environment variable that is
+set but empty counts as not set. Where empty means something ("no proxies",
+"bonus off"), list the key in `<YourConfig>::EMPTY_IS_A_VALUE` and pass it
+to `.empty_is_value(..)` (the server test `documented_empty_values_are_kept`
+checks descriptions that mention an empty value).

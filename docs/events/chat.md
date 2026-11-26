@@ -21,17 +21,13 @@ Chat::open_direct(&self, a: Uuid, b: Uuid) -> AppResult<Uuid>            // conv
 Chat::post_text(&self, conversation_id: Uuid, sender: Uuid, text: &str) -> AppResult<Uuid>   // message ID
 
 // Post a notice from the server into a conversation: a system message
-// (SYSTEM_EVENT_TYPE_NOTICE, the text in `SystemEvent.notice`) with no
-// sender. It moves no unread counter, brings no hidden conversation back,
-// requests no notification and cannot be reported or reacted to; it is
-// pushed as `message_created`. Posted once per `key` (stored as the
-// message's `client_id`, checked under the conversation lock), and at most
-// NOTICES_PER_CONVERSATION_PER_DAY (5) a day per conversation. Returns
-// false when it was there already or dropped by that limit. Fails with
-// CONVERSATION_NOT_FOUND, NOTICE_KEY_INVALID (empty, > 100 characters),
-// NOTICE_INVALID (no Japanese text, > 300 characters per language).
-// The rate limit is counted under the conversation lock, after the key was
-// found new. Used by the developer platform when a bot changes hands.
+// (SYSTEM_EVENT_TYPE_NOTICE) with no sender, pushed as `message_created`.
+// It moves no unread counter, brings no hidden conversation back, requests
+// no notification and cannot be reported or reacted to. Posted once per
+// `key`, at most 5 a day per conversation; returns false when it was there
+// already or dropped by that limit. Fails with CONVERSATION_NOT_FOUND,
+// NOTICE_KEY_INVALID (empty, > 100 characters), NOTICE_INVALID (no Japanese
+// text, > 300 characters per language).
 Chat::post_notice(&self, conversation_id: Uuid, key: &str, notice: Localized) -> AppResult<bool>
 // The same for many conversations, queued as jobs `chat.notices` of 50
 // conversations each and posted in the background (returns at once).
@@ -131,7 +127,7 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 | `chat.message` | other members | push only | Collapsed per conversation (`chat:<conversation>`). Not sent to members who muted the conversation, who have it open right now (co-presence), who are in a block with the sender (groups), or to a pending/declined message request. Subject `(SUBJECT_TYPE_CHAT_MESSAGE, message)`, `data = { conversation_id, message_id, seq }`, image for media. |
 | `chat.mention` | mentioned members | push only | Same collapse key. A mention by `@handle` gets through a conversation mute; `@all` does not. |
 | `chat.request` | recipient of a message request | inbox + push | Once per request (its first message), not for the following ones. Does not quote the message: the inbox entry outlives an unsend or a takedown. |
-| `chat.reaction` | author of the message | push only | Collapsed per message (`chat-reaction:<message>`); not when muted, present, or blocked. Once per reacting person and message within 24 h (`chat:reaction-notified:<message>:<user>`), so switching a reaction off and on does not push again, and at most once per reacting person and author every 5 minutes, whatever message (`chat:reaction-pair:<author>:<user>`). |
+| `chat.reaction` | author of the message | push only | Collapsed per message (`chat-reaction:<message>`); not when muted, present, or blocked. Once per reacting person and message within 24 h, and at most once per reacting person and author every 5 minutes. |
 | `chat.group` | users added to a group | inbox + push | Also for the initial members of a new group. |
 | `chat.call` | callees | push only, **urgent** while ringing | Collapsed per call (`chat-call:<call>`). Direct calls and groups of up to 8 members ring (urgent, `data.ringing = true`); larger groups get an ordinary, non-urgent push. Group members who muted the conversation get neither this nor the missed-call notice. A missed call replaces the ringing push with a non-urgent inbox + push notification (`data.missed = true`). |
 | `chat.pov` | the other side of a POV request | inbox + push | `data.event` = `requested` / `answered` / `saved`; collapsed per request (`chat-pov:<request>`). Not when muted or present. |
@@ -146,7 +142,7 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 | job `chat.notices` (`NoticeBatch { conversation_ids, key, notice }`) | — | Posts a notice of `Chat::queue_notices` into up to 50 conversations (`Chat::post_notice` each; conversations that are gone are skipped, a retry posts only what is missing). 4 in parallel, 5 attempts. |
 | co-presence sweep | 10 s | Announces members whose presence ran out without a goodbye. |
 | call ringing time-out | 5 s | After `TOKULY_CHAT_RING_SECONDS`: an unanswered direct call ends as `MISSED`; in a group the members who did not answer are marked missed (and notified) while the call stays open. |
-| call reconciliation | 30 s | Lists the participants of each live call's LiveKit room (calls older than a minute); someone marked as joined but not connected 60 s after joining (`CONNECT_GRACE_SECONDS`) has left, which may end the call, a participant still marked as joined who is no longer an accepted member has left, and anyone connected who is not a joined participant (hung up, removed from the group, back with an old token) is put out of the room. Skipped while LiveKit is unreachable. LiveKit webhooks are not used. |
+| call reconciliation | 30 s | Compares each live call with its LiveKit room: someone joined but not connected after 60 s, or no longer an accepted member, has left (which may end the call); anyone connected who is not a joined participant is put out of the room. Skipped while LiveKit is unreachable. LiveKit webhooks are not used. |
 | POV expiry | 60 s | Open requests past their 2 h become `EXPIRED`; unsaved answers past their 24 h lose their content (attachments and caption removed, uploads released). |
 | link preview sweep | 5 min | Re-queues links nobody looked up for 2 minutes (a lost job) and gives up on those older than a day. |
 | removed text purge | 1 h | Forgets what edited and unsent messages said (`chat_removed_texts`, kept for reports) 30 days after the edit or deletion. |
@@ -168,15 +164,11 @@ links of private files are renewed on every read.
 |---|---|---|---|
 | `SUBJECT_TYPE_CHAT_MESSAGE` | the viewer is a member of the conversation and can see the message (not from before they joined or cleared their history; not declined) and it is not deleted. **For a report** (`resolve_for_report`) a message its sender (or a group manager) deleted still resolves for 30 days after the deletion | the sender (nil UUID for system messages; a notice from `Chat::post_notice` does not resolve at all: nobody is behind it) | For reports only (`interactions_enabled` is false). Path `/chat/<conversation>?message=<id>`; title is the current text (or a description of the content). For a report of a message that was edited or deleted: `[N版] <v1> → <v2> → … → <current or last text>`, each version cut to 80 characters. Anonymous viewers and non-members never resolve it. |
 
-Unsending or editing must not take away the recipients' way to report what
-they received. So the text a message had before each edit (the first 20
-edits; later ones keep nothing and the report title says so), and what it
-said when its sender (or a group manager) deleted it, is kept in
-`chat_removed_texts` for 30 days from that change. Only the report path of
-the subject resolver reads it: bookmarks, previews and everything else see
-the message as it is now. A takedown (moderation, a removed upload) deletes
-every kept version (the report it acted on has the text). The sender's data
-export lists their kept versions (`removed_texts`).
+Unsending or editing does not take away the recipients' way to report what
+they received: the text before each edit (the first 20) and at deletion is
+kept for 30 days, read only by the report path of the subject resolver. A
+takedown deletes every kept version. The sender's data export lists theirs
+(`removed_texts`).
 
 ## Analytics events
 
@@ -194,14 +186,11 @@ participants of a group call).
 
 ## LiveKit rooms
 
-A call's room is `tokuly-call-<call id>`; it is created when the call
-starts and deleted when it ends (everyone is disconnected). Join tokens
-(`JoinCall`, `StartCall`) grant joining that one room, publishing and
-subscribing, and must be used within 2 minutes (`JOIN_TOKEN_TTL`). A token
-cannot be revoked, so whoever leaves a call that goes on — hanging up,
-leaving or being removed from the group, a deleted account — is also
-removed from the room (`RemoveParticipant`), and the reconciliation puts
-out anyone who connects again without being a joined participant.
+A call's room is `tokuly-call-<call id>`, created when the call starts and
+deleted when it ends. Join tokens (`JoinCall`, `StartCall`) grant that one
+room and must be used within 2 minutes. A token cannot be revoked, so
+whoever leaves a call that goes on (hanging up, leaving or being removed
+from the group, a deleted account) is also removed from the room.
 
 ## Data export
 
@@ -251,58 +240,36 @@ per POV answer, 2000-character drafts for the assistant.
 
 ### AI assistant: providers, keys and consent
 
-Three providers sit behind one trait (`assist::providers`):
-
-- **Anthropic**: `POST {base}/v1/messages` with `x-api-key`,
-  `anthropic-version` and a JSON schema for the answer
-  (`output_config.format`).
-- **OpenAI**: `POST {base}/chat/completions` with a bearer key and
-  `response_format: { type: "json_schema", strict: true }`.
-- **OpenAI-compatible** (LM Studio…): the same protocol, key optional. A
-  server that rejects `response_format` (400/415/422/501) is asked once
-  more without it, with the schema spelled out in the system prompt, and
-  its answer is read as plain JSON (code fences, prose and `<think>`
-  sections around the object are tolerated).
-
-No sampling parameters are sent. Operator settings (staff console,
-`AssistAdminService`, admin role) live in `chat_ai_providers` /
-`chat_ai_instance`; operator keys are sealed (`chat/ai-key/instance`),
-shown only as "set" plus the last four characters, and never logged.
-Users pick among the enabled providers (`chat_ai_user_settings`) and may
-store their own Anthropic or OpenAI key (`chat_ai_user_keys`, sealed under
-`chat/ai-key/user`), used only for their own requests against the
-operator's base URL and model; users can never set an address. A user's
-explicit choice is the only provider their text goes to
-(`AI_PROVIDER_UNAVAILABLE` when it is disabled); without a choice the
-instance default is used.
-
-Every request goes through the shared outbound guard
-(`tokuly_core::egress`): default ports and public addresses only. The one
-exception is the compatible provider's host when the operator grants
-`allow_private_host`: that host (and only that host) may resolve to
-private, carrier-NAT, unique-local or loopback addresses on any port;
-link-local (cloud metadata), multicast and the other special ranges stay
-refused. Granting it is recorded (`chat.assist.provider_updated` with
-`private_host`) and logged.
-
-**Consent of the people quoted**: 「AI に自分のメッセージを使ってもいい」
-(`SetAiMessageConsent`). Never chosen, it is **off for accounts of minors
-and on for adults**, stored when the account is created
-(`identity.user.created`, by the age at creation) and kept until the owner
-chooses: it is never derived from today's date, so turning 18 changes
-nothing anybody can see (a translation that starts working would give a
-hidden birthday away). A value a lost event left unstored is filled the
-same way when first read; accounts that existed before were filled by the
-migration, by their age then. An unknown age counts as a minor. `RewriteDraft` only sends the
-caller's own draft. `SuggestReplies` leaves out the messages of authors who
-do not allow it (`skipped_messages` counts them) and makes no request when
-nothing from someone else remains. `TranslateMessage` refuses another
-person's message with `SENDER_DISALLOWS_AI`, before the translation cache
-is consulted. The local provider counts the same: the text still leaves
-the device.
-
-Translations are cached per message, target language, text and
-provider + model + base URL.
+- **Providers**: Anthropic (Messages API), OpenAI (Chat Completions) and an
+  OpenAI-compatible server (LM Studio, Ollama, vLLM…; key optional,
+  structured output optional). No sampling parameters are sent.
+- **Operator settings** (staff console, `AssistAdminService`, admin role)
+  override the variables above once saved. Operator keys are sealed, shown
+  only as "set" plus the last four characters, and never logged.
+- **Users** pick among the enabled providers and may store their own
+  Anthropic or OpenAI key, used only for their own requests against the
+  operator's base URL and model; users can never set an address. A user's
+  explicit choice is the only provider their text goes to
+  (`AI_PROVIDER_UNAVAILABLE` when it is disabled); without a choice the
+  instance default is used.
+- **Egress**: every request goes through `tokuly_core::egress` (default
+  ports, public addresses only). The one exception is the compatible
+  provider's host when the operator grants `allow_private_host`: that host
+  alone may resolve to private or loopback addresses on any port
+  (link-local and the other special ranges stay refused). Granting it is
+  recorded (`chat.assist.provider_updated` with `private_host`).
+- **Consent of the people quoted**: 「AI に自分のメッセージを使ってもいい」
+  (`SetAiMessageConsent`). Until the owner chooses it is **off for accounts
+  of minors and on for adults**, fixed by the age when the account was
+  created (unknown age = minor); turning 18 changes nothing, so the setting
+  never gives a hidden birthday away. `RewriteDraft` only sends the caller's
+  own draft. `SuggestReplies` leaves out the messages of authors who do not
+  allow it (`skipped_messages` counts them) and makes no request when
+  nothing from someone else remains. `TranslateMessage` refuses another
+  person's message with `SENDER_DISALLOWS_AI`. A local provider counts the
+  same: the text still leaves the device.
+- Translations are cached per message, target language, text and provider +
+  model + base URL.
 
 | RPC | Sent | Never sent |
 |---|---|---|

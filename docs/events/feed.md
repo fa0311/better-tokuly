@@ -34,18 +34,13 @@ Nothing is fanned out. Every list is a read of `activities` that decides
 So a friendship that ends, a block, or a changed preference needs no
 clean-up: the next read is already right.
 
-What the *content* behind an entry became is not known at read time, so
-the events of the producing domains are followed (`tokuly_feed::withdrawals`,
-table below): an entry about content that is gone is deleted (everyone's
-entries about it), a note's entries get the note's new audience when its
-visibility changes, and an expired story's entry becomes its owner's own
-memory (friends can no longer open the story, so its title and cover are
-not shown to them either); a video's entry follows its publication state;
-a deleted answer's entries go (without remembering anything: the question
-can be answered again). The latest change per subject is remembered in
-`feed_subject_changes` for 8 days, as long as events can still arrive late
-or twice: an `activity.recorded` delivered after the change gets the same
-treatment, and an older change delivered after a newer one is ignored.
+What the *content* behind an entry became is not known at read time, so the
+events of the producing domains are followed (table below): entries about
+content that is gone are deleted, entries follow a changed audience or
+publication state, and an expired story's entry becomes its owner's own
+memory. The latest change per subject is remembered for 8 days, so an
+`activity.recorded` delivered after the change gets the same treatment, and
+an older change delivered after a newer one is ignored.
 
 The consumer is idempotent on the event ID (`feed_processed_events`, written
 in the same transaction as the entry). The marker also keeps an entry its

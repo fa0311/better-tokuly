@@ -70,24 +70,21 @@ a typing/presence signal; the chat domain must.
   when a client reads too slowly. Everything else is *reliable*: a client
   whose backlog exceeds `TOKULY_RT_QUEUE_FRAMES` / `TOKULY_RT_QUEUE_BYTES`
   is disconnected and resynchronizes on reconnect.
-- A topic frame may leave some users out: its bus message carries
-  `Tokuly-Except: <simple uuid>,…` (at most 1000, `tokuly_core::realtime::MAX_EXCEPT`;
-  published with `Realtime::to_topic_except`), and the gateway skips every
-  connection signed in as one of them. The header is never forwarded; an
-  anonymous connection is never left out. One publish serves the whole
-  topic whatever the list holds (live chat uses it for blocks).
+- A topic frame may leave some users out (`Realtime::to_topic_except`, at
+  most 1000, `tokuly_core::realtime::MAX_EXCEPT`): the gateway skips every
+  connection signed in as one of them. An anonymous connection is never
+  left out.
 - `Welcome` is sent after the user's subscription is in place, and after
   the topics named in `Hello` are (the refused ones are announced with
   `Unsubscribed` before it): a client that fetches a snapshot after
   `Welcome` misses no event of the user or of those topics.
 - A `Subscribe` sent with an ID is answered once it is in effect: `Ack`
-  when its topics are subscribed (a snapshot fetched after it misses no
-  event of them), `Error` when it was refused as a whole (`TOPIC_FORBIDDEN`
-  when a guard said no, the reason `Unsubscribed` gives too;
-  `TOPIC_CHECK_FAILED` / `BUS_UNAVAILABLE` when it could not be decided
-  now). `@tokuly/realtime` waits for that answer: `subscribe(topic).ready`
-  settles with it, and `onSubscribed` runs each time the topic is in effect
-  again after a reconnect, which is where a feature reads its snapshot.
+  (a snapshot fetched after it misses no event of its topics), or `Error`
+  when it was refused as a whole (`TOPIC_FORBIDDEN`; `TOPIC_CHECK_FAILED` /
+  `BUS_UNAVAILABLE` when it could not be decided now). In `@tokuly/realtime`,
+  `subscribe(topic).ready` settles with it, and `onSubscribed` runs each
+  time the topic is in effect again after a reconnect: that is where a
+  feature reads its snapshot.
 - Delivery is at most once. Anything that must not be lost has to be
   fetchable from the owning domain.
 
@@ -103,13 +100,9 @@ when a connection subscribes — in `Subscribe` and for topics named in
 domain revokes the subscription, and periodically while it lasts (below).
 On `Subscribe`, `Ok(false)` is answered with `TOPIC_FORBIDDEN`, an error
 with `TOPIC_CHECK_FAILED`; either way nothing of that request is
-subscribed. In `Hello` a refused topic does not refuse the Hello (a client
-reconnecting with a topic it lost access to meanwhile would never be
-welcomed again): the connection gets
-`Unsubscribed { topic, reason: TOPIC_FORBIDDEN }` for that one and is then
-welcomed with the other topics. (Gateways before the subscribe
-acknowledgement sent those `Unsubscribed` frames after `Welcome`; clients
-handle either order, the protocol version stays 2.)
+subscribed. In `Hello` a refused topic does not refuse the Hello: the
+connection gets `Unsubscribed { topic, reason: TOPIC_FORBIDDEN }` for that
+one (before or after `Welcome`; clients handle either order).
 
 ## Ending subscriptions
 
@@ -130,30 +123,19 @@ more of the topic reaches the connection; a new `Subscribe` runs the guard
 again. Clients do not subscribe again by themselves.
 
 - **The guard decides.** A revocation is "ask again", so a domain calls it
-  on any change that *might* end access (leaving a room one may still see
-  drops nothing), and twice is the same as once. A guard that fails on the
-  re-check — or on the second look while subscribing — keeps the
-  subscription and is asked again 10 s later: an outage is not a revocation,
-  and clients treat only `TOPIC_FORBIDDEN` and `TOPIC_CLOSED` as one.
-- **No race with subscribing.** Revocations wait in the connection's
-  queue and are applied between two client frames, so one that arrives
-  while a `Subscribe` is being checked is applied to the subscription that
-  check made. A revocation for that topic this gateway could not hear yet —
-  published while the topic's bus subscription was being made here, or
-  while the guard was being asked (each route counts the control messages
-  it receives) — makes the gateway ask the guard again after joining,
-  before it answers. Signed-in connections join their user subject before the
-  guards of their Hello topics are asked.
+  on any change that *might* end access, and twice is the same as once. A
+  guard that fails on the re-check keeps the subscription and is asked again
+  10 s later: an outage is not a revocation.
+- **No race with subscribing.** A revocation that arrives while a
+  `Subscribe` is being checked is applied to the subscription that check
+  made.
 - **Safety net.** Revocations are best-effort like every push. Each
-  connection also re-checks every subscription that is older than
-  `TOKULY_RT_RECHECK_INTERVAL` (5 min), at most `TOKULY_RT_RECHECK_BATCH`
-  (8) at once, and the whole gateway at most `TOKULY_RT_RECHECK_RATE`
-  (200) per second; what does not fit waits about a second (spread by
-  ±50 %, so the sessions turned away do not all come back at once).
-  Topic-wide re-checks (`recheck_topic`) use the same budget. 5 minutes bounds how
-  long a lost revocation can leave someone listening; 200 checks a second
-  (one indexed query each) keep 60,000 subscriptions per gateway on that
-  cycle, and beyond that the cycle stretches rather than the database load
+  connection also re-checks every subscription older than
+  `TOKULY_RT_RECHECK_INTERVAL` (5 min) — which bounds how long a lost
+  revocation can leave someone listening — at most
+  `TOKULY_RT_RECHECK_BATCH` (8) at once, and the whole gateway at most
+  `TOKULY_RT_RECHECK_RATE` (200) per second (`recheck_topic` shares that
+  budget); beyond it the cycle stretches rather than the database load
   growing.
 - Counted in the gateway stats as `topic_rechecks` and `topics_revoked`.
 

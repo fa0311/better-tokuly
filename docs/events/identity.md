@@ -22,13 +22,10 @@ except `identity.export.ready`.
 | `identity.user.banned` / `identity.user.unbanned` | `{ user_id }` | |
 | `identity.export.ready` | `{ user_id, export_id }` | |
 
-**No activity entries for profile edits.** "プロフィールを更新しました" in
-friends' feeds would be noise (people edit the プロフ帳 in many small
-saves), and an activity entry goes to friends as a whole while each field
-has its own audience: announcing "changed their MBTI" to friends would leak
-a change to a field only the owner sees. Domains that want to react
-(search, feeds) follow `identity.profile.updated` and read the field under
-its audience.
+**No activity entries for profile edits**: an activity entry goes to friends
+as a whole, while each field has its own audience. Domains that want to
+react follow `identity.profile.updated` and read the field under its
+audience.
 
 ## Events consumed
 
@@ -36,24 +33,24 @@ Durable `identity-sessions`:
 
 | Topic | Effect |
 |---|---|
-| `identity.user.banned` | Its own event: every session the account had when it was banned is revoked and its access tokens refused at once (`Identity::sign_out_banned`). Whoever banned signs the account out right after the commit too; this makes it at least once. A redelivery repeats the cache revocation of sessions revoked shortly before the ban and leaves sessions made after the ban alone. Parked sessions of other devices' account switchers are sessions like any other and end the same way. |
+| `identity.user.banned` | Its own event: every session the account had when it was banned is revoked and its access tokens refused at once (`Identity::sign_out_banned`), parked sessions on other devices included. Whoever banned does this right after the commit too; the event makes it at least once. Sessions made after the ban are left alone. |
 
 ## Jobs and timers
 
 | Name | What |
 |---|---|
 | `identity.export` | Builds the personal data archive (the account, the プロフ帳 with its audiences, settings, sessions with their switch marks, every domain's exporter) and mails a link. |
-| `identity.profile.links` | `{ user_id }`: at most 20 never-checked links per account and day (the rest wait), at most 2 pages at once per host and process; fetches the account's profile links that are due (never checked, or checked a week ago) through media's guarded fetcher (`tokuly_core::egress`: public addresses only, every redirect hop checked, 512 KiB, 5 s) and marks a link verified while the page has an `<a>` or `<link>` with `rel="me"` pointing at `<public url>/u/<handle>` or `/@<handle>`. Queued (deduplicated per account) after links change, after a handle change, and by `RecheckProfileLinks`. Idempotent; an edit in between wins. |
+| `identity.profile.links` | `{ user_id }`: fetches the account's profile links that are due (never checked, or checked a week ago) through `tokuly_core::egress` (512 KiB, 5 s) and marks a link verified while the page has an `<a>` or `<link>` with `rel="me"` pointing at `<public url>/u/<handle>` or `/@<handle>`. At most 20 never-checked links per account and day. Queued after links or the handle change, and by `RecheckProfileLinks`. Idempotent. |
 | timer, 6 h | Queues `identity.profile.links` for accounts with links that are due. |
 | timer, 1 h | Erases accounts whose deletion grace period ran out (the プロフ帳 and its uploads included) and emits `identity.user.deleted`. |
 
 ## Public Rust API for other domains
 
-- `users::{summaries, summaries_ordered, summary, pick, filter_active, …}`, `settings::{privacy_of, privacy_of_many}` (unchanged).
+- `users::{summaries, summaries_ordered, summary, pick, filter_active, …}`, `settings::{privacy_of, privacy_of_many}`.
 - **Bots** (`bots`): `create_bot_account(tx, owner, handle, display_name, bio) -> Uuid`, `set_bot_owner(tx, bot, owner)`, `is_bot(core, id)`, `bots_among(core, ids) -> HashSet`, `bot_owners(core, ids) -> HashMap<bot, owner>`, and the one rule for places where only people count: `humans_only(core, ids) -> Vec<Uuid>` (or `NOT u.bot` in a join on `users`). Friend suggestions, leaderboards, rankings, nearby discovery, intro counts and anonymity group sizes use it.
 - **Birthdays** (`birthdays`): `shared_birthdays(core, owners, closeness) -> HashMap<Uuid, SharedBirthday { month, day, year: Option }>` (batched, the caller says who is a friend), `Identity::visible_birthdays(viewer, owners)` (friendships and blocks from the profile extensions), `set_birthday_audience(core, user, audience, show_year)`, `audience_of(&PrivacySettings)`.
 - **プロフ帳** (`extras`): `search_terms(core, ids, &locked) -> HashMap<Uuid, ProfileSearchTerms { text, tags }>` (public fields of unlocked accounts only, for search documents), `Extras::load(..).view(&Viewer)`, `reaches(visibility, circle, &Viewer)` (an allowlist: unknown values reach only the owner), `tag_key`.
-- **Moderation**: `Identity::extras_for_moderation(user_id)` — the プロフ帳 as far as it reaches anybody, with its audiences (not "only me" fields or hidden cards). Not an RPC: the admin domain calls it from `ModerationService.GetReportedProfile` after checking that an open case is about the account and that the moderator is neither the account nor one of its reporters, and records `case.profile_viewed` in its audit log.
+- **Moderation**: `Identity::extras_for_moderation(user_id)` — the プロフ帳 as far as it reaches anybody, with its audiences (not "only me" fields or hidden cards). Not an RPC: the admin domain calls it from `ModerationService.GetReportedProfile`, for an open case about the account, and records `case.profile_viewed`.
 - **Audiences** come from the social domain through two `ProfileExtension` hooks, `audience_tie` (friend / follower / other, locked, close friend, circles) and `locked_among`, which the server wires to `tokuly_social::graph` (`bridges.rs`). Fields take PUBLIC, FOLLOWERS, FRIENDS, CLOSE_FRIENDS or PRIVATE; cards also a CIRCLE (`AudienceRef`). A locked account's PUBLIC parts reach its followers and friends only, and stay out of search documents and tag suggestions. Tags are suggested once 5 people show them.
 - **Sessions**: `Identity::create_session_with(user, client, meta, SessionOrigin { mfa, added_by_switch })` beside `create_session`.
 
@@ -73,25 +70,20 @@ server. Security log entries: `ACCOUNT_SWITCHED` (on the target account),
 
 ## Opening the web from an app (hand-off)
 
-See the module documentation of `handoff.rs`. `CreateWebHandoff` (a
-session's own, never an API token's or a hand-off web session's; 60 an
-account per 10 minutes) makes a single-use code, bound to the SHA-256 of a
-verifier the app made (`verifier_hash`, `INVALID_VERIFIER` otherwise; PKCE's
-idea), for a checked path of the web app (`INVALID_PATH` otherwise: a scheme, a host, `//`, a backslash, an
-encoded one, an unknown first segment). The code lives 60 seconds in Valkey
-under its keyed hash (`id:handoff:<hash>`). `GET <api prefix>/auth/handoff?code=…`
-(60 an address per minute) does nothing without the verifier in the
-`x-tokuly-handoff-verifier` header (a link someone was sent: login CSRF), takes
-the code once, signs in only when the verifier matches, and makes a web session of the same
-account with `sessions.linked_to` set to the app's session, sets `tokuly_rt`
-(HttpOnly, SameSite=Lax, Secure on https) and answers `303` to the path;
-any failure answers `303 /login` without a cookie. An app session holds one
-such web session (a newer hand-off revokes the one before; the unique index
-`sessions_one_linked` keeps it so when two redeem at once). It ends with the
-app's session (trigger `sessions_revoke_linked`, and the token cache through
-`forget_session_tokens`) and refreshes only while that session is live and
-not parked; `revoke_all_sessions(keep)` keeps both halves of a pair.
-Security log entry: `WEB_SIGN_IN_FROM_APP` (`session_id`, `app_session_id`).
+The model is in the module documentation of `handoff.rs`. The contract:
+
+- `CreateWebHandoff` (a session's own, never an API token's or a hand-off
+  web session's; 60 an account per 10 minutes) makes a single-use code that
+  lives 60 seconds, bound to the SHA-256 of a verifier the app made
+  (`INVALID_VERIFIER`), for a checked path of the web app (`INVALID_PATH`).
+- `GET <api prefix>/auth/handoff?code=…` (60 an address per minute) needs
+  the verifier in the `x-tokuly-handoff-verifier` header, so a link someone
+  was sent signs nobody in. It sets `tokuly_rt` and answers `303` to the
+  path; any failure answers `303 /login` without a cookie.
+- The web session is linked to the app's session: an app session holds one
+  (a newer hand-off revokes the one before), it ends with the app's session
+  and refreshes only while that session is live and not parked.
+- Security log entry: `WEB_SIGN_IN_FROM_APP` (`session_id`, `app_session_id`).
 
 ## Configuration
 
