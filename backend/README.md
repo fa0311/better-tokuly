@@ -27,11 +27,11 @@ Domains and their migration numbers. The binary serves all of them
 | media | 0400 | — |
 | stamp | 0500 | identity, media, wallet |
 | chat | 0600 | social, stamp, media |
-| notes | 0700 | social, stamp, media |
+| notes | 0700 | social, stamp, media, emoji |
 | video | 0800 | social, media |
 | live | 0900 | social, media, stamp, wallet, video |
 | shorts | 1000 | social, media, video |
-| engagement | 1100 | identity, social, media, stamp |
+| engagement | 1100 | identity, social, media, stamp, emoji |
 | notify | 1200 | identity |
 | feed | 1300 | identity, social |
 | wallet | 1400 | identity |
@@ -316,6 +316,14 @@ Everything else is asynchronous, through `tokuly_core`:
 | Comments/likes/reports on your content | register a `SubjectResolver` for your `SubjectType` in `core.subjects` |
 | Personal data export | register a `DataExporter` in `core.exporters` |
 | Extra profile fields / relationship | implement `tokuly_identity::ProfileExtension` |
+
+An event or job whose handler keeps failing is retried (events for about
+twenty minutes) and then buried, not dropped: `tokuly dead-letters list`
+shows what is buried and `tokuly dead-letters redrive` publishes it again
+(`tokuly_core::dead_letters`, `docs/events.md`). Return an error from a
+handler only for something a retry can fix; for an event that can never be
+handled (the row it names is gone, the payload makes no sense) log and
+return `Ok(())`, or it will sit in the dead letters.
 
 Every domain must handle `identity.user.deleted` (payload `{ "user_id": … }`)
 by deleting or anonymizing that user's data.
