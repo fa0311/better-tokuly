@@ -6057,6 +6057,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokuly-demo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokuly-proto",
+ "tracing",
+]
+
+[[package]]
 name = "tokuly-dev"
 version = "0.1.0"
 dependencies = [
@@ -6618,6 +6633,7 @@ dependencies = [
  "tokuly-chat",
  "tokuly-community",
  "tokuly-core",
+ "tokuly-demo",
  "tokuly-dev",
  "tokuly-emoji",
  "tokuly-engagement",
@@ -6644,6 +6660,7 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 

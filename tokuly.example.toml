@@ -1710,6 +1710,20 @@
 # (TOKULY_DEV_WEBHOOK_ALLOW_PRIVATE; restart: api, worker)
 # webhook_allow_private = false
 
+# E-mail addresses of the accounts the demo simulator (`tokuly demo`) signs up to own its bots,
+# comma-separated. Leave it unset unless the simulator runs against this server. Bots owned by these
+# accounts may be given tokens that write to every domain except the wallet, so they can move on the
+# map, chat and post like people, as long as the account's password is TOKULY_DEV_DEMO_PASSWORD;
+# every other bot stays limited to its own profile, uploads and inbox.
+# (TOKULY_DEV_DEMO_OPERATORS; restart: api, worker)
+# demo_operators = []
+
+# Password of the demo's operator accounts (at least 16 characters), shared with the simulator.
+# Signing up needs no verified address, so an address alone proves nothing: only an account that
+# also knows this password gets its bots the demo's write scopes.
+# (TOKULY_DEV_DEMO_PASSWORD; secret; restart: api, worker)
+# demo_password = ""
+
 [engagement]
 
 # Comments (and replies) one user may write per minute.

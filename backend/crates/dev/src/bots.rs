@@ -16,7 +16,8 @@
 //! - A bot can address nobody: its tokens get no write scope beyond its own
 //!   profile, uploads and inbox (`scopes::allowed_for_bots`), and no wallet
 //!   scope. Someone who blocked the owner must not be reachable through the
-//!   owner's bots, and only the social domain can check that.
+//!   owner's bots, and only the social domain can check that. The bots of
+//!   the demo simulator are the one exception (`DevConfig::demo_operators`).
 use std::time::Duration;
 
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};

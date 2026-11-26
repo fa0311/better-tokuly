@@ -96,7 +96,18 @@ impl Dev {
         let name = clean_name(new.name, 60, "TOKEN_NAME_INVALID", "the token name")?;
         let scopes = scopes::validate(new.scopes)?;
         if new.kind == SecretKind::Bot {
-            if let Some(scope) = scopes.as_slice().iter().find(|scope| !scopes::allowed_for_bots(scope)) {
+            let (owner_email, owner_password): (Option<String>, Option<String>) =
+                sqlx::query_as("SELECT email::text, password_hash FROM users WHERE id = $1")
+                    .bind(new.created_by)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            // Anyone can sign up with an address nobody verified, so the
+            // address alone does not make a demo operator: the account must
+            // also have the demo's password. (Its tokens die when the
+            // password changes, and `verify` checks the address on every use.)
+            let demo = self.cfg.is_demo_operator(owner_email.as_deref())
+                && tokuly_identity::password::verify(&self.cfg.demo_password, owner_password.as_deref()).await;
+            if let Some(scope) = scopes.as_slice().iter().find(|scope| !scopes::allowed_for_bots(scope, demo)) {
                 bail!(invalid, "SCOPE_NOT_FOR_BOTS", "a bot token cannot hold {scope}");
             }
         }
