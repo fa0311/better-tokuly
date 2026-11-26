@@ -41,7 +41,20 @@ export async function requestWebSession(account: Account, path: string): Promise
     .service(identity.AuthService)
     .createWebHandoff({ path, verifierHash });
   ensureActive(account);
-  return { sessionId: account.sessionId, url: `${SERVER_URL}${url}`, verifier };
+  newest = { sessionId: account.sessionId, url: `${SERVER_URL}${url}`, verifier };
+  return newest;
+}
+
+/** The hand-off asked for last. */
+let newest: WebSession | null = null;
+
+/**
+ * Whether `session` has been replaced: the server keeps one web session per
+ * app session, the newest hand-off's, so the web view of an earlier one is
+ * signed out as soon as a later one loads.
+ */
+export function isSuperseded(session: WebSession): boolean {
+  return session !== newest;
 }
 
 const ORIGIN = new URL(SERVER_URL).origin;
@@ -51,6 +64,23 @@ export function staysInApp(url: string): boolean {
   if (url === "about:blank") return true;
   try {
     return new URL(url).origin === ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
+/** What the system may open for a page: the links a browser follows, and a mail, a call or a message to start. */
+const OUTSIDE = ["https:", "http:", "mailto:", "tel:", "sms:"];
+
+/**
+ * Whether a link that leaves this server may be handed to the system. A
+ * page, or another site's embed in it, navigates without anyone tapping:
+ * it does not get to start other apps (`intent:`, their own schemes, this
+ * app's deep links) or to open files and script URLs through this one.
+ */
+export function opensOutside(url: string): boolean {
+  try {
+    return OUTSIDE.includes(new URL(url).protocol);
   } catch {
     return false;
   }
