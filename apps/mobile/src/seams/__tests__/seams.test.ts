@@ -36,6 +36,7 @@ describe("the features on the seams", () => {
     expect(HUB_ENTRIES.map((entry) => [entry.id, entry.href])).toEqual([
       ["friends", "/friends"],
       ["video", "/watch"],
+      ["live", "/live"],
       ["more", "/more"],
       ["settings", "/settings"],
     ]);
@@ -57,6 +58,8 @@ describe("the features on the seams", () => {
       "friends",
       "invite/[code]",
       "licenses",
+      "live/[id]",
+      "live/index",
       "more",
       "new-chat",
       "notes/[id]",
@@ -100,6 +103,10 @@ describe("the features on the seams", () => {
     expect(screenFor("/notifications")).toBe("/inbox");
     expect(screenFor("/notes/n1")).toBe("/notes/n1");
     expect(screenFor("/notes/tags/ramen")).toBe("/notes/tag/ramen");
+    expect(screenFor("/live")).toBe("/live");
+    expect(screenFor("/live/abc123")).toBe("/live/abc123");
+    expect(screenFor("/live/gifts")).toBe(`/web?path=${encodeURIComponent("/live/gifts")}`);
+    expect(screenFor("/live/clips/new")).toBe(`/web?path=${encodeURIComponent("/live/clips/new")}`);
     // What only the web has opens in the app's web view, signed in.
     expect(screenFor("/stamps")).toBe(`/web?path=${encodeURIComponent("/stamps")}`);
     expect(screenFor("/notes/channels")).toBe(`/web?path=${encodeURIComponent("/notes/channels")}`);
