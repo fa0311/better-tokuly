@@ -16,6 +16,7 @@
     "./map": "./src/map/index.ts",
     "./notes": "./src/notes/index.ts",
     "./notifications": "./src/notifications/index.ts",
+    "./plans": "./src/plans/index.ts",
     "./profile": "./src/profile/index.ts",
     "./search": "./src/search/index.ts",
     "./session": "./src/session/index.ts",

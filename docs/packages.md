@@ -8,7 +8,7 @@ listed in its `package.json`), each with its own tests:
 
 | entry                        | what it holds                                                                                                                               |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@tokuly/core/format`        | ages, durations, distances, speeds                                                                                                          |
+| `@tokuly/core/format`        | ages, durations, distances, speeds, dates and times on a zone's clock                                                                       |
 | `@tokuly/core/errors`        | an API reason or a refused upload → the text to show                                                                                        |
 | `@tokuly/core/engagement`    | subjects, counts and the viewer's reactions, a tap shown before the answer, realtime counters, engagement keys                              |
 | `@tokuly/core/query`         | the retry rule, `ClientSource`, `nextCursor`, pushes that arrive while a snapshot is read                                                   |
@@ -20,6 +20,7 @@ listed in its `package.json`), each with its own tests:
 | `@tokuly/core/community`     | community keys and options, viewer permissions, page addresses, thread and reply cache edits, pushed community events                       |
 | `@tokuly/core/notes`         | notes, list and clip keys, timeline pages and fresh rows, note cache edits, realtime events, text reading, audiences, polls                 |
 | `@tokuly/core/notifications` | notify keys, unread counts, inbox cache edits, inbox times, push targets                                                                    |
+| `@tokuly/core/plans`         | plan keys and options, days and times of plans in the account's zone, plan rules and the plan form, plan cache edits, pushed plans events   |
 | `@tokuly/core/search`        | search kinds and their names, hit fields, where a hit leads, trend and recent-search keys and options, tag queries, suggestion lists        |
 | `@tokuly/core/stories`       | story keys and options, story cache edits                                                                                                   |
 | `@tokuly/core/shorts`        | shorts keys, captions, feed contexts, the slide window                                                                                      |

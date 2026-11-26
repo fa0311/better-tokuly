@@ -1,5 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import {
+  EMPTY_FORM,
+  formFromDraft,
+  formProblem,
+  type PlanFormValue,
+  toCreateRequest,
+} from "@tokuly/core/plans";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -7,14 +14,8 @@ import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
 import { planClient, rememberPlan, useFriends } from "../api";
+import { planTimeZone } from "../dates";
 import { type PlanDraft, takePlanDraft } from "../draft";
-import {
-  EMPTY_FORM,
-  formFromDraft,
-  formProblem,
-  type PlanFormValue,
-  toCreateRequest,
-} from "./model";
 import { PlanForm } from "./plan-form";
 
 /** `/plans/new`: a new plan, empty or started from somewhere else ("あそぼ!", a day of the calendar). */
@@ -29,11 +30,11 @@ export function PlanNewScreen() {
 
   // Until the person types, the form follows the draft (its invitees appear once the friends are known).
   const friendUsers = (friends.data ?? []).flatMap((friend) => (friend.user ? [friend.user] : []));
-  const value = edited ?? (draft ? formFromDraft(draft, friendUsers) : EMPTY_FORM);
-  const problem = formProblem(value);
+  const value = edited ?? (draft ? formFromDraft(draft, friendUsers, planTimeZone()) : EMPTY_FORM);
+  const problem = formProblem(value, planTimeZone());
 
   const create = useMutation({
-    mutationFn: () => planClient().createPlan(toCreateRequest(value)),
+    mutationFn: () => planClient().createPlan(toCreateRequest(value, planTimeZone())),
     onSuccess: ({ plan }) => {
       rememberPlan(queryClient, plan);
       toast.success(t("plan.created"));

@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { plans } from "@tokuly/api";
+import { canWork, isHostLike, mergeChecklist } from "@tokuly/core/plans";
 import {
   ArrowLeftRight,
   Check,
@@ -23,9 +24,7 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { keys, nameOf, planClient } from "../api";
-import { mergeChecklist } from "../live";
 import { SectionTitle } from "../parts";
-import { canWork, isHostLike } from "./model";
 
 type Kind = "bring" | "todo";
 const KINDS: Record<Kind, plans.ChecklistKind> = {

@@ -1,11 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import { plans } from "@tokuly/api";
+import { planTimeText, rsvpKey, untilText } from "@tokuly/core/plans";
 import { CheckSquare, MapPin, MessageCircle, Receipt } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { cn } from "#/lib/cn";
+import { planTimeZone } from "../dates";
 import { AvatarStack } from "../parts";
-import { planTimeText, untilText } from "./model";
 
 const RSVP_TONE: Record<number, string> = {
   [plans.Rsvp.GOING]: "bg-lime text-[#17122b]",
@@ -14,24 +15,6 @@ const RSVP_TONE: Record<number, string> = {
   [plans.Rsvp.INVITED]: "bg-pink text-white",
   [plans.Rsvp.WAITLISTED]: "bg-sky text-[#17122b]",
 };
-
-/** The key of the short label for an answer ("行く", "たぶん", ...). */
-export function rsvpKey(
-  rsvp: plans.Rsvp,
-): "going" | "maybe" | "declined" | "invited" | "waitlisted" {
-  switch (rsvp) {
-    case plans.Rsvp.GOING:
-      return "going";
-    case plans.Rsvp.MAYBE:
-      return "maybe";
-    case plans.Rsvp.DECLINED:
-      return "declined";
-    case plans.Rsvp.WAITLISTED:
-      return "waitlisted";
-    default:
-      return "invited";
-  }
-}
 
 export function RsvpChip({ rsvp, className }: { rsvp: plans.Rsvp; className?: string }) {
   const { t } = useTranslation("plans");
@@ -42,7 +25,7 @@ export function RsvpChip({ rsvp, className }: { rsvp: plans.Rsvp; className?: st
 export function PlanCard({ plan }: { plan: plans.Plan }) {
   const { t, i18n } = useTranslation("plans");
   const cancelled = plan.status === plans.PlanStatus.CANCELLED;
-  const until = !cancelled && !plan.over ? untilText(plan.time, t) : undefined;
+  const until = !cancelled && !plan.over ? untilText(i18n, plan.time, planTimeZone()) : undefined;
   const people = plan.participants.flatMap((participant) =>
     participant.user ? [participant.user] : [],
   );
@@ -78,7 +61,7 @@ export function PlanCard({ plan }: { plan: plans.Plan }) {
           )}
         </span>
         <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm font-bold text-ink-soft">
-          <span>{planTimeText(plan.time, i18n.language, t)}</span>
+          <span>{planTimeText(i18n, plan.time, planTimeZone())}</span>
           {until && (
             <span className="rounded-full bg-brand-soft px-2 text-xs font-black text-brand-strong">
               {until}
