@@ -3,9 +3,12 @@ import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { act, render, screen } from "@testing-library/react-native";
 import { create, identity } from "@tokuly/api";
 import { Linking } from "react-native";
+import * as session from "#/features/session/session";
 import { useSessionStore } from "#/features/session/session";
 import { api, resetApi } from "#/lib/api";
 import { SERVER_URL } from "#/lib/config";
+import { clearWebData } from "#/platform/web-data";
+import { WebBackground } from "../background";
 import { WebScreen } from "../web-screen";
 
 /** What the web view was given, render by render (the native view is the edge). */
@@ -20,6 +23,11 @@ jest.mock("react-native-webview", () => {
     },
   };
 });
+// The device's web data (cookies, storage, cache of every web view), at the edge.
+const mockEvents: string[] = [];
+jest.mock("#/platform/web-data", () => ({
+  clearWebData: jest.fn(async () => void mockEvents.push("cleared")),
+}));
 jest.mock("expo-router", () => ({ useNavigation: () => ({ setOptions: jest.fn() }) }));
 
 /** The server, at the edge: each CreateWebHandoff waits until the test answers it. */
@@ -39,6 +47,7 @@ function mockServer(
   if (method !== "CreateWebHandoff") throw new Error(`unexpected ${method}`);
   const request = fromBinary(identity.CreateWebHandoffRequestSchema, init.body);
   const headers = new Headers(init.headers);
+  mockEvents.push("asked");
   return new Promise<Response>((resolve) => {
     asked.push({
       path: request.path,
@@ -94,6 +103,7 @@ const loadedUrls = () => webViews.map((props) => (props.source as { uri: string 
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockEvents.length = 0;
   webViews.length = 0;
   asked.length = 0;
   await becomeActive("alice", "s-alice");
@@ -186,5 +196,29 @@ describe("WebScreen", () => {
     // The page itself going elsewhere still leaves the app.
     expect(decide({ url: "https://www.youtube.com/watch?v=abc", isTopFrame: true })).toBe(false);
     expect(openURL).toHaveBeenCalledWith("https://www.youtube.com/watch?v=abc");
+  });
+
+  it("starts from empty web data, and leaves none behind when it closes", async () => {
+    const { unmount } = await render(<WebScreen path="/notes" />);
+    // Cleared before the code is even asked for: nothing of an earlier web view (another
+    // account's localStorage, a cookie left on disk by a crash) is there when it loads.
+    expect(mockEvents).toEqual(["cleared", "asked"]);
+    await act(async () => asked[0]?.answer("code-alice"));
+    await unmount();
+    expect(mockEvents).toEqual(["cleared", "asked", "cleared"]);
+  });
+});
+
+describe("WebBackground", () => {
+  it("clears the web data before every switch and sign-out", async () => {
+    const hooks: (() => unknown)[] = [];
+    jest.spyOn(session, "onBeforeLeave").mockImplementation((hook) => {
+      hooks.push(hook);
+      return () => {};
+    });
+    await render(<WebBackground />);
+    expect(hooks).toHaveLength(1);
+    await hooks[0]?.();
+    expect(clearWebData).toHaveBeenCalledTimes(1);
   });
 });

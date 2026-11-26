@@ -32,7 +32,7 @@ src/seams/           where features plug into the app (see "How a feature plugs 
 src/platform/        the device: secure storage, install ID, location and the background task, file transfers
 src/lib/             the API client, realtime, the query client, i18n, theme, config
 src/components/      small native primitives (Button, TextField, Avatar, Page)
-modules/             local Expo modules (native code of our own): tokuly-trim
+modules/             local Expo modules (native code of our own): tokuly-trim, tokuly-web-data
 maestro/             end-to-end flows (Maestro), their scripts and fixtures
 ```
 
@@ -141,10 +141,10 @@ its tests) and the web switches to it.
   to the page; the app's tokens never reach the web view, and the web
   session ends with the app's. A code that comes back after another account
   took over is dropped. The web view is incognito and keyed by its account's
-  session, so each starts without cookies (iOS: a store of its own, never
-  written; Android: the cookie store is emptied when one opens), and the
-  app's own API calls send no cookies (`lib/api.ts`), so a web session's
-  cookie never travels with them. Links to anywhere else open in the system
+  session; everything web views stored (cookies, on disk too, localStorage,
+  cache) is removed before one opens, when it closes and before every switch
+  or sign-out (the local module `modules/tokuly-web-data`), and the app's own
+  API calls send no cookies (`lib/api.ts`). Links to anywhere else open in the system
   browser. Features move out of `features/web/features.ts` as they become
   native.
 

@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["TokulyWebDataModule"]
+  },
+  "android": {
+    "modules": ["app.tokuly.webdata.TokulyWebDataModule"]
+  }
+}

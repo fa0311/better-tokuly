@@ -9,6 +9,7 @@ import { AccountChanged, currentAccount } from "#/features/media/account";
 import { useSessionStore } from "#/features/session/session";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
+import { clearWebData } from "#/platform/web-data";
 import { requestWebSession, staysInApp, VERIFIER_HEADER, type WebSession } from "./handoff";
 
 /**
@@ -35,11 +36,11 @@ function useActiveSessionId(): string | null {
  * tokens. Nothing of one account reaches another:
  * - a code that comes back after another account took over is dropped, and
  *   the web view only shows while its account is still the active one;
- * - the web view is incognito and keyed by its account's session: each one
- *   starts with no cookies (iOS: a store of its own that is never written
- *   to disk; Android: the cookie store is emptied whenever one opens) and
- *   the app's own API calls never carry cookies (`lib/api.ts`), so the web
- *   session's cookie stays in its web view;
+ * - the web view is incognito and keyed by its account's session, and the
+ *   web views' data (cookies on disk too, localStorage, cache: Android
+ *   shares them between all web views) is cleared before one opens, when
+ *   it closes and before every switch or sign-out (`WebBackground`); the
+ *   app's own API calls never carry cookies (`lib/api.ts`);
  * - a switch or a sign-out starts the signed-in screens over, which closes
  *   it, and the server ends the web session with the app's session.
  *
@@ -63,19 +64,26 @@ export function WebScreen({ path }: { path: string }) {
     if (!account) return;
     let current = true;
     setOpening({ status: "loading" });
-    requestWebSession(account, path).then(
-      (session) => {
-        if (current) setOpening({ status: "ready", session });
-      },
-      (error: unknown) => {
-        if (current && !(error instanceof AccountChanged))
-          setOpening({ status: "failed", message: errorMessage(error) });
-      },
-    );
+    // Nothing an earlier web view stored (another account's storage, cookies
+    // a crash left on disk) is there when this one loads.
+    clearWebData()
+      .then(() => requestWebSession(account, path))
+      .then(
+        (session) => {
+          if (current) setOpening({ status: "ready", session });
+        },
+        (error: unknown) => {
+          if (current && !(error instanceof AccountChanged))
+            setOpening({ status: "failed", message: errorMessage(error) });
+        },
+      );
     return () => {
       current = false;
     };
   }, [path, attempt]);
+
+  // Closing it leaves nothing behind.
+  useEffect(() => () => void clearWebData(), []);
 
   // Android's back button goes back in the web view first.
   useEffect(() => {
