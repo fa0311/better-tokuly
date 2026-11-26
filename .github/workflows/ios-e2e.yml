@@ -51,14 +51,25 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-js
-      - id: build
+      # The app depends on nothing but these files (and the address it is built for; the
+      # flows are not part of it): when they are unchanged, the one built for them is reused.
+      - name: An app built from the same files
+        id: cached
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/Tokuly.app.zip
+          key: ios-simulator-app-${{ hashFiles('apps/mobile/**', '!apps/mobile/maestro/**', 'packages/**', 'proto/**', 'pnpm-lock.yaml', 'package.json', 'pnpm-workspace.yaml', '.github/actions/ios-simulator-app/**') }}-localhost-8080
+      - if: steps.cached.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-js
+      - if: steps.cached.outputs.cache-hit != 'true'
+        id: build
         uses: ./.github/actions/ios-simulator-app
         with:
           configuration: Release
           server-url: ${{ env.SERVER }}
       # An archive keeps the bundle's symlinks and modes (an artifact alone does not).
       - name: Pack the app
+        if: steps.cached.outputs.cache-hit != 'true'
         env:
           APP: ${{ steps.build.outputs.app }}
         run: ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/Tokuly.app.zip"
@@ -169,7 +180,11 @@ jobs:
           xcrun simctl install "$UDID" "$RUNNER_TEMP/app/Tokuly.app"
 
       # On failure, also what the simulator shows and what the app logged.
+      # Maestro's driver (an XCTest runner it installs on the simulator) takes a while to
+      # start on these runners; its default wait is too short.
       - name: Maestro flows
+        env:
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: "300000"
         run: |
           maestro test apps/mobile/maestro --platform ios --device "$UDID" --env SERVER="$SERVER" \
             --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro" || {
