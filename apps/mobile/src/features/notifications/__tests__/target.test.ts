@@ -8,7 +8,7 @@ describe("where a server path goes", () => {
   });
 
   it("opens what only the web has in the web view, signed in, not the inbox", () => {
-    expect(pushRoute("/live/xyz")).toBe(`/web?path=${encodeURIComponent("/live/xyz")}`);
+    expect(pushRoute("/spaces/xyz")).toBe(`/web?path=${encodeURIComponent("/spaces/xyz")}`);
     expect(targetOf("/notes/abc")).toEqual({
       type: "screen",
       href: `/web?path=${encodeURIComponent("/notes/abc")}`,
