@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, Text, View } from "react-native";
 import { Button } from "#/components/button";
@@ -11,6 +12,24 @@ import {
 } from "./sharing";
 
 /**
+ * A stop is owed from the moment it is sent: the card says it has not
+ * reached the server only once it is still owed this long after.
+ */
+export const STOP_NOTICE_MS = 4_000;
+
+/** `owed`, once it stayed true for `STOP_NOTICE_MS`. */
+function useStillOwed(owed: boolean): boolean {
+  const [still, setStill] = useState(false);
+  useEffect(() => {
+    setStill(false);
+    if (!owed) return;
+    const timer = setTimeout(() => setStill(true), STOP_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [owed]);
+  return owed && still;
+}
+
+/**
  * Where this device stands with sharing, and the next step: the consent
  * (with what the OS will ask and why), "always" for while the app is closed,
  * the settings app when the permission was refused, and stopping.
@@ -20,7 +39,7 @@ export function SharingCard() {
   const { t: tm } = useTranslation("map");
   const state = useSharingState();
   const access = useSharing((s) => s.access);
-  const stopOwed = useSharing((s) => s.stopOwed);
+  const stopOwed = useStillOwed(useSharing((s) => s.stopOwed));
 
   if (state === "loading") return null;
   return (
