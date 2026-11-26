@@ -13,7 +13,7 @@ import {
 } from "@tokuly/core/live";
 import { randomUUID } from "expo-crypto";
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Alert,
@@ -72,6 +72,8 @@ export function GiftSheet({
   const [message, setMessage] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
+  /** A send is on its way: a second press before the button shows it must not start another. */
+  const busy = useRef(false);
   /** The gift whose answer was lost, if any (see above). */
   const [lost, setLost] = useState<GiftAttempt | null>(null);
 
@@ -116,7 +118,8 @@ export function GiftSheet({
 
   const send = async () => {
     const account = currentAccount();
-    if (coins === null || !account) return;
+    if (coins === null || !account || busy.current) return;
+    busy.current = true;
     const attempt = giftAttempt(lost, coins, text, newGiftKey);
     const client = account.api.service(live.LiveGiftService);
     setLost(attempt);
@@ -155,6 +158,7 @@ export function GiftSheet({
         void queryClient.invalidateQueries({ queryKey: coinsKey });
       }
     } finally {
+      busy.current = false;
       setSending(false);
     }
   };

@@ -176,4 +176,15 @@ describe("GiftSheet", () => {
     await confirm();
     expect(a.sent[2]?.idempotencyKey).not.toBe(a.sent[0]?.idempotencyKey);
   });
+
+  it("sends one gift when the confirmation is pressed twice at once", async () => {
+    const a = account(() => new Promise(() => {}));
+    signIn(a, "u6");
+    await open();
+    await fireEvent.press(screen.getByTestId("gift-next"));
+    const button = screen.getByTestId("gift-confirm");
+    await Promise.all([fireEvent.press(button), fireEvent.press(button)]);
+    await screen.findByTestId("gift-sheet");
+    expect(a.sent).toHaveLength(1);
+  });
 });
