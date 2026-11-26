@@ -18,5 +18,9 @@ export default [
     path: /^\/notes\/(?!channels$|lists$|antennas$)([^/]+)$/,
     screen: (match) => `/notes/${match[1]}`,
   },
-  { path: /^\/notes(?:\/.*)?$/, screen: (match) => webScreenHref(match[0]) },
+  {
+    path: /^\/notes(?:\/.*)?$/,
+    takesLink: true,
+    screen: (_match, link) => webScreenHref(link),
+  },
 ] satisfies LinkTarget[];

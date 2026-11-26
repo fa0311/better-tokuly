@@ -26,6 +26,9 @@ export interface LinkTarget {
   /**
    * The route carries the whole link itself (`link`: the pathname with its
    * query and fragment), as the web view's does: nothing is added to it.
+   * Every target that opens the web view (`webScreenHref`) is one: added to
+   * that route, the link's query would be the web screen's own — a `?path=`
+   * in it another page than the link's.
    */
   takesLink?: true;
 }

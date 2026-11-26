@@ -124,6 +124,18 @@ describe("the features on the seams", () => {
     expect(screenFor("/stamps?tab=new#top")).toBe(
       `/web?path=${encodeURIComponent("/stamps?tab=new#top")}`,
     );
+    // A page a feature leaves to the web keeps them inside the page's own path, like any web-only one.
+    expect(screenFor("/notes/channels?tab=mine#top")).toBe(
+      `/web?path=${encodeURIComponent("/notes/channels?tab=mine#top")}`,
+    );
+    expect(screenFor("/live/gifts?month=2026-11")).toBe(
+      `/web?path=${encodeURIComponent("/live/gifts?month=2026-11")}`,
+    );
+    // The page the web view opens is the link's, never one its query names.
+    expect(screenFor("/live/clips/new?path=/settings")).toBe(
+      `/web?path=${encodeURIComponent("/live/clips/new?path=/settings")}`,
+    );
+    expect(screenFor("/live/abc123?t=90")).toBe("/live/abc123?t=90");
     expect(screenFor("/login?next=/map")).toBeNull();
     expect(targetOf("/watch/abc123?t=90")).toEqual({ type: "screen", href: "/watch/abc123?t=90" });
   });
