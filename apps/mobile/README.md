@@ -356,5 +356,8 @@ pnpm --filter @tokuly/mobile e2e --env SERVER=http://localhost   # the scripts r
 
 On the way the flows take a screenshot of each main screen (the map, the
 chats, a conversation, notes, じぶん, friends, shorts, videos, live, the
-settings) into the `SHOTS` directory: `maestro/screenshots` with `pnpm e2e`,
-the `mobile-screenshots` artifact of the End to end workflow in CI.
+settings). Maestro writes them only inside the run's output folder
+(`--test-output-dir`), as `<run>/<flow>/takeScreenshot/<name>.png`: under
+`maestro/screenshots` with `pnpm e2e`, in the `mobile-screenshots` artifact
+of the End to end workflow in CI. A `takeScreenshot` step names the file,
+never a path outside that folder (Maestro fails the flow on one).
