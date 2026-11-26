@@ -69,6 +69,23 @@ export function staysInApp(url: string): boolean {
   }
 }
 
+/** What the system may open for a page: the links a browser follows, and a mail, a call or a message to start. */
+const OUTSIDE = ["https:", "http:", "mailto:", "tel:", "sms:"];
+
+/**
+ * Whether a link that leaves this server may be handed to the system. A
+ * page, or another site's embed in it, navigates without anyone tapping:
+ * it does not get to start other apps (`intent:`, their own schemes, this
+ * app's deep links) or to open files and script URLs through this one.
+ */
+export function opensOutside(url: string): boolean {
+  try {
+    return OUTSIDE.includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 /** The in-app route that shows `path` (a path of the web app) in the web view. */
 export function webScreenHref(path: string): string {
   return `/web?path=${encodeURIComponent(path)}`;

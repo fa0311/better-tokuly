@@ -12,6 +12,7 @@ import { useTheme } from "#/lib/theme";
 import { clearWebData } from "#/platform/web-data";
 import {
   isSuperseded,
+  opensOutside,
   requestWebSession,
   staysInApp,
   VERIFIER_HEADER,
@@ -55,8 +56,9 @@ function useActiveSessionId(): string | null {
  * The server keeps one web session per app session. A web screen that is
  * back on show after a newer one opened over it asks for a hand-off again.
  *
- * Links to anywhere but this server open in the system browser; embeds of
- * other sites (frames) stay in the page.
+ * Links to anywhere but this server open in the system browser (web, mail,
+ * phone and message links; nothing else leaves the page: `opensOutside`);
+ * embeds of other sites (frames) stay in the page.
  */
 export function WebScreen({ path }: { path: string }) {
   const { t } = useTranslation("mobile");
@@ -160,7 +162,7 @@ export function WebScreen({ path }: { path: string }) {
           // iOS asks for frames too: an embed in a note (a video, a song) loads in its frame.
           // Android asks for the top frame only (`isTopFrame` is not given there).
           if (request.isTopFrame === false || staysInApp(request.url)) return true;
-          void Linking.openURL(request.url).catch(() => {});
+          if (opensOutside(request.url)) void Linking.openURL(request.url).catch(() => {});
           return false;
         }}
         onNavigationStateChange={onNavigation}

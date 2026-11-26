@@ -196,6 +196,30 @@ describe("WebScreen", () => {
     expect(openURL).toHaveBeenCalledWith("mailto:hi@example.com");
   });
 
+  it("hands the system only links a person may follow from a page", async () => {
+    const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+    await render(<WebScreen path="/notes/abc" />);
+    await act(async () => asked[0]?.answer("code-alice"));
+    const decide = webViews.at(-1)?.onShouldStartLoadWithRequest as (r: { url: string }) => boolean;
+    // A page (or an embed in it) may not start other apps, open files or run script URLs
+    // through the app: the web view does not load them and nothing else opens them.
+    for (const url of [
+      "intent://scan/#Intent;scheme=zxing;package=com.example;end",
+      "tokuly://web?path=/wallet",
+      "someapp://pay?to=mallory",
+      "file:///data/data/app.tokuly/files/secret",
+      "content://com.android.contacts/contacts",
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "not a url",
+    ])
+      expect(decide({ url })).toBe(false);
+    expect(openURL).not.toHaveBeenCalled();
+    for (const url of ["https://example.com/", "http://example.com/", "tel:110", "sms:110"])
+      expect(decide({ url })).toBe(false);
+    expect(openURL).toHaveBeenCalledTimes(4);
+  });
+
   it("leaves embeds of other sites in the page (iOS asks for iframes too)", async () => {
     const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
     await render(<WebScreen path="/notes/abc" />);
