@@ -788,30 +788,47 @@ pub async fn delete_in(tx: &mut Tx<'_>, stream: &StreamRow, actor: Option<Uuid>)
 
 /// Erases a stream for good, with its chat, polls and samples (an account
 /// is being erased, or the retention period of a deleted stream is over).
+/// Returns whether it was still there.
 ///
-/// Only now is `subject.deleted` emitted: a deleted stream stays reportable
-/// while it is kept, and so do the comments on it.
-pub async fn erase_in(tx: &mut Tx<'_>, stream_id: Uuid) -> AppResult<()> {
+/// Only now is `subject.deleted` emitted, for the stream and for every chat
+/// line on it: a deleted stream stays reportable while it is kept, and so
+/// do the comments on it.
+pub async fn erase_in(tx: &mut Tx<'_>, stream_id: Uuid) -> AppResult<bool> {
+    let present: Option<Uuid> = sqlx::query_scalar("SELECT id FROM live_streams WHERE id = $1 FOR UPDATE")
+        .bind(stream_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    if present.is_none() {
+        return Ok(false);
+    }
+    crate::chat::announce_erased_chat(tx, stream_id).await?;
     sqlx::query("DELETE FROM live_streams WHERE id = $1").bind(stream_id).execute(&mut **tx).await?;
-    outbound::subject_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_LIVE_STREAM, stream_id).await
+    outbound::subject_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_LIVE_STREAM, stream_id).await?;
+    Ok(true)
 }
 
-/// Erases the streams that were deleted more than `retention_days` ago.
-/// The clock starts at the deletion, not at the stream's creation: a
-/// report filed about an old stream just before it was deleted can still
-/// be acted on. Returns how many were erased.
+/// Erases the streams that were deleted more than `retention_days` ago,
+/// each in its own transaction (a long chat makes a large one). The clock
+/// starts at the deletion, not at the stream's creation: a report filed
+/// about an old stream just before it was deleted can still be acted on.
+/// Returns how many were erased.
 pub async fn purge_deleted(core: &Core, retention_days: i32) -> AppResult<u64> {
-    let mut tx = core.db.begin().await?;
-    let erased: Vec<Uuid> = sqlx::query_scalar(
-        "DELETE FROM live_streams WHERE deleted_at IS NOT NULL AND deleted_at < now() - make_interval(days => $1)
-         RETURNING id",
+    let expired: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM live_streams WHERE deleted_at IS NOT NULL AND deleted_at < now() - make_interval(days => $1)
+         ORDER BY id",
     )
     .bind(retention_days)
-    .fetch_all(&mut *tx)
+    .fetch_all(&core.db)
     .await?;
-    outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_LIVE_STREAM, &erased).await?;
-    tx.commit().await?;
-    Ok(erased.len() as u64)
+    let mut erased = 0;
+    for stream_id in expired {
+        let mut tx = core.db.begin().await?;
+        if erase_in(&mut tx, stream_id).await? {
+            erased += 1;
+        }
+        tx.commit().await?;
+    }
+    Ok(erased)
 }
 
 /// Subject of notifications and activity entries about a stream.

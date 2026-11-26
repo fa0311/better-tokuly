@@ -811,7 +811,17 @@ async fn leaving_passes_the_group_on_and_an_empty_group_is_deleted() {
         attachment_asset_ids: vec![photo.clone()],
         ..Default::default()
     };
-    ctx.send(&owner, &with_photo).await.unwrap();
+    let shown = ctx.send(&owner, &with_photo).await.unwrap().message;
+    let unsent = ctx.text(&owner, &group.id, "やっぱなし").await;
+    let _: DeleteMessageResponse = ctx
+        .call(
+            "Message",
+            "DeleteMessage",
+            &owner,
+            &DeleteMessageRequest { message_id: unsent.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
 
     // The owner leaves: the longest standing member inherits the group.
     let mut owner_events = ctx.listen(&owner).await;
@@ -833,6 +843,28 @@ async fn leaving_passes_the_group_on_and_an_empty_group_is_deleted() {
     assert_eq!(view.conversation.member_count, 2);
     assert_eq!(ctx.reason("Conversation", "LeaveConversation", &owner, &leave).await, "CONVERSATION_NOT_FOUND");
 
+    // A long history, more than one batch of announcements.
+    sqlx::query(
+        "INSERT INTO chat_messages (conversation_id, seq, sender_id, kind, text)
+         SELECT c.id, c.last_seq + n, $2, 1, 'むかしの話' FROM chat_conversations c, generate_series(1, 1500) AS n
+         WHERE c.id = $1::uuid",
+    )
+    .bind(&group.id)
+    .bind(second.id)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chat_conversations SET last_seq = last_seq + 1500 WHERE id = $1::uuid")
+        .bind(&group.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let history: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM chat_messages WHERE conversation_id = $1::uuid")
+        .bind(&group.id)
+        .fetch_all(&ctx.app.core.db)
+        .await
+        .unwrap();
+
     // Everyone leaves: the group and what it held are gone.
     let _: LeaveConversationResponse = ctx.call("Conversation", "LeaveConversation", first, &leave).await.unwrap();
     assert_eq!(ctx.conversation(second, &group.id).await.conversation.viewer.role, MemberRole::MEMBER_ROLE_OWNER);
@@ -847,6 +879,21 @@ async fn leaving_passes_the_group_on_and_an_empty_group_is_deleted() {
         !tokuly_media::assets::is_attached(&ctx.app.core, photo.parse().unwrap()).await.unwrap(),
         "uploads of deleted messages are released"
     );
+    // Saves of its messages elsewhere go with them: each message is
+    // announced once, the one deleted before only when it was deleted.
+    let announced: Vec<String> = sqlx::query_scalar(
+        "SELECT data->>'subject_id' FROM outbox WHERE topic = 'subject.deleted' AND data->>'subject_type' = $1
+           AND (data->>'subject_id')::uuid = ANY($2)",
+    )
+    .bind((tokuly_proto::common::SubjectType::SUBJECT_TYPE_CHAT_MESSAGE as i32).to_string())
+    .bind(&history)
+    .fetch_all(&ctx.app.core.db)
+    .await
+    .unwrap();
+    assert!(history.len() > 1500);
+    assert_eq!(announced.len(), history.len(), "every message once");
+    assert_eq!(announced.iter().filter(|id| **id == unsent.id).count(), 1);
+    assert!(announced.contains(&shown.id));
 
     // A direct conversation cannot be left, only hidden.
     let (taro, hanako) = ctx.friends("taro", "hanako").await;
