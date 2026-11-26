@@ -4,7 +4,6 @@ import {
   GraduationCap,
   type LucideIcon,
   MessageCircleQuestion,
-  Mic,
   Settings,
   ShieldCheck,
   SmilePlus,
@@ -30,7 +29,6 @@ export interface WebFeature {
  * `features/notifications/target.ts`).
  */
 export const WEB_FEATURES: readonly WebFeature[] = [
-  { key: "spaces", path: "/spaces", icon: Mic },
   { key: "community", path: "/communities", icon: UsersRound },
   { key: "school", path: "/school", icon: GraduationCap },
   { key: "plans", path: "/plans", icon: CalendarDays },

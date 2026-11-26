@@ -6,10 +6,14 @@ describe("where a server path goes", () => {
     expect(pushRoute("/chat/42")).toBe("/chat/42");
     expect(pushRoute(`${SERVER_URL}/u/alice`)).toBe("/u/alice");
     expect(pushRoute("/notes/abc")).toBe("/notes/abc");
+    expect(pushRoute("/spaces/xyz")).toBe("/spaces/xyz");
+    expect(pushRoute("/hangouts/h1")).toBe("/spaces/hangouts/h1");
   });
 
   it("opens what only the web has in the web view, signed in, not the inbox", () => {
-    expect(pushRoute("/spaces/xyz")).toBe(`/web?path=${encodeURIComponent("/spaces/xyz")}`);
+    expect(pushRoute("/communities/xyz")).toBe(
+      `/web?path=${encodeURIComponent("/communities/xyz")}`,
+    );
     expect(targetOf("/notes/channels/abc")).toEqual({
       type: "screen",
       href: `/web?path=${encodeURIComponent("/notes/channels/abc")}`,
