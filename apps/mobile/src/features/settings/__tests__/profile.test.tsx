@@ -17,6 +17,7 @@ jest.mock("#/features/session/account", () => ({
   currentAccount: jest.fn(),
   isActive: () => true,
   ensureActive: () => {},
+  AccountChanged: class AccountChanged extends Error {},
 }));
 jest.mock("expo-image-picker", () => ({}));
 

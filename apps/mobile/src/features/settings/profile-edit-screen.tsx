@@ -11,7 +11,13 @@ import { Avatar } from "#/components/avatar";
 import { Button } from "#/components/button";
 import { Page, Section } from "#/components/page";
 import { TextField } from "#/components/text-field";
-import { type Account, currentAccount, ensureActive, isActive } from "#/features/session/account";
+import {
+  type Account,
+  AccountChanged,
+  currentAccount,
+  ensureActive,
+  isActive,
+} from "#/features/session/account";
 import { useMe } from "#/features/session/store";
 import { authClient, profileClient } from "#/lib/api";
 import { SERVER_URL } from "#/lib/config";
@@ -23,9 +29,14 @@ const MAX_NAME = 40;
 const MAX_BIO = 300;
 const MAX_SCHOOL = 60;
 
-/** Puts the account the server answered with into the session, while it is still the active one. */
-function adopt(account: Account, me: identity.Me | undefined) {
-  if (me && isActive(account)) account.api.session.updateMe(me);
+/**
+ * Puts the account the server answered with into the session, while it is
+ * still the active one; `false` once another took over (nothing is shown then).
+ */
+function adopt(account: Account, me: identity.Me | undefined): boolean {
+  if (!isActive(account)) return false;
+  if (me) account.api.session.updateMe(me);
+  return true;
 }
 
 const absolute = (url: string) => (url.startsWith("/") ? `${SERVER_URL}${url}` : url);
@@ -92,7 +103,7 @@ function ProfileImages({ me }: { me: identity.Me }) {
       const response = await account.api
         .service(identity.AccountService)
         .updateProfile(slot === "avatar" ? { avatarAssetId: assetId } : { bannerAssetId: assetId });
-      adopt(account, response.me);
+      if (!adopt(account, response.me)) return null;
       return remove ? t(`settings:profile.${slot}.removed`) : t(`settings:profile.${slot}.changed`);
     },
     onSuccess: (done) => {
@@ -100,7 +111,11 @@ function ProfileImages({ me }: { me: identity.Me }) {
       void query.invalidateQueries({ queryKey: profileKeys.profiles });
       Alert.alert(done);
     },
-    onError: (error) => Alert.alert(errorMessage(error, { namespace: "settings" })),
+    onError: (error) => {
+      // Picked as an account that has been switched away from: nothing to say to the next one.
+      if (error instanceof AccountChanged) return;
+      Alert.alert(errorMessage(error, { namespace: "settings" }));
+    },
   });
   const confirmRemove = (slot: Slot) =>
     Alert.alert(
@@ -276,8 +291,7 @@ function ProfileForm({ me }: { me: identity.Me }) {
       const account = currentAccount();
       if (!account) return undefined;
       const response = await account.api.service(identity.AccountService).updateProfile(changes);
-      adopt(account, response.me);
-      return response.me;
+      return adopt(account, response.me) ? response.me : undefined;
     },
     onSuccess: (saved) => {
       if (!saved) return;
