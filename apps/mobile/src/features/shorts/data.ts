@@ -110,11 +110,17 @@ export function useShareShort(short: shorts.Short): () => Promise<void> {
 }
 
 /**
- * Hands a finished stay to the server, as the account that watched (the
- * client is taken when the stay ends). A lost report is a lost view, not
- * something to bother the viewer with.
+ * Hands a finished stay to the server through `feed`, the client of the
+ * account that watched: taken when the stay began, so a stay that ends after
+ * a switch is never reported as the next account. A lost report is a lost
+ * view, not something to bother the viewer with.
  */
-export function reportStay(shortId: string, source: shorts.PlaybackSource, stay: Stay): void {
+export function reportStay(
+  feed: ReturnType<typeof feedClient>,
+  shortId: string,
+  source: shorts.PlaybackSource,
+  stay: Stay,
+): void {
   if (stay.watchedMs <= 0 && stay.completions === 0) return;
   const report = create(shorts.PlaybackReportSchema, {
     shortId,
@@ -122,7 +128,5 @@ export function reportStay(shortId: string, source: shorts.PlaybackSource, stay:
     watchedMs: BigInt(stay.watchedMs),
     completions: stay.completions,
   });
-  feedClient()
-    .reportPlayback({ reports: [report] })
-    .catch(() => {});
+  feed.reportPlayback({ reports: [report] }).catch(() => {});
 }

@@ -23,7 +23,7 @@ import { useEngagement, useLike } from "#/features/engagement/data";
 import { mediaUrl } from "#/lib/config";
 import { errorMessage } from "#/lib/errors";
 import { CommentsSheet } from "./comments-sheet";
-import { reportStay, useShareShort } from "./data";
+import { feedClient, reportStay, useShareShort } from "./data";
 
 /** Two taps closer than this are a double tap. */
 const DOUBLE_TAP_MS = 280;
@@ -158,8 +158,10 @@ function Player({
   useEffect(() => {
     if (!playing) return;
     const stay = meter.current;
+    // The account watching is the one in use now, when the stay begins.
+    const feed = feedClient();
     return () => {
-      reportStay(short.id, source, stay.read(Date.now()));
+      reportStay(feed, short.id, source, stay.read(Date.now()));
       meter.current = new StayMeter();
     };
   }, [playing, short.id, source]);
