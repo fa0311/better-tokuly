@@ -6,13 +6,19 @@ import { Alert, type AlertButton } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { api } from "#/lib/api";
 import { screenFor } from "#/seams/links";
+import { AnswerScreen } from "../answer-screen";
 import { AskForm } from "../ask-form";
 import { InboxScreen } from "../inbox-screen";
 import links from "../links";
 import { ReportSheet } from "../parts";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
-jest.mock("expo-router", () => ({ router: { push: jest.fn(), back: jest.fn() } }));
+/** Whether the screen is the one in front (another can sit on top of it in the stack). */
+let mockFocused = true;
+jest.mock("expo-router", () => ({
+  router: { push: jest.fn(), back: jest.fn() },
+  useIsFocused: () => mockFocused,
+}));
 /** Whether the account that started a piece of work is still the one in use. */
 let mockActive = true;
 jest.mock("#/features/session/account", () => {
@@ -24,6 +30,7 @@ jest.mock("#/features/session/account", () => {
 });
 beforeEach(() => {
   mockActive = true;
+  mockFocused = true;
 });
 jest.mock("#/features/session/store", () => ({
   useMe: () => ({ user: { id: "me", handle: "me" } }),
@@ -44,6 +51,9 @@ function server(questions: ask.Question[]) {
   jest.mocked(api).mockReturnValue({
     service: () => ({
       listInbox: async () => ({ questions, page: { nextCursor: "", hasMore: false } }),
+      getQuestion: async ({ questionId }: { questionId: string }) => ({
+        question: questions.find((question) => question.id === questionId),
+      }),
       getInboxCounts: async () => ({ counts: { unread: 1, inbox: 1 } }),
       markQuestionsRead: async (request: unknown) => {
         note("markQuestionsRead", request);
@@ -88,6 +98,20 @@ describe("the inbox", () => {
     await show(<InboxScreen />);
     expect(await screen.findByText("好きな食べ物は?")).toBeTruthy();
     expect(screen.getByText("匿名さん")).toBeTruthy();
+    await waitFor(() => expect(sent.markQuestionsRead).toEqual([{ questionIds: ["q1"] }]));
+  });
+
+  it("reads only what is seen: not a question that arrives under another screen", async () => {
+    const sent = server([anonymous]);
+    mockFocused = false;
+    await show(<InboxScreen />);
+    expect(await screen.findByText("好きな食べ物は?")).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent.markQuestionsRead).toBeUndefined();
+
+    // Back on the inbox, it is on screen.
+    mockFocused = true;
+    await screen.rerender(framed(<InboxScreen />));
     await waitFor(() => expect(sent.markQuestionsRead).toEqual([{ questionIds: ["q1"] }]));
   });
 
@@ -173,6 +197,30 @@ describe("asking", () => {
     await fireEvent.press(screen.getByTestId("ask-signed"));
     await fireEvent.press(screen.getByTestId("ask-send"));
     await waitFor(() => expect(sent.askQuestion?.[0]).toMatchObject({ signed: true }));
+  });
+});
+
+describe("answering", () => {
+  const question = (owner: string) =>
+    create(ask.QuestionSchema, {
+      id: "q1",
+      text: "好きな食べ物は?",
+      anonymous: true,
+      owner: { id: owner, handle: owner, displayName: owner },
+      folder: ask.QuestionFolder.INBOX,
+    });
+
+  it("is for the owner of the box", async () => {
+    server([question("me")]);
+    await show(<AnswerScreen questionId="q1" />);
+    expect(await screen.findByTestId("ask-answer-screen")).toBeTruthy();
+  });
+
+  it("shows anyone else that there is nothing to see", async () => {
+    server([question("u1")]);
+    await show(<AnswerScreen questionId="q1" />);
+    expect(await screen.findByText("この質問は見られません")).toBeTruthy();
+    expect(screen.queryByTestId("ask-answer-screen")).toBeNull();
   });
 });
 

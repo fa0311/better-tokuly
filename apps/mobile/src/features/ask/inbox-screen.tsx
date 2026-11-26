@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ask } from "@tokuly/api";
 import { rememberCounts } from "@tokuly/core/ask";
+import { useIsFocused } from "expo-router";
 import { MoreHorizontal, PenLine } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -41,9 +42,11 @@ export function InboxScreen() {
   const questions = query.data?.pages.flatMap((page) => page.questions) ?? [];
 
   // Seeing the new questions is reading them: the badge clears, the "未読" marks stay for this visit.
+  // Only while the inbox is in front: a question arriving under the answer screen is not seen yet.
+  const focused = useIsFocused();
   const marked = useRef(new Set<string>());
   const unreadKey =
-    tab === "inbox"
+    tab === "inbox" && focused
       ? questions.flatMap((question) => (question.read ? [] : [question.id])).join(",")
       : "";
   useEffect(() => {

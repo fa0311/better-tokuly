@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { Button } from "#/components/button";
 import { EmptyState, Page, Spinner } from "#/components/page";
+import { useMe } from "#/features/session/store";
 import { sticker, useTheme } from "#/lib/theme";
 import { boxAs, stillActive, useQuestion } from "./data";
 import { Counter, Picture, Sender, showAskError } from "./parts";
@@ -20,9 +21,11 @@ const AUDIENCES = [
 /** `/ask/answer/<id>`: answering a question of one's own box, or editing that answer. */
 export function AnswerScreen({ questionId }: { questionId: string }) {
   const { t } = useTranslation("ask");
+  const me = useMe();
   const { data: question, isPending, isError } = useQuestion(questionId);
   if (isPending) return <Spinner />;
-  if (isError || !question)
+  // Only the owner of the box answers; anyone else is refused by the server, so there is nothing here for them.
+  if (isError || !question || question.owner?.id !== me?.user?.id)
     return (
       <EmptyState emoji="🫥" title={t("question.notFound")} body={t("question.notFoundBody")} />
     );
