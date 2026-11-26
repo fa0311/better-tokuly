@@ -22,8 +22,7 @@ export default function Me() {
           {HUB_ENTRIES.map((entry) => (
             <Link key={entry.id} href={entry.href} asChild>
               <Button testID={`me-${entry.id}`} variant="secondary" block>
-                {entry.label()}
-                {waiting(entry.badge)}
+                {entry.label().concat(waiting(entry.badge))}
               </Button>
             </Link>
           ))}
