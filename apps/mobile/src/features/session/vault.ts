@@ -27,12 +27,22 @@ export function parkedTokens(): Promise<ParkedTokens> {
   return readJson<ParkedTokens>(PARKED_KEY, {});
 }
 
-/** Parks the active account: its token moves beside the others, under its session ID. */
+/**
+ * Parks the active account: its token moves beside the others, under its
+ * session ID. All or nothing: an account that stays the active one goes on
+ * rotating its token, and a copy among the parked ones would be a spent one.
+ */
 export async function parkActive(sessionId: string): Promise<void> {
   const token = await activeTokenStore.get();
   if (!token || !sessionId) return;
-  await writeJson(PARKED_KEY, { ...(await parkedTokens()), [sessionId]: token });
-  await activeTokenStore.clear();
+  const parked = await parkedTokens();
+  await writeJson(PARKED_KEY, { ...parked, [sessionId]: token });
+  try {
+    await activeTokenStore.clear();
+  } catch (error) {
+    await writeJson(PARKED_KEY, parked);
+    throw error;
+  }
 }
 
 /**

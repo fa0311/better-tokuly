@@ -72,6 +72,18 @@ describe("the account's token could not be moved", () => {
     expect(await activeTokenStore.get()).toBe("rt-main-r");
   });
 
+  it("is not left among the parked ones when the active store could not be emptied", async () => {
+    // Parking `main` got as far as the copy: the token is in both places when the phone refuses.
+    jest.mocked(SecureStore.deleteItemAsync).mockRejectedValueOnce(new Error("storage is locked"));
+    await expect(enterAccount(answer("alt", "rt-alt"))).rejects.toThrow("storage is locked");
+
+    // `main` goes on rotating its token: a copy left behind would be a spent one, and a
+    // switch to it would get the session revoked.
+    expect(await parkedTokens()).toEqual({});
+    await expect(api().session.refresh()).resolves.toBe(true);
+    expect(await activeTokenStore.get()).toBe("rt-main-r");
+  });
+
   it("stays signed in when its token cannot be set aside for the sign-out", async () => {
     failNextWrite("tokuly.session.departed");
     await expect(signOut()).rejects.toThrow("storage is full");
