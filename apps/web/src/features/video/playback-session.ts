@@ -1,8 +1,8 @@
 import { errorReason, video } from "@tokuly/api";
+import { PlaybackReporter } from "@tokuly/core/video";
 import { type RefObject, useEffect, useRef } from "react";
 import { API_PATH, api } from "#/lib/api";
 import { playbackClient } from "./api";
-import { PlaybackReporter } from "./playback-reporter";
 import type { PlayerHandle } from "./player/player";
 
 const { TrafficSource } = video;

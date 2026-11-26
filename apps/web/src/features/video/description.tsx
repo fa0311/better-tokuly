@@ -1,57 +1,45 @@
-import { common, toMillis, type video } from "@tokuly/api";
+import { type common, toMillis, type video } from "@tokuly/api";
+import {
+  audienceKey,
+  categoryKey,
+  chapterAt,
+  descriptionParts,
+  formatClock,
+} from "@tokuly/core/video";
 import { ChevronDown, ChevronUp, Gamepad2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
-import { formatClock, parseClock } from "./format";
-import { categoryKey } from "./labels";
-
-// A web address runs as far as characters that belong in one: Japanese text often follows it without a space.
-const PATTERN =
-  /(https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+)|\b(\d{1,2}:\d{2}(?::\d{2})?)\b/g;
-const TRAILING = /[.,!?;:)\]']+$/;
 
 /** A creator's free text with its web addresses and clock times (`1:23`) made tappable. */
 function linked(text: string, onSeek?: (seconds: number) => void): ReactNode[] {
-  const parts: ReactNode[] = [];
-  let last = 0;
-  for (const match of text.matchAll(PATTERN)) {
-    const start = match.index;
-    let token = match[0];
-    let node: ReactNode = null;
-    if (match[1]) {
-      token = token.replace(TRAILING, "");
-      node = (
+  return descriptionParts(text).map((part, index) => {
+    const key = `${index}-${part.text}`;
+    if (part.kind === "link")
+      return (
         <a
-          key={start}
-          href={token}
+          key={key}
+          href={part.text}
           target="_blank"
           rel="noopener noreferrer nofollow ugc"
           className="font-bold text-brand underline-offset-2 hover:underline"
         >
-          {token}
+          {part.text}
         </a>
       );
-    } else {
-      const seconds = parseClock(token);
-      if (seconds === null || !onSeek) continue;
-      node = (
+    if (part.kind === "time" && onSeek)
+      return (
         <button
-          key={start}
+          key={key}
           type="button"
           className="font-bold text-brand hover:underline"
-          onClick={() => onSeek(seconds)}
+          onClick={() => onSeek(part.seconds)}
         >
-          {token}
+          {part.text}
         </button>
       );
-    }
-    if (start > last) parts.push(text.slice(last, start));
-    parts.push(node);
-    last = start + token.length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts;
+    return part.text;
+  });
 }
 
 /**
@@ -78,9 +66,7 @@ export function Description({
     item.description.split("\n").length > 3 ||
     item.chapters.length > 0 ||
     item.tags.length > 0;
-  const playing = [...item.chapters]
-    .reverse()
-    .find((chapter) => chapter.startSeconds <= currentTime + 0.001);
+  const playing = chapterAt(item.chapters, currentTime);
 
   return (
     <section
@@ -209,22 +195,13 @@ function Chapters({
 
 /**
  * One line under a title saying who can see the video, for anything that is not plainly
- * public. An audience this client does not know reads as private.
+ * public (`@tokuly/core/video`'s `audienceKey`).
  */
 export function audienceNote(
   visibility: common.Visibility,
   allowLink: boolean,
   t: (key: string) => string,
 ): string {
-  if (visibility === common.Visibility.PUBLIC) return "";
-  const key = {
-    2: "noFeed",
-    3: "unlisted",
-    4: allowLink ? "friendsOrLink" : "friends",
-    5: "private",
-    6: "followers",
-    7: "closeFriends",
-    8: "circle",
-  }[visibility as number];
-  return t(`watch.audience.${key ?? "private"}`);
+  const key = audienceKey(visibility, allowLink);
+  return key ? t(key) : "";
 }

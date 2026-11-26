@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { common, toMillis, video } from "@tokuly/api";
+import { imageUrl } from "@tokuly/core/video";
 import type { TFunction } from "i18next";
 import { BadgeCheck, Clock3, ListPlus, MoreVertical, Radio } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -70,14 +71,7 @@ export function ChannelName({
   );
 }
 
-/** The smallest stored rendition that still covers `pixels` on a 2x screen. */
-export function imageUrl(image: common.Image | undefined, pixels: number): string | undefined {
-  if (!image) return undefined;
-  const fitting = image.variants
-    .filter((variant) => variant.size >= pixels * 2)
-    .sort((a, b) => a.size - b.size)[0];
-  return fitting?.url ?? image.url ?? undefined;
-}
+export { imageUrl };
 
 /** How long a pointer rests on a card before its moving preview starts. */
 const PREVIEW_DELAY_MS = 450;

@@ -1,10 +1,10 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import enVideo from "@tokuly/i18n/en/video";
+import jaVideo from "@tokuly/i18n/ja/video";
 import { describe, expect, it } from "vitest";
 import enComments from "#/i18n/en/comments";
-import enVideo from "#/i18n/en/video";
 import jaComments from "#/i18n/ja/comments";
-import jaVideo from "#/i18n/ja/video";
 
 type Strings = { [key: string]: string | Strings };
 

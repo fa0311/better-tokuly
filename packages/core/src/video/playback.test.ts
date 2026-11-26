@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PlaybackReporter, type PlaybackReporterDeps } from "./playback-reporter";
+import { PlaybackReporter, type PlaybackReporterDeps } from "./playback";
 
 function setup(startDelayMs = 0) {
   const calls = {

@@ -32,6 +32,7 @@ describe("the features on the seams", () => {
 
   it("the hub and the settings", () => {
     expect(HUB_ENTRIES.map((entry) => [entry.id, entry.href])).toEqual([
+      ["video", "/watch"],
       ["more", "/more"],
       ["settings", "/settings"],
     ]);
@@ -45,12 +46,14 @@ describe("the features on the seams", () => {
       "accounts",
       "add-account",
       "add-friend",
+      "c/[handle]",
       "chat/[id]",
       "create-account",
       "invite/[code]",
       "licenses",
       "more",
       "new-chat",
+      "playlist/[id]",
       "settings",
       "shorts/mine",
       "shorts/new",
@@ -60,6 +63,11 @@ describe("the features on the seams", () => {
       "stories/[userId]",
       "stories/new",
       "u/[handle]",
+      "watch/[videoId]",
+      "watch/channels",
+      "watch/history",
+      "watch/index",
+      "watch/library",
       "web",
     ]);
     expect(SCREENS.find((screen) => screen.name === "new-chat")?.options()).toEqual({

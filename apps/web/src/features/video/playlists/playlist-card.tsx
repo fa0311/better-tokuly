@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { video } from "@tokuly/api";
+import { playlistTitle } from "@tokuly/core/video";
 import { Clock3, ListVideo, ThumbsUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
-import { playlistTitle } from "../save-dialog";
 import { imageUrl, VisibilityChip } from "../video-card";
 
 const { PlaylistKind } = video;

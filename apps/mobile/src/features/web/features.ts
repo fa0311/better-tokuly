@@ -12,7 +12,6 @@ import {
   SmilePlus,
   Sticker,
   Trophy,
-  Tv,
   UsersRound,
   Wallet,
 } from "lucide-react-native";
@@ -34,7 +33,6 @@ export interface WebFeature {
  */
 export const WEB_FEATURES: readonly WebFeature[] = [
   { key: "notes", path: "/notes", icon: NotebookPen },
-  { key: "video", path: "/watch", icon: Tv },
   { key: "live", path: "/live", icon: Radio },
   { key: "spaces", path: "/spaces", icon: Mic },
   { key: "community", path: "/communities", icon: UsersRound },
