@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { school, toDate } from "@tokuly/api";
 import {
+  dayLabel,
   dueItems,
   examCountdown,
   momentLabel,
@@ -195,9 +196,10 @@ export function DueList({ limit }: { limit: number }) {
                 {item.exam.name}
               </Text>
               <Text className="text-xs font-bold text-ink-soft">
-                {i18n.language.startsWith("ja")
-                  ? `${item.exam.startDate.slice(5).replace("-", "/")} 〜`
-                  : item.exam.startDate}
+                {dayLabel(item.exam.startDate, i18n.language)}
+                {item.exam.endDate && item.exam.endDate !== item.exam.startDate
+                  ? ` 〜 ${dayLabel(item.exam.endDate, i18n.language)}`
+                  : ""}
               </Text>
             </View>
             <Text

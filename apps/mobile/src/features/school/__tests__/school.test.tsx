@@ -81,6 +81,7 @@ function schoolOf({ switchOnWrite = false, unreadable = false } = {}) {
             id: "x1",
             name: "期末テスト",
             startDate: "2099-12-01",
+            endDate: "2099-12-03",
             status: school.ExamStatus.UPCOMING,
             daysUntilStart: 5,
           }),
@@ -138,6 +139,7 @@ describe("the school screen", () => {
     expect(screen.getByText("休講")).toBeTruthy();
     expect(await screen.findByText("数学のワーク p.30")).toBeTruthy();
     expect(screen.getByText("期末テスト")).toBeTruthy();
+    expect(screen.getByText("12/1(火) 〜 12/3(木)")).toBeTruthy();
     expect(await screen.findByText("みお")).toBeTruthy();
   });
 
