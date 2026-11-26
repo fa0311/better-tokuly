@@ -57,7 +57,7 @@ function account(name: string) {
     service: (service: { typeName: string }) =>
       service.typeName === media.MediaService.typeName ? mediaService : storyService,
   };
-  return { object, calls };
+  return { object, calls, storyService };
 }
 
 function signIn(sessionId: string, apiObject: object) {
@@ -186,5 +186,53 @@ describe("uploads", () => {
     signIn("B", account("b").object);
     expect(usePosts.getState().posts[0]?.status).toBe("paused");
     expect(a.calls).toEqual(["createUpload"]);
+  });
+
+  it("abort creating the story when the account leaves, and create it once with the same key later", async () => {
+    const a = account("a");
+    signIn("A", a.object);
+    // The story is being created when the switch comes: the request must not outlive the account.
+    const keys: string[] = [];
+    let aborted = false;
+    a.storyService.createStory = (async (
+      request: { idempotencyKey: string },
+      options: { signal: AbortSignal },
+    ) => {
+      keys.push(request.idempotencyKey);
+      await new Promise((_resolve, reject) =>
+        options.signal.addEventListener("abort", () => {
+          aborted = true;
+          reject(new Error("aborted"));
+        }),
+      );
+    }) as never;
+    const id = await submitPost(
+      {
+        kind: "story",
+        story: {
+          title: "",
+          captions: [""],
+          audience: notes.StoryAudience.FRIENDS,
+          audienceUserIds: [],
+        },
+      },
+      [{ uri: "file:///photo.jpg", kind: "image", name: "photo.jpg", contentType: "image/jpeg" }],
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(usePosts.getState().posts[0]?.status).toBe("posting");
+    await pauseRunning();
+    expect(aborted).toBe(true);
+    expect(usePosts.getState().posts[0]?.status).toBe("paused");
+
+    // Back as A: created once, with the same idempotency key.
+    const again = account("a");
+    signIn("A", again.object);
+    await runPost(id);
+    expect(again.calls).toEqual(["createStory"]);
+    expect(keys).toEqual([id]);
+    expect(usePosts.getState().posts[0]).toMatchObject({
+      status: "done",
+      resultId: `story-of-${id}`,
+    });
   });
 });

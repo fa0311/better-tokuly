@@ -111,28 +111,47 @@ function isRefusal(error: unknown): boolean {
   return error instanceof Error && error.name === "AssetFailedError";
 }
 
-async function publish(account: Account, post: Post, assetIds: string[]): Promise<string> {
+/**
+ * Creates the story or the short. `signal` is the post's: a switch aborts the
+ * request (an idempotency key, or the upload a short is made from, keeps a
+ * retry from posting twice).
+ */
+async function publish(
+  account: Account,
+  post: Post,
+  assetIds: string[],
+  signal: AbortSignal,
+): Promise<string> {
   if (post.kind === "story") {
     const draft = post.story!;
-    const { story } = await account.api.service(notes.StoryService).createStory({
-      title: draft.title,
-      items: assetIds.map((assetId, index) => ({ assetId, caption: draft.captions[index] ?? "" })),
-      audience: draft.audience,
-      audienceUserIds:
-        draft.audience === notes.StoryAudience.CLOSE_FRIENDS ? draft.audienceUserIds : [],
-      idempotencyKey: post.id,
-    });
+    const { story } = await account.api.service(notes.StoryService).createStory(
+      {
+        title: draft.title,
+        items: assetIds.map((assetId, index) => ({
+          assetId,
+          caption: draft.captions[index] ?? "",
+        })),
+        audience: draft.audience,
+        audienceUserIds:
+          draft.audience === notes.StoryAudience.CLOSE_FRIENDS ? draft.audienceUserIds : [],
+        idempotencyKey: post.id,
+      },
+      { signal },
+    );
     return story?.id ?? "";
   }
   const draft = post.short!;
   try {
-    const { short } = await account.api.service(shorts.ShortService).createShort({
-      assetId: assetIds[0],
-      caption: draft.caption,
-      visibility: draft.visibility,
-      circleId: draft.visibility === common.Visibility.CIRCLE ? draft.circleId : "",
-      commentsEnabled: draft.commentsEnabled,
-    });
+    const { short } = await account.api.service(shorts.ShortService).createShort(
+      {
+        assetId: assetIds[0],
+        caption: draft.caption,
+        visibility: draft.visibility,
+        circleId: draft.visibility === common.Visibility.CIRCLE ? draft.circleId : "",
+        commentsEnabled: draft.commentsEnabled,
+      },
+      { signal },
+    );
     return short?.id ?? "";
   } catch (error) {
     // A short is made once per upload: an answer lost on the way means it exists already.
@@ -176,7 +195,7 @@ async function work(account: Account, id: string, signal: AbortSignal): Promise<
   }
   ensureActive(account);
   patch(id, { status: "posting", progress: 1 });
-  const resultId = await publish(account, find(id)!, assetIds);
+  const resultId = await publish(account, find(id)!, assetIds, signal);
   patch(id, { status: "done", resultId });
   forgetFiles(id);
 }
