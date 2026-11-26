@@ -1,5 +1,11 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
+import {
+  createRootRouteWithContext,
+  HeadContent,
+  Outlet,
+  Scripts,
+  useRouter,
+} from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { I18nextProvider } from "react-i18next";
 import { Toaster } from "sonner";
@@ -95,11 +101,12 @@ function RootDocument({ children }: { children: ReactNode }) {
   // Server: a fresh instance per request. Browser: the shared instance, which
   // booted in the same language from <html lang>.
   const instance = typeof window === "undefined" ? createI18n(language) : i18n;
+  const nonce = useRouter().options.ssr?.nonce;
   return (
     <html lang={language} suppressHydrationWarning>
       <head>
         {/* static boot script, no user input */}
-        <script dangerouslySetInnerHTML={{ __html: BOOT_SCRIPT }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: BOOT_SCRIPT }} />
         <HeadContent />
       </head>
       <body>

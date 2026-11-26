@@ -1,4 +1,5 @@
 import { createCsrfMiddleware, createMiddleware, createStart } from "@tanstack/react-start";
+import { contentSecurityPolicy, deploymentFrom, permissionsPolicy } from "#/lib/security-headers";
 
 /**
  * Pages that are meant to be shown inside other sites. The live area's OBS
@@ -7,23 +8,26 @@ import { createCsrfMiddleware, createMiddleware, createStart } from "@tanstack/r
  */
 const EMBEDDABLE = ["/overlay/"];
 
+const deployment = deploymentFrom(process.env);
+
 /**
- * No page of the app may be framed by another site, unless it is made to be
- * embedded: a page with buttons inside a hostile frame can be clicked
- * through a decoy (clickjacking). Headers a route sets itself (the OAuth
- * pages send stricter ones) are kept.
+ * Every page gets its Content-Security-Policy and Permissions-Policy
+ * (`#/lib/security-headers`). The nonce is new for each response; the router
+ * puts it on the scripts it renders (`src/router.tsx`). A cache between the
+ * server and the browsers (a CDN) must therefore not keep a page: its nonce
+ * would be the same for everyone, and known to anyone who asks. No page may
+ * be framed by another site unless it is made to be embedded.
  */
-const framing = createMiddleware().server(async ({ next, pathname }) => {
-  const result = await next();
+const securityHeaders = createMiddleware().server(async ({ next, pathname }) => {
+  const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64");
+  const result = await next({ context: { nonce } });
   const headers = result.response.headers;
-  if (EMBEDDABLE.some((prefix) => pathname.startsWith(prefix))) {
-    if (!headers.has("content-security-policy"))
-      headers.set("content-security-policy", "frame-ancestors *");
-    return result;
-  }
-  if (!headers.has("content-security-policy"))
-    headers.set("content-security-policy", "frame-ancestors 'none'");
-  if (!headers.has("x-frame-options")) headers.set("x-frame-options", "DENY");
+  const embeddable = EMBEDDABLE.some((prefix) => pathname.startsWith(prefix));
+  headers.set("content-security-policy", contentSecurityPolicy(deployment, nonce, { embeddable }));
+  headers.set("permissions-policy", permissionsPolicy({ embeddable }));
+  // The same for browsers that only know the older header.
+  if (!embeddable) headers.set("x-frame-options", "DENY");
+  if (!headers.has("cache-control")) headers.set("cache-control", "private, no-cache");
   return result;
 });
 
@@ -33,4 +37,4 @@ const framing = createMiddleware().server(async ({ next, pathname }) => {
  */
 const csrf = createCsrfMiddleware({ filter: (context) => context.handlerType === "serverFn" });
 
-export const startInstance = createStart(() => ({ requestMiddleware: [csrf, framing] }));
+export const startInstance = createStart(() => ({ requestMiddleware: [csrf, securityHeaders] }));

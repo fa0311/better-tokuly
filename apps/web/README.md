@@ -152,6 +152,17 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
   visible focus (built in), no information by colour alone.
 - No manual `useMemo`/`useCallback`/`memo`: the React Compiler memoizes.
 
+**Security headers**
+
+- Every page gets a Content-Security-Policy and a Permissions-Policy
+  (`src/lib/security-headers.ts`, applied in `src/start.ts`): scripts run
+  from this origin or with the response's nonce only, no inline handlers or
+  `eval`. A new site the browser must reach (a player, a service) or a new
+  browser feature is added there. The browser tests fail on any violation.
+- Addresses of the deployment (realtime, LiveKit, the media server,
+  uploads) come from the backend's `TOKULY_*` variables, which Compose hands
+  the web server too: set them in `.env`, not only in `tokuly.toml`.
+
 **Text**
 
 - Every string goes through `useTranslation("<namespace>")`, in Japanese

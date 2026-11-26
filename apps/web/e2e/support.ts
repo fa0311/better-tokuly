@@ -264,17 +264,49 @@ export async function letHoveredToastsGo(page: Page): Promise<void> {
   );
 }
 
+/**
+ * What the browser refused (or, under a report-only policy, would have) because of the
+ * Content-Security-Policy or the Permissions-Policy while the current test ran.
+ */
+const policyViolations: string[] = [];
+
 function guardPages(context: BrowserContext): void {
-  context.on("page", (page) => void letHoveredToastsGo(page));
+  // Chrome does not log every refusal to the console (a blocked frame, a WebRTC peer); the
+  // event fires for all of them.
+  void context.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (event) => {
+      console.warn(
+        `Content Security Policy: ${event.effectiveDirective} refused ${event.blockedURI || "(inline)"}`,
+      );
+    });
+  });
+  context.on("page", (page) => {
+    void letHoveredToastsGo(page);
+    page.on("console", (message) => {
+      const text = message.text();
+      if (/content security policy|permissions[- ]policy/i.test(text))
+        policyViolations.push(`${page.url()}: ${text}`);
+    });
+  });
 }
 
 /**
  * `test` with a signed-in browser: `me` is a fresh account and `page` is
  * already signed in as it. Every page it opens, in its own context or in one
  * a test makes with `browser.newContext()`, lets hovered toasts go (see
- * `letHoveredToastsGo`).
+ * `letHoveredToastsGo`), and the test fails when one of them broke the
+ * app's Content-Security-Policy or Permissions-Policy.
  */
-export const test = base.extend<{ me: Account }>({
+export const test = base.extend<{ me: Account; policies: undefined }>({
+  policies: [
+    // biome-ignore lint/correctness/noEmptyPattern: Playwright reads a fixture's dependencies from this pattern.
+    async ({}, use) => {
+      policyViolations.length = 0;
+      await use(undefined);
+      expect(policyViolations, "violations of the security policies").toEqual([]);
+    },
+    { auto: true },
+  ],
   context: async ({ context }, use) => {
     guardPages(context);
     await use(context);

@@ -5,7 +5,7 @@ import { ChevronRight, Newspaper } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
 import { newsClient, newsKeys } from "./api";
-import { PublishedAt, SourceIcon } from "./parts";
+import { ArticlePicture, PublishedAt, SourceIcon } from "./parts";
 
 /**
  * The newest articles as a short list with a link to the news page: a block
@@ -61,16 +61,10 @@ export function FreshNews({ limit = 4, className }: { limit?: number; className?
                   <PublishedAt at={article.publishedAt} className="shrink-0" />
                 </span>
               </span>
-              {article.imageUrl && (
-                <img
-                  src={article.imageUrl}
-                  alt=""
-                  className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover"
-                  loading="lazy"
-                  decoding="async"
-                  draggable={false}
-                />
-              )}
+              <ArticlePicture
+                url={article.imageUrl}
+                className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover"
+              />
             </Link>
           </li>
         ))}

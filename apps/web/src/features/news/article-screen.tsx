@@ -22,7 +22,7 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { dropArticle, newsAdminClient, newsClient, newsKeys, recordClick } from "./api";
-import { FeedbackButtons, PublishedAt, SourceIcon, TagLink } from "./parts";
+import { ArticlePicture, FeedbackButtons, PublishedAt, SourceIcon, TagLink } from "./parts";
 
 /** The host of an address, for "read on example.com". */
 function hostOf(url: string): string {
@@ -113,15 +113,11 @@ export function ArticleScreen({ articleId }: { articleId: string }) {
   return (
     <Page title={t("article.title")} back="/news" actions={<StaffMenu article={article} />}>
       <article className="flex flex-col gap-4">
-        {article.imageUrl && (
-          <img
-            src={article.imageUrl}
-            alt=""
-            className="sticker aspect-video w-full rounded-card bg-surface-3 object-cover"
-            decoding="async"
-            draggable={false}
-          />
-        )}
+        <ArticlePicture
+          url={article.imageUrl}
+          className="sticker aspect-video w-full rounded-card bg-surface-3 object-cover"
+          lazy={false}
+        />
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-soft">
           {article.source && (
             <Link
@@ -266,16 +262,10 @@ function Related({ article }: { article: feed.NewsArticle }) {
                   <PublishedAt at={other.publishedAt} className="shrink-0" />
                 </span>
               </span>
-              {other.imageUrl && (
-                <img
-                  src={other.imageUrl}
-                  alt=""
-                  className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover"
-                  loading="lazy"
-                  decoding="async"
-                  draggable={false}
-                />
-              )}
+              <ArticlePicture
+                url={other.imageUrl}
+                className="size-16 shrink-0 rounded-xl bg-surface-3 object-cover"
+              />
             </Link>
           </li>
         ))}

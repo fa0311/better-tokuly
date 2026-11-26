@@ -1,5 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
+import { getGlobalStartContext } from "@tanstack/react-start";
 import { createQueryClient } from "#/lib/query";
 import { routeTree } from "./routeTree.gen";
 
@@ -8,6 +9,8 @@ export function getRouter() {
   return createTanStackRouter({
     routeTree,
     context: { queryClient },
+    // The nonce of this response's Content-Security-Policy (`src/start.ts`), on the server only.
+    ssr: { nonce: getGlobalStartContext()?.nonce },
     scrollRestoration: true,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
