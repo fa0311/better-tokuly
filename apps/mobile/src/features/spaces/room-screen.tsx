@@ -129,7 +129,8 @@ function LiveRoom({ space }: { space: spaces.Space }) {
   const [person, setPerson] = useState<spaces.SpaceParticipant | null>(null);
   const [sheet, setSheet] = useState<"emoji" | "menu" | null>(null);
 
-  const role = active?.role ?? space.viewer?.role ?? Role.LISTENER;
+  // The server's word, kept current by its events: a hand-over changes the host but not the stage.
+  const role = space.viewer?.role ?? Role.LISTENER;
   const moderator = isModerator(role);
   const staged = onStage(role);
   const hands = useParticipants(spaceId, Filter.HANDS, inside && moderator);

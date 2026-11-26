@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { create, spaces } from "@tokuly/api";
+import { applySpacesEvent, onStage } from "@tokuly/core/spaces";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount } from "#/features/session/account";
 import { useSessionStore } from "#/features/session/store";
@@ -62,7 +63,7 @@ const ROOM = create(spaces.SpaceSchema, {
 });
 
 /** The API of one account: the room, and every call it was asked to make. */
-function account() {
+function account(role = spaces.SpaceRole.LISTENER) {
   const calls: string[] = [];
   const service = {
     getSpacesConfig: async () => ({ config: { audioEnabled: true, hostGraceSeconds: 180 } }),
@@ -71,9 +72,9 @@ function account() {
     joinSpace: async () => {
       calls.push("joinSpace");
       return {
-        space: { ...ROOM, viewer: { inside: true, role: spaces.SpaceRole.LISTENER } },
-        me: { user: user("me"), role: spaces.SpaceRole.LISTENER },
-        credentials: { url: "ws://livekit", token: "token", canPublish: false },
+        space: { ...ROOM, viewer: { inside: true, role } },
+        me: { user: user("me"), role },
+        credentials: { url: "ws://livekit", token: "token", canPublish: onStage(role) },
       };
     },
     leaveSpace: async () => void calls.push("leaveSpace"),
@@ -91,6 +92,7 @@ function signIn(who: ReturnType<typeof account>, userId: string) {
 }
 
 async function open() {
+  const queryClient = new QueryClient();
   await render(
     <SafeAreaProvider
       initialMetrics={{
@@ -98,11 +100,12 @@ async function open() {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={queryClient}>
         <SpaceScreen spaceId="s1" />
       </QueryClientProvider>
     </SafeAreaProvider>,
   );
+  return queryClient;
 }
 
 describe("SpaceScreen", () => {
@@ -146,5 +149,31 @@ describe("SpaceScreen", () => {
     expect(next.calls).not.toContain("leaveSpace");
     expect(mockRooms[0]?.disconnect).toHaveBeenCalled();
     expect(useAudioSession.getState().active).toBeNull();
+  });
+
+  it("follows the server when the host hands the room over", async () => {
+    const me = account(spaces.SpaceRole.HOST);
+    signIn(me, "me");
+    const queryClient = await open();
+    await fireEvent.press(await screen.findByTestId("space-join"));
+    await fireEvent.press(await screen.findByTestId("space-menu"));
+    expect(screen.getByText("ルームを終了する")).toBeTruthy();
+
+    // The host named someone else: the realtime event says this person is a co-host now.
+    await act(async () => {
+      applySpacesEvent(
+        queryClient,
+        {
+          case: "participantUpdated",
+          value: create(spaces.SpaceParticipantUpdatedSchema, {
+            spaceId: "s1",
+            participant: { user: user("me"), role: spaces.SpaceRole.COHOST },
+          }),
+        },
+        "me",
+      );
+    });
+    expect(await screen.findByText("ステージをおりる")).toBeTruthy();
+    expect(screen.queryByText("ルームを終了する")).toBeNull();
   });
 });
