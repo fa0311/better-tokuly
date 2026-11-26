@@ -22,7 +22,7 @@ import i18n from "#/lib/i18n";
 import { useTheme } from "#/lib/theme";
 import { markRead, useInbox, useUnread } from "./data";
 import { PushCard } from "./push-card";
-import { routeOf, targetOf } from "./target";
+import { targetOf } from "./target";
 
 const FILTERS = {
   all: { category: "", unreadOnly: false },
@@ -61,13 +61,12 @@ function Face({ entry }: { entry: notify.Notification }) {
   );
 }
 
-/** Tapping an entry: it becomes read, and its screen opens (the web view for what the app has not yet, the browser for outside links). */
+/** Tapping an entry: it becomes read, and its screen opens (or the web, for what the app has not yet). */
 function open(queryClient: ReturnType<typeof useQueryClient>, entry: notify.Notification) {
   if (!entry.read) void markRead(queryClient, { ids: [entry.id] }).catch(() => {});
   const target = targetOf(entry.path);
-  const route = routeOf(target);
-  if (route) router.push(route as never);
-  else if (target?.type === "external") void WebBrowser.openBrowserAsync(target.url);
+  if (target?.type === "screen") router.push(target.href as never);
+  else if (target?.type === "web") void WebBrowser.openBrowserAsync(target.url);
 }
 
 /** The inbox: what happened, grouped by day, newest first; the push switch on top. */

@@ -3,12 +3,13 @@ import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { act, render, screen } from "@testing-library/react-native";
 import { create, identity } from "@tokuly/api";
 import { Linking } from "react-native";
-import * as session from "#/features/session/session";
-import { useSessionStore } from "#/features/session/session";
+import { currentAccount } from "#/features/session/account";
+import { useSessionStore } from "#/features/session/store";
 import { api, resetApi } from "#/lib/api";
 import { SERVER_URL } from "#/lib/config";
 import { clearWebData } from "#/platform/web-data";
-import { WebBackground } from "../background";
+import { runBeforeEnd, runBeforeLeave } from "#/seams/lifecycle";
+import lifecycle from "../lifecycle";
 import { WebScreen } from "../web-screen";
 
 /** What the web view was given, render by render (the native view is the edge). */
@@ -209,16 +210,13 @@ describe("WebScreen", () => {
   });
 });
 
-describe("WebBackground", () => {
-  it("clears the web data before every switch and sign-out", async () => {
-    const hooks: (() => unknown)[] = [];
-    jest.spyOn(session, "onBeforeLeave").mockImplementation((hook) => {
-      hooks.push(hook);
-      return () => {};
-    });
-    await render(<WebBackground />);
-    expect(hooks).toHaveLength(1);
-    await hooks[0]?.();
+describe("the web screens' lifecycle", () => {
+  it("clears the web data before the account leaves and before a departed session ends", async () => {
+    const account = currentAccount();
+    if (!account) throw new Error("signed in");
+    await runBeforeLeave(account, [lifecycle]);
     expect(clearWebData).toHaveBeenCalledTimes(1);
+    await runBeforeEnd(api(), [lifecycle]);
+    expect(clearWebData).toHaveBeenCalledTimes(2);
   });
 });

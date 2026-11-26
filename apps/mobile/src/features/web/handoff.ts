@@ -1,6 +1,6 @@
 import { identity } from "@tokuly/api";
 import { CryptoDigestAlgorithm, digestStringAsync, getRandomBytes } from "expo-crypto";
-import { type Account, ensureActive } from "#/features/media/account";
+import { type Account, ensureActive } from "#/features/session/account";
 import { SERVER_URL } from "#/lib/config";
 
 /** The header the web view's first load carries the verifier in (identity's `handoff::VERIFIER_HEADER`). */

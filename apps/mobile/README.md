@@ -130,10 +130,10 @@ its tests) and the web switches to it.
 - **Web screens.** What the app does not have yet (notes, videos, live,
   spaces, communities, school, plans, ask, quests, emoji, stamps, the wallet,
   most settings, developers, the console) opens in a web view
-  (`features/web`), signed in as the account in use: 「もっと見る」 on the Me
-  tab lists them, the settings' web row opens the web settings, and pushes,
-  inbox entries and deep links to web-only paths open there too
-  (`features/notifications/target.ts`). Signing the web view in is the
+  (`features/web`), signed in as the account in use. It plugs in through
+  the seams: 「もっと見る」 in the Me tab's hub (`hub.ts`), the settings' web
+  row (`settings-rows.ts`), and the web-only paths (`links.ts`), so pushes,
+  inbox entries and deep links (`app/+not-found.tsx`) to them open there too. Signing the web view in is the
   identity domain's hand-off: the app asks for a one-time code as its own
   session (`CreateWebHandoff`, 60 seconds, once, bound to a verifier the
   web view's first load sends in a header, so a leaked link signs nobody in)
@@ -142,11 +142,12 @@ its tests) and the web switches to it.
   session ends with the app's. A code that comes back after another account
   took over is dropped. The web view is incognito and keyed by its account's
   session; everything web views stored (cookies, on disk too, localStorage,
-  cache) is removed before one opens, when it closes and before every switch
-  or sign-out (the local module `modules/tokuly-web-data`), and the app's own
+  cache) is removed before one opens, when it closes, before every switch
+  or sign-out and before a departed session ends (`lifecycle.ts`, with the
+  local module `modules/tokuly-web-data`), and the app's own
   API calls send no cookies (`lib/api.ts`). Links to anywhere else open in the system
-  browser. Features move out of `features/web/features.ts` as they become
-  native.
+  browser. Features move out of `features/web/features.ts` and `links.ts`
+  as they become native.
 
 ## How a feature plugs in
 

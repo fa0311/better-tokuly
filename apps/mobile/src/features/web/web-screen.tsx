@@ -5,8 +5,8 @@ import { ActivityIndicator, BackHandler, Linking, Text, View } from "react-nativ
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView, type WebViewNavigation } from "react-native-webview";
 import { Button } from "#/components/button";
-import { AccountChanged, currentAccount } from "#/features/media/account";
-import { useSessionStore } from "#/features/session/session";
+import { AccountChanged, currentAccount } from "#/features/session/account";
+import { useSessionStore } from "#/features/session/store";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
 import { clearWebData } from "#/platform/web-data";

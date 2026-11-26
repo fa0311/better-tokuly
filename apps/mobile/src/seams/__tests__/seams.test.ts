@@ -31,7 +31,10 @@ describe("the features on the seams", () => {
   });
 
   it("the hub and the settings", () => {
-    expect(HUB_ENTRIES.map((entry) => [entry.id, entry.href])).toEqual([["settings", "/settings"]]);
+    expect(HUB_ENTRIES.map((entry) => [entry.id, entry.href])).toEqual([
+      ["more", "/more"],
+      ["settings", "/settings"],
+    ]);
     expect(SETTINGS_ROWS.map((row) => row.id)).toEqual(["accounts", "web", "licenses"]);
     expect(SETTINGS_CARDS.map((card) => card.id)).toEqual(["push"]);
   });
@@ -46,6 +49,7 @@ describe("the features on the seams", () => {
       "create-account",
       "invite/[code]",
       "licenses",
+      "more",
       "new-chat",
       "settings",
       "shorts/mine",
@@ -56,6 +60,7 @@ describe("the features on the seams", () => {
       "stories/[userId]",
       "stories/new",
       "u/[handle]",
+      "web",
     ]);
     expect(SCREENS.find((screen) => screen.name === "new-chat")?.options()).toEqual({
       title: "新しいチャット",
@@ -70,9 +75,12 @@ describe("the features on the seams", () => {
     expect(screenFor("/friends/requests")).toBe("/friends");
     expect(screenFor("/map")).toBe("/map");
     expect(screenFor("/notifications")).toBe("/inbox");
-    expect(screenFor("/stamps")).toBeNull();
+    // What only the web has opens in the app's web view, signed in.
+    expect(screenFor("/stamps")).toBe(`/web?path=${encodeURIComponent("/stamps")}`);
+    expect(screenFor("/notes/n1")).toBe(`/web?path=${encodeURIComponent("/notes/n1")}`);
     // What no feature claims opens on the web.
+    expect(screenFor("/login")).toBeNull();
     expect(targetOf("/chat/c1?m=5")).toEqual({ type: "screen", href: "/chat/c1" });
-    expect(targetOf("/stamps")).toEqual({ type: "web", url: `${SERVER_URL}/stamps` });
+    expect(targetOf("/login")).toEqual({ type: "web", url: `${SERVER_URL}/login` });
   });
 });

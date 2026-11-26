@@ -2,7 +2,7 @@ import { router } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
 import { Page } from "#/components/page";
-import { useMe } from "#/features/session/session";
+import { useMe } from "#/features/session/store";
 import { sticker, useTheme } from "#/lib/theme";
 import { featuresFor, type WebFeature } from "./features";
 import { webScreenHref } from "./handoff";
