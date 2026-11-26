@@ -31,6 +31,7 @@
 //! once they are six hours old (`src/env.rs`).
 mod clickhouse;
 mod env;
+mod nats;
 mod postgres;
 mod run;
 

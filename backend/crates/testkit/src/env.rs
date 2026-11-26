@@ -12,7 +12,7 @@ use clap::Parser;
 use tokuly_core::config::Config;
 
 use crate::{
-    clickhouse, postgres,
+    clickhouse, nats, postgres,
     run::{self, Run},
 };
 
@@ -75,7 +75,7 @@ async fn set_up(migrations: Vec<String>) -> TestEnv {
     let run = run();
     let mut cfg = base.clone();
     cfg.database_url = postgres::create(&base, run, &migrations).await;
-    cfg.nats_prefix = run.name("T", '_');
+    cfg.nats_prefix = nats::prefix(run);
     if let Some(database) = clickhouse::create(&base, &postgres::database(run), run::unix_now()).await {
         cfg.clickhouse_database = database;
     }
@@ -86,13 +86,15 @@ async fn set_up(migrations: Vec<String>) -> TestEnv {
 /// shows up when the run creates its own resources there.
 async fn sweep(base: &Config) {
     let now = run::unix_now();
-    let _ = postgres::sweep(base, now).await;
+    let _ = tokio::join!(postgres::sweep(base, now), nats::sweep(base, now));
 }
 
 /// Removes what this run created.
 async fn remove(base: &Config) {
     let run = run();
-    report("PostgreSQL database", bounded(postgres::remove(base, run)).await);
+    let (database, streams) = tokio::join!(bounded(postgres::remove(base, run)), bounded(nats::remove(base, run)));
+    report("PostgreSQL database", database);
+    report("JetStream streams", streams);
 }
 
 async fn bounded(removal: impl Future<Output = anyhow::Result<()>>) -> anyhow::Result<()> {

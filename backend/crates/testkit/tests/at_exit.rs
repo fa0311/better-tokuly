@@ -3,6 +3,7 @@
 //! app and panics, then checks that nothing of the child's run is left.
 use std::{collections::HashMap, process::Command};
 
+use futures::TryStreamExt as _;
 use sqlx::{Connection as _, PgConnection};
 use tokuly_testkit::TestApp;
 
@@ -32,6 +33,21 @@ async fn a_panicking_test_binary_leaves_nothing_behind() {
         .await
         .unwrap();
     assert!(!database_left, "{database} was dropped");
+
+    let nats_prefix = run.get("nats_prefix").copied().unwrap_or_default();
+    assert!(nats_prefix.starts_with('T'), "the child printed its NATS prefix:\n{stdout}");
+    let js = async_nats::jetstream::new(
+        async_nats::connect(std::env::var("TOKULY_NATS_URL").expect("TOKULY_NATS_URL")).await.unwrap(),
+    );
+    let streams_left: Vec<String> = js
+        .stream_names()
+        .try_collect::<Vec<String>>()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|name| name.starts_with(nats_prefix))
+        .collect();
+    assert_eq!(streams_left, Vec::<String>::new(), "the streams of {nats_prefix} were deleted");
 }
 
 #[tokio::test]
@@ -41,6 +57,7 @@ async fn child_starts_an_app_and_panics() {
     }
     let app = TestApp::start(&["0001", "0100", "0400"], |_, _, router| router).await;
     let cfg = &app.core.cfg;
+    println!("child-run nats_prefix={}", cfg.nats_prefix);
     println!("child-run database={}", cfg.database_url.rsplit('/').next().unwrap().split('?').next().unwrap());
     panic!("the child's test fails");
 }
