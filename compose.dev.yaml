@@ -78,7 +78,7 @@ services:
       retries: 60
 
   search:
-    image: getmeili/meilisearch:v1.57.0
+    image: getmeili/meilisearch:v1.58.0
     environment:
       MEILI_ENV: development
       MEILI_MASTER_KEY: tokuly-meili-key
