@@ -10,7 +10,7 @@ import { Alert, Pressable, Switch, Text, View } from "react-native";
 import { Button } from "#/components/button";
 import { ChoiceRow, SwitchRow } from "#/components/form-rows";
 import { Page, Row, Section, Spinner } from "#/components/page";
-import { currentAccount } from "#/features/session/account";
+import { currentAccount, isActive } from "#/features/session/account";
 import { webScreenHref } from "#/features/web/handoff";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
@@ -226,12 +226,19 @@ function TimeZone({ accountZone }: { accountZone: string }) {
   const query = useQueryClient();
   const deviceZone = getCalendars()[0]?.timeZone ?? "";
   const adopt = useMutation({
+    /** `true` once the zone moved and its account is still the active one. */
     mutationFn: async () => {
       const account = currentAccount();
-      if (!account) return;
-      await account.api.service(identity.AccountService).updateProfile({ timeZone: deviceZone });
+      if (!account) return false;
+      const { me } = await account.api
+        .service(identity.AccountService)
+        .updateProfile({ timeZone: deviceZone });
+      if (!isActive(account)) return false;
+      if (me) account.api.session.updateMe(me);
+      return true;
     },
-    onSuccess: () => {
+    onSuccess: (moved) => {
+      if (!moved) return;
       Alert.alert(t("quiet.zoneChanged", { zone: deviceZone }));
       return query.invalidateQueries({ queryKey: notifyKeys.preferences });
     },
