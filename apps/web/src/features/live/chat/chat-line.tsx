@@ -1,4 +1,5 @@
 import { live } from "@tokuly/api";
+import { authorName, mentionOf, tierByLevel } from "@tokuly/core/live";
 import { MoreHorizontal, Swords } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -7,21 +8,10 @@ import { EmojiText } from "#/features/emoji";
 import { StampImage } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { ROLE_KEYS } from "../labels";
-import { tierByLevel, tierStyle } from "../model";
+import { tierStyle } from "../model";
 import { ChannelFace, formatCount } from "../parts";
 
 const { ChatMessageKind, ChatRole } = live;
-
-/** Who a chat line is from, as text: the channel for the streamer, the person otherwise. */
-export function authorName(message: live.ChatMessage): string {
-  return message.author?.channel?.name || message.author?.user?.displayName || "";
-}
-
-/** The `@handle` a reply to this line starts with; empty for the streamer (a channel has no account to mention). */
-export function mentionOf(message: live.ChatMessage): string {
-  const user = message.author?.user;
-  return user && !user.deleted ? `@${user.handle} ` : "";
-}
 
 function AuthorFace({ message }: { message: live.ChatMessage }) {
   const channel = message.author?.channel;

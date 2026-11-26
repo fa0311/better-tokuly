@@ -2,6 +2,14 @@ import { create } from "@bufbuild/protobuf";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { errorReason, isApiError, live } from "@tokuly/api";
+import {
+  type GiftAttempt,
+  giftAttempt,
+  newIdempotencyKey,
+  parseCoins,
+  sameGift,
+  tierFor,
+} from "@tokuly/core/live";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -15,9 +23,11 @@ import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { giftClient, liveKeys, useGiftTiers } from "../api";
 import { GiftBubble } from "../chat/chat-line";
-import { type GiftAttempt, giftAttempt, parseCoins, sameGift, tierFor, tierStyle } from "../model";
+import { tierStyle } from "../model";
 import { formatCount } from "../parts";
 import { addOwnMessage } from "../room";
+
+const newGiftKey = () => newIdempotencyKey(() => crypto.randomUUID());
 
 /**
  * Sends a gift (super chat): pick an amount, see which of the twelve colours
@@ -135,7 +145,7 @@ export function GiftDialog({
             </Button>
             <Button
               loading={send.isPending}
-              onClick={() => send.mutate(giftAttempt(lost, coins ?? 0n, text))}
+              onClick={() => send.mutate(giftAttempt(lost, coins ?? 0n, text, newGiftKey))}
             >
               {t("gift.confirm", { coins: formatCount(coins ?? 0n, i18n.language) })}
             </Button>

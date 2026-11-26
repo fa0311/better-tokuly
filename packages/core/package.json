@@ -17,6 +17,7 @@
     "./profile": "./src/profile/index.ts",
     "./session": "./src/session/index.ts",
     "./shorts": "./src/shorts/index.ts",
+    "./live": "./src/live/index.ts",
     "./stories": "./src/stories/index.ts",
     "./video": "./src/video/index.ts"
   },

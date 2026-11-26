@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { errorReason, type live, toMillis } from "@tokuly/api";
+import { slowModeWait } from "@tokuly/core/live";
 import { Gift, Hourglass, SendHorizontal, Sticker } from "lucide-react";
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,7 +10,6 @@ import { StampPicker } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { chatClient } from "../api";
-import { slowModeWait } from "../model";
 import { useNow } from "../parts";
 import { addOwnMessage } from "../room";
 
