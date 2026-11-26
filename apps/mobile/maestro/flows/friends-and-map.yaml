@@ -8,6 +8,9 @@ env:
     clearState: true
     permissions:
       location: allow
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
 - setLocation:
     latitude: 35.6580
     longitude: 139.7016
