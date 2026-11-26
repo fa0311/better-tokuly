@@ -571,7 +571,7 @@ test("the chat overlay shows a message on a bare page that keeps its address to 
   baseExpect(response?.headers()["referrer-policy"]).toBe("no-referrer");
   // OBS and streaming tools may frame the widget; every other page refuses that.
   baseExpect(response?.headers()["x-frame-options"]).toBeUndefined();
-  baseExpect(response?.headers()["content-security-policy"]).toBe("frame-ancestors *");
+  baseExpect(response?.headers()["content-security-policy"]).toContain("frame-ancestors *");
   const box = page.getByTestId("overlay-chat");
   await expect(box).toContainText("オーバーレイに出るかな");
 

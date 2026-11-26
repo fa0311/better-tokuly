@@ -64,6 +64,9 @@
 		@asset path_regexp asset ^/(?:img|anim|video|audio|file)/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/
 		header @asset Cache-Tag "asset-{re.asset.1}"
 		header @asset Surrogate-Key "asset-{re.asset.1}"
+		# People's files, opened on their own (an SVG, a page), run nothing on
+		# this origin. The app's pages get their policies from the web server.
+		header Content-Security-Policy "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox"
 		rewrite * /tokuly-media{uri}
 		reverse_proxy storage:9000 {
 			header_down Cache-Control "public, max-age=300, s-maxage=0, must-revalidate"

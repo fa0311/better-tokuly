@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { feed } from "@tokuly/api";
 import { cn } from "#/lib/cn";
-import { FeedbackButtons, PublishedAt, RandomPickChip, SourceIcon } from "./parts";
+import { ArticlePicture, FeedbackButtons, PublishedAt, RandomPickChip, SourceIcon } from "./parts";
 
 /**
  * An article in the news list. The whole card opens the article's page; the
@@ -23,16 +23,10 @@ export function ArticleCard({
         className,
       )}
     >
-      {article.imageUrl && (
-        <img
-          src={article.imageUrl}
-          alt=""
-          className="order-last size-24 shrink-0 rounded-xl bg-surface-3 object-cover md:order-first md:aspect-video md:h-auto md:w-full md:rounded-none md:border-b-[2.5px] md:border-ink"
-          loading="lazy"
-          decoding="async"
-          draggable={false}
-        />
-      )}
+      <ArticlePicture
+        url={article.imageUrl}
+        className="order-last size-24 shrink-0 rounded-xl bg-surface-3 object-cover md:order-first md:aspect-video md:h-auto md:w-full md:rounded-none md:border-b-[2.5px] md:border-ink"
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 md:p-4">
         <p className="flex min-w-0 items-center gap-1.5 text-xs text-ink-soft">
           <SourceIcon source={article.source} />

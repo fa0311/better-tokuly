@@ -5,6 +5,16 @@ set -euo pipefail
 REPO=${TOKULY_REPO:-$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)}
 RUN=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/run; LOGS=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/logs
 BIN=${TOKULY_BIN:-${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/target/main/debug/tokuly}; [ -x "$BIN" ] || BIN=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/bin/tokuly-dev-api
+# The addresses the API at port $1 hands browsers, for the web server's Content-Security-Policy.
+browser_addresses() {
+  eval "$("$REPO/tools/dev/infra.sh" env | grep -E 'TOKULY_(S3_PUBLIC_ENDPOINT|LIVEKIT_PUBLIC_URL|LIVE_(WHIP|WHEP|HLS|PLAYBACK)_URL)=')"
+  export TOKULY_S3_PUBLIC_ENDPOINT TOKULY_LIVEKIT_PUBLIC_URL TOKULY_LIVE_WHIP_URL TOKULY_LIVE_WHEP_URL TOKULY_LIVE_HLS_URL TOKULY_LIVE_PLAYBACK_URL
+  if [ "$1" = 58081 ]; then
+    export TOKULY_RT_PUBLIC_WT_URL=https://127.0.0.1:54433/rt TOKULY_RT_PUBLIC_WS_URL=ws://localhost:58082/rt/ws
+  else
+    export TOKULY_RT_PUBLIC_WT_URL="https://127.0.0.1:$(($1 + 2))/rt" TOKULY_RT_PUBLIC_WS_URL="ws://localhost:$(($1 + 1))/rt/ws"
+  fi
+}
 stop_one() { [ -f "$RUN/$1.pid" ] && kill "$(cat "$RUN/$1.pid")" 2>/dev/null || true; rm -f "$RUN/$1.pid"; }
 case "${1:-}" in
   api)
@@ -30,7 +40,7 @@ case "${1:-}" in
     nohup "$BIN" all >"$LOGS/tokuly.log" 2>&1 & echo $! >"$RUN/api.pid" ;;
   web)
     stop_one web
-    cd "$REPO/apps/web"
+    cd "$REPO/apps/web"; browser_addresses 58081
     TOKULY_DEV_API_URL=http://127.0.0.1:58081 TOKULY_DEV_TILES_URL=http://127.0.0.1:58090 \
       TOKULY_DEV_MEDIA_URL=http://127.0.0.1:59000/tokuly-media \
       nohup pnpm exec vite dev --port 53000 --host 127.0.0.1 >"$LOGS/web.log" 2>&1 & echo $! >"$RUN/web.pid" ;;
@@ -63,7 +73,7 @@ case "${1:-}" in
     # logs: $TOKULY_DEV_HOME/logs/web-<name>.log
     name=${2:?name}; port=${3:?port}; api=${4:-58081}
     stop_one "web-$name"
-    cd "$(git rev-parse --show-toplevel)/apps/web"
+    cd "$(git rev-parse --show-toplevel)/apps/web"; browser_addresses "$api"
     TOKULY_DEV_API_URL=http://127.0.0.1:$api TOKULY_DEV_TILES_URL=http://127.0.0.1:58090 \
       TOKULY_DEV_MEDIA_URL=http://127.0.0.1:59000/tokuly-media \
       nohup pnpm exec vite dev --port "$port" --strictPort --host 127.0.0.1 >"$LOGS/web-$name.log" 2>&1 & echo $! >"$RUN/web-$name.pid" ;;

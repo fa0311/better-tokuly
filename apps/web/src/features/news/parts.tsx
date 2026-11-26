@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
+import { linkPreviewImage } from "#/lib/link-preview-image";
 import { useFeedback } from "./api";
 import { toggledFeedback } from "./params";
 
@@ -33,7 +34,11 @@ export function PublishedAt({ at, className }: { at: Timestamp | undefined; clas
   );
 }
 
-/** A source's icon: its favicon, or a globe when it has none (or it fails to load). */
+/**
+ * A source's icon: its favicon, or a globe when it has none (or it fails to load).
+ * Like every picture of another site, it is only loaded from this instance
+ * (`linkPreviewImage`): asking the site itself would tell it who reads.
+ */
 export function SourceIcon({
   source,
   className,
@@ -42,11 +47,12 @@ export function SourceIcon({
   className?: string;
 }) {
   const [broken, setBroken] = useState(false);
-  if (!source?.faviconUrl || broken)
+  const src = linkPreviewImage(source?.faviconUrl);
+  if (!src || broken)
     return <Globe className={cn("size-4 shrink-0 text-ink-faint", className)} aria-hidden />;
   return (
     <img
-      src={source.faviconUrl}
+      src={src}
       alt=""
       className={cn("size-4 shrink-0 rounded-[4px]", className)}
       loading="lazy"
@@ -133,5 +139,29 @@ export function FeedbackButtons({
       {button(feed.NewsFeedback.MORE, t("feedback.more"), ThumbsUp, "bg-lime text-[#17122b]")}
       {button(feed.NewsFeedback.LESS, t("feedback.less"), ThumbsDown, "bg-coral text-[#17122b]")}
     </div>
+  );
+}
+
+/** An article's lead picture, when this instance serves it (see `SourceIcon`). */
+export function ArticlePicture({
+  url,
+  className,
+  lazy = true,
+}: {
+  url: string;
+  className: string;
+  lazy?: boolean;
+}) {
+  const src = linkPreviewImage(url);
+  if (!src) return null;
+  return (
+    <img
+      src={src}
+      alt=""
+      className={className}
+      loading={lazy ? "lazy" : undefined}
+      decoding="async"
+      draggable={false}
+    />
   );
 }

@@ -49,6 +49,18 @@ x-logging: &logging
     max-size: "10m"
     max-file: "5"
 
+# Where browsers reach the deployment. The backend hands these addresses out;
+# the web server allows exactly them in its Content-Security-Policy.
+x-browser-addresses: &browser-addresses
+  TOKULY_PUBLIC_URL: ${TOKULY_PUBLIC_URL:-http://localhost}
+  # Where browsers send uploads (presigned URLs). Must reach the storage service from outside.
+  TOKULY_S3_PUBLIC_ENDPOINT: ${TOKULY_S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+  TOKULY_LIVEKIT_PUBLIC_URL: ${TOKULY_LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
+  TOKULY_LIVE_WHIP_URL: ${TOKULY_LIVE_WHIP_URL:-http://localhost:8889}
+  TOKULY_LIVE_WHEP_URL: ${TOKULY_LIVE_WHEP_URL:-http://localhost:8889}
+  TOKULY_LIVE_HLS_URL: ${TOKULY_LIVE_HLS_URL:-http://localhost:8888}
+  TOKULY_LIVE_PLAYBACK_URL: ${TOKULY_LIVE_PLAYBACK_URL:-http://localhost:9996}
+
 x-backend: &backend
   logging: *logging
   image: ${TOKULY_IMAGES:-ghcr.io/fa0311/better-tokuly}/backend:${TOKULY_VERSION:-edge}
@@ -68,16 +80,14 @@ x-backend: &backend
     - ./config:/etc/tokuly:ro
   # ... and what this file decides: where the other services are.
   environment:
+    <<: *browser-addresses
     TOKULY_CONFIG: /etc/tokuly/tokuly.toml
     TOKULY_ENV: production
-    TOKULY_PUBLIC_URL: ${TOKULY_PUBLIC_URL:-http://localhost}
     TOKULY_SECRET: ${TOKULY_SECRET:?run tools/init-env.sh first (it writes .env)}
     TOKULY_DATABASE_URL: postgres://tokuly:${POSTGRES_PASSWORD:?run tools/init-env.sh first}@postgres:5432/tokuly
     TOKULY_VALKEY_URL: redis://valkey:6379
     TOKULY_NATS_URL: nats://nats:4222
     TOKULY_S3_ENDPOINT: http://storage:9000
-    # Where browsers send uploads (presigned URLs). Must reach the storage service from outside.
-    TOKULY_S3_PUBLIC_ENDPOINT: ${TOKULY_S3_PUBLIC_ENDPOINT:-http://localhost:9000}
     TOKULY_S3_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-tokuly}
     TOKULY_S3_SECRET_KEY: ${STORAGE_SECRET_KEY:?run tools/init-env.sh first}
     TOKULY_CLICKHOUSE_URL: http://clickhouse:8123
@@ -87,21 +97,16 @@ x-backend: &backend
     TOKULY_MEILI_KEY: ${MEILI_MASTER_KEY:?run tools/init-env.sh first}
     TOKULY_SMTP_URL: ${TOKULY_SMTP_URL:-smtp://mailpit:1025}
     TOKULY_LIVEKIT_URL: http://livekit:7880
-    TOKULY_LIVEKIT_PUBLIC_URL: ${TOKULY_LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
     TOKULY_LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-tokuly}
     TOKULY_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?run tools/init-env.sh first}
     # Live streams: the media server's control API (inside the stack only),
     # the secret it presents to the API's hook, the secret the worker presents
-    # to it, and the addresses encoders and players are told to use.
+    # to it, and the addresses encoders are told to use (players': above).
     TOKULY_MEDIAMTX_API_URL: http://mediamtx:9997
     TOKULY_LIVE_HOOK_SECRET: ${TOKULY_LIVE_HOOK_SECRET:?run tools/init-env.sh first}
     TOKULY_MEDIAMTX_API_SECRET: ${TOKULY_MEDIAMTX_API_SECRET:?run tools/init-env.sh first}
     TOKULY_LIVE_RTMP_URL: ${TOKULY_LIVE_RTMP_URL:-rtmp://localhost:1935}
     TOKULY_LIVE_SRT_URL: ${TOKULY_LIVE_SRT_URL:-srt://localhost:8890}
-    TOKULY_LIVE_WHIP_URL: ${TOKULY_LIVE_WHIP_URL:-http://localhost:8889}
-    TOKULY_LIVE_WHEP_URL: ${TOKULY_LIVE_WHEP_URL:-http://localhost:8889}
-    TOKULY_LIVE_HLS_URL: ${TOKULY_LIVE_HLS_URL:-http://localhost:8888}
-    TOKULY_LIVE_PLAYBACK_URL: ${TOKULY_LIVE_PLAYBACK_URL:-http://localhost:9996}
     TOKULY_LIVE_RECORDINGS_DIR: /recordings
   depends_on:
     migrate:
@@ -140,6 +145,13 @@ services:
       dockerfile: infra/docker/web.Dockerfile
     pull_policy: ${TOKULY_PULL_POLICY:-missing}
     restart: unless-stopped
+    environment:
+      <<: *browser-addresses
+      # Set only when media is served by a CDN, or the realtime gateway is
+      # reached elsewhere than <public host>:4433.
+      TOKULY_MEDIA_URL: ${TOKULY_MEDIA_URL:-}
+      TOKULY_RT_PUBLIC_WT_URL: ${TOKULY_RT_PUBLIC_WT_URL:-}
+      TOKULY_RT_PUBLIC_WS_URL: ${TOKULY_RT_PUBLIC_WS_URL:-}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
       interval: 15s
