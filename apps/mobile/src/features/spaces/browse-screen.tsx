@@ -20,7 +20,7 @@ import {
   useSpacesConfig,
   useUpcomingSpaces,
 } from "./data";
-import { HangoutCard, InsideBar, SpaceCard } from "./parts";
+import { HangoutCard, SpaceCard } from "./parts";
 
 type Tab = "discover" | "hangouts";
 
@@ -61,7 +61,6 @@ export function BrowseSpacesScreen() {
           onChange={setTab}
         />
       </View>
-      <InsideBar />
       {tab === "discover" ? <Discover /> : <Hangouts />}
     </View>
   );

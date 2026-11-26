@@ -4,6 +4,7 @@ import { applySpacesEvent, onStage, spacesKeys } from "@tokuly/core/spaces";
 import { useEffect } from "react";
 import { useMe } from "#/features/session/store";
 import { realtime } from "#/lib/realtime";
+import { MiniPlayer } from "./mini-player";
 import { emitBurst, isOwnBurst } from "./reactions";
 import { type ExitReason, putOutside, roleChanged, useAudioSession } from "./session";
 import { useSpaceTopic } from "./topic";
@@ -28,7 +29,7 @@ function exitReasonOf(reason: spaces.SpaceLeaveReason): ExitReason {
  * from the realtime connection, draws the emoji bursts of others, and tells
  * the audio session what the server decided about the person (promoted,
  * removed, the room over). The room they are inside stays followed wherever
- * they are in the app.
+ * they are in the app, and its mini player is over every other screen.
  */
 export default function SpacesBackground() {
   const queryClient = useQueryClient();
@@ -113,5 +114,5 @@ export default function SpacesBackground() {
     return off;
   }, [queryClient, myId]);
 
-  return null;
+  return <MiniPlayer />;
 }

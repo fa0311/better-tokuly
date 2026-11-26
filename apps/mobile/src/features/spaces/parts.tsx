@@ -2,13 +2,12 @@ import { spaces, toMillis } from "@tokuly/api";
 import { compactCount } from "@tokuly/core/engagement";
 import { insideOf, nameOf } from "@tokuly/core/spaces";
 import { router } from "expo-router";
-import { Headphones, Mic, Radio, Users } from "lucide-react-native";
+import { Headphones, Radio } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
 import i18n from "#/lib/i18n";
 import { sticker, useTheme } from "#/lib/theme";
-import { useAudioSession } from "./session";
 
 /** "今日 18:00", "あした 9:30", "12/3(木) 20:00": when a room is planned for, on the phone's clock. */
 export function formatWhen(ms: number, now = Date.now()): string {
@@ -159,38 +158,6 @@ export function HangoutCard({ hangout }: { hangout: spaces.Hangout }) {
         </Text>
       </View>
       {inside.length > 0 && <Faces users={inside.map((member) => member.user)} max={3} />}
-    </Pressable>
-  );
-}
-
-/**
- * The venue the person is inside, while they look at something else: a tap
- * goes back to it. Nothing while they are outside.
- */
-export function InsideBar({ hereKind, hereId }: { hereKind?: string; hereId?: string }) {
-  const { t } = useTranslation("mobile");
-  const { colors } = useTheme();
-  const active = useAudioSession((state) => state.active);
-  if (!active || (active.kind === hereKind && active.id === hereId)) return null;
-  const href = active.kind === "space" ? `/spaces/${active.id}` : `/spaces/hangouts/${active.id}`;
-  return (
-    <Pressable
-      testID="spaces-inside-bar"
-      accessibilityRole="button"
-      onPress={() => router.push(href as never)}
-      className="mx-4 mb-2 flex-row items-center gap-3 rounded-full bg-brand px-4 py-2.5"
-      style={sticker(colors, "sm")}
-    >
-      {active.micOn ? (
-        <Mic size={16} color={colors["on-brand"]} />
-      ) : active.kind === "hangout" ? (
-        <Users size={16} color={colors["on-brand"]} />
-      ) : (
-        <Headphones size={16} color={colors["on-brand"]} />
-      )}
-      <Text numberOfLines={1} className="flex-1 text-sm font-black text-on-brand">
-        {t("spaces.insideNow", { title: `${active.emoji} ${active.title}`.trim() })}
-      </Text>
     </Pressable>
   );
 }

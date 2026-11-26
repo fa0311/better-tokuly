@@ -21,7 +21,7 @@ import { webScreenHref } from "#/features/web/handoff";
 import { sticker, useTheme } from "#/lib/theme";
 import { BurstLayer, EmojiRow } from "./bursts";
 import { spaceClient, useParticipants, useSpace, useSpacesConfig } from "./data";
-import { InsideBar, LiveMark } from "./parts";
+import { LiveMark } from "./parts";
 import { AudienceTile, PersonSheet, StageTile, useRoomAction } from "./people";
 import { EndedRoom, ExitNotice, UpcomingRoom } from "./room-states";
 import {
@@ -337,7 +337,6 @@ function LiveRoom({ space }: { space: spaces.Space }) {
         )}
       </ScrollView>
       <BurstLayer spaceId={spaceId} />
-      <InsideBar hereKind="space" hereId={spaceId} />
       <View className="gap-2 border-t border-line bg-surface px-4 pt-3 pb-2">
         {!inside ? (
           <>

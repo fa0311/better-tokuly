@@ -266,7 +266,6 @@ export default {
     seeAll: "See all notes",
   },
   spaces: {
-    insideNow: "In: {{title}}",
     stageEmpty: "Nobody is on stage yet. Waiting for the host to come back…",
     noMicrophone: "The microphone isn't available. Allow Tokuly to use it in Settings",
     more: "Show more",

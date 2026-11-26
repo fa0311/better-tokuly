@@ -14,7 +14,6 @@ import { webScreenHref } from "#/features/web/handoff";
 import { errorMessage } from "#/lib/errors";
 import { sticker, useTheme } from "#/lib/theme";
 import { hangoutClient, useHangout, useSpacesConfig } from "./data";
-import { InsideBar } from "./parts";
 import { ExitNotice } from "./room-states";
 import {
   enterHangout,
@@ -207,7 +206,6 @@ function VoiceRoom({ hangout }: { hangout: spaces.Hangout }) {
           {tm("spaces.hangoutOnWeb")}
         </Button>
       </ScrollView>
-      <InsideBar hereKind="hangout" hereId={hangout.id} />
       <View className="flex-row items-center gap-2 border-t border-line bg-surface px-4 pt-3 pb-2">
         {!inside ? (
           <View className="flex-1 gap-1">

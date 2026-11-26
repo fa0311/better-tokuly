@@ -267,7 +267,6 @@ export default {
     seeAll: "ノートをぜんぶ見る",
   },
   spaces: {
-    insideNow: "参加中: {{title}}",
     stageEmpty: "ステージにはまだだれもいないよ。ホストがもどるのを待ってるよ…",
     noMicrophone: "マイクが使えないみたい。設定でTokulyのマイクを許可してね",
     more: "もっと見る",
