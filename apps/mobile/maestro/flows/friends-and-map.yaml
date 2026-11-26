@@ -4,6 +4,7 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/friend-request.js
+- clearKeychain
 - launchApp:
     clearState: true
     permissions:
@@ -15,15 +16,11 @@ env:
     latitude: 35.6580
     longitude: 139.7016
 - tapOn: { id: "welcome-sign-in" }
-- tapOn: { id: "sign-in-identifier" }
-- inputText: ${output.me}
-- tapOn: { id: "sign-in-password" }
-- inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: { id: "sign-in-submit" }
-- extendedWaitUntil:
-    visible: { id: "map-screen" }
-    timeout: 30000
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
 
 # The request waits with the friends, the first entry under the own profile.
 - tapOn: { id: "tab-me" }
@@ -40,7 +37,7 @@ env:
 - tapOn: { id: "friends-tab-requests" }
 - tapOn: { id: "${'accept-' + output.friend}" }
 - tapOn: "OK"
-- back
+- runFlow: ../subflows/back.yaml
 
 # Friends now: the friend is on the map, with a card. (MapLibre's map view does not expose its
 # markers to accessibility, so the flow, like a screen reader, goes through the map's list.)
@@ -57,7 +54,7 @@ env:
 - extendedWaitUntil:
     visible: { id: "${'profile-' + output.friend}" }
     timeout: 15000
-- back
+- runFlow: ../subflows/back.yaml
 
 # Ghost mode for everyone.
 - tapOn: { id: "ghost-chip" }
@@ -89,6 +86,6 @@ env:
 - hideKeyboard
 - tapOn: { id: "add-friend-send" }
 - tapOn: "OK"
-- back
+- runFlow: ../subflows/dismiss-sheet.yaml
 - tapOn: { id: "friends-tab-requests" }
 - assertVisible: { id: "${'person-' + output.stranger}" }

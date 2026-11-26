@@ -1,19 +1,36 @@
 appId: app.tokuly.mobile
 name: Pick the newest item in the system photo picker
 ---
-# A permission prompt for the library, when the OS asks.
+# Android's photo picker. A permission prompt for the library first, when the OS asks.
 - runFlow:
-    when:
-      visible: "(Allow all|Allow|すべて許可|許可)"
+    when: { platform: Android }
     commands:
-      - tapOn: "(Allow all|Allow|すべて許可|許可)"
-- extendedWaitUntil:
-    visible: { id: "com.google.android.providers.media.module:id/icon_thumbnail" }
-    timeout: 20000
-- tapOn: { id: "com.google.android.providers.media.module:id/icon_thumbnail", index: 0 }
-# Several may be picked at once: then the choice is confirmed.
+      - runFlow:
+          when:
+            visible: "(Allow all|Allow|すべて許可|許可)"
+          commands:
+            - tapOn: "(Allow all|Allow|すべて許可|許可)"
+      - extendedWaitUntil:
+          visible: { id: "com.google.android.providers.media.module:id/icon_thumbnail" }
+          timeout: 20000
+      - tapOn: { id: "com.google.android.providers.media.module:id/icon_thumbnail", index: 0 }
+      # Several may be picked at once: then the choice is confirmed.
+      - runFlow:
+          when:
+            visible: { id: "com.google.android.providers.media.module:id/button_add" }
+          commands:
+            - tapOn: { id: "com.google.android.providers.media.module:id/button_add" }
+
+# iOS's photo picker (it needs no permission). Its items are named by kind and date.
 - runFlow:
-    when:
-      visible: { id: "com.google.android.providers.media.module:id/button_add" }
+    when: { platform: iOS }
     commands:
-      - tapOn: { id: "com.google.android.providers.media.module:id/button_add" }
+      - extendedWaitUntil:
+          visible: "(Photo|Video|写真|ビデオ), .*"
+          timeout: 20000
+      - tapOn: { text: "(Photo|Video|写真|ビデオ), .*", index: 0 }
+      - runFlow:
+          when:
+            visible: "(Add|追加)"
+          commands:
+            - tapOn: "(Add|追加)"

@@ -1,0 +1,15 @@
+appId: app.tokuly.mobile
+name: Sign in with a handle and the password, onto the map
+---
+# From the sign-in form (after "welcome-sign-in" or "accounts-add"). ACCOUNT
+# is the handle, PASSWORD the flows' password.
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${ACCOUNT}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- runFlow: save-password-not-now.yaml
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000

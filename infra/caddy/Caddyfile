@@ -5,6 +5,9 @@
 #   :80                  plain HTTP on every name (the default; right for http://localhost)
 #   tokuly.example.com   automatic HTTPS for that domain, HTTP/3 included
 #   https://localhost    HTTPS with a locally generated certificate (browsers will warn)
+#
+# The services behind it are the Compose stack's; TOKULY_EDGE_* move them
+# elsewhere (tools/dev/infra.sh runs this edge outside Compose).
 
 {$TOKULY_SITE_ADDRESS::80} {
 	encode zstd gzip
@@ -37,14 +40,14 @@
 	# Connect RPC, gRPC and gRPC-Web. The API speaks cleartext HTTP/2, so
 	# streaming calls pass through unbuffered.
 	handle_path /api/* {
-		reverse_proxy h2c://api:8081 {
+		reverse_proxy h2c://{$TOKULY_EDGE_API:api:8081} {
 			flush_interval -1
 		}
 	}
 
 	# WebSocket fallback of the realtime gateway (WebTransport bypasses the edge).
 	handle /rt/ws {
-		reverse_proxy realtime:8082
+		reverse_proxy {$TOKULY_EDGE_REALTIME:realtime:8082}
 	}
 
 	# Public media: /media/<key> is the object <key> of the public bucket.
@@ -65,23 +68,23 @@
 		header @asset Cache-Tag "asset-{re.asset.1}"
 		header @asset Surrogate-Key "asset-{re.asset.1}"
 		rewrite * /tokuly-media{uri}
-		reverse_proxy storage:9000 {
+		reverse_proxy {$TOKULY_EDGE_STORAGE:storage:9000} {
 			header_down Cache-Control "public, max-age=300, s-maxage=0, must-revalidate"
 		}
 	}
 
 	# Vector map tiles, and the fonts and icons the map style refers to.
 	handle_path /tiles/* {
-		reverse_proxy tiles:8080
+		reverse_proxy {$TOKULY_EDGE_TILES:tiles:8080}
 	}
 	handle_path /map-assets/* {
-		root * /srv/map-assets
+		root * {$TOKULY_EDGE_MAP_ASSETS:/srv/map-assets}
 		file_server
 		header Cache-Control "public, max-age=604800"
 	}
 
 	# Everything else is the web app.
 	handle {
-		reverse_proxy web:3000
+		reverse_proxy {$TOKULY_EDGE_WEB:web:3000}
 	}
 }

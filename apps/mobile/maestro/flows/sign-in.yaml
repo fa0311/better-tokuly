@@ -3,6 +3,7 @@ name: Sign up, sign out, sign in again
 env:
   PASSWORD: tokuly-e2e-pass
 ---
+- clearKeychain
 - launchApp:
     clearState: true
 - extendedWaitUntil:
@@ -37,6 +38,7 @@ env:
     element: { id: "sign-up-submit" }
 - tapOn: { id: "sign-up-terms" }
 - tapOn: { id: "sign-up-submit" }
+- runFlow: ../subflows/save-password-not-now.yaml
 - extendedWaitUntil:
     visible: { id: "map-screen" }
     timeout: 30000
@@ -53,12 +55,8 @@ env:
     timeout: 15000
 
 - tapOn: { id: "welcome-sign-in" }
-- tapOn: { id: "sign-in-identifier" }
-- inputText: ${output.handle}
-- tapOn: { id: "sign-in-password" }
-- inputText: ${PASSWORD}
-- hideKeyboard
-- tapOn: { id: "sign-in-submit" }
-- extendedWaitUntil:
-    visible: { id: "map-screen" }
-    timeout: 30000
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.handle}
+      PASSWORD: ${PASSWORD}
