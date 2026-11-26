@@ -5,6 +5,7 @@ import {
   REMINDER_MINUTES,
   todayYmd,
   type WhenKind,
+  withEndTime,
 } from "@tokuly/core/plans";
 import { UserPlus, X } from "lucide-react-native";
 import { useState } from "react";
@@ -286,7 +287,9 @@ export function PlanForm({
         visible={picking === "time" || picking === "endTime"}
         title={t(picking === "endTime" ? "plans:plan.form.endTime" : "plans:plan.form.time")}
         value={picking === "endTime" ? value.endTime : value.time}
-        onChange={(time) => set(picking === "endTime" ? { endTime: time } : { time })}
+        onChange={(time) =>
+          picking === "endTime" ? onChange(withEndTime(value, time)) : set({ time })
+        }
         onClose={() => setPicking(null)}
       />
       {withInvitees && (

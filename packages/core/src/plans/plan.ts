@@ -1,6 +1,15 @@
 import { type common, fromDate, type MessageInitShape, plans, toDate } from "@tokuly/api";
 import type { i18n as I18n } from "i18next";
-import { combine, daysBetween, formatDay, formatTime, timeOf, todayYmd, ymd } from "./dates";
+import {
+  addDays,
+  combine,
+  daysBetween,
+  formatDay,
+  formatTime,
+  timeOf,
+  todayYmd,
+  ymd,
+} from "./dates";
 
 /**
  * A plan's rules and its form: who may do what, how the time of a plan is
@@ -161,6 +170,17 @@ export function formProblem(
   if (value.capacity && !(Number.isInteger(Number(value.capacity)) && Number(value.capacity) >= 1))
     return "capacity";
   return null;
+}
+
+/**
+ * The form with a new end time. One at or before the start time on the
+ * start's day is taken as the next day (a night out past midnight); an end
+ * day already after the start stays.
+ */
+export function withEndTime(value: PlanFormValue, endTime: string): PlanFormValue {
+  const sameDay = !value.endDate || value.endDate === value.date;
+  const overnight = sameDay && value.date !== "" && value.time !== "" && endTime <= value.time;
+  return { ...value, endTime, ...(overnight ? { endDate: addDays(value.date, 1) } : {}) };
 }
 
 /** The form's time as the API takes it; an empty message means "to be decided". */

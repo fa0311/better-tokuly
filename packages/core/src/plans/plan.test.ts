@@ -11,6 +11,7 @@ import {
   toCreateRequest,
   toUpdateRequest,
   untilText,
+  withEndTime,
 } from "./plan";
 
 const TOKYO = "Asia/Tokyo";
@@ -59,6 +60,18 @@ describe("the plan form", () => {
     expect(at("18:00", "18:05")).toBeNull();
     // 02:00 and 02:30 are skipped in Los Angeles that night: both are 03:00.
     expect(at("02:00", "02:30", "2026-03-08", "America/Los_Angeles")).toBe("end");
+  });
+
+  it("takes an end time earlier than the start as the next day: a night out past midnight", () => {
+    const night = form({ when: "time", date: "2026-12-24", time: "22:00", hasEnd: true });
+    const late = withEndTime(night, "01:00");
+    expect(late).toMatchObject({ endDate: "2026-12-25", endTime: "01:00" });
+    expect(formProblem(late, TOKYO)).toBeNull();
+    // Later the same day stays that day; an end day already after the start is kept.
+    expect(withEndTime(night, "23:30")).toMatchObject({ endDate: "" });
+    expect(withEndTime(late, "23:30")).toMatchObject({ endDate: "2026-12-25" });
+    const picked = { ...night, endDate: "2026-12-26" };
+    expect(withEndTime(picked, "01:00")).toMatchObject({ endDate: "2026-12-26" });
   });
 
   it("sends a day and a time as the instant the zone means, naming the zone", () => {

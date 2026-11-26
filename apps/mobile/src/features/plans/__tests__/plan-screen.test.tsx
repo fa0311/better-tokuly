@@ -153,4 +153,27 @@ describe("PlanNewScreen", () => {
     ).toMatch(/T10:30:00\.000Z$/);
     expect(router.replace).toHaveBeenCalledWith("/plans/p2");
   });
+
+  it("ends a night out after midnight on the next day", async () => {
+    const sent = signIn();
+    await show(<PlanNewScreen />);
+    await act(() => fireEvent.changeText(screen.getByTestId("plan-form-title"), "カウントダウン"));
+    await act(() => fireEvent.press(screen.getByTestId("plan-when-time")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-form-date")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-day-next")));
+    await act(() => fireEvent.press(screen.getByTestId(/^plan-day-\d{4}-\d{2}-10$/)));
+    await act(() => fireEvent.press(screen.getByTestId("plan-form-time")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-hour-22")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-minute-00")));
+    await act(() => fireEvent(screen.getByTestId("plan-form-has-end"), "valueChange", true));
+    await act(() => fireEvent.press(screen.getByTestId("plan-form-end-time")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-hour-01")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-minute-30")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-create")));
+
+    const time = (sent[0]?.request as plans.CreatePlanRequest | undefined)?.time;
+    const at = (part: plans.PlanTime["start"] | plans.PlanTime["end"] | undefined) =>
+      part?.case === "startAt" || part?.case === "endAt" ? Number(part.value.seconds) : 0;
+    expect(at(time?.end) - at(time?.start)).toBe(3.5 * 3600);
+  });
 });
