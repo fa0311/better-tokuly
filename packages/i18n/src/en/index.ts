@@ -7,6 +7,7 @@ import common from "./common";
 import errors from "./errors";
 import follows from "./follows";
 import friends from "./friends";
+import live from "./live";
 import map from "./map";
 import mobile from "./mobile";
 import notifications from "./notifications";
@@ -28,6 +29,7 @@ export default {
   stories,
   shorts,
   video,
+  live,
   profile,
   mobile,
 };
