@@ -17,6 +17,13 @@ allowBuilds:
 # those from the app, so the @babel scope is hoisted to the root node_modules.
 publicHoistPattern:
   - "@babel/*"
+# maplibre-react-native pins its own style-spec and uses it for types only;
+# @tokuly/core builds the map style with the catalog version, so the app
+# hands it a style of one version. Without this, every style-spec release
+# that widens a type breaks the mobile typecheck.
+overrides:
+  "@maplibre/maplibre-react-native>@maplibre/maplibre-gl-style-spec": "catalog:"
+
 # Single source of truth for dependency versions shared across the monorepo.
 # Reference with `"<pkg>": "catalog:"` in a package.json.
 catalog:
@@ -48,16 +55,16 @@ catalog:
   "@tanstack/react-start": 1.169.7
   "@tanstack/react-router": 1.170.46
   "@tanstack/router-plugin": 1.169.0
-  "@tanstack/react-query": 5.108.1
-  "@tanstack/query-core": 5.108.1
-  "@tanstack/react-virtual": 3.14.26
+  "@tanstack/react-query": 5.108.3
+  "@tanstack/query-core": 5.108.3
+  "@tanstack/react-virtual": 3.14.28
 
   # --- ui ---
   tailwindcss: 4.3.5
   "@tailwindcss/vite": 4.3.5
   "@base-ui/react": 1.9.0
   motion: 14.14.0
-  lucide-react: 1.77.0
+  lucide-react: 1.78.0
   clsx: 2.1.1
   tailwind-merge: 3.7.1
   class-variance-authority: 0.7.1
@@ -65,20 +72,20 @@ catalog:
 
   # --- state / data / i18n ---
   zustand: 5.1.0
-  i18next: 27.2.2
+  i18next: 27.2.5
   react-i18next: 18.0.3
 
   # --- maps ---
   maplibre-gl: 6.19.0
   "@protomaps/basemaps": 5.7.2
-  "@maplibre/maplibre-gl-style-spec": 26.8.0
+  "@maplibre/maplibre-gl-style-spec": 26.9.0
   h3-js: 4.5.0
 
   # --- media ---
   hls.js: 1.7.4
   qrcode: 1.5.4
   "@simplewebauthn/browser": 14.0.0
-  livekit-client: 2.24.1
+  livekit-client: 2.25.0
 
 minimumReleaseAgeExclude:
   - "@tanstack/query-core@5.108.1"
