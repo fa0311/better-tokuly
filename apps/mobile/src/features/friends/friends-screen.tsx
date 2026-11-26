@@ -2,9 +2,10 @@ import { FlashList } from "@shopify/flash-list";
 import { Link } from "expo-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Text, TextInput, View } from "react-native";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
+import { Tabs } from "#/components/tabs";
 import { useTheme } from "#/lib/theme";
 import { useFriends, useIncomingRequests, useOutgoingRequests } from "./data";
 import { PersonRow } from "./friend-row";
@@ -20,29 +21,22 @@ export function FriendsScreen() {
   const waiting = incoming.data?.requests.length ?? 0;
   return (
     <View className="flex-1 bg-bg" testID="friends-screen">
-      <View className="flex-row gap-2 px-4 pt-3 pb-2">
-        {(["friends", "requests"] as const).map((key) => (
-          <Pressable
-            key={key}
-            testID={`friends-tab-${key}`}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: tab === key }}
-            onPress={() => setTab(key)}
-            className={`rounded-full px-4 py-2 ${tab === key ? "bg-ink" : "bg-surface"}`}
-          >
-            <Text className={`font-black ${tab === key ? "text-surface" : "text-ink"}`}>
-              {t(`tabs.${key}`)}
-              {key === "requests" && waiting > 0 ? ` ${waiting}` : ""}
-            </Text>
-          </Pressable>
-        ))}
-        <View className="ml-auto">
-          <Link href="/add-friend" asChild>
-            <Button testID="friends-add" size="sm">
-              {t("actions.add")}
-            </Button>
-          </Link>
-        </View>
+      <View className="flex-row items-center justify-between gap-2 px-4 pt-3 pb-2">
+        <Tabs
+          testID="friends-tab"
+          items={(["friends", "requests"] as const).map((key) => ({
+            value: key,
+            label: t(`tabs.${key}`),
+            badge: key === "requests" ? waiting : 0,
+          }))}
+          value={tab}
+          onChange={setTab}
+        />
+        <Link href="/add-friend" asChild>
+          <Button testID="friends-add" size="sm">
+            {t("actions.add")}
+          </Button>
+        </Link>
       </View>
       {tab === "friends" ? <FriendList /> : <RequestLists />}
     </View>

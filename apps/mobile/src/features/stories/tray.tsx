@@ -60,6 +60,8 @@ export function StoryTray() {
       horizontal
       testID="story-tray"
       showsHorizontalScrollIndicator={false}
+      // A horizontal list is as tall as its rings, not as the room left on the screen.
+      className="grow-0"
       contentContainerClassName="gap-2 px-3 py-2"
     >
       <View className="items-center">

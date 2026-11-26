@@ -5,6 +5,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { IconButton } from "#/components/icon-button";
+import { DarkStage } from "#/components/stage";
 import { ShortsFeed } from "./feed";
 
 const TABS = ["forYou", "following", "friends"] as const;
@@ -14,20 +16,18 @@ export function ShortsTabScreen() {
   const { t } = useTranslation("shorts");
   const [tab, setTab] = useState<(typeof TABS)[number]>("forYou");
   return (
-    <View className="flex-1 bg-black">
+    <DarkStage>
       <ShortsFeed key={tab} context={{ kind: tab }} />
       <SafeAreaView edges={["top"]} pointerEvents="box-none" className="absolute inset-x-0 top-0">
         <View pointerEvents="box-none" className="flex-row items-center justify-between px-3 pt-1">
-          <Pressable
+          <IconButton
             testID="shorts-mine"
-            accessibilityRole="button"
-            accessibilityLabel={t("bar.mine")}
+            look="glass"
+            label={t("bar.mine")}
+            icon={<Clapperboard color="white" size={22} />}
             onPress={() => router.push("/shorts/mine")}
-            className="rounded-full bg-black/30 p-2"
-          >
-            <Clapperboard color="white" size={22} />
-          </Pressable>
-          <View className="flex-row gap-3">
+          />
+          <View className="flex-row gap-4">
             {TABS.map((key) => (
               <Pressable
                 key={key}
@@ -44,18 +44,16 @@ export function ShortsTabScreen() {
               </Pressable>
             ))}
           </View>
-          <Pressable
+          <IconButton
             testID="shorts-new"
-            accessibilityRole="button"
-            accessibilityLabel={t("bar.post")}
+            look="glass"
+            label={t("bar.post")}
+            icon={<Plus color="white" size={22} />}
             onPress={() => router.push("/shorts/new")}
-            className="rounded-full bg-black/30 p-2"
-          >
-            <Plus color="white" size={22} />
-          </Pressable>
+          />
         </View>
       </SafeAreaView>
-    </View>
+    </DarkStage>
   );
 }
 
@@ -63,8 +61,8 @@ export function ShortsTabScreen() {
 export function WatchScreen({ search }: { search: Record<string, string | undefined> }) {
   const context: FeedContext = contextOfSearch(validateShortSearch(search));
   return (
-    <View className="flex-1 bg-black">
+    <DarkStage>
       <ShortsFeed context={context} startId={search.start} />
-    </View>
+    </DarkStage>
   );
 }

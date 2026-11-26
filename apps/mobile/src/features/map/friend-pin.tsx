@@ -41,6 +41,48 @@ export function FriendPin({
   );
 }
 
+/** Friends too close to tell apart at this zoom: up to three faces fanned like cards, and how many. */
+export function CrowdPin({
+  members,
+  label,
+  onPress,
+}: {
+  members: (social.Friend | undefined)[];
+  label: string;
+  onPress(): void;
+}) {
+  const { colors } = useTheme();
+  const faces = members.slice(0, 3);
+  return (
+    <Pressable
+      testID="crowd-pin"
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      className="flex-row px-2 pt-2"
+    >
+      {faces.map((friend, index) => (
+        <View
+          key={friend?.user?.id ?? index}
+          style={{
+            marginLeft: index > 0 ? -24 : 0,
+            zIndex: faces.length - index,
+            transform: [{ rotate: `${(index - 1) * 7}deg` }],
+          }}
+        >
+          <Avatar user={friend?.user} size="md" outlined />
+        </View>
+      ))}
+      <View
+        className="absolute top-0 right-0 z-10 h-6 min-w-6 items-center justify-center rounded-full bg-brand px-1.5"
+        style={sticker(colors, "sm")}
+      >
+        <Text className="text-xs font-black text-on-brand">{members.length}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
 /** Where this device is: a brand-coloured dot with a halo. */
 export function OwnDot() {
   const { colors } = useTheme();

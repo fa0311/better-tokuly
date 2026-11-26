@@ -20,16 +20,24 @@ export function ShortsFeed({ context, startId }: { context: FeedContext; startId
   if (list.isPending) return <Spinner />;
   if (list.isError)
     return (
-      <View className="flex-1 items-center justify-center bg-bg">
-        <EmptyState emoji="😵" title={t("feed.gone")} body={t("feed.goneBody")} />
-        <Button onPress={() => void list.refetch()}>{t("feed.retry")}</Button>
+      <View className="flex-1 justify-center">
+        <EmptyState
+          emoji="😵"
+          title={t("feed.gone")}
+          body={t("feed.goneBody")}
+          action={<Button onPress={() => void list.refetch()}>{t("feed.retry")}</Button>}
+        />
       </View>
     );
   if (entries.length === 0)
     return (
-      <View className="flex-1 items-center justify-center gap-3 bg-bg" testID="shorts-empty">
-        <EmptyState emoji="🎬" title={t("feed.empty")} body={t("feed.emptyBody")} />
-        <Button onPress={() => router.push("/shorts/new")}>{t("feed.post")}</Button>
+      <View className="flex-1 justify-center" testID="shorts-empty">
+        <EmptyState
+          emoji="🎬"
+          title={t("feed.empty")}
+          body={t("feed.emptyBody")}
+          action={<Button onPress={() => router.push("/shorts/new")}>{t("feed.post")}</Button>}
+        />
       </View>
     );
   const start = startId

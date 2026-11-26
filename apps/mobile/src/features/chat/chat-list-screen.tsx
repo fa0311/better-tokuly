@@ -5,10 +5,11 @@ import { isMuted, type ListFilter } from "@tokuly/core/chat";
 import { router } from "expo-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, View } from "react-native";
 import { ActionSheet, type SheetAction } from "#/components/action-sheet";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
+import { Tabs } from "#/components/tabs";
 import { PostsBanner } from "#/features/media/posts-banner";
 import { useMe } from "#/features/session/store";
 import { StoryTray } from "#/features/stories/tray";
@@ -32,27 +33,20 @@ export function ChatListScreen() {
   };
   return (
     <View className="flex-1 bg-bg" testID="chat-list-screen">
-      <View className="flex-row items-center gap-2 px-4 pt-3 pb-2">
-        {FILTERS.map((key) => (
-          <Pressable
-            key={key}
-            testID={`chat-tab-${key}`}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: filter === key }}
-            onPress={() => setFilter(key)}
-            className={`rounded-full px-3 py-2 ${filter === key ? "bg-ink" : "bg-surface"}`}
-          >
-            <Text className={`font-black ${filter === key ? "text-surface" : "text-ink"}`}>
-              {t(`list.tabs.${key}`)}
-              {counts[key] > 0 ? ` ${counts[key]}` : ""}
-            </Text>
-          </Pressable>
-        ))}
-        <View className="ml-auto">
-          <Button testID="chat-new" size="sm" onPress={() => router.push("/new-chat")}>
-            {tm("chat.newChat")}
-          </Button>
-        </View>
+      <View className="flex-row items-center justify-between gap-2 px-4 pt-3 pb-2">
+        <Tabs
+          testID="chat-tab"
+          items={FILTERS.map((key) => ({
+            value: key,
+            label: t(`list.tabs.${key}`),
+            badge: counts[key],
+          }))}
+          value={filter}
+          onChange={setFilter}
+        />
+        <Button testID="chat-new" size="sm" onPress={() => router.push("/new-chat")}>
+          {tm("chat.newChat")}
+        </Button>
       </View>
       {filter === "inbox" && (
         <>

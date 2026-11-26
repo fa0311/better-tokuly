@@ -1,8 +1,7 @@
-import { ChevronRight, LogOut } from "lucide-react-native";
-import type { ReactNode } from "react";
+import { LogOut } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import { Alert, Pressable, Text, View } from "react-native";
-import { Page, Section } from "#/components/page";
+import { Alert, Text, View } from "react-native";
+import { Page, Row, Section } from "#/components/page";
 import { signOut } from "#/features/session/session";
 import { SERVER_URL } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
@@ -66,38 +65,5 @@ export function SettingsScreen() {
         <Text className="text-xs text-ink-faint">{t("settings.server", { url: SERVER_URL })}</Text>
       </View>
     </Page>
-  );
-}
-
-function Row({
-  icon,
-  label,
-  hint,
-  danger,
-  onPress,
-  testID,
-}: {
-  icon: ReactNode;
-  label: string;
-  hint?: string;
-  danger?: boolean;
-  onPress(): void;
-  testID?: string;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      onPress={onPress}
-      className="flex-row items-center gap-3 border-b border-line px-4 py-3.5"
-    >
-      {icon}
-      <View className="flex-1">
-        <Text className={`font-bold ${danger ? "text-danger" : "text-ink"}`}>{label}</Text>
-        {hint && <Text className="text-xs text-ink-soft">{hint}</Text>}
-      </View>
-      {!danger && <ChevronRight size={18} color={colors["ink-faint"]} />}
-    </Pressable>
   );
 }
