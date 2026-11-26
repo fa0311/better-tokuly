@@ -45,6 +45,7 @@ describe("the features on the seams", () => {
     expect(SETTINGS_ROWS.map((row) => row.id)).toEqual([
       "privacy",
       "notifications",
+      "security",
       "accounts",
       "web",
       "licenses",
@@ -81,6 +82,8 @@ describe("the features on the seams", () => {
       "settings/index",
       "settings/notifications",
       "settings/privacy",
+      "settings/security",
+      "settings/totp",
       "shorts/mine",
       "shorts/new",
       "shorts/sound/[id]",

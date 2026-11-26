@@ -7,5 +7,16 @@ export default [
     name: "settings/privacy",
     options: () => ({ title: i18n.t("settings:sections.privacy.title") }),
   },
+  {
+    name: "settings/security",
+    options: () => ({ title: i18n.t("settings:sections.security.title") }),
+  },
+  {
+    name: "settings/totp",
+    options: () => ({
+      title: i18n.t("settings:security.totp.setupTitle"),
+      presentation: "modal",
+    }),
+  },
   { name: "licenses", options: () => ({ title: i18n.t("mobile:licenses.title") }) },
 ] satisfies ScreenEntry[];

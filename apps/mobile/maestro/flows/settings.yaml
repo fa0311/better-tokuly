@@ -61,3 +61,18 @@ env:
 - tapOn: { id: "push-resume" }
 - tapOn: "OK"
 - back
+
+# Security: this phone among the signed-in devices; two-step verification starts with a key.
+- tapOn: { id: "settings-security" }
+- extendedWaitUntil:
+    visible: { id: "session-row" }
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 22-security
+- tapOn: { id: "totp-enable" }
+- extendedWaitUntil:
+    visible: { id: "totp-secret" }
+    timeout: 15000
+- takeScreenshot: 23-totp-setup
+- back
+- back

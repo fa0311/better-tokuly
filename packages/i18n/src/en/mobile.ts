@@ -92,6 +92,16 @@ export default {
     version: "Version {{version}}",
     server: "Server {{url}}",
   },
+  totp: {
+    step1: "1. Add the key to your authenticator app",
+    openApp: "Open in authenticator app",
+    noApp: "No authenticator app found. Press and hold the key below to copy it",
+    manual: "To type it into the app yourself, use this key (press and hold to copy)",
+    shareCodes: "Share to save them",
+  },
+  security: {
+    onWeb: "Opens on the web",
+  },
   more: {
     title: "More",
     open: "More",

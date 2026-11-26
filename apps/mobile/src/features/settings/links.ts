@@ -4,4 +4,5 @@ import type { LinkTarget } from "#/seams/links";
 export default [
   { path: /^\/settings$/, screen: () => "/settings" },
   { path: /^\/settings\/privacy$/, screen: () => "/settings/privacy" },
+  { path: /^\/settings\/security$/, screen: () => "/settings/security" },
 ] satisfies LinkTarget[];

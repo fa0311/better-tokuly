@@ -16,7 +16,7 @@ where the code is. The rules a contributor follows are in
 | Videos | feeds, watch screen (HLS, picture-in-picture, lock-screen controls, resume, chapters), playlists, subscriptions, comments, channel pages, history | uploading, editing, analytics, watch parties | `features/video`, `@tokuly/core/video` |
 | Notes | the timelines, lists and antennas to read, rich text, polls, likes, renotes, quotes, replies, reactions, clips, pinning, thread mutes, composer with drafts | channels, editing a note, managing lists and antennas, mutes, analytics, reports | `features/notes`, `@tokuly/core/notes` |
 | Live | lists, watching (Low-Latency HLS), chat, likes, reminders, polls, reports, gifts | going live (no WHIP/RTMP publisher in the app), clips, gift history, buying coins, moderation | `features/live`, `@tokuly/core/live` |
-| Settings | privacy; notifications: push on this device, lock-screen previews, the pause, quiet hours, categories | blocked accounts, the AI message consent, muted people | `features/settings` |
+| Settings | privacy; notifications: push on this device, lock-screen previews, the pause, quiet hours, categories; security: two-step verification (the key opens in the authenticator app), the signed-in devices | blocked accounts, the AI message consent, muted people, passkeys, approving another device, the security log | `features/settings` |
 | Push | FCM and APNs through `expo-notifications` (no Expo push service); a tap opens the notification's screen | — | `features/notifications` (`push.ts`, `target.ts`) |
 | Everything else | — | spaces, communities, school, plans, ask, quests, emoji, stamps, wallet, the rarer settings, developers, the console | `features/web` |
 
