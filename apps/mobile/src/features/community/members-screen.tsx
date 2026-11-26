@@ -1,12 +1,15 @@
 import { community, toMillis } from "@tokuly/api";
+import { isMember, isSiteModerator } from "@tokuly/core/community";
 import { router } from "expo-router";
 import { Search } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FlatList, Pressable, Text, TextInput, View } from "react-native";
 import { Avatar } from "#/components/avatar";
-import { EmptyState, Spinner } from "#/components/page";
+import { EmptyState, ErrorNote, Spinner } from "#/components/page";
 import { Tabs } from "#/components/tabs";
+import { useMe } from "#/features/session/store";
+import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
 import { itemsOf, NS, useCommunity, useMembers } from "./data";
 import { RoleChip } from "./parts";
@@ -25,22 +28,36 @@ const FILTERS: Record<Filter, community.MemberRole> = {
 /**
  * `/g/<handle>/members`: who is in, with the roles the server names. Giving
  * roles, timeouts and bans stay on the web's member list for the staff.
+ * The list is its members' (and site moderation's), in a public community too.
  */
 export function MembersScreen({ handle }: { handle: string }) {
   const { t } = useTranslation(NS);
   const { colors } = useTheme();
-  const c = useCommunity(handle).data;
+  const query = useCommunity(handle);
+  const c = query.data;
+  const roles = useMe()?.roles;
+  const allowed = isMember(c ?? undefined) || isSiteModerator(roles);
   const [typed, setTyped] = useState("");
-  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("everyone");
   useEffect(() => {
-    const timer = setTimeout(() => setQuery(typed.trim()), 300);
+    const timer = setTimeout(() => setSearch(typed.trim()), 300);
     return () => clearTimeout(timer);
   }, [typed]);
-  const list = useMembers(c?.id ?? "", query, FILTERS[filter]);
+  const list = useMembers(allowed ? (c?.id ?? "") : "", search, FILTERS[filter]);
   const members = itemsOf(list.data);
 
-  if (!c) return <Spinner />;
+  if (query.isPending) return <Spinner />;
+  if (!c || !allowed)
+    return (
+      <View className="flex-1 bg-bg" testID={c ? "members-members-only" : "community-not-found"}>
+        {c ? (
+          <EmptyState emoji="🔒" title={t("errors.NOT_A_MEMBER")} />
+        ) : (
+          <EmptyState emoji="🫥" title={t("notFound.title")} body={t("notFound.body")} />
+        )}
+      </View>
+    );
   return (
     <View className="flex-1 bg-bg" testID="community-members-screen">
       <FlatList
@@ -79,7 +96,15 @@ export function MembersScreen({ handle }: { handle: string }) {
           </View>
         }
         ListEmptyComponent={
-          list.isPending ? <Spinner /> : <EmptyState emoji="🔍" title={t("members.none")} />
+          list.isPending ? (
+            <Spinner />
+          ) : list.error ? (
+            <View className="px-4">
+              <ErrorNote>{errorMessage(list.error, { namespace: NS })}</ErrorNote>
+            </View>
+          ) : (
+            <EmptyState emoji="🔍" title={t("members.none")} />
+          )
         }
         ListFooterComponent={<View className="h-12">{list.isFetchingNextPage && <Spinner />}</View>}
       />
