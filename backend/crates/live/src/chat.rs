@@ -491,6 +491,61 @@ pub(crate) async fn insert_in(tx: &mut Tx<'_>, new: NewMessage<'_>) -> AppResult
     Ok(row)
 }
 
+/// Chat lines announced or erased per statement when many go at once.
+const ERASE_BATCH: i64 = 1000;
+
+/// Emits `subject.deleted` for the lines of a stream that is being erased,
+/// in the erasing transaction and in batches: the lines themselves go with
+/// the stream (`ON DELETE CASCADE`). A line removed earlier was announced
+/// when it was removed.
+pub(crate) async fn announce_erased_chat(tx: &mut Tx<'_>, stream_id: Uuid) -> AppResult<()> {
+    let mut before = Uuid::max();
+    loop {
+        let lines: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM live_chat_messages WHERE stream_id = $1 AND deleted_at IS NULL AND id < $2
+             ORDER BY id DESC LIMIT $3",
+        )
+        .bind(stream_id)
+        .bind(before)
+        .bind(ERASE_BATCH)
+        .fetch_all(&mut **tx)
+        .await?;
+        outbound::subjects_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, &lines).await?;
+        match lines.last() {
+            Some(&last) if lines.len() as i64 == ERASE_BATCH => before = last,
+            _ => return Ok(()),
+        }
+    }
+}
+
+/// Erases every chat line by `user_id` (their account is being erased), in
+/// batches in the caller's transaction, with `subject.deleted` for the
+/// lines that were still shown.
+///
+/// A batch is chosen before it is deleted: lines that go meanwhile with
+/// their stream leave it short, so only an empty choice means none is left.
+pub(crate) async fn erase_lines_of(tx: &mut Tx<'_>, user_id: Uuid) -> AppResult<()> {
+    loop {
+        let lines: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM live_chat_messages WHERE user_id = $1 ORDER BY id LIMIT $2")
+                .bind(user_id)
+                .bind(ERASE_BATCH)
+                .fetch_all(&mut **tx)
+                .await?;
+        if lines.is_empty() {
+            return Ok(());
+        }
+        let shown: Vec<Uuid> = sqlx::query_scalar(
+            "WITH erased AS (DELETE FROM live_chat_messages WHERE id = ANY($1) RETURNING id, deleted_at)
+             SELECT id FROM erased WHERE deleted_at IS NULL",
+        )
+        .bind(&lines)
+        .fetch_all(&mut **tx)
+        .await?;
+        outbound::subjects_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, &shown).await?;
+    }
+}
+
 /// Serializes, for the rest of the transaction, what one user does in the
 /// chats of one channel against what is done to them there: a message and
 /// a ban of its author cannot pass each other. The lock is per user, so

@@ -333,6 +333,19 @@ impl Ctx {
         self.live.handle_event(event).await.expect("event handler");
     }
 
+    /// How many times `subject.deleted` is in the outbox for this subject.
+    pub async fn announced(&self, subject_type: tokuly_proto::common::SubjectType, id: &str) -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM outbox WHERE topic = $1 AND data = jsonb_build_object('subject_type', $2::integer, 'subject_id', $3::text)",
+        )
+        .bind(tokuly_core::outbound::SUBJECT_DELETED_TOPIC)
+        .bind(subject_type as i32)
+        .bind(id)
+        .fetch_one(&self.app.core.db)
+        .await
+        .expect("count announcements")
+    }
+
     /// Notifications of `kind` requested for `user` so far.
     pub async fn notifications(&self, user: &TestUser, kind: &str) -> Vec<Event> {
         self.app

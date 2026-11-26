@@ -534,9 +534,9 @@ async fn an_erased_account_leaves_nothing_but_bookkeeping() {
     let stream = ctx.on_air(&alice, &channel, "残る配信").await;
     let own = ctx.on_air(&bob, &bobs_channel, "消える配信").await;
     ctx.coins(&bob, 200).await;
-    ctx.say(&bob, &stream, "いたよ").await.unwrap();
+    let bobs_line = ctx.say(&bob, &stream, "いたよ").await.unwrap();
     ctx.gift(&bob, &stream, 100, "", "gift-erase-0001").await.unwrap();
-    ctx.say(&alice, &own, "来たよ").await.unwrap();
+    let alices_line = ctx.say(&alice, &own, "来たよ").await.unwrap();
     let _: SetReminderResponse = ctx
         .call(
             STREAMS,
@@ -587,6 +587,74 @@ async fn an_erased_account_leaves_nothing_but_bookkeeping() {
     assert!(!received.gifts[0].sender.is_set());
     assert!(ctx.chat(None, &stream).await.is_empty());
     assert!(ctx.row(&stream).await.is_live(), "other people's streams are untouched");
+    // Saves of the erased lines go too, those by bob and those on his
+    // stream; the second delivery announces nothing again.
+    for line in [&bobs_line, &alices_line] {
+        assert_eq!(ctx.announced(SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, &line.id).await, 1, "{}", line.text);
+    }
+}
+
+/// Some of an erased account's lines can go at the same time with a stream
+/// the retention sweep erases: the rest still go, each announced once.
+#[tokio::test]
+async fn an_account_erased_while_a_stream_with_its_lines_goes_leaves_no_line() {
+    let ctx = start().await;
+    let db = &ctx.app.core.db;
+    let alice = ctx.app.user("alice").await;
+    let bob = ctx.app.user("bob").await;
+    let channel = ctx.channel(&alice, "ch").await;
+    let erased = ctx.stream(&alice, &channel, "消える配信").await;
+    let kept = ctx.stream(&alice, &channel, "残る配信").await;
+    // Bob's first lines are on the stream that goes, more than a batch on the other.
+    for (stream, count) in [(&erased, 10), (&kept, 1500)] {
+        sqlx::query(
+            "INSERT INTO live_chat_messages (stream_id, user_id, kind, text)
+             SELECT $1, $2, 1, 'いるよ' FROM generate_series(1, $3) AS n",
+        )
+        .bind(sid(stream))
+        .bind(bob.id)
+        .bind(count)
+        .execute(db)
+        .await
+        .unwrap();
+    }
+    let lines: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM live_chat_messages WHERE stream_id = $1")
+        .bind(sid(&kept))
+        .fetch_all(db)
+        .await
+        .unwrap();
+
+    let mut sweep = db.begin().await.unwrap();
+    sqlx::query("DELETE FROM live_streams WHERE id = $1").bind(sid(&erased)).execute(&mut *sweep).await.unwrap();
+    let erase = ctx.deliver_event("identity.user.deleted", None, serde_json::json!({ "user_id": bob.id }));
+    let sweep_commits = async {
+        // Once the erasure waits for the lines the sweep holds.
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity
+                 WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%DELETE FROM live_chat_messages%'",
+            )
+            .fetch_one(db)
+            .await
+            .unwrap();
+            if waiting > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        sweep.commit().await.unwrap();
+    };
+    tokio::join!(erase, sweep_commits);
+
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM live_chat_messages WHERE user_id = $1")
+        .bind(bob.id)
+        .fetch_one(db)
+        .await
+        .unwrap();
+    assert_eq!(left, 0, "every line of the account goes");
+    for line in &lines {
+        assert_eq!(ctx.announced(SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, &line.to_string()).await, 1);
+    }
 }
 
 /// One account asking for many things at once must not leave the API
@@ -997,7 +1065,7 @@ async fn recordings_nobody_needs_are_swept_and_nothing_is_archived_from_nothing(
     assert!(!orphan.exists(), "a recording without a stream goes");
     assert!(!dropped.exists(), "a recording that will not be archived goes");
     assert!(kept.exists(), "a stream on air keeps its recording");
-    // A stream deleted long ago is erased by the same sweep.
+    // A stream deleted long ago is erased by the sweep's purge.
     let old = ctx.stream(&alice, &channel, "むかし消した").await;
     let _: DeleteStreamResponse = ctx
         .call(
@@ -1013,12 +1081,31 @@ async fn recordings_nobody_needs_are_swept_and_nothing_is_archived_from_nothing(
         .execute(&ctx.app.core.db)
         .await
         .unwrap();
-    assert!(ctx.live.sweep_recordings().await.unwrap().erased_streams >= 1);
+    // A long chat, more than one batch of announcements; one line was
+    // removed (and announced) before.
+    let lines: Vec<(Uuid, bool)> = sqlx::query_as(
+        "INSERT INTO live_chat_messages (stream_id, user_id, kind, text, deleted_at)
+         SELECT $1, $2, 1, 'こんにちは', CASE WHEN n = 1 THEN now() END FROM generate_series(1, 1500) AS n
+         RETURNING id, deleted_at IS NOT NULL",
+    )
+    .bind(sid(&old))
+    .bind(alice.id)
+    .fetch_all(&ctx.app.core.db)
+    .await
+    .unwrap();
+    // Two sweeps at once (two servers): the stream is erased, and announced, once.
+    let purge = || tokuly_live::streams::purge_deleted(&ctx.app.core, test_config().deleted_retention_days);
+    let (one, other) = tokio::join!(purge(), purge());
+    assert!(one.unwrap() + other.unwrap() >= 1);
+    for (line, removed_before) in &lines {
+        let expected = if *removed_before { 0 } else { 1 };
+        assert_eq!(ctx.announced(SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, &line.to_string()).await, expected);
+    }
     let left: i64 = sqlx::query_scalar("SELECT count(*) FROM live_streams WHERE id = $1")
         .bind(sid(&old))
         .fetch_one(&ctx.app.core.db)
         .await
         .unwrap();
     assert_eq!(left, 0);
-    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_LIVE_STREAM, &card(&old).id).await);
+    assert_eq!(ctx.announced(SubjectType::SUBJECT_TYPE_LIVE_STREAM, &card(&old).id).await, 1);
 }
