@@ -53,3 +53,6 @@ test-results/
 
 # the deployment's own settings file (config/README.md)
 config/tokuly.toml
+
+# what tools/backup.sh writes by default (holds every secret)
+/backups/
