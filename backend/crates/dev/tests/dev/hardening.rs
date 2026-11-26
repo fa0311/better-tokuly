@@ -697,20 +697,39 @@ async fn a_bot_token_holds_no_money_and_addresses_nobody() {
     assert!(ctx.app.events_by("identity.user.created", Uuid::parse_str(&bot_id).unwrap()).await.is_empty());
 }
 
-/// `TOKULY_DEV_DEMO_OPERATORS`: the bots of the accounts named there write
-/// to other domains (the demo simulator's bots chat and post), still without
-/// a wallet; nobody else's bots do, and the allowance ends with the address.
+/// `TOKULY_DEV_DEMO_OPERATORS`: the bots of the accounts named there that
+/// also know `TOKULY_DEV_DEMO_PASSWORD` write to other domains (the demo
+/// simulator's bots chat and post), still without a wallet; nobody else's
+/// bots do (not even an account that took an operator's address first), and
+/// the allowance ends with the address.
 #[tokio::test]
 async fn the_bots_of_a_demo_operator_address_people_and_still_hold_no_money() {
+    const PASSWORD: &str = "the demo's own password";
     let address = format!("demo-{}@demo.tokuly.localhost", Uuid::new_v4().simple());
-    let ctx = start_with(DevConfig { demo_operators: vec![address.to_uppercase()], ..config() }).await;
-    let operator = ctx.app.user("operator").await;
-    sqlx::query("UPDATE users SET email = $2::citext WHERE id = $1")
-        .bind(operator.id)
-        .bind(&address)
-        .execute(&ctx.app.core.db)
-        .await
-        .unwrap();
+    let squatted = format!("squatted-{address}");
+    let ctx = start_with(DevConfig {
+        demo_operators: vec![address.to_uppercase(), squatted.clone()],
+        demo_password: PASSWORD.into(),
+        ..config()
+    })
+    .await;
+    let with_address = |name: &'static str, email: String, password: &'static str| {
+        let ctx = &ctx;
+        async move {
+            let user = ctx.app.user(name).await;
+            sqlx::query("UPDATE users SET email = $2::citext, password_hash = $3 WHERE id = $1")
+                .bind(user.id)
+                .bind(email)
+                .bind(tokuly_identity::password::hash(password).await.unwrap())
+                .execute(&ctx.app.core.db)
+                .await
+                .unwrap();
+            user
+        }
+    };
+    let operator = with_address("operator", address.clone(), PASSWORD).await;
+    // Signed up at an operator's address before the simulator did, without its password.
+    let squatter = with_address("squatter", squatted, "a guess, not the password").await;
     let somebody = ctx.app.user("somebody").await;
     let token = |owner: &User, bot_id: &str, scopes: &[&str]| {
         let request = CreateBotTokenRequest {
@@ -729,8 +748,11 @@ async fn the_bots_of_a_demo_operator_address_people_and_still_hold_no_money() {
     let demo_bot = create_bot(&ctx, &operator, "Demo").await.unwrap();
     let plain_bot = create_bot(&ctx, &somebody, "Plain").await.unwrap();
 
+    let squatters_bot = create_bot(&ctx, &squatter, "Squat").await.unwrap();
+
     let writes = ["chat:write", "social:write", "notes:write", "geo:write", "engagement:write"];
     assert_eq!(token(&somebody, &plain_bot, &writes).await.unwrap_err().reason, "SCOPE_NOT_FOR_BOTS");
+    assert_eq!(token(&squatter, &squatters_bot, &writes).await.unwrap_err().reason, "SCOPE_NOT_FOR_BOTS");
     for scopes in [&["wallet:write"][..], &["chat:write", "wallet:read"]] {
         assert_eq!(token(&operator, &demo_bot, scopes).await.unwrap_err().reason, "SCOPE_NOT_FOR_BOTS", "{scopes:?}");
     }

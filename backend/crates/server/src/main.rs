@@ -167,7 +167,7 @@ struct DemoCli {
 async fn demo(config: tokuly_demo::DemoConfig) -> anyhow::Result<()> {
     if config.operators().is_empty() {
         // Not an error: the profile may be on before the demo is configured.
-        eprintln!("tokuly demo: off. Set TOKULY_DEV_DEMO_OPERATORS and TOKULY_DEMO_PASSWORD (tools/demo-env.sh writes them to .env), restart the server and start the demo again.");
+        eprintln!("tokuly demo: off. Set TOKULY_DEV_DEMO_OPERATORS and TOKULY_DEV_DEMO_PASSWORD (tools/demo-env.sh writes them to .env), restart the server and start the demo again.");
         return Ok(());
     }
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();

@@ -5,7 +5,8 @@
 #   COMPOSE_PROFILES            gets `demo`
 #   TOKULY_DEV_DEMO_OPERATORS   addresses of the accounts that own the bots (random, so nobody
 #                               can sign up with them first); the server and the simulator read it
-#   TOKULY_DEMO_PASSWORD        their password
+#   TOKULY_DEV_DEMO_PASSWORD    their password (random); the server reads it too and gives the
+#                               demo's rights only to an account at those addresses that knows it
 #
 # Run it after tools/init-env.sh, then `docker compose up -d`. Running it again changes nothing.
 # To turn the demo off, take `demo` out of COMPOSE_PROFILES (the bots stay as they are) and,
@@ -28,9 +29,9 @@ if ! has TOKULY_DEV_DEMO_OPERATORS; then
   printf 'TOKULY_DEV_DEMO_OPERATORS=%s\n' "demo-$tag-1@demo.tokuly.invalid,demo-$tag-2@demo.tokuly.invalid,demo-$tag-3@demo.tokuly.invalid" >>.env
   added+=(TOKULY_DEV_DEMO_OPERATORS)
 fi
-if ! has TOKULY_DEMO_PASSWORD; then
-  printf 'TOKULY_DEMO_PASSWORD=%s\n' "$(random 24)" >>.env
-  added+=(TOKULY_DEMO_PASSWORD)
+if ! has TOKULY_DEV_DEMO_PASSWORD; then
+  printf 'TOKULY_DEV_DEMO_PASSWORD=%s\n' "$(random 24)" >>.env
+  added+=(TOKULY_DEV_DEMO_PASSWORD)
 fi
 if grep -Eq '^COMPOSE_PROFILES=[[:space:]]*$' .env; then
   # The empty line of the template: filled in where it stands.

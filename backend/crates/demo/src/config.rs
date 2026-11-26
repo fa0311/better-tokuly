@@ -19,8 +19,10 @@ pub struct DemoConfig {
     #[arg(long, env = "TOKULY_DEV_DEMO_OPERATORS", value_delimiter = ',', default_value = "")]
     pub operators: Vec<String>,
 
-    /// Password of the operator accounts (at least 8 characters).
-    #[arg(long, env = "TOKULY_DEMO_PASSWORD", default_value = "", hide_env_values = true)]
+    /// Password of the operator accounts (at least 16 characters). The server
+    /// knows it too: it is how the server tells the demo's accounts from
+    /// someone who signed up with one of their addresses.
+    #[arg(long, env = "TOKULY_DEV_DEMO_PASSWORD", default_value = "", hide_env_values = true)]
     pub password: String,
 
     /// The same seed tells the same story: who the bots are, where they go
@@ -30,8 +32,9 @@ pub struct DemoConfig {
 
     /// Which episode of the seed's story to play. The cast and the town
     /// stay the same from episode to episode; the walks, posts and
-    /// conversations differ. Unset, it is the hour the simulator starts in,
-    /// so a restart does not post the same notes again; set it to play
+    /// conversations differ. Unset, it is the second the simulator starts
+    /// in, so a restart (even a quick one after a crash) does not post the
+    /// same notes again; set it to play
     /// exactly the same demo twice.
     #[arg(long, env = "TOKULY_DEMO_EPISODE")]
     pub episode: Option<u64>,
@@ -94,12 +97,11 @@ impl DemoConfig {
         self.operators.iter().map(|address| address.trim()).filter(|address| !address.is_empty()).collect()
     }
 
-    /// The episode to play: the one asked for, or the current hour's.
+    /// The episode to play: the one asked for, or the current second's.
     pub fn episode(&self) -> u64 {
-        let hours = || {
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() / 3600)
-        };
-        self.episode.unwrap_or_else(hours)
+        let seconds =
+            || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+        self.episode.unwrap_or_else(seconds)
     }
 
     pub fn region(&self) -> Region {
@@ -113,8 +115,8 @@ impl DemoConfig {
             "the demo is off: set TOKULY_DEV_DEMO_OPERATORS (e-mail addresses for the accounts that own the bots) for the server and for the simulator"
         );
         anyhow::ensure!(
-            self.password.chars().count() >= 8,
-            "set TOKULY_DEMO_PASSWORD (at least 8 characters): the password of the operator accounts"
+            self.password.chars().count() >= 16,
+            "set TOKULY_DEV_DEMO_PASSWORD (at least 16 characters, the same for the server): the password of the operator accounts"
         );
         anyhow::ensure!(self.bots >= 1, "TOKULY_DEMO_BOTS must be at least 1");
         anyhow::ensure!(
@@ -149,8 +151,8 @@ mod tests {
         assert!(off.validate().unwrap_err().to_string().contains("the demo is off"));
         let half = parse(&["--operators", "a@demo.example, ,b@demo.example"]);
         assert_eq!(half.operators(), ["a@demo.example", "b@demo.example"]);
-        assert!(half.validate().unwrap_err().to_string().contains("TOKULY_DEMO_PASSWORD"));
-        parse(&["--operators", "a@demo.example", "--password", "long enough"]).validate().unwrap();
+        assert!(half.validate().unwrap_err().to_string().contains("TOKULY_DEV_DEMO_PASSWORD"));
+        parse(&["--operators", "a@demo.example", "--password", "long enough, really"]).validate().unwrap();
     }
 
     #[test]
@@ -163,16 +165,16 @@ mod tests {
     }
 
     #[test]
-    fn the_episode_is_the_one_asked_for_or_the_hour() {
+    fn the_episode_is_the_one_asked_for_or_the_second() {
         assert_eq!(parse(&["--episode", "7"]).episode(), 7);
-        // Hours since 1970: past 2025, and the same when asked twice in a row.
+        // Seconds since 1970: past 2025, and (nearly) the same when asked twice in a row.
         let now = parse(&[]).episode();
-        assert!(now > 480_000 && now.abs_diff(parse(&[]).episode()) <= 1);
+        assert!(now > 1_735_000_000 && now.abs_diff(parse(&[]).episode()) <= 1);
     }
 
     #[test]
     fn limits_are_checked() {
-        let base = ["--operators", "a@demo.example", "--password", "long enough"];
+        let base = ["--operators", "a@demo.example", "--password", "long enough, really"];
         for wrong in [["--bots", "0"], ["--radius-m", "5"], ["--pace", "0"], ["--pace", "50"]] {
             assert!(parse(&[&base[..], &wrong[..]].concat()).validate().is_err(), "{wrong:?}");
         }

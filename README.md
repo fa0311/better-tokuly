@@ -86,7 +86,7 @@ docker compose up -d     # demo コンテナがボットを作って動かしは
   送っている位置情報も「シミュレーション」として送るので、Bump や「近くの人」には出てきません。
 - ボットから知らない人に話しかけることはありません。友達リクエストをくれた人にだけ反応します。
 - だれがいるか（名前・プロフィール・友達関係・街のつくり）はシード値で決まり、何が起きるか（歩くルート・
-  投稿・会話）はシード値と「エピソード」で決まります。エピソードは指定しなければ起動した時刻（1 時間単位）
+  投稿・会話）はシード値と「エピソード」で決まります。エピソードは指定しなければ起動した時刻（秒単位）
   なので、再起動しても同じ投稿がくり返されません。`TOKULY_DEMO_EPISODE` を決めれば毎回まったく同じデモに
   なります。実在の人物や住所は出てきません（場所は「駅前」「いつもの公園」のような名前です）。
 
@@ -94,7 +94,7 @@ docker compose up -d     # demo コンテナがボットを作って動かしは
 |---|---|
 | `COMPOSE_PROFILES=demo` | デモのコンテナを起動する |
 | `TOKULY_DEV_DEMO_OPERATORS` | ボットの持ち主になるアカウントのメールアドレス（カンマ区切り、1 つにつきボット 5 体）。サーバーとシミュレーターの両方が読みます。ここに書いたアカウントのボットだけが、チャットや投稿などの「書き込み」をできます（コインは対象外） |
-| `TOKULY_DEMO_PASSWORD` | そのアカウントのパスワード |
+| `TOKULY_DEV_DEMO_PASSWORD` | そのアカウントのパスワード（16 文字以上）。これもサーバーとシミュレーターの両方が読みます。メールアドレスだけなら誰でもそのアドレスで登録できてしまうので、サーバーは「アドレスが一致して、しかもこのパスワードを知っているアカウント」だけをデモの持ち主として扱います |
 | `TOKULY_DEMO_CENTER` / `TOKULY_DEMO_RADIUS_M` | ボットが動く場所。中心の `緯度,経度`（既定は `35.7030,139.5795`）と半径メートル（既定 900）。地図を用意した範囲（`TOKULY_MAP_REGION_BBOX`）の中にしてください |
 | `TOKULY_DEMO_BOTS` / `TOKULY_DEMO_SEED` / `TOKULY_DEMO_PACE` | ボットの数（既定 12）、シード値（既定 2026）、時間の進む速さ（既定 1 = 実時間） |
 
@@ -108,8 +108,9 @@ docker compose up -d     # demo コンテナがボットを作って動かしは
 Docker なしで開発中のサーバーに対して動かすときは、同じ変数をサーバーにも渡して起動します:
 
 ```sh
-export TOKULY_DEV_DEMO_OPERATORS=demo-1@demo.tokuly.invalid,demo-2@demo.tokuly.invalid,demo-3@demo.tokuly.invalid
-export TOKULY_DEMO_PASSWORD=$(openssl rand -hex 24)
+tag=$(openssl rand -hex 6)    # アドレスは毎回ランダムに（決まったアドレスだと先に登録されてしまう）
+export TOKULY_DEV_DEMO_OPERATORS=demo-$tag-1@demo.tokuly.invalid,demo-$tag-2@demo.tokuly.invalid,demo-$tag-3@demo.tokuly.invalid
+export TOKULY_DEV_DEMO_PASSWORD=$(openssl rand -hex 24)
 (cd backend && cargo run -p tokuly-server -- all)       # サーバー（この変数つきで起動）
 (cd backend && cargo run -p tokuly-server -- demo)      # 別のターミナルで。--help で全オプション
 ```

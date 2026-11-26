@@ -140,7 +140,7 @@ async fn sign_in(api: &Api, address: &str, password: &str, number: usize) -> any
             match api.call(None, "tokuly.identity.v1.AuthService/SignUp", &request).await {
                 Ok(session) => session,
                 Err(taken) if taken.is("EMAIL_TAKEN") || taken.is("ACCOUNT_EXISTS") => {
-                    bail!("an account with this address exists and TOKULY_DEMO_PASSWORD is not its password")
+                    bail!("an account with this address exists and TOKULY_DEV_DEMO_PASSWORD is not its password")
                 }
                 Err(refused) => return Err(refused.into()),
             }

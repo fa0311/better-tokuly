@@ -20,7 +20,7 @@
 //!   the positions they report are flagged as simulated.
 //! - **Decided by a seed.** Who the bots are, where they go and what they
 //!   say comes out of [`script::Script`], which talks to nobody and tells
-//!   the same story for the same seed and episode (the episode is the hour
+//!   the same story for the same seed and episode (the episode is the second
 //!   of the start unless one is named, so a restart goes on with new
 //!   lines). [`runner`] plays it against the server; only the answers to
 //!   visitors depend on what people do.
