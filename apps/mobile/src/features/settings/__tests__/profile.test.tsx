@@ -20,6 +20,7 @@ jest.mock("#/features/session/account", () => ({
   AccountChanged: class AccountChanged extends Error {},
 }));
 jest.mock("expo-image-picker", () => ({}));
+jest.mock("expo-image-manipulator", () => ({}));
 
 const ME = create(identity.MeSchema, {
   user: { id: "u1", handle: "aoi", displayName: "あおい" },

@@ -4,6 +4,8 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/web-account.js
+- addMedia:
+    - "../fixtures/story.jpg"
 - launchApp:
     clearState: true
 - extendedWaitUntil:
@@ -46,6 +48,23 @@ env:
 - back
 - tapOn: { id: "settings-profile" }
 - assertVisible: "ramen and maps"
+
+# The avatar is cropped by the system, scaled down on the phone and goes up.
+- tapOn: { id: "profile-avatar-change" }
+- runFlow: ../subflows/pick-first-media.yaml
+- runFlow:
+    when:
+      visible: { id: "app.tokuly.mobile:id/crop_image_menu_crop" }
+    commands:
+      - tapOn: { id: "app.tokuly.mobile:id/crop_image_menu_crop" }
+- runFlow:
+    when: { platform: iOS }
+    commands:
+      - tapOn: "(Choose|選択)"
+- extendedWaitUntil:
+    visible: "(Picture updated!|アイコンを変えました！)"
+    timeout: 30000
+- tapOn: "OK"
 - back
 
 # Privacy: a choice and a switch save at once, and are still there when the screen opens again.
