@@ -5,13 +5,14 @@ describe("where a server path goes", () => {
   it("opens a screen the app has", () => {
     expect(pushRoute("/chat/42")).toBe("/chat/42");
     expect(pushRoute(`${SERVER_URL}/u/alice`)).toBe("/u/alice");
+    expect(pushRoute("/notes/abc")).toBe("/notes/abc");
   });
 
   it("opens what only the web has in the web view, signed in, not the inbox", () => {
     expect(pushRoute("/live/xyz")).toBe(`/web?path=${encodeURIComponent("/live/xyz")}`);
-    expect(targetOf("/notes/abc")).toEqual({
+    expect(targetOf("/notes/channels/abc")).toEqual({
       type: "screen",
-      href: `/web?path=${encodeURIComponent("/notes/abc")}`,
+      href: `/web?path=${encodeURIComponent("/notes/channels/abc")}`,
     });
     expect(pushRoute("/settings")).toBe(`/web?path=${encodeURIComponent("/settings")}`);
   });
