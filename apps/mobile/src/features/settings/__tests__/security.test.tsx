@@ -124,7 +124,9 @@ describe("security settings", () => {
     const buttons = alert.mock.calls[0]?.[2] ?? [];
     buttons.find((button) => button.style === "destructive")?.onPress?.();
 
-    await waitFor(() => expect(alert).toHaveBeenLastCalledWith("ほかのデバイスをすべてログアウトさせました"));
+    await waitFor(() =>
+      expect(alert).toHaveBeenLastCalledWith("ほかのデバイスをすべてログアウトさせました"),
+    );
     expect(revoked).toEqual(["tablet"]);
   });
 
@@ -151,7 +153,10 @@ describe("security settings", () => {
     const secrets = ["JBSWY3DP", "NEWKEY22"];
     await open(<TotpSetupScreen />, {
       answers: {
-        beginTotpSetup: async () => ({ secret: secrets.shift(), otpauthUrl: "otpauth://totp/Tokuly" }),
+        beginTotpSetup: async () => ({
+          secret: secrets.shift(),
+          otpauthUrl: "otpauth://totp/Tokuly",
+        }),
         enableTotp: async () => {
           throw refused("TOTP_SETUP_EXPIRED");
         },

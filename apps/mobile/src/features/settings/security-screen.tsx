@@ -16,13 +16,14 @@ import { Alert, Text, View } from "react-native";
 import { Button } from "#/components/button";
 import { Page, Row, Section, Spinner } from "#/components/page";
 import { TextField } from "#/components/text-field";
-import { currentAccount, isActive } from "#/features/session/account";
+import { currentAccount } from "#/features/session/account";
 import { useMe } from "#/features/session/store";
 import { webScreenHref } from "#/features/web/handoff";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
 import { useTheme } from "#/lib/theme";
+import { adoptTotp } from "./data";
 
 export const securityKeys = {
   sessions: ["identity", "sessions"] as const,
@@ -81,8 +82,7 @@ function TotpSection() {
       const account = currentAccount();
       if (!account) return;
       await account.api.service(identity.AccountService).disableTotp({ code: code.trim() });
-      const fresh = await account.api.service(identity.AccountService).getMe({});
-      if (fresh.me && isActive(account)) account.api.session.updateMe(fresh.me);
+      await adoptTotp(account, false);
     },
     onSuccess: () => {
       setDisabling(false);

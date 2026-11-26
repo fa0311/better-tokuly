@@ -7,9 +7,10 @@ import { Linking, Share, Text, View } from "react-native";
 import { Button } from "#/components/button";
 import { ErrorNote, Page, Spinner } from "#/components/page";
 import { TextField } from "#/components/text-field";
-import { type Account, currentAccount, isActive } from "#/features/session/account";
+import { type Account, currentAccount } from "#/features/session/account";
 import { useMe } from "#/features/session/store";
 import { errorMessage } from "#/lib/errors";
+import { adoptTotp } from "./data";
 
 /** Keeps a code field to what a code can be: digits, optionally spaced. */
 const digitsOnly = (value: string) => value.replace(/[^\d\s]/g, "").slice(0, 7);
@@ -48,8 +49,7 @@ export function TotpSetupScreen() {
       if (!account) throw new Error("signed out");
       const service = account.api.service(identity.AccountService);
       const response = await service.enableTotp({ code, currentPassword: password });
-      const fresh = await service.getMe({}).catch(() => null);
-      if (fresh?.me && isActive(account)) account.api.session.updateMe(fresh.me);
+      await adoptTotp(account, true);
       return response.recoveryCodes;
     },
     onSuccess: setRecoveryCodes,

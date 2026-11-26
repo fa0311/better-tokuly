@@ -1,7 +1,8 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Api, create, identity } from "@tokuly/api";
 import { Alert } from "react-native";
-import { currentAccount, isActive } from "#/features/session/account";
+import { type Account, currentAccount, isActive } from "#/features/session/account";
+import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 
@@ -64,4 +65,21 @@ export function changePrivacy(query: QueryClient, patch: Partial<identity.Privac
 export function useChangePrivacy() {
   const query = useQueryClient();
   return (patch: Partial<identity.PrivacySettings>) => changePrivacy(query, patch);
+}
+
+/**
+ * Two-step verification was just turned on or off as `account`: its screens
+ * get the fresh `Me`. When that cannot be read (the change went through, the
+ * next request did not), the `Me` they have is kept with what is known to
+ * have changed, so the screen never offers what was just done once more.
+ */
+export async function adoptTotp(account: Account, enabled: boolean): Promise<void> {
+  const fresh = await accountService(account.api)
+    .getMe({})
+    .catch(() => null);
+  if (!isActive(account)) return;
+  const { state } = useSessionStore.getState();
+  if (fresh?.me) account.api.session.updateMe(fresh.me);
+  else if (state.status === "signedIn")
+    account.api.session.updateMe({ ...state.me, totpEnabled: enabled });
 }
