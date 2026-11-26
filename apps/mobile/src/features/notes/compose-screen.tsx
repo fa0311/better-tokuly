@@ -19,9 +19,17 @@ import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
 import { router, useNavigation, usePreventRemove } from "expo-router";
 import { BarChart3, ImagePlus, TriangleAlert, X } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { type ComponentRef, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
@@ -205,7 +213,10 @@ function Composer({
   const hasContent = text.trim() !== "" || photos.photos.length > 0 || poll !== undefined;
   const canPost =
     hasContent && !over && !photos.busy && !photos.failed && !busy && (!poll || pollReady(poll));
-  const unsaved = touched && hasContent && !busy;
+  // Set once the words are posted or kept: the screen goes without asking. Kept out of
+  // `unsaved` too, or the guard comes back when `busy` clears while the screen is leaving.
+  const done = useRef(false);
+  const unsaved = touched && hasContent && !busy && !done.current;
 
   const draftContent = (): NoteContent => ({
     text: text.trim(),
@@ -219,8 +230,6 @@ function Composer({
     channelId: content?.channelId ?? "",
   });
 
-  // Set once the words are posted or kept: the guard below lets the screen go.
-  const done = useRef(false);
   const leave = () => {
     done.current = true;
     router.back();
@@ -280,188 +289,205 @@ function Composer({
       ? t("compose.title.quote")
       : t("compose.title.new");
   useEffect(() => navigation.setOptions({ title }), [navigation, title]);
+  // Android draws edge to edge: the window is not resized for the keyboard, so the toolbar is
+  // lifted above it. The view starts below the header, which the keyboard's position counts.
+  const screen = useRef<ComponentRef<typeof View>>(null);
+  const [top, setTop] = useState(0);
   return (
-    <SafeAreaView edges={["bottom"]} className="flex-1 bg-bg" testID="note-composer">
-      <ScrollView
-        contentContainerClassName="gap-3 px-4 pt-4 pb-6"
-        keyboardShouldPersistTaps="handled"
-      >
-        {replyTo && (
-          <View className="gap-1 rounded-2xl bg-surface p-3">
-            <Text className="text-xs font-bold text-ink-soft">
-              {t("compose.replyingTo", { handle: replyTo.author?.handle ?? "" })}
-            </Text>
-            <NoteRichText note={replyTo} numberOfLines={3} />
-          </View>
-        )}
-        <Pressable
-          testID="note-audience"
-          accessibilityRole="button"
-          onPress={() => setPicking(true)}
-          className="self-start rounded-full bg-surface px-3 py-1.5"
+    <SafeAreaView
+      ref={screen}
+      edges={["bottom"]}
+      className="flex-1 bg-bg"
+      testID="note-composer"
+      onLayout={() => screen.current?.measureInWindow((_x, y) => setTop(y))}
+    >
+      <KeyboardAvoidingView className="flex-1" behavior="padding" keyboardVerticalOffset={top}>
+        <ScrollView
+          contentContainerClassName="gap-3 px-4 pt-4 pb-6"
+          keyboardShouldPersistTaps="handled"
         >
-          <Text className="text-sm font-black text-brand">
-            {shownAudience
-              ? t(`visibility.${shownAudience.key}.label`)
-              : tm("notes.defaultAudience")}{" "}
-            ▾
-          </Text>
-        </Pressable>
-        <TextInput
-          testID="note-text"
-          value={text}
-          autoFocus
-          multiline
-          onChangeText={edit}
-          onSelectionChange={(event) => setCaret(event.nativeEvent.selection.end)}
-          placeholder={replyTo ? t("compose.replyPlaceholder") : t("compose.placeholder")}
-          placeholderTextColor={colors["ink-faint"]}
-          className="min-h-[120px] text-lg text-ink"
-          textAlignVertical="top"
-        />
-        {hashtag && (suggestions.data?.length ?? 0) > 0 && (
-          <View className="flex-row flex-wrap gap-2" accessibilityLabel={t("compose.suggestions")}>
-            {suggestions.data!.map((suggestion) => (
-              <Pressable
-                key={suggestion.tag}
-                accessibilityRole="button"
-                onPress={() => {
-                  const done = applyCompletion(text, hashtag, `#${suggestion.tag}`);
-                  edit(done.text);
-                  setCaret(done.caret);
-                }}
-                className="rounded-full bg-brand-soft px-3 py-1.5"
-              >
-                <Text className="font-bold text-brand-strong">#{suggestion.tag}</Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
-        {warning && (
+          {replyTo && (
+            <View className="gap-1 rounded-2xl bg-surface p-3">
+              <Text className="text-xs font-bold text-ink-soft">
+                {t("compose.replyingTo", { handle: replyTo.author?.handle ?? "" })}
+              </Text>
+              <NoteRichText note={replyTo} numberOfLines={3} />
+            </View>
+          )}
+          <Pressable
+            testID="note-audience"
+            accessibilityRole="button"
+            onPress={() => setPicking(true)}
+            className="self-start rounded-full bg-surface px-3 py-1.5"
+          >
+            <Text className="text-sm font-black text-brand">
+              {shownAudience
+                ? t(`visibility.${shownAudience.key}.label`)
+                : tm("notes.defaultAudience")}{" "}
+              ▾
+            </Text>
+          </Pressable>
           <TextInput
-            testID="note-warning-text"
-            value={warningText}
-            onChangeText={(next) => {
-              setWarningText(next);
-              setTouched(true);
-            }}
-            maxLength={100}
-            placeholder={t("compose.warningPlaceholder")}
+            testID="note-text"
+            value={text}
+            autoFocus
+            multiline
+            onChangeText={edit}
+            onSelectionChange={(event) => setCaret(event.nativeEvent.selection.end)}
+            placeholder={replyTo ? t("compose.replyPlaceholder") : t("compose.placeholder")}
             placeholderTextColor={colors["ink-faint"]}
-            className="h-11 rounded-control bg-surface px-4 text-base text-ink"
+            className="min-h-[120px] text-lg text-ink"
+            textAlignVertical="top"
           />
-        )}
-        {photos.photos.length > 0 && (
-          <ScrollView horizontal contentContainerClassName="gap-2">
-            {photos.photos.map((photo) => (
-              <View key={photo.key} className="size-24 overflow-hidden rounded-2xl bg-surface-3">
-                <Image
-                  source={photo.uri}
-                  contentFit="cover"
-                  style={{ width: "100%", height: "100%" }}
-                />
-                {!photo.assetId && !photo.error && (
-                  <View className="absolute inset-0 items-center justify-center bg-black/40">
-                    <Text className="font-black text-white">
-                      {Math.round(photo.progress * 100)}%
-                    </Text>
-                  </View>
-                )}
-                {photo.error !== undefined && (
-                  <View className="absolute inset-0 items-center justify-center bg-danger/70 px-1">
-                    <Text className="text-center text-xs font-black text-white" numberOfLines={3}>
-                      {errorMessage(photo.error, { namespace: "notes" })}
-                    </Text>
-                  </View>
-                )}
+          {hashtag && (suggestions.data?.length ?? 0) > 0 && (
+            <View
+              className="flex-row flex-wrap gap-2"
+              accessibilityLabel={t("compose.suggestions")}
+            >
+              {suggestions.data!.map((suggestion) => (
                 <Pressable
+                  key={suggestion.tag}
                   accessibilityRole="button"
-                  accessibilityLabel={t("uploads.remove")}
-                  onPress={() => photos.remove(photo.key)}
-                  className="absolute top-1 right-1 rounded-full bg-black/60 p-1"
+                  onPress={() => {
+                    const done = applyCompletion(text, hashtag, `#${suggestion.tag}`);
+                    edit(done.text);
+                    setCaret(done.caret);
+                  }}
+                  className="rounded-full bg-brand-soft px-3 py-1.5"
                 >
-                  <X color="#ffffff" size={14} />
+                  <Text className="font-bold text-brand-strong">#{suggestion.tag}</Text>
                 </Pressable>
-              </View>
-            ))}
-          </ScrollView>
-        )}
-        {poll && (
-          <PollEditor
-            poll={poll}
-            onChange={(next) => {
-              setPoll(next);
+              ))}
+            </View>
+          )}
+          {warning && (
+            <TextInput
+              testID="note-warning-text"
+              value={warningText}
+              onChangeText={(next) => {
+                setWarningText(next);
+                setTouched(true);
+              }}
+              maxLength={100}
+              placeholder={t("compose.warningPlaceholder")}
+              placeholderTextColor={colors["ink-faint"]}
+              className="h-11 rounded-control bg-surface px-4 text-base text-ink"
+            />
+          )}
+          {photos.photos.length > 0 && (
+            <ScrollView horizontal contentContainerClassName="gap-2">
+              {photos.photos.map((photo) => (
+                <View key={photo.key} className="size-24 overflow-hidden rounded-2xl bg-surface-3">
+                  <Image
+                    source={photo.uri}
+                    contentFit="cover"
+                    style={{ width: "100%", height: "100%" }}
+                  />
+                  {!photo.assetId && !photo.error && (
+                    <View className="absolute inset-0 items-center justify-center bg-black/40">
+                      <Text className="font-black text-white">
+                        {Math.round(photo.progress * 100)}%
+                      </Text>
+                    </View>
+                  )}
+                  {photo.error !== undefined && (
+                    <View className="absolute inset-0 items-center justify-center bg-danger/70 px-1">
+                      <Text className="text-center text-xs font-black text-white" numberOfLines={3}>
+                        {errorMessage(photo.error, { namespace: "notes" })}
+                      </Text>
+                    </View>
+                  )}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t("uploads.remove")}
+                    onPress={() => photos.remove(photo.key)}
+                    className="absolute top-1 right-1 rounded-full bg-black/60 p-1"
+                  >
+                    <X color="#ffffff" size={14} />
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+          {poll && (
+            <PollEditor
+              poll={poll}
+              onChange={(next) => {
+                setPoll(next);
+                setTouched(true);
+              }}
+              onRemove={() => setPoll(undefined)}
+            />
+          )}
+          {quote && (
+            <View className="gap-1 rounded-2xl border border-line p-3">
+              <Text className="text-xs font-bold text-ink-soft">
+                {quote.author?.displayName || quote.author?.handle}
+              </Text>
+              <NoteRichText note={quote} numberOfLines={3} />
+            </View>
+          )}
+        </ScrollView>
+        <View className="flex-row items-center gap-1 border-t border-line bg-surface px-2 py-2">
+          <Pressable
+            testID="note-add-photo"
+            accessibilityRole="button"
+            accessibilityLabel={t("compose.addMedia")}
+            disabled={photos.photos.length >= 10}
+            onPress={async () => {
+              if ((await photos.pick()) === "denied") Alert.alert(tm("chat.photoDenied"));
               setTouched(true);
             }}
-            onRemove={() => setPoll(undefined)}
-          />
-        )}
-        {quote && (
-          <View className="gap-1 rounded-2xl border border-line p-3">
-            <Text className="text-xs font-bold text-ink-soft">
-              {quote.author?.displayName || quote.author?.handle}
-            </Text>
-            <NoteRichText note={quote} numberOfLines={3} />
-          </View>
-        )}
-      </ScrollView>
-      <View className="flex-row items-center gap-1 border-t border-line bg-surface px-2 py-2">
-        <Pressable
-          testID="note-add-photo"
-          accessibilityRole="button"
-          accessibilityLabel={t("compose.addMedia")}
-          disabled={photos.photos.length >= 10}
-          onPress={async () => {
-            if ((await photos.pick()) === "denied") Alert.alert(tm("chat.photoDenied"));
-            setTouched(true);
-          }}
-          className="rounded-full p-2.5"
-        >
-          <ImagePlus color={colors.brand} size={22} />
-        </Pressable>
-        <Pressable
-          testID="note-add-poll"
-          accessibilityRole="button"
-          accessibilityLabel={t("compose.poll.title")}
-          accessibilityState={{ selected: Boolean(poll) }}
-          onPress={() => setPoll(poll ? undefined : newPoll())}
-          className={`rounded-full p-2.5 ${poll ? "bg-brand-soft" : ""}`}
-        >
-          <BarChart3 color={colors.brand} size={22} />
-        </Pressable>
-        <Pressable
-          testID="note-warning"
-          accessibilityRole="switch"
-          accessibilityLabel={t("compose.sensitive")}
-          accessibilityState={{ checked: warning }}
-          onPress={() => setWarning(!warning)}
-          className={`rounded-full p-2.5 ${warning ? "bg-brand-soft" : ""}`}
-        >
-          <TriangleAlert color={warning ? colors.coral : colors.brand} size={22} />
-        </Pressable>
-        <Text className={`ml-auto mr-2 text-sm font-black ${over ? "text-danger" : "text-coral"}`}>
-          {length > COUNT_FROM ? `${length}/${NOTE_MAX_CHARS}` : ""}
-        </Text>
-        <Button
-          testID="note-save-draft"
-          variant="ghost"
-          size="sm"
-          disabled={!hasContent || over || photos.busy || Boolean(busy)}
-          loading={busy === "draft"}
-          onPress={() => void keepAsDraft()}
-        >
-          {t("compose.saveDraft")}
-        </Button>
-        <Button
-          testID="note-post"
-          size="sm"
-          disabled={!canPost}
-          loading={busy === "post"}
-          onPress={() => void post()}
-        >
-          {replyTo ? t("compose.reply") : t("compose.post")}
-        </Button>
-      </View>
+            className="rounded-full p-2.5"
+          >
+            <ImagePlus color={colors.brand} size={22} />
+          </Pressable>
+          <Pressable
+            testID="note-add-poll"
+            accessibilityRole="button"
+            accessibilityLabel={t("compose.poll.title")}
+            accessibilityState={{ selected: Boolean(poll) }}
+            onPress={() => setPoll(poll ? undefined : newPoll())}
+            className={`rounded-full p-2.5 ${poll ? "bg-brand-soft" : ""}`}
+          >
+            <BarChart3 color={colors.brand} size={22} />
+          </Pressable>
+          <Pressable
+            testID="note-warning"
+            accessibilityRole="switch"
+            accessibilityLabel={t("compose.sensitive")}
+            accessibilityState={{ checked: warning }}
+            onPress={() => setWarning(!warning)}
+            className={`rounded-full p-2.5 ${warning ? "bg-brand-soft" : ""}`}
+          >
+            <TriangleAlert color={warning ? colors.coral : colors.brand} size={22} />
+          </Pressable>
+          <Text
+            className={`ml-auto mr-2 text-sm font-black ${over ? "text-danger" : "text-coral"}`}
+          >
+            {length > COUNT_FROM ? `${length}/${NOTE_MAX_CHARS}` : ""}
+          </Text>
+          <Button
+            testID="note-save-draft"
+            variant="ghost"
+            size="sm"
+            disabled={!hasContent || over || photos.busy || Boolean(busy)}
+            loading={busy === "draft"}
+            onPress={() => void keepAsDraft()}
+          >
+            {t("compose.saveDraft")}
+          </Button>
+          <Button
+            testID="note-post"
+            size="sm"
+            disabled={!canPost}
+            loading={busy === "post"}
+            onPress={() => void post()}
+          >
+            {replyTo ? t("compose.reply") : t("compose.post")}
+          </Button>
+        </View>
+      </KeyboardAvoidingView>
       {picking && (
         <AudienceSheet
           value={wanted}
