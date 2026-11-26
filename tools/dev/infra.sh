@@ -226,7 +226,8 @@ EOF
 # working directory; it names the users file): the backend's own account at its
 # default password, and `default` without one for local tools. Without this the
 # server has users of its own (none at all on macOS). A server started before
-# these files existed keeps its own until it is restarted (see print_env).
+# these files existed keeps its own until it is restarted; `default` without a
+# password is in both, and in compose.dev.yaml's, so `env` names that one.
 clickhouse_users() {
   echo '<clickhouse><users_config>users.xml</users_config></clickhouse>' >"$DATA/clickhouse/config.xml"
   cat >"$DATA/clickhouse/users.xml" <<EOF
@@ -320,9 +321,6 @@ status() {
 }
 
 print_env() {
-  # A ClickHouse started before its users were written down knows only `default`.
-  local ch_user=default ch_password=""
-  if [ -f "$DATA/clickhouse/users.xml" ]; then ch_user="$CLICKHOUSE_USER" ch_password="$CLICKHOUSE_PASSWORD"; fi
   cat <<EOF
 export TOKULY_DATABASE_URL="postgres://tokuly@127.0.0.1:$P_POSTGRES/tokuly"
 export TOKULY_VALKEY_URL="redis://127.0.0.1:$P_VALKEY"
@@ -332,8 +330,8 @@ export TOKULY_S3_PUBLIC_ENDPOINT="http://127.0.0.1:$P_S3"
 export TOKULY_S3_ACCESS_KEY="$S3_ACCESS_KEY"
 export TOKULY_S3_SECRET_KEY="$S3_SECRET_KEY"
 export TOKULY_CLICKHOUSE_URL="http://127.0.0.1:$P_CLICKHOUSE_HTTP"
-export TOKULY_CLICKHOUSE_USER="$ch_user"
-export TOKULY_CLICKHOUSE_PASSWORD="$ch_password"
+export TOKULY_CLICKHOUSE_USER="default"
+export TOKULY_CLICKHOUSE_PASSWORD=""
 export TOKULY_MEILI_URL="http://127.0.0.1:$P_MEILI"
 export TOKULY_MEILI_KEY="$MEILI_KEY"
 export TOKULY_SMTP_URL="smtp://127.0.0.1:$P_SMTP"
