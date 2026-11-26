@@ -15,6 +15,8 @@ browser_addresses() {
     export TOKULY_RT_PUBLIC_WT_URL="https://127.0.0.1:$(($1 + 2))/rt" TOKULY_RT_PUBLIC_WS_URL="ws://localhost:$(($1 + 1))/rt/ws"
   fi
 }
+# The tokuly.toml a Compose deployment starts with, so the browser tests meet the same settings.
+first_config() { "$REPO/tools/init-env.sh" --config "$RUN/tokuly-$1.toml"; export TOKULY_CONFIG="$RUN/tokuly-$1.toml"; }
 stop_one() { [ -f "$RUN/$1.pid" ] && kill "$(cat "$RUN/$1.pid")" 2>/dev/null || true; rm -f "$RUN/$1.pid"; }
 case "${1:-}" in
   api)
@@ -29,6 +31,7 @@ case "${1:-}" in
     psql "$ADMIN_URL" -qAtc "SELECT 1 FROM pg_database WHERE datname='tokuly_dev'" | grep -q 1 \
       || psql "$ADMIN_URL" -qc 'CREATE DATABASE tokuly_dev' >/dev/null
     export TOKULY_DATABASE_URL="${ADMIN_URL%/*}/tokuly_dev"
+    first_config dev
     export TOKULY_PUBLIC_URL=http://localhost:53000 TOKULY_API_LISTEN=127.0.0.1:58081
     # The account with this handle becomes admin when it signs up (used by the browser tests).
     # Browser tests sign up many accounts from one address.
@@ -59,6 +62,7 @@ case "${1:-}" in
     curl -fsS "$TOKULY_CLICKHOUSE_URL/" --user "$TOKULY_CLICKHOUSE_USER:$TOKULY_CLICKHOUSE_PASSWORD" \
       --data-binary "CREATE DATABASE IF NOT EXISTS $db" >/dev/null
     export TOKULY_DATABASE_URL="${ADMIN_URL%/*}/$db" TOKULY_CLICKHOUSE_DATABASE="$db"
+    first_config "$name"
     export TOKULY_VALKEY_URL="${TOKULY_VALKEY_URL%/}/$(( port % 14 + 2 ))"
     export TOKULY_NATS_PREFIX="${name//[^a-zA-Z0-9_]/_}" TOKULY_SEARCH_INDEX_PREFIX="${name//[^a-zA-Z0-9_]/_}_"
     export TOKULY_PUBLIC_URL="http://localhost:$webport" TOKULY_API_LISTEN="127.0.0.1:$port"

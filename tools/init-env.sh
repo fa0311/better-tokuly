@@ -10,6 +10,7 @@
 #
 #   tools/init-env.sh           # no .env: write one. An existing .env: add the secrets it lacks, touch nothing else
 #   tools/init-env.sh --force   # start over (existing data volumes will not accept the new secrets)
+#   tools/init-env.sh --config <file>   # only write that first tokuly.toml, to <file> (a backend outside Compose)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -31,11 +32,10 @@ is_secret() {
   return 1
 }
 
-# The declarative settings: a short start, never overwritten.
+# The declarative settings: a short start, written to $1.
 write_config() {
-  [ -e config/tokuly.toml ] && return 0
-  mkdir -p config
-  cat >config/tokuly.toml <<'TOML'
+  mkdir -p "$(dirname "$1")"
+  cat >"$1" <<'TOML'
 # Tokuly settings (created by tools/init-env.sh). Every key, its default and
 # what it does: tokuly.example.toml. Unknown keys stop the backend, so typos
 # show at once. Restart what a change needs: `docker compose restart api worker`.
@@ -52,12 +52,19 @@ registration_open = true
 # in a real payment provider.
 dev_provider = true
 TOML
+}
+if [ "${1:-}" = --config ]; then
+  write_config "${2:?usage: init-env.sh --config <file>}"
+  exit 0
+fi
+# Never overwritten: from here on it is the operator's.
+if [ ! -e config/tokuly.toml ]; then
+  write_config config/tokuly.toml
   # Read by the containers' own user, whatever this shell's umask is.
   chmod 755 config
   chmod 644 config/tokuly.toml
   echo "Wrote config/tokuly.toml (settings other than secrets go there)."
-}
-write_config
+fi
 
 umask 077
 
