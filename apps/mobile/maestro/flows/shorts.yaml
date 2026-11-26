@@ -85,6 +85,18 @@ env:
     start: 50%, 75%
     end: 50%, 15%
     duration: 300
+# The next page may still have been on its way: then there was nothing to swipe to yet.
+- runFlow:
+    when:
+      notVisible: { id: "short-repeat" }
+    commands:
+      - extendedWaitUntil:
+          visible: { id: "short-like-count" }
+          timeout: 5000
+      - swipe:
+          start: 50%, 75%
+          end: 50%, 15%
+          duration: 300
 - extendedWaitUntil:
     visible: { id: "short-repeat" }
     timeout: 20000
