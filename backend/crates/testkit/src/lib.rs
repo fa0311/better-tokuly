@@ -21,166 +21,48 @@
 //! - a private PostgreSQL database per test binary with only the migrations
 //!   you list (so another domain's half-written migration cannot break you);
 //! - a private NATS namespace, so jobs and events never reach a dev server;
+//! - private media and private-file buckets, so uploads never mix with a
+//!   dev server's;
 //! - a private ClickHouse database with `backend/clickhouse/*.sql` applied
 //!   (`app.flush_analytics()` makes tracked events queryable);
 //! - RPC calls dispatched in-process through the same auth middleware the
 //!   real server uses.
-use std::{
-    path::PathBuf,
-    sync::OnceLock,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+//!
+//! What the binary creates on the shared infrastructure is removed when it
+//! exits, passed or failed; leftovers of killed runs are swept by later runs
+//! once they are six hours old (`src/env.rs`).
+mod buckets;
+mod clickhouse;
+mod env;
+mod nats;
+mod postgres;
+mod run;
+mod search_indexes;
+
+use std::time::Duration;
 
 use axum::body::Body;
 use buffa::Message as _;
 use bytes::{Buf as _, BufMut as _, Bytes, BytesMut};
-use clap::Parser;
 use futures::StreamExt as _;
 use http_body_util::BodyExt as _;
 use serde::{Serialize, de::DeserializeOwned};
-use sqlx::{Connection as _, PgConnection};
-use tokuly_core::{Core, auth::ClientMeta, config::Config, events::Event};
+use tokuly_core::{Core, auth::ClientMeta, events::Event};
 use tokuly_identity::{Identity, IdentityConfig, UserRow};
 pub use tokuly_proto::realtime::ServerFrame;
 use tokuly_proto::{RealtimeEvent, common::SubjectType};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-/// Everything shared by the tests of one test binary.
-struct TestEnv {
-    database_url: String,
-    nats_prefix: String,
-    /// Private ClickHouse database, when ClickHouse is reachable.
-    clickhouse_database: Option<String>,
-}
-
-static ENV: OnceLock<TestEnv> = OnceLock::new();
-
-#[derive(Parser)]
-struct EnvConfig {
-    #[command(flatten)]
-    core: Config,
-}
-
-fn base_config() -> Config {
-    // Reads TOKULY_* from the environment; the secret gets a test default.
-    let mut args = vec!["tokuly-test".to_owned()];
-    if std::env::var("TOKULY_SECRET").is_err() {
-        args.push("--secret".to_owned());
-        args.push("test-secret-test-secret-test-secret-test".to_owned());
-    }
-    EnvConfig::parse_from(args).core
-}
-
-fn migrations_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../migrations")
-}
-
-fn clickhouse_schema_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../clickhouse")
-}
-
-/// Creates a private ClickHouse database with every schema file applied.
-/// Returns `None` when ClickHouse is not reachable (tests that need it will
-/// then fail on their first analytics query, with a clear connection error).
-async fn setup_clickhouse(cfg: &Config, name: &str, now: u64) -> Option<String> {
-    let server = clickhouse::Client::default()
-        .with_url(&cfg.clickhouse_url)
-        .with_user(&cfg.clickhouse_user)
-        .with_password(&cfg.clickhouse_password);
-    let existing: Vec<String> = server.query("SELECT name FROM system.databases WHERE name LIKE 'tokuly_test_%'").fetch_all().await.ok()?;
-    for database in existing {
-        let started = database.split('_').nth(2).and_then(|t| t.parse::<u64>().ok()).unwrap_or(0);
-        if now.saturating_sub(started) > 20 * 60 {
-            let _ = server.query(&format!("DROP DATABASE IF EXISTS `{database}`")).execute().await;
-        }
-    }
-    let mut files: Vec<PathBuf> = std::fs::read_dir(clickhouse_schema_dir())
-        .ok()?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|e| e == "sql"))
-        .collect();
-    files.sort();
-    let statements: Vec<(String, String)> = files
-        .iter()
-        .map(|f| (f.file_name().unwrap().to_string_lossy().into_owned(), std::fs::read_to_string(f).expect("testkit: read ClickHouse schema")))
-        .collect();
-    let borrowed: Vec<(&str, &str)> = statements.iter().map(|(n, s)| (n.as_str(), s.as_str())).collect();
-    let mut test_cfg = cfg.clone();
-    test_cfg.clickhouse_database = name.to_owned();
-    tokuly_core::analytics::apply_schema(&test_cfg, &borrowed)
-        .await
-        .unwrap_or_else(|e| panic!("testkit: ClickHouse schema failed: {e}"));
-    Some(name.to_owned())
+/// The Meilisearch index prefix of this test binary
+/// (`tokuly_test_<started>_<id>`), for `SearchConfig::index_prefix`. Every
+/// index whose name starts with it is deleted when the binary exits.
+pub fn search_index_prefix() -> String {
+    search_indexes::prefix(env::run())
 }
 
 fn random_suffix(len: usize) -> String {
     tokuly_core::ids::random_base62(len).to_ascii_lowercase()
-}
-
-/// Replaces the database name in a PostgreSQL URL.
-fn with_database(url: &str, database: &str) -> String {
-    let (base, query) = url.split_once('?').map(|(b, q)| (b, Some(q))).unwrap_or((url, None));
-    let prefix = base.rsplit_once('/').map(|(p, _)| p).unwrap_or(base);
-    match query {
-        Some(q) => format!("{prefix}/{database}?{q}"),
-        None => format!("{prefix}/{database}"),
-    }
-}
-
-async fn setup_env(migrations: Vec<String>) -> TestEnv {
-    let cfg = base_config();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let name = format!("tokuly_test_{now}_{}", random_suffix(6));
-    let mut admin = PgConnection::connect(&cfg.database_url)
-        .await
-        .unwrap_or_else(|e| panic!("testkit: cannot connect to PostgreSQL at TOKULY_DATABASE_URL ({e}). Start the dev infrastructure: tools/dev/infra.sh up && eval \"$(tools/dev/infra.sh env)\""));
-
-    // Drop databases left behind by test runs that started more than 20 minutes ago.
-    let stale: Vec<String> = sqlx::query_scalar("SELECT datname FROM pg_database WHERE datname LIKE 'tokuly_test_%'")
-        .fetch_all(&mut admin)
-        .await
-        .unwrap_or_default();
-    for db in stale {
-        let started = db.split('_').nth(2).and_then(|t| t.parse::<u64>().ok()).unwrap_or(0);
-        if now.saturating_sub(started) > 20 * 60 {
-            let _ = sqlx::query(sqlx::AssertSqlSafe(format!("DROP DATABASE IF EXISTS \"{db}\" WITH (FORCE)"))).execute(&mut admin).await;
-        }
-    }
-    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE \"{name}\"")))
-        .execute(&mut admin)
-        .await
-        .expect("testkit: CREATE DATABASE failed");
-    drop(admin);
-
-    let database_url = with_database(&cfg.database_url, &name);
-    let mut conn = PgConnection::connect(&database_url).await.expect("testkit: connect to the test database");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(migrations_dir())
-        .expect("testkit: backend/migrations is readable")
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|e| e == "sql"))
-        .collect();
-    files.sort();
-    for wanted in &migrations {
-        assert!(
-            files.iter().any(|f| f.file_name().unwrap().to_string_lossy().starts_with(&format!("{wanted}_"))),
-            "testkit: no migration file starts with `{wanted}_`"
-        );
-    }
-    for file in files {
-        let file_name = file.file_name().unwrap().to_string_lossy().into_owned();
-        let prefix = file_name.split('_').next().unwrap_or_default();
-        if !migrations.iter().any(|m| m == prefix) {
-            continue;
-        }
-        let sql = std::fs::read_to_string(&file).expect("testkit: read migration");
-        sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
-            .execute(&mut conn)
-            .await
-            .unwrap_or_else(|e| panic!("testkit: migration {file_name} failed: {e}"));
-    }
-    let clickhouse_database = setup_clickhouse(&cfg, &name, now).await;
-    TestEnv { database_url, nats_prefix: format!("T{now}_{}", random_suffix(6)), clickhouse_database }
 }
 
 /// A user created for a test, with a valid access token.
@@ -298,28 +180,14 @@ impl TestApp {
         migrations: &[&str],
         register: impl FnOnce(&Core, &Identity, connectrpc::Router) -> connectrpc::Router,
     ) -> Self {
-        let wanted: Vec<String> = migrations.iter().map(|m| m.to_string()).collect();
-        let env = ENV.get_or_init(|| {
-            // Each #[tokio::test] has its own runtime; do the one-time setup on a dedicated one.
-            std::thread::spawn(move || {
-                tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime").block_on(setup_env(wanted))
-            })
-            .join()
-            .expect("testkit: environment setup panicked")
-        });
-        let mut cfg = base_config();
-        cfg.database_url = env.database_url.clone();
-        cfg.nats_prefix = env.nats_prefix.clone();
-        if let Some(database) = &env.clickhouse_database {
-            cfg.clickhouse_database = database.clone();
-        }
+        let mut cfg = env::get(migrations).cfg.clone();
         cfg.database_max_connections = 5;
         cfg.smtp_url = String::new();
         cfg.otlp_endpoint = String::new();
         cfg.public_url = "http://localhost:8080".to_owned();
-        let core = Core::connect(cfg)
-            .await
-            .unwrap_or_else(|e| panic!("testkit: cannot connect to the dev infrastructure ({e}). Run tools/dev/infra.sh up"));
+        let core = Core::connect(cfg).await.unwrap_or_else(|e| {
+            panic!("testkit: cannot connect to the dev infrastructure ({e}). Run tools/dev/infra.sh up")
+        });
         let identity = Identity::new(core.clone(), IdentityConfig::default()).expect("identity");
         let connect = register(&core, &identity, connectrpc::Router::new());
         let router = axum::Router::new()
@@ -327,7 +195,12 @@ impl TestApp {
             .layer(axum::middleware::from_fn_with_state(core.auth_layer.clone(), tokuly_core::auth::auth_middleware));
         use rand::RngExt as _;
         let mut rng = rand::rng();
-        let ip = std::net::IpAddr::from([10, rng.random_range(0..255u8), rng.random_range(0..255u8), rng.random_range(1..255u8)]);
+        let ip = std::net::IpAddr::from([
+            10,
+            rng.random_range(0..255u8),
+            rng.random_range(0..255u8),
+            rng.random_range(1..255u8),
+        ]);
         Self { core, identity, router, ip }
     }
 
@@ -335,7 +208,11 @@ impl TestApp {
     /// gets a random suffix so tests sharing the database never collide;
     /// `name` becomes the display name.
     pub async fn user(&self, name: &str) -> TestUser {
-        let handle = format!("{}_{}", name.to_ascii_lowercase().replace(|c: char| !c.is_ascii_alphanumeric(), ""), random_suffix(6));
+        let handle = format!(
+            "{}_{}",
+            name.to_ascii_lowercase().replace(|c: char| !c.is_ascii_alphanumeric(), ""),
+            random_suffix(6)
+        );
         let id: Uuid = sqlx::query_scalar(
             "INSERT INTO users (handle, display_name, email, email_verified_at, birthdate)
              VALUES ($1::citext, $2, $3::citext, now(), '2000-01-01') RETURNING id",
@@ -364,11 +241,18 @@ impl TestApp {
     /// A fresh session (and token) for an existing user.
     pub async fn sign_in(&self, user_id: Uuid) -> TestUser {
         let row: UserRow = tokuly_identity::users::get(&self.core, user_id).await.expect("testkit: load user");
-        let issued = self.identity.create_session(&row, None, &ClientMeta::default()).await.expect("testkit: create session");
+        let issued =
+            self.identity.create_session(&row, None, &ClientMeta::default()).await.expect("testkit: create session");
         TestUser { id: row.id, handle: row.handle, token: issued.access_token, session_id: issued.session_id }
     }
 
-    fn request(&self, procedure: &str, user: Option<&TestUser>, content_type: &str, body: Bytes) -> http::Request<Body> {
+    fn request(
+        &self,
+        procedure: &str,
+        user: Option<&TestUser>,
+        content_type: &str,
+        body: Bytes,
+    ) -> http::Request<Body> {
         let mut builder = http::Request::builder()
             .method("POST")
             .uri(format!("/{}", procedure.trim_start_matches('/')))
@@ -394,7 +278,12 @@ impl TestApp {
 
     /// Calls a unary RPC, e.g. `"tokuly.identity.v1.AccountService/GetMe"`.
     /// `user` of `None` makes an anonymous call.
-    pub async fn call<Req: Serialize, Resp: DeserializeOwned>(&self, procedure: &str, user: Option<&TestUser>, request: &Req) -> Result<Resp, RpcError> {
+    pub async fn call<Req: Serialize, Resp: DeserializeOwned>(
+        &self,
+        procedure: &str,
+        user: Option<&TestUser>,
+        request: &Req,
+    ) -> Result<Resp, RpcError> {
         let body = serde_json::to_vec(request).expect("testkit: encode request");
         let response = self
             .router
@@ -403,13 +292,15 @@ impl TestApp {
             .await
             .expect("router is infallible");
         let status = response.status().as_u16();
-        let reason = response.headers().get("x-tokuly-error").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+        let reason =
+            response.headers().get("x-tokuly-error").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
         let bytes = response.into_body().collect().await.expect("testkit: read body").to_bytes();
         if status != 200 {
             return Err(Self::error_from(status, reason, &bytes));
         }
-        serde_json::from_slice(&bytes)
-            .map_err(|e| panic!("testkit: {procedure} returned undecodable JSON ({e}): {}", String::from_utf8_lossy(&bytes)))
+        serde_json::from_slice(&bytes).map_err(|e| {
+            panic!("testkit: {procedure} returned undecodable JSON ({e}): {}", String::from_utf8_lossy(&bytes))
+        })
     }
 
     /// Calls a server-streaming RPC and returns the first `take` messages
@@ -435,7 +326,8 @@ impl TestApp {
             .await
             .expect("router is infallible");
         let status = response.status().as_u16();
-        let reason = response.headers().get("x-tokuly-error").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+        let reason =
+            response.headers().get("x-tokuly-error").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
         let mut stream = response.into_body().into_data_stream();
         if status != 200 {
             let mut bytes = Vec::new();
@@ -488,13 +380,15 @@ impl TestApp {
     /// Subscribes to realtime frames sent to a user. Subscribe *before* the
     /// action that should produce them.
     pub async fn listen_user(&self, user_id: Uuid) -> FrameListener {
-        let subscriber = self.core.bus.subscribe(tokuly_core::realtime::user_subject(user_id)).await.expect("testkit: subscribe");
+        let subscriber =
+            self.core.bus.subscribe(tokuly_core::realtime::user_subject(user_id)).await.expect("testkit: subscribe");
         FrameListener { subscriber }
     }
 
     /// Subscribes to realtime frames sent to a topic, e.g. `live:<id>`.
     pub async fn listen_topic(&self, topic: &str) -> FrameListener {
-        let subscriber = self.core.bus.subscribe(tokuly_core::realtime::topic_subject(topic)).await.expect("testkit: subscribe");
+        let subscriber =
+            self.core.bus.subscribe(tokuly_core::realtime::topic_subject(topic)).await.expect("testkit: subscribe");
         FrameListener { subscriber }
     }
 
@@ -507,13 +401,16 @@ impl TestApp {
     /// Domain events currently in the outbox whose topic starts with
     /// `topic_prefix` (no relay runs in tests, so they stay there).
     pub async fn events(&self, topic_prefix: &str) -> Vec<Event> {
-        let rows: Vec<(Uuid, String, Option<Uuid>, serde_json::Value, chrono::DateTime<chrono::Utc>)> =
-            sqlx::query_as("SELECT id, topic, actor_id, data, occurred_at FROM outbox WHERE topic LIKE $1 || '%' ORDER BY id")
-                .bind(topic_prefix)
-                .fetch_all(&self.core.db)
-                .await
-                .expect("testkit: read outbox");
-        rows.into_iter().map(|(id, topic, actor_id, data, occurred_at)| Event { id, topic, actor_id, occurred_at, data }).collect()
+        let rows: Vec<(Uuid, String, Option<Uuid>, serde_json::Value, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+            "SELECT id, topic, actor_id, data, occurred_at FROM outbox WHERE topic LIKE $1 || '%' ORDER BY id",
+        )
+        .bind(topic_prefix)
+        .fetch_all(&self.core.db)
+        .await
+        .expect("testkit: read outbox");
+        rows.into_iter()
+            .map(|(id, topic, actor_id, data, occurred_at)| Event { id, topic, actor_id, occurred_at, data })
+            .collect()
     }
 
     /// Whether `subject.deleted` is in the outbox for this subject (`id`:
@@ -527,16 +424,5 @@ impl TestApp {
     /// [`Self::events`] to ignore other tests sharing the database.
     pub async fn events_by(&self, topic_prefix: &str, actor: Uuid) -> Vec<Event> {
         self.events(topic_prefix).await.into_iter().filter(|e| e.actor_id == Some(actor)).collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn database_name_is_swapped_in_urls() {
-        assert_eq!(with_database("postgres://u:p@h:5432/tokuly", "t1"), "postgres://u:p@h:5432/t1");
-        assert_eq!(with_database("postgres://u@h/tokuly?sslmode=disable", "t1"), "postgres://u@h/t1?sslmode=disable");
     }
 }

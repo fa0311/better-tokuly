@@ -6819,7 +6819,9 @@ dependencies = [
 name = "tokuly-testkit"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-nats",
+ "aws-sdk-s3",
  "axum",
  "buffa",
  "bytes",
@@ -6830,6 +6832,8 @@ dependencies = [
  "futures",
  "http",
  "http-body-util",
+ "libc",
+ "meilisearch-sdk",
  "rand 0.10.4",
  "serde",
  "serde_json",

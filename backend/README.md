@@ -323,6 +323,30 @@ assert_eq!(err.reason, "NOT_A_MEMBER");
   anonymous), and the validation errors with their reasons. Pure logic gets
   unit tests next to the code.
 
+What a test binary creates on the shared infrastructure is named after its
+run, `<started unix time>_<random id>`, and goes away again
+(`crates/testkit/src/env.rs`):
+
+| resource | name |
+|---|---|
+| PostgreSQL database | `tokuly_test_<run>` |
+| ClickHouse database | `tokuly_test_<run>` |
+| NATS subjects, JetStream streams and their consumers | `T<run>_…` |
+| media and private buckets | `tokuly-test-<started>-<id>-media`, `…-private` |
+| Meilisearch indexes (`tokuly_testkit::search_index_prefix()`) | `tokuly_test_<run>_…` |
+
+- **At exit** the binary removes all of it, whether its tests passed or
+  panicked (an `atexit` hook; libtest exits through it either way). Each
+  removal gives up after 10 s and says so on stderr.
+- **At start-up** it sweeps leftovers of runs that were killed (Ctrl-C, a
+  timeout, `SIGKILL`) once they are more than six hours old, going by the
+  start time in the name. Only names in the table above are ever touched:
+  the dev API (no prefix) and `dev.sh api-here <name>` instances
+  (`tokuly_<name>`, `<name>_…`) are not testkit's.
+- Use the run's buckets through `app.core.storage` (never the bucket names
+  of the dev API), and give `search_index_prefix()` to `SearchConfig` so the
+  indexes are cleaned up with the rest.
+
 ## Checklist before a domain is done
 
 - `buf lint` (repo root) is clean; `cargo build -p tokuly-<domain>` has no warnings.

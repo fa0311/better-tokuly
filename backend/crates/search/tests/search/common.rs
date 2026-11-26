@@ -1,6 +1,6 @@
 //! Shared setup and helpers for the search integration tests.
 //!
-//! Every test binary gets its own index prefix (`tokuly_test_<unix>_<random>`),
+//! Every test binary gets its own index prefix (`tokuly_test_<unix>_<random>`, from testkit),
 //! which also namespaces its Valkey keys. All tests of the binary share the
 //! twelve indexes under it, so each test works with its own users and with
 //! [`unique`] words nobody else searches for. The indexes are deleted when
@@ -47,8 +47,9 @@ fn random_letters(count: usize) -> String {
     Uuid::new_v4().as_bytes().iter().cycle().take(count).map(|b| (b'a' + b % 26) as char).collect()
 }
 
-/// The index prefix of this test binary.
-pub static PREFIX: LazyLock<String> = LazyLock::new(|| format!("{TEST_PREFIX}{}_{}", unix_now(), random_letters(6)));
+/// The index prefix of this test binary (testkit deletes its indexes at exit
+/// too, should a test crash before its lease ends).
+pub static PREFIX: LazyLock<String> = LazyLock::new(tokuly_testkit::search_index_prefix);
 
 struct SharedIndexes {
     /// Tests currently using the indexes.

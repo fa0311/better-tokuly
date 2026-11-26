@@ -129,6 +129,7 @@ tzf-rs = "2.3"
 # ── errors, cli, logs ──
 thiserror = "2"
 anyhow = "1"
+libc = "0.2"
 clap = { version = "4.6", features = ["derive", "env", "string"] }
 toml = "1.2"
 tracing = "0.1"
