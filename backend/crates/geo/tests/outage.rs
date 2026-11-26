@@ -63,4 +63,9 @@ async fn without_the_raw_history_store_sharing_and_the_timeline_carry_on() {
     assert_eq!((error.code.as_str(), error.reason.as_str()), ("unavailable", "HISTORY_UNAVAILABLE"));
     let visits: ListVisitsResponse = ctx.history("ListVisits", &aoi, &ListVisitsRequest::default()).await.unwrap();
     assert_eq!(visits.visits.len(), 1, "nothing was deleted");
+
+    // The points still waiting for ClickHouse do not keep a stop from reaching friends.
+    ctx.at(&aoi, end).await;
+    let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &StopSharingRequest::default()).await.unwrap();
+    assert!(ctx.seen_by(&ren, &aoi).await.expect("a pin").sharing_paused);
 }
