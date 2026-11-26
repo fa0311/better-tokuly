@@ -1,7 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Api, create, identity } from "@tokuly/api";
 import { Alert } from "react-native";
-import { currentAccount } from "#/features/session/account";
+import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 
@@ -33,7 +33,8 @@ let unsaved = 0;
  * Changes fields of the privacy settings. The screen shows the new value at
  * once; if the server refuses it, the screen reads what the server has and
  * says why. The save speaks as the account that made the change, even when
- * it waits behind another one past a switch (`query` is that account's cache).
+ * it waits behind another one past a switch (`query` is that account's cache);
+ * once that account is no longer the active one, its answer is not shown.
  */
 export function changePrivacy(query: QueryClient, patch: Partial<identity.PrivacySettings>): void {
   const account = currentAccount();
@@ -48,10 +49,11 @@ export function changePrivacy(query: QueryClient, patch: Partial<identity.Privac
       const response = await accountService(account.api).updateSettings({ privacy });
       unsaved -= 1;
       // While later changes are still queued the screen is ahead of this response.
-      if (unsaved === 0 && response.settings)
+      if (unsaved === 0 && response.settings && isActive(account))
         query.setQueryData(settingsKeys.settings, response.settings);
     } catch (error) {
       unsaved -= 1;
+      if (!isActive(account)) return;
       Alert.alert(errorMessage(error, { namespace: "settings" }));
       await query.invalidateQueries({ queryKey: settingsKeys.settings });
     }

@@ -2,12 +2,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, identity } from "@tokuly/api";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { currentAccount } from "#/features/session/account";
+import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
 import { PrivacyScreen } from "../privacy-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
-jest.mock("#/features/session/account", () => ({ currentAccount: jest.fn() }));
+jest.mock("#/features/session/account", () => ({
+  currentAccount: jest.fn(),
+  isActive: jest.fn(() => true),
+}));
 jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
 
 /** One account's API: the settings it holds, and every save it was sent. */
@@ -82,6 +85,7 @@ describe("privacy settings", () => {
 
     await fireEvent(screen.getByTestId("privacy-shareBattery"), "valueChange", false);
     jest.mocked(api).mockReturnValue(other.object as never);
+    jest.mocked(isActive).mockReturnValue(false);
 
     await waitFor(() => expect(main.saves).toHaveLength(1));
     expect(other.saves).toHaveLength(0);
