@@ -30,7 +30,15 @@ import { useTheme } from "#/lib/theme";
 import { agreeToRules, type NoteContent, postNote, saveDraft } from "./actions";
 import { AudienceSheet } from "./audience-sheet";
 import type { ComposeParams } from "./compose-href";
-import { draftClient, noteClient, useDraft, useHashtagSearch, useNote, useNoteRules } from "./data";
+import {
+  draftClient,
+  noteClient,
+  useDefaultAudience,
+  useDraft,
+  useHashtagSearch,
+  useNote,
+  useNoteRules,
+} from "./data";
 import { imageSource } from "./media";
 import { type NotePhoto, useNotePhotos } from "./photos";
 import { PollEditor } from "./poll-editor";
@@ -46,16 +54,20 @@ const COUNT_FROM = NOTE_MAX_CHARS - 500;
 export function ComposeScreen(params: ComposeParams) {
   const { t } = useTranslation("notes");
   const rules = useNoteRules();
-  const replyTo = useNote(params.replyTo);
-  const quote = useNote(params.quote);
   const draft = useDraft(params.draft);
+  // A draft of a reply or a quote brings its note along: the reply rule and the card need it.
+  const replyToId = params.replyTo ?? (draft.data?.content?.replyToId || undefined);
+  const quoteId = params.quote ?? (draft.data?.content?.quoteOfId || undefined);
+  const replyTo = useNote(replyToId);
+  const quote = useNote(quoteId);
   const loading =
     rules.isPending ||
-    (params.replyTo && replyTo.isPending) ||
-    (params.quote && quote.isPending) ||
-    (params.draft && draft.isPending);
+    (params.draft && draft.isPending) ||
+    (replyToId && replyTo.isPending) ||
+    (quoteId && quote.isPending);
   if (loading) return <Spinner />;
   // The note to answer or quote, or the draft, is gone or hidden: nothing to write against.
+  // (A draft whose note went away still opens: the server says so when it is posted.)
   if (
     (params.replyTo && !replyTo.data) ||
     (params.quote && !quote.data) ||
@@ -182,8 +194,11 @@ function Composer({
   // What the note is shown as: the choice (or the account's default), never wider than the note answered.
   const answered = replyTo ? noteAudience(replyTo) : undefined;
   const ceiling = answered ? audienceOption(answered) : undefined;
-  // Nothing chosen: the account's default, which the server narrows for a reply by itself.
-  const shownAudience = chosen ? replyAudience(chosen, answered) : undefined;
+  // Nothing chosen: the account's usual audience, which the server applies (and narrows for a
+  // reply) by itself; it is read here only so the button says who that is.
+  const usual = useDefaultAudience().data;
+  const wanted = chosen ?? usual;
+  const shownAudience = wanted ? replyAudience(wanted, answered) : undefined;
 
   const length = charCount(text.trim());
   const over = length > NOTE_MAX_CHARS;
@@ -215,7 +230,8 @@ function Composer({
     const client = draftClient();
     setBusy("draft");
     try {
-      await saveDraft(queryClient, client, draft?.id ?? "", draftContent());
+      // A draft waiting for its time keeps it: only the words change here.
+      await saveDraft(queryClient, client, draft?.id ?? "", draftContent(), draft?.scheduledAt);
       Alert.alert(t("toast.draftSaved"));
       leave();
     } catch (error) {
@@ -448,7 +464,7 @@ function Composer({
       </View>
       {picking && (
         <AudienceSheet
-          value={chosen}
+          value={wanted}
           minRank={ceiling && ceiling.rank < 3 ? ceiling.rank : 0}
           onChange={(next) => {
             setChosen(next);

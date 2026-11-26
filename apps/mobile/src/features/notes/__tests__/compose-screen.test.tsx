@@ -22,7 +22,7 @@ jest.mock("expo-crypto", () => ({ randomUUID: () => "idempotency-1" }));
 const FRIEND = create(common.UserSummarySchema, { id: "u-bob", handle: "bob", displayName: "Bob" });
 
 /** The API of one account: what each notes and social call was asked, answered the way a server would. */
-function account(options: { agreed?: boolean } = {}) {
+function account(options: { agreed?: boolean; draft?: notes.Draft } = {}) {
   const calls: { method: string; request: Record<string, unknown> }[] = [];
   let agreed = options.agreed ?? true;
   const record =
@@ -48,7 +48,15 @@ function account(options: { agreed?: boolean } = {}) {
       })),
       searchHashtags: async () => ({ hashtags: [] }),
     },
-    "tokuly.notes.v1.NoteDraftService": { saveDraft: record("saveDraft", () => ({})) },
+    "tokuly.notes.v1.NoteDraftService": {
+      saveDraft: record("saveDraft", () => ({})),
+      getDraft: async () => ({ draft: options.draft }),
+    },
+    "tokuly.identity.v1.AccountService": {
+      getSettings: async () => ({
+        settings: { privacy: { defaultNoteVisibility: common.Visibility.FRIENDS } },
+      }),
+    },
     "tokuly.social.v1.CircleService": { listCircles: async () => ({ circles: [] }) },
     "tokuly.social.v1.FriendService": {
       listFriends: async () => ({ friends: [{ user: FRIEND }] }),
@@ -129,6 +137,46 @@ describe("ComposeScreen", () => {
         request: expect.objectContaining({
           draftId: "",
           content: expect.objectContaining({ text: "あとで書く" }),
+        }),
+      }),
+    );
+  });
+
+  it("says who the note goes to when nothing is picked: the account's usual audience", async () => {
+    const alice = account();
+    jest.mocked(api).mockReturnValue(alice.object as never);
+    await open(<ComposeScreen />);
+    expect(await screen.findByText("ともだち ▾")).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByTestId("note-text"), "いつもどおり");
+    await fireEvent.press(screen.getByTestId("note-post"));
+    await waitFor(() =>
+      expect(alice.calls.some((call) => call.method === "createNote")).toBe(true),
+    );
+    // The choice stays the server's: it knows the setting as it is now.
+    expect(alice.calls.find((call) => call.method === "createNote")!.request).toMatchObject({
+      visibility: common.Visibility.UNSPECIFIED,
+    });
+  });
+
+  it("keeps the time a scheduled draft goes out when it is saved again", async () => {
+    const scheduledAt = { seconds: 1_900_000_000n, nanos: 0 };
+    const alice = account({
+      draft: create(notes.DraftSchema, {
+        id: "d-1",
+        content: { text: "あしたの朝に" },
+        scheduledAt,
+      }),
+    });
+    jest.mocked(api).mockReturnValue(alice.object as never);
+    await open(<ComposeScreen draft="d-1" />);
+    await fireEvent.changeText(await screen.findByTestId("note-text"), "あしたの朝に！");
+    await fireEvent.press(screen.getByTestId("note-save-draft"));
+    await waitFor(() =>
+      expect(alice.calls).toContainEqual({
+        method: "saveDraft",
+        request: expect.objectContaining({
+          draftId: "d-1",
+          scheduledAt: expect.objectContaining({ seconds: 1_900_000_000n }),
         }),
       }),
     );

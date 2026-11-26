@@ -5,7 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { notes, social } from "@tokuly/api";
+import { common, identity, notes, social } from "@tokuly/api";
 import { isCloseFriends } from "@tokuly/core/friends";
 import {
   clipKeys,
@@ -181,6 +181,22 @@ export function useClipNotes(clipId: string) {
       clipClient().getClipNotes({ clipId, page: { cursor: pageParam, limit: PAGE_SIZE } }),
     initialPageParam: "",
     getNextPageParam: nextCursor,
+  });
+}
+
+/**
+ * Who a note goes to when nothing is picked: the account's own setting (a
+ * minor's narrower default is already in it), so the composer can say it.
+ * The note is still sent without an audience: the server applies the setting.
+ */
+export function useDefaultAudience() {
+  return useQuery({
+    queryKey: [...notesKeys.all, "default-audience"] as const,
+    queryFn: async () => {
+      const { settings } = await api().service(identity.AccountService).getSettings({});
+      return { visibility: settings?.privacy?.defaultNoteVisibility || common.Visibility.PUBLIC };
+    },
+    staleTime: 60_000,
   });
 }
 
