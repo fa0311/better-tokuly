@@ -12,10 +12,10 @@ import { API_URL } from "#/lib/config";
 import i18n from "#/lib/i18n";
 import { apiClientKind } from "#/platform/device";
 
-/** The active account's API, and how its refresh token is made safe to move (`settleApi`). */
+/** The active account's API, and how its refresh token is moved out of the active store (`settleApi`). */
 interface ActiveApi {
   api: Api;
-  settle(): Promise<void>;
+  settle<T>(move: () => Promise<T>): Promise<T>;
 }
 
 let active: ActiveApi | null = null;
@@ -44,9 +44,9 @@ export function api(): Api {
  * holds (a leave hook that outlasted its wait, `#/seams/lifecycle`, still
  * speaks as its own account), any other is refused (`isAccountLeft`).
  *
- * The same goes for the account's own token on its way out: `settle()`
- * (before the token is parked or set aside) lets a refresh that is on its
- * way keep the token it was rotated to, and starts no other.
+ * The same goes for the account's own token on its way out: `settle(move)`
+ * lets a refresh that is on its way keep the token it was rotated to, and
+ * starts no other while the token is moved — nor ever again once it was.
  */
 function activeApi(own: number): ActiveApi {
   const left = () => own !== generation;
@@ -73,24 +73,32 @@ function activeApi(own: number): ActiveApi {
   const held = apiWith(store, fetch);
   return {
     api: held,
-    async settle() {
+    async settle(move) {
       settling = true;
-      // The refresh on its way, if there is one (they are single-flight); a new one is refused its token at once.
-      await held.session.refresh();
+      try {
+        // The refresh on its way, if there is one (they are single-flight); a new one is refused its token at once.
+        await held.session.refresh();
+        return await move();
+      } catch (error) {
+        // The token is still in the active store, and the account still the one in use: it refreshes as before.
+        settling = false;
+        throw error;
+      }
     },
   };
 }
 
 /**
- * Before the active account's refresh token is moved out of the active
- * store (parked, set aside as departed): a refresh may be on its way with
- * that token, and what is moved must be the token the server rotated it to,
- * not the spent one — sent again later than the server's grace, that one
- * gets the session revoked. From here on that API starts no refresh;
- * `resetApi()` follows.
+ * Moves the active account's refresh token out of the active store with
+ * `move` (parks it, sets it aside as departed). A refresh may be on its way
+ * with that token, and what is moved must be the token the server rotated it
+ * to, not the spent one — sent again later than the server's grace, that one
+ * gets the session revoked. Once `move` went through, that API starts no
+ * refresh; `resetApi()` follows. When it fails (the device's storage), the
+ * account stays the one in use and its API refreshes again.
  */
-export async function settleApi(): Promise<void> {
-  await active?.settle();
+export function settleApi<T>(move: () => Promise<T>): Promise<T> {
+  return active ? active.settle(move) : move();
 }
 
 /** The API as the session whose refresh token `store` keeps (the active one, or a parked one). */

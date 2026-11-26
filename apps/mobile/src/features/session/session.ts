@@ -14,6 +14,7 @@ import {
   departedTokenStore,
   departedTokens,
   departPreviousInstall,
+  dropDepartedActive,
   forgetDeparted,
   forgetParked,
   parkActive,
@@ -43,6 +44,7 @@ export async function startSession(): Promise<void> {
       [...ACCOUNT_KEYS, DEVICE_ID_KEY, ...FEATURE_SECURE_KEYS],
       departPreviousInstall,
     );
+    await dropDepartedActive();
     await prepareRealtime();
     bindStore();
     if (await activeTokenStore.get()) await api().session.restore();
@@ -75,9 +77,8 @@ async function startOver(response: identity.AuthResponse | null): Promise<void> 
  * Parks the account in use. Its API is settled first: the token that is
  * parked is the one its session ended up with, not one a refresh is spending.
  */
-async function park(sessionId: string): Promise<void> {
-  await settleApi();
-  await parkActive(sessionId);
+function park(sessionId: string): Promise<void> {
+  return settleApi(() => parkActive(sessionId));
 }
 
 function activeSessionId(): string | null {
@@ -155,27 +156,36 @@ export function removeParkedAccount(sessionId: string): Promise<void> {
  * that may be on its way: the account it ends is the one in use when it was
  * asked. When a switch went through meanwhile, that account is parked by
  * then; it leaves the device all the same and the new one stays signed in.
+ * Asked while nobody is signed in (an account is still being adopted), it
+ * ends nobody: whoever comes next did not ask.
  */
 export async function signOut(allSessions = false): Promise<{ everywherePending: boolean }> {
   const sessionId = activeSessionId();
+  if (!sessionId) return { everywherePending: false };
   await withParkedTokens(async () => {
-    if (sessionId && activeSessionId() !== sessionId) await departParked(sessionId, allSessions);
-    else await signOutActive(allSessions);
+    if (activeSessionId() === sessionId) await signOutActive(sessionId, allSessions);
+    else await departParked(sessionId, allSessions);
   });
   await settleDeparted();
-  const pending = sessionId ? (await departedTokens())[sessionId] : undefined;
+  const pending = (await departedTokens())[sessionId];
   return { everywherePending: Boolean(allSessions && pending) };
 }
 
 /** The account in use leaves and the app starts over signed out. Runs in the queue of the device's tokens. */
-async function signOutActive(allSessions: boolean): Promise<void> {
+async function signOutActive(sessionId: string, allSessions: boolean): Promise<void> {
   await leave();
   // The token set aside is the one the session ended up with (a refresh on its way lands first).
-  await settleApi();
-  const sessionId = activeSessionId();
-  const token = await activeTokenStore.get();
-  if (sessionId && token) await addDeparted(sessionId, { token, allSessions });
-  await api().session.signOut(allSessions);
+  await settleApi(async () => {
+    const token = await activeTokenStore.get();
+    if (token) await addDeparted(sessionId, { token, allSessions });
+  });
+  // Set aside, the account has left: the app is signed out even when the phone refuses to
+  // empty the active store (the next start does not resume what is left there).
+  try {
+    await api().session.signOut(allSessions);
+  } catch (error) {
+    console.warn("Could not empty the active token store; signed out all the same.", error);
+  }
   await startOver(null);
 }
 

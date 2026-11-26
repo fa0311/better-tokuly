@@ -1,6 +1,7 @@
 import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { create, identity } from "@tokuly/api";
+import * as SecureStore from "expo-secure-store";
 import { api, resetApi } from "#/lib/api";
 import { signOut, switchAccount } from "../session";
 import { useSessionStore } from "../store";
@@ -87,5 +88,37 @@ describe("signing out while a switch is on its way", () => {
       "RefreshToken with rt-main",
       "SignOut as main",
     ]);
+  });
+
+  it("ends nobody when it was asked while the new account was being adopted", async () => {
+    // Keeping `alt`'s token waits: between the two accounts, nobody is signed in yet.
+    const write = jest.mocked(SecureStore.setItemAsync);
+    const real = write.getMockImplementation();
+    let kept = () => {};
+    write.mockImplementation(async (key, value, options) => {
+      if (key === "tokuly.session.active" && value === "rt-alt-2")
+        await new Promise<void>((resolve) => {
+          kept = resolve;
+        });
+      return real?.(key, value, options);
+    });
+    const switching = switchAccount("s-alt");
+    await settle();
+    release();
+    while (useSessionStore.getState().state.status !== "unknown") await settle();
+    const signingOut = signOut();
+    await settle();
+    kept();
+    await expect(switching).resolves.toBe("switched");
+    await signingOut;
+    write.mockImplementation(real);
+
+    // `main` was parked by then and `alt` is the account in use: both stay.
+    const { state } = useSessionStore.getState();
+    expect(state.status === "signedIn" && state.sessionId).toBe("s-alt");
+    expect(await activeTokenStore.get()).toBe("rt-alt-2");
+    expect(await parkedTokens()).toEqual({ "s-main": "rt-main" });
+    expect(await departedTokens()).toEqual({});
+    expect(calls).toEqual(["SwitchAccount with rt-alt"]);
   });
 });

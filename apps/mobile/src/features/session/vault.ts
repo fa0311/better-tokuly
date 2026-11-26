@@ -27,12 +27,22 @@ export function parkedTokens(): Promise<ParkedTokens> {
   return readJson<ParkedTokens>(PARKED_KEY, {});
 }
 
-/** Parks the active account: its token moves beside the others, under its session ID. */
+/**
+ * Parks the active account: its token moves beside the others, under its
+ * session ID. All or nothing: an account that stays the active one goes on
+ * rotating its token, and a copy among the parked ones would be a spent one.
+ */
 export async function parkActive(sessionId: string): Promise<void> {
   const token = await activeTokenStore.get();
   if (!token || !sessionId) return;
-  await writeJson(PARKED_KEY, { ...(await parkedTokens()), [sessionId]: token });
-  await activeTokenStore.clear();
+  const parked = await parkedTokens();
+  await writeJson(PARKED_KEY, { ...parked, [sessionId]: token });
+  try {
+    await activeTokenStore.clear();
+  } catch (error) {
+    await writeJson(PARKED_KEY, parked);
+    throw error;
+  }
 }
 
 /**
@@ -93,6 +103,18 @@ export async function addDeparted(sessionId: string, departed: Departed): Promis
 export async function forgetDeparted(sessionId: string): Promise<void> {
   const { [sessionId]: _gone, ...rest } = await departedTokens();
   await writeJson(DEPARTED_KEY, rest);
+}
+
+/**
+ * The active store may still hold the token of an account that signed out
+ * (it was set aside, then the phone refused to empty the store): that
+ * account left, and is not resumed at the next start.
+ */
+export async function dropDepartedActive(): Promise<void> {
+  const active = await activeTokenStore.get();
+  if (!active) return;
+  const departed = Object.values(await departedTokens());
+  if (departed.some(({ token }) => token === active)) await activeTokenStore.clear();
 }
 
 /** The token store of one departed session: a refresh keeps the rotated token, a refused one ends it here. */

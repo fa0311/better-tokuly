@@ -89,8 +89,10 @@ describe("a refresh on its way while the account leaves", () => {
 
   it("starts no refresh once its token is about to be moved", async () => {
     const main = api();
-    await settleApi();
     // Something of `main` needs a fresh access token while its refresh token goes to the parked ones.
+    await settleApi(async () => {
+      await expect(main.session.refresh()).resolves.toBe(false);
+    });
     await expect(main.session.refresh()).resolves.toBe(false);
 
     expect(calls).toEqual([]);
