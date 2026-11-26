@@ -3,8 +3,10 @@
 # `tokuly migrate` does: the release's files in order, then the files added
 # since (each in its own transaction, except those starting with
 # `-- no-transaction`, which are sent as one statement outside one). The
-# upgraded schema must equal a fresh install's. Without a stable tag there is
-# nothing to upgrade from (alpha upgrades are not supported) and it says so.
+# upgraded schema must equal a fresh install's. The release is the highest
+# stable tag that is not on this commit, so the commit being tagged is checked
+# against the release before it. Without one there is nothing to upgrade from
+# (alpha upgrades are not supported) and it says so.
 #
 #   tools/ci/migrations-upgrade.sh <postgres URL>    a server it may create and drop databases on
 set -euo pipefail
@@ -14,7 +16,7 @@ SERVER="$1"
 DIR=backend/migrations
 export PGOPTIONS="-c client_min_messages=warning"
 
-release="$(git tag --list 'v[0-9]*' | grep -v -- - | sort -V | tail -1 || true)"
+release="$(git tag --list 'v[0-9]*' --no-contains HEAD | grep -v -- - | sort -V | tail -1 || true)"
 if [ -z "$release" ]; then
   echo "No stable release yet: nothing to upgrade from."
   exit 0
