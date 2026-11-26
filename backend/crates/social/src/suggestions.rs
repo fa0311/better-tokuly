@@ -13,7 +13,7 @@ use tokuly_core::prelude::*;
 use tokuly_identity::{settings, users};
 use tokuly_proto::social::{ContactMatch, Suggestion};
 
-use crate::{Social, graph};
+use crate::{Social, graph, people};
 
 const DEFAULT_SUGGESTIONS: usize = 20;
 const MAX_SUGGESTIONS: usize = 50;
@@ -168,6 +168,18 @@ impl Social {
         let candidate_ids: Vec<Uuid> = reasons.keys().copied().collect();
         let suggestable = self.suggestable_among(user_id, &candidate_ids).await?;
         let mut candidates: Vec<(Uuid, SuggestionReason)> = reasons.into_iter().filter(|(id, _)| suggestable.contains(id)).collect();
+        // A school is whatever an account says it is. Where that is all two
+        // people have in common, they are suggested within their own age
+        // group only (as nearby discovery does): naming a school must not
+        // show an adult its pupils, nor the other way round.
+        let mut by_school: Vec<Uuid> =
+            candidates.iter().filter(|(_, reason)| *reason == SuggestionReason::SameSchool).map(|(id, _)| *id).collect();
+        if !by_school.is_empty() {
+            by_school.push(user_id);
+            let minors = people::minors_among(core, &by_school).await?;
+            let user_is_minor = minors.contains(&user_id);
+            candidates.retain(|(id, reason)| *reason != SuggestionReason::SameSchool || minors.contains(id) == user_is_minor);
+        }
 
         // 3. Rank, cut, and decorate with mutual friends.
         let ids: Vec<Uuid> = candidates.iter().map(|(id, _)| *id).collect();

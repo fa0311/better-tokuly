@@ -502,3 +502,34 @@ async fn nearby_sessions_open_only_where_the_user_really_is() {
     let open = unchecked.app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&carol), &nearby_at(spot), 1, Duration::from_secs(3)).await;
     assert_eq!(open.unwrap_err().reason, "LOCATION_NOT_VERIFIED", "no check plugged in: fail closed");
 }
+
+/// A school is self-declared: on its own it introduces people of one age
+/// group only, so naming a school does not show an adult who goes there.
+#[tokio::test]
+async fn a_shared_school_suggests_only_within_an_age_group() {
+    let ctx = start().await;
+    let school = format!("桜ヶ丘高校 {}", Uuid::now_v7().simple());
+    let (pupil, classmate, adult, known_adult) =
+        (ctx.app.user("pupil").await, ctx.app.user("classmate").await, ctx.app.user("adult").await, ctx.app.user("senpai").await);
+    for user in [&pupil, &classmate, &adult, &known_adult] {
+        sqlx::query("UPDATE users SET school_name = $2 WHERE id = $1").bind(user.id).bind(&school).execute(&ctx.app.core.db).await.unwrap();
+    }
+    for minor in [&pupil, &classmate] {
+        sqlx::query("UPDATE users SET birthdate = current_date - interval '16 years' WHERE id = $1").bind(minor.id).execute(&ctx.app.core.db).await.unwrap();
+    }
+    // Someone the pupil is connected to through a friend is still suggested
+    // for that reason, whatever their age.
+    let friend = ctx.app.user("friend").await;
+    ctx.befriend(&pupil, &friend).await;
+    ctx.befriend(&friend, &known_adult).await;
+
+    let for_pupil = suggestions_for(&ctx, &pupil, 0).await;
+    let mut seen = suggested(&for_pupil);
+    seen.sort();
+    let mut expected = vec![(classmate.id, "SAME_SCHOOL"), (known_adult.id, "FRIEND_OF_FRIEND")];
+    expected.sort();
+    assert_eq!(seen, expected, "the unknown adult is not suggested");
+
+    let for_adult = suggestions_for(&ctx, &adult, 0).await;
+    assert_eq!(suggested(&for_adult), vec![(known_adult.id, "SAME_SCHOOL")], "an adult sees no pupils by naming their school");
+}
