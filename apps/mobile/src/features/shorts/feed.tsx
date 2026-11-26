@@ -86,6 +86,14 @@ function Pager({
   ).current;
   const watching = inFront && focused;
 
+  // Two shorts before the end, the next page is asked for (whatever the list's own scrolling says).
+  const ahead = useRef(onEnd);
+  ahead.current = onEnd;
+  const nearEnd = current >= entries.length - 2;
+  useEffect(() => {
+    if (nearEnd) ahead.current();
+  }, [nearEnd]);
+
   return (
     <View
       testID="shorts-feed"

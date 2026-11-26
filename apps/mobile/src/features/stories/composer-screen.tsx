@@ -55,7 +55,7 @@ export function StoryComposerScreen() {
   });
 
   /** Videos longer than the server takes are cut down first (or left out). */
-  const fit = async (added: LocalMedia[]): Promise<LocalMedia[]> => {
+  const toLimit = async (added: LocalMedia[]): Promise<LocalMedia[]> => {
     const fitted: LocalMedia[] = [];
     for (const item of added) {
       if (
@@ -72,7 +72,7 @@ export function StoryComposerScreen() {
     return fitted;
   };
   const add = async (added: LocalMedia[]) => {
-    const fitted = await fit(added);
+    const fitted = await toLimit(added);
     setItems((held) =>
       [...held, ...fitted.map((media) => ({ media, caption: "" }))].slice(0, MAX_ITEMS),
     );

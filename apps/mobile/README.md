@@ -76,7 +76,7 @@ its tests) and the web switches to it.
   back, flash; the longest recording is the server's limit for the purpose
   (stories 60 s, shorts 3 min; every upload's answer brings the server's own),
   shown before anything is recorded. A library video that is longer is cut down
-  in the trimmer first. A story or a short is a *post* (`features/media/posts.ts`):
+  in the trimmer first. A story or a short is a _post_ (`features/media/posts.ts`):
   its files are copied into the app's documents, uploaded through the media flow
   (`features/media/upload.ts`: one presigned PUT, or the parts the store does not
   hold yet), then it is created. PUTs are the OS's own transfers (a background

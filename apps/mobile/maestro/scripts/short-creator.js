@@ -29,7 +29,10 @@ const me = signUp("me");
 const creator = signUp("cr");
 call(
   "tokuly.video.v1.ChannelService/CreateChannel",
-  { handle: `ch_${creator.handle}`.slice(0, 24), name: `まいにちダンス ${creator.handle.slice(-4)}` },
+  {
+    handle: `ch_${creator.handle}`.slice(0, 24),
+    name: `まいにちダンス ${creator.handle.slice(-4)}`,
+  },
   creator.token,
 );
 output.me = me.handle;

@@ -151,8 +151,7 @@ function Player({ reels, startReel }: { reels: Reel[]; startReel: number }) {
     else if (segment && isVideo(segment)) player.currentTime = 0;
   };
   // The latest of these for the timer, which outlives a render.
-  const live = useRef({ next, paused });
-  live.current = { next, paused };
+  const live = useRef({ next, paused, video: false });
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) =>
@@ -171,15 +170,18 @@ function Player({ reels, startReel }: { reels: Reel[]; startReel: number }) {
   const key = segment?.key;
   const video = segment ? isVideo(segment) : false;
   const source = segment && video ? videoSource(segment) : undefined;
+  live.current = { next, paused, video };
   useEffect(() => {
-    progress.value = 0;
     if (source) void player.replaceAsync({ uri: source });
     else player.pause();
-  }, [key, source, player, progress]);
+  }, [source, player]);
   useEffect(() => {
     if (video && status.status === "readyToPlay") setReady(true);
   }, [video, status.status]);
-  useEventListener(player, "playToEnd", () => live.current.next());
+  // Only a video on screen moves on by ending: an empty player (a photo is up) reports "ended" too.
+  useEventListener(player, "playToEnd", () => {
+    if (live.current.video) live.current.next();
+  });
 
   useEffect(() => {
     player.muted = muted;
@@ -193,6 +195,7 @@ function Player({ reels, startReel }: { reels: Reel[]; startReel: number }) {
   // The bar of the piece on screen: a photo runs on a clock, a video on its own time.
   useEffect(() => {
     if (!key) return;
+    progress.value = 0;
     let elapsed = 0;
     const timer = setInterval(() => {
       if (video) {
@@ -272,11 +275,7 @@ function Player({ reels, startReel }: { reels: Reel[]; startReel: number }) {
 
   const posted = toMillis(story.createdAt);
   return (
-    <View
-      className="flex-1 bg-black"
-      testID="story-viewer"
-      accessibilityLabel={t("viewer.label", { name: reel.user?.displayName ?? "" })}
-    >
+    <View className="flex-1 bg-black" testID="story-viewer">
       <GestureDetector gesture={Gesture.Race(swipe, hold, tap)}>
         <View className="absolute inset-0">
           {video ? (

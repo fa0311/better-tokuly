@@ -1,6 +1,13 @@
 /** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, settings. */
 export default {
-  tabs: { map: "Map", chat: "Chats", shorts: "Shorts", friends: "Friends", inbox: "Inbox", me: "Me" },
+  tabs: {
+    map: "Map",
+    chat: "Chats",
+    shorts: "Shorts",
+    friends: "Friends",
+    inbox: "Inbox",
+    me: "Me",
+  },
   welcome: {
     signUp: "Get started",
     signIn: "Sign in",

@@ -11,7 +11,11 @@ const story = (id: string, viewed = false) =>
 function setUp(markStoryViewed = jest.fn(async () => ({}))) {
   const queryClient = new QueryClient();
   queryClient.setQueryData(storyKeys.tray, [
-    create(notes.StoryReelSchema, { user: { id: "friend" }, stories: [story("s1")], hasUnseen: true }),
+    create(notes.StoryReelSchema, {
+      user: { id: "friend" },
+      stories: [story("s1")],
+      hasUnseen: true,
+    }),
   ]);
   const mark = seenMarker(queryClient, () => ({ markStoryViewed }) as never);
   return { queryClient, mark, markStoryViewed };

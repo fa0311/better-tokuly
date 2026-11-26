@@ -1,6 +1,13 @@
 /** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, settings. */
 export default {
-  tabs: { map: "マップ", chat: "チャット", shorts: "ショート", friends: "ともだち", inbox: "お知らせ", me: "じぶん" },
+  tabs: {
+    map: "マップ",
+    chat: "チャット",
+    shorts: "ショート",
+    friends: "ともだち",
+    inbox: "お知らせ",
+    me: "じぶん",
+  },
   welcome: {
     signUp: "はじめる",
     signIn: "ログイン",

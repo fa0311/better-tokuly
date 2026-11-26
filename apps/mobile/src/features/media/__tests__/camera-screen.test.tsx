@@ -7,7 +7,11 @@ const mockCamera = {
   canRequestPermission: false,
   requestPermission: jest.fn(async () => true),
 };
-const mockMicrophone = { hasPermission: true, canRequestPermission: false, requestPermission: jest.fn() };
+const mockMicrophone = {
+  hasPermission: true,
+  canRequestPermission: false,
+  requestPermission: jest.fn(),
+};
 const mockCapture = jest.fn(async () => ({ filePath: "/tmp/photo.jpg" }));
 let mockFinish: (path: string) => void = () => {};
 const mockRecorder = {
@@ -22,10 +26,15 @@ const mockCreateRecorder = jest.fn(async () => mockRecorder);
 jest.mock("react-native-vision-camera", () => {
   const { View } = require("react-native");
   return {
-    Camera: (props: object) => require("react").createElement(View, { testID: "camera-preview", ...props }),
+    Camera: (props: object) =>
+      require("react").createElement(View, { testID: "camera-preview", ...props }),
     useCameraPermission: () => mockCamera,
     useMicrophonePermission: () => mockMicrophone,
-    useCameraDevice: (position: string) => ({ position, hasFlash: position === "back", hasTorch: true }),
+    useCameraDevice: (position: string) => ({
+      position,
+      hasFlash: position === "back",
+      hasTorch: true,
+    }),
     usePhotoOutput: () => ({ capturePhotoToFile: mockCapture }),
     useVideoOutput: () => ({ createRecorder: mockCreateRecorder }),
   };
@@ -42,7 +51,9 @@ describe("CameraScreen", () => {
     mockCamera.hasPermission = false;
     mockCamera.canRequestPermission = true;
     mockMicrophone.canRequestPermission = true;
-    await render(<CameraScreen limitSeconds={60} photos onCapture={jest.fn()} onClose={jest.fn()} />);
+    await render(
+      <CameraScreen limitSeconds={60} photos onCapture={jest.fn()} onClose={jest.fn()} />,
+    );
     expect(screen.getByText("カメラをつかってもいい？")).toBeOnTheScreen();
     expect(mockCamera.requestPermission).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByTestId("camera-allow"));
@@ -52,8 +63,12 @@ describe("CameraScreen", () => {
 
   it("shows the story limit before anything is recorded, and a tap takes a photo with the flash chosen", async () => {
     const onCapture = jest.fn();
-    await render(<CameraScreen limitSeconds={60} photos onCapture={onCapture} onClose={jest.fn()} />);
-    expect(screen.getByTestId("camera-limit")).toHaveTextContent("タップで写真、長おしで動画！（60秒まで）");
+    await render(
+      <CameraScreen limitSeconds={60} photos onCapture={onCapture} onClose={jest.fn()} />,
+    );
+    expect(screen.getByTestId("camera-limit")).toHaveTextContent(
+      "タップで写真、長おしで動画！（60秒まで）",
+    );
     await fireEvent.press(screen.getByTestId("camera-flash"));
     await fireEvent.press(screen.getByTestId("camera-shutter"));
     await waitFor(() =>
@@ -66,7 +81,9 @@ describe("CameraScreen", () => {
 
   it("records while the shutter is held, stopping at the server's limit", async () => {
     const onCapture = jest.fn();
-    await render(<CameraScreen limitSeconds={60} photos onCapture={onCapture} onClose={jest.fn()} />);
+    await render(
+      <CameraScreen limitSeconds={60} photos onCapture={onCapture} onClose={jest.fn()} />,
+    );
     await fireEvent(screen.getByTestId("camera-shutter"), "longPress");
     await waitFor(() => expect(mockRecorder.startRecording).toHaveBeenCalled());
     expect(mockCreateRecorder).toHaveBeenCalledWith({ maxDuration: 60 });
@@ -81,11 +98,17 @@ describe("CameraScreen", () => {
 
   it("only records for a short: a tap starts, a tap stops, up to three minutes", async () => {
     const onCapture = jest.fn();
-    await render(<CameraScreen limitSeconds={180} photos={false} onCapture={onCapture} onClose={jest.fn()} />);
-    expect(screen.getByTestId("camera-limit")).toHaveTextContent("タップで録画スタート！（3分まで）");
+    await render(
+      <CameraScreen limitSeconds={180} photos={false} onCapture={onCapture} onClose={jest.fn()} />,
+    );
+    expect(screen.getByTestId("camera-limit")).toHaveTextContent(
+      "タップで録画スタート！（3分まで）",
+    );
     await fireEvent.press(screen.getByTestId("camera-shutter"));
     await waitFor(() => expect(mockCreateRecorder).toHaveBeenCalledWith({ maxDuration: 180 }));
     await fireEvent.press(screen.getByTestId("camera-shutter"));
-    await waitFor(() => expect(onCapture).toHaveBeenCalledWith(expect.objectContaining({ kind: "video" })));
+    await waitFor(() =>
+      expect(onCapture).toHaveBeenCalledWith(expect.objectContaining({ kind: "video" })),
+    );
   });
 });

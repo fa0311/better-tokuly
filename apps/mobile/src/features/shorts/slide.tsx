@@ -86,12 +86,7 @@ export function ShortSlide({
   const live = load === "playing" || load === "preloading";
   const cover = mediaUrl(imageUrl(short.cover, 400));
   return (
-    <View
-      testID={`short-slide-${index}`}
-      accessibilityLabel={t("slide.label", { name: short.channel?.name ?? "" })}
-      style={{ height }}
-      className="bg-black"
-    >
+    <View testID={`short-slide-${index}`} style={{ height }} className="bg-black">
       {live ? (
         <Player entry={entry} playing={load === "playing"} source={source} cover={cover} />
       ) : load === "cover" && cover ? (
