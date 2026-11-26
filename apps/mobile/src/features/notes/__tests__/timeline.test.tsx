@@ -26,9 +26,13 @@ const entry = (id: string, text: string) =>
 describe("Timeline", () => {
   it("keeps what is on screen until asked, then puts the new notes on top", async () => {
     let home = [entry("a", "さいしょのノート")];
+    let reads = 0;
     jest.mocked(api).mockReturnValue({
       service: () => ({
-        getHomeTimeline: async () => ({ entries: home, page: { nextCursor: "" } }),
+        getHomeTimeline: async () => {
+          reads += 1;
+          return { entries: home, page: { nextCursor: "" } };
+        },
         recordNoteViews: async () => ({}),
       }),
     } as never);
@@ -49,8 +53,12 @@ describe("Timeline", () => {
 
     // A friend posted: the hint reads the newest page, and a pill says so.
     home = [entry("b", "あたらしいノート"), ...home];
-    await act(async () => hintTimelines());
+    // Hints come in bursts (every count that moves is one): they lead to one look.
+    await act(async () => {
+      for (let hint = 0; hint < 5; hint++) hintTimelines();
+    });
     const pill = await screen.findByTestId("timeline-new");
+    expect(reads).toBe(2);
     expect(screen.getByText("新しいノート 1件")).toBeOnTheScreen();
     expect(screen.queryByText("あたらしいノート")).not.toBeOnTheScreen();
     await fireEvent.press(pill);
