@@ -1,7 +1,10 @@
-const { areasOf, staleRegistries } = require("../../../scripts/seams.js") as {
-  areasOf(seam: string): string[];
-  staleRegistries(): string[];
-};
+const { areasOf, staleRegistries, strayFiles, strayReason } =
+  require("../../../scripts/seams.js") as {
+    areasOf(seam: string): string[];
+    staleRegistries(): string[];
+    strayFiles(): string[];
+    strayReason(file: string, source: () => string): string | null;
+  };
 
 /**
  * The registries are written by `scripts/seams.js` before every bundle, type
@@ -24,5 +27,21 @@ describe("the seam registries", () => {
       "shorts",
     ]);
     expect(areasOf("profile")).toEqual([]);
+  });
+
+  it("stop the build for a seam file they would leave out", () => {
+    const hook = () => "export default { beforeLeave };\n";
+    expect(strayReason("map/lifecycle.ts", hook)).toBeNull();
+    expect(strayReason("map/tabs.tsx", () => "export default [];\n")).toBeNull();
+    expect(strayReason("session/__tests__/lifecycle.test.ts", hook)).toBeNull();
+    // A privacy hook that would never run: one folder too deep, the wrong kind of file, not exported.
+    const misplaced = "a seam file is src/features/<area>/lifecycle.ts(x)";
+    expect(strayReason("live/hooks/lifecycle.ts", hook)).toBe(misplaced);
+    expect(strayReason("notes/lifecycle.js", hook)).toBe(misplaced);
+    expect(strayReason("lifecycle.ts", hook)).toBe(misplaced);
+    expect(strayReason("shorts/lifecycle.ts", () => "export const hooks = {};\n")).toBe(
+      "no `export default`",
+    );
+    expect(strayFiles()).toEqual([]);
   });
 });
