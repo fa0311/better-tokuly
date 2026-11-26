@@ -410,6 +410,10 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none
           script: |
+            # The emulator is slow to settle: a system app (the launcher) that stops responding
+            # puts its dialog over every flow's first screen. Not shown, and one shown is closed.
+            adb shell settings put global hide_error_dialogs 1
+            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
             adb install "$RUNNER_TEMP/apk/tokuly.apk"
             # The emulator's localhost is the runner's: the edge, uploads to storage, LiveKit.
             for port in 8080 9000 7880 7881; do adb reverse tcp:$port tcp:$port || exit 1; done
