@@ -9,7 +9,9 @@
  * tray (`useUploads`, `UploadTile`), the full-screen `ImageViewer`, and the
  * HLS-aware `useVideoSource`.
  */
-export { forgetUserNotes, useNote } from "./api";
+
+export { charCount } from "@tokuly/core/notes";
+export { useNote } from "./api";
 export { type ComposeContext, openCompose } from "./compose-store";
 export {
   attachmentImage,
@@ -22,5 +24,4 @@ export {
 export { NoteCard, type NoteCardProps } from "./note-card";
 export { ProfileNotes, type ProfileNotesProps } from "./profile-notes";
 export { NoteText } from "./rich-text";
-export { charCount } from "./text";
 export { type Upload, type UploadRules, UploadTile, useUploads } from "./uploads";

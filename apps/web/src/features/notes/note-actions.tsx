@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { common, engagement, type notes } from "@tokuly/api";
+import { type Audience, noteAudience, notesKeys, sameAudience } from "@tokuly/core/notes";
 import {
   BarChart3,
   BellOff,
@@ -46,7 +47,7 @@ import {
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { useDeleteNote, useLike, usePin, useRenote, useSetVisibility } from "./actions";
-import { noteClient, notesKeys } from "./api";
+import { noteClient } from "./api";
 import { AddToClipSheet } from "./clips-sheet";
 import { openCompose } from "./compose-store";
 import {
@@ -57,7 +58,7 @@ import {
   useMuteThread,
   useRedraft,
 } from "./note-extras";
-import { type Audience, noteAudience, sameAudience, VisibilityChoices } from "./visibility";
+import { VisibilityChoices } from "./visibility";
 
 export const noteSubject = (noteId: string): Subject => ({
   type: common.SubjectType.NOTE,

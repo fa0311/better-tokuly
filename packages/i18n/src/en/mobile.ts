@@ -1,8 +1,9 @@
-/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, settings. */
+/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, notes, settings. */
 export default {
   tabs: {
     map: "Map",
     chat: "Chats",
+    notes: "Notes",
     shorts: "Shorts",
     friends: "Friends",
     inbox: "Inbox",
@@ -97,7 +98,6 @@ export default {
     lead: "Everything the app doesn't have yet, right here!",
     note: "These open as web pages for now. They're coming to the app one by one!",
     features: {
-      notes: "Notes",
       video: "Videos",
       live: "Live",
       spaces: "Spaces",
@@ -238,6 +238,21 @@ export default {
     commentPlaceholder: "Add a comment…",
     commentSend: "Send",
     commentsOff: "Comments are off for this short",
+  },
+  notes: {
+    sources: "Timelines to read",
+    noSources: "No lists or antennas yet. You can make them on the web!",
+    clips: "Clips",
+    channels: "Channels (web)",
+    editLists: "Edit lists and antennas (web)",
+    react: "React",
+    share: "Share",
+    editOnWeb: "Edit (web)",
+    reportOnWeb: "Report (web)",
+    defaultAudience: "Your usual audience",
+    leaveTitle: "What about this note?",
+    keepWriting: "Keep writing",
+    seeAll: "See all notes",
   },
   licenses: {
     title: "Open-source licences",

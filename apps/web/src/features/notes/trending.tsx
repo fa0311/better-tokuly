@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { notesKeys } from "@tokuly/core/notes";
 import { TrendingUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
-import { noteClient, notesKeys, useTrendingHashtags } from "./api";
+import { noteClient, useTrendingHashtags } from "./api";
 import { NoteCard } from "./note-card";
 
 const RANK_TINT = ["bg-sun", "bg-lime", "bg-sky"];

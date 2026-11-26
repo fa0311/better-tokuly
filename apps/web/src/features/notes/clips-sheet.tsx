@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { notes } from "@tokuly/api";
+import { clipKeys } from "@tokuly/core/notes";
 import { Check, Globe, Lock, Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { clipClient, clipKeys, storeClip, useClips } from "./clips-api";
+import { clipClient, storeClip, useClips } from "./clips-api";
 import { ClipForm } from "./clips-form";
 
 /**

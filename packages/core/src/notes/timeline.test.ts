@@ -1,14 +1,13 @@
 import { create, type MessageInitShape, notes } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
+import { bumpCounter, mapNotes, withToggle } from "./cache";
 import {
-  bumpCounter,
   countNewEntries,
   entryKey,
-  mapNotes,
   type TimelineData,
   type TimelinePage,
   withFreshEntries,
-} from "./api";
+} from "./timeline";
 
 const note = (id: string, extra: MessageInitShape<typeof notes.NoteSchema> = {}) =>
   create(notes.NoteSchema, { id, text: id, ...extra });
@@ -102,5 +101,18 @@ describe("bumpCounter", () => {
     expect(bumpCounter(fresh, "likeCount", 1).likeCount).toBe(1n);
     expect(bumpCounter(fresh, "replyCount", -1).replyCount).toBe(0n);
     expect(bumpCounter(fresh, "likeCount", 1).noteId).toBe("a");
+  });
+});
+
+describe("withToggle", () => {
+  it("moves the mark and the count together, once", () => {
+    const liked = withToggle(note("a"), "like", true);
+    expect(liked.viewer?.liked).toBe(true);
+    expect(liked.counters?.likeCount).toBe(1n);
+    expect(withToggle(liked, "like", true)).toBe(liked);
+    const undone = withToggle(liked, "like", false);
+    expect(undone.viewer?.liked).toBe(false);
+    expect(undone.counters?.likeCount).toBe(0n);
+    expect(withToggle(note("b"), "renote", true).counters?.renoteCount).toBe(1n);
   });
 });

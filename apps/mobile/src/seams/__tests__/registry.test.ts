@@ -18,15 +18,9 @@ describe("the seam registries", () => {
 
   it("find the features by their files", () => {
     expect(areasOf("lifecycle")).toEqual(["map", "media", "notifications", "video", "web"]);
-    expect(areasOf("tabs")).toEqual([
-      "chat",
-      "friends",
-      "map",
-      "notifications",
-      "profile",
-      "shorts",
-    ]);
-    expect(areasOf("profile")).toEqual([]);
+    expect(areasOf("tabs")).toEqual(["chat", "map", "notes", "notifications", "profile", "shorts"]);
+    expect(areasOf("hub")).toEqual(["friends", "settings", "video", "web"]);
+    expect(areasOf("profile")).toEqual(["notes"]);
   });
 
   it("stop the build for a seam file they would leave out", () => {

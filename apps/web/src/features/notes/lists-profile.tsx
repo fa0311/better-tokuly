@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { common } from "@tokuly/api";
+import { listKeys } from "@tokuly/core/notes";
 import { Check, ListPlus, Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,7 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { EmptyState, ListRow } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import { listClient, listKeys, resetListTimeline, storeList, useLists } from "./lists-api";
+import { listClient, resetListTimeline, storeList, useLists } from "./lists-api";
 import { LISTS_NS, ListEditor } from "./lists-editor";
 import { ListCard } from "./lists-screen";
 

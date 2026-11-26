@@ -121,6 +121,20 @@ its tests) and the web switches to it.
   or its small window, not as sound behind another app. Channel pages,
   playlists, the history and the subscriptions list are native too;
   uploading, editing, analytics and watch parties open the studio on the web.
+- **Notes.** A tab of its own: friends (home), following, everyone and
+  mentions, plus the account's lists and antennas to read (`@tokuly/core/notes`:
+  the pages, how new notes go on top, the cache edits, realtime events). A
+  timeline never reads its pages again by itself: a realtime hint or the app
+  coming back reads the newest page and a pill says how many wait on top. The
+  card renders the server's rich text (`Note.body`), photos, a video, polls,
+  quotes, link previews and content warnings; each card follows its note's
+  topic while on screen, and views are reported once really seen, as the
+  account that saw them. Likes, renotes, quotes, replies, emoji reactions,
+  clips, pinning, muting a thread and deleting work here; the composer takes
+  an audience (with the reply rule of the core), a content warning, a poll
+  and photos (uploaded as the account that picked them), and keeps drafts on
+  the server (they follow the account). Channels, editing a note, lists and
+  antennas, mutes, the numbers and reports stay on the web screen.
 - **Push.** The phones' own services through `expo-notifications`, no Expo push
   service: FCM on Android (the build needs `GOOGLE_SERVICES_JSON`, the path of
   the Firebase project's `google-services.json`), APNs on iOS
@@ -142,7 +156,7 @@ its tests) and the web switches to it.
   every production dependency the app bundles with its licence and text, and
   the native libraries of the app's own modules (`modules/*/notices`). The
   output, `src/generated/licenses.json`, is not checked in.
-- **Web screens.** What the app does not have yet (notes, live,
+- **Web screens.** What the app does not have yet (note channels, live,
   spaces, communities, school, plans, ask, quests, emoji, stamps, the wallet,
   most settings, developers, the console) opens in a web view
   (`features/web`), signed in as the account in use. It plugs in through
@@ -178,7 +192,7 @@ same file.
 | file in `src/features/<area>/` | default export                           | what it does                                                                  |
 | ------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------- |
 | `tabs.tsx`                     | `TabEntry[]` (`#/seams/tabs`)            | a tab; its route is `app/(app)/(tabs)/<name>.tsx`                             |
-| `hub.ts`                       | `HubEntry[]` (`#/seams/hub`)             | the area's way in from the last tab, for what has no tab                      |
+| `hub.ts`                       | `HubEntry[]` (`#/seams/hub`)             | the area's way in from the last tab, for what has no tab (with its count)     |
 | `screens.ts`                   | `ScreenEntry[]` (`#/seams/screens`)      | how its routes under `app/(app)/` are presented: title, modal, no header      |
 | `links.ts`                     | `LinkTarget[]` (`#/seams/links`)         | which of the server's paths (notifications, pushes) open which of its screens |
 | `settings-rows.ts`             | `SettingsRow[]` (`#/seams/settings`)     | rows of the settings screen                                                   |
@@ -207,6 +221,17 @@ export default [
   { path: /^\/plans\/([^/]+)$/, screen: (match) => `/plans/${match[1]}` },
 ] satisfies LinkTarget[];
 ```
+
+**The bar holds six at most.** Today: マップ (the heart: where the app opens),
+チャット, ノート, ショート, お知らせ, じぶん — what a high schooler opens many
+times a day, and the two places things arrive (the chats' and the inbox's
+counters). Everything else is an entry of the hub under the own profile:
+ともだち first (the list, requests, adding someone: friends themselves are met
+on the map and in the chats), 「もっと見る」, the settings. An entry names the
+count that waits behind it (`badge`), the entry shows it and the じぶん tab
+shows the sum, so a friend request is still seen from the bar (and it is an
+inbox entry and a push as well). A new area that wants a tab has to make the
+case against one of the six; `src/seams/__tests__/seams.test.ts` holds the line.
 
 Routes stay files: Expo Router finds `app/(app)/plans/[id].tsx` by itself, and
 a route file only renders a screen of the feature. A route without an entry in
@@ -284,13 +309,16 @@ the screens that matter and mock only the edges: the network (`expo/fetch`),
 device modules, the clock.
 
 The Maestro flows (`maestro/flows`) sign up and in, switch accounts, accept a
-friend and see them on the map, use ghost mode and sharing, open a chat with an
+friend (from ともだち under the own profile) and see them on the map, use ghost mode and sharing, open a chat with an
 unread message, send one, receive one from a second account (through the API),
 start a chat and open the inbox, post a story from the library and watch it as
 a friend (the emulator has no camera: the pictures are put in its library, and
 the camera is covered by a component test), post a short, swipe the feed and
 like it, open the video feeds and subscribe to a channel (playback is covered
-by the watch screen's component test: a flow's script cannot upload a video), open a web-only feature from 「もっと見る」 and see it signed in. CI
+by the watch screen's component test: a flow's script cannot upload a video),
+read a friend's note, like it and reply after agreeing to the rules, post a
+note with a poll, open a web-only feature from 「もっと見る」 and see it signed
+in. CI
 (the End to end workflow, `.github/workflows/e2e.yml`) builds a release APK for the emulator and
 runs them against the Compose stack; locally, with an emulator and a stack:
 

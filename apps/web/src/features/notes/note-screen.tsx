@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { errorReason, isNotFound, type notes } from "@tokuly/api";
+import { charCount, NOTE_MAX_CHARS, notesKeys } from "@tokuly/core/notes";
 import { ImagePlus, SendHorizontal } from "lucide-react";
 import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,13 +16,12 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { postNote } from "./actions";
-import { notesKeys, useDeletedNotes, useIsDeleted, useQuotes, useThread } from "./api";
+import { useDeletedNotes, useIsDeleted, useQuotes, useThread } from "./api";
 import { openCompose } from "./compose-store";
 import { PeopleDialog } from "./note-actions";
 import { NoteCard } from "./note-card";
 import { useNoteRules } from "./rules";
 import { NotesPage } from "./shell";
-import { charCount, NOTE_MAX_CHARS } from "./text";
 import { TimelineSkeleton } from "./timeline";
 
 type ThreadTab = "replies" | "quotes";

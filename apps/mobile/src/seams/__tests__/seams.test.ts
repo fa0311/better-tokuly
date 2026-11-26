@@ -1,6 +1,6 @@
 import { targetOf } from "#/features/notifications/target";
 import { SERVER_URL } from "#/lib/config";
-import { HUB_ENTRIES } from "../hub";
+import { HUB_ENTRIES, waitingInHub } from "../hub";
 import { screenFor } from "../links";
 import { SCREENS } from "../screens";
 import { SETTINGS_CARDS, SETTINGS_ROWS } from "../settings";
@@ -15,16 +15,18 @@ describe("the features on the seams", () => {
     expect(TABS.map((tab) => [tab.name, tab.badge, tab.noHeader ?? false])).toEqual([
       ["map", undefined, true],
       ["chats", "chat", false],
+      ["notes", undefined, false],
       ["shorts", undefined, true],
-      ["friends", "friends", false],
       ["inbox", "notifications", false],
-      ["me", undefined, false],
+      ["me", "hub", false],
     ]);
+    // A seventh area goes to the hub, or takes the place of one that moves there.
+    expect(TABS.length).toBeLessThanOrEqual(6);
     expect(TABS.map((tab) => tab.title())).toEqual([
       "マップ",
       "チャット",
+      "ノート",
       "ショート",
-      "ともだち",
       "お知らせ",
       "じぶん",
     ]);
@@ -32,10 +34,13 @@ describe("the features on the seams", () => {
 
   it("the hub and the settings", () => {
     expect(HUB_ENTRIES.map((entry) => [entry.id, entry.href])).toEqual([
+      ["friends", "/friends"],
       ["video", "/watch"],
       ["more", "/more"],
       ["settings", "/settings"],
     ]);
+    // What waits behind an entry (a friend request) still shows on the bar, on the hub's tab.
+    expect(waitingInHub({ friends: 2, chat: 5 })).toBe(2);
     expect(SETTINGS_ROWS.map((row) => row.id)).toEqual(["accounts", "web", "licenses"]);
     expect(SETTINGS_CARDS.map((card) => card.id)).toEqual(["push"]);
   });
@@ -49,10 +54,20 @@ describe("the features on the seams", () => {
       "c/[handle]",
       "chat/[id]",
       "create-account",
+      "friends",
       "invite/[code]",
       "licenses",
       "more",
       "new-chat",
+      "notes/[id]",
+      "notes/antenna/[id]",
+      "notes/clips/[id]",
+      "notes/clips/index",
+      "notes/compose",
+      "notes/drafts",
+      "notes/list/[id]",
+      "notes/tag/[tag]",
+      "notes/user/[id]",
       "playlist/[id]",
       "settings",
       "shorts/mine",
@@ -83,9 +98,11 @@ describe("the features on the seams", () => {
     expect(screenFor("/friends/requests")).toBe("/friends");
     expect(screenFor("/map")).toBe("/map");
     expect(screenFor("/notifications")).toBe("/inbox");
+    expect(screenFor("/notes/n1")).toBe("/notes/n1");
+    expect(screenFor("/notes/tags/ramen")).toBe("/notes/tag/ramen");
     // What only the web has opens in the app's web view, signed in.
     expect(screenFor("/stamps")).toBe(`/web?path=${encodeURIComponent("/stamps")}`);
-    expect(screenFor("/notes/n1")).toBe(`/web?path=${encodeURIComponent("/notes/n1")}`);
+    expect(screenFor("/notes/channels")).toBe(`/web?path=${encodeURIComponent("/notes/channels")}`);
     // What no feature claims opens on the web.
     expect(screenFor("/login")).toBeNull();
     expect(targetOf("/chat/c1?m=5")).toEqual({ type: "screen", href: "/chat/c1" });
