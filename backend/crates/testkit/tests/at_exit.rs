@@ -3,10 +3,11 @@
 //! app and panics, then checks that nothing of the child's run is left.
 use std::{collections::HashMap, process::Command};
 
+use bytes::Bytes;
 use clap::Parser;
 use futures::TryStreamExt as _;
 use sqlx::{Connection as _, PgConnection};
-use tokuly_core::config::Config;
+use tokuly_core::{config::Config, storage::Bucket};
 use tokuly_testkit::TestApp;
 
 const CHILD: &str = "TOKULY_TESTKIT_AT_EXIT_CHILD";
@@ -65,6 +66,26 @@ async fn a_panicking_test_binary_leaves_nothing_behind() {
         .await
         .unwrap();
     assert_eq!(analytics_left, 0, "{analytics} was dropped");
+
+    let s3 = aws_sdk_s3::Client::from_conf(
+        aws_sdk_s3::Config::builder()
+            .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
+            .region(aws_sdk_s3::config::Region::new(cfg.s3_region.clone()))
+            .endpoint_url(&cfg.s3_endpoint)
+            .credentials_provider(aws_sdk_s3::config::Credentials::new(
+                &cfg.s3_access_key,
+                &cfg.s3_secret_key,
+                None,
+                None,
+                "at-exit",
+            ))
+            .force_path_style(true)
+            .build(),
+    );
+    for bucket in [child("media_bucket"), child("private_bucket")] {
+        assert!(bucket.starts_with("tokuly-test-"), "the child had buckets of its own: {bucket}");
+        assert!(s3.head_bucket().bucket(bucket).send().await.is_err(), "{bucket} was deleted");
+    }
 }
 
 #[tokio::test]
@@ -78,5 +99,10 @@ async fn child_starts_an_app_and_panics() {
     println!("child-run database={database}");
     println!("child-run nats_prefix={}", cfg.nats_prefix);
     println!("child-run clickhouse_database={}", cfg.clickhouse_database);
+    // Something to empty before the bucket can go.
+    let upload = app.core.storage.put(Bucket::Private, "left/behind.txt", Bytes::from_static(b"x"), "text/plain").await;
+    upload.expect("upload to the run's bucket");
+    println!("child-run media_bucket={}", cfg.s3_media_bucket);
+    println!("child-run private_bucket={}", cfg.s3_private_bucket);
     panic!("the child's test fails");
 }

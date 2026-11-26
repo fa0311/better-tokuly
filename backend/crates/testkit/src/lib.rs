@@ -21,6 +21,8 @@
 //! - a private PostgreSQL database per test binary with only the migrations
 //!   you list (so another domain's half-written migration cannot break you);
 //! - a private NATS namespace, so jobs and events never reach a dev server;
+//! - private media and private-file buckets, so uploads never mix with a
+//!   dev server's;
 //! - a private ClickHouse database with `backend/clickhouse/*.sql` applied
 //!   (`app.flush_analytics()` makes tracked events queryable);
 //! - RPC calls dispatched in-process through the same auth middleware the
@@ -29,6 +31,7 @@
 //! What the binary creates on the shared infrastructure is removed when it
 //! exits, passed or failed; leftovers of killed runs are swept by later runs
 //! once they are six hours old (`src/env.rs`).
+mod buckets;
 mod clickhouse;
 mod env;
 mod nats;

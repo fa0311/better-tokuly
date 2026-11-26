@@ -12,7 +12,7 @@ use clap::Parser;
 use tokuly_core::config::Config;
 
 use crate::{
-    clickhouse, nats, postgres,
+    buckets, clickhouse, nats, postgres,
     run::{self, Run},
 };
 
@@ -24,6 +24,8 @@ pub(crate) struct TestEnv {
     pub cfg: Config,
     /// ClickHouse was reachable and has the run's database.
     clickhouse: bool,
+    /// The object store was reachable and has the run's buckets.
+    buckets: bool,
 }
 
 static ENV: OnceLock<TestEnv> = OnceLock::new();
@@ -85,27 +87,47 @@ async fn set_up(migrations: Vec<String>) -> TestEnv {
         }
         None => false,
     };
-    TestEnv { cfg, clickhouse }
+    let buckets = match buckets::create(&cfg, run).await {
+        Some(with_buckets) => {
+            cfg = with_buckets;
+            true
+        }
+        None => false,
+    };
+    TestEnv { cfg, clickhouse, buckets }
 }
 
 /// Removes leftovers of crashed runs. Best effort: a service that is down
 /// shows up when the run creates its own resources there.
 async fn sweep(base: &Config) {
     let now = run::unix_now();
-    let _ = tokio::join!(postgres::sweep(base, now), nats::sweep(base, now), clickhouse::sweep(base, now));
+    let _ = tokio::join!(
+        postgres::sweep(base, now),
+        nats::sweep(base, now),
+        clickhouse::sweep(base, now),
+        buckets::sweep(base, now),
+    );
 }
 
 /// Removes what this run created.
 async fn remove(base: &Config) {
     let run = run();
     // When setup panicked there is no environment: try everything.
-    let has_clickhouse = ENV.get().is_none_or(|env| env.clickhouse);
-    let analytics = async { if has_clickhouse { bounded(clickhouse::remove(base, run)).await } else { Ok(()) } };
-    let (database, streams, analytics) =
-        tokio::join!(bounded(postgres::remove(base, run)), bounded(nats::remove(base, run)), analytics);
+    let env = ENV.get();
+    let (database, streams, analytics, objects) = tokio::join!(
+        bounded(postgres::remove(base, run)),
+        bounded(nats::remove(base, run)),
+        bounded_if(env.is_none_or(|env| env.clickhouse), clickhouse::remove(base, run)),
+        bounded_if(env.is_none_or(|env| env.buckets), buckets::remove(base, run)),
+    );
     report("PostgreSQL database", database);
     report("JetStream streams", streams);
     report("ClickHouse database", analytics);
+    report("buckets", objects);
+}
+
+async fn bounded_if(created: bool, removal: impl Future<Output = anyhow::Result<()>>) -> anyhow::Result<()> {
+    if created { bounded(removal).await } else { Ok(()) }
 }
 
 async fn bounded(removal: impl Future<Output = anyhow::Result<()>>) -> anyhow::Result<()> {

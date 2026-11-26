@@ -6821,6 +6821,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-nats",
+ "aws-sdk-s3",
  "axum",
  "buffa",
  "bytes",
