@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Turns the demo on for `docker compose`: adds to `.env` the Compose profile
-# and what the demo simulator needs (see README.md, 「デモを動かす」).
+# and what the demo simulator needs (see docs/demo.md).
 #
 #   COMPOSE_PROFILES            gets `demo`
 #   TOKULY_DEV_DEMO_OPERATORS   addresses of the accounts that own the bots (random, so nobody
