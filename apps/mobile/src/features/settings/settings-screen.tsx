@@ -9,8 +9,8 @@ import { appVersion } from "#/platform/device";
 import { SETTINGS_CARDS, SETTINGS_ROWS } from "#/seams/settings";
 
 /**
- * The native settings so far: the features' rows and cards (`#/seams/settings`: privacy, accounts, push
- * on this device) and signing out; the rest opens on the web.
+ * The native settings so far: the features' rows and cards (`#/seams/settings`: privacy,
+ * notifications, accounts) and signing out; the rest opens on the web.
  */
 export function SettingsScreen() {
   const { t } = useTranslation("mobile");

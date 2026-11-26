@@ -14,7 +14,7 @@ import rows from "#/generated/seams/settings-rows";
  *       onPress: () => router.push("/accounts") },
  *   ] satisfies SettingsRow[];
  *
- * A card is a control that lives on the screen itself (push on this device):
+ * A card is a control that lives on the screen itself:
  * `src/features/<area>/settings-card.tsx` default-exports
  *
  *   export default { id: "push", order: 10, Component: PushCard } satisfies SettingsCard;

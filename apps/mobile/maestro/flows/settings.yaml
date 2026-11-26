@@ -44,3 +44,20 @@ env:
     timeout: 15000
 - assertVisible: "だれにも|Nobody"
 - back
+
+# Notifications: what a push shows on the lock screen, and a pause that can be ended at once.
+- tapOn: { id: "settings-notifications" }
+- extendedWaitUntil:
+    visible: { id: "push-preview-hidden" }
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 21-notification-settings
+- tapOn: { id: "push-preview-senderOnly" }
+- scrollUntilVisible:
+    element: { id: "push-pause-1h" }
+- tapOn: { id: "push-pause-1h" }
+- tapOn: "OK"
+- assertVisible: { id: "push-resume" }
+- tapOn: { id: "push-resume" }
+- tapOn: "OK"
+- back

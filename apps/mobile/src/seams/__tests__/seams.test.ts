@@ -42,8 +42,14 @@ describe("the features on the seams", () => {
     ]);
     // What waits behind an entry (a friend request) still shows on the bar, on the hub's tab.
     expect(waitingInHub({ friends: 2, chat: 5 })).toBe(2);
-    expect(SETTINGS_ROWS.map((row) => row.id)).toEqual(["privacy", "accounts", "web", "licenses"]);
-    expect(SETTINGS_CARDS.map((card) => card.id)).toEqual(["push"]);
+    expect(SETTINGS_ROWS.map((row) => row.id)).toEqual([
+      "privacy",
+      "notifications",
+      "accounts",
+      "web",
+      "licenses",
+    ]);
+    expect(SETTINGS_CARDS.map((card) => card.id)).toEqual([]);
   });
 
   it("the screens pushed over the tabs, each named once", () => {
@@ -73,6 +79,7 @@ describe("the features on the seams", () => {
       "notes/user/[id]",
       "playlist/[id]",
       "settings/index",
+      "settings/notifications",
       "settings/privacy",
       "shorts/mine",
       "shorts/new",
@@ -109,6 +116,7 @@ describe("the features on the seams", () => {
     expect(screenFor("/live/gifts")).toBe(`/web?path=${encodeURIComponent("/live/gifts")}`);
     expect(screenFor("/live/clips/new")).toBe(`/web?path=${encodeURIComponent("/live/clips/new")}`);
     expect(screenFor("/settings/privacy")).toBe("/settings/privacy");
+    expect(screenFor("/notifications/settings")).toBe("/settings/notifications");
     expect(screenFor("/settings/data")).toBe(`/web?path=${encodeURIComponent("/settings/data")}`);
     // What only the web has opens in the app's web view, signed in.
     expect(screenFor("/stamps")).toBe(`/web?path=${encodeURIComponent("/stamps")}`);
