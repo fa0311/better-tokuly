@@ -7,8 +7,22 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[lints]
-workspace = true
+# The workspace lints, except that `unsafe_code` is `deny` instead of `forbid`:
+# registering the clean-up at process exit (`src/run.rs`) needs one `atexit` call.
+[lints.rust]
+refining_impl_trait_internal = "allow"
+refining_impl_trait_reachable = "allow"
+unsafe_code = "deny"
+
+[lints.cargo]
+unused_workspace_dependencies = "allow"
+unused_dependencies = "allow"
+
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
+large_enum_variant = "allow"
+result_large_err = "allow"
 
 [dependencies]
 tokuly-core.workspace = true
@@ -32,3 +46,5 @@ clap.workspace = true
 rand.workspace = true
 async-nats.workspace = true
 clickhouse.workspace = true
+anyhow.workspace = true
+libc.workspace = true
