@@ -3,7 +3,7 @@ import { api, apiWith, authClient, resetApi } from "#/lib/api";
 import { prepareRealtime, resetRealtime } from "#/lib/realtime";
 import { DEVICE_ID_KEY } from "#/platform/device";
 import { forgetPreviousInstall } from "#/platform/install";
-import { runBeforeEnd, runBeforeLeave } from "#/seams/lifecycle";
+import { FEATURE_SECURE_KEYS, runBeforeEnd, runBeforeLeave } from "#/seams/lifecycle";
 import { currentAccount } from "./account";
 import { withParkedTokens } from "./parked";
 import { useSessionStore } from "./store";
@@ -39,7 +39,10 @@ function bindStore(): void {
  */
 export async function startSession(): Promise<void> {
   try {
-    await forgetPreviousInstall([...ACCOUNT_KEYS, DEVICE_ID_KEY], departPreviousInstall);
+    await forgetPreviousInstall(
+      [...ACCOUNT_KEYS, DEVICE_ID_KEY, ...FEATURE_SECURE_KEYS],
+      departPreviousInstall,
+    );
     await prepareRealtime();
     bindStore();
     if (await activeTokenStore.get()) await api().session.restore();

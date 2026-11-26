@@ -8,6 +8,9 @@ import { readJson, writeJson, writeSecure } from "#/platform/secure-storage";
  * server answers: sending the same gift on that stream again, also after
  * the app was started anew, repeats it under its key and nothing is paid
  * twice. One per account: a different gift sent meanwhile takes its place.
+ * All accounts' records are one secure-storage entry (`PENDING_GIFTS_KEY`),
+ * which the first launch of a new install forgets with the accounts: the
+ * iOS keychain outlives an uninstall.
  */
 interface PendingGift {
   streamId: string;
@@ -17,36 +20,44 @@ interface PendingGift {
   message: string;
 }
 
-const pendingGiftKey = (userId: string) => `tokuly.live.gift.${userId}`;
+/** user ID → that account's unanswered gift. */
+export const PENDING_GIFTS_KEY = "tokuly.live.gifts";
+type PendingGifts = Record<string, PendingGift>;
+
+const readAll = () => readJson<PendingGifts>(PENDING_GIFTS_KEY, {});
 
 /** The gift `userId` sent on a stream that is still unanswered, if any. */
 export async function readPendingGift(
   userId: string,
   streamId: string,
 ): Promise<GiftAttempt | null> {
-  const pending = await readJson<PendingGift | null>(pendingGiftKey(userId), null);
+  const pending = (await readAll())[userId];
   if (pending?.streamId !== streamId) return null;
   return { key: pending.key, coins: BigInt(pending.coins), message: pending.message };
 }
 
 /** Writes an attempt down; it is sent only after this. */
-export function keepPendingGift(
+export async function keepPendingGift(
   userId: string,
   streamId: string,
   attempt: GiftAttempt,
 ): Promise<void> {
-  const pending: PendingGift = {
+  const all = await readAll();
+  all[userId] = {
     streamId,
     key: attempt.key,
     coins: String(attempt.coins),
     message: attempt.message,
   };
-  return writeJson(pendingGiftKey(userId), pending);
+  await writeJson(PENDING_GIFTS_KEY, all);
 }
 
 /** The server answered an attempt (the gift, or a refusal): there is nothing left to repeat. */
 export async function settlePendingGift(userId: string, attempt: GiftAttempt): Promise<void> {
-  const key = pendingGiftKey(userId);
-  const pending = await readJson<PendingGift | null>(key, null);
-  if (pending?.key === attempt.key) await writeSecure(key, null);
+  const all = await readAll();
+  if (all[userId]?.key !== attempt.key) return;
+  delete all[userId];
+  await (Object.keys(all).length > 0
+    ? writeJson(PENDING_GIFTS_KEY, all)
+    : writeSecure(PENDING_GIFTS_KEY, null));
 }

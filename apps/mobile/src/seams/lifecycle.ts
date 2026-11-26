@@ -38,11 +38,22 @@ export interface AccountLifecycle {
    * the next start.
    */
   beforeEnd?(session: Api): Promise<unknown>;
+  /**
+   * Secure-storage entries the feature keeps for this device's accounts
+   * (an unanswered gift). The first launch of an install forgets them with
+   * the accounts: the iOS keychain outlives an uninstall.
+   */
+  secureKeys?: readonly string[];
 }
 
 const LIFECYCLES: AccountLifecycle[] = lifecycles;
 
 export const LEAVE_TIMEOUT_MS = 3000;
+
+/** Every feature's `secureKeys`, for the first-launch wipe. */
+export const FEATURE_SECURE_KEYS: readonly string[] = LIFECYCLES.flatMap(
+  ({ secureKeys }) => secureKeys ?? [],
+);
 
 /** Every feature gets its moment before `account` leaves; one that fails or hangs is left behind. */
 export async function runBeforeLeave(account: Account, lifecycles = LIFECYCLES): Promise<void> {
