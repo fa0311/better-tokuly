@@ -9,7 +9,7 @@ import { Button } from "#/components/button";
 import { EmptyState, Page, Spinner } from "#/components/page";
 import { TextField } from "#/components/text-field";
 import { errorMessage } from "#/lib/errors";
-import { boardClient, NS, useChannels, useCommunity } from "./data";
+import { asAccount, boardClient, NS, useChannels, useCommunity } from "./data";
 
 /**
  * `/g/<handle>/new`: starting a thread in one of the channels the caller
@@ -41,12 +41,16 @@ export function ComposeThreadScreen({ handle, channel }: { handle: string; chann
     if (!chosen || !title.trim() || !body.trim() || sending) return;
     setSending(true);
     try {
-      const { thread } = await boardClient().createThread({
-        channelId: chosen.id,
-        title: title.trim(),
-        body: body.trim(),
-        tags: parseTags(tags, 5),
-      });
+      const answer = await asAccount(() =>
+        boardClient().createThread({
+          channelId: chosen.id,
+          title: title.trim(),
+          body: body.trim(),
+          tags: parseTags(tags, 5),
+        }),
+      );
+      if (!answer) return;
+      const { thread } = answer;
       void queryClient.invalidateQueries({ queryKey: communityKeys.threadLists(c.id) });
       void queryClient.invalidateQueries({ queryKey: communityKeys.channels(c.id) });
       if (thread?.state === community.PostState.HIDDEN) Alert.alert(t("compose.held"));

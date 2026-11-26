@@ -7,6 +7,11 @@ import { realtime } from "#/lib/realtime";
 import { CommunityScreen } from "../community-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
+// The one account signed in all along.
+jest.mock("#/features/session/account", () => ({
+  currentAccount: () => ({ sessionId: "s1", userId: "u1", api: {} }),
+  isActive: () => true,
+}));
 jest.mock("#/lib/realtime", () => ({ realtime: jest.fn() }));
 jest.mock("expo-router", () => ({ router: { push: jest.fn() }, Stack: { Screen: () => null } }));
 

@@ -6,6 +6,7 @@ import {
   type ThreadListOptions,
   uniqueById,
 } from "@tokuly/core/community";
+import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
 
 /**
@@ -16,6 +17,24 @@ import { api } from "#/lib/api";
 export const communityClient = () => api().service(community.CommunityService);
 export const boardClient = () => api().service(community.CommunityBoardService);
 export const discoveryClient = () => api().service(community.CommunityDiscoveryService);
+
+/**
+ * One write as the account signed in now (`send` is called at once, before
+ * any await). Its answer — or its refusal — belongs to that account: once
+ * another one took over it is `undefined`, so nothing of it is shown or
+ * opened under the next account (README, "Accounts").
+ */
+export async function asAccount<T>(send: () => Promise<T>): Promise<T | undefined> {
+  const account = currentAccount();
+  if (!account) return undefined;
+  try {
+    const answer = await send();
+    return isActive(account) ? answer : undefined;
+  } catch (error) {
+    if (isActive(account)) throw error;
+    return undefined;
+  }
+}
 
 /** Strings of this area (`@tokuly/i18n`). */
 export const NS = "community";

@@ -30,7 +30,7 @@ import { useEngagement, useLike } from "#/features/engagement/data";
 import { mediaUrl } from "#/lib/config";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
-import { boardClient, itemsOf, NS, useCommunity, useReplies, useThread } from "./data";
+import { asAccount, boardClient, itemsOf, NS, useCommunity, useReplies, useThread } from "./data";
 import { Byline } from "./parts";
 import { PollCard } from "./poll";
 
@@ -188,10 +188,11 @@ function ThreadHead({ thread, member }: { thread: community.Thread; member: bool
 
   const follow = async () => {
     try {
-      const { following: now } = await boardClient().setThreadFollow({
-        threadId: thread.id,
-        following: !following,
-      });
+      const answer = await asAccount(() =>
+        boardClient().setThreadFollow({ threadId: thread.id, following: !following }),
+      );
+      if (!answer) return;
+      const now = answer.following;
       patchThread(queryClient, thread.id, (each) =>
         each.viewer ? { ...each, viewer: { ...each.viewer, following: now } } : each,
       );
@@ -354,11 +355,15 @@ function ReplyComposer({
     if (!text || sending) return;
     setSending(true);
     try {
-      const { reply } = await boardClient().createReply({
-        threadId: thread.id,
-        body: text,
-        replyToId: replyTo?.id ?? "",
-      });
+      const answer = await asAccount(() =>
+        boardClient().createReply({
+          threadId: thread.id,
+          body: text,
+          replyToId: replyTo?.id ?? "",
+        }),
+      );
+      if (!answer) return;
+      const { reply } = answer;
       setBody("");
       onClearReplyTo();
       if (reply) {

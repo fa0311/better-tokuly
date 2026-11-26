@@ -9,7 +9,7 @@ import { Avatar } from "#/components/avatar";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
 import { errorMessage } from "#/lib/errors";
-import { communityClient, NS, useInvitePreview } from "./data";
+import { asAccount, communityClient, NS, useInvitePreview } from "./data";
 import { CommunityIcon, useMemberCount } from "./parts";
 
 /**
@@ -36,9 +36,9 @@ export function InviteScreen({ code }: { code: string }) {
   const join = async () => {
     setJoining(true);
     try {
-      const { community: joined, status } = await communityClient().joinCommunity({
-        inviteCode: code,
-      });
+      const answer = await asAccount(() => communityClient().joinCommunity({ inviteCode: code }));
+      if (!answer) return;
+      const { community: joined, status } = answer;
       if (joined) storeCommunity(queryClient, joined);
       refreshMembership(queryClient, joined?.id);
       if (status === community.MembershipStatus.MEMBER) Alert.alert(t("join.welcome"));

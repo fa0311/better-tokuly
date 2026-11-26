@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
 import { Button } from "#/components/button";
 import { errorMessage } from "#/lib/errors";
-import { boardClient, NS } from "./data";
+import { asAccount, boardClient, NS } from "./data";
 
 /**
  * A thread's poll: choose and vote while it is open; the results once the
@@ -27,7 +27,11 @@ export function PollCard({ thread, canVote }: { thread: community.Thread; canVot
   const vote = async (optionIds: string[]) => {
     setBusy(true);
     try {
-      const { poll: next } = await boardClient().votePoll({ threadId: thread.id, optionIds });
+      const answer = await asAccount(() =>
+        boardClient().votePoll({ threadId: thread.id, optionIds }),
+      );
+      if (!answer) return;
+      const next = answer.poll;
       if (next) patchThread(queryClient, thread.id, (each) => ({ ...each, poll: next }));
       setChosen([]);
     } catch (error) {

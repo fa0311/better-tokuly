@@ -13,7 +13,7 @@ import { TextField } from "#/components/text-field";
 import { webScreenHref } from "#/features/web/handoff";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
-import { communityClient, NS } from "./data";
+import { asAccount, communityClient, NS } from "./data";
 
 const S = community.MembershipStatus;
 const L = community.NotificationLevel;
@@ -41,10 +41,12 @@ export function MembershipButton({ community: c }: { community: community.Commun
   const [asking, setAsking] = useState(false);
   const status = c.viewer?.status ?? S.NONE;
 
-  const run = async (work: () => Promise<unknown>) => {
+  /** One write as the caller, and what follows from its answer while they are still signed in. */
+  const run = async <T,>(send: () => Promise<T>, then?: (answer: T) => void) => {
     setBusy(true);
     try {
-      await work();
+      const answer = await asAccount(send);
+      if (answer !== undefined) then?.(answer);
     } catch (error) {
       complain(error);
     } finally {
@@ -54,15 +56,14 @@ export function MembershipButton({ community: c }: { community: community.Commun
   };
 
   const join = (answers: string[] = []) =>
-    run(async () => {
-      const { status: now, community: joined } = await communityClient().joinCommunity({
-        communityId: c.id,
-        answers,
-      });
-      if (joined) storeCommunity(queryClient, joined);
-      setAsking(false);
-      Alert.alert(now === S.MEMBER ? t("join.welcome") : t("join.requested"));
-    });
+    run(
+      () => communityClient().joinCommunity({ communityId: c.id, answers }),
+      ({ status: now, community: joined }) => {
+        if (joined) storeCommunity(queryClient, joined);
+        setAsking(false);
+        Alert.alert(now === S.MEMBER ? t("join.welcome") : t("join.requested"));
+      },
+    );
 
   const setLevel = (level: community.NotificationLevel) =>
     run(() => communityClient().updateMembership({ communityId: c.id, notificationLevel: level }));
