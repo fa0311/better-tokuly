@@ -3,10 +3,10 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { common, toMillis, video } from "@tokuly/api";
 import {
   blockKind,
+  rateVideo,
   startPosition,
   validateWatchSearch,
   type WatchSearch,
-  withRating,
 } from "@tokuly/core/video";
 import {
   BarChart3,
@@ -427,24 +427,14 @@ function Actions({
     queryClient.setQueryData<video.Video>(key, (current) => (current ? change(current) : current));
 
   const rate = useMutation({
-    mutationFn: (next: video.Rating) =>
-      videoClient().rateVideo({ videoId: summary?.id ?? videoId, rating: next }),
     // The thumb answers at once; the server's count follows.
-    onMutate: (next) => {
-      const previous = queryClient.getQueryData<video.Video>(key);
-      patch((current) => withRating(current, next));
-      return { previous };
-    },
-    onSuccess: (response) => {
-      patch((current) => ({
-        ...current,
-        viewer: current.viewer && { ...current.viewer, rating: response.rating },
-        summary: current.summary && { ...current.summary, likeCount: response.likeCount },
-      }));
-      void queryClient.invalidateQueries({ queryKey: videoKeys.playlistItems("LL") });
-    },
-    onError: (error, _next, context) => {
-      queryClient.setQueryData(key, context?.previous);
+    mutationFn: (next: video.Rating) =>
+      rateVideo(queryClient, videoId, next, () =>
+        videoClient().rateVideo({ videoId: summary?.id ?? videoId, rating: next }),
+      ),
+    onSuccess: () =>
+      void queryClient.invalidateQueries({ queryKey: videoKeys.playlistItems("LL") }),
+    onError: (error) => {
       toast.error(errorMessage(error));
     },
   });

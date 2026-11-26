@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/query-core";
 import type { video } from "@tokuly/api";
 import { videoKeys } from "./keys";
+import { withRating } from "./watch";
 
 type SummaryPatch = (summary: video.VideoSummary) => video.VideoSummary | null;
 
@@ -61,4 +62,53 @@ export function patchVideoEverywhere(
 /** Drops a video from every cached list (after deleting it, or "not interested"). */
 export function removeVideoEverywhere(queryClient: QueryClient, videoId: string): void {
   patchVideoEverywhere(queryClient, videoId, () => null);
+}
+
+/**
+ * Rates the video of a watch page (cached under `videoId`): the thumb and
+ * its count move at once, the server's answer (`send`) replaces them, and a
+ * refusal puts back what they were before it is thrown on.
+ *
+ * A read of the page that is on its way (a refetch on focus, after an
+ * invalidation) may have been answered before the rating: landing later, it
+ * would put the old thumb and count back. Such a read is dropped, when the
+ * thumb moves and again when the answer is in.
+ */
+export async function rateVideo(
+  queryClient: QueryClient,
+  videoId: string,
+  next: video.Rating,
+  send: () => Promise<{ rating: video.Rating; likeCount: bigint }>,
+): Promise<void> {
+  const key = videoKeys.video(videoId);
+  const dropReads = () => queryClient.cancelQueries({ queryKey: key, exact: true });
+  const edit = (change: (current: video.Video) => video.Video) =>
+    queryClient.setQueryData<video.Video | null>(key, (current) =>
+      current ? change(current) : current,
+    );
+
+  await dropReads();
+  const before = queryClient.getQueryData<video.Video | null>(key);
+  edit((current) => withRating(current, next));
+  try {
+    const answer = await send();
+    await dropReads();
+    edit((current) => rated(current, answer.rating, answer.likeCount));
+  } catch (error) {
+    // Only the thumb goes back: whatever else changed meanwhile (views counted) stays.
+    if (before?.viewer && before.summary) {
+      const { rating } = before.viewer;
+      const { likeCount } = before.summary;
+      edit((current) => rated(current, rating, likeCount));
+    }
+    throw error;
+  }
+}
+
+function rated(item: video.Video, rating: video.Rating, likeCount: bigint): video.Video {
+  return {
+    ...item,
+    viewer: item.viewer && { ...item.viewer, rating },
+    summary: item.summary && { ...item.summary, likeCount },
+  };
 }
