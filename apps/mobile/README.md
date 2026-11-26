@@ -28,6 +28,7 @@ traffic in the Android build; an HTTPS one does not.
 ```
 app/                 Expo Router routes, thin: (auth) signed out, (app) signed in, (app)/(tabs)
 src/features/<area>/ one folder per product area: screens, components, hooks, stores
+src/seams/           where features plug into the app (see "How a feature plugs in")
 src/platform/        the device: secure storage, install ID, location and the background task, file transfers
 src/lib/             the API client, realtime, the query client, i18n, theme, config
 src/components/      small native primitives (Button, TextField, Avatar, Page)
@@ -50,8 +51,8 @@ its tests) and the web switches to it.
 
 - **Sessions.** Bearer tokens: the access token in memory, the refresh token
   of the active account and those of parked accounts in secure storage
-  (`features/session/vault.ts`). Switching accounts, adding one, signing out:
-  `features/session/session.ts`. Each starts the signed-in tree over (a new
+  (`features/session/vault.ts`). Who is signed in: `features/session/store.ts`.
+  Switching accounts, adding one, signing out: `features/session/session.ts`. Each starts the signed-in tree over (a new
   API object, realtime connection, query cache and navigation stack), the way
   a page load does on the web. A sign-out shows at once; the session's token
   is kept aside (`departed`) until the server has removed its push
@@ -87,7 +88,7 @@ its tests) and the web switches to it.
   goes on from where it stopped at the next start or return to the front. A post
   belongs to the account it was started as and is only ever sent as it: every
   request is made with that account's API and only while it is the active one, a
-  switch stops it first (`onBeforeLeave`) and it goes on once that account is
+  switch stops it first (the feature's `lifecycle.ts`) and it goes on once that account is
   back; it is thrown away when that account leaves the device. A refusal shows
   the server's reason (MEDIA_TOO_LONG with the limit, in ja/en).
 - **Stories.** The tray (above the chats) and the viewer come from
@@ -130,6 +131,103 @@ its tests) and the web switches to it.
   has no flow to hand a session over to the web safely (a one-time code
   exchanged for the cookie), and tokens never go into URLs, so the web asks to
   sign in there.
+
+## How a feature plugs in
+
+A feature never edits the tab bar, the signed-in layout, the hub, the settings
+screen, the profile screen, the push targets or the session code. It adds a
+file with a fixed name to its own folder and default-exports what it
+contributes; `src/seams/*` collects the files (each type is documented
+there). Two features can therefore be built side by side without touching the
+same file.
+
+| file in `src/features/<area>/` | default export                           | what it does                                                                  |
+| ------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `tabs.tsx`                     | `TabEntry[]` (`#/seams/tabs`)            | a tab; its route is `app/(app)/(tabs)/<name>.tsx`                             |
+| `hub.ts`                       | `HubEntry[]` (`#/seams/hub`)             | the area's way in from the last tab, for what has no tab                      |
+| `screens.ts`                   | `ScreenEntry[]` (`#/seams/screens`)      | how its routes under `app/(app)/` are presented: title, modal, no header      |
+| `links.ts`                     | `LinkTarget[]` (`#/seams/links`)         | which of the server's paths (notifications, pushes) open which of its screens |
+| `settings-rows.ts`             | `SettingsRow[]` (`#/seams/settings`)     | rows of the settings screen                                                   |
+| `settings-card.tsx`            | `SettingsCard` (`#/seams/settings`)      | a control on the settings screen itself                                       |
+| `badges.ts`                    | `BadgeSources` (`#/seams/badges`)        | unread counts by key, shown by the tabs that name the key                     |
+| `background.tsx`               | a component (usually rendering nothing)  | runs on every screen while someone is signed in: realtime listeners, sync     |
+| `lifecycle.ts`                 | `AccountLifecycle` (`#/seams/lifecycle`) | what it owes an account that leaves this device (see below)                   |
+| `profile.tsx`                  | `ProfileSection[]` (`#/seams/profile`)   | what the area shows on a person's profile, by slot                            |
+
+```tsx
+// src/features/plans/tabs.tsx — with app/(app)/(tabs)/plans.tsx rendering the screen.
+export default [
+  { name: "plans", order: 35, title: () => i18n.t("plans:tab"), icon: CalendarHeart, badge: "plans" },
+] satisfies TabEntry[];
+
+// src/features/plans/badges.ts — the tab's counter.
+export default { plans: () => useInvitations().data?.length ?? 0 } satisfies BadgeSources;
+
+// src/features/plans/screens.ts — app/(app)/plans/new.tsx opens as a modal.
+export default [
+  { name: "plans/new", options: () => ({ title: i18n.t("plans:new"), presentation: "modal" }) },
+] satisfies ScreenEntry[];
+
+// src/features/plans/links.ts — a push about a plan opens it.
+export default [
+  { path: /^\/plans\/([^/]+)$/, screen: (match) => `/plans/${match[1]}` },
+] satisfies LinkTarget[];
+```
+
+Routes stay files: Expo Router finds `app/(app)/plans/[id].tsx` by itself, and
+a route file only renders a screen of the feature. A route without an entry in
+`screens.ts` gets the default header.
+
+**The registries.** Metro has no `import.meta.glob`, so `scripts/seams.js`
+writes the list of each seam's files to `src/generated/seams/<seam>.ts`: from
+`metro.config.js` (every bundle and dev server) and before `typecheck` and
+`test`. They are not checked in, like the web's route tree: two branches that
+both add a feature would always conflict there. After adding or removing a
+seam file while Metro runs, `pnpm --filter @tokuly/mobile seams`; a jest run
+on stale registries fails (`src/seams/__tests__/registry.test.ts`).
+(`require.context` would do the same inside Metro, but it is still behind an
+`unstable_` flag, jest needs a stand-in for it, and its result is untyped: a
+generated import list is checked by `tsc` against each seam's type.)
+
+### Accounts: the rules a feature follows
+
+Several accounts live on one phone (a main one, a 裏垢, a creator account),
+and one must never speak, be seen or be notified as another. Every switch,
+added account and sign-out starts the signed-in tree over (components
+unmount, the query cache is new), which takes care of what a feature shows.
+What a feature _sends by itself_ is its own duty:
+
+- **Capture the account before the first await.** `api()` is whoever is
+  signed in _now_; after an await that may be someone else. Take
+  `currentAccount()` (`features/session/account.ts`: session, user, the API
+  object) or the client (`const client = pushClient()`) first, make every
+  request of that piece of work with it, and after each await ask
+  `isActive(account)` / `ensureActive(account)` before going on. State in
+  secure storage is kept per user or session ID, never "the current one".
+- **Leave in `lifecycle.ts`.** `beforeLeave(account)` runs while the leaving
+  account's session still works (after a switch went through, before a
+  sign-out reaches the server): stop sending, wait for what is in flight, tell
+  the server. All features' hooks run together and each has 3 s; after that
+  the account leaves anyway. Nothing registers at run time: a hook is there
+  whether or not a component was mounted.
+- **Owed work.** What must reach the server and could not (offline, the 3 s
+  ran out) is written down _before_ it is tried, by session or user ID, and
+  retried until it goes through: at the next start as that account, or right
+  away as the parked session with `asParked(sessionId, work)`
+  (`features/session/parked.ts`), which resolves to `null` when the device
+  no longer holds it. Push registrations (`features/notifications/push.ts`)
+  and the stop of location sharing (`features/map/sharing.ts`) are the
+  examples to copy.
+- **Parked tokens go through the one queue.** A refresh token sent twice
+  revokes its session. Nothing but `features/session` reads the vault's
+  tokens; work as a parked account is `asParked`, which waits its turn
+  behind switches and removals.
+- **A session that left for good** (signed out offline, a previous install)
+  is resumed once more before the server ends it: `beforeEnd(session)` takes
+  back what the feature left on the server for it. Throwing keeps the session
+  aside for the next start. What a feature keeps on the device for an account
+  (a queue of posts) it drops once `accountsOnDevice()` no longer lists the
+  session.
 
 ## Checks
 
