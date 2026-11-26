@@ -2,7 +2,6 @@ import {
   Code,
   GraduationCap,
   type LucideIcon,
-  MessageCircleQuestion,
   Settings,
   ShieldCheck,
   SmilePlus,
@@ -28,7 +27,6 @@ export interface WebFeature {
  */
 export const WEB_FEATURES: readonly WebFeature[] = [
   { key: "school", path: "/school", icon: GraduationCap },
-  { key: "ask", path: "/ask", icon: MessageCircleQuestion },
   { key: "quest", path: "/quest", icon: Trophy },
   { key: "emoji", path: "/emoji", icon: SmilePlus },
   { key: "stamps", path: "/stamps", icon: Sticker },
