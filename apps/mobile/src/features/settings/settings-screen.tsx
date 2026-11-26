@@ -1,17 +1,18 @@
-import { router } from "expo-router";
-import { ChevronRight, ExternalLink, LogOut, Scale, Users } from "lucide-react-native";
+import { ChevronRight, LogOut } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
 import { Page, Section } from "#/components/page";
-import { PushCard } from "#/features/notifications/push-card";
 import { signOut } from "#/features/session/session";
 import { SERVER_URL } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
 import { appVersion } from "#/platform/device";
-import { openWebSettings } from "./web-settings";
+import { SETTINGS_CARDS, SETTINGS_ROWS } from "#/seams/settings";
 
-/** The native settings so far: accounts, push on this device and signing out; the rest opens on the web. */
+/**
+ * The native settings so far: the features' rows and cards (`#/seams/settings`: accounts, push
+ * on this device) and signing out; the rest opens on the web.
+ */
 export function SettingsScreen() {
   const { t } = useTranslation("mobile");
   const { t: tc } = useTranslation("common");
@@ -34,28 +35,21 @@ export function SettingsScreen() {
   return (
     <Page testID="settings-screen">
       <Section>
-        <Row
-          testID="settings-accounts"
-          icon={<Users size={20} color={colors.ink} />}
-          label={t("settings.accounts")}
-          onPress={() => router.push("/accounts")}
-        />
-        <Row
-          testID="settings-web"
-          icon={<ExternalLink size={20} color={colors.ink} />}
-          label={t("settings.web")}
-          hint={t("settings.webHint")}
-          onPress={() => void openWebSettings()}
-        />
-        <Row
-          testID="settings-licenses"
-          icon={<Scale size={20} color={colors.ink} />}
-          label={t("settings.licenses")}
-          onPress={() => router.push("/licenses")}
-        />
+        {SETTINGS_ROWS.map((row) => (
+          <Row
+            key={row.id}
+            testID={`settings-${row.id}`}
+            icon={<row.icon size={20} color={colors.ink} />}
+            label={row.label()}
+            hint={row.hint?.()}
+            onPress={row.onPress}
+          />
+        ))}
       </Section>
       <Text className="px-1 text-xs text-ink-soft">{t("settings.webNote")}</Text>
-      <PushCard />
+      {SETTINGS_CARDS.map((card) => (
+        <card.Component key={card.id} />
+      ))}
       <Section>
         <Row
           testID="settings-sign-out"

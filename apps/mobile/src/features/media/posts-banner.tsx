@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
-import { useSessionStore } from "#/features/session/session";
+import { useSessionStore } from "#/features/session/store";
 import { discardPost, dismissPost, type Post, retryPost, usePostsOf } from "./posts";
 
 function Row({ post }: { post: Post }) {

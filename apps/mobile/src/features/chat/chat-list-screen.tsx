@@ -10,7 +10,7 @@ import { ActionSheet, type SheetAction } from "#/components/action-sheet";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
 import { PostsBanner } from "#/features/media/posts-banner";
-import { useMe } from "#/features/session/session";
+import { useMe } from "#/features/session/store";
 import { StoryTray } from "#/features/stories/tray";
 import { errorMessage } from "#/lib/errors";
 import { ConversationRow } from "./conversation-row";

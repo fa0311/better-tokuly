@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react-native";
 import { create, identity } from "@tokuly/api";
-import { useSessionStore } from "#/features/session/session";
+import { useSessionStore } from "#/features/session/store";
 import { startBackgroundUpdates, stopBackgroundUpdates } from "#/platform/location";
 import { writeSecure } from "#/platform/secure-storage";
 import { choiceKey, useOwnLocationSharing, useSharing } from "../sharing";

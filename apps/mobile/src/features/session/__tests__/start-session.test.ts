@@ -1,6 +1,13 @@
 import { api } from "#/lib/api";
 import { writeSecure } from "#/platform/secure-storage";
-import { startSession, useSessionStore } from "../session";
+import { startSession } from "../session";
+import { useSessionStore } from "../store";
+
+// Of the features' hooks (`#/seams/lifecycle`), the one a session that left meets: its push registrations go.
+jest.mock("#/generated/seams/lifecycle", () => {
+  const push = jest.requireActual("#/features/notifications/lifecycle").default;
+  return { __esModule: true, default: [{ beforeEnd: push.beforeEnd }] };
+});
 
 /** The app's own storage, at the edge: this launch cannot write to it. */
 jest.mock("expo-file-system", () => ({

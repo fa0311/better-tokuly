@@ -12,7 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ActionSheet, type SheetAction } from "#/components/action-sheet";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
-import { useMe } from "#/features/session/session";
+import { useMe } from "#/features/session/store";
 import { webLink } from "#/lib/config";
 import { errorMessage } from "#/lib/errors";
 import { realtime } from "#/lib/realtime";

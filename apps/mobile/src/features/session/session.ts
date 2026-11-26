@@ -1,9 +1,12 @@
-import { type Api, Code, ConnectError, identity, notify, type SessionState } from "@tokuly/api";
-import { create } from "zustand";
+import { Code, ConnectError, identity } from "@tokuly/api";
 import { api, apiWith, authClient, resetApi } from "#/lib/api";
 import { prepareRealtime, resetRealtime } from "#/lib/realtime";
 import { DEVICE_ID_KEY } from "#/platform/device";
 import { forgetPreviousInstall } from "#/platform/install";
+import { runBeforeEnd, runBeforeLeave } from "#/seams/lifecycle";
+import { currentAccount } from "./account";
+import { withParkedTokens } from "./parked";
+import { useSessionStore } from "./store";
 import {
   ACCOUNT_KEYS,
   activeTokenStore,
@@ -14,27 +17,9 @@ import {
   forgetDeparted,
   forgetParked,
   parkActive,
-  parkedTokenStore,
   parkedTokens,
   rotateParked,
 } from "./vault";
-
-interface SessionStore {
-  state: SessionState;
-  /**
-   * Goes up whenever another account becomes the active one (or the active
-   * one signs out). The signed-in tree is keyed by it: caches, realtime
-   * subscriptions and the navigation stack of the previous account are gone,
-   * the way a web page reloads.
-   */
-  generation: number;
-}
-
-/** React-facing mirror of the active account's session. */
-export const useSessionStore = create<SessionStore>(() => ({
-  state: { status: "unknown" },
-  generation: 0,
-}));
 
 let unbind: (() => void) | null = null;
 
@@ -68,43 +53,10 @@ export async function startSession(): Promise<void> {
   }
 }
 
-/** The signed-in account, or `null` while unknown / signed out. */
-export function useMe(): identity.Me | null {
-  return useSessionStore((s) => (s.state.status === "signedIn" ? s.state.me : null));
-}
-
-type BeforeLeave = () => Promise<void> | void;
-const beforeLeave = new Set<BeforeLeave>();
-
-/**
- * Registers something to finish while the active account's session still
- * works, before it signs out or another account takes over (telling the
- * server that this device stopped sharing its location). Returns the
- * function that takes it out again.
- */
-export function onBeforeLeave(hook: BeforeLeave): () => void {
-  beforeLeave.add(hook);
-  return () => beforeLeave.delete(hook);
-}
-
-const HOOK_TIMEOUT_MS = 3000;
-
-/** Every hook gets its moment; one that fails or hangs is left behind. */
-function leave(): Promise<void> {
-  const run = (hook: BeforeLeave) =>
-    new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, HOOK_TIMEOUT_MS);
-      const done = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      try {
-        Promise.resolve(hook()).then(done, done);
-      } catch {
-        done();
-      }
-    });
-  return Promise.all([...beforeLeave].map(run)).then(() => undefined);
+/** The account in use leaves (`#/seams/lifecycle`); nobody signed in, nobody leaves. */
+async function leave(): Promise<void> {
+  const account = currentAccount();
+  if (account) await runBeforeLeave(account);
 }
 
 /** Starts the app over as the account of `response` (or signed out): a new API, connection and cache. */
@@ -132,39 +84,6 @@ export async function enterAccount(response: identity.AuthResponse): Promise<voi
     await withParkedTokens(() => parkActive(current));
   }
   await startOver(response);
-}
-
-/**
- * Everything that reads or rotates a parked account's refresh token (a
- * switch, a removal, parking an account, work done as a parked session) runs
- * one after the other: a token sent twice — a switch and a refresh of the
- * same session at once — revokes that session (REFRESH_TOKEN_REUSE).
- */
-let parkedQueue: Promise<unknown> = Promise.resolve();
-
-function withParkedTokens<T>(work: () => Promise<T>): Promise<T> {
-  const run = parkedQueue.then(work);
-  parkedQueue = run.catch(() => {});
-  return run;
-}
-
-/**
- * Runs `work` as a parked account's session without making it the active
- * one (what it still owes the server, such as removing a push registration
- * a switch could not remove). Resolves to `null` when the device no longer
- * holds that account.
- */
-export function asParked<T>(
-  sessionId: string,
-  work: (account: Api) => Promise<T>,
-): Promise<T | null> {
-  return withParkedTokens(async () => {
-    if (!(await parkedTokens())[sessionId]) return null;
-    const account = apiWith(parkedTokenStore(sessionId));
-    if (!(await account.session.restore()))
-      throw new Error("the parked session could not be resumed");
-    return work(account);
-  });
 }
 
 export type SwitchResult = "switched" | "needsCode";
@@ -235,8 +154,9 @@ export async function signOut(allSessions = false): Promise<{ everywherePending:
 
 /**
  * Finishes the sessions that left this device while the server may not know
- * (`departedTokens`): each is resumed, its push registrations are removed
- * (its pushes must not reach the phone in someone else's hands) and it is
+ * (`departedTokens`): each is resumed, the features take back what it left
+ * on the server (`beforeEnd` of `#/seams/lifecycle`: its push registrations,
+ * so its pushes do not reach the phone in someone else's hands) and it is
  * signed out on the server. A session the server already ended refuses to
  * resume and is simply forgotten; one that cannot be reached yet waits for
  * the next start. Runs in the queue of the device's tokens.
@@ -248,7 +168,7 @@ export function settleDeparted(): Promise<void> {
         const account = apiWith(departedTokenStore(sessionId));
         // Refused (already ended): its store forgets it. Unreachable: kept for next time.
         if (!(await account.session.restore())) continue;
-        await account.service(notify.PushService).unregisterDevice({ deviceId: "" });
+        await runBeforeEnd(account);
         await account.service(identity.AuthService).signOut({ allSessions });
         await forgetDeparted(sessionId);
       } catch {

@@ -2,12 +2,8 @@ import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 import { create, identity, notify } from "@tokuly/api";
-import {
-  settleDeparted,
-  signOut,
-  switchAccount,
-  useSessionStore,
-} from "#/features/session/session";
+import { settleDeparted, signOut, switchAccount } from "#/features/session/session";
+import { useSessionStore } from "#/features/session/store";
 import { parkedTokens } from "#/features/session/vault";
 import { api, resetApi } from "#/lib/api";
 import { readJson } from "#/platform/secure-storage";

@@ -7,7 +7,8 @@ import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AccountScope } from "#/features/session/account-scope";
-import { startSession, useSessionStore } from "#/features/session/session";
+import { startSession } from "#/features/session/session";
+import { useSessionStore } from "#/features/session/store";
 import i18n from "#/lib/i18n";
 import { useTheme } from "#/lib/theme";
 

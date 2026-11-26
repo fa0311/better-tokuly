@@ -1,0 +1,78 @@
+import { targetOf } from "#/features/notifications/target";
+import { SERVER_URL } from "#/lib/config";
+import { HUB_ENTRIES } from "../hub";
+import { screenFor } from "../links";
+import { SCREENS } from "../screens";
+import { SETTINGS_CARDS, SETTINGS_ROWS } from "../settings";
+import { TABS } from "../tabs";
+
+// The rows only name the router; no navigation is mounted here.
+jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
+
+/** What the features plug in today: moving them onto the seams changed nothing a person sees. */
+describe("the features on the seams", () => {
+  it("the tabs, in the bar's order, with their counters", () => {
+    expect(TABS.map((tab) => [tab.name, tab.badge, tab.noHeader ?? false])).toEqual([
+      ["map", undefined, true],
+      ["chats", "chat", false],
+      ["shorts", undefined, true],
+      ["friends", "friends", false],
+      ["inbox", "notifications", false],
+      ["me", undefined, false],
+    ]);
+    expect(TABS.map((tab) => tab.title())).toEqual([
+      "マップ",
+      "チャット",
+      "ショート",
+      "ともだち",
+      "お知らせ",
+      "じぶん",
+    ]);
+  });
+
+  it("the hub and the settings", () => {
+    expect(HUB_ENTRIES.map((entry) => [entry.id, entry.href])).toEqual([["settings", "/settings"]]);
+    expect(SETTINGS_ROWS.map((row) => row.id)).toEqual(["accounts", "web", "licenses"]);
+    expect(SETTINGS_CARDS.map((card) => card.id)).toEqual(["push"]);
+  });
+
+  it("the screens pushed over the tabs, each named once", () => {
+    const names = SCREENS.map((screen) => screen.name).sort();
+    expect(names).toEqual([
+      "accounts",
+      "add-account",
+      "add-friend",
+      "chat/[id]",
+      "create-account",
+      "invite/[code]",
+      "licenses",
+      "new-chat",
+      "settings",
+      "shorts/mine",
+      "shorts/new",
+      "shorts/sound/[id]",
+      "shorts/tag/[tag]",
+      "shorts/watch",
+      "stories/[userId]",
+      "stories/new",
+      "u/[handle]",
+    ]);
+    expect(SCREENS.find((screen) => screen.name === "new-chat")?.options()).toEqual({
+      title: "新しいチャット",
+      presentation: "modal",
+    });
+  });
+
+  it("the server's paths that have a screen here", () => {
+    expect(screenFor("/chat/c1")).toBe("/chat/c1");
+    expect(screenFor("/u/alice")).toBe("/u/alice");
+    expect(screenFor("/invite/abc")).toBe("/invite/abc");
+    expect(screenFor("/friends/requests")).toBe("/friends");
+    expect(screenFor("/map")).toBe("/map");
+    expect(screenFor("/notifications")).toBe("/inbox");
+    expect(screenFor("/stamps")).toBeNull();
+    // What no feature claims opens on the web.
+    expect(targetOf("/chat/c1?m=5")).toEqual({ type: "screen", href: "/chat/c1" });
+    expect(targetOf("/stamps")).toEqual({ type: "web", url: `${SERVER_URL}/stamps` });
+  });
+});

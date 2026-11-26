@@ -80,7 +80,7 @@ describe("sendFix", () => {
 
   it("sends nothing for an account after it stopped on leaving", async () => {
     const sending = sendFix(FIX, "alice");
-    const leaving = leaveSharing("alice");
+    const leaving = leaveSharing({ sessionId: "s-alice", userId: "alice", api: api() });
     releaseBattery();
     await Promise.all([sending, leaving]);
     await settle();

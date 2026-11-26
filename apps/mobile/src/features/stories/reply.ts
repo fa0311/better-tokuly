@@ -3,7 +3,7 @@ import type { notes } from "@tokuly/api";
 import { chatKeys } from "@tokuly/core/chat";
 import { conversationClient } from "#/features/chat/data";
 import { send } from "#/features/chat/outbox";
-import { AccountChanged, currentAccount, ensureActive } from "#/features/media/account";
+import { AccountChanged, currentAccount, ensureActive } from "#/features/session/account";
 import i18n from "#/lib/i18n";
 
 /**

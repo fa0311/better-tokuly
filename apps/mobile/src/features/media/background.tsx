@@ -3,23 +3,15 @@ import { shortKeys } from "@tokuly/core/shorts";
 import { storyKeys } from "@tokuly/core/stories";
 import { useEffect } from "react";
 import { AppState } from "react-native";
-import { onBeforeLeave, useSessionStore } from "#/features/session/session";
-import { parkedTokens } from "#/features/session/vault";
-import { pauseRunning, resumePosts, usePosts } from "./posts";
-
-async function accountsOnDevice(): Promise<Set<string>> {
-  const { state } = useSessionStore.getState();
-  const ids = new Set(Object.keys(await parkedTokens()));
-  if (state.status === "signedIn") ids.add(state.sessionId);
-  return ids;
-}
+import { accountsOnDevice } from "#/features/session/account";
+import { resumePosts, usePosts } from "./posts";
 
 /**
  * Runs while someone is signed in: posts on their way go on (at start, and
- * whenever the app comes back to the front), stop before the account leaves,
- * and what they became shows up in the lists.
+ * whenever the app comes back to the front), and what they became shows up
+ * in the lists. They stop before the account leaves (`lifecycle.ts`).
  */
-export function PostsBackground() {
+export default function PostsBackground() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -31,11 +23,7 @@ export function PostsBackground() {
     const appState = AppState.addEventListener("change", (next) => {
       if (next === "active") resume();
     });
-    const offLeave = onBeforeLeave(pauseRunning);
-    return () => {
-      appState.remove();
-      offLeave();
-    };
+    return () => appState.remove();
   }, []);
 
   useEffect(

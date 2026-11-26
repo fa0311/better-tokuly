@@ -1,5 +1,6 @@
 import { resolveTarget } from "@tokuly/core/notifications";
 import { SERVER_URL } from "#/lib/config";
+import { screenFor } from "#/seams/links";
 
 /** Where a path the server hands out goes in this app. */
 export type AppTarget =
@@ -10,29 +11,18 @@ export type AppTarget =
 
 export const INBOX = "/inbox";
 
-/** The server's paths that have a screen here, and the screen. */
-const SCREENS: [RegExp, (match: RegExpMatchArray) => string][] = [
-  [/^\/chat\/([^/]+)$/, (m) => `/chat/${m[1]}`],
-  [/^\/u\/([^/]+)$/, (m) => `/u/${m[1]}`],
-  [/^\/invite\/([^/]+)$/, (m) => `/invite/${m[1]}`],
-  [/^\/friends(\/.*)?$/, () => "/friends"],
-  [/^\/map$/, () => "/map"],
-  [/^\/notifications$/, () => INBOX],
-];
-
 /**
  * Reads a notification's `path` (`resolveTarget` of `@tokuly/core/notifications`
- * against this build's server). `null`: it leads nowhere.
+ * against this build's server). The features say which of the server's paths
+ * have a screen here (`#/seams/links`). `null`: it leads nowhere.
  */
 export function targetOf(path: string): AppTarget | null {
   const target = resolveTarget(path, SERVER_URL);
   if (!target) return null;
   if (target.type === "external") return { type: "web", url: target.url };
   const pathname = target.href.split(/[?#]/)[0] ?? "";
-  for (const [pattern, screen] of SCREENS) {
-    const match = pathname.match(pattern);
-    if (match) return { type: "screen", href: screen(match) };
-  }
+  const screen = screenFor(pathname);
+  if (screen) return { type: "screen", href: screen };
   return { type: "web", url: `${SERVER_URL}${target.href}` };
 }
 
