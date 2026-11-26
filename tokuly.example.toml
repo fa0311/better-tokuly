@@ -70,6 +70,11 @@
 # (TOKULY_NATS_PREFIX; restart: api, realtime, worker)
 # nats_prefix = ""
 
+# Days an event or job its handler gave up on is kept, payload included, for `tokuly dead-letters
+# redrive` (1 to 30). Letters about an erased account go when the account does.
+# (TOKULY_DEAD_LETTER_RETENTION_DAYS; restart: api, realtime, worker)
+# dead_letter_retention_days = 7
+
 # Endpoint the backend uses to reach the object store.
 # (TOKULY_S3_ENDPOINT; restart: api, realtime, worker)
 # s3_endpoint = "http://localhost:9000"

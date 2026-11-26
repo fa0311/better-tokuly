@@ -1822,6 +1822,49 @@ async fn a_ban_signs_the_account_out_even_when_the_banner_could_not() {
     assert_eq!(live, 1);
 }
 
+#[tokio::test]
+async fn an_erased_account_leaves_no_dead_letters() {
+    let mut domain = None;
+    let app = TestApp::start(MIGRATIONS, |_core, identity, router| {
+        domain = Some(identity.clone());
+        identity.register(router)
+    })
+    .await;
+    let identity = domain.expect("register ran");
+    let (leaving, staying) = (app.user("dl-leaving").await, app.user("dl-staying").await);
+    let bus = &app.core.bus;
+    let bury = async |user: uuid::Uuid| {
+        let payload = serde_json::json!({ "topic": "notes.note.created", "data": { "author_id": user } }).to_string();
+        tokuly_core::dead_letters::bury(bus, "notify-events", "evt.notes.note.created", payload.as_bytes(), "no luck", 12)
+            .await
+            .unwrap();
+    };
+    let letters_about = async |user: uuid::Uuid| {
+        let buried = tokuly_core::dead_letters::list(bus, None, 10_000).await.unwrap();
+        buried.iter().filter(|b| b.letter.payload["data"]["author_id"] == user.to_string()).count()
+    };
+    bury(leaving.id).await;
+    bury(staying.id).await;
+
+    sqlx::query("UPDATE users SET deletion_scheduled_at = now() - interval '1 minute' WHERE id = $1")
+        .bind(leaving.id)
+        .execute(&app.core.db)
+        .await
+        .unwrap();
+    identity.purge_deleted_accounts().await.unwrap();
+    let deleted = app.events("identity.user.deleted").await;
+    let event = deleted.iter().find(|event| event.data["user_id"] == leaving.id.to_string()).expect("the erasure");
+    identity.on_account_event(event).await.unwrap();
+    identity.on_account_event(event).await.unwrap();
+    assert_eq!((letters_about(leaving.id).await, letters_about(staying.id).await), (0, 1));
+
+    // A message still being retried at the erasure is buried later; the
+    // hourly sweep finds it.
+    bury(leaving.id).await;
+    identity.erase_late_dead_letters().await.unwrap();
+    assert_eq!((letters_about(leaving.id).await, letters_about(staying.id).await), (0, 1));
+}
+
 /// An app whose identity is built for `public_url` in production, as
 /// `tokuly api` would build it; `None` when start-up fails.
 async fn app_at(public_url: &str) -> Option<TestApp> {

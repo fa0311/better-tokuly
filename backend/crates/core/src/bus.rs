@@ -33,6 +33,8 @@ pub struct Bus {
     /// Namespace for subjects and streams (`TOKULY_NATS_PREFIX`), so several
     /// deployments or test runs can share one NATS server. Empty by default.
     prefix: String,
+    /// How long the `DEAD` stream keeps a message.
+    dead_letter_retention: Duration,
 }
 
 impl Bus {
@@ -53,7 +55,16 @@ impl Bus {
             client,
             js,
             prefix: prefix.to_owned(),
+            dead_letter_retention: crate::dead_letters::DEFAULT_RETENTION,
         })
+    }
+
+    /// Keeps buried messages for `retention` instead of
+    /// [`crate::dead_letters::DEFAULT_RETENTION`] (applied by
+    /// [`Self::ensure_streams`]).
+    pub fn with_dead_letter_retention(mut self, retention: Duration) -> Self {
+        self.dead_letter_retention = retention;
+        self
     }
 
     /// The namespaced form of a subject.
@@ -115,7 +126,7 @@ impl Bus {
                 STREAM_DEAD,
                 vec!["dead.>"],
                 RetentionPolicy::Limits,
-                crate::dead_letters::RETENTION,
+                self.dead_letter_retention,
             ),
         ];
         for (name, subjects, retention, max_age) in specs {
@@ -128,7 +139,8 @@ impl Bus {
                     retention,
                     max_age,
                     storage: StorageType::File,
-                    duplicate_window: Duration::from_secs(120),
+                    // JetStream refuses a window longer than the stream's age.
+                    duplicate_window: Duration::from_secs(120).min(max_age),
                     ..Default::default()
                 })
                 .await

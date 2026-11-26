@@ -83,6 +83,11 @@ pub struct Config {
     /// share one NATS server. Letters, digits and underscores only.
     #[arg(long, env = "TOKULY_NATS_PREFIX", default_value = "")]
     pub nats_prefix: String,
+    /// Days an event or job its handler gave up on is kept, payload
+    /// included, for `tokuly dead-letters redrive` (1 to 30). Letters about
+    /// an erased account go when the account does.
+    #[arg(long, env = "TOKULY_DEAD_LETTER_RETENTION_DAYS", default_value_t = 7)]
+    pub dead_letter_retention_days: u32,
 
     // ── Object storage (S3 API) ──
     /// Endpoint the backend uses to reach the object store.
@@ -255,8 +260,18 @@ impl Config {
         crate::proxies::TrustedProxies::parse(&self.trusted_proxies).map_err(|e| anyhow::anyhow!("TOKULY_TRUSTED_PROXIES: {e}"))
     }
 
+    /// How long the `DEAD` stream keeps a message (`TOKULY_DEAD_LETTER_RETENTION_DAYS`).
+    pub fn dead_letter_retention(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(u64::from(self.dead_letter_retention_days) * 24 * 3600)
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         self.trusted_proxies()?;
+        // 0 would be "forever" to JetStream.
+        anyhow::ensure!(
+            (1..=30).contains(&self.dead_letter_retention_days),
+            "TOKULY_DEAD_LETTER_RETENTION_DAYS must be between 1 and 30"
+        );
         anyhow::ensure!(
             self.secret.len() >= 32,
             "TOKULY_SECRET must be at least 32 characters (generate one with `openssl rand -hex 32`)"

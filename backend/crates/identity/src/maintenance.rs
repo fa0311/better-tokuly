@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokuly_core::{
+    dead_letters,
     events::{self, ConsumeOptions, Event},
     jobs::JobOptions,
     prelude::*,
@@ -38,7 +39,12 @@ pub struct ExportJob {
 }
 
 /// Topics identity's own consumer follows.
-pub const ACCOUNT_TOPICS: &[&str] = &["identity.user.banned"];
+pub const ACCOUNT_TOPICS: &[&str] = &["identity.user.banned", "identity.user.deleted"];
+
+/// How long after an erasure the hourly sweep still looks for dead letters
+/// about the account: a message in flight at the erasure is retried for up
+/// to a couple of hours before it is buried.
+const LATE_LETTERS: &str = "1 day";
 
 impl Identity {
     /// Handles one of [`ACCOUNT_TOPICS`]; the same result when an event
@@ -49,14 +55,19 @@ impl Identity {
                 self.sign_out_banned(event.data::<UserRef>()?.user_id, event.occurred_at).await?;
                 Ok(())
             }
+            "identity.user.deleted" => {
+                dead_letters::erase_users(&self.core.bus, &[event.data::<UserRef>()?.user_id]).await?;
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
 
     /// Starts the identity workers: the data-export job, the consumer that
-    /// signs banned accounts out ([`Identity::on_account_event`]), the
-    /// profile link check (job and six-hourly sweep) and the periodic purge
-    /// of accounts whose deletion grace period ran out.
+    /// signs banned accounts out and removes erased accounts' dead letters
+    /// ([`Identity::on_account_event`]), the profile link check (job and
+    /// six-hourly sweep) and the hourly purge of accounts whose deletion
+    /// grace period ran out ([`Identity::erase_late_dead_letters`] with it).
     pub fn spawn_workers(&self) {
         let identity = self.clone();
         let (bus, cancel) = (self.core.bus.clone(), self.core.shutdown.clone());
@@ -138,6 +149,9 @@ impl Identity {
                             Ok(n) => tracing::info!(count = n, "purged deleted accounts"),
                             Err(e) => tracing::error!(error = %e, "account purge failed"),
                         }
+                        if let Err(e) = identity.erase_late_dead_letters().await {
+                            tracing::error!(error = %e, "dead letter erasure failed");
+                        }
                     }
                 }
             }
@@ -210,6 +224,16 @@ impl Identity {
             purged += 1;
         }
         Ok(purged)
+    }
+
+    /// Removes dead letters about accounts erased in the last day: those
+    /// buried after the `identity.user.deleted` consumer looked.
+    pub async fn erase_late_dead_letters(&self) -> AppResult<usize> {
+        let erased: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE deleted_at > now() - $1::interval")
+            .bind(LATE_LETTERS)
+            .fetch_all(&self.core.db)
+            .await?;
+        dead_letters::erase_users(&self.core.bus, &erased).await
     }
 
     /// Builds the personal data archive and mails a download link.

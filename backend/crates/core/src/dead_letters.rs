@@ -7,8 +7,8 @@
 //! was in flight: an account deletion another domain never heard of, a
 //! notification, a reward. Now the message is *buried* first: stored on the
 //! `DEAD` stream with the consumer it failed in and the last error, kept for
-//! [`RETENTION`], and an operator sends it round again once the cause is
-//! fixed:
+//! `TOKULY_DEAD_LETTER_RETENTION_DAYS` ([`DEFAULT_RETENTION`]), and an
+//! operator sends it round again once the cause is fixed:
 //!
 //! ```text
 //! tokuly dead-letters list
@@ -23,10 +23,14 @@
 //! feed remember event IDs for a week): sent to everyone, a redrive would
 //! notify people again of what happened weeks ago. A redriven job goes back
 //! on its queue.
+//!
+//! A letter keeps its payload, so it must not outlive an erased account:
+//! identity calls [`erase_users`] when it erases one.
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     bus::{Bus, STREAM_DEAD},
@@ -42,8 +46,12 @@ pub(crate) fn redriven_for_another(message: &async_nats::Message, consumer: &str
     message.headers.as_ref().and_then(|h| h.get(REDRIVE_FOR)).is_some_and(|target| target.as_str() != consumer)
 }
 
-/// How long a buried message waits for an operator.
-pub const RETENTION: Duration = Duration::from_secs(30 * 24 * 3600);
+/// How long a buried message waits for an operator unless
+/// `TOKULY_DEAD_LETTER_RETENTION_DAYS` says otherwise.
+pub const DEFAULT_RETENTION: Duration = Duration::from_secs(7 * 24 * 3600);
+
+/// The event that erases an account. Its letters survive [`erase_users`].
+const ERASURE_SUBJECT: &str = "evt.identity.user.deleted";
 
 /// The most text kept of the error a message died of.
 const MAX_ERROR_CHARS: usize = 2_000;
@@ -177,6 +185,44 @@ pub async fn redrive(bus: &Bus, consumer_prefix: Option<&str>, limit: usize) -> 
     Ok(done)
 }
 
+/// Removes every buried message that mentions one of `user_ids` (erased
+/// accounts) anywhere: payload, raw text or error. Letters of
+/// `identity.user.deleted` stay: they hold nothing but the account's ID,
+/// and redriving one is how a consumer that failed still erases its part.
+/// Idempotent; returns how many were removed.
+pub async fn erase_users(bus: &Bus, user_ids: &[Uuid]) -> AppResult<usize> {
+    if user_ids.is_empty() {
+        return Ok(0);
+    }
+    let unavailable = |e: String| AppError::unavailable("BUS_UNAVAILABLE", format!("dead letters cannot be read: {e}"));
+    let mut stream = bus.js.get_stream(bus.stream_name(STREAM_DEAD)).await.map_err(|e| unavailable(e.to_string()))?;
+    let state = stream.info().await.map_err(|e| unavailable(e.to_string()))?.state.clone();
+    if state.messages == 0 {
+        return Ok(0);
+    }
+    let mentions: Vec<String> = user_ids.iter().flat_map(|id| [id.hyphenated().to_string(), id.simple().to_string()]).collect();
+    let mut erased = 0;
+    for sequence in state.first_sequence..=state.last_sequence {
+        let Ok(message) = stream.get_raw_message(sequence).await else { continue };
+        if !concerns(&message.payload, &mentions) {
+            continue;
+        }
+        stream.delete_message(sequence).await.map_err(|e| unavailable(e.to_string()))?;
+        erased += 1;
+    }
+    Ok(erased)
+}
+
+/// Whether a stored letter mentions one of `mentions` (lowercase IDs) and is
+/// not an erasure itself. A letter that cannot be read is judged by its text.
+fn concerns(stored: &[u8], mentions: &[String]) -> bool {
+    if serde_json::from_slice::<DeadLetter>(stored).is_ok_and(|letter| letter.subject == ERASURE_SUBJECT) {
+        return false;
+    }
+    let text = String::from_utf8_lossy(stored).to_lowercase();
+    mentions.iter().any(|id| text.contains(id.as_str()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +232,32 @@ mod tests {
         assert_eq!(grave("notify-events"), "dead.notify-events");
         assert_eq!(grave("job-media-transcode"), "dead.job-media-transcode");
         assert_eq!(grave("odd.name with*wild>cards"), "dead.odd_name_with_wild_cards");
+    }
+
+    fn stored(subject: &str, payload: serde_json::Value, raw: Option<&str>) -> Vec<u8> {
+        let letter = DeadLetter {
+            consumer: "c".into(),
+            subject: subject.into(),
+            error: String::new(),
+            deliveries: 1,
+            died_at: Utc::now(),
+            payload,
+            raw: raw.map(str::to_owned),
+        };
+        serde_json::to_vec(&letter).unwrap()
+    }
+
+    #[test]
+    fn a_letter_concerns_an_account_it_mentions_in_any_form_but_not_its_erasure() {
+        let id = Uuid::now_v7();
+        let mentions = [id.hyphenated().to_string(), id.simple().to_string()];
+        let nested = serde_json::json!({ "data": { "author": { "id": id } } });
+        assert!(concerns(&stored("evt.notes.note.created", nested, None), &mentions));
+        let upper = id.simple().to_string().to_uppercase();
+        assert!(concerns(&stored("job.media.transcode", serde_json::Value::Null, Some(&format!("key={upper}"))), &mentions));
+        let other = serde_json::json!({ "user_id": Uuid::now_v7() });
+        assert!(!concerns(&stored("evt.notes.note.created", other, None), &mentions));
+        let erasure = serde_json::json!({ "data": { "user_id": id } });
+        assert!(!concerns(&stored(ERASURE_SUBJECT, erasure, None), &mentions));
     }
 }

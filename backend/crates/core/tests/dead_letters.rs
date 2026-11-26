@@ -143,3 +143,64 @@ async fn a_job_that_failed_its_last_attempt_and_one_that_cannot_be_read_are_buri
     let _ = worker.await;
     remove_streams(&bus).await;
 }
+
+#[tokio::test]
+async fn erasing_an_account_removes_the_letters_that_mention_it_but_not_its_erasure() {
+    let bus = isolated_bus().await;
+    let (erased, other) = (Uuid::now_v7(), Uuid::now_v7());
+    let event = |topic: &str, user: Uuid| {
+        let event = Event {
+            id: Uuid::now_v7(),
+            topic: topic.into(),
+            actor_id: Some(user),
+            occurred_at: chrono::Utc::now(),
+            data: serde_json::json!({ "user_id": user }),
+        };
+        serde_json::to_vec(&event).unwrap()
+    };
+    let bury = async |consumer: &str, subject: &str, payload: Vec<u8>| {
+        dead_letters::bury(&bus, consumer, subject, &payload, "no luck", 12).await.unwrap();
+    };
+    bury("notify-events", "evt.notes.note.created", event("notes.note.created", erased)).await;
+    bury("job-media-transcode", "job.media.transcode", format!("not json, owner {}", erased.simple()).into_bytes()).await;
+    bury("search-indexer", "evt.identity.user.deleted", event("identity.user.deleted", erased)).await;
+    bury("notify-events", "evt.notes.note.created", event("notes.note.created", other)).await;
+
+    assert_eq!(dead_letters::erase_users(&bus, &[erased]).await.unwrap(), 2);
+    let left: Vec<(String, String)> = dead_letters::list(&bus, None, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|b| (b.letter.subject, b.letter.payload["data"]["user_id"].as_str().unwrap_or_default().to_owned()))
+        .collect();
+    assert_eq!(
+        left,
+        [
+            ("evt.identity.user.deleted".to_owned(), erased.to_string()),
+            ("evt.notes.note.created".to_owned(), other.to_string()),
+        ],
+        "the erasure still to redrive and someone else's letter stay"
+    );
+    assert_eq!(dead_letters::erase_users(&bus, &[erased]).await.unwrap(), 0, "a second erasure finds nothing");
+    remove_streams(&bus).await;
+}
+
+#[tokio::test]
+async fn buried_messages_expire_after_the_configured_retention() {
+    let url = std::env::var("TOKULY_NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_owned());
+    let prefix = format!("deadtest_{}", Uuid::now_v7().simple());
+    let max_age = async |bus: &Bus| bus.js.get_stream(bus.stream_name(STREAM_DEAD)).await.unwrap().info().await.unwrap().config.max_age;
+
+    let bus = Bus::connect(&url, &prefix).await.expect("NATS is reachable");
+    bus.ensure_streams().await.unwrap();
+    assert_eq!(max_age(&bus).await, dead_letters::DEFAULT_RETENTION);
+
+    // A deployment that shortens the setting: the existing stream follows.
+    let bus = bus.with_dead_letter_retention(Duration::from_secs(1));
+    bus.ensure_streams().await.unwrap();
+    assert_eq!(max_age(&bus).await, Duration::from_secs(1));
+    dead_letters::bury(&bus, "purger", "evt.notes.note.created", b"{}", "no luck", 12).await.unwrap();
+    assert_eq!(dead_letters::list(&bus, None, 10).await.unwrap().len(), 1);
+    until("the letter expires", async || dead_letters::list(&bus, None, 10).await.unwrap().is_empty()).await;
+    remove_streams(&bus).await;
+}
