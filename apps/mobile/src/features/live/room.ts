@@ -2,9 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, live } from "@tokuly/api";
 import { LiveChats, liveKeys, patchStream, refreshStream } from "@tokuly/core/live";
 import { useEffect, useRef, useState } from "react";
+import { type Account, currentAccount, isActive } from "#/features/session/account";
 import { realtime } from "#/lib/realtime";
 import { deviceId } from "#/platform/device";
-import { chatClient, streamClient, useBlockedIds } from "./data";
+import { chatClient, useBlockedIds } from "./data";
 
 const { StreamStatus } = live;
 
@@ -80,11 +81,31 @@ export function useLiveRoom(stream: live.Stream): live.Raid | null {
   return raid;
 }
 
+/** A stream being watched: whose heartbeat it is, and how it stops. */
+interface Watching {
+  account: Account;
+  stop(): void;
+}
+
+const watchings = new Set<Watching>();
+
+/**
+ * Ends the heartbeats of what `account` is watching, before it leaves the
+ * device (`lifecycle.ts`). Afterwards its API object would ask for a new
+ * token with whatever the device keeps for the next account. The server
+ * drops a viewer whose beats stop.
+ */
+export function stopWatching(account: Account): void {
+  for (const watching of watchings) if (watching.account.api === account.api) watching.stop();
+}
+
 /**
  * The viewer's heartbeat while a stream is on air and on screen: it keeps
  * them in the audience and brings fresh numbers and playback URLs (the token
- * of a restricted stream lasts a quarter of an hour). The client is taken
- * when watching starts, so a beat never goes out as another account.
+ * of a restricted stream lasts a quarter of an hour). The watching belongs to
+ * the account that opened the screen: every beat is made with its API, only
+ * while it is the one in use, and none follows once it leaves
+ * (`stopWatching`), though the screen may close a moment later.
  */
 export function useWatchingReport(stream: live.Stream, enabled: boolean): void {
   const queryClient = useQueryClient();
@@ -93,13 +114,24 @@ export function useWatchingReport(stream: live.Stream, enabled: boolean): void {
   const interval = useRef(stream.reportIntervalSeconds || 15);
 
   useEffect(() => {
-    if (!enabled || !onAir || !streamId) return;
-    const client = streamClient();
+    const account = currentAccount();
+    if (!enabled || !onAir || !streamId || !account) return;
+    const client = account.api.service(live.LiveStreamService);
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const watching: Watching = {
+      account,
+      stop() {
+        stopped = true;
+        clearTimeout(timer);
+        watchings.delete(watching);
+      },
+    };
     const report = async () => {
       try {
-        const answer = await client.reportWatching({ streamId, clientId: await deviceId() });
+        const clientId = await deviceId();
+        if (stopped || !isActive(account)) return;
+        const answer = await client.reportWatching({ streamId, clientId });
         if (stopped) return;
         interval.current = answer.reportIntervalSeconds || interval.current;
         patchStream(queryClient, streamId, (current) => ({
@@ -124,10 +156,8 @@ export function useWatchingReport(stream: live.Stream, enabled: boolean): void {
       }
       if (!stopped) timer = setTimeout(report, interval.current * 1000);
     };
+    watchings.add(watching);
     void report();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
+    return () => watching.stop();
   }, [queryClient, streamId, onAir, enabled]);
 }
