@@ -15,6 +15,8 @@ tokuly-core.workspace = true
 tokuly-proto = { workspace = true, features = ["common", "feed"] }
 tokuly-identity.workspace = true
 tokuly-social.workspace = true
+# The image proxy of link previews, which serves news pictures too.
+tokuly-media.workspace = true
 tokio.workspace = true
 futures.workspace = true
 async-trait.workspace = true

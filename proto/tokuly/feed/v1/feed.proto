@@ -387,7 +387,7 @@ message NewsSource {
   string name = 2;
   // Home page of the site.
   string site_url = 3;
-  // Icon of the site; may be empty.
+  // Icon of the site, served by this instance's image proxy; may be empty.
   string favicon_url = 4;
   // Language of the source as a BCP 47 tag, e.g. "ja".
   string language = 5;
@@ -409,7 +409,8 @@ message NewsArticle {
   string url = 3;
   // Plain-text excerpt; may be empty.
   string summary = 4;
-  // Lead image taken from the feed; may be empty.
+  // Lead image taken from the feed, served by this instance's image proxy;
+  // may be empty.
   string image_url = 5;
   NewsSource source = 6;
   // Lowercase tags: the source's tags, the feed's categories and keyword matches.
@@ -562,6 +563,7 @@ message ManagedNewsSource {
   // The RSS/Atom feed that is fetched.
   string feed_url = 3;
   string site_url = 4;
+  // Served by this instance's image proxy, like NewsSource.favicon_url.
   string favicon_url = 5;
   string language = 6;
   // Tags given to every article of the source.

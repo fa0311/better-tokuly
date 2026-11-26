@@ -5,6 +5,7 @@ mod common;
 use chrono::{Duration, Utc};
 use common::{server::*, *};
 use tokuly_feed::{FeedConfig, RefreshOutcome};
+use tokuly_media::link_preview::image_proxy::{Kind, proxy_url};
 use tokuly_proto::feed::*;
 use tokuly_testkit::{RpcError, TestUser};
 use uuid::Uuid;
@@ -325,7 +326,10 @@ async fn an_rss_feed_becomes_tagged_articles_with_search_documents() {
     let article = &articles[1];
     assert_eq!(article.url, first_link, "readers open the link as the feed gave it");
     assert_eq!(article.summary, "Switch向けの新作です。", "markup and scripts are gone");
-    assert_eq!(article.image_url, format!("https://cdn.example/{t}/a1.jpg"));
+    // Pictures are handed out as URLs of this instance's image proxy.
+    let core = &ctx.app.core;
+    let picture = proxy_url(core, Kind::Image, &format!("https://cdn.example/{t}/a1.jpg"));
+    assert_eq!(article.image_url, picture);
     assert_eq!(article.tags, vec!["tech news", "エンタメ", "ゲーム"], "source tags, feed categories, keyword matches");
     assert_eq!(article.path, format!("/news/articles/{}", article.id));
     assert!(!article.random_pick && !article.clicked);
@@ -336,7 +340,8 @@ async fn an_rss_feed_becomes_tagged_articles_with_search_documents() {
     assert_eq!(shown.id, source.id);
     assert_eq!(shown.name, "Example & ニュース");
     assert_eq!(shown.site_url, format!("https://site-{t}.example/"));
-    assert_eq!(shown.favicon_url, format!("https://site-{t}.example/favicon.ico"));
+    let icon = proxy_url(core, Kind::Icon, &format!("https://site-{t}.example/favicon.ico"));
+    assert_eq!(shown.favicon_url, icon);
     assert_eq!(shown.language, "ja");
     assert_eq!(articles[0].tags, vec!["tech news"]);
     assert_eq!(articles[0].summary, "");
@@ -385,10 +390,12 @@ async fn an_rss_feed_becomes_tagged_articles_with_search_documents() {
     assert_eq!(doc["public"], true);
     assert_eq!(doc["owner_id"], serde_json::Value::Null);
     assert_eq!(doc["extra"]["source_name"], "Example & ニュース");
+    assert_eq!(doc["image_url"], picture);
 
     // The source records the success.
     let managed = ctx.managed_source(&admin, &source.id).await;
     assert_eq!(managed.name, "Example & ニュース");
+    assert_eq!(managed.favicon_url, icon);
     assert_eq!((managed.article_count, managed.consecutive_failures, managed.last_error.as_str()), (2, 0, ""));
     assert!(managed.last_success_at.as_option().is_some() && managed.last_fetched_at.as_option().is_some());
 }
@@ -431,7 +438,10 @@ async fn an_atom_feed_becomes_articles_too() {
     assert_eq!(article.title, "新しい記事");
     assert_eq!(article.url, format!("https://blog.example/{t}/posts/1"));
     assert_eq!(article.summary, "要約です & more");
-    assert_eq!(article.image_url, format!("https://blog.example/{t}/cover.jpg"));
+    assert_eq!(
+        article.image_url,
+        proxy_url(&ctx.app.core, Kind::Image, &format!("https://blog.example/{t}/cover.jpg"))
+    );
     assert_eq!(article.tags, vec!["diary", "日記"]);
     let stored = tokuly_core::time::from_ts(article.published_at.as_option().unwrap());
     assert_eq!(stored.timestamp(), published.timestamp());
@@ -783,14 +793,19 @@ async fn a_source_listed_in_the_settings_is_disabled_not_deleted() {
     assert!(!own.configured);
 
     // Deleted, either would be back after the next start, without its articles.
-    let delete = |source: &ManagedNewsSource| DeleteNewsSourceRequest { source_id: source.id.clone(), ..Default::default() };
+    let delete =
+        |source: &ManagedNewsSource| DeleteNewsSourceRequest { source_id: source.id.clone(), ..Default::default() };
     for source in [&seeded, &typed] {
         let refused = ctx
             .call::<_, DeleteNewsSourceResponse>(NEWS_ADMIN, "DeleteNewsSource", Some(&admin), &delete(source))
             .await
             .unwrap_err();
         assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("failed_precondition", "NEWS_SOURCE_CONFIGURED"));
-        assert!(refused.message.contains("TOKULY_NEWS_FEEDS") && refused.message.contains("disable"), "{}", refused.message);
+        assert!(
+            refused.message.contains("TOKULY_NEWS_FEEDS") && refused.message.contains("disable"),
+            "{}",
+            refused.message
+        );
         assert!(ctx.managed_source(&admin, &source.id).await.enabled, "the refusal changed nothing");
     }
     // Switching it off is what stays off: the next start leaves it alone.

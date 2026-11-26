@@ -260,7 +260,7 @@ impl Feed {
                     .fetch_optional(&mut *tx)
                     .await?;
                     if let Some(id) = id {
-                        outbound::index(&mut *tx, doc(id, 0).search_doc()).await?;
+                        outbound::index(&mut *tx, doc(id, 0).search_doc(&self.core)).await?;
                         new += 1;
                     }
                 }
@@ -281,7 +281,7 @@ impl Feed {
                             .execute(&mut *tx)
                             .await?;
                         // The publication time stays what it was when first seen.
-                        let mut search_doc = doc(known.id, known.click_count).search_doc();
+                        let mut search_doc = doc(known.id, known.click_count).search_doc(&self.core);
                         search_doc.created_at = self.published_at_of(&mut tx, known.id).await?.timestamp();
                         outbound::index(&mut *tx, search_doc).await?;
                         updated += 1;

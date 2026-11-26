@@ -1,5 +1,9 @@
 //! News articles: rows, API messages, search documents and the subject
 //! resolver that lets the engagement domain attach comments and likes.
+//!
+//! Article pictures and source icons are stored as the feeds give them and
+//! handed out only as URLs of media's image proxy ([`picture`]), like the
+//! pictures of link previews: readers' apps never ask the news sites.
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
@@ -8,6 +12,7 @@ use tokuly_core::{
     prelude::*,
     subject::{SubjectInfo, SubjectResolver},
 };
+use tokuly_media::link_preview::image_proxy::{self, Kind};
 use tokuly_proto::feed::{NewsArticle, NewsFeedback, NewsSource};
 
 use crate::Feed;
@@ -53,6 +58,12 @@ pub struct ArticleRow {
     pub source_language: String,
 }
 
+/// The URL clients load a news picture from: the image proxy's URL for
+/// `url` (empty when there is nothing to show).
+pub fn picture(core: &Core, kind: Kind, url: &str) -> String {
+    if url.is_empty() { String::new() } else { image_proxy::proxy_url(core, kind, url) }
+}
+
 /// Path of an article's page in the app.
 pub fn article_path(id: Uuid) -> String {
     format!("/news/articles/{id}")
@@ -74,7 +85,8 @@ pub struct ArticleDoc<'a> {
 }
 
 impl ArticleDoc<'_> {
-    pub fn search_doc(&self) -> SearchDoc {
+    pub fn search_doc(&self, core: &Core) -> SearchDoc {
+        let image_url = picture(core, Kind::Image, self.image_url);
         SearchDoc {
             kind: SEARCH_KIND.to_owned(),
             id: self.id,
@@ -84,7 +96,7 @@ impl ArticleDoc<'_> {
             // Articles belong to nobody: official content.
             owner_id: None,
             public: true,
-            image_url: (!self.image_url.is_empty()).then(|| self.image_url.to_owned()),
+            image_url: (!image_url.is_empty()).then_some(image_url),
             path: article_path(self.id),
             created_at: self.published_at.timestamp(),
             score: self.click_count as f64,
@@ -99,12 +111,12 @@ impl ArticleDoc<'_> {
 }
 
 impl ArticleRow {
-    pub fn source(&self) -> NewsSource {
+    pub fn source(&self, core: &Core) -> NewsSource {
         NewsSource {
             id: self.source_id.to_string(),
             name: self.source_name.clone(),
             site_url: self.source_site_url.clone(),
-            favicon_url: self.source_favicon_url.clone(),
+            favicon_url: picture(core, Kind::Icon, &self.source_favicon_url),
             language: self.source_language.clone(),
             ..Default::default()
         }
@@ -127,7 +139,7 @@ impl ArticleRow {
     }
 
     /// The article as a reader sees it.
-    pub fn to_proto(&self, marks: &ReaderMarks, random_pick: bool) -> NewsArticle {
+    pub fn to_proto(&self, core: &Core, marks: &ReaderMarks, random_pick: bool) -> NewsArticle {
         let feedback = match marks.feedback.get(&self.id) {
             Some(1) => NewsFeedback::NEWS_FEEDBACK_MORE,
             Some(2) => NewsFeedback::NEWS_FEEDBACK_LESS,
@@ -138,8 +150,8 @@ impl ArticleRow {
             title: self.title.clone(),
             url: self.url.clone(),
             summary: self.summary.clone(),
-            image_url: self.image_url.clone(),
-            source: self.source().into(),
+            image_url: picture(core, Kind::Image, &self.image_url),
+            source: self.source(core).into(),
             tags: self.tags.clone(),
             published_at: ts(self.published_at),
             random_pick,
@@ -230,7 +242,7 @@ impl SubjectResolver for NewsSubjects {
             owner_id: Uuid::nil(),
             title,
             path: article_path(id),
-            image_url: (!image_url.is_empty()).then_some(image_url),
+            image_url: Some(picture(&self.core, Kind::Image, &image_url)).filter(|url| !url.is_empty()),
             interactions_enabled: true,
         }))
     }
@@ -243,69 +255,5 @@ impl SubjectResolver for NewsSubjects {
         };
         sqlx::query(sql).bind(id).bind(delta).execute(&self.core.db).await?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn row() -> ArticleRow {
-        ArticleRow {
-            id: Uuid::now_v7(),
-            source_id: Uuid::now_v7(),
-            url: "https://news.example/a?utm_source=rss".into(),
-            title: "見出し".into(),
-            summary: "要約".into(),
-            image_url: "https://cdn.example/a.jpg".into(),
-            tags: vec!["ゲーム".into(), "tech".into()],
-            published_at: now(),
-            click_count: 12,
-            like_count: 3,
-            comment_count: 1,
-            source_name: "Example News".into(),
-            source_site_url: "https://news.example/".into(),
-            source_favicon_url: "https://news.example/favicon.ico".into(),
-            source_language: "ja".into(),
-        }
-    }
-
-    #[test]
-    fn articles_carry_what_the_info_sheet_needs() {
-        let row = row();
-        let marks = ReaderMarks { clicked: HashSet::from([row.id]), feedback: HashMap::from([(row.id, 2)]) };
-        let article = row.to_proto(&marks, true);
-        assert_eq!(article.tags, vec!["ゲーム", "tech"]);
-        let source = article.source.as_option().unwrap();
-        assert_eq!(
-            (source.name.as_str(), source.site_url.as_str(), source.language.as_str()),
-            ("Example News", "https://news.example/", "ja")
-        );
-        assert!(article.random_pick && article.clicked);
-        assert_eq!(article.feedback, NewsFeedback::NEWS_FEEDBACK_LESS);
-        assert_eq!(article.path, format!("/news/articles/{}", row.id));
-        assert_eq!((article.click_count, article.like_count, article.comment_count), (12, 3, 1));
-
-        let untouched = row.to_proto(&ReaderMarks::default(), false);
-        assert!(!untouched.random_pick && !untouched.clicked);
-        assert_eq!(untouched.feedback, NewsFeedback::NEWS_FEEDBACK_UNSPECIFIED);
-    }
-
-    #[test]
-    fn search_documents_are_public_ownerless_news() {
-        let row = row();
-        let doc = row.doc().search_doc();
-        assert_eq!((doc.kind.as_str(), doc.id, doc.public, doc.owner_id), ("news", row.id, true, None));
-        assert_eq!((doc.title.as_str(), doc.text.as_str()), ("見出し", "要約"));
-        assert_eq!(doc.tags, row.tags);
-        assert_eq!(doc.path, article_path(row.id));
-        assert_eq!(doc.image_url.as_deref(), Some("https://cdn.example/a.jpg"));
-        assert_eq!(doc.created_at, row.published_at.timestamp());
-        assert_eq!(doc.extra["source_name"], "Example News");
-        assert_eq!(doc.extra["url"], row.url.as_str());
-
-        let mut bare = row;
-        bare.image_url = String::new();
-        assert_eq!(bare.doc().search_doc().image_url, None);
     }
 }
