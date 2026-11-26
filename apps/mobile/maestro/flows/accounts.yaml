@@ -23,6 +23,11 @@ env:
 # A second account beside the first.
 - tapOn: { id: "tab-me" }
 - tapOn: { id: "me-settings" }
+- extendedWaitUntil:
+    visible: { id: "settings-screen" }
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 10-settings
 - tapOn: { id: "settings-accounts" }
 - tapOn: { id: "accounts-add" }
 - tapOn: { id: "sign-in-identifier" }

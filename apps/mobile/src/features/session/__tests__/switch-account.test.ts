@@ -114,3 +114,26 @@ describe("switchAccount", () => {
     expect(useSessionStore.getState().generation).toBe(0);
   });
 });
+
+describe("the previous account's API after a switch", () => {
+  it("is unusable: a late call is refused and never spends the next account's token", async () => {
+    switchAnswer = signedInAs("alt", "s-alt", "rt-alt-rotated");
+    // A feature that captured the account in use (a stay report, an upload) and goes on late.
+    const main = api();
+    await expect(switchAccount("s-alt")).resolves.toBe("switched");
+    calls.length = 0;
+    // Its access token has run out: the call would refresh first, with the token now in the active store.
+    jest.spyOn(Date, "now").mockReturnValue(Date.now() + 60 * 60_000);
+    try {
+      await expect(main.service(identity.AccountService).getMe({})).rejects.toMatchObject({
+        message: expect.stringContaining("the account left this device"),
+      });
+      await expect(main.session.refresh()).resolves.toBe(false);
+    } finally {
+      jest.restoreAllMocks();
+    }
+
+    expect(calls).toEqual([]);
+    expect(await activeTokenStore.get()).toBe("rt-alt-rotated");
+  });
+});

@@ -29,7 +29,14 @@ env:
 - tapOn: { id: "tab-me" }
 - scrollUntilVisible:
     element: { id: "me-friends" }
+- waitForAnimationToEnd
+- takeScreenshot: 05-me
 - tapOn: { id: "me-friends" }
+- extendedWaitUntil:
+    visible: { id: "friends-screen" }
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 06-friends
 - tapOn: { id: "friends-tab-requests" }
 - tapOn: { id: "${'accept-' + output.friend}" }
 - tapOn: "OK"
@@ -41,6 +48,8 @@ env:
 - extendedWaitUntil:
     visible: "(1 on the map|マップに1人)"
     timeout: 30000
+- waitForAnimationToEnd
+- takeScreenshot: 01-map
 - tapOn: { id: "map-friends-chip" }
 - tapOn: { id: "${'map-friend-' + output.friend}" }
 - assertVisible: { id: "friend-card" }

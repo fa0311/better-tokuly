@@ -25,6 +25,10 @@ release APK for the emulator and runs them against the Compose stack.
 | `live` | finds a friend's scheduled stream, asks for its reminder and chats before it starts |
 | `web-screens` | opens a web-only feature from 「もっと見る」 and sees it signed in |
 
+The flows screenshot each main screen into the run's `--test-output-dir`
+(`<run>/<flow>/takeScreenshot/<name>.png`): `apps/mobile/maestro/screenshots`
+with `pnpm e2e`, the `mobile-screenshots` artifact in CI.
+
 What the flows cannot do is covered by component tests: the emulator has no
 camera (the pictures are put in its library; the camera screen has a
 component test), and a flow's script cannot upload a video (playback is

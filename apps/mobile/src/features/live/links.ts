@@ -7,13 +7,8 @@ import type { LinkTarget } from "#/seams/links";
  * What else lives under `/live` — the gift history, the clip editor — is
  * the web's: it opens in the web view, signed in.
  */
-const WEB_ONLY = new Set(["gifts", "clips"]);
-
 export default [
   { path: /^\/live\/?$/, screen: () => "/live" },
-  {
-    path: /^\/live\/([^/]+)(\/.*)?$/,
-    screen: (match) =>
-      WEB_ONLY.has(match[1] ?? "") || match[2] ? webScreenHref(match[0]) : `/live/${match[1]}`,
-  },
+  { path: /^\/live\/(?!(?:gifts|clips)$)([^/]+)$/, screen: (match) => `/live/${match[1]}` },
+  { path: /^\/live\/.+$/, takesLink: true, screen: (_match, link) => webScreenHref(link) },
 ] satisfies LinkTarget[];

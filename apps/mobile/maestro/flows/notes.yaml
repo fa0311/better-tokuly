@@ -25,6 +25,8 @@ env:
 - extendedWaitUntil:
     visible: ${output.friendNote}
     timeout: 30000
+- waitForAnimationToEnd
+- takeScreenshot: 04-notes
 - tapOn: { id: "note-like" }
 
 # The note's thread; the first reply asks for the rules, then goes out.

@@ -73,6 +73,8 @@ env:
 - extendedWaitUntil:
     visible: "${'.*' + output.caption + '.*'}"
     timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 07-shorts
 
 # Like it: the count goes up at once.
 - tapOn: { id: "short-like", index: 0 }

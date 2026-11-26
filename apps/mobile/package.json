@@ -15,7 +15,7 @@
     "lint": "biome ci .",
     "format": "biome check --write .",
     "test": "node scripts/seams.js && node scripts/licenses.js && jest",
-    "e2e": "maestro test maestro",
+    "e2e": "maestro test maestro --test-output-dir maestro/screenshots",
     "licenses": "node scripts/licenses.js",
     "seams": "node scripts/seams.js"
   },

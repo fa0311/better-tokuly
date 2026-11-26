@@ -112,7 +112,31 @@ describe("the features on the seams", () => {
     expect(screenFor("/notes/channels")).toBe(`/web?path=${encodeURIComponent("/notes/channels")}`);
     // What no feature claims opens on the web.
     expect(screenFor("/login")).toBeNull();
-    expect(targetOf("/chat/c1?m=5")).toEqual({ type: "screen", href: "/chat/c1" });
+    expect(targetOf("/chat/c1?m=5")).toEqual({ type: "screen", href: "/chat/c1?m=5" });
     expect(targetOf("/login")).toEqual({ type: "web", url: `${SERVER_URL}/login` });
+  });
+
+  it("keep the link's query and fragment", () => {
+    expect(screenFor("/watch/abc123?t=90")).toBe("/watch/abc123?t=90");
+    expect(screenFor("/notes/n1?comment=c9#c9")).toBe("/notes/n1?comment=c9#c9");
+    expect(screenFor("/notifications?tab=mentions")).toBe("/inbox?tab=mentions");
+    // The web view opens the whole link, its query and fragment included.
+    expect(screenFor("/stamps?tab=new#top")).toBe(
+      `/web?path=${encodeURIComponent("/stamps?tab=new#top")}`,
+    );
+    // A page a feature leaves to the web keeps them inside the page's own path, like any web-only one.
+    expect(screenFor("/notes/channels?tab=mine#top")).toBe(
+      `/web?path=${encodeURIComponent("/notes/channels?tab=mine#top")}`,
+    );
+    expect(screenFor("/live/gifts?month=2026-11")).toBe(
+      `/web?path=${encodeURIComponent("/live/gifts?month=2026-11")}`,
+    );
+    // The page the web view opens is the link's, never one its query names.
+    expect(screenFor("/live/clips/new?path=/settings")).toBe(
+      `/web?path=${encodeURIComponent("/live/clips/new?path=/settings")}`,
+    );
+    expect(screenFor("/live/abc123?t=90")).toBe("/live/abc123?t=90");
+    expect(screenFor("/login?next=/map")).toBeNull();
+    expect(targetOf("/watch/abc123?t=90")).toEqual({ type: "screen", href: "/watch/abc123?t=90" });
   });
 });
