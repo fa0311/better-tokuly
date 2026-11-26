@@ -424,3 +424,20 @@ async fn the_verifier_hash_must_be_a_sha256() {
         assert_eq!(err.reason, "INVALID_VERIFIER", "{hash}");
     }
 }
+
+/// Two hand-offs of one app session redeemed at once: still one web session.
+#[tokio::test]
+async fn concurrent_hand_offs_of_one_app_session_leave_one_web_session() {
+    let ext = start(IdentityConfig::default()).await;
+    for _ in 0..10 {
+        let app_user = ext.app.user("twice").await;
+        let (first, second) = (handoff(&ext, &app_user, "/").await, handoff(&ext, &app_user, "/").await);
+        let (mut a, mut b) = (Browser::new(&ext), Browser::new(&ext));
+        let (ra, rb) = tokio::join!(a.open(&first), b.open(&second));
+        let signed_in = [&ra, &rb].iter().filter(|(_, _, cookies)| !cookies.is_empty()).count();
+        assert!(signed_in >= 1, "{ra:?} {rb:?}");
+        assert_eq!(live_web_sessions(&ext, app_user.session_id).await.len(), 1);
+        let working = [web_refresh(&mut a).await.is_ok(), web_refresh(&mut b).await.is_ok()];
+        assert_eq!(working.iter().filter(|w| **w).count(), 1, "{working:?}");
+    }
+}

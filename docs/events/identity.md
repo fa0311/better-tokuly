@@ -86,7 +86,8 @@ the code once, signs in only when the verifier matches, and makes a web session 
 account with `sessions.linked_to` set to the app's session, sets `tokuly_rt`
 (HttpOnly, SameSite=Lax, Secure on https) and answers `303` to the path;
 any failure answers `303 /login` without a cookie. An app session holds one
-such web session (a newer hand-off revokes the one before). It ends with the
+such web session (a newer hand-off revokes the one before; the unique index
+`sessions_one_linked` keeps it so when two redeem at once). It ends with the
 app's session (trigger `sessions_revoke_linked`, and the token cache through
 `forget_session_tokens`) and refreshes only while that session is live and
 not parked; `revoke_all_sessions(keep)` keeps both halves of a pair.

@@ -120,7 +120,9 @@ CREATE TABLE sessions (
 
 CREATE INDEX sessions_user ON sessions (user_id) WHERE revoked_at IS NULL;
 CREATE INDEX sessions_previous_hash ON sessions (previous_refresh_hash) WHERE previous_refresh_hash IS NOT NULL;
-CREATE INDEX sessions_linked ON sessions (linked_to) WHERE linked_to IS NOT NULL AND revoked_at IS NULL;
+-- An app session has at most one live web session (a newer hand-off
+-- replaces the one before; two at once cannot both stay).
+CREATE UNIQUE INDEX sessions_one_linked ON sessions (linked_to) WHERE linked_to IS NOT NULL AND revoked_at IS NULL;
 
 -- Whatever ends a session (signing out, a switch's replacement, a password
 -- change, "sign out everywhere", a ban, deletion) ends the web sessions

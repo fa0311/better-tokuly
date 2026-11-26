@@ -73,6 +73,9 @@ const CODE_TTL: Duration = Duration::from_secs(60);
 pub const HANDOFF_ROUTE: &str = "/auth/handoff";
 /// Codes one account may make per ten minutes: one per web screen opened.
 const CODES_PER_ACCOUNT: u32 = 60;
+/// How often a redeem tries again after losing the app session's one slot
+/// to a redeem at the same moment.
+const LINK_ATTEMPTS: u32 = 3;
 /// The request header the app's web view sends the verifier in.
 pub const VERIFIER_HEADER: &str = "x-tokuly-handoff-verifier";
 /// Redemptions one address may try per minute.
@@ -334,18 +337,28 @@ impl Identity {
             _ => return Ok(Redeemed::Refused),
         };
 
-        // One web session per app session: the one before goes.
-        let previous: Vec<Uuid> = sqlx::query_scalar(
-            "UPDATE sessions SET revoked_at = now() WHERE linked_to = $1 AND revoked_at IS NULL RETURNING id",
-        )
-        .bind(pending.session_id)
-        .fetch_all(&core.db)
-        .await?;
-        self.forget_session_tokens(&previous).await?;
-
+        // One web session per app session (the unique index
+        // `sessions_one_linked`): the one before goes. Two redeems at once
+        // race for the slot; the one that loses ends the winner's and tries
+        // again, so the later one stays, as one after the other would.
         let client = ClientInfo { platform: Platform::PLATFORM_WEB.into(), ..Default::default() };
         let origin = SessionOrigin { linked_to: Some(pending.session_id), ..Default::default() };
-        let issued = self.create_session_with(&user, Some(&client), meta, origin).await?;
+        let mut attempt = 0;
+        let issued = loop {
+            let previous: Vec<Uuid> = sqlx::query_scalar(
+                "UPDATE sessions SET revoked_at = now() WHERE linked_to = $1 AND revoked_at IS NULL RETURNING id",
+            )
+            .bind(pending.session_id)
+            .fetch_all(&core.db)
+            .await?;
+            self.forget_session_tokens(&previous).await?;
+            match self.create_session_with(&user, Some(&client), meta, origin).await {
+                Ok(issued) => break issued,
+                Err(error) if error.is_already_exists() && attempt < LINK_ATTEMPTS => attempt += 1,
+                Err(error) if error.is_already_exists() => return Ok(Redeemed::Refused),
+                Err(error) => return Err(error),
+            }
+        };
         // The app's session may have ended while this one was made, too late
         // for the trigger to see it: then this one ends as well.
         if !self.app_session_in_use(pending.session_id).await? {
