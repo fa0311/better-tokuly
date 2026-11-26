@@ -42,12 +42,12 @@ anyhow.workspace = true
 parking_lot.workspace = true
 dashmap.workspace = true
 hex.workspace = true
-tokio-tungstenite = { version = "0.29", optional = true }
+tokio-tungstenite = { version = "0.30", optional = true }
 
 [dev-dependencies]
 tokuly-testkit.workspace = true
 # The version axum uses, so the tests add no second copy of it.
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 async-nats.workspace = true
 # Tests mint short-lived access tokens to exercise token expiry.
 ed25519-dalek.workspace = true
