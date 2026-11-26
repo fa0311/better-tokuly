@@ -71,7 +71,7 @@ RUN find crates/proto /src/proto /src/buf.yaml -exec touch -d @0 {} + \
 # with x264 and x265). The server only runs it as a separate program, so
 # Tokuly's own code stays MIT; whoever passes the image on passes on a GPL
 # binary and its terms with it (README, "ライセンス").
-FROM mwader/static-ffmpeg:8.0 AS ffmpeg
+FROM mwader/static-ffmpeg:9.1 AS ffmpeg
 
 FROM debian:trixie-slim AS runtime
 LABEL org.opencontainers.image.source="https://github.com/fa0311/better-tokuly" \
