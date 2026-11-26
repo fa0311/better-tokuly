@@ -48,47 +48,32 @@ carries `urgent = true`.
 
 **Withdrawn content.** Every inbox entry records the IDs it refers to: its
 subject and every `*_id` value at the top level of its `data` (`comment_id`,
-`message_id`...), and while it is unread, those of every event folded into
-it. When one of them is deleted or taken down (events below), every entry
-referring to it leaves every inbox (`NotifyEvent.removed` to the owners'
-clients, in batches of 1000 entries). A grouped entry that still stands for
-other events stays with one event less, and without its body and image when
-it was showing the withdrawn one (clients see that change on their next
-read; no event is sent for it). Content that is gone is remembered for
-8 days: a request about it that arrives late, or a push job still queued for
-it, is dropped. Content that is only hidden (a video back to draft) is
-withdrawn from everyone but its owner and not remembered, since it can come
-back. Content whose audience narrowed (a note narrowed to friends or made
-private, a comment hidden by its subject's owner, by a block or held again;
-see the events below) is withdrawn from everyone but its owner and those
-the event names as still seeing it (`visible_to`), but only entries about
-what happened up to the change (`changed_at`). The latest change per ID is
-remembered for 8 days (`notify_audiences`): a change older than it does
-nothing, a batch of a change stops once a newer change of the same ID was
-recorded, and a request or a push job from before it is dropped for
-everyone it left out. Entries of
-the `system` category are never withdrawn: the notice telling an owner that
-their content was taken down refers to that content. A withdrawal and a
-request about the same ID serialize on an advisory lock, so an entry stored
-while the withdrawal runs is not missed. Pushes already delivered cannot be
-recalled.
+`message_id`...), including those of events folded into it while unread.
+What the events below do with them:
 
-**Edited comments.** Notifications of the engagement domain (`engagement.*`)
-quote a comment (`data.comment_id`) at a version (`data.edited_at`, `null`
-before the first edit). On `engagement.comment.edited` every entry quoting
-an older version shows the body the event gives for the new text (and its
-version), and an `engagement.mention` entry whose recipient the new text no
-longer mentions leaves the inbox — except the subject owner's of a top-level
-comment, which becomes the ordinary entry the event names (`owner_notice`:
-engagement tells each person once, so a mentioned owner had only the
-mention). Nobody the comment was hidden from (an audience change, below) is
-shown the new text (`NotifyEvent.removed`; a changed body is
-seen on the next read, no event is sent for it). The latest edit of each
-comment is remembered for 8 days (`notify_edits`): an older edit handled
-after a newer one changes nothing, and a request or a queued push about an
-older version that is handled after the edit carries the new body — or is
-dropped when it announces a mention that is gone (the owner's becomes their
-ordinary entry).
+- **Deleted or taken down**: every entry referring to the ID leaves every
+  inbox (`NotifyEvent.removed`). A grouped entry that still stands for other
+  events stays with one event less. The ID is remembered for 8 days: a late
+  request or queued push about it is dropped.
+- **Hidden** (a video back to draft): withdrawn from everyone but the owner;
+  not remembered, since it can come back.
+- **Audience narrowed** (`visible_to` events): withdrawn from everyone but
+  the owner and `visible_to`, for entries up to `changed_at`. The latest
+  change per ID is remembered for 8 days: an older change does nothing, and
+  a request or push from before it is dropped for everyone it left out.
+- Entries of the `system` category are never withdrawn (the takedown notice
+  refers to the content taken down). Pushes already delivered cannot be
+  recalled.
+
+**Edited comments.** `engagement.*` notifications quote a comment
+(`data.comment_id`) at a version (`data.edited_at`, `null` before the first
+edit). On `engagement.comment.edited`, entries quoting an older version
+show the new body; an `engagement.mention` whose recipient is no longer
+mentioned leaves the inbox — except the subject owner's of a top-level
+comment, which becomes the ordinary entry the event names (`owner_notice`).
+Nobody the comment was hidden from is shown the new text. The latest edit
+per comment is remembered for 8 days, so edits handled out of order and
+requests or pushes about an older version end in the latest state.
 
 The consumer is idempotent on the event ID (`notify_processed_events`, written
 in the same transaction as the inbox entry). Events with the same collapse key
@@ -193,7 +178,7 @@ Sent to every connection of the user:
 | What | Name | Notes |
 |---|---|---|
 | Event consumer | durable `notify` | topics above |
-| Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; sends the current text of a comment edited while it waited (nothing for a mention the edit took out); dropped at delivery when its content was withdrawn, or when the recipient blocked, was blocked by or muted its actor in the meantime (not for `system` notices); up to 5 attempts with the job queue's backoff; devices already reached are remembered in Valkey (`notify:push:delivered:{job}`) so a retry only reaches the rest |
+| Push delivery job | `notify.push` (`tokuly_notify::delivery::PushJob`) | one job per notification; sends the current text of a comment edited while it waited; dropped at delivery when its content was withdrawn, or when the recipient blocked, was blocked by or muted its actor in the meantime (not for `system` notices); up to 5 attempts; a retry only reaches devices not reached yet |
 | Retention sweep | hourly timer | inbox entries older than `TOKULY_NOTIFY_RETENTION_DAYS`; handled-event markers, withdrawn-content markers, remembered comment edits and audience changes older than 8 days; push registrations of revoked or expired sessions |
 
 Push outcomes: accepted → `last_delivered_at`; token gone (Web Push 404/410,
@@ -218,41 +203,26 @@ revoked session's device gets nothing and its row is deleted) and swept hourly.
 | `PUSH_PREVIEW_SENDER_ONLY` 「送り主だけ」 | the category's name (「チャット・通話」) | 「あおいさんからメッセージが届いたよ」 (chat), 「あおいさんから動画のお知らせが届いたよ」 (others); without a nameable actor 「動画のお知らせが届いたよ」 | dropped | the notification's path |
 | `PUSH_PREVIEW_HIDDEN` 「表示しない」 | `Tokuly` | 「新しいお知らせがあるよ」 | dropped | `/notifications` (the inbox) |
 
-The name is the actor's display name (else handle) at delivery time. A
-sender-only push never shows more than the full one: producers leave the
-actor out of anonymous notifications, and one whose text does not name its
-actor on purpose marks it `NotificationRequest::unnamed_actor` (stamp's
-"someone bought your pack"), so neither is ever named.
+The name is the actor's display name (else handle) at delivery time. What a
+choice leaves out is in no push payload at all (Web Push, FCM, APNs); the
+inbox always shows everything. The setting is read when the push is sent, so
+a change also applies to pushes still queued. `SENDER_ONLY` keeps `kind`,
+`category` (the Android channel), the collapse key and the badge; `HIDDEN`
+sends kind `notification`, category `general`, the collapse key
+`notification` and no inbox entry ID — only the badge and the priority stay.
 
-An unnamed actor is never returned to the recipient anywhere: the inbox
-entry (`ListNotifications`, the realtime `received` event) has no `actor`
-but `actor_unnamed = true` (the web shows a neutral 「だれか」 face), and the
-data export leaves `actor_id` out. Blocks and mutes do not apply to an
-unnamed actor either, in any direction: a block does not remove such
-entries, and a request is not held back (inbox or push) because its unnamed
-actor is blocked or muted. Anything else would let the recipient find out
-who it was (block someone, watch 「売れたよ」 disappear or stop arriving).
-`notifications.actor_id` is still stored for account deletion. A newer event folded into the same
-entry decides again whether its actor is shown. The rewrite happens in `delivery.rs` on the per-device message
-(`preview::apply`), before any channel builds its payload: what a choice
-leaves out is not in the Web Push plaintext, the FCM request or the APNs
-payload at all. The setting is read when the push is sent, so a change also
-applies to pushes still queued. `SENDER_ONLY` keeps `kind`, `category`
-(the Android channel), the collapse key and the badge. `HIDDEN` replaces
-them too: kind `notification`, category (Android channel) `general`, the
-collapse key `notification` (so such pushes replace one another, and no
-producer key with someone's ID in it, like `social.buzz:<peer>`, is sent),
-and no inbox entry ID; only the badge and the priority stay. The inbox always shows
-everything.
+Default: `SENDER_ONLY` for accounts under 18 and `FULL` for the others,
+decided once when the account is created (`identity.user.created`) and
+stored; an 18th birthday changes nothing. A push that finds nothing stored
+yet decides the same way, so a minor's first push never shows everything.
 
-Default: decided when the account is created (`identity.user.created`) and
-stored, `SENDER_ONLY` for accounts under 18 and `FULL` for the others; the
-migration does the same for existing minors. It is never derived from the
-birthdate on a read, so an 18th birthday changes nothing anyone can see.
-When a push (or `GetPreferences`) finds nothing stored yet, because the
-event has not been handled or was given up after its retries, it decides and
-stores the default itself, the same idempotent way, so a minor's first push
-never shows everything.
+**Unnamed actors.** Producers leave the actor out of anonymous
+notifications, and mark one whose text does not name its actor on purpose
+`NotificationRequest::unnamed_actor` (stamp's "someone bought your pack").
+Such an actor is never returned to the recipient: the inbox entry has no
+`actor` but `actor_unnamed = true`, the data export leaves `actor_id` out,
+and blocks and mutes do not apply to it in any direction (otherwise blocking
+someone and watching the entry disappear would reveal who it was).
 
 Collapse keys are sent to push services as a 32-character digest (Web Push
 `Topic`, FCM `collapse_key` and `android.notification.tag`, APNs
