@@ -5,6 +5,7 @@
 [![CI](https://github.com/fa0311/better-tokuly/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/ci.yml)
 [![Stack](https://github.com/fa0311/better-tokuly/actions/workflows/stack.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/stack.yml)
 [![End to end](https://github.com/fa0311/better-tokuly/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/e2e.yml)
+[![iOS end to end](https://github.com/fa0311/better-tokuly/actions/workflows/ios-e2e.yml/badge.svg?branch=main)](https://github.com/fa0311/better-tokuly/actions/workflows/ios-e2e.yml)
 
 友達と位置情報共有を楽しもう! — 位置情報共有・チャット・ノート・動画・ライブ・ショートがひとつになったスーパーアプリ。
 Bump（旧 Zenly）のような地図を中心に、初代 Tokuly の機能をすべて引き継いで作り直しています。
@@ -24,7 +25,7 @@ Bump（旧 Zenly）のような地図を中心に、初代 Tokuly の機能を�
 | Web アプリ（すべての領域の画面、PWA） | 動作中 |
 | モバイルアプリ（Expo）: ログイン・アカウント切り替え、ライブマップ（ゴーストモード、バックグラウンド位置共有）、フレンド、プロフィール。チャット・通知・ストーリー・ショートはこれから（[#28](https://github.com/fa0311/better-tokuly/issues/28)） | 作業中 |
 | 配信スタジオ（Tauri） | 未着手 |
-| Docker Compose（amd64 / arm64） | GitHub Actions で通し検証・ブラウザテスト（モバイルは Android エミュレーターで Maestro） |
+| Docker Compose（amd64 / arm64） | GitHub Actions で通し検証・ブラウザテスト（モバイルは Android エミュレーターと iPhone シミュレーターで Maestro。iOS は macOS ランナー上でスタックをネイティブに動かします） |
 
 全領域がセキュリティ監査（[#44](https://github.com/fa0311/better-tokuly/issues/44)）を通っています。
 プレリリース版（最新は v0.2.0-alpha.1）は [Releases](https://github.com/fa0311/better-tokuly/releases) にあります

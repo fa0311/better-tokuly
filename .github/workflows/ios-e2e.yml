@@ -1,0 +1,194 @@
+# The Maestro flows of apps/mobile/maestro on an iPhone simulator, against a
+# stack of the same commit.
+#
+#   app ──────┬─▶ maestro
+#   backend ──┘
+#
+# GitHub's macOS runners have no Docker, so the stack runs natively on the
+# runner (tools/ci/native-stack.sh), with a backend built for macOS. The
+# simulator shares the runner's network: the app reaches the edge as
+# http://localhost:8080, the address its release build is made for.
+#
+# Slow, so a workflow of its own: its result never holds up the others, and it
+# is not a required check (a pull request can merge before it ends). A newer
+# push to a pull request cancels the run in progress.
+name: iOS end to end
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 18 * * *" # 03:00 in Japan
+  pull_request:
+    paths:
+      - apps/mobile/**
+      - packages/**
+      - proto/**
+      - backend/**
+      - pnpm-lock.yaml
+      - .github/workflows/ios-e2e.yml
+      - .github/actions/**
+      - tools/dev/infra.sh
+      - tools/ci/native-stack.sh
+      - infra/caddy/**
+  push:
+    branches: [main]
+
+concurrency:
+  group: ios-e2e-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # The edge as the app on the simulator and Maestro's scripts both reach it.
+  SERVER: http://localhost:8080
+
+jobs:
+  app:
+    name: iOS app (release, for the simulator)
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-js
+      - id: build
+        uses: ./.github/actions/ios-simulator-app
+        with:
+          configuration: Release
+          server-url: ${{ env.SERVER }}
+      # An archive keeps the bundle's symlinks and modes (an artifact alone does not).
+      - name: Pack the app
+        env:
+          APP: ${{ steps.build.outputs.app }}
+        run: ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/Tokuly.app.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios-simulator-app
+          path: ${{ runner.temp }}/Tokuly.app.zip
+          retention-days: 3
+          compression-level: 0
+
+  # The `ci` profile, as the images under test (backend/Cargo.toml).
+  backend:
+    name: Backend for macOS
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+          shared-key: macos-ci-profile
+          cache-on-failure: true
+      - name: Build
+        working-directory: backend
+        run: |
+          cargo build --profile ci --locked -p tokuly-server
+          mkdir -p "$RUNNER_TEMP/backend"
+          tar -C target/ci -cf "$RUNNER_TEMP/backend/tokuly.tar" tokuly
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-macos
+          path: ${{ runner.temp }}/backend/tokuly.tar
+          retention-days: 3
+
+  maestro:
+    name: iOS end to end
+    needs: [app, backend]
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: ios-simulator-app
+          path: ${{ runner.temp }}/app
+      - uses: actions/download-artifact@v8
+        with:
+          name: backend-macos
+          path: ${{ runner.temp }}/backend
+
+      # The service binaries of tools/dev/infra.sh depend on nothing but its pinned versions.
+      - name: Service binaries
+        uses: actions/cache@v6
+        with:
+          path: ~/tokuly-dev/bin
+          key: native-services-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/dev/infra.sh') }}
+      # PostgreSQL, PostGIS and Valkey come from Homebrew (infra.sh install); ffmpeg is the
+      # backend's own, for the media pipeline (the image carries a static one). No calls in
+      # the flows: LiveKit stays off.
+      - name: Install the services
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          TOKULY_DEV_EDGE: "1"
+          TOKULY_DEV_LIVEKIT: "0"
+        run: |
+          brew install --quiet ffmpeg
+          tools/dev/infra.sh install
+      - name: Start the stack
+        env:
+          TOKULY_DEV_LIVEKIT: "0"
+        run: |
+          tar -C "$RUNNER_TEMP/backend" -xf "$RUNNER_TEMP/backend/tokuly.tar"
+          tools/ci/native-stack.sh "$RUNNER_TEMP/backend/tokuly"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      # The newest iPhone of the newest iOS the runner has.
+      - name: Boot an iPhone simulator
+        run: |
+          udid="$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          ios = sorted((r for r in runtimes if ".iOS-" in r), key=lambda r: [int(p) for p in r.rsplit(".iOS-", 1)[1].split("-")])
+          phones = [d for d in runtimes[ios[-1]] if d["name"].startswith("iPhone")]
+          print(phones[-1]["udid"])
+          ')"
+          xcrun simctl list devices | grep "$udid"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "UDID=$udid" >> "$GITHUB_ENV"
+      - name: Install the app
+        run: |
+          ditto -x -k "$RUNNER_TEMP/app/Tokuly.app.zip" "$RUNNER_TEMP/app"
+          xcrun simctl install "$UDID" "$RUNNER_TEMP/app/Tokuly.app"
+
+      # On failure, also what the simulator shows and what the app logged.
+      - name: Maestro flows
+        run: |
+          maestro test apps/mobile/maestro --platform ios --device "$UDID" --env SERVER="$SERVER" \
+            --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro" || {
+            xcrun simctl io "$UDID" screenshot "$RUNNER_TEMP/maestro-screen.png"
+            xcrun simctl spawn "$UDID" log show --last 30m --style compact --predicate 'process == "Tokuly"' > "$RUNNER_TEMP/maestro-app-log.txt" || true
+            exit 1
+          }
+
+      - name: Keep the Maestro output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: maestro-ios
+          path: ${{ runner.temp }}/maestro*
+          retention-days: 7
+      - name: Keep the stack's logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-stack-logs
+          path: ~/tokuly-dev/logs
+          retention-days: 7
