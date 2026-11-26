@@ -1710,6 +1710,14 @@
 # (TOKULY_DEV_WEBHOOK_ALLOW_PRIVATE; restart: api, worker)
 # webhook_allow_private = false
 
+# E-mail addresses of the accounts the demo simulator (`tokuly demo`) signs up to own its bots,
+# comma-separated. Leave it unset unless the simulator runs against this server. Bots owned by these
+# accounts may be given tokens that write to every domain except the wallet, so they can move on the
+# map, chat and post like people; every other bot stays limited to its own profile, uploads and
+# inbox.
+# (TOKULY_DEV_DEMO_OPERATORS; restart: api, worker)
+# demo_operators = []
+
 [engagement]
 
 # Comments (and replies) one user may write per minute.

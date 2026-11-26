@@ -185,6 +185,21 @@ pub struct DevConfig {
     /// loopback and link-local addresses. Refused in production.
     #[arg(id = "dev_webhook_allow_private", long = "dev-webhook-allow-private", env = "TOKULY_DEV_WEBHOOK_ALLOW_PRIVATE", default_value_t = false, action = clap::ArgAction::Set)]
     pub webhook_allow_private: bool,
+
+    /// E-mail addresses of the accounts the demo simulator (`tokuly demo`)
+    /// signs up to own its bots, comma-separated. Leave it unset unless the
+    /// simulator runs against this server. Bots owned by these accounts may
+    /// be given tokens that write to every domain except the wallet, so
+    /// they can move on the map, chat and post like people; every other
+    /// bot stays limited to its own profile, uploads and inbox.
+    #[arg(
+        id = "dev_demo_operators",
+        long = "dev-demo-operators",
+        env = "TOKULY_DEV_DEMO_OPERATORS",
+        value_delimiter = ',',
+        default_value = ""
+    )]
+    pub demo_operators: Vec<String>,
 }
 
 impl Default for DevConfig {
@@ -212,6 +227,7 @@ impl Default for DevConfig {
             bot_record_days: 180,
             webhook_log_days: 30,
             webhook_allow_private: false,
+            demo_operators: Vec::new(),
         }
     }
 }
@@ -236,6 +252,13 @@ impl DevConfig {
             "elevated" => RateTier { name: "elevated".into(), per_minute: self.rate_elevated },
             _ => RateTier { name: "standard".into(), per_minute: self.rate_standard },
         }
+    }
+
+    /// Whether `email` is the address of a demo operator: an account whose
+    /// bots take part in the demo (see `demo_operators`).
+    pub(crate) fn is_demo_operator(&self, email: Option<&str>) -> bool {
+        let Some(email) = email.map(str::trim).filter(|email| !email.is_empty()) else { return false };
+        self.demo_operators.iter().any(|operator| operator.trim().eq_ignore_ascii_case(email))
     }
 
     pub(crate) fn secret_overlap(&self) -> chrono::Duration {
@@ -297,8 +320,24 @@ mod tests {
     }
 
     #[test]
+    fn demo_operators_are_named_by_address_and_nobody_is_one_by_default() {
+        let parse = |flags: &[&str]| CommandLine::parse_from([&["tokuly"], flags].concat()).dev;
+        for cfg in [DevConfig::default(), parse(&[]), parse(&["--dev-demo-operators", ""]), parse(&["--dev-demo-operators", " , "])] {
+            for address in [None, Some(""), Some(" "), Some("demo@example.com")] {
+                assert!(!cfg.is_demo_operator(address), "{address:?}");
+            }
+        }
+        let named = parse(&["--dev-demo-operators", "Demo-1@Example.com, demo-2@example.com"]);
+        assert!(named.is_demo_operator(Some("demo-1@example.com")) && named.is_demo_operator(Some("DEMO-2@example.com")));
+        assert!(!named.is_demo_operator(Some("demo-3@example.com")) && !named.is_demo_operator(Some("example.com")) && !named.is_demo_operator(None));
+    }
+
+    #[test]
     fn the_command_line_defaults_are_the_default_config() {
-        assert_eq!(CommandLine::parse_from(["tokuly"]).dev, DevConfig::default());
+        let defaults = CommandLine::parse_from(["tokuly"]).dev;
+        // An empty list setting parses as one empty entry: nobody.
+        assert!(defaults.demo_operators.iter().all(String::is_empty));
+        assert_eq!(DevConfig { demo_operators: Vec::new(), ..defaults }, DevConfig::default());
         // Every flag is prefixed, so it cannot clash with another domain's.
         let parsed =
             CommandLine::parse_from(["tokuly", "--dev-max-bots", "9", "--dev-webhook-allow-private", "true"]).dev;

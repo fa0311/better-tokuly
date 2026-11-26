@@ -310,15 +310,21 @@ pub fn find(scope: &str) -> Option<ScopeInfo> {
 /// bots: someone who blocked a bot's owner must not be reachable through
 /// the bot, and that check belongs to the social domain, which does not
 /// know about bots yet.
+///
+/// The bots of the demo simulator are the exception (`demo` below): their
+/// owners are accounts the operator of the server named
+/// (`DevConfig::demo_operators`), made to own bots and nothing else, so
+/// there is no person behind them whom a block of the owner would be meant
+/// to keep away; each bot is blocked like any account.
 const BOT_WRITE_DOMAINS: &[&str] = &["identity", "media", "notify", "search", "feed"];
 
-/// Whether a bot token may hold `scope`. Never a wallet scope: a bot is an
-/// account anyone can make more of, so it must neither collect coins nor
-/// spend them.
-pub fn allowed_for_bots(scope: &str) -> bool {
+/// Whether a bot token may hold `scope`; `demo` when the bot belongs to a
+/// demo operator. Never a wallet scope: a bot is an account anyone can make
+/// more of, so it must neither collect coins nor spend them.
+pub fn allowed_for_bots(scope: &str, demo: bool) -> bool {
     match scope.split_once(':') {
         Some(("wallet", _)) => false,
-        Some((domain, "write")) => BOT_WRITE_DOMAINS.contains(&domain),
+        Some((domain, "write")) => demo || BOT_WRITE_DOMAINS.contains(&domain),
         Some((_, "read")) => true,
         _ => false,
     }
@@ -457,10 +463,20 @@ mod tests {
             "geo:write",
             "video:write",
         ] {
-            assert!(!allowed_for_bots(scope), "{scope}");
+            assert!(!allowed_for_bots(scope, false), "{scope}");
         }
         for scope in ["chat:read", "notes:read", "geo:read", "identity:write", "media:write", "notify:write"] {
-            assert!(allowed_for_bots(scope), "{scope}");
+            assert!(allowed_for_bots(scope, false), "{scope}");
+        }
+    }
+
+    #[test]
+    fn demo_bots_address_people_but_get_no_money() {
+        for scope in ["chat:write", "social:write", "notes:write", "engagement:write", "geo:write", "video:write"] {
+            assert!(allowed_for_bots(scope, true), "{scope}");
+        }
+        for scope in ["wallet:read", "wallet:write", "chat", "chat:admin"] {
+            assert!(!allowed_for_bots(scope, true), "{scope}");
         }
     }
 }

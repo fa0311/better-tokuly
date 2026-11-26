@@ -96,7 +96,12 @@ impl Dev {
         let name = clean_name(new.name, 60, "TOKEN_NAME_INVALID", "the token name")?;
         let scopes = scopes::validate(new.scopes)?;
         if new.kind == SecretKind::Bot {
-            if let Some(scope) = scopes.as_slice().iter().find(|scope| !scopes::allowed_for_bots(scope)) {
+            let owner_email: Option<String> = sqlx::query_scalar("SELECT email::text FROM users WHERE id = $1")
+                .bind(new.created_by)
+                .fetch_one(&mut *tx)
+                .await?;
+            let demo = self.cfg.is_demo_operator(owner_email.as_deref());
+            if let Some(scope) = scopes.as_slice().iter().find(|scope| !scopes::allowed_for_bots(scope, demo)) {
                 bail!(invalid, "SCOPE_NOT_FOR_BOTS", "a bot token cannot hold {scope}");
             }
         }
