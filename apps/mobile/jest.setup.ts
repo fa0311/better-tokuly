@@ -14,3 +14,14 @@ jest.mock("expo-localization", () => ({
   getLocales: () => [{ languageTag: "ja-JP" }],
   getCalendars: () => [{ timeZone: "Asia/Tokyo" }],
 }));
+
+// LiveKit's native side (WebRTC, the system's audio session) of rooms and hangouts.
+jest.mock("@livekit/react-native", () => ({
+  registerGlobals: jest.fn(),
+  AndroidAudioTypePresets: { communication: {}, media: {} },
+  AudioSession: {
+    configureAudio: jest.fn(async () => {}),
+    startAudioSession: jest.fn(async () => {}),
+    stopAudioSession: jest.fn(async () => {}),
+  },
+}));

@@ -265,6 +265,17 @@ export default {
     keepWriting: "Keep writing",
     seeAll: "See all notes",
   },
+  spaces: {
+    insideNow: "In: {{title}}",
+    stageEmpty: "Nobody is on stage yet. Waiting for the host to come back…",
+    noMicrophone: "The microphone isn't available. Allow Tokuly to use it in Settings",
+    more: "Show more",
+    mineOnWeb: "Schedule (web)",
+    moreOnWeb: "Scheduling, tags and invitations are on the web",
+    settingsOnWeb: "Room settings, pin & invites (web)",
+    createHangoutOnWeb: "Make a hangout (web)",
+    hangoutOnWeb: "Invite & settings (web)",
+  },
   licenses: {
     title: "Open-source licences",
     lead: "Tokuly is built with {{count}} open-source packages. Thank you!",

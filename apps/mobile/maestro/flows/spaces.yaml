@@ -1,0 +1,85 @@
+appId: app.tokuly.mobile
+name: Find a friend's room, listen in, raise a hand and send an emoji; join a hangout and talk
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/space-friends.js
+- clearKeychain
+- launchApp:
+    clearState: true
+    permissions:
+      microphone: allow
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
+
+# The rooms, from the last tab: the friend's room is under ともだちがいるルーム.
+- tapOn: { id: "tab-me" }
+- tapOn: { id: "me-spaces" }
+- extendedWaitUntil:
+    visible: { id: "spaces-friends" }
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 23-spaces
+- tapOn: ${output.title}
+
+# Its screen. Entering connects the audio (LiveKit) as a listener.
+- extendedWaitUntil:
+    visible: { id: "space-join" }
+    timeout: 15000
+- tapOn: { id: "space-join" }
+- extendedWaitUntil:
+    visible: { id: "space-leave" }
+    timeout: 20000
+- assertNotVisible: "(つないでるよ…|Connecting…)"
+- tapOn: { id: "space-hand" }
+- extendedWaitUntil:
+    visible: { id: "space-hand", selected: true }
+    timeout: 10000
+- tapOn: { id: "space-react" }
+- tapOn: { id: "spaces-emoji-👏" }
+- takeScreenshot: 24-space-room
+
+# Away from the room the sound goes on; the bar on the list leads back. Then out.
+- runFlow: ../subflows/back.yaml
+- extendedWaitUntil:
+    visible: { id: "spaces-inside-bar" }
+    timeout: 10000
+- tapOn: { id: "spaces-inside-bar" }
+- tapOn: { id: "space-leave" }
+- extendedWaitUntil:
+    visible: { id: "spaces-browse" }
+    timeout: 10000
+- assertNotVisible: { id: "spaces-inside-bar" }
+
+# たまり場: the friend's invitation, accepted; inside, everyone talks.
+- tapOn: { id: "spaces-tab-hangouts" }
+- extendedWaitUntil:
+    visible: { id: "hangout-invitation" }
+    timeout: 15000
+- tapOn: { id: "hangout-accept" }
+- tapOn: "OK"
+- extendedWaitUntil:
+    visible: { id: "hangout-card" }
+    timeout: 10000
+- tapOn: ${output.hangout}
+- tapOn: { id: "hangout-join" }
+- extendedWaitUntil:
+    visible: { id: "hangout-leave" }
+    timeout: 20000
+- extendedWaitUntil:
+    visible: { id: "hangout-mic", selected: true }
+    timeout: 10000
+- takeScreenshot: 25-hangout
+- tapOn: { id: "hangout-mic" }
+- assertVisible: { id: "hangout-mic", selected: false }
+- tapOn: { id: "hangout-leave" }
+- extendedWaitUntil:
+    visible: { id: "hangout-join" }
+    timeout: 10000

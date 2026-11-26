@@ -38,6 +38,7 @@ describe("the features on the seams", () => {
       ["search", "/search"],
       ["video", "/watch"],
       ["live", "/live"],
+      ["spaces", "/spaces"],
       ["more", "/more"],
       ["settings", "/settings"],
     ]);
@@ -93,6 +94,9 @@ describe("the features on the seams", () => {
       "shorts/sound/[id]",
       "shorts/tag/[tag]",
       "shorts/watch",
+      "spaces/[id]",
+      "spaces/hangouts/[id]",
+      "spaces/index",
       "stories/[userId]",
       "stories/new",
       "u/[handle]",

@@ -266,6 +266,17 @@ export default {
     keepWriting: "書きつづける",
     seeAll: "ノートをぜんぶ見る",
   },
+  spaces: {
+    insideNow: "参加中: {{title}}",
+    stageEmpty: "ステージにはまだだれもいないよ。ホストがもどるのを待ってるよ…",
+    noMicrophone: "マイクが使えないみたい。設定でTokulyのマイクを許可してね",
+    more: "もっと見る",
+    mineOnWeb: "予約する（Web）",
+    moreOnWeb: "予約やタグ、招待はWebで設定できるよ",
+    settingsOnWeb: "ルームの設定・ピン留め・招待（Web）",
+    createHangoutOnWeb: "たまり場をつくる（Web）",
+    hangoutOnWeb: "さそう・設定する（Web）",
+  },
   licenses: {
     title: "オープンソースライセンス",
     lead: "Tokulyは{{count}}こ のオープンソースソフトウェアでできてるよ。ありがとう！",

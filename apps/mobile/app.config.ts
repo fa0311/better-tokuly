@@ -41,7 +41,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundleIdentifier: "app.tokuly.mobile",
     supportsTablet: true,
     infoPlist: {
-      UIBackgroundModes: ["location"],
+      // Rooms and hangouts keep sounding with the screen off.
+      UIBackgroundModes: ["location", "audio"],
     },
   },
   android: {
@@ -51,6 +52,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "ACCESS_FINE_LOCATION",
       "CAMERA",
       "RECORD_AUDIO",
+      // Rooms and hangouts (WebRTC): the route of the sound, Bluetooth headsets.
+      "MODIFY_AUDIO_SETTINGS",
+      "BLUETOOTH_CONNECT",
       "POST_NOTIFICATIONS",
     ],
     ...(googleServicesFile ? { googleServicesFile } : {}),
@@ -64,6 +68,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "@maplibre/maplibre-react-native",
     // Long videos keep playing in a small window (and on the lock screen) outside the app.
     ["expo-video", { supportsPictureInPicture: true, supportsBackgroundPlayback: true }],
+    // Rooms and hangouts: LiveKit's WebRTC set up for voice chat.
+    ["@livekit/react-native-expo-plugin", { android: { audioType: "communication" } }],
     ["expo-notifications", { mode: apnsMode, color: "#7c5cff" }],
     // The camera of stories and shorts is VisionCamera; these texts are the system's
     // prompts for it and for the library (the image picker's plugin writes them).
@@ -75,7 +81,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         cameraPermission:
           "トークの写真や、記憶・ショートを撮るために使います。/ Lets you take photos and videos for chats, stories and shorts.",
         microphonePermission:
-          "記憶やショートの動画に音を入れるために使います。/ Records sound with the videos of your stories and shorts.",
+          "ルームやたまり場で話したり、記憶やショートの動画に音を入れるために使います。/ Lets you talk in rooms and hangouts, and records sound with the videos of your stories and shorts.",
       },
     ],
     [
