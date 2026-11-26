@@ -38,7 +38,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: "app.tokuly.mobile",
-    permissions: ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "CAMERA", "POST_NOTIFICATIONS"],
+    permissions: [
+      "ACCESS_COARSE_LOCATION",
+      "ACCESS_FINE_LOCATION",
+      "CAMERA",
+      "RECORD_AUDIO",
+      "POST_NOTIFICATIONS",
+    ],
     ...(googleServicesFile ? { googleServicesFile } : {}),
   },
   plugins: [
@@ -48,13 +54,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "expo-web-browser",
     "@maplibre/maplibre-react-native",
     ["expo-notifications", { mode: apnsMode, color: "#7c5cff" }],
+    // The camera of stories and shorts is VisionCamera; these texts are the system's
+    // prompts for it and for the library (the image picker's plugin writes them).
     [
       "expo-image-picker",
       {
-        photosPermission: "トークで写真を送るために使います。/ Lets you send photos in chats.",
+        photosPermission:
+          "トークで送る写真や、記憶・ショートにする写真と動画をえらぶために使います。/ Lets you pick photos and videos for chats, stories and shorts.",
         cameraPermission:
-          "トークで送る写真を撮るために使います。/ Lets you take photos to send in chats.",
-        microphonePermission: false,
+          "トークの写真や、記憶・ショートを撮るために使います。/ Lets you take photos and videos for chats, stories and shorts.",
+        microphonePermission:
+          "記憶やショートの動画に音を入れるために使います。/ Records sound with the videos of your stories and shorts.",
       },
     ],
     [

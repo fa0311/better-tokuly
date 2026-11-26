@@ -1,6 +1,6 @@
-/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, settings. */
+/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, settings. */
 export default {
-  tabs: { map: "Map", chat: "Chats", friends: "Friends", inbox: "Inbox", me: "Me" },
+  tabs: { map: "Map", chat: "Chats", shorts: "Shorts", friends: "Friends", inbox: "Inbox", me: "Me" },
   welcome: {
     signUp: "Get started",
     signIn: "Sign in",
@@ -144,5 +144,59 @@ export default {
       feed: "Feed",
       system: "From Tokuly",
     },
+  },
+  camera: {
+    explain: {
+      title: "Can Tokuly use the camera?",
+      body: "It's for taking stories and shorts! To record sound with videos, we'll ask for the microphone next.",
+    },
+    blocked: {
+      title: "The camera isn't allowed",
+      body: "Turn on the camera (and the microphone, for sound) for Tokuly in the Settings app.",
+    },
+    allow: "Allow the camera",
+    close: "Close",
+    flip: "Switch camera",
+    flash: { off: "No flash", auto: "Auto", on: "Flash" },
+    hintStory: "Tap for a photo, hold for a video! (up to {{limit}})",
+    hintShort: "Tap to start recording! (up to {{limit}})",
+    recording: "● {{time}} / {{limit}}",
+    shoot: "Take",
+    record: "Record",
+    stop: "Stop recording",
+  },
+  media: {
+    trimDone: "Done",
+    trimCancel: "Cancel",
+  },
+  posts: {
+    story: "Story",
+    short: "Short",
+    uploading: "Uploading… {{percent}}%",
+    posting: "Almost done…",
+    paused: "Paused because you switched accounts. It picks up where it left off when you're back!",
+    interrupted: "It stopped halfway. It'll pick up where it left off once you're online",
+    doneStory: "Story posted!",
+    doneShort: "Uploaded! It goes live once it's processed ⚡",
+    retry: "Try again",
+    discard: "Cancel",
+    ok: "OK",
+  },
+  stories: {
+    limits: "Up to {{count}} photos and videos. Videos up to {{limit}}",
+    remove: "Remove",
+    replyPlaceholder: "Reply to {{name}}…",
+    replySend: "Send",
+    replied: "Sent in chat!",
+    replyTo: "📸 Replied to your story: {{text}}",
+    replyToTitled: "📸 Replied to “{{title}}”: {{text}}",
+  },
+  shorts: {
+    pickHint: "A vertical video up to {{limit}}. Trim it if it's longer!",
+    record: "Record",
+    noComments: "No comments yet. Be the first!",
+    commentPlaceholder: "Add a comment…",
+    commentSend: "Send",
+    commentsOff: "Comments are off for this short",
   },
 } as const;

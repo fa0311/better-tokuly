@@ -1,6 +1,6 @@
-/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, settings. */
+/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, settings. */
 export default {
-  tabs: { map: "マップ", chat: "チャット", friends: "ともだち", inbox: "お知らせ", me: "じぶん" },
+  tabs: { map: "マップ", chat: "チャット", shorts: "ショート", friends: "ともだち", inbox: "お知らせ", me: "じぶん" },
   welcome: {
     signUp: "はじめる",
     signIn: "ログイン",
@@ -144,5 +144,59 @@ export default {
       feed: "フィード",
       system: "Tokulyから",
     },
+  },
+  camera: {
+    explain: {
+      title: "カメラをつかってもいい？",
+      body: "記憶やショートを撮るのに使うよ！動画に音も入れるなら、次にマイクもきくね。",
+    },
+    blocked: {
+      title: "カメラが許可されてないよ",
+      body: "設定アプリで Tokuly のカメラ（音も入れるならマイクも）をオンにしてね。",
+    },
+    allow: "カメラをゆるす",
+    close: "とじる",
+    flip: "カメラをきりかえ",
+    flash: { off: "フラッシュなし", auto: "オート", on: "フラッシュ" },
+    hintStory: "タップで写真、長おしで動画！（{{limit}}まで）",
+    hintShort: "タップで録画スタート！（{{limit}}まで）",
+    recording: "● {{time}} / {{limit}}",
+    shoot: "撮る",
+    record: "録画する",
+    stop: "録画をとめる",
+  },
+  media: {
+    trimDone: "これでOK",
+    trimCancel: "やめる",
+  },
+  posts: {
+    story: "記憶",
+    short: "ショート",
+    uploading: "アップロード中… {{percent}}%",
+    posting: "もうすぐ完了…",
+    paused: "アカウントを切り替えたからお休み中。もどったら続きからやるよ！",
+    interrupted: "とちゅうで止まっちゃった。つながったら続きからやるよ",
+    doneStory: "記憶をのこしたよ！",
+    doneShort: "アップしたよ！処理がおわったら公開されるよ ⚡",
+    retry: "もう一度",
+    discard: "やめる",
+    ok: "OK",
+  },
+  stories: {
+    limits: "写真と動画を{{count}}こまで。動画は{{limit}}までだよ",
+    remove: "はずす",
+    replyPlaceholder: "{{name}}さんに返信…",
+    replySend: "送る",
+    replied: "チャットで送ったよ！",
+    replyTo: "📸 記憶に返信: {{text}}",
+    replyToTitled: "📸「{{title}}」に返信: {{text}}",
+  },
+  shorts: {
+    pickHint: "たて動画を{{limit}}まで。長いときは切りとってね！",
+    record: "撮る",
+    noComments: "まだコメントはないよ。いちばんのりしよう！",
+    commentPlaceholder: "コメントを書く…",
+    commentSend: "送る",
+    commentsOff: "このショートはコメントを受けつけてないよ",
   },
 } as const;

@@ -362,6 +362,7 @@ export default {
     },
   },
   errors: {
+    CHANNEL_REQUIRED: "先にチャンネルを作ろう！Webで1分で作れるよ",
     SHORT_NOT_FOUND: "ショートが見つかりません",
     SHORT_NOT_PUBLISHED: "公開中のショートだけ固定できるよ",
     SHORT_TOO_LONG: "ショートは3分までだよ",
