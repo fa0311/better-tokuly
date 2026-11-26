@@ -13,8 +13,10 @@ const deployment = deploymentFrom(process.env);
 /**
  * Every page gets its Content-Security-Policy and Permissions-Policy
  * (`#/lib/security-headers`). The nonce is new for each response; the router
- * puts it on the scripts it renders (`src/router.tsx`). No page may be framed
- * by another site unless it is made to be embedded.
+ * puts it on the scripts it renders (`src/router.tsx`). A cache between the
+ * server and the browsers (a CDN) must therefore not keep a page: its nonce
+ * would be the same for everyone, and known to anyone who asks. No page may
+ * be framed by another site unless it is made to be embedded.
  */
 const securityHeaders = createMiddleware().server(async ({ next, pathname }) => {
   const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64");
@@ -25,6 +27,7 @@ const securityHeaders = createMiddleware().server(async ({ next, pathname }) => 
   headers.set("permissions-policy", permissionsPolicy({ embeddable }));
   // The same for browsers that only know the older header.
   if (!embeddable) headers.set("x-frame-options", "DENY");
+  if (!headers.has("cache-control")) headers.set("cache-control", "private, no-cache");
   return result;
 });
 

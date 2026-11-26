@@ -31,6 +31,8 @@ test.describe("security headers", () => {
     const policy = response.headers()["content-security-policy"] ?? "";
     const nonce = /'nonce-([^']+)'/.exec(policy)?.[1];
     expect(nonce).toBeTruthy();
+    // No shared cache may hand the same page, and so the same nonce, to someone else.
+    expect(response.headers()["cache-control"]).toMatch(/private|no-store/);
     const html = await response.text();
     const inline = [...html.matchAll(/<script(?![^>]*\ssrc=)([^>]*)>/g)].map((match) => match[1]);
     expect(inline.length).toBeGreaterThan(0);
