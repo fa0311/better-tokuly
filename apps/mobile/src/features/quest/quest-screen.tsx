@@ -65,7 +65,7 @@ export function QuestScreen() {
               ? t("mobile:quest.badgesHint", { count: progress.data.badgeCount })
               : undefined
           }
-          onPress={() => router.push(webScreenHref("/quest/badges") as never)}
+          onPress={() => router.push("/quest/badges")}
         />
       </Section>
       <Section title={t("mobile:quest.onWeb")}>

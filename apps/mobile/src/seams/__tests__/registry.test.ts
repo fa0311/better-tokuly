@@ -41,7 +41,7 @@ describe("the seam registries", () => {
       "video",
       "web",
     ]);
-    expect(areasOf("profile")).toEqual(["ask", "notes", "plans"]);
+    expect(areasOf("profile")).toEqual(["ask", "notes", "plans", "quest"]);
   });
 
   it("stop the build for a seam file they would leave out", () => {

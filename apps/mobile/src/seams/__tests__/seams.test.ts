@@ -103,6 +103,8 @@ describe("the features on the seams", () => {
       "plans/index",
       "plans/new",
       "playlist/[id]",
+      "quest/badges/[key]",
+      "quest/badges/index",
       "quest/index",
       "school/assignments",
       "school/index",
@@ -158,9 +160,7 @@ describe("the features on the seams", () => {
       `/web?path=${encodeURIComponent("/plans/polls/abc")}`,
     );
     expect(screenFor("/quest")).toBe("/quest");
-    expect(screenFor("/quest/badges/chatter_gold")).toBe(
-      `/web?path=${encodeURIComponent("/quest/badges/chatter_gold")}`,
-    );
+    expect(screenFor("/quest/badges/chatter_gold")).toBe("/quest/badges/chatter_gold");
     expect(screenFor("/quest/streaks")).toBe(`/web?path=${encodeURIComponent("/quest/streaks")}`);
     expect(screenFor("/settings/privacy")).toBe("/settings/privacy");
     expect(screenFor("/notifications/settings")).toBe("/settings/notifications");
