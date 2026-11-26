@@ -203,8 +203,9 @@ impl ChatService for Chat {
 - PostgreSQL 18. Primary keys `uuid PRIMARY KEY DEFAULT uuidv7()`; `timestamptz`
   everywhere; `created_at`/`updated_at` with the `set_updated_at()` trigger.
 - One migration file per domain (`backend/migrations/NNNN_<domain>.sql`, plain
-  SQL, no down migrations). While a domain is under construction edit its file
-  in place; tests rebuild their database from the files every run.
+  SQL, no down migrations). Until the first stable release edit it in place;
+  tests rebuild their database from the files every run. After that see
+  "After a release" below.
 - Reference users with `REFERENCES users (id) ON DELETE CASCADE` (accounts are
   anonymized, not removed, so this only fires on hard cleanup). Do not put
   foreign keys on tables of domains you do not depend on.
@@ -224,6 +225,25 @@ impl ChatService for Chat {
 - Keyset pagination with `Page` (`page.fetch()` rows, `page.finish(&mut rows, key)`).
 - Multi-step changes run in one transaction (`core.db.begin()`), with events
   emitted on the same transaction.
+
+#### After a release
+
+A stable release freezes the files it ships (`migrations/frozen.sha384`; a
+server test and every deployment's `tokuly migrate` refuse an edited one).
+Upgrades from alpha and beta releases are not supported. A change is a new
+file in the domain's range, `0601_chat_<what>.sql` (tests that list `"0600"`
+get it too), and:
+
+- applies after every released file on an upgrade but in number order on a
+  fresh install: use only what lower-numbered files create
+  (`tools/ci/migrations-upgrade.sh` checks both end the same);
+- takes no long lock: an index is built with `CREATE INDEX CONCURRENTLY`,
+  alone in a file that starts with `-- no-transaction`; a `NOT NULL` column
+  comes with a `DEFAULT`; big rewrites and backfills go to a job;
+- leaves the previous release's binary working on the new schema, because the
+  API and the workers are replaced one after the other: add columns and
+  tables, never rename them; a column is dropped one release after the code
+  stopped using it.
 
 ### Talking to other domains
 

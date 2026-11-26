@@ -30,6 +30,28 @@ jobs:
             *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT"; echo "tags=$version" >> "$GITHUB_OUTPUT" ;;
             *)   echo "prerelease=false" >> "$GITHUB_OUTPUT"; echo "tags=$version latest" >> "$GITHUB_OUTPUT" ;;
           esac
+      # A stable release freezes every migration it ships (docs/agents/process.md, "Releasing"):
+      # the table lists exactly them, and none changed since the stable release before.
+      - uses: actions/checkout@v7
+        if: steps.version.outputs.prerelease == 'false'
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: The migrations are frozen
+        if: steps.version.outputs.prerelease == 'false'
+        working-directory: backend/migrations
+        run: |
+          diff <(sha384sum [0-9]*.sql) frozen.sha384 || {
+            echo "::error::frozen.sha384 does not list exactly the migrations of this release: run 'sha384sum [0-9]*.sql > frozen.sha384' in backend/migrations, commit, and tag again"
+            exit 1
+          }
+      - name: The release before upgrades to this one
+        if: steps.version.outputs.prerelease == 'false'
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null
+          sudo apt-get install -y -qq --no-install-recommends postgresql-client-18
+          docker compose -f compose.dev.yaml up -d --wait --wait-timeout 300 postgres
+          tools/ci/migrations-upgrade.sh postgres://tokuly@127.0.0.1:5432/tokuly
 
   images:
     needs: version
@@ -76,6 +98,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          flags=(--title "Tokuly $VERSION" --generate-notes)
+          if [ "$PRERELEASE" = true ]; then
+            notes="このプレリリースのデータを、この先のバージョンへ移行できるとは限りません。試用向けです。
+          Data of this pre-release may not upgrade to later versions; it is for trying out."
+          else
+            notes="アップグレードは安定版からのみ対応しています（アルファ版・ベータ版からの移行は保証しません）。
+          Upgrades are supported from stable releases only, not from alpha or beta versions."
+          fi
+          flags=(--title "Tokuly $VERSION" --notes "$notes" --generate-notes)
           [ "$PRERELEASE" = true ] && flags+=(--prerelease)
           gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS "${flags[@]}"

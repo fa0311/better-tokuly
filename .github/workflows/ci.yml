@@ -35,6 +35,7 @@ jobs:
     outputs:
       proto: ${{ steps.filter.outputs.proto }}
       backend: ${{ steps.filter.outputs.backend }}
+      migrations: ${{ steps.filter.outputs.migrations }}
       web: ${{ steps.filter.outputs.web }}
       packages: ${{ steps.packages.outputs.flags }}
       touched: ${{ steps.packages.outputs.touched }}
@@ -60,6 +61,10 @@ jobs:
               - 'compose.dev.yaml'
               - 'tools/ci/backend-packages.sh'
               - 'tools/ci/test-archive.sh'
+              - '.github/workflows/ci.yml'
+            migrations:
+              - 'backend/migrations/**'
+              - 'tools/ci/migrations-upgrade.sh'
               - '.github/workflows/ci.yml'
             web:
               - 'apps/web/**'
@@ -201,6 +206,26 @@ jobs:
       - name: Service logs
         if: failure()
         run: docker compose -f compose.dev.yaml logs --tail 80
+
+  # The latest stable release's schema upgrades to this one and ends up as a fresh
+  # install's (tools/ci/migrations-upgrade.sh; passes while there is no stable tag).
+  migrations-upgrade:
+    name: "Backend: migrations upgrade the last release"
+    needs: changes
+    if: needs.changes.outputs.migrations == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: PostgreSQL 18 client
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null
+          sudo apt-get install -y -qq --no-install-recommends postgresql-client-18
+      - run: docker compose -f compose.dev.yaml up -d --wait --wait-timeout 300 postgres
+      - run: tools/ci/migrations-upgrade.sh postgres://tokuly@127.0.0.1:5432/tokuly
 
   # Built together, the crates share the API packages one of them enables (cargo unifies
   # features), so a crate that forgot one of its own still compiles. Alone it does not:

@@ -1,0 +1,2 @@
+# sqlx checksums a migration's bytes: a checkout must not rewrite its line endings.
+backend/migrations/*.sql text eol=lf
