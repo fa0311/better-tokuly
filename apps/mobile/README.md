@@ -285,7 +285,11 @@ What a feature _sends by itself_ is its own duty:
   `currentAccount()` (`features/session/account.ts`: session, user, the API
   object) or the client (`const client = pushClient()`) first, make every
   request of that piece of work with it, and after each await ask
-  `isActive(account)` / `ensureActive(account)` before going on. State in
+  `isActive(account)` / `ensureActive(account)` before going on. The app
+  enforces the worst of it (`lib/api.ts`): once an account left, its API
+  never refreshes and never touches the token store — a call still goes out
+  with the access token it holds, any other is refused (`isAccountLeft`),
+  so a late call can never spend the next account's refresh token. State in
   secure storage is kept per user or session ID, never "the current one".
 - **Leave in `lifecycle.ts`.** `beforeLeave(account)` runs while the leaving
   account's session still works (after a switch went through, before a
