@@ -67,6 +67,8 @@ jobs:
           key: ios-derived-data-${{ runner.os }}-${{ github.sha }}
           restore-keys: ios-derived-data-${{ runner.os }}-
 
+      # The runner is Apple silicon: only its simulator's architecture is built. The step's
+      # output is the errors and warnings; the whole log is kept when it fails.
       - name: Build for the simulator
         working-directory: apps/mobile/ios
         run: |
@@ -78,12 +80,14 @@ jobs:
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$DERIVED_DATA" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             COMPILER_INDEX_STORE_ENABLE=NO \
             | tee "$RUNNER_TEMP/xcodebuild.log" \
-            | grep -E '(error|warning: .*TokulyTrim|BUILD (SUCCEEDED|FAILED)|\*\* )' || true
+            | grep -E '(: (error|warning):|\*\* BUILD)' || true
           grep -q 'BUILD SUCCEEDED' "$RUNNER_TEMP/xcodebuild.log"
 
       - if: github.ref == 'refs/heads/main' && steps.derived-data.outputs.cache-hit != 'true'

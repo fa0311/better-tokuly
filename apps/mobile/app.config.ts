@@ -57,7 +57,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     "expo-router",
-    "expo-secure-store",
+    // Secure storage holds the sessions' tokens without Face ID: no prompt for it.
+    ["expo-secure-store", { faceIDPermission: false }],
     "expo-localization",
     "expo-web-browser",
     "@maplibre/maplibre-react-native",
@@ -82,6 +83,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           "ともだちのマップにあなたのいまを出すために使います。/ Shows where you are on your friends' map.",
         locationAlwaysAndWhenInUsePermission:
           "アプリを閉じている間も、ともだちにいまを届けるために使います。/ Keeps your friends up to date while the app is closed.",
+        locationAlwaysPermission:
+          "アプリを閉じている間も、ともだちにいまを届けるために使います。/ Keeps your friends up to date while the app is closed.",
+        locationFullAccuracyPermission:
+          "ともだちのマップにあなたのいまをぴったり出すために使います!/ Shows your friends exactly where you are.",
+        // The background task pauses while the phone stays still.
+        motionUsagePermission:
+          "止まっている間は位置の送信をお休みして、電池を長持ちさせるために使います。/ Pauses location updates while you stay still, to save battery.",
         isIosBackgroundLocationEnabled: true,
         isAndroidBackgroundLocationEnabled: true,
         isAndroidForegroundServiceEnabled: true,
