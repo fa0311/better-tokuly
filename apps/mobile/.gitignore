@@ -7,3 +7,4 @@ expo-env.d.ts
 *.apk
 # Written at build time by scripts/licenses.js and scripts/seams.js.
 /src/generated/
+/maestro/screenshots/

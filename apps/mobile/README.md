@@ -352,3 +352,8 @@ runs them against the Compose stack; locally, with an emulator and a stack:
 EXPO_PUBLIC_TOKULY_URL=http://10.0.2.2 pnpm --filter @tokuly/mobile android --variant release
 pnpm --filter @tokuly/mobile e2e --env SERVER=http://localhost   # the scripts run on the host
 ```
+
+On the way the flows take a screenshot of each main screen (the map, the
+chats, a conversation, notes, じぶん, friends, shorts, videos, live, the
+settings) into the `SHOTS` directory: `maestro/screenshots` with `pnpm e2e`,
+the `mobile-screenshots` artifact of the End to end workflow in CI.
