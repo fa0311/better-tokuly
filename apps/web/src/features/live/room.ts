@@ -1,6 +1,6 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, live } from "@tokuly/api";
-import { pushesDuringReadByKey } from "@tokuly/core/query";
+import { LiveChats } from "@tokuly/core/live";
 import { useEffect, useRef, useState } from "react";
 import { deviceId, realtime } from "#/lib/realtime";
 import {
@@ -11,66 +11,20 @@ import {
   streamClient,
   useBlockedIds,
 } from "./api";
-import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from "./model";
 
-const { ChatMessageKind, StreamStatus } = live;
+const { StreamStatus } = live;
 
-/**
- * What pushes did to a stream's chat while it was being read (lines added,
- * deleted, cleared): the answer may predate them, so they are applied to it
- * again (see `pushesDuringRead`).
- */
-const chatPushesDuringRead = pushesDuringReadByKey<live.ChatMessage[]>();
-
-/** Reads the latest page of a stream's chat, with what was pushed while it was read. */
-export async function readChat(streamId: string): Promise<live.ChatMessage[]> {
-  const read = chatPushesDuringRead.begin(streamId);
-  try {
-    const { messages } = await chatClient().listChatMessages({ streamId });
-    return read.finish(addChatMessages([], messages));
-  } catch (error) {
-    read.cancel();
-    throw error;
-  }
-}
+/** The chats of the streams open on this page (`LiveChats` of `@tokuly/core/live`). */
+const liveChats = new LiveChats(chatClient);
 
 /** The chat of a stream, oldest first: the latest page, then whatever is pushed. */
 export function useChatMessages(streamId: string) {
-  return useQuery({
-    queryKey: liveKeys.chat(streamId),
-    queryFn: () => readChat(streamId),
-    // Pushes keep it current; reading it again would only drop what the page did not hold.
-    staleTime: Number.POSITIVE_INFINITY,
-    gcTime: 0,
-  });
-}
-
-function updateChat(
-  queryClient: QueryClient,
-  streamId: string,
-  update: (messages: live.ChatMessage[]) => live.ChatMessage[],
-): void {
-  chatPushesDuringRead.record(streamId, update);
-  queryClient.setQueryData<live.ChatMessage[]>(liveKeys.chat(streamId), (messages) =>
-    messages ? update(messages) : messages,
-  );
+  return useQuery(liveChats.query(streamId));
 }
 
 /** Adds a line the caller just sent (the push may come before or after the answer). */
 export function addOwnMessage(queryClient: QueryClient, message: live.ChatMessage): void {
-  updateChat(queryClient, message.streamId, (messages) => addChatMessages(messages, [message]));
-  if (message.kind === ChatMessageKind.GIFT) addHighlight(queryClient, message);
-}
-
-function addHighlight(queryClient: QueryClient, message: live.ChatMessage): void {
-  if (!message.gift?.highlightedUntil) return;
-  patchStream(queryClient, message.streamId, (stream) => ({
-    ...stream,
-    highlightedGifts: [
-      message,
-      ...stream.highlightedGifts.filter((existing) => existing.id !== message.id),
-    ],
-  }));
+  liveChats.addOwn(queryClient, message);
 }
 
 /** Applies one pushed `LiveEvent` of a stream to what is loaded. */
@@ -79,81 +33,7 @@ export function applyLiveEvent(
   streamId: string,
   event: live.LiveEvent["event"],
 ): void {
-  // The server leaves out the viewer when they are on a line's exception list, but that list
-  // may drop the people who blocked its author (it is capped, and anyone can block anyone).
-  // So lines of people the viewer blocked stay out here, and so does such a pinned line.
-  const blocked = queryClient.getQueryData<Set<string>>(liveKeys.blocked);
-  const fromBlocked = (message: live.ChatMessage | undefined) => {
-    const authorId = message?.author?.user?.id;
-    return Boolean(authorId && blocked?.has(authorId));
-  };
-  if (event.case === "chatMessage" && fromBlocked(event.value)) return;
-  switch (event.case) {
-    case "streamUpdated": {
-      const summary = event.value;
-      patchStream(queryClient, streamId, (stream) => ({ ...stream, summary }));
-      // Playback URLs, the archive and what the viewer may do come with the full page.
-      refreshStream(queryClient, summary.id);
-      void queryClient.invalidateQueries({ queryKey: liveKeys.lists });
-      break;
-    }
-    case "stats": {
-      const { viewerCount, peakViewerCount, likeCount } = event.value;
-      patchStream(queryClient, streamId, (stream) => ({
-        ...stream,
-        summary: stream.summary && { ...stream.summary, viewerCount, peakViewerCount, likeCount },
-      }));
-      break;
-    }
-    case "chatMessage": {
-      const message = event.value;
-      updateChat(queryClient, streamId, (messages) => addChatMessages(messages, [message]));
-      if (message.kind === ChatMessageKind.GIFT) addHighlight(queryClient, message);
-      break;
-    }
-    case "chatMessageDeleted": {
-      const { messageId } = event.value;
-      updateChat(queryClient, streamId, (messages) => removeChatMessage(messages, messageId));
-      patchStream(queryClient, streamId, (stream) => ({
-        ...stream,
-        highlightedGifts: stream.highlightedGifts.filter((gift) => gift.id !== messageId),
-        pinnedMessage: stream.pinnedMessage?.id === messageId ? undefined : stream.pinnedMessage,
-      }));
-      break;
-    }
-    case "chatUserCleared": {
-      const { userId } = event.value;
-      updateChat(queryClient, streamId, (messages) => removeChatUser(messages, userId));
-      patchStream(queryClient, streamId, (stream) => ({
-        ...stream,
-        highlightedGifts: removeChatUser(stream.highlightedGifts, userId),
-      }));
-      break;
-    }
-    case "chatPinChanged": {
-      const pinnedMessage = fromBlocked(event.value.message) ? undefined : event.value.message;
-      patchStream(queryClient, streamId, (stream) => ({ ...stream, pinnedMessage }));
-      break;
-    }
-    case "chatSettingsChanged": {
-      const chat = event.value.chat;
-      patchStream(queryClient, streamId, (stream) => ({ ...stream, chat }));
-      // Whether the viewer may still write follows the new rules.
-      refreshStream(queryClient, streamId);
-      break;
-    }
-    case "pollUpdated": {
-      const pushed = event.value;
-      patchStream(queryClient, streamId, (stream) => ({
-        ...stream,
-        activePoll: mergePoll(stream.activePoll, pushed),
-      }));
-      void queryClient.invalidateQueries({ queryKey: liveKeys.polls(streamId) });
-      break;
-    }
-    default:
-      break;
-  }
+  liveChats.apply(queryClient, streamId, event);
 }
 
 export interface LiveRoom {

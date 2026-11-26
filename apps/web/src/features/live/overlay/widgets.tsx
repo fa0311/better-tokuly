@@ -1,8 +1,9 @@
 import { live } from "@tokuly/api";
+import { pollShares, tierByLevel } from "@tokuly/core/live";
 import { useTranslation } from "react-i18next";
 import { EmojiText } from "#/features/emoji";
 import { ROLE_KEYS } from "../labels";
-import { fillAlertTemplate, pollShares, tierByLevel, tierStyle } from "../model";
+import { fillAlertTemplate, tierStyle } from "../model";
 
 /**
  * The widgets of OBS overlays, as plain markup. Their looks come entirely

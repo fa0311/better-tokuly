@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { errorReason, live } from "@tokuly/api";
+import { addChatMessages } from "@tokuly/core/live";
 import { Film, Hourglass, Scissors, TriangleAlert } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,6 @@ import { cn } from "#/lib/cn";
 import { chatClient, liveKeys, useGiftTiers, videoClient } from "./api";
 import { ChatList } from "./chat/chat-list";
 import { isOpenVisibility } from "./labels";
-import { addChatMessages } from "./model";
 
 const { ArchiveStatus } = live;
 
