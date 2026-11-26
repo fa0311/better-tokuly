@@ -154,7 +154,8 @@ export function formProblem(
         combine(value.date, value.time, zone),
         combine(value.endDate || value.date, value.endTime, zone),
       ];
-      if (!end || !start || end < start) return "end";
+      // The server wants it to end after it starts; a time a daylight-saving jump skips is the jump's moment.
+      if (!end || !start || end <= start) return "end";
     }
   }
   if (value.capacity && !(Number.isInteger(Number(value.capacity)) && Number(value.capacity) >= 1))

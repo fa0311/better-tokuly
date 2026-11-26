@@ -43,7 +43,22 @@ describe("the plan form", () => {
       ),
     ).toBe("end");
     expect(formProblem(form({ capacity: "0" }), TOKYO)).toBe("capacity");
+    expect(
+      formProblem(
+        form({ when: "date", date: "2026-12-24", hasEnd: true, endDate: "2026-12-24" }),
+        TOKYO,
+      ),
+    ).toBeNull();
     expect(formProblem(form({}), TOKYO)).toBeNull();
+  });
+
+  it("wants a timed plan to end after it starts, as the server does", () => {
+    const at = (time: string, endTime: string, date = "2026-12-24", zone = TOKYO) =>
+      formProblem(form({ when: "time", date, time, hasEnd: true, endTime }), zone);
+    expect(at("18:00", "18:00")).toBe("end");
+    expect(at("18:00", "18:05")).toBeNull();
+    // 02:00 and 02:30 are skipped in Los Angeles that night: both are 03:00.
+    expect(at("02:00", "02:30", "2026-03-08", "America/Los_Angeles")).toBe("end");
   });
 
   it("sends a day and a time as the instant the zone means, naming the zone", () => {
