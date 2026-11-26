@@ -43,6 +43,7 @@ describe("the features on the seams", () => {
     // What waits behind an entry (a friend request) still shows on the bar, on the hub's tab.
     expect(waitingInHub({ friends: 2, chat: 5 })).toBe(2);
     expect(SETTINGS_ROWS.map((row) => row.id)).toEqual([
+      "profile",
       "privacy",
       "notifications",
       "security",
@@ -82,6 +83,7 @@ describe("the features on the seams", () => {
       "settings/index",
       "settings/notifications",
       "settings/privacy",
+      "settings/profile",
       "settings/security",
       "settings/totp",
       "shorts/mine",

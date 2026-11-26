@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type identity, toMillis } from "@tokuly/api";
+import { graphemes } from "@tokuly/core/format";
 import { profileKeys } from "@tokuly/core/profile";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +14,6 @@ import { errorMessage } from "#/lib/errors";
 import { compactDuration } from "#/lib/format";
 import { adoptMe } from "../data";
 import { Group } from "../shell/settings-page";
-import { graphemes } from "./graphemes";
 
 /** One-tap statuses; the text is `profile.status.presets.<key>`. */
 const PRESETS = [

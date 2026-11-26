@@ -4,6 +4,10 @@ import type { ScreenEntry } from "#/seams/screens";
 export default [
   { name: "settings/index", options: () => ({ title: i18n.t("mobile:settings.title") }) },
   {
+    name: "settings/profile",
+    options: () => ({ title: i18n.t("settings:sections.profile.title") }),
+  },
+  {
     name: "settings/privacy",
     options: () => ({ title: i18n.t("settings:sections.privacy.title") }),
   },
