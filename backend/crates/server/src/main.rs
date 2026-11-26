@@ -237,7 +237,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Command::DeadLetters { action } => dead_letters(&core, action).await?,
-        Command::Api => app::serve_api(core, domains, cli.api.listen, cli.api.cors_origins).await?,
+        Command::Api => app::serve_api(core, domains, cli.api).await?,
         Command::Realtime => domains.gateway.run().await?,
         Command::Worker => {
             app::spawn_workers(&core, &domains);
@@ -254,7 +254,7 @@ async fn main() -> anyhow::Result<()> {
                     shutdown.cancel();
                 }
             });
-            app::serve_api(core, domains, cli.api.listen, cli.api.cors_origins).await?;
+            app::serve_api(core, domains, cli.api).await?;
         }
         Command::Healthcheck { .. } | Command::Config { .. } => unreachable!("handled above"),
     }
