@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { errorReason, isApiError, live } from "@tokuly/api";
 import {
+  exactCoins,
   type GiftAttempt,
   giftAttempt,
   newIdempotencyKey,
@@ -100,7 +101,7 @@ export function GiftDialog({
       if (response.gift && !sameGift(attempt, response.gift))
         toast.warning(
           t("gift.otherSent", {
-            coins: formatCount(response.gift.coins, i18n.language),
+            coins: exactCoins(response.gift.coins, i18n.language),
             name: channelName,
           }),
         );
@@ -147,7 +148,7 @@ export function GiftDialog({
               loading={send.isPending}
               onClick={() => send.mutate(giftAttempt(lost, coins ?? 0n, text, newGiftKey))}
             >
-              {t("gift.confirm", { coins: formatCount(coins ?? 0n, i18n.language) })}
+              {t("gift.confirm", { coins: exactCoins(coins ?? 0n, i18n.language) })}
             </Button>
           </>
         ) : short ? (
@@ -218,8 +219,8 @@ export function GiftDialog({
               error={
                 amountText && !inRange
                   ? t("gift.amountRange", {
-                      min: formatCount(minCoins, i18n.language),
-                      max: formatCount(maxCoins, i18n.language),
+                      min: exactCoins(minCoins, i18n.language),
+                      max: exactCoins(maxCoins, i18n.language),
                     })
                   : short
                     ? t("gift.short")

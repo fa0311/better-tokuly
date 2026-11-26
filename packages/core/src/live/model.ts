@@ -31,6 +31,14 @@ export function parseCoins(text: string): bigint | null {
 }
 
 /**
+ * A coin amount as it is decided and paid: exact, with the language's
+ * separators (`12,345`), never rounded the way counts in lists are.
+ */
+export function exactCoins(coins: bigint | number, language: string): string {
+  return new Intl.NumberFormat(language, { maximumFractionDigits: 0 }).format(Number(coins));
+}
+
+/**
  * A key the server accepts for one gift attempt (8-64 of letters, digits,
  * `-`, `_`), from `random` (a UUID of the platform's own generator).
  */

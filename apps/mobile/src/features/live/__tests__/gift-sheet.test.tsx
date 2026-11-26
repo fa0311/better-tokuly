@@ -28,7 +28,7 @@ function account(sendGift: (request: live.SendGiftRequest) => Promise<unknown>) 
   const object = {
     service: () => ({
       getGiftTiers: async () => ({ tiers: TIERS, minCoins: 10n, maxCoins: 100_000n }),
-      getBalance: async () => ({ balance: { coins: 5_000n } }),
+      getBalance: async () => ({ balance: { coins: 54_321n } }),
       sendGift: (request: live.SendGiftRequest) => {
         sent.push(request);
         return sendGift(request);
@@ -96,6 +96,16 @@ describe("GiftSheet", () => {
     expect(a.sent).toHaveLength(3);
     expect(a.sent[2]?.idempotencyKey).not.toBe(a.sent[0]?.idempotencyKey);
     expect(a.sent[2]).toMatchObject({ coins: 10n, message: "" });
+  });
+
+  it("shows the amount that is paid exactly, never rounded", async () => {
+    const a = account(lostAnswer);
+    signIn(a, "u9");
+    await open();
+    expect(await screen.findByText("🪙 54,321")).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByTestId("gift-amount"), "12345");
+    await fireEvent.press(screen.getByTestId("gift-next"));
+    expect(screen.getByText("12,345コインを贈る")).toBeOnTheScreen();
   });
 
   it("starts a new gift after a refusal: nothing was paid", async () => {

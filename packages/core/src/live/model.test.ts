@@ -7,6 +7,7 @@ import {
   chatBlockReason,
   chatTextParts,
   countdownParts,
+  exactCoins,
   giftAttempt,
   mentionOf,
   mergePoll,
@@ -47,6 +48,11 @@ describe("gift tiers", () => {
 
   it("has no tier below the smallest gift", () => {
     expect(tierFor(TIERS, 9)).toBeUndefined();
+  });
+
+  it("shows amounts exactly, never rounded", () => {
+    expect(exactCoins(12_345n, "ja")).toBe("12,345");
+    expect(exactCoins(1_000_000, "en")).toBe("1,000,000");
   });
 
   it("reads typed amounts", () => {

@@ -24,6 +24,7 @@ export {
   chatBlockReason,
   chatTextParts,
   countdownParts,
+  exactCoins,
   type GiftAttempt,
   giftAttempt,
   mentionOf,

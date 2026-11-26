@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { errorReason, isApiError, live } from "@tokuly/api";
 import { compactCount } from "@tokuly/core/engagement";
 import {
+  exactCoins,
   type GiftAttempt,
   giftAttempt,
   liveKeys,
@@ -107,7 +108,9 @@ export function GiftSheet({
       closed = true;
     };
   }, [userId, streamId]);
-  const format = (value: bigint) => compactCount(Number(value), i18n.language);
+  // Amounts that are decided or paid are exact; the tier chips may be compact.
+  const exact = (value: bigint) => exactCoins(value, i18n.language);
+  const compact = (value: bigint) => compactCount(Number(value), i18n.language);
 
   const back = () => setConfirming(false);
   const close = () => {
@@ -141,7 +144,7 @@ export function GiftSheet({
       // Never claim a gift that was not the one sent: an earlier attempt can come back instead.
       Alert.alert(
         response.gift && !sameGift(attempt, response.gift)
-          ? t("gift.otherSent", { coins: format(response.gift.coins), name: channelName })
+          ? t("gift.otherSent", { coins: exact(response.gift.coins), name: channelName })
           : t("gift.sent", { name: channelName }),
       );
       setLost(null);
@@ -204,7 +207,7 @@ export function GiftSheet({
                 <View className="flex-row items-center justify-between rounded-2xl bg-surface-2 px-4 py-2.5">
                   <Text className="text-sm font-bold text-ink-soft">{t("gift.balance")}</Text>
                   <Text testID="gift-balance" className="font-black text-ink">
-                    {balance.data === undefined ? "…" : `🪙 ${format(balance.data)}`}
+                    {balance.data === undefined ? "…" : `🪙 ${exact(balance.data)}`}
                   </Text>
                 </View>
                 <View className="flex-row flex-wrap gap-1.5">
@@ -219,14 +222,14 @@ export function GiftSheet({
                         accessibilityState={{ selected }}
                         accessibilityLabel={t("gift.tierLabel", {
                           level: option.level,
-                          coins: format(option.minCoins),
+                          coins: exact(option.minCoins),
                         })}
                         onPress={() => setAmountText(String(option.minCoins))}
                         className={`h-10 w-[23%] items-center justify-center rounded-xl border-2 ${selected ? "border-ink" : "border-transparent"}`}
                         style={{ backgroundColor: look.background }}
                       >
                         <Text className="text-xs font-black" style={{ color: look.text }}>
-                          {format(option.minCoins)}
+                          {compact(option.minCoins)}
                         </Text>
                       </Pressable>
                     );
@@ -245,7 +248,7 @@ export function GiftSheet({
                   />
                   {amountText !== "" && !inRange ? (
                     <Text className="px-1 text-sm font-bold text-danger">
-                      {t("gift.amountRange", { min: format(minCoins), max: format(maxCoins) })}
+                      {t("gift.amountRange", { min: exact(minCoins), max: exact(maxCoins) })}
                     </Text>
                   ) : short ? (
                     <Text className="px-1 text-sm font-bold text-danger">{t("gift.short")}</Text>
@@ -294,7 +297,7 @@ export function GiftSheet({
                     {t("gift.back")}
                   </Button>
                   <Button testID="gift-confirm" loading={sending} onPress={() => void send()}>
-                    {t("gift.confirm", { coins: format(coins ?? 0n) })}
+                    {t("gift.confirm", { coins: exact(coins ?? 0n) })}
                   </Button>
                 </>
               ) : short ? (
