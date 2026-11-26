@@ -194,7 +194,8 @@ export function TrendChart({
         `${index === 0 ? "M" : "L"}${x(index).toFixed(2)},${y(point.value).toFixed(2)}`,
     )
     .join(" ");
-  const shown = active ?? count - 1;
+  // A position picked on the previous series (another period) stays inside this one.
+  const shown = Math.min(active ?? count - 1, count - 1);
   const point = points[shown];
 
   return (
@@ -328,7 +329,7 @@ export function ColumnChart({
   const peak = Math.max(0, ...points.map((point) => point.value));
   const top = niceCeiling(peak);
   const empty = peak === 0;
-  const shown = active ?? points.length - 1;
+  const shown = Math.min(active ?? points.length - 1, points.length - 1);
   const point = points[shown];
 
   return (
