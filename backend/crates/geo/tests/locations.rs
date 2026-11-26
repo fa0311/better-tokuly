@@ -392,6 +392,66 @@ async fn a_sample_still_on_its_way_when_sharing_stopped_does_not_resume_it() {
 }
 
 #[tokio::test]
+async fn a_stop_overtaken_by_a_later_fix_does_not_pause_sharing() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let home = somewhere();
+    ctx.at(&aoi, home).await;
+
+    // One phone stops; before its stop reaches the server, another phone of the
+    // account (or the same one, started again) reports a fix taken after it.
+    let stopped_at = next_fix_time(aoi.id);
+    ctx.at(&aoi, offset(home, 0.0, 60.0)).await;
+    let mut rens = ctx.app.listen_user(ren.id).await;
+    let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(stopped_at), ..Default::default() };
+    let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
+
+    assert!(pins(&mut rens, QUIET).await.is_empty(), "friends are not told about a pause");
+    assert!(!ctx.seen_by(&ren, &aoi).await.unwrap().sharing_paused);
+    assert!(ctx.my_location(&aoi).await.sharing);
+    assert!(geoindex::get(&ctx.app.core.cache, aoi.id).await.unwrap().is_some(), "still in the true-position index");
+}
+
+#[tokio::test]
+async fn a_stop_timed_with_the_newest_fix_wins_over_it() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let home = somewhere();
+    let fixed_at = next_fix_time(aoi.id);
+    assert_eq!(ctx.report(&aoi, vec![sample(home, fixed_at)]).await.accepted_count, 1);
+    let mut rens = ctx.app.listen_user(ren.id).await;
+
+    // The fix was recorded at, not after, the stop: it does not keep sharing on.
+    let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(fixed_at), ..Default::default() };
+    let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
+    assert!(next_pin(&mut rens).await.unwrap().sharing_paused);
+    assert!(!ctx.my_location(&aoi).await.sharing);
+}
+
+#[tokio::test]
+async fn a_stop_without_a_time_pauses_even_a_clock_running_ahead() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let home = somewhere();
+    // The phone's clock is a minute ahead of the server's.
+    let ahead = Utc::now() + Duration::minutes(1);
+    assert_eq!(ctx.report(&aoi, vec![sample(home, ahead)]).await.accepted_count, 1);
+    let mut rens = ctx.app.listen_user(ren.id).await;
+
+    let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &StopSharingRequest::default()).await.unwrap();
+    assert!(next_pin(&mut rens).await.unwrap().sharing_paused, "a stop the server cannot order still stops");
+    assert!(!ctx.my_location(&aoi).await.sharing);
+
+    // The phone's next fix resumes it.
+    let next = sample(home, ahead + Duration::seconds(5));
+    assert_eq!(ctx.report(&aoi, vec![next]).await.accepted_count, 1);
+    assert!(!next_pin(&mut rens).await.unwrap().sharing_paused);
+}
+
+#[tokio::test]
 async fn privacy_settings_withhold_battery_activity_and_the_online_halo() {
     let ctx = start().await;
     let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);

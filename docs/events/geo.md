@@ -26,7 +26,9 @@ newest one already processed are skipped. So are samples recorded at or
 before the latest `StopSharing` (`stopped_at`, the device's own clock; the
 server's receive time when missing): an upload still on its way when the
 device stopped is dropped instead of turning sharing back on, and the first
-fix taken after the stop resumes it. Fixes worse than 100 m move the pin
+fix taken after the stop resumes it. A stop timed before the newest fix
+already processed (another device, a quick stop and start) pauses nothing;
+one without `stopped_at` always pauses. Fixes worse than 100 m move the pin
 only when no good fix arrived in the last three minutes and never feed stays,
 distance or footprints. Mock locations move the pin but leave no footprints.
 A user who switched off `record_history` still shares live (pin, time on the
