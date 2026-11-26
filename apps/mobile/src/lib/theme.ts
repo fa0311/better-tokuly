@@ -1,4 +1,5 @@
 import { vars } from "nativewind";
+import { createContext, useContext } from "react";
 import { useColorScheme } from "react-native";
 
 /**
@@ -74,10 +75,19 @@ const THEMES = {
 
 export type Theme = (typeof THEMES)["light"];
 
-/** The theme of the device's appearance setting. */
+/** Set by a part of the screen that is dark whatever the device says (`components/stage.tsx`). */
+export const StageTheme = createContext<Theme | null>(null);
+export const DARK_THEME: Theme = THEMES.dark;
+
+/** The theme of the device's appearance setting (or of the dark stage around the component). */
 export function useTheme(): Theme {
-  return useColorScheme() === "dark" ? THEMES.dark : THEMES.light;
+  const stage = useContext(StageTheme);
+  const device = useColorScheme() === "dark" ? THEMES.dark : THEMES.light;
+  return stage ?? device;
 }
+
+/** Ink on the bright fills (lime, sky, sun, mint) in both themes, as on the web. */
+export const INK_ON_BRIGHT = LIGHT.ink;
 
 /** "sticker": ink outline + hard shadow, for standalone objects (the web's `.sticker`). */
 export function sticker(colors: Colors, size: "sm" | "md" = "md") {

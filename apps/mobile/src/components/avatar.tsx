@@ -57,17 +57,15 @@ export function Avatar({ user, size = "md", outlined, online }: AvatarProps) {
   return (
     <View style={{ width: pixels, height: pixels }}>
       <View
-        className={url ? "" : user?.deleted ? "bg-surface-3" : tint.bg}
+        className={`items-center justify-center overflow-hidden ${
+          url ? "bg-surface-2" : user?.deleted ? "bg-surface-3" : tint.bg
+        }`}
         style={[
-          {
-            width: pixels,
-            height: pixels,
-            borderRadius: radius,
-            overflow: "hidden",
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: url ? user?.avatar?.dominantColor || colors["surface-2"] : undefined,
-          },
+          { width: pixels, height: pixels, borderRadius: radius },
+          // Only when there is one: an `undefined` here would still replace the class's colour.
+          url && user?.avatar?.dominantColor
+            ? { backgroundColor: user.avatar.dominantColor }
+            : null,
           outlined ? sticker(colors, "sm") : null,
         ]}
       >
@@ -84,7 +82,7 @@ export function Avatar({ user, size = "md", outlined, online }: AvatarProps) {
       </View>
       {online && (
         <View
-          className="absolute -right-0.5 -bottom-0.5 rounded-full border-2 border-surface bg-mint"
+          className="absolute -right-0.5 -bottom-0.5 rounded-full border-2 border-surface bg-success"
           style={{ width: Math.max(10, pixels * 0.28), height: Math.max(10, pixels * 0.28) }}
         />
       )}
