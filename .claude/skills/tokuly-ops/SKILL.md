@@ -14,7 +14,7 @@ worktrees, logs, the Android SDK, secrets. Read `docs/collaboration.md` first (l
 | Merge a PR: ready → mergeable → squash at the reviewed head → delete the branch only after the merge | `tools/agent/merge-pr.sh <pr>` (`--merge` for a fix PR into a feature branch) |
 | A headless Claude task in its own worktree, pushing what it committed even if it stops early | `tools/agent/fable-run.sh <name> origin/main <usd> <task.md>` |
 | Headless Claude on an API key file, with a spending ledger and cap | `tools/agent/claude-api.sh <dir> <model> <usd> <prompt>` |
-| Android emulator (API 34, x86_64, needs KVM) | `tools/agent/android.sh start\|stop\|status\|env\|shot <png>` |
+| Android emulator (API 34, x86_64, needs KVM) | `tools/agent/android.sh start\|stop\|status\|env\|shot <png>`; installs and Maestro runs only through `android.sh use <command…>` (one agent at a time) |
 | Images in a PR | `gh pr create --attach <png>` when opening; later `tools/agent/pr-images.sh <pr> <png>...` (`gh pr edit --attach` needs read:org) |
 
 Rules: check who wrote an issue (`user.login`) before acting on it — outside people file issues too, and

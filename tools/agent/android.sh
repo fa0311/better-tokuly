@@ -2,6 +2,8 @@
 # The local Android emulator (needs /dev/kvm; the container has it since 2026-11-26).
 # Same device as CI: API 34, google_apis, x86_64, Pixel 6, headless, software GPU.
 #   android.sh start | stop | status | env | locale <ja-JP|en-US> | shot <file.png>
+#   android.sh use <command…>   run a command (an APK install, a Maestro run) holding the emulator alone;
+#                               others wait for it. Every install and Maestro run goes through `use`.
 # `eval "$(android.sh env)"` puts adb, emulator and maestro on PATH.
 # Everything lives in the home volume (~/tokuly-dev/android, ~/.maestro), so it survives a
 # container recreate; only one emulator runs at a time (port 5554), shared by everyone.
@@ -39,7 +41,12 @@ case "${1:-status}" in
     sleep 20; adb wait-for-device
     for _ in $(seq 1 60); do [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ] && break; sleep 3; done
     echo "locale $(adb shell getprop persist.sys.locale | tr -d '\r')" ;;
+  use)
+    shift; [ $# -gt 0 ] || { echo "usage: android.sh use <command…>" >&2; exit 2; }
+    exec 9>"${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/run/emulator.lock"
+    flock -n 9 || { echo "emulator in use by another agent; waiting…" >&2; flock 9; }
+    "$@" ;;
   shot)
     adb exec-out screencap -p >"${2:?file.png}"; echo "${2}" ;;
-  *) echo "usage: android.sh start|stop|status|env|locale <tag>|shot <file>" >&2; exit 2 ;;
+  *) echo "usage: android.sh start|stop|status|env|locale <tag>|shot <file>|use <command…>" >&2; exit 2 ;;
 esac
