@@ -1,7 +1,8 @@
 # Builds the Docker images for amd64 and arm64, each on a machine of that
 # architecture, brings the whole Compose stack up the way a self-hoster would
 # and checks it end to end (tools/ci/smoke.sh): sign-up, mail, an upload
-# through object storage and the worker, map tiles, realtime.
+# through object storage and the worker, map tiles, realtime, and a backup
+# brought back into an empty stack (tools/ci/backup-roundtrip.sh).
 #
 # When a caller asks for tags, the images that passed are published to the
 # GitHub Container Registry under those tags for both architectures.
@@ -74,6 +75,11 @@ jobs:
         run: |
           docker compose down
           tools/ci/stack-up.sh
+          tools/ci/smoke.sh http://localhost
+
+      - name: Data survives a backup and a restore
+        run: |
+          tools/ci/backup-roundtrip.sh --destroy-this-stack http://localhost
           tools/ci/smoke.sh http://localhost
 
       - name: Diagnostics

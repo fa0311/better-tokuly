@@ -27,6 +27,9 @@ on:
       - tools/init-env.sh
       - tools/ci/smoke.sh
       - tools/ci/stack-up.sh
+      - tools/ci/backup-roundtrip.sh
+      - tools/backup.sh
+      - tools/restore.sh
       - .github/workflows/stack.yml
       - .github/workflows/images.yml
 
