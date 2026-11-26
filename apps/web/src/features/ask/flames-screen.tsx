@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ask, toMillis } from "@tokuly/api";
+import { askKeys } from "@tokuly/core/ask";
 import { Lightbulb, MoreHorizontal, ShieldBan } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -19,7 +20,6 @@ import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
 import { useMe } from "#/stores/session";
 import {
-  askKeys,
   boxClient,
   complimentClient,
   rememberFlame,

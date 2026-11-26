@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ask, toMillis } from "@tokuly/api";
+import { askKeys } from "@tokuly/core/ask";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { compactAge } from "#/lib/format";
-import { askKeys, boxClient, useAskedQuestions } from "./api";
+import { boxClient, useAskedQuestions } from "./api";
 import { Picture, toastError } from "./parts";
 
 /** The asker's side: every question they sent, waiting or answered. */

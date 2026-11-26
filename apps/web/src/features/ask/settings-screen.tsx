@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ask, type MessageInitShape, toMillis } from "@tokuly/api";
+import { askKeys, charCount } from "@tokuly/core/ask";
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,14 +13,8 @@ import { Page, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { compactAge } from "#/lib/format";
-import { askKeys, boxClient, useSenderBlocks, useSettings } from "./api";
-import {
-  BOX_PROMPT_MAX,
-  charCount,
-  MUTED_WORD_MAX,
-  MUTED_WORDS_MAX,
-  parseMutedWords,
-} from "./model";
+import { boxClient, useSenderBlocks, useSettings } from "./api";
+import { BOX_PROMPT_MAX, MUTED_WORD_MAX, MUTED_WORDS_MAX, parseMutedWords } from "./model";
 import { Counter, SectionTitle, toastError } from "./parts";
 
 type SettingsChange = MessageInitShape<typeof ask.UpdateSettingsRequestSchema>;

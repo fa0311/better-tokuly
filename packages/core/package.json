@@ -10,6 +10,7 @@
     "./errors": "./src/errors/index.ts",
     "./engagement": "./src/engagement/index.ts",
     "./query": "./src/query/index.ts",
+    "./ask": "./src/ask/index.ts",
     "./chat": "./src/chat/index.ts",
     "./community": "./src/community/index.ts",
     "./friends": "./src/friends/index.ts",

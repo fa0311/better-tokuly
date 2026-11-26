@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ask, type common } from "@tokuly/api";
+import { ANSWER_MAX, charCount, dropFromInbox, refreshAnswers } from "@tokuly/core/ask";
 import { Globe, Lock, Smile, Users, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,8 +9,7 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { imageUrl } from "#/features/notes";
 import { StampImage, StampPicker } from "#/features/stamps";
-import { boxClient, dropFromInbox, refreshAnswers } from "./api";
-import { ANSWER_MAX, charCount } from "./model";
+import { boxClient } from "./api";
 import {
   Counter,
   ImageAttachmentField,

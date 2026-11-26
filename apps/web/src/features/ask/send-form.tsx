@@ -1,13 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ask } from "@tokuly/api";
+import { askKeys, charCount, QUESTION_MAX } from "@tokuly/core/ask";
 import { Send } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { useBurst } from "#/features/engagement";
-import { askKeys, boxClient } from "./api";
-import { charCount, QUESTION_MAX } from "./model";
+import { boxClient } from "./api";
 import { Counter, ImageAttachmentField, Segmented, toastError, useImageAttachment } from "./parts";
 
 export interface SendFormProps {

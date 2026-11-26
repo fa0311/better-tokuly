@@ -1,52 +1,12 @@
-import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { type ask, toMillis } from "@tokuly/api";
+import { toMillis } from "@tokuly/api";
+import { applyAskEvent, askKeys } from "@tokuly/core/ask";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
-import { addToInbox, askKeys, rememberCounts } from "./api";
 import { forgetPendingAsk, offerDraft, takePendingAsk } from "./guest-return";
 import { noteServerTime } from "./server-clock";
-
-/**
- * Applies a realtime `AskEvent` to what the app holds. Nothing is announced
- * here: each of these also arrives as a notification, which has its toast.
- */
-export function applyAskEvent(queryClient: QueryClient, event: ask.AskEvent["event"]): void {
-  switch (event.case) {
-    case "questionReceived": {
-      rememberCounts(queryClient, event.value.counts);
-      if (event.value.question) addToInbox(queryClient, event.value.question);
-      break;
-    }
-    case "questionAnswered": {
-      const question = event.value.question;
-      if (question) queryClient.setQueryData(askKeys.question(question.id), question);
-      void queryClient.invalidateQueries({ queryKey: askKeys.asked });
-      break;
-    }
-    case "flameReceived": {
-      const unseen = event.value.unseen;
-      queryClient.setQueryData<ask.FlameSummary>(askKeys.flameSummary, (known) =>
-        known ? { ...known, unseen } : known,
-      );
-      void queryClient.invalidateQueries({ queryKey: askKeys.flameSummary });
-      void queryClient.invalidateQueries({ queryKey: askKeys.flames });
-      void queryClient.invalidateQueries({ queryKey: askKeys.topFlames });
-      break;
-    }
-    case "promptResponseReceived": {
-      const promptId = event.value.prompt?.id ?? event.value.response?.promptId;
-      if (!promptId) break;
-      void queryClient.invalidateQueries({ queryKey: askKeys.prompt(promptId) });
-      void queryClient.invalidateQueries({ queryKey: askKeys.responsesAll(promptId) });
-      void queryClient.invalidateQueries({ queryKey: askKeys.promptsAll });
-      break;
-    }
-    default:
-      break;
-  }
-}
 
 /**
  * The question box, for as long as someone is signed in: new questions,

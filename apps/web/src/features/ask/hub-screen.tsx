@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ask } from "@tokuly/api";
+import { askKeys } from "@tokuly/core/ask";
 import { Flame, Inbox, MessagesSquare, Send, Settings, Share2, Sparkles, Vote } from "lucide-react";
 import { type ComponentType, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,6 @@ import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import {
-  askKeys,
   boxClient,
   useBox,
   useFlameSummary,

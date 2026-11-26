@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ask, type common, media } from "@tokuly/api";
+import { charCount } from "@tokuly/core/ask";
 import { ImagePlus, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,7 +13,6 @@ import { StampImage } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
-import { charCount } from "./model";
 
 /** Shows API failures in this feature's own words. */
 export const askError = (error: unknown): string => errorMessage(error, { namespace: "ask" });

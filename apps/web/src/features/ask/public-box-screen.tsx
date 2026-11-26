@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate } from "@tanstack/react-router";
+import { PAGE_SIZE, QUESTION_MAX } from "@tokuly/core/ask";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
@@ -8,10 +9,9 @@ import { LoadMore } from "#/components/ui/load-more";
 import { Logo } from "#/components/ui/logo";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { useSessionStatus } from "#/stores/session";
-import { boxClient, PAGE_SIZE } from "./api";
+import { boxClient } from "./api";
 import { BoxHeader } from "./box-screen";
 import { rememberPendingAsk } from "./guest-return";
-import { QUESTION_MAX } from "./model";
 import { Counter, SectionTitle } from "./parts";
 import { QaCard } from "./qa-card";
 
