@@ -19,7 +19,7 @@ describe("the seam registries", () => {
   it("find the features by their files", () => {
     expect(areasOf("lifecycle")).toEqual(["live", "map", "media", "notifications", "video", "web"]);
     expect(areasOf("tabs")).toEqual(["chat", "map", "notes", "notifications", "profile", "shorts"]);
-    expect(areasOf("hub")).toEqual(["friends", "live", "settings", "video", "web"]);
+    expect(areasOf("hub")).toEqual(["friends", "live", "search", "settings", "video", "web"]);
     expect(areasOf("profile")).toEqual(["notes"]);
   });
 
