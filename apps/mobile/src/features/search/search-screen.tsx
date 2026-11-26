@@ -227,16 +227,19 @@ function Idle({ onSearch }: { onSearch(query: string): void }) {
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="pb-12">
       <Heading title={paused ? `${t("recent.title")} · ${t("recent.paused")}` : t("recent.title")}>
         <View className="flex-row gap-3">
-          <Pressable
-            testID="search-history-pause"
-            accessibilityRole="button"
-            hitSlop={6}
-            onPress={() => history.setPaused(!paused)}
-          >
-            <Text className="text-xs font-black text-brand-strong">
-              {paused ? t("recent.resume") : t("recent.pause")}
-            </Text>
-          </Pressable>
+          {/* Until the history is known, so is not whether it is paused. */}
+          {recent.data && (
+            <Pressable
+              testID="search-history-pause"
+              accessibilityRole="button"
+              hitSlop={6}
+              onPress={() => history.setPaused(!paused)}
+            >
+              <Text className="text-xs font-black text-brand-strong">
+                {paused ? t("recent.resume") : t("recent.pause")}
+              </Text>
+            </Pressable>
+          )}
           {searches.length > 0 && (
             <Pressable
               testID="search-history-clear"
