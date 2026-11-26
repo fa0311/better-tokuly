@@ -156,26 +156,28 @@ export function removeParkedAccount(sessionId: string): Promise<void> {
  * that may be on its way: the account it ends is the one in use when it was
  * asked. When a switch went through meanwhile, that account is parked by
  * then; it leaves the device all the same and the new one stays signed in.
+ * Asked while nobody is signed in (an account is still being adopted), it
+ * ends nobody: whoever comes next did not ask.
  */
 export async function signOut(allSessions = false): Promise<{ everywherePending: boolean }> {
   const sessionId = activeSessionId();
+  if (!sessionId) return { everywherePending: false };
   await withParkedTokens(async () => {
-    if (sessionId && activeSessionId() !== sessionId) await departParked(sessionId, allSessions);
-    else await signOutActive(allSessions);
+    if (activeSessionId() === sessionId) await signOutActive(sessionId, allSessions);
+    else await departParked(sessionId, allSessions);
   });
   await settleDeparted();
-  const pending = sessionId ? (await departedTokens())[sessionId] : undefined;
+  const pending = (await departedTokens())[sessionId];
   return { everywherePending: Boolean(allSessions && pending) };
 }
 
 /** The account in use leaves and the app starts over signed out. Runs in the queue of the device's tokens. */
-async function signOutActive(allSessions: boolean): Promise<void> {
+async function signOutActive(sessionId: string, allSessions: boolean): Promise<void> {
   await leave();
   // The token set aside is the one the session ended up with (a refresh on its way lands first).
   await settleApi(async () => {
-    const sessionId = activeSessionId();
     const token = await activeTokenStore.get();
-    if (sessionId && token) await addDeparted(sessionId, { token, allSessions });
+    if (token) await addDeparted(sessionId, { token, allSessions });
   });
   // Set aside, the account has left: the app is signed out even when the phone refuses to
   // empty the active store (the next start does not resume what is left there).
