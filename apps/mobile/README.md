@@ -135,8 +135,9 @@ its tests) and the web switches to it.
   inbox entries and deep links to web-only paths open there too
   (`features/notifications/target.ts`). Signing the web view in is the
   identity domain's hand-off: the app asks for a one-time code as its own
-  session (`CreateWebHandoff`, 60 seconds, once) and loads
-  `/api/auth/handoff?code=…`, which sets the web session's cookie and goes on
+  session (`CreateWebHandoff`, 60 seconds, once, bound to a verifier the
+  web view's first load sends in a header, so a leaked link signs nobody in)
+  and loads `/api/auth/handoff?code=…`, which sets the web session's cookie and goes on
   to the page; the app's tokens never reach the web view, and the web
   session ends with the app's. A code that comes back after another account
   took over is dropped. The web view is incognito and keyed by its account's

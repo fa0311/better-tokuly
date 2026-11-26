@@ -9,7 +9,7 @@ import { AccountChanged, currentAccount } from "#/features/media/account";
 import { useSessionStore } from "#/features/session/session";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
-import { requestWebSession, staysInApp, type WebSession } from "./handoff";
+import { requestWebSession, staysInApp, VERIFIER_HEADER, type WebSession } from "./handoff";
 
 /**
  * The web view without extra props. Its default (`P = undefined`) makes the
@@ -115,7 +115,12 @@ export function WebScreen({ path }: { path: string }) {
         key={opening.session.sessionId}
         ref={web}
         testID="web-view"
-        source={{ uri: opening.session.url }}
+        // The verifier goes with the first load only (react-native-webview
+        // sends `headers` on the initial request, not on the redirect or later pages).
+        source={{
+          uri: opening.session.url,
+          headers: { [VERIFIER_HEADER]: opening.session.verifier },
+        }}
         incognito
         sharedCookiesEnabled={false}
         thirdPartyCookiesEnabled={false}

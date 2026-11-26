@@ -4,14 +4,28 @@
 //! view. It must not hand the web its own tokens, and nothing that signs in
 //! may travel in a URL for longer than a moment. So:
 //!
-//! 1. `CreateWebHandoff` (the app's session) makes a code: 256 random bits,
-//!    kept in Valkey only as its keyed hash, for 60 seconds, bound to that
-//!    session and to a path of the web app checked here.
-//! 2. The web view loads `GET <api prefix>/auth/handoff?code=…`. The first
+//! 1. The app makes a random verifier and sends its SHA-256 with
+//!    `CreateWebHandoff` (as its session), which makes a code: 256 random
+//!    bits, kept in Valkey only as its keyed hash, for 60 seconds, bound to
+//!    that session, to a path of the web app checked here and to the
+//!    verifier's hash.
+//! 2. The web view loads `GET <api prefix>/auth/handoff?code=…` with the
+//!    verifier in the [`VERIFIER_HEADER`] of that first request. That
 //!    request takes the code (GETDEL: once, whoever comes second finds
-//!    nothing), makes a **new** web session of the same account linked to
-//!    the app's session (`sessions.linked_to`), sets the refresh cookie as
-//!    a sign-in on the web would and redirects to the path.
+//!    nothing), and only when the verifier matches makes a **new** web
+//!    session of the same account linked to the app's session
+//!    (`sessions.linked_to`), sets the refresh cookie as a sign-in on the
+//!    web would and redirects to the path.
+//!
+//! The verifier is what makes a code useless to anyone but the app that
+//! asked for it, the way PKCE binds an OAuth code. A code is a link: whoever
+//! gets one (sent by its owner, leaked from a log or a screenshot) could
+//! otherwise sign a victim's browser in as the code's account — login CSRF,
+//! and the web map would then share the victim's location with that account,
+//! their posts and messages would go out as it. A browser following a link
+//! sends no such header, and no page can make it send one on a navigation,
+//! so a load without the verifier signs nobody in (and leaves the code to
+//! the app); a wrong one spends the code.
 //!
 //! The web session is the app session's: whatever ends the app's session
 //! (signing out, removing the account from the device, "sign out
@@ -30,7 +44,7 @@ use std::time::Duration;
 use axum::{
     Extension, Router,
     extract::{RawQuery, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -49,7 +63,6 @@ use tokuly_proto::{
 
 use crate::{
     Identity,
-    device_accounts::DeviceTokens,
     sessions::SessionOrigin,
     users,
 };
@@ -60,6 +73,8 @@ const CODE_TTL: Duration = Duration::from_secs(60);
 pub const HANDOFF_ROUTE: &str = "/auth/handoff";
 /// Codes one account may make per ten minutes: one per web screen opened.
 const CODES_PER_ACCOUNT: u32 = 60;
+/// The request header the app's web view sends the verifier in.
+pub const VERIFIER_HEADER: &str = "x-tokuly-handoff-verifier";
 /// Redemptions one address may try per minute.
 const REDEEMS_PER_ADDRESS: u32 = 60;
 /// Where a code that does not work leads: the web's own sign-in.
@@ -127,6 +142,8 @@ struct PendingHandoff {
     path: String,
     /// The keyed hash again, compared in constant time after the lookup.
     check: String,
+    /// SHA-256 (hex) of the app's verifier.
+    verifier_hash: String,
 }
 
 fn pending_key(hash: &str) -> String {
@@ -203,17 +220,25 @@ fn plausible_code(code: &str) -> bool {
     (16..=128).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
 }
 
+/// A verifier hash as `CreateWebHandoff` takes it: SHA-256, lowercase hex.
+fn valid_verifier_hash(hash: &str) -> bool {
+    hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// A verifier as RFC 7636 has it: 32 to 128 unreserved characters (ours are
+/// longer than PKCE's 43 minimum need be: 256 random bits in base64url or hex).
+fn plausible_verifier(verifier: &str) -> bool {
+    (32..=128).contains(&verifier.len())
+        && verifier.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~'))
+}
+
 /// What a redemption came to.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Redeemed {
     /// Signed in: the cookie to set and where to go.
     SignedIn { cookie: String, path: String },
-    /// The browser is already signed in as someone else: it stays that way
-    /// (a link made by another account must not sign it over), and goes to
-    /// the path as that account.
-    KeptOther { path: String },
-    /// The code is unknown, used, expired, or its session or account is
-    /// gone.
+    /// No verifier, a wrong one, or the code is unknown, used, expired, or
+    /// its session or account is gone.
     Refused,
 }
 
@@ -227,6 +252,12 @@ impl Identity {
             let auth = ctx.auth()?;
             // The access table already keeps tokens away; a hand-off is a session's alone.
             ensure!(auth.api_token.is_none(), denied, "SESSION_REQUIRED", "only a signed-in app can open the web");
+            ensure!(
+                valid_verifier_hash(request.verifier_hash),
+                invalid,
+                "INVALID_VERIFIER",
+                "verifier_hash must be the SHA-256 of a verifier, in lowercase hex"
+            );
             let Some(path) = web_path(request.path) else {
                 bail!(invalid, "INVALID_PATH", "not a path of the web app");
             };
@@ -248,8 +279,13 @@ impl Identity {
 
             let code = random_token(32);
             let hash = self.core.keys.token_hash(&code);
-            let pending =
-                PendingHandoff { session_id: auth.session_id, user_id: auth.user_id, path, check: hash.clone() };
+            let pending = PendingHandoff {
+                session_id: auth.session_id,
+                user_id: auth.user_id,
+                path,
+                check: hash.clone(),
+                verifier_hash: request.verifier_hash.to_owned(),
+            };
             self.core.cache.set_json(&pending_key(&hash), &pending, Some(CODE_TTL)).await?;
             let url = format!("{}{HANDOFF_ROUTE}?code={code}", self.core.cfg.api_path_prefix());
             let expires_at = Utc::now() + chrono::Duration::from_std(CODE_TTL).unwrap_or_default();
@@ -258,12 +294,22 @@ impl Identity {
         .await
     }
 
-    /// Redeems a code once: see the module documentation.
-    pub(crate) async fn redeem_web_handoff(&self, code: &str, meta: &ClientMeta) -> AppResult<Redeemed> {
+    /// Redeems a code once, given the app's verifier: see the module documentation.
+    pub(crate) async fn redeem_web_handoff(
+        &self,
+        code: &str,
+        verifier: Option<&str>,
+        meta: &ClientMeta,
+    ) -> AppResult<Redeemed> {
         let core = &self.core;
         core.cache
             .rate_limit(&format!("handoff:ip:{}", meta.ip), REDEEMS_PER_ADDRESS, Duration::from_secs(60))
             .await?;
+        // Not the app's web view (a link, a preview, a prefetch): nothing
+        // happens, and the code stays for the app.
+        let Some(verifier) = verifier.filter(|v| plausible_verifier(v)) else {
+            return Ok(Redeemed::Refused);
+        };
         if !plausible_code(code) {
             return Ok(Redeemed::Refused);
         }
@@ -274,6 +320,11 @@ impl Identity {
         if !secure_eq(pending.check.as_bytes(), hash.as_bytes()) {
             return Ok(Redeemed::Refused);
         }
+        // Taken by whoever knew the code; it works only for the one who also knows the verifier.
+        let presented = tokuly_core::keys::sha256_hex(verifier.as_bytes());
+        if !secure_eq(pending.verifier_hash.as_bytes(), presented.as_bytes()) {
+            return Ok(Redeemed::Refused);
+        }
         // Still the app's active account, and an account that may sign in.
         if !self.app_session_in_use(pending.session_id).await? {
             return Ok(Redeemed::Refused);
@@ -282,13 +333,6 @@ impl Identity {
             Ok(user) if user.is_active() => user,
             _ => return Ok(Redeemed::Refused),
         };
-        // A browser that is signed in already keeps its account.
-        if let Some(active) = DeviceTokens::from_cookies(meta).active
-            && let Some(session) = self.live_sessions(&[active]).await?.into_iter().next()
-            && session.user_id != user.id
-        {
-            return Ok(Redeemed::KeptOther { path: pending.path });
-        }
 
         // One web session per app session: the one before goes.
         let previous: Vec<Uuid> = sqlx::query_scalar(
@@ -326,10 +370,12 @@ impl Identity {
     }
 }
 
-/// `GET /auth/handoff?code=…`: a redirect, with the cookie when it worked.
+/// `GET /auth/handoff?code=…` (and the verifier in its header): a redirect,
+/// with the cookie when it worked.
 async fn redeem(
     State(identity): State<Identity>,
     client: Option<Extension<ClientMeta>>,
+    headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> Response {
     let meta = client.map(|Extension(meta)| meta).unwrap_or_default();
@@ -337,13 +383,13 @@ async fn redeem(
         .find(|(key, _)| key == "code")
         .map(|(_, value)| value.into_owned())
         .unwrap_or_default();
-    match identity.redeem_web_handoff(&code, &meta).await {
+    let verifier = headers.get(VERIFIER_HEADER).and_then(|v| v.to_str().ok());
+    match identity.redeem_web_handoff(&code, verifier, &meta).await {
         Ok(Redeemed::SignedIn { cookie, path }) => {
             let secure = if identity.core.cfg.public_url.starts_with("https://") { "; Secure" } else { "" };
             let hint = format!("{SESSION_HINT_COOKIE}=1; Path=/; Max-Age=120; SameSite=Lax{secure}");
             redirect(&path, &[&cookie, &hint])
         }
-        Ok(Redeemed::KeptOther { path }) => redirect(&path, &[]),
         Ok(Redeemed::Refused) => redirect(SIGN_IN_PATH, &[]),
         Err(error) if error.reason == "RATE_LIMITED" => {
             no_store((StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response())

@@ -11,17 +11,48 @@ use tokuly_proto::identity::*;
 use tokuly_testkit::TestUser;
 
 const CREATE: &str = "tokuly.identity.v1.AuthService/CreateWebHandoff";
+const VERIFIER_HEADER: &str = "x-tokuly-handoff-verifier";
 
-/// A code for `path`, as the app of `user`: the route the web view loads,
-/// below the API's prefix (the edge strips it).
-async fn handoff(ext: &Ext, user: &TestUser, path: &str) -> String {
-    let made: CreateWebHandoffResponse = ext
-        .app
-        .call(CREATE, Some(user), &CreateWebHandoffRequest { path: path.into(), ..Default::default() })
-        .await
-        .unwrap();
+/// What the app holds after asking for a code: the route its web view loads
+/// (below the API's prefix, which the edge strips) and the verifier only it knows.
+struct Handoff {
+    route: String,
+    verifier: String,
+}
+
+impl std::ops::Deref for Handoff {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.route
+    }
+}
+
+/// A request for `path` bound to a fresh verifier.
+fn request(path: &str) -> (CreateWebHandoffRequest, String) {
+    let verifier = tokuly_core::keys::random_token(32);
+    let verifier_hash = tokuly_core::keys::sha256_hex(verifier.as_bytes());
+    (CreateWebHandoffRequest { path: path.into(), verifier_hash, ..Default::default() }, verifier)
+}
+
+/// A code for `path`, as the app of `user`.
+async fn handoff(ext: &Ext, user: &TestUser, path: &str) -> Handoff {
+    let (request, verifier) = request(path);
+    let made: CreateWebHandoffResponse = ext.app.call(CREATE, Some(user), &request).await.unwrap();
     let prefix = ext.app.core.cfg.api_path_prefix();
-    made.url.strip_prefix(prefix).expect("the URL is below the API prefix").to_owned()
+    let route = made.url.strip_prefix(prefix).expect("the URL is below the API prefix").to_owned();
+    Handoff { route, verifier }
+}
+
+/// The app's web view loading a hand-off: its first load carries the verifier.
+trait WebView {
+    async fn open(&mut self, handoff: &Handoff) -> (u16, Option<String>, Vec<String>);
+}
+
+impl WebView for Browser {
+    async fn open(&mut self, handoff: &Handoff) -> (u16, Option<String>, Vec<String>) {
+        self.get_with(&handoff.route, &[(VERIFIER_HEADER, &handoff.verifier)]).await
+    }
 }
 
 fn code_of(route: &str) -> &str {
@@ -53,12 +84,12 @@ async fn a_code_signs_the_web_view_in_once() {
     let ext = start(IdentityConfig::default()).await;
     let app_user = ext.app.user("handoff").await;
     let route = handoff(&ext, &app_user, "/settings").await;
-    assert!(route.starts_with("/auth/handoff?code="), "{route}");
+    assert!(route.starts_with("/auth/handoff?code="), "{}", route.route);
     // 256 random bits, base64url.
     assert!(code_of(&route).len() >= 43);
 
     let mut web_view = Browser::new(&ext);
-    let (status, location, cookies) = web_view.get(&route).await;
+    let (status, location, cookies) = web_view.open(&route).await;
     assert_eq!(status, 303);
     assert_eq!(location.as_deref(), Some("/settings"));
     let cookie = cookies.iter().find(|c| c.starts_with("tokuly_rt=")).expect("the refresh cookie");
@@ -92,7 +123,7 @@ async fn a_code_signs_the_web_view_in_once() {
 
     // Used: a second load signs nobody in.
     let mut again = Browser::new(&ext);
-    let (status, location, cookies) = again.get(&route).await;
+    let (status, location, cookies) = again.open(&route).await;
     assert_eq!((status, location.as_deref()), (303, Some("/login")));
     assert!(cookies.is_empty(), "{cookies:?}");
 }
@@ -121,7 +152,7 @@ async fn unknown_expired_and_malformed_codes_sign_nobody_in() {
     // ...and then it is gone.
     let _: () = redis::cmd("PEXPIRE").arg(&key).arg(1).query_async(&mut ext.app.core.cache.conn()).await.unwrap();
     tokio::time::sleep(Duration::from_millis(20)).await;
-    let (status, location, cookies) = web_view.get(&route).await;
+    let (status, location, cookies) = web_view.open(&route).await;
     assert_eq!((status, location.as_deref()), (303, Some("/login")));
     assert!(cookies.is_empty());
     assert!(live_web_sessions(&ext, app_user.session_id).await.is_empty());
@@ -133,7 +164,7 @@ async fn two_loads_of_one_code_at_once_sign_in_one() {
     let app_user = ext.app.user("race").await;
     let route = handoff(&ext, &app_user, "/").await;
     let (mut first, mut second) = (Browser::new(&ext), Browser::new(&ext));
-    let (a, b) = tokio::join!(first.get(&route), second.get(&route));
+    let (a, b) = tokio::join!(first.open(&route), second.open(&route));
     let signed_in = [&a, &b].iter().filter(|(_, _, cookies)| !cookies.is_empty()).count();
     assert_eq!(signed_in, 1, "{a:?} {b:?}");
     let locations: Vec<_> = [a.1, b.1].into_iter().flatten().collect();
@@ -163,7 +194,7 @@ async fn only_paths_of_the_web_app_are_accepted() {
             .call::<_, CreateWebHandoffResponse>(
                 CREATE,
                 Some(&app_user),
-                &CreateWebHandoffRequest { path: evil.into(), ..Default::default() },
+                &request(evil).0,
             )
             .await
             .unwrap_err();
@@ -171,7 +202,7 @@ async fn only_paths_of_the_web_app_are_accepted() {
     }
     // Normalised as a browser would: the redirect is what was checked.
     let route = handoff(&ext, &app_user, "/settings/../notes?tab=home").await;
-    let (_, location, _) = Browser::new(&ext).get(&route).await;
+    let (_, location, _) = Browser::new(&ext).open(&route).await;
     assert_eq!(location.as_deref(), Some("/notes?tab=home"));
 
     let err = ext
@@ -187,7 +218,7 @@ async fn ending_the_app_session_ends_the_web_one() {
     let ext = start(IdentityConfig::default()).await;
     let app_user = ext.app.user("revoke").await;
     let mut web_view = Browser::new(&ext);
-    web_view.get(&handoff(&ext, &app_user, "/settings").await).await;
+    web_view.open(&handoff(&ext, &app_user, "/settings").await).await;
     let web_token = web_refresh(&mut web_view).await.unwrap();
     assert_eq!(get_me_status(&mut web_view, &web_token).await.0, 200);
 
@@ -201,7 +232,7 @@ async fn ending_the_app_session_ends_the_web_one() {
     // "Sign out everywhere" from another device ends it too.
     let other_app = ext.app.sign_in(app_user.id).await;
     let mut web_view = Browser::new(&ext);
-    web_view.get(&handoff(&ext, &other_app, "/notes").await).await;
+    web_view.open(&handoff(&ext, &other_app, "/notes").await).await;
     let web_token = web_refresh(&mut web_view).await.unwrap();
     let elsewhere = ext.app.sign_in(app_user.id).await;
     let _: SignOutResponse = ext
@@ -219,7 +250,7 @@ async fn ending_the_app_session_ends_the_web_one() {
     // A ban ends it (the identity.user.banned consumer).
     let banned_app = ext.app.sign_in(app_user.id).await;
     let mut web_view = Browser::new(&ext);
-    web_view.get(&handoff(&ext, &banned_app, "/").await).await;
+    web_view.open(&handoff(&ext, &banned_app, "/").await).await;
     let web_token = web_refresh(&mut web_view).await.unwrap();
     let banned_at: chrono::DateTime<chrono::Utc> =
         sqlx::query_scalar("UPDATE users SET banned_at = now() WHERE id = $1 RETURNING banned_at")
@@ -237,7 +268,7 @@ async fn the_web_session_lives_while_its_app_account_is_the_active_one() {
     let ext = start(IdentityConfig::default()).await;
     let app_user = ext.app.user("parked").await;
     let mut web_view = Browser::new(&ext);
-    web_view.get(&handoff(&ext, &app_user, "/").await).await;
+    web_view.open(&handoff(&ext, &app_user, "/").await).await;
     web_refresh(&mut web_view).await.unwrap();
 
     // The app switched to another account: this one is parked there.
@@ -260,7 +291,7 @@ async fn the_web_session_lives_while_its_app_account_is_the_active_one() {
         .execute(&ext.app.core.db)
         .await
         .unwrap();
-    let (_, location, cookies) = Browser::new(&ext).get(&route).await;
+    let (_, location, cookies) = Browser::new(&ext).open(&route).await;
     assert_eq!(location.as_deref(), Some("/login"));
     assert!(cookies.is_empty());
 }
@@ -270,10 +301,10 @@ async fn a_newer_hand_off_replaces_the_web_session_before() {
     let ext = start(IdentityConfig::default()).await;
     let app_user = ext.app.user("replace").await;
     let mut first = Browser::new(&ext);
-    first.get(&handoff(&ext, &app_user, "/").await).await;
+    first.open(&handoff(&ext, &app_user, "/").await).await;
     let first_token = web_refresh(&mut first).await.unwrap();
     let mut second = Browser::new(&ext);
-    second.get(&handoff(&ext, &app_user, "/").await).await;
+    second.open(&handoff(&ext, &app_user, "/").await).await;
     web_refresh(&mut second).await.unwrap();
     assert!(web_refresh(&mut first).await.is_err());
     assert_eq!(get_me_status(&mut first, &first_token).await.0, 401);
@@ -286,7 +317,7 @@ async fn changing_the_password_in_the_web_view_keeps_the_app_signed_in() {
     let app_user = ext.app.user("password").await;
     let other_device = ext.app.sign_in(app_user.id).await;
     let mut web_view = Browser::new(&ext);
-    web_view.get(&handoff(&ext, &app_user, "/settings").await).await;
+    web_view.open(&handoff(&ext, &app_user, "/settings").await).await;
     let web_token = web_refresh(&mut web_view).await.unwrap();
     let web_session: uuid::Uuid = live_web_sessions(&ext, app_user.session_id).await[0];
 
@@ -309,7 +340,7 @@ async fn suspended_and_deleted_accounts_cannot_redeem() {
         let route = handoff(&ext, &app_user, "/").await;
         let sql = format!("UPDATE users SET {column} = now() WHERE id = $1");
         sqlx::query(sqlx::AssertSqlSafe(sql)).bind(app_user.id).execute(&ext.app.core.db).await.unwrap();
-        let (_, location, cookies) = Browser::new(&ext).get(&route).await;
+        let (_, location, cookies) = Browser::new(&ext).open(&route).await;
         assert_eq!(location.as_deref(), Some("/login"), "{column}");
         assert!(cookies.is_empty(), "{column}");
         assert!(live_web_sessions(&ext, app_user.session_id).await.is_empty(), "{column}");
@@ -317,21 +348,79 @@ async fn suspended_and_deleted_accounts_cannot_redeem() {
 }
 
 #[tokio::test]
-async fn a_web_session_cannot_open_another_and_a_signed_in_browser_keeps_its_account() {
+async fn a_web_session_cannot_open_another() {
     let ext = start(IdentityConfig::default()).await;
     let app_user = ext.app.user("chain").await;
     let mut web_view = Browser::new(&ext);
-    web_view.get(&handoff(&ext, &app_user, "/").await).await;
+    web_view.open(&handoff(&ext, &app_user, "/").await).await;
     let web_token = web_refresh(&mut web_view).await.unwrap();
-    let chained = web_view.call(CREATE, Some(&web_token), json!({ "path": "/" })).await;
+    let chained = web_view.call(CREATE, Some(&web_token), json!({ "path": "/", "verifierHash": "a".repeat(64) })).await;
     assert_eq!(chained.reason, "NOT_AVAILABLE");
+}
 
-    // Someone else's code does not sign a signed-in browser over to them.
-    let stranger = ext.app.user("stranger").await;
-    let before = web_view.jar["tokuly_rt"].clone();
-    let (status, location, cookies) = web_view.get(&handoff(&ext, &stranger, "/settings").await).await;
-    assert_eq!((status, location.as_deref()), (303, Some("/settings")));
+/// Login CSRF: someone sends a victim a link with a code of their own (or a
+/// code leaked from an app). Without the app's verifier it signs nobody in,
+/// so the victim's browser is never signed in as the sender's account (whose
+/// map would then get the victim's location).
+#[tokio::test]
+async fn a_code_without_the_apps_verifier_signs_nobody_in() {
+    let ext = start(IdentityConfig::default()).await;
+    let attacker = ext.app.user("attacker").await;
+    let leaked = handoff(&ext, &attacker, "/map").await;
+
+    // A plain browser following the link, signed out or signed in as itself.
+    let victim_user = ext.app.user("victim").await;
+    let mut victim = Browser::new(&ext);
+    victim.open(&handoff(&ext, &victim_user, "/").await).await;
+    let victim_cookie = victim.jar["tokuly_rt"].clone();
+    for browser in [&mut Browser::new(&ext), &mut victim] {
+        let (status, location, cookies) = browser.get(&leaked).await;
+        assert_eq!((status, location.as_deref()), (303, Some("/login")));
+        assert!(cookies.is_empty(), "{cookies:?}");
+    }
+    assert_eq!(victim.jar["tokuly_rt"], victim_cookie);
+    assert_eq!(web_refresh(&mut victim).await.map(|_| ()), Ok(()));
+    let me = victim.call("tokuly.identity.v1.AuthService/RefreshToken", None, json!({})).await;
+    assert_eq!(me.body["me"]["user"]["id"], json!(victim_user.id.to_string()));
+    assert!(live_web_sessions(&ext, attacker.session_id).await.is_empty());
+
+    // A wrong verifier: refused, and the code is spent.
+    let mut guesser = Browser::new(&ext);
+    let (_, location, cookies) =
+        guesser.get_with(&leaked, &[(VERIFIER_HEADER, &tokuly_core::keys::random_token(32))]).await;
+    assert_eq!(location.as_deref(), Some("/login"));
     assert!(cookies.is_empty());
-    assert_eq!(web_view.jar["tokuly_rt"], before);
-    assert!(live_web_sessions(&ext, stranger.session_id).await.is_empty());
+    let (_, location, _) = Browser::new(&ext).open(&leaked).await;
+    assert_eq!(location.as_deref(), Some("/login"));
+    assert!(live_web_sessions(&ext, attacker.session_id).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_link_without_the_verifier_leaves_the_code_to_the_app() {
+    let ext = start(IdentityConfig::default()).await;
+    let app_user = ext.app.user("prefetch").await;
+    let made = handoff(&ext, &app_user, "/settings").await;
+    // Something loads the URL without the header first (a link preview, a prefetch).
+    Browser::new(&ext).get(&made).await;
+    let (_, location, cookies) = Browser::new(&ext).open(&made).await;
+    assert_eq!(location.as_deref(), Some("/settings"));
+    assert!(cookies.iter().any(|c| c.starts_with("tokuly_rt=")));
+}
+
+#[tokio::test]
+async fn the_verifier_hash_must_be_a_sha256() {
+    let ext = start(IdentityConfig::default()).await;
+    let app_user = ext.app.user("verifier").await;
+    for hash in ["", "abc", &"g".repeat(64), &"A".repeat(64)] {
+        let err = ext
+            .app
+            .call::<_, CreateWebHandoffResponse>(
+                CREATE,
+                Some(&app_user),
+                &CreateWebHandoffRequest { path: "/".into(), verifier_hash: hash.into(), ..Default::default() },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.reason, "INVALID_VERIFIER", "{hash}");
+    }
 }

@@ -173,10 +173,20 @@ impl WebAnswer {
     }
 }
 
-/// A browser: a cookie jar in front of the identity router.
+/// A browser: a cookie jar in front of the identity router, which it reaches
+/// below the API's path prefix the way the edge forwards it. Like a real
+/// browser, it sends a cookie only to the paths it is scoped to
+/// (`Path=`) and never sends a `Secure` one over this plain-HTTP origin.
 pub struct Browser {
     router: axum::Router,
+    /// Cookie values by name.
     pub jar: HashMap<String, String>,
+    /// The `Path` of each cookie the server set (a cookie a test put in the
+    /// jar by hand goes everywhere), and the `Secure` ones.
+    paths: HashMap<String, String>,
+    secure: HashSet<String>,
+    /// The API's path prefix (`/api`): the paths browsers see.
+    prefix: String,
     ip: std::net::IpAddr,
     /// Send each cookie as a header field of its own, the parked accounts'
     /// first — what an HTTP/2 hop (the edge's h2c to the API) may deliver.
@@ -200,14 +210,45 @@ impl Browser {
             rng.random_range(0..255u8),
             rng.random_range(1..255u8),
         ]);
-        Self { router, jar: HashMap::new(), ip, split_cookies: false }
+        let prefix = ext.app.core.cfg.api_path_prefix().to_owned();
+        Self {
+            router,
+            jar: HashMap::new(),
+            paths: HashMap::new(),
+            secure: HashSet::new(),
+            prefix,
+            ip,
+            split_cookies: false,
+        }
+    }
+
+    /// `name=value` of each cookie a browser sends to `path` (below the
+    /// prefix, as the router sees it).
+    fn cookies_for(&self, path: &str) -> Vec<String> {
+        let seen = format!("{}{}", self.prefix, path.split('?').next().unwrap_or_default());
+        self.jar
+            .iter()
+            .filter(|(name, _)| !self.secure.contains(*name))
+            .filter(|(name, _)| {
+                self.paths.get(*name).is_none_or(|scope| {
+                    let scope = scope.trim_end_matches('/');
+                    seen == scope || seen.starts_with(&format!("{scope}/"))
+                })
+            })
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect()
     }
 
     /// Follows a link: a `GET` of `path` with the jar's cookies. Keeps the
     /// cookies the answer sets; returns its status, `Location` and the
     /// `Set-Cookie` values.
     pub async fn get(&mut self, path: &str) -> (u16, Option<String>, Vec<String>) {
-        let cookie: Vec<String> = self.jar.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        self.get_with(path, &[]).await
+    }
+
+    /// [`Self::get`] with extra request headers (what a web view adds to its first load).
+    pub async fn get_with(&mut self, path: &str, headers: &[(&str, &str)]) -> (u16, Option<String>, Vec<String>) {
+        let cookie = self.cookies_for(path);
         let mut request = http::Request::builder()
             .method("GET")
             .uri(path)
@@ -215,6 +256,9 @@ impl Browser {
             .extension(axum::extract::ConnectInfo(std::net::SocketAddr::new(self.ip, 0)));
         if !cookie.is_empty() {
             request = request.header("cookie", cookie.join("; "));
+        }
+        for (name, value) in headers {
+            request = request.header(*name, *value);
         }
         let response = self.router.clone().oneshot(request.body(Body::empty()).unwrap()).await.unwrap();
         let status = response.status().as_u16();
@@ -231,19 +275,31 @@ impl Browser {
 
     fn keep(&mut self, cookies: &[String]) {
         for c in cookies {
-            let first = c.split(';').next().unwrap_or_default();
-            if let Some((key, value)) = first.split_once('=') {
-                if value.is_empty() || c.contains("Max-Age=0") {
-                    self.jar.remove(key);
-                } else {
-                    self.jar.insert(key.to_owned(), value.to_owned());
+            let mut parts = c.split(';').map(str::trim);
+            let first = parts.next().unwrap_or_default();
+            let Some((key, value)) = first.split_once('=') else { continue };
+            if value.is_empty() || c.contains("Max-Age=0") {
+                self.jar.remove(key);
+                self.paths.remove(key);
+                self.secure.remove(key);
+                continue;
+            }
+            self.jar.insert(key.to_owned(), value.to_owned());
+            let mut path = "/".to_owned();
+            self.secure.remove(key);
+            for attribute in parts {
+                if let Some(value) = attribute.strip_prefix("Path=") {
+                    path = value.to_owned();
+                } else if attribute.eq_ignore_ascii_case("Secure") {
+                    self.secure.insert(key.to_owned());
                 }
             }
+            self.paths.insert(key.to_owned(), path);
         }
     }
 
     pub async fn call(&mut self, procedure: &str, access_token: Option<&str>, body: serde_json::Value) -> WebAnswer {
-        let cookie: Vec<String> = self.jar.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let cookie = self.cookies_for(&format!("/{procedure}"));
         let mut request = http::Request::builder()
             .method("POST")
             .uri(format!("/{procedure}"))

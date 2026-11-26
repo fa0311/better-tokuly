@@ -25,6 +25,7 @@ jest.mock("expo-router", () => ({ useNavigation: () => ({ setOptions: jest.fn() 
 /** The server, at the edge: each CreateWebHandoff waits until the test answers it. */
 interface Asked {
   path: string;
+  verifierHash: string;
   bearer: string;
   credentials: string | undefined;
   answer(code: string): void;
@@ -41,6 +42,7 @@ function mockServer(
   return new Promise<Response>((resolve) => {
     asked.push({
       path: request.path,
+      verifierHash: request.verifierHash,
       bearer: headers.get("authorization") ?? "",
       credentials: init.credentials,
       answer: (code) =>
@@ -58,6 +60,16 @@ function mockServer(
     });
   });
 }
+// The device's randomness and hashing, at the edge (Node's own).
+jest.mock("expo-crypto", () => {
+  const crypto = jest.requireActual("node:crypto");
+  return {
+    CryptoDigestAlgorithm: { SHA256: "SHA-256" },
+    getRandomBytes: (n: number) => new Uint8Array(crypto.randomBytes(n)),
+    digestStringAsync: async (_: string, text: string) =>
+      crypto.createHash("sha256").update(text).digest("hex"),
+  };
+});
 jest.mock("expo/fetch", () => ({
   fetch: (input: string, init: never) => mockServer(input, init),
 }));
@@ -98,8 +110,16 @@ describe("WebScreen", () => {
     await act(async () => asked[0]?.answer("code-alice"));
     expect(screen.getByTestId("web-view")).toBeOnTheScreen();
     const props = webViews.at(-1) ?? {};
-    expect(props.source).toEqual({ uri: `${SERVER_URL}/api/auth/handoff?code=code-alice` });
-    // No headers, no scripts: nothing of the app's session reaches the page.
+    const source = props.source as { uri: string; headers: Record<string, string> };
+    expect(source.uri).toBe(`${SERVER_URL}/api/auth/handoff?code=code-alice`);
+    // The code is bound to a verifier only this load carries, in a header, never in the URL.
+    const verifier = source.headers["x-tokuly-handoff-verifier"] ?? "";
+    expect(verifier).toMatch(/^[0-9a-f]{64}$/);
+    expect(source.uri).not.toContain(verifier);
+    const { createHash } = jest.requireActual("node:crypto");
+    expect(asked[0]?.verifierHash).toBe(createHash("sha256").update(verifier).digest("hex"));
+    expect(Object.keys(source.headers)).toEqual(["x-tokuly-handoff-verifier"]);
+    // No token, no scripts: nothing of the app's session reaches the page.
     expect(props.injectedJavaScript).toBeUndefined();
     expect(props.injectedJavaScriptBeforeContentLoaded).toBeUndefined();
     // Cookies: none to start with and none kept, nothing shared with the system or other sites.

@@ -1,16 +1,24 @@
 import { identity } from "@tokuly/api";
+import { CryptoDigestAlgorithm, digestStringAsync, getRandomBytes } from "expo-crypto";
 import { type Account, ensureActive } from "#/features/media/account";
 import { SERVER_URL } from "#/lib/config";
 
+/** The header the web view's first load carries the verifier in (identity's `handoff::VERIFIER_HEADER`). */
+export const VERIFIER_HEADER = "x-tokuly-handoff-verifier";
+
 /**
  * A web screen opened in the app: the hand-off URL that signs the web view
- * in, for the account that asked. `sessionId` keys the web view, so another
- * account never gets this one's.
+ * in, for the account that asked, and the verifier its first load sends.
+ * `sessionId` keys the web view, so another account never gets this one's.
  */
 export interface WebSession {
   sessionId: string;
   url: string;
+  verifier: string;
 }
+
+const hex = (bytes: Uint8Array) =>
+  Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
 /**
  * Asks the server for a one-time code that opens `path` on the web signed in
@@ -20,11 +28,20 @@ export interface WebSession {
  * sign-out), the code is thrown away (`AccountChanged`), never loaded. The
  * session token itself never leaves the app: the web view only ever sees
  * this URL.
+ *
+ * The code is bound to a verifier made here (256 random bits; the server
+ * keeps its SHA-256): the URL alone signs nobody in, only the web view's
+ * first load, which sends the verifier in a header, does. A code that leaks
+ * cannot sign someone else's browser in as this account.
  */
 export async function requestWebSession(account: Account, path: string): Promise<WebSession> {
-  const { url } = await account.api.service(identity.AuthService).createWebHandoff({ path });
+  const verifier = hex(getRandomBytes(32));
+  const verifierHash = await digestStringAsync(CryptoDigestAlgorithm.SHA256, verifier);
+  const { url } = await account.api
+    .service(identity.AuthService)
+    .createWebHandoff({ path, verifierHash });
   ensureActive(account);
-  return { sessionId: account.sessionId, url: `${SERVER_URL}${url}` };
+  return { sessionId: account.sessionId, url: `${SERVER_URL}${url}`, verifier };
 }
 
 const ORIGIN = new URL(SERVER_URL).origin;
