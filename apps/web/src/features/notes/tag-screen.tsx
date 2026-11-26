@@ -1,3 +1,4 @@
+import { normalizeHashtag } from "@tokuly/core/notes";
 import { Hash } from "lucide-react";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -6,7 +7,6 @@ import { EmptyState } from "#/components/ui/page";
 import { useTimeline } from "./api";
 import { openCompose } from "./compose-store";
 import { ComposeButton, NotesPage } from "./shell";
-import { normalizeHashtag } from "./text";
 import { Timeline, type TimelineHandle } from "./timeline";
 import { TrendingHashtags } from "./trending";
 

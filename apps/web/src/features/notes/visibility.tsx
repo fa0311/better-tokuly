@@ -1,6 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { common, social } from "@tokuly/api";
 import {
+  AUDIENCE_OPTIONS,
+  type Audience,
+  type AudienceKey,
+  type AudienceOption,
+  audienceOption,
+  notesKeys,
+} from "@tokuly/core/notes";
+import {
   AtSign,
   Check,
   CircleDot,
@@ -15,88 +23,21 @@ import { useTranslation } from "react-i18next";
 import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
 
-/** Who a note is shared with: a visibility, the circle of a CIRCLE note, the people of a direct note. */
-export interface Audience {
-  visibility: common.Visibility;
-  circleId?: string;
-  /** A direct note (PRIVATE naming people). */
-  directUserIds?: string[];
-  /** Chosen as a direct note, even before anyone is picked. */
-  direct?: boolean;
-}
-
-export type AudienceKey =
-  | "public"
-  | "followers"
-  | "friends"
-  | "closeFriends"
-  | "circle"
-  | "direct"
-  | "private";
-
-interface VisibilityOption {
-  key: AudienceKey;
-  value: common.Visibility;
-  icon: ComponentType<{ className?: string }>;
-  /** Widest first; a reply cannot pick a smaller rank than the note it answers. */
-  rank: number;
-}
-
-/** Who a note can be shown to, widest first. */
-export const VISIBILITY_OPTIONS: VisibilityOption[] = [
-  { key: "public", value: common.Visibility.PUBLIC, icon: Globe, rank: 0 },
-  { key: "followers", value: common.Visibility.FOLLOWERS, icon: UserRoundCheck, rank: 1 },
-  { key: "friends", value: common.Visibility.FRIENDS, icon: UsersRound, rank: 2 },
-  { key: "closeFriends", value: common.Visibility.CLOSE_FRIENDS, icon: Star, rank: 3 },
-  { key: "circle", value: common.Visibility.CIRCLE, icon: CircleDot, rank: 3 },
-  { key: "direct", value: common.Visibility.PRIVATE, icon: AtSign, rank: 3 },
-  { key: "private", value: common.Visibility.PRIVATE, icon: Lock, rank: 4 },
-];
-
-function option(key: AudienceKey): VisibilityOption {
-  return VISIBILITY_OPTIONS.find((candidate) => candidate.key === key)!;
-}
-
-/** The option an audience is shown as. A value this screen does not know reads as the narrowest, never as public. */
-export function audienceOption(audience: Audience): VisibilityOption {
-  if (audience.visibility === common.Visibility.PRIVATE)
-    return option(audience.direct || audience.directUserIds?.length ? "direct" : "private");
-  return (
-    VISIBILITY_OPTIONS.find((candidate) => candidate.value === audience.visibility) ??
-    option("private")
-  );
-}
-
-/** The audience a note has, as the viewer is told. */
-export function noteAudience(note: {
-  visibility: common.Visibility;
-  circleId?: string;
-  directRecipients?: { id: string }[];
-}): Audience {
-  return {
-    visibility: note.visibility,
-    circleId: note.circleId || undefined,
-    directUserIds: note.directRecipients?.map((user) => user.id),
-  };
-}
-
-export function visibilityOption(visibility: common.Visibility): VisibilityOption {
-  return audienceOption({ visibility });
-}
-
-export function sameAudience(a: Audience, b: Audience): boolean {
-  const people = (audience: Audience) => [...(audience.directUserIds ?? [])].sort().join(",");
-  return (
-    a.visibility === b.visibility &&
-    (a.circleId ?? "") === (b.circleId ?? "") &&
-    people(a) === people(b)
-  );
-}
+/** The icon of each audience. */
+export const AUDIENCE_ICONS: Record<AudienceKey, ComponentType<{ className?: string }>> = {
+  public: Globe,
+  followers: UserRoundCheck,
+  friends: UsersRound,
+  closeFriends: Star,
+  circle: CircleDot,
+  direct: AtSign,
+  private: Lock,
+};
 
 /** The custom circles of the viewer (close friends has its own choice). */
 export function useCustomCircles(enabled = true) {
   return useQuery({
-    queryKey: ["notes", "circles"],
+    queryKey: notesKeys.circles,
     enabled,
     staleTime: 60_000,
     queryFn: async () =>
@@ -109,7 +50,7 @@ export function useCustomCircles(enabled = true) {
 /** The viewer's friends, to address a direct note to. */
 export function useDirectCandidates(enabled: boolean) {
   return useQuery({
-    queryKey: ["notes", "direct-candidates"],
+    queryKey: notesKeys.directCandidates,
     enabled,
     staleTime: 60_000,
     queryFn: async () =>
@@ -138,7 +79,7 @@ export function VisibilityMark({
   if (visibility === common.Visibility.PUBLIC || visibility === common.Visibility.UNSPECIFIED)
     return null;
   const shown = audienceOption({ visibility, directUserIds: direct ? ["?"] : [] });
-  const Icon = shown.icon;
+  const Icon = AUDIENCE_ICONS[shown.key];
   return (
     <span
       role="img"
@@ -179,12 +120,12 @@ export function VisibilityChoices({
   const friends = useDirectCandidates(direct);
   const choices: {
     id: string;
-    option: VisibilityOption;
+    option: AudienceOption;
     label: string;
     hint: string;
     audience: Audience;
   }[] = [];
-  for (const candidate of VISIBILITY_OPTIONS) {
+  for (const candidate of AUDIENCE_OPTIONS) {
     if (candidate.key === "circle") {
       for (const circle of circles.data ?? [])
         choices.push({
@@ -216,7 +157,7 @@ export function VisibilityChoices({
   return (
     <div role="radiogroup" aria-label={t("visibility.title")} className="flex flex-col gap-1.5">
       {choices.map((choice) => {
-        const Icon = choice.option.icon;
+        const Icon = AUDIENCE_ICONS[choice.option.key];
         const selected = choice.id === selectedId;
         return (
           <div key={choice.id} className="flex flex-col gap-1.5">

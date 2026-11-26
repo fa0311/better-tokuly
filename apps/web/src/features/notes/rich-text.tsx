@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { notes } from "@tokuly/api";
+import { parseNoteText } from "@tokuly/core/notes";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
-import { parseNoteText } from "./text";
 
 /** Links are shown without their scheme and cut after this many characters. */
 const LINK_TEXT_MAX = 36;

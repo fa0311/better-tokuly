@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { notes } from "@tokuly/api";
+import { notesKeys } from "@tokuly/core/notes";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import { noteClient, notesKeys } from "./api";
+import { noteClient } from "./api";
 
 /** The posting rules in the viewer's language, and whether they agreed to the current version. */
 export function useNoteRules(enabled = true) {

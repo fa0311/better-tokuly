@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { notes } from "@tokuly/api";
+import { notesKeys } from "@tokuly/core/notes";
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import { muteClient, notesKeys } from "./api";
+import { muteClient } from "./api";
 
 /** `/settings/notes`: muted words (plain or patterns) and people whose renotes are hidden. */
 export function MutesScreen() {

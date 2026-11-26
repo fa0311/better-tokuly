@@ -1,15 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type notes, toMillis } from "@tokuly/api";
+import { charCount, NOTE_MAX_CHARS, notesKeys, patchNote } from "@tokuly/core/notes";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { errorMessage } from "#/lib/errors";
-import { markNoteDeleted, muteClient, noteClient, notesKeys, patchNote } from "./api";
+import { markNoteDeleted, muteClient, noteClient } from "./api";
 import { NoteRichText } from "./rich-text";
-import { charCount, NOTE_MAX_CHARS } from "./text";
 import { noteDateTime } from "./time";
 
 /** Editing a note's words within the hour after posting. */

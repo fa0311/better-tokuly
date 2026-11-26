@@ -1,22 +1,20 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
-import { type MessageInitShape, notes } from "@tokuly/api";
+import type { MessageInitShape, notes } from "@tokuly/api";
+import {
+  type Audience,
+  addPostedNote,
+  countsBefore,
+  notesKeys,
+  patchNote,
+  settleDeletedNote,
+  withCounters,
+  withToggle,
+} from "@tokuly/core/notes";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
 import { useMe } from "#/stores/session";
-import {
-  bumpCounter,
-  findCachedNote,
-  markNoteDeleted,
-  noteClient,
-  notesKeys,
-  patchNote,
-  prependNote,
-  type ThreadData,
-  withCounters,
-  withViewer,
-} from "./api";
-import type { Audience } from "./visibility";
+import { markNoteDeleted, noteClient } from "./api";
 
 const say = (key: string) => i18n.t(key, { ns: "notes" });
 
@@ -28,12 +26,7 @@ export function useLike(): (note: notes.Note) => Promise<void> {
   const queryClient = useQueryClient();
   return async (note) => {
     const liked = !note.viewer?.liked;
-    const delta = liked ? 1 : -1;
-    patchNote(queryClient, note.id, (current) =>
-      current.viewer?.liked === liked
-        ? current
-        : withViewer({ ...current, counters: bumpCounter(current, "likeCount", delta) }, { liked }),
-    );
+    patchNote(queryClient, note.id, (current) => withToggle(current, "like", liked));
     try {
       const response = liked
         ? await noteClient().likeNote({ noteId: note.id })
@@ -44,12 +37,7 @@ export function useLike(): (note: notes.Note) => Promise<void> {
     } catch (error) {
       // Take back only this tap: counts that moved meanwhile (other people, realtime) stay.
       patchNote(queryClient, note.id, (current) =>
-        current.viewer?.liked === liked
-          ? withViewer(
-              { ...current, counters: bumpCounter(current, "likeCount", -delta) },
-              { liked: !liked },
-            )
-          : current,
+        current.viewer?.liked === liked ? withToggle(current, "like", !liked) : current,
       );
       toast.error(errorMessage(error));
     }
@@ -61,15 +49,7 @@ export function useRenote(): (note: notes.Note) => Promise<void> {
   const queryClient = useQueryClient();
   return async (note) => {
     const renoted = !note.viewer?.renoted;
-    const delta = renoted ? 1 : -1;
-    patchNote(queryClient, note.id, (current) =>
-      current.viewer?.renoted === renoted
-        ? current
-        : withViewer(
-            { ...current, counters: bumpCounter(current, "renoteCount", delta) },
-            { renoted },
-          ),
-    );
+    patchNote(queryClient, note.id, (current) => withToggle(current, "renote", renoted));
     try {
       const response = renoted
         ? await noteClient().renoteNote({ noteId: note.id })
@@ -80,54 +60,21 @@ export function useRenote(): (note: notes.Note) => Promise<void> {
       toast.success(say(renoted ? "toast.renoted" : "toast.renoteUndone"));
     } catch (error) {
       patchNote(queryClient, note.id, (current) =>
-        current.viewer?.renoted === renoted
-          ? withViewer(
-              { ...current, counters: bumpCounter(current, "renoteCount", -delta) },
-              { renoted: !renoted },
-            )
-          : current,
+        current.viewer?.renoted === renoted ? withToggle(current, "renote", !renoted) : current,
       );
       toast.error(errorMessage(error));
     }
   };
 }
 
-type Counter = "replyCount" | "quoteCount";
-
-/**
- * Moves a counter of the note a reply or a quote hangs off, once the server
- * has confirmed the change — unless the count already moved meanwhile: the
- * realtime push with the new total often arrives before the answer does,
- * and the change must not be counted twice.
- */
-function settleCounter(
-  queryClient: QueryClient,
-  noteId: string | undefined,
-  counter: Counter,
-  before: bigint | undefined,
-  delta: number,
-): void {
-  if (!noteId) return;
-  patchNote(queryClient, noteId, (note) =>
-    (note.counters?.[counter] ?? 0n) === (before ?? 0n)
-      ? { ...note, counters: bumpCounter(note, counter, delta) }
-      : note,
-  );
-}
-
-const counterNow = (
-  queryClient: QueryClient,
-  noteId: string | undefined,
-  counter: Counter,
-): bigint | undefined =>
-  noteId ? findCachedNote(queryClient, noteId)?.counters?.[counter] : undefined;
-
 /** Deletes one of the viewer's notes. It disappears from every list on screen. */
 export function useDeleteNote(): (note: notes.Note) => Promise<boolean> {
   const queryClient = useQueryClient();
   return async (note) => {
-    const repliesBefore = counterNow(queryClient, note.replyTo?.noteId, "replyCount");
-    const quotesBefore = counterNow(queryClient, note.quote?.noteId, "quoteCount");
+    const before = countsBefore(queryClient, {
+      replyToId: note.replyTo?.noteId,
+      quoteOfId: note.quote?.noteId,
+    });
     try {
       await noteClient().deleteNote({ noteId: note.id });
     } catch (error) {
@@ -135,9 +82,7 @@ export function useDeleteNote(): (note: notes.Note) => Promise<boolean> {
       return false;
     }
     markNoteDeleted(note.id);
-    // The note it answered or quoted lost a reply or a quote.
-    settleCounter(queryClient, note.replyTo?.noteId, "replyCount", repliesBefore, -1);
-    settleCounter(queryClient, note.quote?.noteId, "quoteCount", quotesBefore, -1);
+    settleDeletedNote(queryClient, note, before);
     toast(say("toast.deleted"));
     return true;
   };
@@ -194,78 +139,11 @@ export function useSetVisibility(): (note: notes.Note, audience: Audience) => Pr
   };
 }
 
-/**
- * A note the viewer just posted takes its place in the lists already on
- * screen. `before` holds the reply and quote counts of the note it answers
- * or quotes as they were when the request was sent.
- */
-function addPostedNote(
-  queryClient: QueryClient,
-  note: notes.Note,
-  before: { replies?: bigint; quotes?: bigint },
-): void {
-  const authorId = note.author?.id;
-  const isReply = Boolean(note.replyTo?.noteId);
-  // A channel note reaches home only through a followed channel, and never the global timeline.
-  const inChannel = Boolean(note.channel?.id);
-  if (!inChannel) prependNote(queryClient, { kind: "home" }, note);
-  if (!isReply && !inChannel && note.viewer?.canQuote)
-    prependNote(queryClient, { kind: "global" }, note);
-  for (const tag of note.hashtags) prependNote(queryClient, { kind: "hashtag", tag }, note);
-  if (authorId) {
-    if (!isReply)
-      prependNote(
-        queryClient,
-        { kind: "user", userId: authorId, filter: notes.UserTimelineFilter.NOTES },
-        note,
-      );
-    prependNote(
-      queryClient,
-      { kind: "user", userId: authorId, filter: notes.UserTimelineFilter.WITH_REPLIES },
-      note,
-    );
-    if (note.attachments.length > 0)
-      void queryClient.invalidateQueries({
-        queryKey: notesKeys.timeline({
-          kind: "user",
-          userId: authorId,
-          filter: notes.UserTimelineFilter.MEDIA,
-        }),
-      });
-  }
-
-  const parentId = note.replyTo?.noteId;
-  if (parentId) {
-    settleCounter(queryClient, parentId, "replyCount", before.replies, 1);
-    // Replies are listed oldest first: the new one belongs at the end, which is only on screen once every page is.
-    queryClient.setQueryData<ThreadData>(notesKeys.thread(parentId), (thread) => {
-      const last = thread?.pages.at(-1);
-      if (!thread || !last || last.page?.nextCursor) return thread;
-      return {
-        ...thread,
-        pages: thread.pages.map((page) =>
-          page === last
-            ? { ...page, replies: [...page.replies.filter((reply) => reply.id !== note.id), note] }
-            : page,
-        ),
-      };
-    });
-  }
-  const quotedId = note.quote?.noteId;
-  if (quotedId) {
-    settleCounter(queryClient, quotedId, "quoteCount", before.quotes, 1);
-    void queryClient.invalidateQueries({ queryKey: notesKeys.quotes(quotedId) });
-  }
-}
-
 export type NewNote = MessageInitShape<typeof notes.CreateNoteRequestSchema>;
 
 /** Posts a note. `idempotencyKey` makes a retry after a lost answer safe. */
 export async function postNote(queryClient: QueryClient, request: NewNote): Promise<notes.Note> {
-  const before = {
-    replies: counterNow(queryClient, request.replyToId, "replyCount"),
-    quotes: counterNow(queryClient, request.quoteOfId, "quoteCount"),
-  };
+  const before = countsBefore(queryClient, request);
   const response = await noteClient().createNote(request);
   const note = response.note!;
   addPostedNote(queryClient, note, before);

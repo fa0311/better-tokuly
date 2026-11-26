@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { notes } from "@tokuly/api";
+import { charCount, listKeys } from "@tokuly/core/notes";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -9,8 +10,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextArea, TextField } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
-import { LIST_LIMITS, listClient, listKeys, resetListTimeline, storeList } from "./lists-api";
-import { charCount } from "./text";
+import { LIST_LIMITS, listClient, resetListTimeline, storeList } from "./lists-api";
 
 export const LISTS_NS = { namespace: "notelists" };
 

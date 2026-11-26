@@ -1,21 +1,12 @@
 import { type QueryClient, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { notes } from "@tokuly/api";
+import { clipKeys } from "@tokuly/core/notes";
 import { api } from "#/lib/api";
 
 export const clipClient = () => api().service(notes.ClipService);
 
 export const CLIP_NAME_MAX = 50;
 export const CLIP_DESCRIPTION_MAX = 500;
-
-/** Query keys of clips, under `["notes"]` so live note updates reach a clip's notes. */
-export const clipKeys = {
-  all: ["notes", "clips"] as const,
-  lists: ["notes", "clips", "list"] as const,
-  /** `userId` empty = the caller; `noteId` set = the "add to clip" sheet. */
-  list: (userId: string, noteId = "") => ["notes", "clips", "list", userId, noteId] as const,
-  clip: (clipId: string) => ["notes", "clips", "one", clipId] as const,
-  notes: (clipId: string) => ["notes", "clips", "notes", clipId] as const,
-};
 
 export function useClips(userId: string, noteId = "", enabled = true) {
   return useInfiniteQuery({

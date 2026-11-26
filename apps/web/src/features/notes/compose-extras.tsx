@@ -1,42 +1,8 @@
 import { notes } from "@tokuly/api";
+import { POLL_DURATIONS, POLL_MAX_CHOICES, type PollDraft } from "@tokuly/core/notes";
 import { Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
-
-/** A poll as the composer holds it. */
-export interface PollDraft {
-  choices: string[];
-  multiple: boolean;
-  durationSeconds: number;
-  results: notes.PollResultsVisibility;
-}
-
-export const POLL_MAX_CHOICES = 10;
-export const POLL_DURATIONS = [300, 3600, 6 * 3600, 86_400, 3 * 86_400, 7 * 86_400] as const;
-
-export function newPoll(): PollDraft {
-  return {
-    choices: ["", ""],
-    multiple: false,
-    durationSeconds: 86_400,
-    results: notes.PollResultsVisibility.ALWAYS,
-  };
-}
-
-export function pollInput(poll: PollDraft) {
-  return {
-    choices: poll.choices.map((choice) => choice.trim()),
-    multiple: poll.multiple,
-    durationSeconds: BigInt(poll.durationSeconds),
-    resultsVisibility: poll.results,
-  };
-}
-
-/** Whether every choice is filled in and they all differ. */
-export function pollReady(poll: PollDraft): boolean {
-  const choices = poll.choices.map((choice) => choice.trim());
-  return choices.every(Boolean) && new Set(choices).size === choices.length;
-}
 
 const FIELD =
   "h-9 min-w-0 rounded-xl border-2 border-line bg-surface px-3 text-sm font-bold outline-none focus:border-ink";

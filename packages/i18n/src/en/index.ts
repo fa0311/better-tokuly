@@ -3,12 +3,15 @@
 import accounts from "./accounts";
 import auth from "./auth";
 import chat from "./chat";
+import clips from "./clips";
 import common from "./common";
 import errors from "./errors";
 import follows from "./follows";
 import friends from "./friends";
 import map from "./map";
 import mobile from "./mobile";
+import notelists from "./notelists";
+import notes from "./notes";
 import notifications from "./notifications";
 import profile from "./profile";
 import shorts from "./shorts";
@@ -26,6 +29,9 @@ export default {
   notifications,
   stories,
   shorts,
+  notes,
+  notelists,
+  clips,
   profile,
   mobile,
 };
