@@ -150,7 +150,7 @@ Import (`StartImport`, upload with `ASSET_PURPOSE_CHAT_FILE`):
    according to the import's policy; a pack clashing with itself counts too.
 2. Each accepted entry's image is unpacked (size checked while unpacking)
    and stored as an upload of the importing moderator
-   (`tokuly_media::create_asset_from_file`, `ASSET_PURPOSE_STAMP`).
+   (`tokuly_media::create_asset_from_file`, `ASSET_PURPOSE_CUSTOM_EMOJI`).
 3. When media has processed a picture, the entry is settled: the emoji is
    created APPROVED (history `IMPORTED`, no author), and its category is
    created with it if the list does not have it — so a pack whose entries
@@ -184,7 +184,7 @@ as `[]`).
 
 | Holder | Asset | Attached | Detached |
 |---|---|---|---|
-| `emoji:<emoji_id>` | the picture (`emojis.asset_id`, `ASSET_PURPOSE_STAMP`: a still image or an animation) | when the emoji is stored (`SubmitEmoji`, `AddEmoji`, import) or gets a new picture | when the picture is replaced or the emoji is deleted (withdrawal, `DeleteEmoji`, account deletion) |
+| `emoji:<emoji_id>` | the picture (`emojis.asset_id`, `ASSET_PURPOSE_CUSTOM_EMOJI` — or `ASSET_PURPOSE_STAMP` for pictures uploaded before emoji had a purpose of their own, which are still accepted: a still image or an animation) | when the emoji is stored (`SubmitEmoji`, `AddEmoji`, import) or gets a new picture | when the picture is replaced or the emoji is deleted (withdrawal, `DeleteEmoji`, account deletion) |
 | `emoji:import:<import_id>` | the uploaded pack (`ASSET_PURPOSE_CHAT_FILE`) | `StartImport` | when the import completes or fails |
 
 Both happen in the transaction that stores or deletes the reference.

@@ -112,6 +112,27 @@ and `Asset.max_duration_seconds`, so clients can say what it is.
 | `VIDEO` | `TOKULY_MEDIA_MAX_VIDEO_HOURS` (3 h) |
 | `LIVE_ARCHIVE` | none here: live ends streams after `TOKULY_LIVE_MAX_HOURS` |
 
+### Pictures by purpose
+
+Every picture becomes WebP variants of 2048/1024/512/256/96 px (longest
+edge, never upscaled). A purpose that is only ever shown small gets no
+variant above what it is shown at (`recipe::largest_image_edge`), and
+animations are kept only where they are wanted (`recipe::keeps_animation`):
+
+| Purpose | Largest variant | Animation | Size limit |
+|---|---|---|---|
+| `COMMENT_IMAGE` (a picture in a comment) | 1024 px | kept | `TOKULY_MEDIA_MAX_COMMENT_IMAGE_MB` |
+| `CUSTOM_EMOJI` | 256 px (animated rendition: 256 px too) | kept | `TOKULY_MEDIA_MAX_EMOJI_MB` |
+| `COMMUNITY_ICON` | 512 px | kept | `TOKULY_MEDIA_MAX_AVATAR_MB` |
+| `COMMUNITY_BANNER` | 2048 px | first frame | `TOKULY_MEDIA_MAX_AVATAR_MB` |
+| every other picture | 2048 px | kept for `AVATAR`, `STAMP`, `CHAT_IMAGE`, `NOTE_IMAGE`, `STORY` (animated rendition: 512 px) | by purpose (Configuration) |
+
+These four were added after their domains existed. Before, comments took
+`NOTE_IMAGE` / `CHAT_IMAGE`, emoji `STAMP`, community icons `AVATAR` /
+`CHANNEL_ICON` and banners `BANNER` / `CHANNEL_BANNER`; the domains still
+accept uploads made with those (assets from before, and clients built
+before), so nothing stored needs to change.
+
 ### The fair transcoding queue
 
 A `media.transcode` job is a turn on the transcoder, not a ticket for its
@@ -205,8 +226,10 @@ previews stored before the proxy existed show without one.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TOKULY_MEDIA_MAX_AVATAR_MB` | 10 | avatars, banners, channel art, thumbnails, stamps |
+| `TOKULY_MEDIA_MAX_AVATAR_MB` | 10 | avatars, banners, channel art, community icons and banners, thumbnails, stamps |
 | `TOKULY_MEDIA_MAX_IMAGE_MB` | 25 | photos in chats, notes, stories, places, day memos |
+| `TOKULY_MEDIA_MAX_COMMENT_IMAGE_MB` | 10 | pictures in comments (`COMMENT_IMAGE`) |
+| `TOKULY_MEDIA_MAX_EMOJI_MB` | 2 | custom emoji pictures (`CUSTOM_EMOJI`); the emoji domain accepts less (`TOKULY_EMOJI_MAX_IMAGE_KB`, 1024), keep this one above it |
 | `TOKULY_MEDIA_MAX_CLIP_MB` | 200 | chat/note videos, story videos, avatar videos |
 | `TOKULY_MEDIA_MAX_VIDEO_MB` | 20480 | long-form video |
 | `TOKULY_MEDIA_MAX_SHORT_MB` | 1024 | shorts |
@@ -254,7 +277,7 @@ expired.
 Media bucket (public, `Cache-Control: public, max-age=300, s-maxage=0, must-revalidate`; see "Caches and CDNs"):
 
 ```
-img/{asset_id}/{size}-{hash}.webp          image variants (2048/1024/512/256/96 px longest edge, never upscaled)
+img/{asset_id}/{size}-{hash}.webp          image variants (2048/1024/512/256/96 px longest edge, never upscaled; fewer for purposes shown small)
 anim/{asset_id}/{hash}.webp                animated WebP of animated uploads
 video/{asset_id}/hls/master.m3u8           adaptive playlist
 video/{asset_id}/hls/{rung}/…              H.264 rungs (1080p/720p/480p/360p/240p by short side), fMP4 segments of 4 s

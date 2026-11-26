@@ -19,6 +19,9 @@ use super::{ProcessError, ProcessResult};
 /// Longest edge of the variants produced, largest first. An image smaller
 /// than a size simply does not get that variant: nothing is ever upscaled.
 pub const VARIANT_SIZES: [u32; 5] = [2048, 1024, 512, 256, 96];
+/// The largest variant any purpose gets; some get less
+/// (`recipe::largest_image_edge`).
+pub const LARGEST_EDGE: u32 = VARIANT_SIZES[0];
 
 /// Decoding limits: protection against decompression bombs.
 pub const MAX_DIMENSION: u32 = 16_384;
@@ -115,10 +118,11 @@ fn convert_to_srgb(image: &mut DynamicImage, icc_profile: &[u8]) {
 }
 
 /// Longest edges to render for an image whose longest edge is `longest`:
-/// the image itself capped at the largest size, then every standard size
-/// that is meaningfully (at least 10%) smaller.
-pub fn variant_sizes(longest: u32) -> Vec<u32> {
-    let top = longest.clamp(1, VARIANT_SIZES[0]);
+/// the image itself capped at `largest` (what its purpose is shown at, at
+/// most), then every standard size that is meaningfully (at least 10%)
+/// smaller.
+pub fn variant_sizes(longest: u32, largest: u32) -> Vec<u32> {
+    let top = longest.clamp(1, largest.clamp(1, LARGEST_EDGE));
     let mut sizes = vec![top];
     sizes.extend(VARIANT_SIZES.iter().copied().filter(|size| u64::from(*size) * 10 <= u64::from(top) * 9));
     sizes
@@ -201,11 +205,12 @@ pub(crate) fn normalize(image: DynamicImage) -> DynamicImage {
     }
 }
 
-/// Renders the variants, ThumbHash and dominant colour of a decoded image.
-pub fn render(image: DynamicImage) -> ProcessResult<Rendered> {
+/// Renders the variants (the largest with a longest edge of at most
+/// `largest`), ThumbHash and dominant colour of a decoded image.
+pub fn render(image: DynamicImage, largest: u32) -> ProcessResult<Rendered> {
     let image = normalize(image);
     let (width, height) = (image.width(), image.height());
-    let sizes = variant_sizes(width.max(height));
+    let sizes = variant_sizes(width.max(height), largest);
 
     // Resample the original once, to the largest variant; the smaller ones
     // are derived from that (much cheaper, visually equivalent).
@@ -276,12 +281,21 @@ mod tests {
 
     #[test]
     fn variants_never_upscale() {
-        assert_eq!(variant_sizes(4000), vec![2048, 1024, 512, 256, 96]);
-        assert_eq!(variant_sizes(2048), vec![2048, 1024, 512, 256, 96]);
-        assert_eq!(variant_sizes(800), vec![800, 512, 256, 96]);
-        assert_eq!(variant_sizes(530), vec![530, 256, 96], "512 is too close to 530 to be worth a variant");
-        assert_eq!(variant_sizes(96), vec![96]);
-        assert_eq!(variant_sizes(40), vec![40]);
+        assert_eq!(variant_sizes(4000, LARGEST_EDGE), vec![2048, 1024, 512, 256, 96]);
+        assert_eq!(variant_sizes(2048, LARGEST_EDGE), vec![2048, 1024, 512, 256, 96]);
+        assert_eq!(variant_sizes(800, LARGEST_EDGE), vec![800, 512, 256, 96]);
+        assert_eq!(variant_sizes(530, LARGEST_EDGE), vec![530, 256, 96], "512 is too close to 530 to be worth a variant");
+        assert_eq!(variant_sizes(96, LARGEST_EDGE), vec![96]);
+        assert_eq!(variant_sizes(40, LARGEST_EDGE), vec![40]);
+    }
+
+    #[test]
+    fn a_purpose_shown_small_gets_no_large_variants() {
+        assert_eq!(variant_sizes(4000, 256), vec![256, 96], "an emoji");
+        assert_eq!(variant_sizes(4000, 512), vec![512, 256, 96], "an icon");
+        assert_eq!(variant_sizes(4000, 1024), vec![1024, 512, 256, 96], "a comment picture");
+        assert_eq!(variant_sizes(128, 256), vec![128, 96], "still never upscaled");
+        assert_eq!(variant_sizes(4000, 9000), vec![2048, 1024, 512, 256, 96], "never beyond the largest size");
     }
 
     #[test]
@@ -295,7 +309,7 @@ mod tests {
     #[test]
     fn render_produces_decodable_webp_variants() {
         let source = DynamicImage::ImageRgb8(RgbImage::from_fn(1200, 800, |x, y| Rgb([(x % 256) as u8, (y % 256) as u8, 90])));
-        let rendered = render(decode(&encode_png(&source)).unwrap()).unwrap();
+        let rendered = render(decode(&encode_png(&source)).unwrap(), LARGEST_EDGE).unwrap();
         let sizes: Vec<(u32, u32, u32)> = rendered.variants.iter().map(|v| (v.size, v.width, v.height)).collect();
         assert_eq!(sizes, vec![(1200, 1200, 800), (1024, 1024, 683), (512, 512, 341), (256, 256, 171), (96, 96, 64)]);
         for variant in &rendered.variants {
@@ -322,7 +336,7 @@ mod tests {
         }
 
         let source = RgbaImage::from_fn(300, 300, |x, _| if x < 150 { Rgba([200, 30, 30, 255]) } else { Rgba([0, 0, 0, 0]) });
-        let rendered = render(DynamicImage::ImageRgba8(source)).unwrap();
+        let rendered = render(DynamicImage::ImageRgba8(source), LARGEST_EDGE).unwrap();
         let decoded = image::load_from_memory_with_format(&rendered.variants[0].webp, image::ImageFormat::WebP).unwrap().into_rgba8();
         assert_eq!(decoded.get_pixel(290, 150)[3], 0);
         assert_eq!(decoded.get_pixel(10, 150)[3], 255);

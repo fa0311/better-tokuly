@@ -93,6 +93,8 @@ const CHAT_AI_SCREEN: &[(&str, &str)] = &[
 const MEDIA_LIVE: &[&str] = &[
     "max_avatar_mb",
     "max_image_mb",
+    "max_comment_image_mb",
+    "max_emoji_mb",
     "max_clip_mb",
     "max_video_mb",
     "max_short_mb",

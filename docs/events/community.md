@@ -378,9 +378,11 @@ migration `2300` to the server.
 
 - **Search kinds, notify category: done.** Search has the kinds `community`
   and `thread`; notify files `community.*` under its `community` category.
-- **Upload purposes.** There is no `ASSET_PURPOSE_COMMUNITY_*`. Icons accept
-  `AVATAR` / `CHANNEL_ICON`, banners `BANNER` / `CHANNEL_BANNER`, post
-  images `NOTE_IMAGE` / `CHAT_IMAGE`, event covers additionally
+- **Upload purposes.** Icons are uploaded as `COMMUNITY_ICON`, banners as
+  `COMMUNITY_BANNER`; the purposes they borrowed before (`AVATAR` /
+  `CHANNEL_ICON`, `BANNER` / `CHANNEL_BANNER`) are still accepted. Post
+  images are `NOTE_IMAGE` / `CHAT_IMAGE`; event covers take
+  `COMMUNITY_BANNER`, `BANNER`, `CHANNEL_BANNER`, `NOTE_IMAGE` or
   `THUMBNAIL`. Stamps in posts are recorded as `SendContext::Note`.
 - **Reports about anonymous posts (admin, server): done.** These subjects
   resolve without an owner, so `engagement.report.created.subject_owner_id`

@@ -3,7 +3,9 @@
 Crate `tokuly-engagement`, migration `1100_engagement.sql`, API
 `tokuly.engagement.v1` (`CommentService`, `CommentModerationService`,
 `ReactionService`, `BookmarkService`, `EngagementService`, `ReportService`).
-Depends on `identity`, `media` (comment images), `stamp` (comment stamps),
+Depends on `identity`, `media` (comment images: uploads with
+`ASSET_PURPOSE_COMMENT_IMAGE`, or with `NOTE_IMAGE` / `CHAT_IMAGE` as
+before that purpose existed), `stamp` (comment stamps),
 `social` (blocks) and `emoji` (custom emoji reactions). No ClickHouse table of its own; no background jobs, one
 timer (the purge of comment texts kept for reports).
 

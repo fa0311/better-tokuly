@@ -20,7 +20,9 @@ impl Media {
         }
         progress.set(10).await?;
 
-        let animated = recipe::keeps_animation(asset.asset_purpose()) && {
+        let purpose = asset.asset_purpose();
+        let largest = recipe::largest_image_edge(purpose);
+        let animated = recipe::keeps_animation(purpose) && {
             let bytes = bytes.clone();
             blocking(move || Ok(animation::is_animated(&bytes))).await?
         };
@@ -28,10 +30,11 @@ impl Media {
             // One animation at a time: its frames are all held in memory.
             let _slot = self.animation_slot.acquire().await.map_err(ProcessError::transient)?;
             let frames = bytes.clone();
-            if let Some(rendered) = blocking(move || animation::render(&frames)).await? {
+            let max_edge = recipe::largest_animation_edge(purpose);
+            if let Some(rendered) = blocking(move || animation::render(&frames, max_edge)).await? {
                 progress.set(60).await?;
                 tracing::debug!(asset_id = %asset.id, width = rendered.width, height = rendered.height, frames = rendered.frame_count, "animation rendered");
-                let poster = self.publish_image(asset.id, rendered.poster).await?;
+                let poster = self.publish_image(asset.id, rendered.poster, largest).await?;
                 let key = store::animation_key(asset.id, &store::content_hash(&rendered.webp));
                 core.storage.put_with_cache(Bucket::Media, &key, rendered.webp, WEBP, Some(store::PUBLIC_CACHE)).await?;
                 return Ok(Processed {
@@ -45,15 +48,21 @@ impl Media {
 
         let decoded = blocking(move || image::decode(&bytes)).await?;
         progress.set(40).await?;
-        let image = self.publish_image(asset.id, decoded).await?;
+        let image = self.publish_image(asset.id, decoded, largest).await?;
         Ok(Processed { kind: Some(AssetKind::ASSET_KIND_IMAGE), url: image.url.clone(), image: Some(image), ..Default::default() })
     }
 
-    /// Renders a decoded image and stores its variants under
+    /// Renders a decoded image (its largest variant no longer than
+    /// `largest` on its longest edge) and stores its variants under
     /// content-addressed keys. Also used for video posters.
-    pub(crate) async fn publish_image(&self, asset_id: Uuid, decoded: ::image::DynamicImage) -> ProcessResult<Image> {
+    pub(crate) async fn publish_image(
+        &self,
+        asset_id: Uuid,
+        decoded: ::image::DynamicImage,
+        largest: u32,
+    ) -> ProcessResult<Image> {
         let storage = &self.core.storage;
-        let rendered = blocking(move || image::render(decoded)).await?;
+        let rendered = blocking(move || image::render(decoded, largest)).await?;
 
         let mut variants = Vec::with_capacity(rendered.variants.len());
         let (mut width, mut height) = (0, 0);

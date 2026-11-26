@@ -104,6 +104,16 @@ enum AssetPurpose {
   ASSET_PURPOSE_CHANNEL_ICON = 18;
   ASSET_PURPOSE_CHANNEL_BANNER = 19;
   ASSET_PURPOSE_LIVE_ARCHIVE = 20;
+  // A picture in a comment: still or animated, with a size limit of its own
+  // (`TOKULY_MEDIA_MAX_COMMENT_IMAGE_MB`), rendered up to 1024 px.
+  ASSET_PURPOSE_COMMENT_IMAGE = 21;
+  // The picture of a custom emoji: still or animated, small
+  // (`TOKULY_MEDIA_MAX_EMOJI_MB`), rendered up to 256 px.
+  ASSET_PURPOSE_CUSTOM_EMOJI = 22;
+  // A community's icon: still or animated, rendered up to 512 px.
+  ASSET_PURPOSE_COMMUNITY_ICON = 23;
+  // A community's banner: a still image.
+  ASSET_PURPOSE_COMMUNITY_BANNER = 24;
 }
 
 // What the uploaded bytes turned out to be (detected, never taken from the client).

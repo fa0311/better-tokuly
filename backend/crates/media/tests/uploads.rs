@@ -227,6 +227,58 @@ async fn animated_gif_keeps_its_animation_where_the_purpose_allows() {
 }
 
 #[tokio::test]
+async fn comment_images_emoji_and_community_art_are_purposes_of_their_own() {
+    use AssetPurpose::*;
+    let h = start().await;
+    let alice = h.app.user("alice").await;
+
+    // Each is rendered as large as it is shown, from the same photo.
+    let sizes_of = |asset: &Asset| asset.image.as_option().expect("image").variants.iter().map(|v| v.size).collect::<Vec<_>>();
+    for (purpose, expected) in [
+        (ASSET_PURPOSE_CUSTOM_EMOJI, vec![256, 96]),
+        (ASSET_PURPOSE_COMMUNITY_ICON, vec![512, 256, 96]),
+        (ASSET_PURPOSE_COMMENT_IMAGE, vec![1024, 512, 256, 96]),
+        (ASSET_PURPOSE_COMMUNITY_BANNER, vec![1200, 1024, 512, 256, 96]),
+    ] {
+        let asset = h.upload_and_process(&alice, purpose, "photo.jpg", "image/jpeg", jpeg_with_exif(1200, 800, 1)).await;
+        assert_eq!((asset.status, asset.kind), (AssetStatus::ASSET_STATUS_READY.into(), AssetKind::ASSET_KIND_IMAGE.into()));
+        assert_eq!(asset.purpose, purpose);
+        assert_eq!(sizes_of(&asset), expected, "{purpose:?}");
+    }
+
+    // An emoji keeps moving, no larger than an emoji; a community banner is a still.
+    let emoji = h.upload_and_process(&alice, ASSET_PURPOSE_CUSTOM_EMOJI, "wave.gif", "image/gif", gif(600, 400, 4)).await;
+    assert_eq!(emoji.kind, AssetKind::ASSET_KIND_ANIMATION);
+    let animation = h.media_object(&emoji.url).await.expect("animated WebP stored");
+    let decoder = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(&animation)).unwrap();
+    assert!(decoder.has_animation());
+    assert_eq!(image::ImageDecoder::dimensions(&decoder), (256, 171));
+    assert_eq!(sizes_of(&emoji), vec![256, 96]);
+    let banner = h.upload_and_process(&alice, ASSET_PURPOSE_COMMUNITY_BANNER, "wave.gif", "image/gif", gif(160, 120, 4)).await;
+    assert_eq!(banner.kind, AssetKind::ASSET_KIND_IMAGE);
+
+    // Their limits are their own: 2 MB for an emoji, 10 MB for a comment picture.
+    let declared = |purpose: AssetPurpose, megabytes: i64| CreateUploadRequest {
+        purpose: purpose.into(),
+        file_name: "big.png".into(),
+        content_type: "image/png".into(),
+        size_bytes: megabytes * 1024 * 1024 + 1,
+        ..Default::default()
+    };
+    for (purpose, limit) in [(ASSET_PURPOSE_CUSTOM_EMOJI, 2), (ASSET_PURPOSE_COMMENT_IMAGE, 10), (ASSET_PURPOSE_COMMUNITY_ICON, 10)] {
+        let error = h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &declared(purpose, limit)).await.unwrap_err();
+        assert_eq!(error.reason, "FILE_TOO_LARGE", "{purpose:?}");
+        let within = CreateUploadRequest { size_bytes: limit * 1024 * 1024, ..declared(purpose, limit) };
+        h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &within).await.unwrap();
+    }
+    // A stamp (where emoji pictures came from before) still takes 10 MB.
+    h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &declared(ASSET_PURPOSE_STAMP, 9)).await.unwrap();
+    // None of them takes anything but a picture.
+    let video = CreateUploadRequest { content_type: "video/mp4".into(), size_bytes: 1000, ..declared(ASSET_PURPOSE_COMMENT_IMAGE, 1) };
+    assert_eq!(reason(h.rpc::<_, CreateUploadResponse>("CreateUpload", Some(&alice), &video).await), "UNSUPPORTED_CONTENT_TYPE");
+}
+
+#[tokio::test]
 async fn complete_upload_trusts_bytes_not_declarations() {
     let h = start().await;
     let alice = h.app.user("alice").await;
