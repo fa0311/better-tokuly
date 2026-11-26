@@ -314,8 +314,6 @@ mod tests {
 
     use super::*;
 
-    /// Environment variables that hold credentials: each must be a secret
-    /// (`hide_env_values`), so the console never shows or exports it.
     /// A caller may shorten its deadline, never below a second and never
     /// past the server's; saying nothing gets the server's.
     #[test]
@@ -326,6 +324,8 @@ mod tests {
         assert_eq!(ApiConfig::default().deadlines().max(), Some(seconds(120)));
     }
 
+    /// Environment variables that hold credentials: each must be a secret
+    /// (`hide_env_values`), so the console never shows or exports it.
     #[test]
     fn credentials_are_secrets() {
         let registry = registry().unwrap();
