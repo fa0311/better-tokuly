@@ -89,7 +89,8 @@ type RecentData = Awaited<ReturnType<Client["listRecentSearches"]>>;
 /**
  * Forget one search, forget all of them, pause or resume the history: each
  * shows at once and is taken back when the server says no. The client is the
- * account's that tapped, taken before anything is awaited.
+ * account's that tapped, taken before anything is awaited — for clearing,
+ * before the confirmation is even asked (`clear()` returns what confirms it).
  */
 export function useHistoryActions() {
   const queryClient = useQueryClient();
@@ -130,7 +131,10 @@ export function useHistoryActions() {
   });
   return {
     forget: (id: string) => forget.mutate({ client: searchClient(), value: id }),
-    clear: () => clear.mutate({ client: searchClient(), value: null }),
+    clear: () => {
+      const client = searchClient();
+      return () => clear.mutate({ client, value: null });
+    },
     setPaused: (paused: boolean) => setPaused.mutate({ client: searchClient(), value: paused }),
   };
 }

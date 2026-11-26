@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, search } from "@tokuly/api";
 import { router } from "expo-router";
+import { Alert, type AlertButton } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { api } from "#/lib/api";
 import { SearchScreen, type SearchStart } from "../search-screen";
@@ -18,6 +19,7 @@ const hit = (kind: search.SearchKind, id: string, title: string, fields: object 
 function server() {
   const asked: { query: string; kind: search.SearchKind; skipHistory: boolean }[] = [];
   const forgotten: string[] = [];
+  const history = { cleared: false };
   let recent = [
     create(search.RecentSearchSchema, { id: "r1", query: "カフェ" }),
     create(search.RecentSearchSchema, { id: "r2", query: "文化祭" }),
@@ -29,6 +31,11 @@ function server() {
       deleteRecentSearch: async ({ id }: { id: string }) => {
         forgotten.push(id);
         recent = recent.filter((item) => item.id !== id);
+        return {};
+      },
+      clearRecentSearches: async () => {
+        history.cleared = true;
+        recent = [];
         return {};
       },
       suggest: async () => ({ completions: [], hits: [] }),
@@ -53,7 +60,7 @@ function server() {
       },
     }),
   } as never);
-  return { asked, forgotten };
+  return { asked, forgotten, history };
 }
 
 async function show(start: SearchStart = {}) {
@@ -80,6 +87,19 @@ describe("SearchScreen", () => {
     await fireEvent.press(screen.getByTestId("search-recent:r1-forget"));
     await waitFor(() => expect(screen.queryByText("カフェ")).not.toBeOnTheScreen());
     expect(forgotten).toEqual(["r1"]);
+  });
+
+  it("clears the history of the account that tapped, even if another is signed in by the confirmation", async () => {
+    const tapped = server();
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    await show();
+    await fireEvent.press(await screen.findByTestId("search-history-clear"));
+    const other = server();
+    const buttons = alert.mock.calls[0]?.[2] as AlertButton[];
+    buttons.find((button) => button.style === "destructive")?.onPress?.();
+    await waitFor(() => expect(tapped.history.cleared).toBe(true));
+    expect(other.history.cleared).toBe(false);
+    alert.mockRestore();
   });
 
   it("remembers what was typed, opens people and searches a tag", async () => {

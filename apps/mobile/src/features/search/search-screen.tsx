@@ -208,11 +208,14 @@ function Idle({ onSearch }: { onSearch(query: string): void }) {
   });
   const recents = list.filter((item) => item.group === "recent");
   const trends = list.filter((item) => item.group === "trending");
-  const confirmClear = () =>
+  const confirmClear = () => {
+    // The account is the one that tapped, even if another is signed in by the time it is confirmed.
+    const clear = history.clear();
     Alert.alert(t("recent.clearTitle"), t("recent.clearBody"), [
       { text: t("common:actions.cancel"), style: "cancel" },
-      { text: t("recent.clearConfirm"), style: "destructive", onPress: history.clear },
+      { text: t("recent.clearConfirm"), style: "destructive", onPress: clear },
     ]);
+  };
   return (
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="pb-12">
       <Heading title={paused ? `${t("recent.title")} · ${t("recent.paused")}` : t("recent.title")}>
