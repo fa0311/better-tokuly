@@ -75,9 +75,8 @@ async function startOver(response: identity.AuthResponse | null): Promise<void> 
  * Parks the account in use. Its API is settled first: the token that is
  * parked is the one its session ended up with, not one a refresh is spending.
  */
-async function park(sessionId: string): Promise<void> {
-  await settleApi();
-  await parkActive(sessionId);
+function park(sessionId: string): Promise<void> {
+  return settleApi(() => parkActive(sessionId));
 }
 
 function activeSessionId(): string | null {
@@ -171,10 +170,11 @@ export async function signOut(allSessions = false): Promise<{ everywherePending:
 async function signOutActive(allSessions: boolean): Promise<void> {
   await leave();
   // The token set aside is the one the session ended up with (a refresh on its way lands first).
-  await settleApi();
-  const sessionId = activeSessionId();
-  const token = await activeTokenStore.get();
-  if (sessionId && token) await addDeparted(sessionId, { token, allSessions });
+  await settleApi(async () => {
+    const sessionId = activeSessionId();
+    const token = await activeTokenStore.get();
+    if (sessionId && token) await addDeparted(sessionId, { token, allSessions });
+  });
   await api().session.signOut(allSessions);
   await startOver(null);
 }
