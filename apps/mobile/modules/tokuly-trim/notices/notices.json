@@ -1,0 +1,16 @@
+[
+  {
+    "name": "androidx.media3:media3-transformer",
+    "version": "1.9.1",
+    "license": "Apache-2.0",
+    "url": "https://github.com/androidx/media",
+    "textFile": "Apache-2.0.txt"
+  },
+  {
+    "name": "androidx.media3:media3-common",
+    "version": "1.9.1",
+    "license": "Apache-2.0",
+    "url": "https://github.com/androidx/media",
+    "textFile": "Apache-2.0.txt"
+  }
+]

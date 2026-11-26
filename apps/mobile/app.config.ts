@@ -1,6 +1,14 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
 
 /**
+ * The open-source notices the app shows (Settings → licences), written from
+ * what this build bundles every time the config is read: by every build,
+ * export and dev server (`scripts/licenses.js`).
+ */
+const { writeLicenses } = require("./scripts/licenses.js") as { writeLicenses(): number };
+writeLicenses();
+
+/**
  * The Tokuly server this build talks to: one origin that serves `/api`,
  * `/rt/ws`, `/media`, `/tiles` and `/map-assets` (the edge in production,
  * the web dev server's proxy in development). Read at build time.

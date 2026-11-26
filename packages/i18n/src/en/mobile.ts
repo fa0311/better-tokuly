@@ -77,6 +77,7 @@ export default {
     invalidInvite: "This invite link doesn't work",
   },
   settings: {
+    licenses: "Open-source licences",
     title: "Settings",
     accounts: "Switch accounts",
     web: "More settings",
@@ -210,5 +211,11 @@ export default {
     commentPlaceholder: "Add a comment…",
     commentSend: "Send",
     commentsOff: "Comments are off for this short",
+  },
+  licenses: {
+    title: "Open-source licences",
+    lead: "Tokuly is built with {{count}} open-source packages. Thank you!",
+    search: "Find a package",
+    noText: "{{license}} licence (the full text is at the link)",
   },
 } as const;

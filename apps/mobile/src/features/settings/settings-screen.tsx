@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { ChevronRight, ExternalLink, LogOut, Users } from "lucide-react-native";
+import { ChevronRight, ExternalLink, LogOut, Scale, Users } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
@@ -46,6 +46,12 @@ export function SettingsScreen() {
           label={t("settings.web")}
           hint={t("settings.webHint")}
           onPress={() => void openWebSettings()}
+        />
+        <Row
+          testID="settings-licenses"
+          icon={<Scale size={20} color={colors.ink} />}
+          label={t("settings.licenses")}
+          onPress={() => router.push("/licenses")}
         />
       </Section>
       <Text className="px-1 text-xs text-ink-soft">{t("settings.webNote")}</Text>

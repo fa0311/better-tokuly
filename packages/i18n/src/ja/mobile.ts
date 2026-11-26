@@ -77,6 +77,7 @@ export default {
     invalidInvite: "この招待リンクは使えないみたい",
   },
   settings: {
+    licenses: "オープンソースライセンス",
     title: "設定",
     accounts: "アカウント切り替え",
     web: "そのほかの設定",
@@ -210,5 +211,11 @@ export default {
     commentPlaceholder: "コメントを書く…",
     commentSend: "送る",
     commentsOff: "このショートはコメントを受けつけてないよ",
+  },
+  licenses: {
+    title: "オープンソースライセンス",
+    lead: "Tokulyは{{count}}こ のオープンソースソフトウェアでできてるよ。ありがとう！",
+    search: "パッケージをさがす",
+    noText: "{{license}} ライセンス（全文はリンク先にあるよ）",
   },
 } as const;

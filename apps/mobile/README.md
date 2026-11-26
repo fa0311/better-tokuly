@@ -121,6 +121,11 @@ its tests) and the web switches to it.
   Android channels (one per category) keep the system's lock-screen rule. A tap
   opens the screen the notification is about (`features/notifications/target.ts`),
   the inbox otherwise.
+- **Open-source notices** (Settings → licences, needed for the stores) are
+  written at build time by `scripts/licenses.js`, which app.config.ts runs:
+  every production dependency the app bundles with its licence and text, and
+  the native libraries of the app's own modules (`modules/*/notices`). The
+  output, `src/generated/licenses.json`, is not checked in.
 - **Settings** not native yet open the web in an in-app browser. The backend
   has no flow to hand a session over to the web safely (a one-time code
   exchanged for the cookie), and tokens never go into URLs, so the web asks to

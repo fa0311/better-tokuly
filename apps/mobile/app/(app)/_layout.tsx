@@ -56,6 +56,7 @@ function SignedIn() {
         />
         <Stack.Screen name="settings" options={{ title: t("settings.title") }} />
         <Stack.Screen name="accounts" options={{ title: ta("title") }} />
+        <Stack.Screen name="licenses" options={{ title: t("licenses.title") }} />
         <Stack.Screen
           name="add-account"
           options={{ title: ta("addTitle"), presentation: "modal" }}
