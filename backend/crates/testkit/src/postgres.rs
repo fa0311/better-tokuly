@@ -31,8 +31,9 @@ async fn admin(cfg: &Config) -> sqlx::Result<PgConnection> {
     PgConnection::connect(&cfg.database_url).await
 }
 
-/// Creates the database with `migrations` (numeric file prefixes) applied
-/// and returns its URL.
+/// Creates the database with `migrations` applied and returns its URL. Each
+/// entry names a domain by its number (`"0600"`) and brings in every file of
+/// its range (`0600_chat.sql`, then `0601_chat_….sql` added after a release).
 pub(crate) async fn create(cfg: &Config, run: &Run, migrations: &[String]) -> String {
     let name = database(run);
     let mut admin = admin(cfg).await.unwrap_or_else(|e| {
@@ -58,10 +59,12 @@ pub(crate) async fn create(cfg: &Config, run: &Run, migrations: &[String]) -> St
             "testkit: no migration file starts with `{wanted}_`"
         );
     }
+    let range = |number: &str| number.parse::<u32>().ok().map(|n| n / 100);
+    let wanted: Vec<_> = migrations.iter().map(|m| range(m)).collect();
     for file in files {
         let file_name = file.file_name().unwrap().to_string_lossy().into_owned();
-        let prefix = file_name.split('_').next().unwrap_or_default();
-        if !migrations.iter().any(|m| m == prefix) {
+        let number = file_name.split('_').next().unwrap_or_default();
+        if !wanted.contains(&range(number)) {
             continue;
         }
         let sql = std::fs::read_to_string(&file).expect("testkit: read migration");

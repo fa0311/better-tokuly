@@ -32,3 +32,6 @@ narrower re-check after fixes for those risky ones. Verify claims yourself where
 
 Tag only when CI, Stack and End to end are green on the commit (`gh workflow run e2e.yml --ref main` when a
 backend-only change skipped it); `release.yml` publishes images and archives.
+Before a stable tag (`vX.Y.Z`), freeze the migrations it ships: `cd backend/migrations && sha384sum
+[0-9]*.sql > frozen.sha384`, commit; `release.yml` refuses a stable tag whose table is out of date. From the
+first stable tag on, schema changes follow `backend/README.md`, "After a release".

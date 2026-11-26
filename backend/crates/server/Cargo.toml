@@ -63,5 +63,7 @@ sqlx.workspace = true
 
 [dev-dependencies]
 tokuly-testkit.workspace = true
+sha2.workspace = true
+hex.workspace = true
 tokuly-proto = { workspace = true, features = ["common", "dev", "geo", "social"] }
 chrono.workspace = true

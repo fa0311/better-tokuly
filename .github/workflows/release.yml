@@ -30,6 +30,16 @@ jobs:
             *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT"; echo "tags=$version" >> "$GITHUB_OUTPUT" ;;
             *)   echo "prerelease=false" >> "$GITHUB_OUTPUT"; echo "tags=$version latest" >> "$GITHUB_OUTPUT" ;;
           esac
+      - uses: actions/checkout@v7
+      # A stable release freezes every migration it ships (docs/agents/process.md, "Releasing").
+      - name: The migrations are frozen
+        if: steps.version.outputs.prerelease == 'false'
+        working-directory: backend/migrations
+        run: |
+          diff <(sha384sum [0-9]*.sql) frozen.sha384 || {
+            echo "::error::frozen.sha384 does not list exactly the migrations of this release: run 'sha384sum [0-9]*.sql > frozen.sha384' in backend/migrations, commit, and tag again"
+            exit 1
+          }
 
   images:
     needs: version
@@ -76,6 +86,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          flags=(--title "Tokuly $VERSION" --generate-notes)
+          if [ "$PRERELEASE" = true ]; then
+            notes="このプレリリースのデータを、この先のバージョンへ移行できるとは限りません。試用向けです。
+          Data of this pre-release may not upgrade to later versions; it is for trying out."
+          else
+            notes="アップグレードは安定版からのみ対応しています（アルファ版・ベータ版からの移行は保証しません）。
+          Upgrades are supported from stable releases only, not from alpha or beta versions."
+          fi
+          flags=(--title "Tokuly $VERSION" --notes "$notes" --generate-notes)
           [ "$PRERELEASE" = true ] && flags+=(--prerelease)
           gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS "${flags[@]}"
