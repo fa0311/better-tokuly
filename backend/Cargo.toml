@@ -57,6 +57,7 @@ tokuly-school = { path = "crates/school" }
 tokuly-spaces = { path = "crates/spaces" }
 tokuly-community = { path = "crates/community" }
 tokuly-dev = { path = "crates/dev" }
+tokuly-demo = { path = "crates/demo" }
 tokuly-testkit = { path = "crates/testkit" }
 
 # ── async runtime & http ──
