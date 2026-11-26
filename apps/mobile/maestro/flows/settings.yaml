@@ -62,7 +62,8 @@ env:
 - tapOn: "OK"
 - back
 
-# Security: this phone among the signed-in devices; two-step verification starts with a key.
+# Security: this phone among the signed-in devices; two-step verification starts with a key
+# (no screenshot: that screen is hidden from capture).
 - tapOn: { id: "settings-security" }
 - extendedWaitUntil:
     visible: { id: "session-row" }
@@ -73,6 +74,5 @@ env:
 - extendedWaitUntil:
     visible: { id: "totp-secret" }
     timeout: 15000
-- takeScreenshot: 23-totp-setup
 - back
 - back

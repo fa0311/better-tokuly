@@ -10,6 +10,7 @@ import { TextField } from "#/components/text-field";
 import { type Account, currentAccount } from "#/features/session/account";
 import { useMe } from "#/features/session/store";
 import { errorMessage } from "#/lib/errors";
+import { useHiddenFromCapture } from "#/platform/capture";
 import { adoptTotp } from "./data";
 
 /** Keeps a code field to what a code can be: digits, optionally spaced. */
@@ -23,6 +24,8 @@ const digitsOnly = (value: string) => value.replace(/[^\d\s]/g, "").slice(0, 7);
 export function TotpSetupScreen() {
   const { t } = useTranslation(["settings", "mobile", "common"]);
   const me = useMe();
+  // The key and the recovery codes open the account: neither ends up in a screenshot or the app switcher.
+  useHiddenFromCapture();
   // The whole setup belongs to the account that began it.
   const [account] = useState<Account | null>(currentAccount);
   const [code, setCode] = useState("");
@@ -81,6 +84,7 @@ export function TotpSetupScreen() {
           {t("settings:security.totp.recoveryTitle")}
         </Text>
         <Text className="text-sm text-ink-soft">{t("settings:security.totp.recoveryLead")}</Text>
+        <Text className="text-xs text-ink-soft">{t("mobile:totp.noCapture")}</Text>
         <View testID="recovery-codes" className="flex-row flex-wrap rounded-card bg-surface p-4">
           {recoveryCodes.map((recovery) => (
             <Text

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Code, ConnectError, create, identity } from "@tokuly/api";
+import { usePreventScreenCapture } from "expo-screen-capture";
 import type { ReactElement } from "react";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -14,6 +15,11 @@ jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: 
 jest.mock("#/features/session/account", () => ({
   currentAccount: jest.fn(),
   isActive: () => true,
+}));
+jest.mock("expo-screen-capture", () => ({
+  usePreventScreenCapture: jest.fn(),
+  enableAppSwitcherProtectionAsync: jest.fn(async () => {}),
+  disableAppSwitcherProtectionAsync: jest.fn(async () => {}),
 }));
 jest.mock("expo-router", () => ({ router: { push: jest.fn(), back: jest.fn() } }));
 
@@ -90,6 +96,8 @@ describe("security settings", () => {
   it("turn two-step verification on with a code and the password, then show the recovery codes once", async () => {
     const main = await open(<TotpSetupScreen />);
     expect(await screen.findByTestId("totp-secret")).toHaveTextContent("JBSWY3DP");
+    // The key and the codes stay out of screenshots and the app switcher.
+    expect(usePreventScreenCapture).toHaveBeenCalled();
     await fireEvent.changeText(screen.getByTestId("totp-code"), "12a3456");
     await fireEvent.changeText(screen.getByTestId("totp-password"), "secret-pass");
     await fireEvent.press(screen.getByTestId("totp-confirm"));

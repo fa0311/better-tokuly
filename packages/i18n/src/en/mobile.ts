@@ -98,6 +98,7 @@ export default {
     noApp: "No authenticator app found. Press and hold the key below to copy it",
     manual: "To type it into the app yourself, use this key (press and hold to copy)",
     shareCodes: "Share to save them",
+    noCapture: "To keep them safe, this screen can't be captured. Save them with the button below",
   },
   security: {
     onWeb: "Opens on the web",
