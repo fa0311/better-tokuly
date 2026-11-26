@@ -8,6 +8,7 @@ import common from "./common";
 import errors from "./errors";
 import follows from "./follows";
 import friends from "./friends";
+import live from "./live";
 import map from "./map";
 import mobile from "./mobile";
 import notelists from "./notelists";
@@ -34,6 +35,7 @@ export default {
   notes,
   notelists,
   clips,
+  live,
   profile,
   mobile,
 };
