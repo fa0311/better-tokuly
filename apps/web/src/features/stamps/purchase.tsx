@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { errorReason, type stamp } from "@tokuly/api";
+import { patchPack, refreshHoldings, stampKeys } from "@tokuly/core/stamps";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
@@ -9,7 +10,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
 import { useBalance } from "#/features/wallet";
 import { errorMessage } from "#/lib/errors";
-import { libraryClient, patchPack, refreshHoldings, stampKeys } from "./api";
+import { libraryClient } from "./api";
 import { PackCover, PackMaker } from "./parts";
 
 /**

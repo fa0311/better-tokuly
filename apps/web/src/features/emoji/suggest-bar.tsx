@@ -1,8 +1,8 @@
+import { shortcodePrefixAt } from "@tokuly/core/emoji";
 import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
 import { EmojiImage } from "./emoji";
 import { useEmojiSuggest } from "./suggest";
-import { shortcodePrefixAt } from "./text";
 import { recordEmojiUse } from "./use";
 
 /** The text with the `:prefix` between `start` and `caret` replaced by an emoji, and where the caret goes. */

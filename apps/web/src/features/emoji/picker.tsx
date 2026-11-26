@@ -1,6 +1,14 @@
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { Popover } from "@base-ui/react/popover";
 import type { emoji as emojiApi } from "@tokuly/api";
+import {
+  type Catalog,
+  type CatalogEmoji,
+  customChoice,
+  type EmojiChoice,
+  searchEmoji,
+  toCatalogEmoji,
+} from "@tokuly/core/emoji";
 import { Search, Star, X } from "lucide-react";
 import {
   type KeyboardEvent,
@@ -14,9 +22,8 @@ import {
 import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
 import { useDeck, useRecentEmoji } from "./api";
-import { type Catalog, type CatalogEmoji, toCatalogEmoji, useCatalog } from "./catalog";
+import { useCatalog } from "./catalog";
 import { EmojiImage } from "./emoji";
-import { customChoice, type EmojiChoice, searchEmoji } from "./search";
 import { recordEmojiUse, useUnicodeTable } from "./use";
 
 export interface EmojiPickerProps {

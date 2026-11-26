@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { emojiKeys } from "@tokuly/core/emoji";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
-import { emojiKeys } from "./api";
 import { syncCatalog } from "./catalog";
 import { bindUseReporting } from "./use";
 

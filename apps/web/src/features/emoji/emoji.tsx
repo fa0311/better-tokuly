@@ -1,6 +1,7 @@
+import { type CatalogEmoji, stillUrl } from "@tokuly/core/emoji";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "#/lib/cn";
-import { type CatalogEmoji, stillUrl, useCatalog } from "./catalog";
+import { useCatalog } from "./catalog";
 import { useMotionAllowed, useShowSensitive, watchVisibility } from "./prefs";
 
 export interface EmojiImageProps {

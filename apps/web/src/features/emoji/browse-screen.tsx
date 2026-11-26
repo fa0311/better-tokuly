@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { type CatalogEmoji, emojiKeys, toCatalogEmoji } from "@tokuly/core/emoji";
 import { profileKeys } from "@tokuly/core/profile";
 import { ClipboardList, Plus, Star, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
@@ -10,8 +11,8 @@ import { EmptyState, Page } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
 import { profileClient } from "#/lib/api";
-import { emojiClient, emojiKeys } from "./api";
-import { type CatalogEmoji, toCatalogEmoji, useCatalog } from "./catalog";
+import { emojiClient } from "./api";
+import { useCatalog } from "./catalog";
 import {
   EmojiTile,
   FilterPill,

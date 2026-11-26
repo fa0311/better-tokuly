@@ -1,13 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { stamp } from "@tokuly/api";
+import { stampQueries } from "@tokuly/core/stamps";
 import { BadgeCheck, ChevronRight, LibraryBig, Palette } from "lucide-react";
 import { type ComponentType, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { BalancePill } from "#/features/wallet";
 import { cn } from "#/lib/cn";
-import { stampKeys, storeClient } from "./api";
+import { storeClient } from "./api";
 import { PackCard, PackRow, SearchField, SectionHeading, TagLink } from "./parts";
 
 type BrowseSection = "featured" | "popular" | "new" | "official";
@@ -17,10 +18,7 @@ export function StoreScreen() {
   const { t } = useTranslation("stamps");
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
-  const { data, isPending, isError } = useQuery({
-    queryKey: stampKeys.storeHome,
-    queryFn: () => storeClient().getStoreHome({}),
-  });
+  const { data, isPending, isError } = useQuery(stampQueries.storeHome(storeClient));
   const empty = data && data.featured.length + data.popular.length + data.newest.length === 0;
 
   return (

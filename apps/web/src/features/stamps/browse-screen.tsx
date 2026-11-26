@@ -1,13 +1,14 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { stamp } from "@tokuly/api";
+import { stampQueries } from "@tokuly/core/stamps";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
-import { stampKeys, storeClient } from "./api";
+import { storeClient } from "./api";
 import { PackCard, PackGridSkeleton, SearchField, TagLink } from "./parts";
 
 const SECTIONS = ["popular", "new", "featured", "official"] as const;
@@ -84,33 +85,16 @@ export function BrowseScreen({ search }: { search: BrowseSearch }) {
     return () => clearTimeout(timer);
   }, [text, query, navigate]);
 
-  const packs = useInfiniteQuery({
-    queryKey: query
-      ? stampKeys.storeSearch(query, PRICE_VALUE[price])
-      : stampKeys.storeList(SECTION_VALUE[section], tag, PRICE_VALUE[price]),
-    queryFn: async ({ pageParam }) => {
-      const page = { limit: PAGE_SIZE, cursor: pageParam };
-      const response = query
-        ? await storeClient().searchPacks({ query, price: PRICE_VALUE[price], page })
-        : await storeClient().listStorePacks({
-            section: SECTION_VALUE[section],
-            tag,
-            price: PRICE_VALUE[price],
-            page,
-          });
-      return { packs: response.packs, next: response.page?.nextCursor ?? "" };
-    },
-    initialPageParam: "",
-    getNextPageParam: (last) => last.next || undefined,
-  });
+  const packs = useInfiniteQuery(
+    stampQueries.shelf(
+      storeClient,
+      { section: SECTION_VALUE[section], tag, price: PRICE_VALUE[price], query },
+      PAGE_SIZE,
+    ),
+  );
   const items = packs.data?.pages.flatMap((page) => page.packs) ?? [];
   // Tags to narrow a shelf by, offered until one is chosen.
-  const tags = useQuery({
-    queryKey: stampKeys.tags,
-    queryFn: () => storeClient().listPopularTags({ limit: 30 }),
-    enabled: !query && !tag,
-    staleTime: 5 * 60_000,
-  });
+  const tags = useQuery({ ...stampQueries.tags(storeClient), enabled: !query && !tag });
 
   return (
     <Page

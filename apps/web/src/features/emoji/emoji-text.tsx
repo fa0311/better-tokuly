@@ -1,7 +1,7 @@
+import { splitEmojiText } from "@tokuly/core/emoji";
 import { Fragment } from "react";
 import { useCatalog } from "./catalog";
 import { EmojiImage } from "./emoji";
-import { splitEmojiText } from "./text";
 
 export interface EmojiTextProps {
   /** Plain text: a message, a display name, a profile line. */

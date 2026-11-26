@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { stamp } from "@tokuly/api";
+import { patchStamp, refreshHoldings, stampKeys, stampQueries } from "@tokuly/core/stamps";
 import { ChevronRight, Download, Heart, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,14 +13,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import {
-  libraryClient,
-  patchStamp,
-  refreshHoldings,
-  stampKeys,
-  storeClient,
-  useToggleFavorite,
-} from "./api";
+import { libraryClient, storeClient, useToggleFavorite } from "./api";
 import { PackCover, PackMaker, PriceTag } from "./parts";
 import { PurchaseDialog } from "./purchase";
 import { StampImage } from "./stamp-image";
@@ -52,8 +46,7 @@ function Sheet({ stampId, open, onClose }: { stampId: string; open: boolean; onC
   const { t } = useTranslation("stamps");
   const queryClient = useQueryClient();
   const { data, isPending, isError } = useQuery({
-    queryKey: stampKeys.stamp(stampId),
-    queryFn: () => storeClient().getStamp({ stampId }),
+    ...stampQueries.stamp(storeClient, stampId),
     enabled: open,
     staleTime: 0,
   });

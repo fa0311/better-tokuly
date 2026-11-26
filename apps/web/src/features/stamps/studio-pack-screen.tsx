@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { media, stamp, toDate } from "@tokuly/api";
+import { stampKeys } from "@tokuly/core/stamps";
 import {
   Crown,
   ExternalLink,
@@ -26,7 +27,7 @@ import { Sortable } from "#/components/ui/sortable";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
-import { stampKeys, studioClient, usePack } from "./api";
+import { studioClient, usePack } from "./api";
 import { StampMaker } from "./editor/stamp-maker";
 import { netEarnings, PackFormDialog, type PackListing } from "./pack-form";
 import { PackStats } from "./pack-stats";

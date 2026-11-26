@@ -13,6 +13,7 @@
     "./ask": "./src/ask/index.ts",
     "./chat": "./src/chat/index.ts",
     "./community": "./src/community/index.ts",
+    "./emoji": "./src/emoji/index.ts",
     "./footprints": "./src/footprints/index.ts",
     "./friends": "./src/friends/index.ts",
     "./history": "./src/history/index.ts",
@@ -29,6 +30,7 @@
     "./shorts": "./src/shorts/index.ts",
     "./live": "./src/live/index.ts",
     "./spaces": "./src/spaces/index.ts",
+    "./stamps": "./src/stamps/index.ts",
     "./stories": "./src/stories/index.ts",
     "./video": "./src/video/index.ts"
   },

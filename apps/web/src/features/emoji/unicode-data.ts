@@ -4,11 +4,9 @@
  * English word is its name. This module is loaded on demand (the picker and
  * the autocomplete import it lazily): it is data, not code.
  */
-export interface UnicodeEmoji {
-  emoji: string;
-  en: string[];
-  ja: string[];
-}
+import type { UnicodeEmoji } from "@tokuly/core/emoji";
+
+export type { UnicodeEmoji };
 
 export type UnicodeGroupId =
   | "smileys"

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { stamp, toDate } from "@tokuly/api";
+import { contextKey, stampKeys, stampQueries } from "@tokuly/core/stamps";
 import { GripVertical, MoreHorizontal, Plus, Smile, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,7 +22,7 @@ import { Sortable } from "#/components/ui/sortable";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { contextKey, libraryClient, stampKeys, useInstallPack, useUninstallPack } from "./api";
+import { libraryClient, useInstallPack, useUninstallPack } from "./api";
 import { PersonalStampMaker } from "./editor/stamp-maker";
 import { PackRow, SearchField, StampGrid, StampTile } from "./parts";
 import { StampPicker } from "./picker";
@@ -175,13 +176,7 @@ type InstalledPages = InfiniteData<stamp.ListInstalledPacksResponse, string>;
 function InstalledPacks() {
   const { t } = useTranslation("stamps");
   const queryClient = useQueryClient();
-  const installed = useInfiniteQuery({
-    queryKey: stampKeys.installed,
-    queryFn: ({ pageParam }) =>
-      libraryClient().listInstalledPacks({ page: { limit: 100, cursor: pageParam } }),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.page?.nextCursor || undefined,
-  });
+  const installed = useInfiniteQuery(stampQueries.installed(libraryClient));
   const packs = installed.data?.pages.flatMap((page) => page.packs) ?? [];
   const uninstall = useUninstallPack();
   const [confirming, setConfirming] = useState<stamp.PackSummary | null>(null);

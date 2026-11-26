@@ -1,11 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { create, emoji } from "@tokuly/api";
+import { emojiKeys } from "@tokuly/core/emoji";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
-import { emojiClient, emojiKeys } from "./api";
-
-/** The most emoji a deck holds. */
-export const DECK_MAX = 100;
+import { emojiClient } from "./api";
 
 const SAVE_KEY = ["emoji", "deck", "save"] as const;
 

@@ -1,12 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { common } from "@tokuly/api";
+import { emojiKeys } from "@tokuly/core/emoji";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { TextField } from "#/components/ui/field";
 import { Spinner } from "#/components/ui/spinner";
 import { profileClient } from "#/lib/api";
-import { emojiAdminClient, emojiClient, emojiKeys } from "../api";
+import { emojiAdminClient, emojiClient } from "../api";
 import { syncCatalog } from "../catalog";
 import { useDebounced } from "../parts";
 

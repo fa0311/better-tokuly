@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import type { common, emoji as emojiApi } from "@tokuly/api";
+import { shortcode } from "@tokuly/core/emoji";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,6 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea } from "#/components/ui/field";
 import { errorMessage } from "#/lib/errors";
-import { shortcode } from "../api";
 import { draftReady, EMPTY_DRAFT, type EmojiDraft, EmojiForm } from "../emoji-form";
 import { emojiAdminClient, UserLine, UserSearch, useAdminRefresh } from "./shared";
 

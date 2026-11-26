@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { DECK_MAX, type EmojiChoice, emojiKeys } from "@tokuly/core/emoji";
 import { Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,12 +10,11 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Sortable } from "#/components/ui/sortable";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { emojiClient, emojiKeys, useDeck, useRecentEmoji } from "./api";
+import { emojiClient, useDeck, useRecentEmoji } from "./api";
 import { useCatalog } from "./catalog";
-import { DECK_MAX, useSaveDeck } from "./deck";
+import { useSaveDeck } from "./deck";
 import { EmojiImage } from "./emoji";
 import { EmojiPicker, toChoices } from "./picker";
-import type { EmojiChoice } from "./search";
 
 function Glyph({ choice, className }: { choice: EmojiChoice; className?: string }) {
   return choice.kind === "custom" ? (

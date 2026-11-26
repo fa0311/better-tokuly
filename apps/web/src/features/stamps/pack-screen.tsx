@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { stamp, toDate } from "@tokuly/api";
+import { stampKeys } from "@tokuly/core/stamps";
 import { BadgeCheck, Check, Download, Pencil, Share2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,14 +12,7 @@ import { Chip } from "#/components/ui/card";
 import { CoinIcon } from "#/components/ui/coins";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
-import {
-  formatCount,
-  stampKeys,
-  storeClient,
-  useInstallPack,
-  usePack,
-  useUninstallPack,
-} from "./api";
+import { formatCount, storeClient, useInstallPack, usePack, useUninstallPack } from "./api";
 import {
   AnimatedMark,
   PackCard,
