@@ -1,8 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, video } from "@tokuly/api";
+import { AppState } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { currentAccount } from "#/features/session/account";
+import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
+import lifecycle from "../lifecycle";
 import { WatchScreen } from "../watch-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -33,11 +37,16 @@ const mockPlayer = {
   play: jest.fn(),
   pause: jest.fn(),
 };
+/** What the screen gave the player's view: the test calls its picture-in-picture events. */
+let mockView: { onPictureInPictureStart?(): void; onPictureInPictureStop?(): void } = {};
 jest.mock("expo-video", () => {
   const React = require("react");
   const { View } = require("react-native");
   return {
-    VideoView: () => require("react").createElement(View),
+    VideoView: (props: typeof mockView) => {
+      mockView = props;
+      return require("react").createElement(View);
+    },
     useVideoPlayer: (_source: unknown, setup?: (player: typeof mockPlayer) => void) => {
       const ready = React.useRef(false);
       if (!ready.current) {
@@ -94,6 +103,15 @@ function account() {
   return { object: { service: () => client }, calls };
 }
 
+/** Signs `who` in as the account in use. */
+function use(who: ReturnType<typeof account>, sessionId: string) {
+  jest.mocked(api).mockReturnValue(who.object as never);
+  useSessionStore.setState({ state: { status: "signedIn", sessionId, me: {} } as never });
+}
+
+/** The app goes to the back or comes to the front, as the system says it. */
+let appState: (state: string) => Promise<void>;
+
 async function open(params = {}) {
   const view = await render(
     <SafeAreaProvider
@@ -119,11 +137,22 @@ beforeEach(() => {
   mockListeners.clear();
   mockPlayer.currentTime = 0;
   mockPlayer.playing = false;
+  AppState.currentState = "active";
+  const listeners = new Set<(state: string) => void>();
+  jest.spyOn(AppState, "addEventListener").mockImplementation((_type, listener) => {
+    listeners.add(listener as (state: string) => void);
+    return { remove: () => listeners.delete(listener as (state: string) => void) } as never;
+  });
+  appState = (state) =>
+    act(async () => {
+      AppState.currentState = state as typeof AppState.currentState;
+      for (const listener of listeners) listener(state);
+    });
 });
 
 describe("WatchScreen", () => {
   it("starts where the viewer left off, or at the link's time", async () => {
-    jest.mocked(api).mockReturnValue(account().object as never);
+    use(account(), "a");
     const first = await open();
     expect(mockPlayer.currentTime).toBe(120);
     expect(mockPlayer.play).toHaveBeenCalled();
@@ -134,7 +163,7 @@ describe("WatchScreen", () => {
   });
 
   it("marks the chapter playing and jumps to one on a tap", async () => {
-    jest.mocked(api).mockReturnValue(account().object as never);
+    use(account(), "a");
     await open();
     await emit("timeUpdate", { currentTime: 310 });
     expect(screen.getByTestId("chapter-300").props.accessibilityState).toEqual(
@@ -146,7 +175,7 @@ describe("WatchScreen", () => {
 
   it("likes at once and takes the server's count", async () => {
     const a = account();
-    jest.mocked(api).mockReturnValue(a.object as never);
+    use(a, "a");
     await open();
     await act(async () => fireEvent.press(screen.getByTestId("video-like")));
     expect(a.calls.rate).toEqual([
@@ -155,10 +184,9 @@ describe("WatchScreen", () => {
     await waitFor(() => expect(screen.getByTestId("video-like-count").props.children).toBe("5"));
   });
 
-  it("reports the viewing as the account that watched, even when the screen closes after a switch", async () => {
+  it("reports where the viewer stopped as the screen closes", async () => {
     const a = account();
-    const b = account();
-    jest.mocked(api).mockReturnValue(a.object as never);
+    use(a, "a");
     const view = await open();
     mockPlayer.playing = true;
     mockPlayer.currentTime = 150;
@@ -166,12 +194,53 @@ describe("WatchScreen", () => {
     expect(a.calls.start).toEqual([
       expect.objectContaining({ videoId: "v1", source: video.TrafficSource.DIRECT }),
     ]);
-    // Another account takes over; then the screen closes.
-    jest.mocked(api).mockReturnValue(b.object as never);
     await view.unmount();
-    expect(b.calls.reports).toEqual([]);
     expect(a.calls.reports).toEqual([
       expect.objectContaining({ sessionId: "s1", positionSeconds: 150 }),
     ]);
+  });
+
+  it("stops reporting when its account leaves, though the video plays on", async () => {
+    const a = account();
+    const b = account();
+    use(a, "a");
+    const view = await open();
+    mockPlayer.playing = true;
+    mockPlayer.currentTime = 150;
+    await emit("playingChange", { isPlaying: true });
+
+    // A switch: the account leaves while its session still speaks for it…
+    await act(async () => lifecycle.beforeLeave(currentAccount() as never));
+    expect(a.calls.reports).toEqual([
+      expect.objectContaining({ sessionId: "s1", positionSeconds: 150, playing: true }),
+    ]);
+    // …then the other one takes over; the player goes on until the screen closes.
+    use(b, "b");
+    mockPlayer.currentTime = 200;
+    await emit("timeUpdate", { currentTime: 200 });
+    await emit("playingChange", { isPlaying: false });
+    await view.unmount();
+    expect(a.calls.reports).toHaveLength(1);
+    expect(b.calls.start).toEqual([]);
+    expect(b.calls.reports).toEqual([]);
+  });
+
+  it("counts playback in the small window, not behind another app or a locked screen", async () => {
+    const a = account();
+    use(a, "a");
+    await open();
+    mockPlayer.playing = true;
+    await emit("playingChange", { isPlaying: true });
+
+    // The sound goes on in the background: nobody is watching.
+    await appState("background");
+    expect(a.calls.reports.at(-1)).toEqual(expect.objectContaining({ playing: false }));
+    // The picture is back in a small window.
+    await act(async () => mockView.onPictureInPictureStart?.());
+    expect(a.calls.reports.at(-1)).toEqual(expect.objectContaining({ playing: true }));
+    await act(async () => mockView.onPictureInPictureStop?.());
+    expect(a.calls.reports.at(-1)).toEqual(expect.objectContaining({ playing: false }));
+    await appState("active");
+    expect(a.calls.reports.at(-1)).toEqual(expect.objectContaining({ playing: true }));
   });
 });
