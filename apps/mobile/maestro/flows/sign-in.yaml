@@ -47,7 +47,9 @@ env:
 - extendedWaitUntil:
     visible: ${'@' + output.handle}
     timeout: 15000
-- tapOn: { id: "me-settings" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: settings }
 - tapOn: { id: "settings-sign-out" }
 - tapOn: "(Sign out|ログアウト)"
 - extendedWaitUntil:

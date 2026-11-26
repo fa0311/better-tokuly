@@ -50,8 +50,9 @@ env:
 
 # Someone else, on the same phone: the for-you feed has the short.
 - runFlow: ../subflows/back.yaml
-- tapOn: { id: "tab-me" }
-- tapOn: { id: "me-settings" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: settings }
 - tapOn: { id: "settings-accounts" }
 - tapOn: { id: "accounts-add" }
 - runFlow:

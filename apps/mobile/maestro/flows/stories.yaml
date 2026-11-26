@@ -39,8 +39,9 @@ env:
 - tapOn: { id: "post-dismiss" }
 
 # The other account, beside this one, sees the new story first in the tray.
-- tapOn: { id: "tab-me" }
-- tapOn: { id: "me-settings" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: settings }
 - tapOn: { id: "settings-accounts" }
 - tapOn: { id: "accounts-add" }
 - runFlow:

@@ -16,15 +16,7 @@ import {
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Alert,
-  AppState,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
+import { Alert, AppState, KeyboardAvoidingView, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ActionSheet, type SheetAction } from "#/components/action-sheet";
 import { Button } from "#/components/button";
@@ -130,7 +122,8 @@ function StreamRoom({ stream }: { stream: live.Stream }) {
     <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-black" testID="live-room">
       <KeyboardAvoidingView
         className="flex-1 bg-surface"
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        // Android draws edge to edge: the window is not resized for the keyboard, so both pad.
+        behavior="padding"
       >
         <View className="bg-black">
           {stage}

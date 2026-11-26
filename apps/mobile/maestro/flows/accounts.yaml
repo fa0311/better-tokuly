@@ -18,8 +18,9 @@ env:
       PASSWORD: ${PASSWORD}
 
 # A second account beside the first.
-- tapOn: { id: "tab-me" }
-- tapOn: { id: "me-settings" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: settings }
 - extendedWaitUntil:
     visible: { id: "settings-screen" }
     timeout: 15000
@@ -38,7 +39,9 @@ env:
     timeout: 15000
 
 # Back to the first, without its password.
-- tapOn: { id: "me-settings" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: settings }
 - tapOn: { id: "settings-accounts" }
 - tapOn: { id: "${'switch-' + output.main}" }
 - extendedWaitUntil:
@@ -50,7 +53,9 @@ env:
     timeout: 15000
 
 # Signing out keeps the parked account on the device: continue as it.
-- tapOn: { id: "me-settings" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: settings }
 - tapOn: { id: "settings-sign-out" }
 - tapOn: "(Sign out|ログアウト)"
 - extendedWaitUntil:

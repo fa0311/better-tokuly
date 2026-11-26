@@ -18,8 +18,9 @@ env:
       PASSWORD: ${PASSWORD}
 
 # Videos are native now: the hub opens the feeds, not a web screen.
-- tapOn: { id: "tab-me" }
-- tapOn: { id: "me-video" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: video }
 - extendedWaitUntil:
     visible: { id: "video-feeds" }
     timeout: 15000

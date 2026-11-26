@@ -18,8 +18,9 @@ env:
       PASSWORD: ${PASSWORD}
 
 # The live list, from the last tab: the friend's stream is under 配信予定 with its countdown.
-- tapOn: { id: "tab-me" }
-- tapOn: { id: "me-live" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: live }
 - extendedWaitUntil:
     visible: { id: "live-browse" }
     timeout: 15000
