@@ -1,6 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { school } from "@tokuly/api";
+import {
+  addDays,
+  dayLabel,
+  mondayOf,
+  parseYmd,
+  schoolKeys,
+  studyTime,
+  takesPlace,
+  timerText,
+  weekdayOf,
+} from "@tokuly/core/school";
 import { ChevronLeft, ChevronRight, Timer } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,9 +19,9 @@ import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/page";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { keys, timetableClient, useProgress } from "./api";
-import { addDays, dayLabel, mondayOf, parseYmd, studyTime, timerText, weekdayOf } from "./dates";
-import { DayView, takesPlace } from "./day-view";
+import { timetableClient, useProgress } from "./api";
+
+import { DayView } from "./day-view";
 import { DueList } from "./due";
 import { ClassNowCard } from "./now-card";
 import { Block, SchoolPage, useNow } from "./parts";
@@ -33,12 +44,12 @@ export function TodayScreen() {
   const monday = mondayOf(date);
   const now = useNow(30_000);
   const week = useQuery({
-    queryKey: keys.days(monday, addDays(monday, 6)),
+    queryKey: schoolKeys.days(monday, addDays(monday, 6)),
     queryFn: async () =>
       (await timetableClient().listDays({ startDate: monday, endDate: addDays(monday, 6) })).days,
   });
   const day = useQuery({
-    queryKey: keys.day(date),
+    queryKey: schoolKeys.day(date),
     queryFn: async () => (await timetableClient().getDay({ date })).day,
   });
 

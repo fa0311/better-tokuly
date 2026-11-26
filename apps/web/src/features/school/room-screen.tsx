@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { common, school } from "@tokuly/api";
 import { pushesDuringReadByKey } from "@tokuly/core/query";
+import { refreshSchool, schoolKeys, studyTime } from "@tokuly/core/school";
 import {
   DoorOpen,
   Flag,
@@ -34,8 +35,8 @@ import { ReportDialog } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
-import { keys, refresh, roomClient, toastError } from "./api";
-import { studyTime } from "./dates";
+import { roomClient, toastError } from "./api";
+
 import { Block, FriendPicker, SchoolPage, SubjectPill, useNow } from "./parts";
 import { audienceKey, type RoomForm, RoomFormFields } from "./rooms-screen";
 import { setActiveSession, useActiveSession } from "./session-store";
@@ -75,7 +76,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
   const me = useMe();
   const now = useNow(250);
   const mySession = useActiveSession((state) => state.session);
-  const key = keys.room(roomId);
+  const key = schoolKeys.room(roomId);
   const {
     data: room,
     isPending,
@@ -110,7 +111,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
   useEffect(() => {
     const client = realtime();
     const topic = `study:${roomId}`;
-    const reread = () => void queryClient.invalidateQueries({ queryKey: keys.room(roomId) });
+    const reread = () => void queryClient.invalidateQueries({ queryKey: schoolKeys.room(roomId) });
     const { release } = client.subscribe(topic, {
       // In effect (first, or back after a gap): the room as read before may lack a timer change
       // pushed in between.
@@ -126,7 +127,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
         const timer = event.value;
         const update = (current: school.StudyRoom) => ({ ...current, timer });
         timerPushesDuringRead.record(roomId, update);
-        queryClient.setQueryData<school.StudyRoom>(keys.room(roomId), (current) =>
+        queryClient.setQueryData<school.StudyRoom>(schoolKeys.room(roomId), (current) =>
           current ? update(current) : current,
         );
       }
@@ -148,7 +149,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
       }
       if (event.case === "roomClosed") setClosed(true);
       // Presence and study times are the server's to say: ask for the room again.
-      void queryClient.invalidateQueries({ queryKey: keys.room(roomId) });
+      void queryClient.invalidateQueries({ queryKey: schoolKeys.room(roomId) });
     });
     client.start();
     return () => {
@@ -158,7 +159,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
   }, [roomId, queryClient, t]);
 
   const leaveToList = () => {
-    refresh(queryClient, "rooms", "study");
+    refreshSchool(queryClient, "rooms", "study");
     void navigate({ to: "/school/rooms" });
   };
   const join = useMutation({
@@ -167,7 +168,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
       setActiveSession(response.session, response.heartbeatIntervalSeconds);
       syncClock(response.room?.timer);
       queryClient.setQueryData(key, response.room);
-      refresh(queryClient, "study");
+      refreshSchool(queryClient, "study");
     },
     onError: toastError,
   });
@@ -606,7 +607,7 @@ function RoomSettingsDialog({ room, onClose }: { room: school.StudyRoom; onClose
         mode: form.mode === mode ? school.StudyMode.UNSPECIFIED : form.mode,
       }),
     onSuccess: () => {
-      refresh(queryClient, "rooms");
+      refreshSchool(queryClient, "rooms");
       onClose();
     },
     onError: toastError,
@@ -648,7 +649,7 @@ function InviteDialog({ room, onClose }: { room: school.StudyRoom; onClose(): vo
   const { t } = useTranslation("school");
   const queryClient = useQueryClient();
   const [chosen, setChosen] = useState<string[]>([]);
-  const done = () => void queryClient.invalidateQueries({ queryKey: keys.room(room.id) });
+  const done = () => void queryClient.invalidateQueries({ queryKey: schoolKeys.room(room.id) });
   const invite = useMutation({
     mutationFn: () => roomClient().inviteToStudyRoom({ roomId: room.id, userIds: chosen }),
     onSuccess: () => {

@@ -1,9 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
+import {
+  addDays,
+  dayLabel,
+  daysBetween,
+  parseYmd,
+  schoolKeys,
+  studyTime,
+  weekdayOf,
+} from "@tokuly/core/school";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
-import { keys, studyClient } from "./api";
-import { addDays, dayLabel, daysBetween, parseYmd, studyTime, weekdayOf } from "./dates";
+import { studyClient } from "./api";
 
 const LEVELS = ["bg-surface-3", "bg-brand/25", "bg-brand/50", "bg-brand/75", "bg-brand"];
 
@@ -14,7 +22,7 @@ const LEVELS = ["bg-surface-3", "bg-brand/25", "bg-brand/50", "bg-brand/75", "bg
 export function Heatmap({ userId = "" }: { userId?: string }) {
   const { t, i18n } = useTranslation("school");
   const { data, isPending, isError } = useQuery({
-    queryKey: keys.heatmap(userId),
+    queryKey: schoolKeys.heatmap(userId),
     queryFn: () => studyClient().getStudyHeatmap({ userId }),
   });
   if (isPending) return <Skeleton className="h-36" />;

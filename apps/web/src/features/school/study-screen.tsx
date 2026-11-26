@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { school } from "@tokuly/api";
+import { dayLabel, schoolKeys, studyTime, weekdayOf } from "@tokuly/core/school";
 import { Flame, Target } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,8 +9,8 @@ import { Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { keys, studyClient, useProgress } from "./api";
-import { dayLabel, studyTime, weekdayOf } from "./dates";
+import { studyClient, useProgress } from "./api";
+
 import { Heatmap } from "./heatmap";
 import { Block, Figure, SchoolPage, SubjectPill } from "./parts";
 import { StudyLog } from "./study-log";
@@ -137,7 +138,7 @@ function Summary() {
   const { t, i18n } = useTranslation("school");
   const [tab, setTab] = useState<PeriodTab>("week");
   const { data, isPending } = useQuery({
-    queryKey: keys.summary(PERIODS[tab]),
+    queryKey: schoolKeys.summary(PERIODS[tab]),
     queryFn: () => studyClient().getStudySummary({ period: PERIODS[tab] }),
   });
   const max = Math.max(1, ...(data?.days ?? []).map((day) => day.seconds));

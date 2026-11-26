@@ -1,12 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { errorReason, school } from "@tokuly/api";
+import { refreshSchool, schoolKeys } from "@tokuly/core/school";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
-import { keys, refresh, studyClient } from "./api";
+import { studyClient } from "./api";
 import {
   loadActiveSession,
   resetActiveSession,
@@ -48,15 +49,17 @@ export default function SchoolBackground() {
         case "session": {
           setActiveSession(event.value);
           if (event.value.state === school.SessionState.ENDED)
-            refresh(queryClient, "study", "rooms");
+            refreshSchool(queryClient, "study", "rooms");
           break;
         }
         case "friendStudying":
-          void queryClient.invalidateQueries({ queryKey: keys.studying });
+          void queryClient.invalidateQueries({ queryKey: schoolKeys.studying });
           break;
         case "cheer": {
           toast(t("study.cheered", { name: event.value.from?.displayName ?? "" }), { icon: "📣" });
-          void queryClient.invalidateQueries({ queryKey: keys.cheers(event.value.sessionId) });
+          void queryClient.invalidateQueries({
+            queryKey: schoolKeys.cheers(event.value.sessionId),
+          });
           const current = useActiveSession.getState().session;
           if (current?.id === event.value.sessionId)
             useActiveSession.setState({
@@ -74,7 +77,7 @@ export default function SchoolBackground() {
                 void router.navigate({ to: "/school/rooms/$roomId", params: { roomId: room.id } }),
             },
           });
-          refresh(queryClient, "rooms");
+          refreshSchool(queryClient, "rooms");
           break;
         }
         case "roomLeft": {
@@ -89,7 +92,7 @@ export default function SchoolBackground() {
                 : t("rooms.left.idle"),
             { icon: "🚪" },
           );
-          refresh(queryClient, "rooms", "study");
+          refreshSchool(queryClient, "rooms", "study");
           break;
         }
         case "roomTimer": {
@@ -125,12 +128,12 @@ export default function SchoolBackground() {
         setActiveSession(response.session, response.heartbeatIntervalSeconds);
         if (response.session?.state === school.SessionState.ENDED) {
           if (response.session.autoStopped) toast(t("study.autoStopped"), { icon: "⏱️" });
-          refresh(queryClient, "study", "rooms");
+          refreshSchool(queryClient, "study", "rooms");
         }
       } catch (error) {
         if (!stopped && errorReason(error) === "NO_ACTIVE_SESSION") {
           setActiveSession(undefined);
-          refresh(queryClient, "study", "rooms");
+          refreshSchool(queryClient, "study", "rooms");
         }
       }
     };

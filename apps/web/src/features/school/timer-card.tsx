@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { school, toDate } from "@tokuly/api";
+import { refreshSchool, schoolKeys, studyTime, timerText } from "@tokuly/core/school";
 import { DoorOpen, Pause, Play, RotateCw, SkipForward, Square } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,8 +13,8 @@ import { TextField } from "#/components/ui/field";
 import { Skeleton } from "#/components/ui/page";
 import { useAccountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { keys, refresh, studyClient, toastError, useSchoolSettings } from "./api";
-import { studyTime, timerText } from "./dates";
+import { studyClient, toastError, useSchoolSettings } from "./api";
+
 import { Segmented, SubjectPill, useNow } from "./parts";
 import { loadActiveSession, setActiveSession, useActiveSession } from "./session-store";
 import { SubjectSelect } from "./subject-select";
@@ -331,7 +332,7 @@ function StopDialog({ session, onClose }: { session: school.StudySession; onClos
     mutationFn: () => studyClient().stopStudySession({ memo }),
     onSuccess: (response) => {
       setActiveSession(undefined);
-      refresh(queryClient, "study", "studying");
+      refreshSchool(queryClient, "study", "studying");
       const seconds = response.session?.studiedSeconds ?? 0;
       if (
         response.progress?.goalReached &&
@@ -376,7 +377,7 @@ export function CheersDialog({ sessionId, onClose }: { sessionId: string; onClos
   const { t, i18n } = useTranslation("school");
   const zone = useAccountTimeZone();
   const cheers = useQuery({
-    queryKey: keys.cheers(sessionId),
+    queryKey: schoolKeys.cheers(sessionId),
     queryFn: async () =>
       (await studyClient().listStudyCheers({ sessionId, page: { limit: 100 } })).cheers,
   });

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { errorReason, toMillis } from "@tokuly/api";
+import { clock, dayLabel, schoolKeys } from "@tokuly/core/school";
 import { ChevronRight, Copy, MessageCircle } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,8 +15,8 @@ import { openDirectChat } from "#/features/chat";
 import { EmojiText } from "#/features/emoji";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { keys, timetableClient, useTerms } from "./api";
-import { clock, dayLabel } from "./dates";
+import { timetableClient, useTerms } from "./api";
+
 import { DayView } from "./day-view";
 import { TimetableGrid } from "./grid";
 import { Block, RowsSkeleton, SchoolPage, SubjectPill, useNow } from "./parts";
@@ -25,7 +26,7 @@ export type FriendsTab = "timetables" | "free";
 
 function useFriendTimetables() {
   return useQuery({
-    queryKey: keys.friendTimetables,
+    queryKey: schoolKeys.friendTimetables,
     queryFn: async () =>
       (await timetableClient().listFriendTimetables({ page: { limit: 100 } })).timetables,
   });
@@ -127,7 +128,7 @@ function FreePeriods() {
   const [only, setOnly] = useState<string[]>([]);
   const start = useAccountToday();
   const free = useQuery({
-    queryKey: keys.free(start, only),
+    queryKey: schoolKeys.free(start, only),
     queryFn: () =>
       timetableClient().findCommonFreePeriods({ startDate: start, days: 7, userIds: only }),
   });
@@ -257,24 +258,24 @@ export function FriendTimetableScreen({ userId }: { userId: string }) {
   const now = useNow(30_000);
   const date = useAccountToday();
   const timetable = useQuery({
-    queryKey: keys.friendTimetable(userId, termId),
+    queryKey: schoolKeys.friendTimetable(userId, termId),
     queryFn: () => timetableClient().getFriendTimetable({ userId, termId }),
     retry: false,
   });
   const friend = useQuery({
-    queryKey: keys.friendTimetables,
+    queryKey: schoolKeys.friendTimetables,
     queryFn: async () =>
       (await timetableClient().listFriendTimetables({ page: { limit: 100 } })).timetables,
     select: (list) => list.find((item) => item.user?.id === userId)?.user,
   });
   const classNow = useQuery({
-    queryKey: keys.now(userId),
+    queryKey: schoolKeys.now(userId),
     queryFn: async () => (await timetableClient().getNow({ userId })).now,
     refetchInterval: 60_000,
     retry: false,
   });
   const today = useQuery({
-    queryKey: keys.day(date, userId),
+    queryKey: schoolKeys.day(date, userId),
     queryFn: async () => (await timetableClient().getDay({ userId, date })).day,
     retry: false,
   });

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { school } from "@tokuly/api";
+import { dayLabel, inkOn, refreshSchool, schoolKeys } from "@tokuly/core/school";
 import {
   CalendarOff,
   Check,
@@ -25,11 +26,11 @@ import { Menu } from "#/components/ui/menu";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { cn } from "#/lib/cn";
-import { keys, refresh, timetableClient, toastError, useSubjects, useTerm, useTerms } from "./api";
-import { dayLabel } from "./dates";
+import { timetableClient, toastError, useSubjects, useTerm, useTerms } from "./api";
+
 import { TimetableGrid } from "./grid";
 import { collides, entryFor, type GridEntry, type Slot } from "./grid-model";
-import { inkOn, LoadFailed, SchoolPage, Segmented, SubjectPill } from "./parts";
+import { LoadFailed, SchoolPage, Segmented, SubjectPill } from "./parts";
 import { SubjectsDialog } from "./subjects-dialog";
 import { DayOverridesDialog, ShareDialog, TermDialog } from "./term-dialogs";
 
@@ -95,13 +96,13 @@ export function TimetableScreen({
     termKey: string,
     change: (entries: school.TimetableEntry[]) => school.TimetableEntry[],
   ) =>
-    queryClient.setQueryData<TermData>(keys.term(termKey), (current) =>
+    queryClient.setQueryData<TermData>(schoolKeys.term(termKey), (current) =>
       current ? { ...current, entries: change(current.entries) } : current,
     );
   const settle = (termKey: string) => {
     // Several taps in a row: ask for the grid again only after the last one.
     if (queryClient.isMutating({ mutationKey: PAINT }) <= 1)
-      void queryClient.invalidateQueries({ queryKey: keys.term(termKey) });
+      void queryClient.invalidateQueries({ queryKey: schoolKeys.term(termKey) });
     void queryClient.invalidateQueries({
       queryKey: ["school", "timetable"],
       predicate: (query) => query.queryKey[2] !== "term",
@@ -147,7 +148,7 @@ export function TimetableScreen({
       }),
     onMutate: async (input) => {
       // A refetch that is on its way would paint the old grid over this tap.
-      await queryClient.cancelQueries({ queryKey: keys.term(input.termId) });
+      await queryClient.cancelQueries({ queryKey: schoolKeys.term(input.termId) });
       const optimistic = {
         id: `pending-${input.weekday}-${input.period}-${input.weekPattern}`,
         termId: input.termId,
@@ -162,7 +163,7 @@ export function TimetableScreen({
       } as school.TimetableEntry;
       // What this tap pushes out of the slot: kept to put back if the server refuses, and for undo.
       const displaced = (
-        queryClient.getQueryData<TermData>(keys.term(input.termId))?.entries ?? []
+        queryClient.getQueryData<TermData>(schoolKeys.term(input.termId))?.entries ?? []
       ).filter((entry) => collides(entry, input.weekday, input.period, input.weekPattern));
       patchEntries(input.termId, (current) => [
         ...current.filter((entry) => !displaced.includes(entry)),
@@ -202,9 +203,9 @@ export function TimetableScreen({
     mutationFn: (input: { termId: string; entryIds: string[] }) =>
       timetableClient().deleteTimetableEntries(input),
     onMutate: async (input) => {
-      await queryClient.cancelQueries({ queryKey: keys.term(input.termId) });
+      await queryClient.cancelQueries({ queryKey: schoolKeys.term(input.termId) });
       const removed = (
-        queryClient.getQueryData<TermData>(keys.term(input.termId))?.entries ?? []
+        queryClient.getQueryData<TermData>(schoolKeys.term(input.termId))?.entries ?? []
       ).filter((entry) => input.entryIds.includes(entry.id));
       patchEntries(input.termId, (current) => current.filter((entry) => !removed.includes(entry)));
       return { removed };
@@ -251,7 +252,7 @@ export function TimetableScreen({
       }
     },
     onMutate: async (input) => {
-      await queryClient.cancelQueries({ queryKey: keys.term(input.termId) });
+      await queryClient.cancelQueries({ queryKey: schoolKeys.term(input.termId) });
       patchEntries(input.termId, (current) => [
         ...current.filter((entry) => !input.removeIds.includes(entry.id)),
         ...input.restore,
@@ -654,7 +655,7 @@ function EntryDialog({
         ],
       }),
     onSuccess: () => {
-      refresh(queryClient, "timetable");
+      refreshSchool(queryClient, "timetable");
       onClose();
     },
     onError: toastError,
@@ -666,7 +667,7 @@ function EntryDialog({
         entryIds: entry ? [entry.id] : [],
       }),
     onSuccess: () => {
-      refresh(queryClient, "timetable");
+      refreshSchool(queryClient, "timetable");
       onClose();
     },
     onError: toastError,

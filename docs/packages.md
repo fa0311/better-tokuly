@@ -21,6 +21,7 @@ listed in its `package.json`), each with its own tests:
 | `@tokuly/core/notes`         | notes, list and clip keys, timeline pages and fresh rows, note cache edits, realtime events, text reading, audiences, polls                 |
 | `@tokuly/core/notifications` | notify keys, unread counts, inbox cache edits, inbox times, push targets                                                                    |
 | `@tokuly/core/plans`         | plan keys and options, days and times of plans in the account's zone, plan rules and the plan form, plan cache edits, pushed plans events   |
+| `@tokuly/core/school`        | school keys and options, the API's dates and times of day, which classes take place, class and exam countdowns, what is due                 |
 | `@tokuly/core/search`        | search kinds and their names, hit fields, where a hit leads, trend and recent-search keys and options, tag queries, suggestion lists        |
 | `@tokuly/core/stories`       | story keys and options, story cache edits                                                                                                   |
 | `@tokuly/core/shorts`        | shorts keys, captions, feed contexts, the slide window                                                                                      |

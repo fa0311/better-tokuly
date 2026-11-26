@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { school } from "@tokuly/api";
+import { refreshSchool } from "@tokuly/core/school";
 import { ArchiveRestore, Check, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { EmptyState } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
-import { refresh, timetableClient, toastError, useSubjects } from "./api";
+import { timetableClient, toastError, useSubjects } from "./api";
 import { RowsSkeleton, SubjectPill } from "./parts";
 
 /** The colours offered for a subject (the server accepts any `#rrggbb`). */
@@ -77,7 +78,7 @@ export function SubjectsDialog({
   }
   if (!open && seeded) setSeeded(false);
 
-  const changed = () => refresh(queryClient, "subjects", "timetable", "exams", "assignments");
+  const changed = () => refreshSchool(queryClient, "subjects", "timetable", "exams", "assignments");
   const save = useMutation({
     mutationFn: async (input: Draft) => {
       if (input.id) await timetableClient().updateSubject({ subjectId: input.id, ...input });
