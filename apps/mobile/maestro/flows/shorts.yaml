@@ -9,6 +9,9 @@ env:
     - "../fixtures/short.mp4"
 - launchApp:
     clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
 - tapOn: { id: "welcome-sign-in" }
 - tapOn: { id: "sign-in-identifier" }
 - inputText: ${output.creator}
@@ -77,9 +80,9 @@ env:
     visible: { id: "short-like-count", text: "1" }
     timeout: 10000
 
-# Swipe on: the feed comes round again with it (nothing else is left to show).
+# Swipe on: the feed comes round again with it (nothing else is left to show), marked as a repeat.
 - swipe:
     direction: UP
 - extendedWaitUntil:
-    visible: { id: "short-slide-1" }
+    visible: { id: "short-repeat" }
     timeout: 20000

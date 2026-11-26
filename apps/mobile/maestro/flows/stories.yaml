@@ -9,6 +9,9 @@ env:
     - "../fixtures/story.jpg"
 - launchApp:
     clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
 - tapOn: { id: "welcome-sign-in" }
 - tapOn: { id: "sign-in-identifier" }
 - inputText: ${output.friend}

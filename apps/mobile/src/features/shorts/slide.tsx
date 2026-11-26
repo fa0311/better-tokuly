@@ -94,7 +94,10 @@ export function ShortSlide({
       ) : null}
       <Overlay entry={entry} />
       {entry.repeat && (
-        <Text className="absolute top-14 left-4 rounded-full bg-black/40 px-3 py-1 text-xs font-black text-white">
+        <Text
+          testID="short-repeat"
+          className="absolute top-14 left-4 rounded-full bg-black/40 px-3 py-1 text-xs font-black text-white"
+        >
           {t("reason.repeat")}
         </Text>
       )}
