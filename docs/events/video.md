@@ -54,9 +54,7 @@ the owning account.
 ## Audiences and locked accounts
 
 Who may watch is decided by `tokuly_video::access` (shared with the shorts
-and live domains), on top of the social graph's audiences
-(`tokuly_social::graph::AudienceViewer`, loaded once per request; the SQL
-predicates refer to the viewer as `$1`–`$6`, see the module docs):
+and live domains), on top of the social graph's audiences:
 
 | visibility | who besides the owner may watch (never across a block, never content of a suspended account) |
 |---|---|
@@ -69,34 +67,23 @@ predicates refer to the viewer as `$1`–`$6`, see the module docs):
 
 A circle must be one of the owner's when the content is saved
 (`CIRCLE_NOT_FOUND`, `CIRCLE_REQUIRED`). A deleted circle reaches nobody.
+**Locked accounts.** Only content of unlocked owners is in search, trending,
+recommendations and other lists for everyone. A lock applies at the next
+read; an unlock when `social.follow.settings_changed` is handled.
 
-**Locked accounts.** Whether an account is locked is copied onto this
-domain's rows (`owner_locked`), kept by the handler of
-`social.follow.settings_changed` and set from the social domain when the
-row is created (re-checked after the commit). Only content of unlocked
-owners is in search, trending, recommendations and other lists for
-everyone. Reads do not wait for the event: rows that reach a viewer only
-because the copy says "unlocked" (open content, viewer neither owner nor
-tied) are checked against the social domain on the same request
-(`Viewer::drop_newly_locked`, `can_watch_now`), so a lock applies at the
-next read. An unlock applies when its event is handled.
-
-**Channels of a locked account** stay visible as channels: a channel
-never reveals which account owns it, and hiding it would tell everyone
-who knows the account's state which channel is theirs. To anyone who is
-neither the owner nor a follower or friend it looks like a channel
-without content: no videos, shorts or streams on its pages, no video
-count, no trailer, no playlists, not among recommended channels (which
-need a public video of an unlocked owner). Its view and subscriber counts
-are the real ones: a fixed 0 would mark it as a locked account's
-channel. Followers and friends
-see it as before. A stranger who subscribed keeps the subscription and
-hears about nothing until the account is unlocked.
+**Channels of a locked account** stay visible as channels (a channel never
+reveals which account owns it). To anyone who is neither the owner nor a
+follower or friend it looks like a channel without content: no videos,
+shorts, streams, video count, trailer or playlists, and it is not
+recommended. Its view and subscriber counts are the real ones (a fixed 0
+would mark it as a locked account's channel). A stranger who subscribed
+keeps the subscription and hears about nothing until the account is
+unlocked.
 
 Playlists keep their own three visibilities (PUBLIC, UNLISTED, PRIVATE);
 the public and unlisted playlists of a locked owner reach only followers
 and friends and leave search. Watch parties of a video end when its
-audience narrows (another audience that may leave members out, or a lock),
+audience narrows (another audience, or a lock).
 since their members are strangers to the owner as often as not.
 
 ## Events emitted
@@ -111,7 +98,7 @@ transaction of the change they describe.
 | `video.video.created` | `VideoEvent` | A draft was created. |
 | `video.video.published` | `VideoEvent` | A video went live, or a live video became visible to an audience for the first time. `first_publication` is true exactly once per video: when it is first both PUBLISHED and PUBLIC or FRIENDS. |
 | `video.video.unpublished` | `VideoEvent` | A published video went back to draft. |
-| `video.video.visibility_changed` | `VideoEvent` + `{ visible_to, changed_at }` | A published video got another audience and stays published, or (once per published open video) its owner locked or unlocked their account. `visibility` is the audience now in effect (a PUBLIC video, or a FRIENDS one with a link, of a locked owner reads as 6, followers; NO_FEED and UNLISTED keep their number, so the feed never shows their entries to friends because of a lock). `visible_to`: who besides the owner may still watch it — `null` when everyone may; otherwise everyone in the audience as the social graph gives it, people in a block with the owner left out; for a lock only the channel's subscribers and the video's raters among the owner's followers and friends (who may have something about it in their inbox). A concurrent change in between names nobody. At most 5 000 people are named (`tokuly_core::events::MAX_VISIBLE_TO`): a longer list is narrowed to the people this domain may have told about it, or to nobody (`[]`), which withdraws too much, never too little. `changed_at`: when the change was made, taken while the row was locked. Not emitted when nothing changed, nor with a publication (that is `video.video.published`). **Never forward to outside parties: `visible_to` is the owner's follower list.** |
+| `video.video.visibility_changed` | `VideoEvent` + `{ visible_to, changed_at }` | A published video got another audience and stays published, or (once per published open video) its owner locked or unlocked their account. `visibility`: the audience now in effect (a PUBLIC video, or a FRIENDS one with a link, of a locked owner reads as 6, followers; NO_FEED and UNLISTED keep their number). `visible_to`: who besides the owner may still watch it — `null` = everyone; otherwise the audience as the social graph gives it, people in a block with the owner left out; for a lock only the channel's subscribers and the video's raters among the owner's followers and friends. At most 5 000 people are named (`tokuly_core::events::MAX_VISIBLE_TO`): a longer list is narrowed to the people this domain may have told about it, or to nobody (`[]`) — too much is withdrawn, never too little. `changed_at` orders two changes of one video. Not emitted when nothing changed, nor with a publication (`video.video.published`). **Never forward to outside parties: `visible_to` is the owner's follower list.** |
 | `video.video.deleted` | `VideoEvent` | A video is gone: deleted by the owner, with its channel or account, by a takedown, or because its upload was deleted. Consumers drop what they keep about it (comments, clips). |
 | `video.playlist.deleted` | `{ playlist_id, owner_id }` | A custom playlist is gone. |
 | `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A channel, video or playlist was deleted (`SUBJECT_TYPE_CHANNEL` / `_VIDEO` / `_PLAYLIST`), next to its own `…deleted` event, also for the videos and playlists that go with a channel. Not for `video.video.unpublished` or a change of audience. |
@@ -131,7 +118,7 @@ Durable consumer `video`. Every handler is idempotent.
 | `identity.user.deleted` | The user's channels with all content, their playlists, subscriptions, ratings (counters are corrected), watch history, settings, "not interested" marks and party seats (hosting is handed over or the party ends) are deleted. |
 | `identity.user.banned` / `.unbanned` | `channels.suspended` and `videos.suspended` follow the account: while suspended, its channels, videos and playlists read as not found for everyone else and leave the search index. |
 | `social.user.blocked` | Subscriptions between the two users are removed in both directions. (Lists, feeds and lookups hide the other's content immediately, without waiting for the event.) |
-| `social.follow.settings_changed` `{ user_id }` | Re-reads whether the account is locked (the event is only a hint; late or repeated events give the same result) and copies it onto the account's videos and playlists in batches of 200: search documents (videos, playlists, the pictures of playlists listing them) follow, one `video.video.visibility_changed` per published open video, and for a lock the watch parties of those videos end. |
+| `social.follow.settings_changed` `{ user_id }` | Re-reads whether the account is locked (late or repeated events give the same result) and applies it to the account's videos and playlists: search documents follow, one `video.video.visibility_changed` per published open video, and for a lock the watch parties of those videos end. |
 | `admin.content.removed` | `SUBJECT_TYPE_VIDEO`: the video is deleted and its upload removed by force. `SUBJECT_TYPE_CHANNEL`: the channel is deleted with its content. `SUBJECT_TYPE_PLAYLIST`: the playlist is deleted. Unknown IDs and other subject types are ignored. |
 | `video.video.published` (own) | With `first_publication`: queues the first `video.announce` job. |
 | `video.playlists.stale` (own, internal) `{ video_id?, playlist_ids }` | Emitted in the transaction that changed a video's public state or thumbnail (or deleted it, naming its public playlists); queues a `video.playlists.search` job. |
@@ -178,11 +165,9 @@ topic and to each guest's topic. `party_updated` carries the video card only
 when anyone with the link may watch the video; members of a friends-only
 party get theirs from `GetParty`.
 
-Subscriptions end with the seat (`ServerFrame.unsubscribed`, see
-`docs/events/realtime.md`): after `party_member_left`, a signed-in member's
-subscriptions to the member topic are re-checked on all their devices and a
-guest's own topic is closed; after `party_ended` every topic of the party is
-closed.
+Subscriptions end with the seat (`ServerFrame.unsubscribed`): a member who
+left loses the member topic, a guest their own topic, and `party_ended`
+closes every topic of the party.
 
 Known limit: the gateway checks a subscription once. A signed-in member who
 is removed keeps an already open subscription to `party:<id>` until their
@@ -243,7 +228,7 @@ tracked. No ClickHouse table of its own is needed.
 |---|---|---|
 | event consumer `video` | — | See "Events consumed". |
 | job `video.announce` `{ video_id, after }` | — | One batch (`TOKULY_VIDEO_ANNOUNCE_BATCH_SIZE` subscribers, by user ID after `after`) of `video.published` notifications, then queues the next batch. |
-| job `video.playlists.search` `{ video_id?, playlist_ids, after }` | — | Rewrites the search documents of public playlists listing a video (200 per job, by playlist ID after `after`, then the next job), so their picture never shows a video that left the public. Reads without locks; only the write takes the rows `FOR SHARE`, so a playlist that stopped being public meanwhile is skipped. |
+| job `video.playlists.search` `{ video_id?, playlist_ids, after }` | — | Rewrites the search documents of public playlists listing a video (200 per job), so their picture never shows a video that left the public. |
 | publishing | `TOKULY_VIDEO_PUBLISH_INTERVAL_SECONDS` | Publishes scheduled videos that are due; every 20th run catches up videos whose `media.asset.*` event was missed. |
 | trending | `TOKULY_VIDEO_TRENDING_INTERVAL_SECONDS` | `trending_score` = Σ over the last 7 days of each hour's `views + 4 × likes`, halved per `TOKULY_VIDEO_TRENDING_HALF_LIFE_HOURS`; prunes `video_hourly_stats` older than 8 days. |
 | parties | 10 s | Drops members without a heartbeat for `TOKULY_VIDEO_PARTY_MEMBER_TIMEOUT_SECONDS` (hosting is handed over), ends parties older than `TOKULY_VIDEO_PARTY_MAX_HOURS`, deletes parties a day after they ended. |

@@ -190,46 +190,30 @@ cannot be deleted (`APP_DISABLED`).
 
 The owner offers a bot to one person (`OfferBotTransfer`), who is told in
 their inbox and accepts (`AcceptBotTransfer`) or declines
-(`CancelBotTransfer`, which also withdraws an offer). An offer lasts 7 days;
-a new offer of the same bot replaces the open one under a new ID. An offer
-is refused as `RECIPIENT_NOT_FOUND` towards the owner themselves, a bot, a
-suspended account and anyone in a block relation with the owner (asked
-through identity's profile extensions, which is where the social domain
-answers), so it cannot reach someone who shut the owner out. Accepting asks
-again: a block made since the offer, either way, answers
-`TRANSFER_NOT_FOUND`.
+(`CancelBotTransfer`, which also withdraws an offer).
 
-On acceptance, in one transaction under the receiver's allowance lock: the
-offer is claimed exactly once, the bot must still be the offerer's and not
-suspended (`BOT_SUSPENDED`), the receiver must have room (`TOO_MANY_BOTS`);
-then the owner changes and the bot's webhooks are deleted (they point at the
-previous owner's servers and are signed with secrets they know). After the
-commit every token of the bot is revoked (`bot_transferred`): they were made
-by the previous owner and shown to them. The verifier also refuses any bot
-token whose creator is not the bot's owner, so a token minted at the moment
-of the hand-over, or a revocation that failed after the commit, does not
-leave the previous owner in control. The profile, avatar, followers and
-everything the bot posted stay with the bot. Mutations of a bot re-check its
-owner under a row lock, so a previous owner's request in flight cannot
-delete, switch or edit the bot once it changed hands (a deletion revokes
-the bot's tokens only after that check, in the same transaction).
-
-**The new owner inherits what the bot received**: its direct messages, its
-notification inbox, notes and anything else shared with it, readable through
-the tokens they make with `*:read` scopes. The offer screen and the accept
-screen say so. Every direct conversation of the bot is told as well, with a
-notice from the server between the bubbles: 「このボットの持ち主が変わったよ」 /
-"This bot has a new owner" (posted by this domain's `dev-accounts` consumer
-on `dev.bot.transferred`, through the chat bridge, which queues them as chat
-jobs so the consumer is not held up; once per hand-over, and
-at most `tokuly_chat::NOTICES_PER_CONVERSATION_PER_DAY` notices a day per
-conversation, so handing a bot back and forth does not flood anybody).
-
-Accepted offers are the record of who owned a bot before
-(`Dev::bot_owner_at(bot, time)`), kept for `TOKULY_DEV_BOT_RECORD_DAYS` from
-the hand-over: a report about something the bot did leads to whoever ran it
-then. Open offers to or from a deleted account, and of a deleted bot, are
-dropped.
+- An offer lasts 7 days; a new offer of the same bot replaces the open one.
+- Refused as `RECIPIENT_NOT_FOUND` towards the owner themselves, a bot, a
+  suspended account and anyone in a block with the owner. Accepting asks
+  again: a block made since answers `TRANSFER_NOT_FOUND`.
+- Accepting happens exactly once, in one transaction: the bot must still be
+  the offerer's and not suspended (`BOT_SUSPENDED`), the receiver must have
+  room (`TOO_MANY_BOTS`).
+- **The previous owner loses control at once**: the bot's webhooks are
+  deleted, every token of the bot is revoked (`bot_transferred`), and a bot
+  token whose creator is not the bot's owner is never accepted. The profile,
+  avatar, followers and everything the bot posted stay with the bot.
+- **The new owner inherits what the bot received**: its direct messages,
+  its notification inbox, notes and anything else shared with it. The offer
+  and accept screens say so, and every direct conversation of the bot gets
+  a server notice, once per hand-over: 「このボットの持ち主が変わったよ」 /
+  "This bot has a new owner" (at most
+  `tokuly_chat::NOTICES_PER_CONVERSATION_PER_DAY` notices a day per
+  conversation).
+- Accepted offers are the record of who owned a bot before
+  (`Dev::bot_owner_at(bot, time)`), kept for `TOKULY_DEV_BOT_RECORD_DAYS`:
+  a report about something the bot did leads to whoever ran it then. Open
+  offers to or from a deleted account, and of a deleted bot, are dropped.
 
 ## Notification kinds
 
