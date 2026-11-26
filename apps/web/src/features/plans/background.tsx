@@ -1,11 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
+import { applyPlansEvent } from "@tokuly/core/plans";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
 import { keys, nameOf } from "./api";
-import { applyPlansEvent } from "./live";
 
 /**
  * Runs while someone is signed in: keeps loaded plans, polls, counters and

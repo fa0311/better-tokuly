@@ -2,6 +2,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, plans, toDate } from "@tokuly/api";
 import {
+  forgetPlan,
+  formFromPlan,
+  formProblem,
+  isHostLike,
+  type PlanFormValue,
+  planTimeText,
+  toUpdateRequest,
+  untilText,
+} from "@tokuly/core/plans";
+import {
   BellRing,
   CalendarClock,
   CalendarPlus,
@@ -27,20 +37,11 @@ import { ShareToChat } from "#/features/chat";
 import { CommentThread } from "#/features/comments";
 import { ReportDialog } from "#/features/engagement";
 import { errorMessage } from "#/lib/errors";
-import { keys, nameOf, planClient, rememberPlan, usePlan } from "../api";
-import { formatDay, ymd } from "../dates";
+import { nameOf, planClient, rememberPlan, usePlan } from "../api";
+import { formatDay, planTimeZone, ymd } from "../dates";
 import { buildIcs, downloadIcs } from "../ics";
 import { Checklist } from "./checklist";
-import {
-  formFromPlan,
-  formProblem,
-  isHostLike,
-  type PlanFormValue,
-  planIcsEvent,
-  planTimeText,
-  toUpdateRequest,
-  untilText,
-} from "./model";
+import { planIcsEvent } from "./model";
 import { Participants } from "./participants";
 import { PlanForm } from "./plan-form";
 import { RsvpCard } from "./rsvp";
@@ -107,7 +108,7 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
 
   const update = useMutation({
     mutationFn: (edit: { before: PlanFormValue; value: PlanFormValue }) =>
-      planClient().updatePlan(toUpdateRequest(plan.id, edit.before, edit.value)),
+      planClient().updatePlan(toUpdateRequest(plan.id, edit.before, edit.value, planTimeZone())),
     onSuccess: (response) => {
       rememberPlan(queryClient, response.plan);
       setEditing(undefined);
@@ -127,9 +128,7 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
   const leave = useMutation({
     mutationFn: () => planClient().leavePlan({ planId: plan.id }),
     onSuccess: () => {
-      queryClient.removeQueries({ queryKey: keys.plan(plan.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.planLists });
-      void queryClient.invalidateQueries({ queryKey: keys.calendars });
+      forgetPlan(queryClient, plan.id);
       toast(t("plan.left"));
       void navigate({ to: "/plans" });
     },
@@ -151,7 +150,10 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
           {
             label: t("plan.menu.edit"),
             icon: <Pencil />,
-            onSelect: () => setEditing({ before: formFromPlan(plan), value: formFromPlan(plan) }),
+            onSelect: () => {
+              const form = formFromPlan(plan, planTimeZone());
+              setEditing({ before: form, value: form });
+            },
           },
         ]
       : []),
@@ -183,9 +185,9 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
         ]
       : []),
   ];
-  const until = !cancelled && !plan.over ? untilText(plan.time, t) : undefined;
+  const until = !cancelled && !plan.over ? untilText(i18n, plan.time, planTimeZone()) : undefined;
   const cancelledAt = toDate(plan.cancelledAt);
-  const editProblem = editing ? formProblem(editing.value) : null;
+  const editProblem = editing ? formProblem(editing.value, planTimeZone()) : null;
 
   return (
     <Page
@@ -245,7 +247,7 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
                   <CalendarClock className="size-5" aria-label={t("plan.when")} />
                 </dt>
                 <dd className="min-w-0 flex-1 self-center font-bold" data-testid="plan-time">
-                  {planTimeText(plan.time, i18n.language, t)}
+                  {planTimeText(i18n, plan.time, planTimeZone())}
                 </dd>
               </div>
               {plan.place?.name && (

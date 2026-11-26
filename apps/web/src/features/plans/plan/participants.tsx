@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { plans } from "@tokuly/api";
+import { canInvite, rsvpKey } from "@tokuly/core/plans";
 import { Crown, MoreHorizontal, ShieldCheck, ShieldMinus, UserMinus, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,8 +17,6 @@ import { useMe } from "#/stores/session";
 import { nameOf, planClient, rememberPlan } from "../api";
 import { FriendPicker } from "../friend-picker";
 import { SectionTitle } from "../parts";
-import { canInvite } from "./model";
-import { rsvpKey } from "./plan-card";
 
 const ORDER = [
   plans.Rsvp.GOING,

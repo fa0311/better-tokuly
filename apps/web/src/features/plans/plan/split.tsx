@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type common, plans, toMillis } from "@tokuly/api";
+import { canWork, isHostLike } from "@tokuly/core/plans";
 import { ArrowRight, ChevronDown, HandCoins, Plus, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,7 +17,6 @@ import { keys, nameOf, planClient } from "../api";
 import { formatMoney } from "../money";
 import { SectionTitle } from "../parts";
 import { ExpenseDialog } from "./expense-dialog";
-import { canWork, isHostLike } from "./model";
 
 /** Every expense of a plan (they come in pages; a plan holds at most 500). */
 async function loadExpenses(planId: string): Promise<plans.Expense[]> {

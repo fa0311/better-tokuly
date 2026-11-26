@@ -15,6 +15,7 @@ import mobile from "./mobile";
 import notelists from "./notelists";
 import notes from "./notes";
 import notifications from "./notifications";
+import plans from "./plans";
 import profile from "./profile";
 import search from "./search";
 import settings from "./settings";
@@ -45,5 +46,6 @@ export default {
   settings,
   spaces,
   community,
+  plans,
   mobile,
 };

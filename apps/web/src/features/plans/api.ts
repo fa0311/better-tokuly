@@ -1,10 +1,6 @@
-import {
-  type InfiniteData,
-  type QueryClient,
-  useInfiniteQuery,
-  useQuery,
-} from "@tanstack/react-query";
-import { type common, plans, social } from "@tokuly/api";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { plans, social } from "@tokuly/api";
+import { type FreeBoardPage, planKeys as keys, planQueries } from "@tokuly/core/plans";
 import { api } from "#/lib/api";
 import { planTimeZone } from "./dates";
 
@@ -14,42 +10,19 @@ export const pollClient = () => api().service(plans.PollService);
 export const anniversaryClient = () => api().service(plans.AnniversaryService);
 export const calendarClient = () => api().service(plans.CalendarService);
 
-/** Query keys of this area; all start with `plans`, so one invalidation refreshes everything. */
-export const keys = {
-  all: ["plans"] as const,
-  free: ["plans", "free"] as const,
-  freeFriends: ["plans", "free", "friends"] as const,
-  freeAnswers: ["plans", "free", "answers"] as const,
-  freeAlerts: ["plans", "free", "alerts"] as const,
-  freeStatuses: ["plans", "free", "status"] as const,
-  /** One person's status; the caller's own under the empty ID. */
-  freeStatus: (userId: string) => ["plans", "free", "status", userId] as const,
-  planLists: ["plans", "list"] as const,
-  planList: (filter: plans.PlanListFilter) => ["plans", "list", filter] as const,
-  plan: (planId: string) => ["plans", "plan", planId] as const,
-  expenses: (planId: string) => ["plans", "expenses", planId] as const,
-  split: (planId: string) => ["plans", "split", planId] as const,
-  polls: ["plans", "polls"] as const,
-  /** `pollId` is whatever the address names: the ID or the short ID of the link. */
-  poll: (pollId: string) => ["plans", "poll", pollId] as const,
-  countdowns: ["plans", "countdowns"] as const,
-  countdown: (countdownId: string) => ["plans", "countdown", countdownId] as const,
-  anniversaries: ["plans", "anniversaries"] as const,
-  birthdays: ["plans", "birthdays"] as const,
-  settings: ["plans", "settings"] as const,
-  calendar: (month: string) => ["plans", "calendar", month] as const,
-  calendars: ["plans", "calendar"] as const,
-};
+export {
+  nameOf,
+  patchFreeStatuses,
+  planKeys as keys,
+  rememberPlan,
+  rememberPoll,
+  setMyFreeStatus,
+} from "@tokuly/core/plans";
 
 /** Who is free: the friends whose status the caller may see, and the caller's own. */
 export interface FreeBoard {
   statuses: plans.FreeStatus[];
   mine?: plans.FreeStatus;
-}
-
-/** One page of the board as it is cached; `mine` comes with the first page only. */
-interface FreeBoardPage extends FreeBoard {
-  nextCursor: string;
 }
 
 /** How many rows a list asks for at a time; the rest follows through the load-more control. */
@@ -84,39 +57,6 @@ export function useFreeBoard() {
   return { data, isPending: query.isPending, paging: query };
 }
 
-/** Rewrites the loaded statuses of friends, page by page (the first page has index 0). */
-export function patchFreeStatuses(
-  queryClient: QueryClient,
-  patch: (statuses: plans.FreeStatus[], pageIndex: number) => plans.FreeStatus[],
-): void {
-  queryClient.setQueryData<InfiniteData<FreeBoardPage, string>>(
-    keys.freeFriends,
-    (board) =>
-      board && {
-        ...board,
-        pages: board.pages.map((page, index) => ({
-          ...page,
-          statuses: patch(page.statuses, index),
-        })),
-      },
-  );
-}
-
-/** Sets (or clears) the caller's own status in what is loaded. */
-export function setMyFreeStatus(
-  queryClient: QueryClient,
-  mine: plans.FreeStatus | undefined,
-): void {
-  queryClient.setQueryData<InfiniteData<FreeBoardPage, string>>(
-    keys.freeFriends,
-    (board) =>
-      board && {
-        ...board,
-        pages: board.pages.map((page, index) => (index === 0 ? { ...page, mine } : page)),
-      },
-  );
-}
-
 /** A friend's status (the caller's own without `userId`); `null` when there is none to see. */
 export function useFreeStatus(userId: string, enabled = true) {
   return useQuery({
@@ -146,27 +86,12 @@ export function useFreeAnswers() {
 }
 
 export function usePlan(planId: string) {
-  return useQuery({
-    queryKey: keys.plan(planId),
-    queryFn: async () => (await planClient().getPlan({ planId })).plan ?? null,
-  });
+  return useQuery(planQueries.plan(planClient, planId));
 }
 
 /** The caller's plans of one kind, as far as they are loaded; `paging` goes to `<LoadMore>`. */
 export function usePlanList(filter: plans.PlanListFilter) {
-  const query = useInfiniteQuery({
-    queryKey: keys.planList(filter),
-    queryFn: async ({ pageParam }) => {
-      const response = await planClient().listPlans({
-        filter,
-        includeDeclined: false,
-        page: { limit: PAGE_SIZE, cursor: pageParam },
-      });
-      return { plans: response.plans, nextCursor: response.page?.nextCursor ?? "" };
-    },
-    initialPageParam: "",
-    getNextPageParam: nextCursorOf,
-  });
+  const query = useInfiniteQuery(planQueries.list(planClient, filter));
   return {
     data: query.data?.pages.flatMap((page) => page.plans),
     isPending: query.isPending,
@@ -249,26 +174,4 @@ export function useFriends() {
     },
     staleTime: 60_000,
   });
-}
-
-/** Stores a plan the server just returned, so the page and the lists show it without asking again. */
-export function rememberPlan(queryClient: QueryClient, plan: plans.Plan | undefined): void {
-  if (!plan) return;
-  queryClient.setQueryData(keys.plan(plan.id), plan);
-  void queryClient.invalidateQueries({ queryKey: keys.planLists });
-  void queryClient.invalidateQueries({ queryKey: keys.calendars });
-}
-
-/** Stores a poll the server just returned under both of its addresses. */
-export function rememberPoll(queryClient: QueryClient, poll: plans.Poll | undefined): void {
-  if (!poll) return;
-  queryClient.setQueryData(keys.poll(poll.id), poll);
-  if (poll.shortId) queryClient.setQueryData(keys.poll(poll.shortId), poll);
-  void queryClient.invalidateQueries({ queryKey: keys.polls });
-  void queryClient.invalidateQueries({ queryKey: keys.calendars });
-}
-
-/** The name to show for a participant of a plan or a poll. */
-export function nameOf(user: common.UserSummary | undefined): string {
-  return user?.displayName || (user?.handle ? `@${user.handle}` : "?");
 }

@@ -1,4 +1,5 @@
 import type { common } from "@tokuly/api";
+import { type PlanFormValue, REMINDER_MINUTES, type WhenKind } from "@tokuly/core/plans";
 import { ChevronDown, SmilePlus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,6 @@ import { cn } from "#/lib/cn";
 import { FriendChips } from "../friend-picker";
 import { CURRENCIES } from "../money";
 import { ChoiceChips } from "../parts";
-import { type PlanFormValue, REMINDER_MINUTES, type WhenKind } from "./model";
 
 const QUICK_EMOJI = ["🎤", "🍜", "🎬", "🛍️", "⚽", "📚", "🎡", "☕", "🎮", "🎂"];
 
