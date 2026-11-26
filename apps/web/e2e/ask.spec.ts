@@ -407,6 +407,52 @@ test("a friends-only box whose owner has few friends takes signed questions only
   expect((await delivered(request, owner, "テスト勉強してる?")).asker?.handle).toBe(me.handle);
 });
 
+test("a question begun anonymously never goes out signed by itself when the box stops hiding askers", async ({
+  page,
+  request,
+  me,
+}) => {
+  const owner = await createAccount(request, "hitomishiri");
+  const leaving = await createAccount(request, "tomo1");
+  for (const friend of [me, leaving, await createAccount(request, "tomo2")])
+    await befriend(request, owner, friend);
+  await rpc(
+    request,
+    `${BOX}/UpdateSettings`,
+    { boxOpen: true, audience: "ASKER_AUDIENCE_FRIENDS" },
+    owner,
+  );
+  await page.clock.install();
+  await open(page, `/ask/u/${owner.handle}`);
+  await expect(page.getByRole("radio", { name: "匿名で送る" })).toBeChecked();
+  await page.getByPlaceholder("質問を書いてね").fill("すきな人いる?");
+
+  // While the asker writes, the owner drops under three friends, and the box is read again:
+  // what is on screen is read again when the device comes back online, once it is 30 s old.
+  await rpc(
+    request,
+    "tokuly.social.v1.FriendService/RemoveFriend",
+    { userId: leaving.userId },
+    owner,
+  );
+  await page.clock.fastForward("00:31");
+  await page.context().setOffline(true);
+  await page.context().setOffline(false);
+  await expect(page.getByTestId("privacy-note")).toContainText("名前つきでだけ送れるよ", {
+    timeout: 20_000,
+  });
+  await expect(page.getByRole("radio", { name: "匿名で送る" })).toBeChecked();
+  await expect(page.getByTestId("privacy-note")).not.toContainText("あなたの名前が見えるよ");
+  await expect(page.getByRole("button", { name: "質問を送る" })).toBeDisabled();
+
+  // Only the asker's own choice signs it.
+  await page.getByRole("radio", { name: "名前つきで送る" }).click();
+  await expect(page.getByTestId("privacy-note")).toContainText("あなたの名前が見えるよ");
+  await page.getByRole("button", { name: "質問を送る" }).click();
+  await expect(page.getByTestId("ask-sent")).toBeVisible();
+  expect((await delivered(request, owner, "すきな人いる?")).asker?.handle).toBe(me.handle);
+});
+
 test("a closed box and a friends-only box turn strangers away kindly", async ({
   page,
   request,

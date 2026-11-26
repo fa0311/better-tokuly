@@ -27,6 +27,26 @@ export function answerShareUrl(
   return shared.answerShareUrl(handle, questionId, origin);
 }
 
+/**
+ * Whether something sent to a person goes out under the sender's name.
+ * Anonymous by default; signed when the sender chooses it, or when it was the
+ * only way in from the start. A recipient who stops hiding senders while one
+ * is writing (read again after they lost a friend) signs nothing by itself:
+ * the sender keeps the choice, and sending waits (`allowed`) until they sign.
+ */
+export function signature(input: {
+  allowSigned: boolean;
+  anonymousAvailable: boolean;
+  /** Whether anonymity was available when the sender began writing. */
+  beganAnonymous: boolean;
+  wantSigned: boolean;
+}): { choice: boolean; signed: boolean; allowed: boolean } {
+  const { allowSigned, anonymousAvailable, beganAnonymous, wantSigned } = input;
+  const choice = allowSigned && (anonymousAvailable || beganAnonymous);
+  const signed = allowSigned && (wantSigned || !choice);
+  return { choice, signed, allowed: signed || anonymousAvailable };
+}
+
 /** A countdown as a clock: "59:07", or "1:02:03" from an hour up. Never negative. */
 export function countdownClock(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
