@@ -10,7 +10,7 @@ import {
   type TimelineSource,
   withFreshEntries,
 } from "@tokuly/core/notes";
-import { type ReactElement, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
 import { Button } from "#/components/button";
@@ -24,6 +24,9 @@ import { reportViewed, VIEWABILITY } from "./views";
 
 /** A timeline row whose note is there (a row without one has nothing to show). */
 type Entry = notes.TimelineEntry & { note: notes.Note };
+
+/** Hints closer together than this lead to one look, not several. */
+const LOOK_GAP_MS = 2500;
 
 type Row = { kind: "pinned"; note: notes.Note } | { kind: "entry"; entry: Entry };
 
@@ -55,13 +58,42 @@ export function Timeline({ source, empty, header, testID }: TimelineProps) {
   const [refreshing, setRefreshing] = useState(false);
   const key = notesKeys.timeline(source);
 
-  // Looks for new notes without moving what is on screen.
-  const look = useCallback(async () => {
-    const page = await freshPage(source);
-    const count = countNewEntries(queryClient.getQueryData<TimelineData>(key), page);
-    if (count !== 0) setWaiting({ page, count });
-  }, [queryClient, source, key]);
-  useEffect(() => onTimelineHint(() => void look().catch(() => {})), [look]);
+  // Looks for new notes without moving what is on screen. One look at a time, and none before the timeline is there.
+  const looking = useRef(false);
+  const lastLook = useRef(0);
+  const look = async () => {
+    if (looking.current || !queryClient.getQueryData(key)) return;
+    looking.current = true;
+    try {
+      const page = await freshPage(source);
+      lastLook.current = Date.now();
+      const count = countNewEntries(queryClient.getQueryData<TimelineData>(key), page);
+      if (count !== 0) setWaiting({ page, count });
+    } catch {
+      // Nobody asked: the next hint, or a pull, tries again.
+    } finally {
+      looking.current = false;
+    }
+  };
+  const latestLook = useRef(look);
+  useEffect(() => {
+    latestLook.current = look;
+  });
+  // A burst of hints (every count that moves on screen is one) leads to one look.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const off = onTimelineHint(() => {
+      clearTimeout(timer);
+      timer = setTimeout(
+        () => void latestLook.current(),
+        Math.max(300, LOOK_GAP_MS - (Date.now() - lastLook.current)),
+      );
+    });
+    return () => {
+      off();
+      clearTimeout(timer);
+    };
+  }, []);
 
   const putOnTop = (page: TimelinePage) => {
     queryClient.setQueryData<TimelineData>(key, (current) => withFreshEntries(current, page));
@@ -79,16 +111,22 @@ export function Timeline({ source, empty, header, testID }: TimelineProps) {
     }
   };
 
+  // A note shows once: not again under its pinned copy, nor when a later page repeats it (notes
+  // posted meanwhile push rows down a page).
   const pages = timeline.data?.pages ?? [];
+  const pinned = (pages[0]?.pinnedNotes ?? []).filter((note) => !deleted.has(note.id));
+  const shown = new Set(pinned.map((note) => note.id));
+  const entries = pages
+    .flatMap((page) => page.entries)
+    .filter((entry): entry is Entry => {
+      const id = entry.note?.id;
+      if (!id || shown.has(id) || deleted.has(id)) return false;
+      shown.add(id);
+      return true;
+    });
   const rows: Row[] = [
-    ...(pages[0]?.pinnedNotes ?? [])
-      .filter((note) => !deleted.has(note.id))
-      .map((note): Row => ({ kind: "pinned", note })),
-    ...pages.flatMap((page) =>
-      page.entries.flatMap((entry): Row[] =>
-        entry.note && !deleted.has(entry.note.id) ? [{ kind: "entry", entry: entry as Entry }] : [],
-      ),
-    ),
+    ...pinned.map((note): Row => ({ kind: "pinned", note })),
+    ...entries.map((entry): Row => ({ kind: "entry", entry })),
   ];
 
   if (timeline.isPending) return <Spinner />;
