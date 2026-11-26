@@ -1,7 +1,7 @@
 import { errorReason, live } from "@tokuly/api";
+import { pushesDuringRead } from "@tokuly/core/query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { pushesDuringRead } from "#/lib/pushes-during-read";
 import { realtime } from "#/lib/realtime";
 import { giftClient, overlayClient } from "../api";
 import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from "../model";

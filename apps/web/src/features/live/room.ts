@@ -1,7 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, live } from "@tokuly/api";
+import { pushesDuringReadByKey } from "@tokuly/core/query";
 import { useEffect, useRef, useState } from "react";
-import { pushesDuringReadByKey } from "#/lib/pushes-during-read";
 import { deviceId, realtime } from "#/lib/realtime";
 import {
   chatClient,
