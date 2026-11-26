@@ -13,7 +13,7 @@ import {
 } from "@tokuly/core/live";
 import { randomUUID } from "expo-crypto";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Alert,
@@ -28,12 +28,14 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "#/components/button";
+import { currentAccount, isActive } from "#/features/session/account";
 import { useMe } from "#/features/session/store";
 import { webScreenHref } from "#/features/web/handoff";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
 import { GiftBubble, tierColors } from "./chat-line";
-import { coinsKey, giftClient, useCoins, useGiftTiers } from "./data";
+import { coinsKey, useCoins, useGiftTiers } from "./data";
+import { keepPendingGift, readPendingGift, settlePendingGift } from "./pending-gift";
 import { liveChats } from "./room";
 
 const newGiftKey = () => newIdempotencyKey(randomUUID);
@@ -43,10 +45,12 @@ const newGiftKey = () => newIdempotencyKey(randomUUID);
  * it lands in and how long a message it may carry, look at the preview,
  * confirm, spend. Someone short of coins is sent to the wallet (on the web).
  *
- * Coins move, so an attempt keeps its idempotency key: confirming exactly
- * the gift whose answer was lost again repeats it under that key and nothing
- * is paid twice. The client is taken when the viewer confirms; a switch
- * starts the screen over, so a gift is never sent as another account.
+ * Coins move, so an attempt keeps its idempotency key until the server
+ * answers it: the gift whose answer was lost, confirmed again, is repeated
+ * under that key and nothing is paid twice — also after going back, closing
+ * the sheet or starting the app anew (`pending-gift.ts` keeps it for its
+ * account). Only another amount or message is another gift. A gift is sent
+ * as the account that confirmed it, with its API, or not at all.
  */
 export function GiftSheet({
   stream,
@@ -68,7 +72,7 @@ export function GiftSheet({
   const [message, setMessage] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
-  /** The gift whose answer was lost, if any (see above). Any change makes the next send a new gift. */
+  /** The gift whose answer was lost, if any (see above). */
   const [lost, setLost] = useState<GiftAttempt | null>(null);
 
   const tiers = tiersQuery.data?.tiers ?? [];
@@ -80,13 +84,30 @@ export function GiftSheet({
   const maxLength = tier?.maxMessageLength ?? 0;
   const text = message.slice(0, maxLength).trim();
   const short = inRange && balance.data !== undefined && balance.data < coins;
+  const streamId = stream.summary?.id ?? "";
   const channelName = stream.summary?.channel?.name ?? "";
+  /** Confirming now would repeat the gift whose answer was lost. */
+  const repeating = lost !== null && lost.coins === coins && lost.message === text;
+  const userId = me?.user?.id;
+
+  // A gift left unanswered when the sheet (or the app) was last closed comes back to be finished.
+  useEffect(() => {
+    if (!userId || !streamId) return;
+    let closed = false;
+    void readPendingGift(userId, streamId).then((pending) => {
+      if (closed || !pending) return;
+      setLost((current) => current ?? pending);
+      setAmountText(String(pending.coins));
+      setMessage(pending.message);
+      setConfirming(true);
+    });
+    return () => {
+      closed = true;
+    };
+  }, [userId, streamId]);
   const format = (value: bigint) => compactCount(Number(value), i18n.language);
 
-  const back = () => {
-    setConfirming(false);
-    setLost(null);
-  };
+  const back = () => setConfirming(false);
   const close = () => {
     if (sending) return;
     back();
@@ -94,24 +115,26 @@ export function GiftSheet({
   };
 
   const send = async () => {
-    if (coins === null) return;
+    const account = currentAccount();
+    if (coins === null || !account) return;
     const attempt = giftAttempt(lost, coins, text, newGiftKey);
-    const client = giftClient();
+    const client = account.api.service(live.LiveGiftService);
     setLost(attempt);
     setSending(true);
     try {
+      await keepPendingGift(account.userId, streamId, attempt);
+      if (!isActive(account)) return;
       const response = await client.sendGift({
-        streamId: stream.summary?.id ?? "",
+        streamId,
         coins: attempt.coins,
         message: attempt.message,
         idempotencyKey: attempt.key,
       });
+      await settlePendingGift(account.userId, attempt);
       if (response.message) liveChats.addOwn(queryClient, response.message);
       void queryClient.invalidateQueries({ queryKey: coinsKey });
       void queryClient.invalidateQueries({ queryKey: liveKeys.gifts });
-      void queryClient.invalidateQueries({
-        queryKey: liveKeys.supporters(stream.summary?.id ?? ""),
-      });
+      void queryClient.invalidateQueries({ queryKey: liveKeys.supporters(streamId) });
       // Never claim a gift that was not the one sent: an earlier attempt can come back instead.
       Alert.alert(
         response.gift && !sameGift(attempt, response.gift)
@@ -126,6 +149,7 @@ export function GiftSheet({
       Alert.alert(errorMessage(error, { namespace: "live" }));
       // A refusal settles the attempt (nothing was paid); only a lost answer is retried under the same key.
       if (isApiError(error) && errorReason(error)) {
+        await settlePendingGift(account.userId, attempt);
         setLost(null);
         setConfirming(false);
         void queryClient.invalidateQueries({ queryKey: coinsKey });
@@ -163,7 +187,7 @@ export function GiftSheet({
                 {confirming ? t("gift.confirmLead") : t("gift.lead")}
               </Text>
             </View>
-            {confirming && lost && !sending && (
+            {confirming && repeating && !sending && (
               <Text
                 accessibilityRole="alert"
                 className="rounded-2xl bg-sun px-4 py-3 text-sm font-bold text-[#17122b]"
