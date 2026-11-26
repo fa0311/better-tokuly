@@ -12,21 +12,17 @@ Three relationships, none of which implies another:
   and everything private. Becoming friends follows nobody.
 - **Follow**: one way, for public content (notes, shorts, videos, lives,
   communities). Following someone gives no access to their location.
-  A **locked** account approves its followers (requests, declined silently;
-  unlocking approves every request still waiting and silently drops the
-  declined ones, whose senders then simply do not follow). Accounts of
-  minors (by birthdate) are stored as locked when they are created
-  (`identity.user.created`); the lock is never derived from today's date, so
-  an 18th birthday changes nothing anyone can see.
+  A **locked** account approves its followers (declining is silent;
+  unlocking approves every request still waiting). Accounts of minors (by
+  birthdate) are created locked (`identity.user.created`); turning 18
+  changes nothing.
 - **Circles**: the built-in close-friends list and up to 20 custom ones
   (name, one emoji, colour, order; 1000 members each). Members are the
-  owner's friends and followers only — a circle is an audience for what the
-  owner shares, so only people with a tie to the owner belong in it, and
-  that rules out lists of strangers. Someone whose tie ends (unfriended and
-  not following, unfollowed, removed as a follower, a block, a deleted
-  account) is taken out of all of the owner's circles in the same
-  transaction. Members are never told and no RPC answers "which circles am
-  I in"; only content shared with close friends may show its viewers a mark.
+  owner's friends and followers only; someone whose tie ends (unfriend,
+  unfollow, removal, block, deleted account) leaves all of the owner's
+  circles in the same transaction. Members are never told and no RPC
+  answers "which circles am I in"; only content shared with close friends
+  may show its viewers a mark.
 
 Blocks end friendships, follows (both ways), follow requests (both ways)
 and circle memberships (both ways), and keep new ones out. Follow lists and
@@ -79,7 +75,7 @@ Durable consumer `social`. Every handler is idempotent.
 | `identity.user.created` | Stores `locked = true` follow settings for an account of a minor (unless it has settings already). If `invite_code` belongs to someone: records the intro, suggests the two to each other, and sends a friend request from the newcomer to the inviter (source `INVITE_LINK`; the inviter's "who may send me requests" audience does not apply, since they handed out the link). |
 | `identity.user.deleted` | Deletes every row about the user (friendships, requests, blocks, suggestions, invite, intros, shared history, bumps, map reactions, map views, follows, follow requests, follow settings, dismissed follow suggestions, their circles and their memberships in others'), drops cached lists, and pushes `friend_removed_user_id` to their former friends. |
 | `identity.user.privacy_changed` | Re-syncs friends' view of the user's online state with `share_online_status`: hidden → pushed as offline (no "last seen"); shown again while online → pushed as online. With `nearby_discoverable` off, ends the user's open nearby session and takes them off the nearby map at once. |
-| `social.friend.accepted`, `social.friend.removed`, `social.friend.prefs_changed`, `social.user.blocked`, `social.user.unblocked`, `social.follow.created`, `social.follow.removed`, `social.circle.members_changed`, `social.circle.deleted` | Our own: drops the cached lists they changed (friends and friendship details, hidden, followers / following, circle members and memberships). The request that made the change does this right after its commit too, but it can be cut off there (deadline, lost connection); these events come from the same transaction and arrive at least once. |
+| `social.friend.accepted`, `social.friend.removed`, `social.friend.prefs_changed`, `social.user.blocked`, `social.user.unblocked`, `social.follow.created`, `social.follow.removed`, `social.circle.members_changed`, `social.circle.deleted` | Our own: drops the cached lists they changed, in case the request that made the change was cut off before doing so. |
 | `notify.mute.changed` | `{ user_id, muted_user_id, muted }`: mirrors a mute made in the notification settings onto the friendship's `muted` flag (when the two are friends). Not re-announced as `social.friend.prefs_changed`. |
 
 ## Bus subjects (core NATS)
@@ -160,8 +156,7 @@ pub async fn mutual_friend_count(core: &Core, a: Uuid, b: Uuid) -> AppResult<i32
 pub async fn record_interaction(core: &Core, from: Uuid, to: Uuid, kind: InteractionKind, weight: i32) -> AppResult<()>;
 ```
 
-Friendship details (cached per user, dropped on every friendship,
-preference or rank change):
+Friendship details:
 
 ```rust
 pub struct FriendLink { pub friend_id: Uuid, pub since: DateTime<Utc>, pub best_friend_rank: i32, pub favorite: bool, pub muted: bool }
@@ -208,13 +203,11 @@ pub async fn is_close_friend(core: &Core, owner: Uuid, viewer: Uuid) -> AppResul
 | `Private` | nobody |
 
 The owner's account state (suspended, deleted), link-only access and age
-limits stay with the content domain. `tokuly.common.v1.Visibility` has
-`VISIBILITY_FOLLOWERS`, `VISIBILITY_CLOSE_FRIENDS` and `VISIBILITY_CIRCLE`
-(with `AudienceRef.circle_id`); `ContentAudience::from_visibility(v, circle_id)`
-/ `from_stored(i32, circle_id)` map them (unknown → `Private`). Notes,
-video, shorts and live honour them, and apply locked accounts to their
-public content (see their `docs/events/*.md`); a domain that does not
-refuses them with `VISIBILITY_INVALID`.
+limits stay with the content domain. `ContentAudience::from_visibility(v, circle_id)`
+/ `from_stored(i32, circle_id)` map `tokuly.common.v1.Visibility` (unknown →
+`Private`). Notes, video, shorts and live honour the follower, close-friends
+and circle audiences; a domain that does not refuses them with
+`VISIBILITY_INVALID`.
 
 Follow suggestions take more signals through
 `Social::add_follow_signal(Arc<dyn tokuly_social::follow_suggestions::FollowSignal>)`:
@@ -242,32 +235,15 @@ to feed "people you may know" from another domain, and
 
 ### Claimed positions (`tokuly_social::claims`)
 
-`DiscoverNearby` and `Bump` are matched on a position the client sends. It
-is checked first by a `claims::PositionCheck`, which the geo domain plugs in
-(`Geo::new` calls `Social::set_position_check`): does the account's own
-latest real fix (recent, accurate to 100 m, not mocked, moving at ground
-speed or settled after a jump) put it there? The check answers plausible,
-not verified or too coarse about the caller's own claim, never a position
-or distance, so social holds nothing derived from a true position.
-What others are shown stays computed from the claim (distance bands, one's
-own shake position, the point between two friends' shakes); the true
-position only decides whether the claimer takes part.
-
-A refused claim is refused, not moved to the real position, for both
-features: social does not have the real position, and a session or bump
-placed there would show strangers (and friends of both, for a bump) something
-derived from it, which ghost mode forbids for whoever does not see the person
-precisely.
-
-| Feature | A claim that fails the check |
-|---|---|
-| `DiscoverNearby` | The stream is refused with `LOCATION_NOT_VERIFIED` (`LOCATION_TOO_COARSE` while the device only gives approximate locations); the user never appears on the nearby map. |
-| `Bump` | The shake is refused with the same reasons before it is published, so nobody can match it; the other phone sees no bump. |
-
-Without a check plugged in, every claim is refused (fail closed). The geo
-side and the two-world test showing that what Ren sees does not depend on
-where the claimer really is: `docs/events/geo.md` ("Claimed positions") and
-`crates/geo/tests/claims.rs`.
+`DiscoverNearby` and `Bump` are matched on a position the client sends. The
+geo domain checks it first (`claims::PositionCheck`, plugged in by
+`Geo::new`; rules in `docs/events/geo.md`, "Claimed positions"). The answer
+is a verdict about the caller's own claim, never a position or distance, so
+social holds nothing derived from a true position: what others are shown
+stays computed from the claim. A claim that fails is refused with
+`LOCATION_NOT_VERIFIED` (`LOCATION_TOO_COARSE` while the device only gives
+approximate locations) — the user never appears on the nearby map, the shake
+is never published. Without a check plugged in, every claim is refused.
 
 `Social::new` registers a `tokuly_identity::ProfileExtension` (relationship,
 mutual friends, friendship details, friend/intro/bump counters, relationships
@@ -297,7 +273,7 @@ No job-queue jobs. `Social::spawn_workers` starts:
 | Key | Type, TTL | Purpose |
 |---|---|---|
 | `social:friends:<user>` / `social:hidden:<user>` | bytes (16 per ID), 10 min | Cached friend IDs / IDs hidden by a block. Dropped on every change. |
-| `social:friends:gen:<user>` / `social:hidden:gen:<user>` | counter, 1 h after the last change | Bumped by every change. A reader stores the list it loaded only if the counter has not moved since it started, so one that raced a writer cannot re-cache a stale list. |
+| `social:friends:gen:<user>` / `social:hidden:gen:<user>` | counter, 1 h after the last change | Bumped by every change, so a reader that raced a writer cannot re-cache a stale list. |
 | `social:nearby:geo`, `social:nearby:seen` | GEO set + last check-in times | Users with a `DiscoverNearby` stream open (visible for 15 s after their last heartbeat). |
 | `social:nearby:session:<user>` | session ID, 11 min | The user's current `DiscoverNearby` session. A user has one at a time: an older session ends when it sees a newer one here. |
 | `social:bump:geo`, `social:bump:seen` | GEO set + last check-in times | Users who just shook their phone. |
@@ -305,9 +281,9 @@ No job-queue jobs. `Social::spawn_workers` starts:
 | `social:bump:pair:<lo>:<hi>` | bump ID, cool-down | Makes two racing requests record one bump; later shakes within the cool-down return it. |
 | `social:bump:announced:<lo>:<hi>` | marker, 10 min | Throttles "A and B bumped!" to mutual friends. |
 | `social:map-view:<viewer>:<viewed>` | marker, 60 s | De-duplicates repeated map views. |
-| `social:friend-links:<user>` | 29 bytes per friend, 10 min | Friendship details for `graph::friend_links`. Generation counter like the others. |
+| `social:friend-links:<user>` | bytes, 10 min | Friendship details for `graph::friend_links`. |
 | `social:followers:<user>` / `social:following:<user>` | bytes (16 per ID), 10 min | Cached follower / followee IDs. |
-| `social:circle-members:<circle>` / `social:member-of:<user>` | bytes, 10 min | Members of a circle; the circles a user is in (33 bytes each: circle, owner, close-friends flag). Server-side only. |
+| `social:circle-members:<circle>` / `social:member-of:<user>` | bytes, 10 min | Members of a circle; the circles a user is in. Server-side only. |
 
 Rate limits (`rl:` keys): friend requests 60/h and 200/day per sender and
 5/day per sender→recipient; contact matching 6/h and 30/day and 5000 distinct hashes a day (counted in a HyperLogLog, `rl:match-contacts-distinct:<user>`, so no hash is kept); blocks 100/h; invite
