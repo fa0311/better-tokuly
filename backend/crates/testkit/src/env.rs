@@ -22,6 +22,8 @@ const REMOVE_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) struct TestEnv {
     /// The configuration pointing at this run's resources.
     pub cfg: Config,
+    /// ClickHouse was reachable and has the run's database.
+    clickhouse: bool,
 }
 
 static ENV: OnceLock<TestEnv> = OnceLock::new();
@@ -76,25 +78,34 @@ async fn set_up(migrations: Vec<String>) -> TestEnv {
     let mut cfg = base.clone();
     cfg.database_url = postgres::create(&base, run, &migrations).await;
     cfg.nats_prefix = nats::prefix(run);
-    if let Some(database) = clickhouse::create(&base, &postgres::database(run), run::unix_now()).await {
-        cfg.clickhouse_database = database;
-    }
-    TestEnv { cfg }
+    let clickhouse = match clickhouse::create(&base, run).await {
+        Some(database) => {
+            cfg.clickhouse_database = database;
+            true
+        }
+        None => false,
+    };
+    TestEnv { cfg, clickhouse }
 }
 
 /// Removes leftovers of crashed runs. Best effort: a service that is down
 /// shows up when the run creates its own resources there.
 async fn sweep(base: &Config) {
     let now = run::unix_now();
-    let _ = tokio::join!(postgres::sweep(base, now), nats::sweep(base, now));
+    let _ = tokio::join!(postgres::sweep(base, now), nats::sweep(base, now), clickhouse::sweep(base, now));
 }
 
 /// Removes what this run created.
 async fn remove(base: &Config) {
     let run = run();
-    let (database, streams) = tokio::join!(bounded(postgres::remove(base, run)), bounded(nats::remove(base, run)));
+    // When setup panicked there is no environment: try everything.
+    let has_clickhouse = ENV.get().is_none_or(|env| env.clickhouse);
+    let analytics = async { if has_clickhouse { bounded(clickhouse::remove(base, run)).await } else { Ok(()) } };
+    let (database, streams, analytics) =
+        tokio::join!(bounded(postgres::remove(base, run)), bounded(nats::remove(base, run)), analytics);
     report("PostgreSQL database", database);
     report("JetStream streams", streams);
+    report("ClickHouse database", analytics);
 }
 
 async fn bounded(removal: impl Future<Output = anyhow::Result<()>>) -> anyhow::Result<()> {

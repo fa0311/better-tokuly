@@ -3,11 +3,23 @@
 //! app and panics, then checks that nothing of the child's run is left.
 use std::{collections::HashMap, process::Command};
 
+use clap::Parser;
 use futures::TryStreamExt as _;
 use sqlx::{Connection as _, PgConnection};
+use tokuly_core::config::Config;
 use tokuly_testkit::TestApp;
 
 const CHILD: &str = "TOKULY_TESTKIT_AT_EXIT_CHILD";
+
+#[derive(Parser)]
+struct EnvConfig {
+    #[command(flatten)]
+    core: Config,
+}
+
+fn config() -> Config {
+    EnvConfig::parse_from(["at-exit", "--secret", "test-secret-test-secret-test-secret-test"]).core
+}
 
 #[tokio::test]
 async fn a_panicking_test_binary_leaves_nothing_behind() {
@@ -20,13 +32,13 @@ async fn a_panicking_test_binary_leaves_nothing_behind() {
     assert!(!output.status.success(), "the child's test panics:\n{stdout}");
     // What the child's run created, as it printed it. libtest's own
     // "test … ..." may precede a print on the same line.
-    let run: HashMap<&str, &str> =
+    let printed: HashMap<&str, &str> =
         stdout.lines().filter_map(|line| line.split_once("child-run ")?.1.split_once('=')).collect();
-    let database = run.get("database").copied().unwrap_or_default();
-    assert!(database.starts_with("tokuly_test_"), "the child printed its run:\n{stdout}");
+    let child = |key: &str| *printed.get(key).unwrap_or_else(|| panic!("the child printed its {key}:\n{stdout}"));
+    let cfg = config();
 
-    let mut admin =
-        PgConnection::connect(&std::env::var("TOKULY_DATABASE_URL").expect("TOKULY_DATABASE_URL")).await.unwrap();
+    let database = child("database");
+    let mut admin = PgConnection::connect(&cfg.database_url).await.unwrap();
     let database_left: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)")
         .bind(database)
         .fetch_one(&mut admin)
@@ -34,20 +46,25 @@ async fn a_panicking_test_binary_leaves_nothing_behind() {
         .unwrap();
     assert!(!database_left, "{database} was dropped");
 
-    let nats_prefix = run.get("nats_prefix").copied().unwrap_or_default();
-    assert!(nats_prefix.starts_with('T'), "the child printed its NATS prefix:\n{stdout}");
-    let js = async_nats::jetstream::new(
-        async_nats::connect(std::env::var("TOKULY_NATS_URL").expect("TOKULY_NATS_URL")).await.unwrap(),
-    );
-    let streams_left: Vec<String> = js
-        .stream_names()
-        .try_collect::<Vec<String>>()
+    let nats_prefix = child("nats_prefix");
+    let js = async_nats::jetstream::new(async_nats::connect(&cfg.nats_url).await.unwrap());
+    let streams: Vec<String> = js.stream_names().try_collect().await.unwrap();
+    let streams_left: Vec<&String> =
+        streams.iter().filter(|name| name.starts_with(&format!("{nats_prefix}_"))).collect();
+    assert!(streams_left.is_empty(), "the streams of {nats_prefix} were deleted: {streams_left:?}");
+
+    let analytics = child("clickhouse_database");
+    let clickhouse = clickhouse::Client::default()
+        .with_url(&cfg.clickhouse_url)
+        .with_user(&cfg.clickhouse_user)
+        .with_password(&cfg.clickhouse_password);
+    let analytics_left: u64 = clickhouse
+        .query("SELECT count() FROM system.databases WHERE name = ?")
+        .bind(analytics)
+        .fetch_one()
         .await
-        .unwrap()
-        .into_iter()
-        .filter(|name| name.starts_with(nats_prefix))
-        .collect();
-    assert_eq!(streams_left, Vec::<String>::new(), "the streams of {nats_prefix} were deleted");
+        .unwrap();
+    assert_eq!(analytics_left, 0, "{analytics} was dropped");
 }
 
 #[tokio::test]
@@ -57,7 +74,9 @@ async fn child_starts_an_app_and_panics() {
     }
     let app = TestApp::start(&["0001", "0100", "0400"], |_, _, router| router).await;
     let cfg = &app.core.cfg;
+    let database = cfg.database_url.rsplit('/').next().unwrap().split('?').next().unwrap();
+    println!("child-run database={database}");
     println!("child-run nats_prefix={}", cfg.nats_prefix);
-    println!("child-run database={}", cfg.database_url.rsplit('/').next().unwrap().split('?').next().unwrap());
+    println!("child-run clickhouse_database={}", cfg.clickhouse_database);
     panic!("the child's test fails");
 }
