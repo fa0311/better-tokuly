@@ -7,6 +7,7 @@ env:
 # The emulator has no camera: the story is a picture put in the library.
 - addMedia:
     - "../fixtures/story.jpg"
+- clearKeychain
 - launchApp:
     clearState: true
 - extendedWaitUntil:

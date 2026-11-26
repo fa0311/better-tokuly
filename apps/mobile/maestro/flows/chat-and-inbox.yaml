@@ -4,6 +4,7 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/chat-friends.js
+- clearKeychain
 - launchApp:
     clearState: true
 - extendedWaitUntil:
@@ -49,7 +50,7 @@ env:
 - tapOn: { id: "conversation-call" }
 - assertVisible: "(通話はWebでできるよ！|Calls are on the web for now!)"
 - tapOn: "(キャンセル|Cancel|CANCEL)"
-- back
+- runFlow: ../subflows/back.yaml
 - extendedWaitUntil:
     notVisible: { id: "${'unread-' + output.friendName}" }
     timeout: 15000
@@ -61,7 +62,7 @@ env:
 - extendedWaitUntil:
     visible: "いいね、またあとで！"
     timeout: 15000
-- back
+- runFlow: ../subflows/back.yaml
 
 # The inbox: the friend request is in it.
 - tapOn: { id: "tab-inbox" }

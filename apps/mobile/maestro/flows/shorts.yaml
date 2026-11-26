@@ -7,6 +7,7 @@ env:
 # The emulator has no camera: the short is a video put in the library.
 - addMedia:
     - "../fixtures/short.mp4"
+- clearKeychain
 - launchApp:
     clearState: true
 - extendedWaitUntil:
@@ -52,7 +53,7 @@ env:
     timeout: 120000
 
 # Someone else, on the same phone: the for-you feed has the short.
-- back
+- runFlow: ../subflows/back.yaml
 - tapOn: { id: "tab-me" }
 - tapOn: { id: "me-settings" }
 - tapOn: { id: "settings-accounts" }

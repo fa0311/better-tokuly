@@ -4,6 +4,7 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/two-accounts.js
+- clearKeychain
 - launchApp:
     clearState: true
 - extendedWaitUntil:

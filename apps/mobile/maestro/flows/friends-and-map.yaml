@@ -4,6 +4,7 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/friend-request.js
+- clearKeychain
 - launchApp:
     clearState: true
     permissions:
@@ -44,7 +45,7 @@ env:
 - extendedWaitUntil:
     visible: { id: "${'profile-' + output.friend}" }
     timeout: 15000
-- back
+- runFlow: ../subflows/back.yaml
 
 # Ghost mode for everyone.
 - tapOn: { id: "ghost-chip" }
@@ -73,6 +74,6 @@ env:
 - hideKeyboard
 - tapOn: { id: "add-friend-send" }
 - tapOn: "OK"
-- back
+- runFlow: ../subflows/dismiss-sheet.yaml
 - tapOn: { id: "friends-tab-requests" }
 - assertVisible: { id: "${'person-' + output.stranger}" }

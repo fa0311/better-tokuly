@@ -3,6 +3,7 @@ name: Sign up, sign out, sign in again
 env:
   PASSWORD: tokuly-e2e-pass
 ---
+- clearKeychain
 - launchApp:
     clearState: true
 - extendedWaitUntil:
