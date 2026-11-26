@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { common, school } from "@tokuly/api";
+import { pushesDuringReadByKey } from "@tokuly/core/query";
 import {
   DoorOpen,
   Flag,
@@ -31,7 +32,6 @@ import { ShareToChat } from "#/features/chat";
 import { EmojiText } from "#/features/emoji";
 import { ReportDialog } from "#/features/engagement";
 import { cn } from "#/lib/cn";
-import { pushesDuringReadByKey } from "#/lib/pushes-during-read";
 import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
 import { keys, refresh, roomClient, toastError } from "./api";

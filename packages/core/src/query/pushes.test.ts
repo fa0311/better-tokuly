@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pushesDuringRead, pushesDuringReadByKey } from "./pushes-during-read";
+import { pushesDuringRead, pushesDuringReadByKey } from "./pushes";
 
 const add = (item: string) => (state: string[]) =>
   state.includes(item) ? state : [...state, item];
