@@ -326,7 +326,7 @@ off the tree (a `#tag` in code is no hashtag).
 | `**b**`, `<b>b</b>` / `*i*`, `<i>i</i>` / `~~s~~`, `<s>s</s>` / `<small>s</small>` | span (bold / italic / strike / small); `*` needs text right after the opening and before the closing star, on one line |
 | `` `code` `` | inline code (one line) |
 | `[label](https://…)` / a bare http(s) URL | link (labels hold no links) |
-| `@handle`, `#tag`, `:shortcode:` | mention, hashtag, custom emoji (same rules as before for where they start) |
+| `@handle`, `#tag`, `:shortcode:` | mention, hashtag, custom emoji |
 | `$[name content]` | effect: `tada jelly jump bounce shake spin rainbow sparkle x2` |
 | `\` before a markup character | that character as text |
 

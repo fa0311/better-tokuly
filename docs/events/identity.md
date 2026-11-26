@@ -46,7 +46,7 @@ Durable `identity-sessions`:
 
 ## Public Rust API for other domains
 
-- `users::{summaries, summaries_ordered, summary, pick, filter_active, …}`, `settings::{privacy_of, privacy_of_many}` (unchanged).
+- `users::{summaries, summaries_ordered, summary, pick, filter_active, …}`, `settings::{privacy_of, privacy_of_many}`.
 - **Bots** (`bots`): `create_bot_account(tx, owner, handle, display_name, bio) -> Uuid`, `set_bot_owner(tx, bot, owner)`, `is_bot(core, id)`, `bots_among(core, ids) -> HashSet`, `bot_owners(core, ids) -> HashMap<bot, owner>`, and the one rule for places where only people count: `humans_only(core, ids) -> Vec<Uuid>` (or `NOT u.bot` in a join on `users`). Friend suggestions, leaderboards, rankings, nearby discovery, intro counts and anonymity group sizes use it.
 - **Birthdays** (`birthdays`): `shared_birthdays(core, owners, closeness) -> HashMap<Uuid, SharedBirthday { month, day, year: Option }>` (batched, the caller says who is a friend), `Identity::visible_birthdays(viewer, owners)` (friendships and blocks from the profile extensions), `set_birthday_audience(core, user, audience, show_year)`, `audience_of(&PrivacySettings)`.
 - **プロフ帳** (`extras`): `search_terms(core, ids, &locked) -> HashMap<Uuid, ProfileSearchTerms { text, tags }>` (public fields of unlocked accounts only, for search documents), `Extras::load(..).view(&Viewer)`, `reaches(visibility, circle, &Viewer)` (an allowlist: unknown values reach only the owner), `tag_key`.
