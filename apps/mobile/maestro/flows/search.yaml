@@ -21,10 +21,9 @@ env:
     timeout: 30000
 
 # さがす is under the own profile.
-- tapOn: { id: "tab-me" }
-- scrollUntilVisible:
-    element: { id: "me-search" }
-- tapOn: { id: "me-search" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: search }
 - extendedWaitUntil:
     visible: { id: "search-screen" }
     timeout: 15000

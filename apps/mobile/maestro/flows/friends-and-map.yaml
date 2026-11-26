@@ -76,10 +76,9 @@ env:
     timeout: 10000
 
 # Someone else, by handle.
-- tapOn: { id: "tab-me" }
-- scrollUntilVisible:
-    element: { id: "me-friends" }
-- tapOn: { id: "me-friends" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: friends }
 - tapOn: { id: "friends-add" }
 - tapOn: { id: "add-friend-handle" }
 - inputText: ${output.stranger}

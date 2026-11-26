@@ -21,10 +21,9 @@ env:
 - extendedWaitUntil:
     visible: { id: "map-screen" }
     timeout: 30000
-- tapOn: { id: "tab-me" }
-- scrollUntilVisible:
-    element: { id: "me-settings" }
-- tapOn: { id: "me-settings" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: settings }
 - extendedWaitUntil:
     visible: { id: "settings-screen" }
     timeout: 15000

@@ -19,8 +19,9 @@ env:
 
 # 「もっと見る」 lists what the app does not have yet; the web settings open signed in
 # (the hand-off), without asking for the password again.
-- tapOn: { id: "tab-me" }
-- tapOn: { id: "me-more" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: more }
 - extendedWaitUntil:
     visible: { id: "more-screen" }
     timeout: 15000
