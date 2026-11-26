@@ -17,7 +17,6 @@ import { Heart, MessageCircle, Music, Share2, Volume2, VolumeX } from "lucide-re
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { create } from "zustand";
 import { Avatar } from "#/components/avatar";
 import { useEngagement, useLike } from "#/features/engagement/data";
@@ -25,6 +24,9 @@ import { mediaUrl } from "#/lib/config";
 import { errorMessage } from "#/lib/errors";
 import { CommentsSheet } from "./comments-sheet";
 import { reportStay, useShareShort } from "./data";
+
+/** Two taps closer than this are a double tap. */
+const DOUBLE_TAP_MS = 280;
 
 /** Sound on or off, for every short of the feed (a choice that holds while scrolling). */
 export const useShortsSound = create<{ muted: boolean; toggle(): void }>((set) => ({
@@ -162,25 +164,33 @@ function Player({
     };
   }, [playing, short.id, source]);
 
-  const doubleTap = Gesture.Tap()
-    .runOnJS(true)
-    .numberOfTaps(2)
-    .onEnd(() => {
+  // A double tap likes, a single one pauses or plays. Plain presses: the list around the
+  // slide keeps the swipe to itself.
+  const lastTap = useRef(0);
+  const single = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(single.current), []);
+  const onTap = () => {
+    const now = Date.now();
+    clearTimeout(single.current);
+    if (now - lastTap.current < DOUBLE_TAP_MS) {
+      lastTap.current = 0;
       if (!liked) void like(true);
-    });
-  const singleTap = Gesture.Tap()
-    .runOnJS(true)
-    .onEnd(() => (player.playing ? player.pause() : player.play()));
+      return;
+    }
+    lastTap.current = now;
+    single.current = setTimeout(
+      () => (player.playing ? player.pause() : player.play()),
+      DOUBLE_TAP_MS,
+    );
+  };
 
   return (
-    <GestureDetector gesture={Gesture.Exclusive(doubleTap, singleTap)}>
-      <View style={{ flex: 1 }}>
-        <VideoView player={player} style={{ flex: 1 }} contentFit="cover" nativeControls={false} />
-        {!started && cover ? (
-          <Image source={cover} style={{ position: "absolute", inset: 0 }} contentFit="cover" />
-        ) : null}
-      </View>
-    </GestureDetector>
+    <Pressable testID="short-player" accessibilityRole="button" onPress={onTap} style={{ flex: 1 }}>
+      <VideoView player={player} style={{ flex: 1 }} contentFit="cover" nativeControls={false} />
+      {!started && cover ? (
+        <Image source={cover} style={{ position: "absolute", inset: 0 }} contentFit="cover" />
+      ) : null}
+    </Pressable>
   );
 }
 
