@@ -262,14 +262,19 @@ export async function postNote(
   }
 }
 
-/** Keeps what is being written as a server draft (a new one, or `draftId` replaced). */
+/**
+ * Keeps what is being written as a server draft (a new one, or `draftId`
+ * replaced). `scheduledAt` is the time it goes out by itself: saving
+ * without it takes a scheduled draft off its schedule.
+ */
 export async function saveDraft(
   queryClient: QueryClient,
   client: ReturnType<typeof draftClient>,
   draftId: string,
   content: NoteContent,
+  scheduledAt?: notes.Draft["scheduledAt"],
 ): Promise<void> {
-  await client.saveDraft({ draftId, content });
+  await client.saveDraft({ draftId, content, scheduledAt });
   void queryClient.invalidateQueries({ queryKey: notesKeys.drafts });
 }
 
@@ -296,15 +301,18 @@ export function usePublishDraft(): (draft: notes.Draft) => Promise<boolean> {
   };
 }
 
-export function useDeleteDraft(): (draft: notes.Draft) => Promise<void> {
+/** Throws a draft away; `false` when the server refused (it said why). */
+export function useDeleteDraft(): (draft: notes.Draft) => Promise<boolean> {
   const queryClient = useQueryClient();
   return async (draft) => {
     const client = draftClient();
     try {
       await client.deleteDraft({ draftId: draft.id });
     } catch (error) {
-      return fail(error);
+      fail(error);
+      return false;
     }
     void queryClient.invalidateQueries({ queryKey: notesKeys.drafts });
+    return true;
   };
 }

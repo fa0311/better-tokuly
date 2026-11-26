@@ -98,7 +98,10 @@ export function DraftsScreen() {
                   key: "delete",
                   label: t("drafts.delete"),
                   destructive: true,
-                  onPress: () => void remove(menuFor).then(() => Alert.alert(t("drafts.deleted"))),
+                  onPress: () =>
+                    void remove(menuFor).then((gone) => {
+                      if (gone) Alert.alert(t("drafts.deleted"));
+                    }),
                 },
               ]
             : []
