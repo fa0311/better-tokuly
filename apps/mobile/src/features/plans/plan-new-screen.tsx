@@ -18,13 +18,20 @@ import { PlanForm } from "./plan-form";
 
 /**
  * A new plan, empty or with a friend already invited (`inviteId`, from their
- * profile). Sent, it opens in place of the form.
+ * profile; `inviteHandle` finds them among more friends than one page
+ * holds). Sent, it opens in place of the form.
  */
-export function PlanNewScreen({ inviteId }: { inviteId?: string }) {
+export function PlanNewScreen({
+  inviteId,
+  inviteHandle = "",
+}: {
+  inviteId?: string;
+  inviteHandle?: string;
+}) {
   const { t } = useTranslation("plans");
   const zone = usePlanZone();
   const queryClient = useQueryClient();
-  const friends = useFriends("");
+  const friends = useFriends(inviteHandle);
   const [edited, setEdited] = useState<PlanFormValue | null>(null);
   const [tried, setTried] = useState(false);
 

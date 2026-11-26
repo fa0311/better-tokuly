@@ -5,7 +5,7 @@ import { Button } from "#/components/button";
 import { useTheme } from "#/lib/theme";
 import type { ProfileSection } from "#/seams/profile";
 
-function InviteToPlan({ userId }: { userId: string }) {
+function InviteToPlan({ user }: { user: { id: string; handle: string } }) {
   const { t } = useTranslation("mobile");
   const { colors } = useTheme();
   return (
@@ -13,7 +13,11 @@ function InviteToPlan({ userId }: { userId: string }) {
       testID="profile-plan-invite"
       variant="secondary"
       icon={<CalendarPlus size={18} color={colors.ink} />}
-      onPress={() => router.push(`/plans/new?invite=${encodeURIComponent(userId)}`)}
+      onPress={() =>
+        router.push(
+          `/plans/new?invite=${encodeURIComponent(user.id)}&handle=${encodeURIComponent(user.handle)}`,
+        )
+      }
     >
       {t("plans.inviteToPlan")}
     </Button>
@@ -27,6 +31,6 @@ export default [
     slot: "action",
     order: 30,
     Component: ({ user, isFriend, isSelf }) =>
-      isFriend && !isSelf ? <InviteToPlan userId={user.id} /> : null,
+      isFriend && !isSelf ? <InviteToPlan user={user} /> : null,
   },
 ] satisfies ProfileSection[];

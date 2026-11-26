@@ -154,6 +154,20 @@ describe("PlanNewScreen", () => {
     expect(router.replace).toHaveBeenCalledWith("/plans/p2");
   });
 
+  it("finds the friend from their profile among many friends", async () => {
+    signIn();
+    const service = jest.mocked(api)().service(plans.PlanService) as unknown as Record<
+      string,
+      unknown
+    >;
+    // Only the first hundred friends come without a search; ゆい is not among them.
+    service.listFriends = async ({ query }: { query: string }) => ({
+      friends: query === "yui" ? [{ user: YUI }] : [],
+    });
+    await show(<PlanNewScreen inviteId="yui" inviteHandle="yui" />);
+    expect(await screen.findByText("ゆい")).toBeOnTheScreen();
+  });
+
   it("ends a night out after midnight on the next day", async () => {
     const sent = signIn();
     await show(<PlanNewScreen />);
