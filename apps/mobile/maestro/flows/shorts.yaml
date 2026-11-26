@@ -65,8 +65,16 @@ env:
     visible: { id: "shorts-feed" }
     timeout: 20000
 - extendedWaitUntil:
-    visible: "${'.*' + output.caption + '.*'}"
+    visible: { id: "short-slide-0" }
     timeout: 20000
+# On a fresh stack it is the only short; a stack used before ranks others too.
+- repeat:
+    while:
+      notVisible: "${'.*' + output.caption + '.*'}"
+    times: 15
+    commands:
+      - runFlow: ../subflows/next-short.yaml
+- assertVisible: "${'.*' + output.caption + '.*'}"
 - waitForAnimationToEnd
 - takeScreenshot: 07-shorts
 
@@ -77,16 +85,11 @@ env:
     timeout: 10000
 
 # Swipe on: the feed comes round again with it (nothing else is left to show), marked as a
-# repeat. The emulator draws video in software and hardly takes a swipe while one plays: a
-# tap pauses it first.
-- tapOn:
-    id: "short-player"
-    index: 0
-    waitToSettleTimeoutMs: 500
-- waitForAnimationToEnd:
-    timeout: 3000
-- scrollUntilVisible:
-    element: { id: "short-repeat" }
-    direction: DOWN
-    timeout: 40000
-    speed: 60
+# repeat.
+- repeat:
+    while:
+      notVisible: { id: "short-repeat" }
+    times: 15
+    commands:
+      - runFlow: ../subflows/next-short.yaml
+- assertVisible: { id: "short-repeat" }
