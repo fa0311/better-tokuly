@@ -185,6 +185,10 @@ writes the list of each seam's files to `src/generated/seams/<seam>.ts`: from
 both add a feature would always conflict there. After adding or removing a
 seam file while Metro runs, `pnpm --filter @tokuly/mobile seams`; a jest run
 on stale registries fails (`src/seams/__tests__/registry.test.ts`).
+A file that carries a seam's name but would not be listed (deeper than the
+feature's folder, not `.ts(x)`, no `export default`) stops the generator, and
+with it the bundle: a `lifecycle.ts` left out would be a privacy hook that
+never runs.
 (`require.context` would do the same inside Metro, but it is still behind an
 `unstable_` flag, jest needs a stand-in for it, and its result is untyped: a
 generated import list is checked by `tsc` against each seam's type.)
@@ -208,8 +212,11 @@ What a feature _sends by itself_ is its own duty:
   account's session still works (after a switch went through, before a
   sign-out reaches the server): stop sending, wait for what is in flight, tell
   the server. All features' hooks run together and each has 3 s; after that
-  the account leaves anyway. Nothing registers at run time: a hook is there
-  whether or not a component was mounted.
+  the account leaves anyway — and a hook left behind goes on running under
+  the next account, so every request it makes goes through `account.api`
+  (or a client taken before its first await), never `api()` after one.
+  Nothing registers at run time: a hook is there whether or not a component
+  was mounted.
 - **Owed work.** What must reach the server and could not (offline, the 3 s
   ran out) is written down _before_ it is tried, by session or user ID, and
   retried until it goes through: at the next start as that account, or right
