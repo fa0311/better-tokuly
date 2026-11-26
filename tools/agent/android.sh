@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The local Android emulator (needs /dev/kvm; the container has it since 2026-11-26).
 # Same device as CI: API 34, google_apis, x86_64, Pixel 6, headless, software GPU.
-#   android.sh start | stop | status | env | shot <file.png>
+#   android.sh start | stop | status | env | locale <ja-JP|en-US> | shot <file.png>
 # `eval "$(android.sh env)"` puts adb, emulator and maestro on PATH.
 # Everything lives in the home volume (~/tokuly-dev/android, ~/.maestro), so it survives a
 # container recreate; only one emulator runs at a time (port 5554), shared by everyone.
@@ -31,7 +31,15 @@ case "${1:-status}" in
     running && { adb emu kill >/dev/null 2>&1 || kill "$(cat "$PID")"; } ; rm -f "$PID"; echo stopped ;;
   status)
     if running; then echo "running (pid $(cat "$PID"))"; adb devices | tail -n +2; else echo "stopped"; fi ;;
+  locale)
+    # en-US (default, same as CI) for Maestro flows: with ja-JP, Gboard turns typed handles into kana.
+    # For Japanese screenshots: sign in under en-US, then `locale ja-JP`; the app keeps its session.
+    adb root >/dev/null 2>&1; sleep 2
+    adb shell "setprop persist.sys.locale ${2:?ja-JP|en-US}; setprop ctl.restart zygote"
+    sleep 20; adb wait-for-device
+    for _ in $(seq 1 60); do [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ] && break; sleep 3; done
+    echo "locale $(adb shell getprop persist.sys.locale | tr -d '\r')" ;;
   shot)
     adb exec-out screencap -p >"${2:?file.png}"; echo "${2}" ;;
-  *) echo "usage: android.sh start|stop|status|env|shot <file>" >&2; exit 2 ;;
+  *) echo "usage: android.sh start|stop|status|env|locale <tag>|shot <file>" >&2; exit 2 ;;
 esac

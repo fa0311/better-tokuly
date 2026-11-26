@@ -31,7 +31,7 @@ Map tiles for the web: `pmtiles serve $TOKULY_DEV_HOME/data/tiles --port 58090 -
 ## Emulator and VM (need `/dev/kvm`)
 
 - Android: `tools/agent/machine/setup-android.sh` installs a JDK, the SDK, the API 34 x86_64 image, AVD `tokuly` and Maestro under `$TOKULY_DEV_HOME`;
-  `tools/agent/android.sh start`. Same device as CI. Release APK: `expo prebuild` then
+  `tools/agent/android.sh start`. Same device as CI, en-US by default (Gboard turns typed text into kana under ja-JP); for Japanese screenshots sign in first, then `android.sh locale ja-JP`. Release APK: `expo prebuild` then
   `./gradlew assembleRelease -PreactNativeArchitectures=x86_64`.
 - Docker: a Debian VM with Docker Engine: `tools/agent/machine/vm/create-vm.sh` once, then `$TOKULY_DEV_HOME/vm/start-vm.sh` and `ssh-vm.sh '<cmd>'`.
 - iOS needs macOS: that is the Mac agent's side (`agent:mac`).
