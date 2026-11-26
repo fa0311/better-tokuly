@@ -9,6 +9,7 @@ env:
     clearState: true
     permissions:
       microphone: allow
+      bluetooth: deny
 - extendedWaitUntil:
     visible: { id: "welcome-screen" }
     timeout: 60000
@@ -29,11 +30,13 @@ env:
 - takeScreenshot: 23-spaces
 - tapOn: ${output.title}
 
-# Its screen. Entering connects the audio (LiveKit) as a listener.
+# Its screen. Entering connects the audio (LiveKit) as a listener; on Android 12+ it first
+# asks for Bluetooth headsets, and a "no" keeps the phone's speaker.
 - extendedWaitUntil:
     visible: { id: "space-join" }
     timeout: 15000
 - tapOn: { id: "space-join" }
+- tapOn: { id: "com.android.permissioncontroller:id/permission_deny_button" }
 - extendedWaitUntil:
     visible: { id: "space-leave" }
     timeout: 20000
@@ -73,6 +76,8 @@ env:
 - extendedWaitUntil:
     visible: { id: "hangout-leave" }
     timeout: 20000
+# Bluetooth was asked once already while the app runs.
+- assertNotVisible: { id: "com.android.permissioncontroller:id/permission_deny_button" }
 - extendedWaitUntil:
     visible: { id: "hangout-mic", selected: true }
     timeout: 10000
