@@ -114,7 +114,6 @@ export default {
       spaces: "Spaces",
       community: "Communities",
       school: "School",
-      plans: "Plans",
       ask: "Ask box",
       quest: "Quests",
       emoji: "Emoji",
@@ -283,6 +282,14 @@ export default {
     createHangoutOnWeb: "Make a hangout (web)",
     hangoutOnWeb: "Invite & settings (web)",
     hangoutMicHint: "Your microphone turns on when you go in. You can mute it any time",
+  },
+  plans: {
+    more: "Show more",
+    onWeb: "Open on the web",
+    openOnWeb: "Open on the web",
+    extrasOnWeb: "Things to bring, cost split, comments",
+    extrasOnWebHint: "On this plan's web page",
+    openInMaps: "Open in Maps",
   },
   licenses: {
     title: "Open-source licences",

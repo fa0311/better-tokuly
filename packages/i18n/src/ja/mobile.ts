@@ -115,7 +115,6 @@ export default {
       spaces: "スペース",
       community: "コミュニティ",
       school: "学校",
-      plans: "予定",
       ask: "質問箱",
       quest: "クエスト",
       emoji: "絵文字",
@@ -284,6 +283,14 @@ export default {
     createHangoutOnWeb: "たまり場をつくる（Web）",
     hangoutOnWeb: "さそう・設定する（Web）",
     hangoutMicHint: "入るとマイクがONになるよ。ミュートはいつでもできるよ",
+  },
+  plans: {
+    more: "もっと見る",
+    onWeb: "Webでひらく",
+    openOnWeb: "Webでひらく",
+    extrasOnWeb: "持ち物・割り勘・コメント",
+    extrasOnWebHint: "この予定のWeb画面でつかえるよ",
+    openInMaps: "地図アプリでひらく",
   },
   licenses: {
     title: "オープンソースライセンス",

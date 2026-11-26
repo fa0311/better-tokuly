@@ -1,0 +1,49 @@
+appId: app.tokuly.mobile
+name: Answer a friend's plan and see its place on the map
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/plan-friends.js
+- clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
+
+# The plans, from the last tab: the friend's invitation waits under 未回答.
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: plans }
+- extendedWaitUntil:
+    visible: { id: "plans-screen" }
+    timeout: 15000
+- tapOn: { id: "plans-filter-invited" }
+- extendedWaitUntil:
+    visible: ${output.title}
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 27-plans
+- tapOn: ${output.title}
+
+# Its screen: when, where on the map, the reminders. Going!
+- extendedWaitUntil:
+    visible: { id: "plan-time" }
+    timeout: 15000
+- assertVisible: { id: "plan-place-map" }
+- assertVisible: { id: "plan-reminders" }
+- tapOn: { id: "plan-rsvp-going" }
+- extendedWaitUntil:
+    visible: { id: "plan-rsvp-going", selected: true }
+    timeout: 10000
+- extendedWaitUntil:
+    visible: { id: "plan-rsvp-comment" }
+    timeout: 10000
+- waitForAnimationToEnd
+- takeScreenshot: 28-plan

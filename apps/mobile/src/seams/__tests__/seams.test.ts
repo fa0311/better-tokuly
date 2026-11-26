@@ -38,6 +38,7 @@ describe("the features on the seams", () => {
       ["search", "/search"],
       ["video", "/watch"],
       ["community", "/communities"],
+      ["plans", "/plans"],
       ["live", "/live"],
       ["spaces", "/spaces"],
       ["more", "/more"],
@@ -88,6 +89,8 @@ describe("the features on the seams", () => {
       "notes/list/[id]",
       "notes/tag/[tag]",
       "notes/user/[id]",
+      "plans/[id]/index",
+      "plans/index",
       "playlist/[id]",
       "search",
       "settings/index",
@@ -133,6 +136,12 @@ describe("the features on the seams", () => {
     expect(screenFor("/live/abc123")).toBe("/live/abc123");
     expect(screenFor("/live/gifts")).toBe(`/web?path=${encodeURIComponent("/live/gifts")}`);
     expect(screenFor("/live/clips/new")).toBe(`/web?path=${encodeURIComponent("/live/clips/new")}`);
+    expect(screenFor("/plans")).toBe("/plans");
+    expect(screenFor("/plans/p1")).toBe("/plans/p1");
+    expect(screenFor("/plans/free")).toBe(`/web?path=${encodeURIComponent("/plans/free")}`);
+    expect(screenFor("/plans/polls/abc")).toBe(
+      `/web?path=${encodeURIComponent("/plans/polls/abc")}`,
+    );
     expect(screenFor("/settings/privacy")).toBe("/settings/privacy");
     expect(screenFor("/notifications/settings")).toBe("/settings/notifications");
     expect(screenFor("/settings/data")).toBe(`/web?path=${encodeURIComponent("/settings/data")}`);
