@@ -16,6 +16,7 @@ cd "$dir"
 # A clean environment: inside a T3/Claude Code session the CLAUDE_CODE_* variables route a child
 # claude through the parent's login, which ignores the API key ("Credit balance is too low").
 env -i HOME="$HOME" PATH="$PATH" TERM=dumb LANG=C.UTF-8 GITHUB_TOKEN="${GITHUB_TOKEN:-}" GH_TOKEN="${GITHUB_TOKEN:-}" \
+  ${RUSTUP_HOME:+RUSTUP_HOME="$RUSTUP_HOME"} ${CARGO_HOME:+CARGO_HOME="$CARGO_HOME"} TOKULY_DEV_HOME="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}" \
   ANTHROPIC_API_KEY="$(cat "${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/secrets/anthropic-api-key")" \
   claude -p --model "$model" --max-budget-usd "$budget" --permission-mode bypassPermissions \
          --output-format json < "$prompt" > "$out" || true
