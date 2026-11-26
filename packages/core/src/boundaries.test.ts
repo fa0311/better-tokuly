@@ -27,10 +27,12 @@ const DENIED_IMPORTS = [
 /**
  * Globals only a browser (or a native shell) has. The clock is fine. `globalThis`
  * and `self` are denied outright: shared code has no reason to reach for the
- * global object, and through it any of these is one cast away.
+ * global object, and through it any of these is one cast away. A property
+ * name (`{ self: "…" }`, as the strings of a profile's own tab have it) is
+ * not the global.
  */
 const DENIED_GLOBALS =
-  /(?<![.\w$])(window|document|navigator|localStorage|sessionStorage|indexedDB|globalThis|self|Platform\.OS)\b|(?<![.\w$])location\.(href|origin|pathname|search|hash|host|reload|assign|replace)\b/;
+  /(?<![.\w$])(window|document|navigator|localStorage|sessionStorage|indexedDB|globalThis|self|Platform\.OS)\b(?!:)|(?<![.\w$])location\.(href|origin|pathname|search|hash|host|reload|assign|replace)\b/;
 
 /** A triple-slash directive that pulls the DOM (or any other) library back into the program. */
 const LIB_REFERENCE = /^\s*\/\/\/\s*<reference\s+lib\s*=/m;
@@ -110,6 +112,9 @@ describe("shared packages", () => {
         '// the window of slides\nexport const label = "location";\nconst a = b.location;',
       ),
     ).toEqual([]);
+    // A property's name is not the global; the global as a value still is.
+    expect(violations('export const empty = { self: "まだないよ", other: "" };')).toEqual([]);
+    expect(violations("export const s = { scope: self };")).toEqual(["self"]);
   });
 
   it.each(PACKAGES)("%s type-checks without the DOM library", (dir) => {
