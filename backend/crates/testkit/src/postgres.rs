@@ -59,12 +59,9 @@ pub(crate) async fn create(cfg: &Config, run: &Run, migrations: &[String]) -> St
             "testkit: no migration file starts with `{wanted}_`"
         );
     }
-    let range = |number: &str| number.parse::<u32>().ok().map(|n| n / 100);
-    let wanted: Vec<_> = migrations.iter().map(|m| range(m)).collect();
     for file in files {
         let file_name = file.file_name().unwrap().to_string_lossy().into_owned();
-        let number = file_name.split('_').next().unwrap_or_default();
-        if !wanted.contains(&range(number)) {
+        if !migrations.iter().any(|domain| in_range(&file_name, domain)) {
             continue;
         }
         let sql = std::fs::read_to_string(&file).expect("testkit: read migration");
@@ -74,6 +71,14 @@ pub(crate) async fn create(cfg: &Config, run: &Run, migrations: &[String]) -> St
             .unwrap_or_else(|e| panic!("testkit: migration {file_name} failed: {e}"));
     }
     database_url
+}
+
+/// A domain's range is the hundred numbers from its own: `0601_chat_….sql`
+/// is in the range of `"0600"`, `0700_notes.sql` is not.
+fn in_range(file_name: &str, domain: &str) -> bool {
+    let range = |number: &str| number.parse::<u32>().ok().map(|n| n / 100);
+    let file = range(file_name.split('_').next().unwrap_or_default());
+    file.is_some() && file == range(domain)
 }
 
 async fn drop_database(admin: &mut PgConnection, name: &str) -> sqlx::Result<()> {
@@ -113,6 +118,20 @@ pub(crate) mod tests {
     fn database_name_is_swapped_in_urls() {
         assert_eq!(with_database("postgres://u:p@h:5432/tokuly", "t1"), "postgres://u:p@h:5432/t1");
         assert_eq!(with_database("postgres://u@h/tokuly?sslmode=disable", "t1"), "postgres://u@h/t1?sslmode=disable");
+    }
+
+    #[test]
+    fn a_domain_brings_in_the_files_of_its_range_only() {
+        assert!(in_range("0600_chat.sql", "0600"));
+        assert!(in_range("0601_chat_reactions.sql", "0600"));
+        assert!(in_range("0699_chat_last.sql", "0600"));
+        assert!(!in_range("0700_notes.sql", "0600"));
+        assert!(!in_range("0599_stamp_last.sql", "0600"));
+        assert!(in_range("0002_core_settings.sql", "0001"));
+        assert!(!in_range("0100_identity.sql", "0001"));
+        // Not a migration of any domain, whatever a test asks for.
+        assert!(!in_range("notes.sql", "chat"));
+        assert!(!in_range("draft_chat.sql", "0600"));
     }
 
     pub(crate) async fn exists(cfg: &Config, name: &str) -> bool {
