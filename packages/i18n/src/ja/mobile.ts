@@ -269,6 +269,10 @@ export default {
   spaces: {
     stageEmpty: "ステージにはまだだれもいないよ。ホストがもどるのを待ってるよ…",
     noMicrophone: "マイクが使えないみたい。設定でTokulyのマイクを許可してね",
+    microphoneAsk: {
+      title: "マイクを使ってもいい？",
+      body: "ルームやたまり場で話すときだけ使うよ。ミュートはいつでもできるよ！",
+    },
     more: "もっと見る",
     mineOnWeb: "予約する（Web）",
     moreOnWeb: "予約やタグ、招待はWebで設定できるよ",

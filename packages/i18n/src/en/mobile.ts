@@ -268,6 +268,10 @@ export default {
   spaces: {
     stageEmpty: "Nobody is on stage yet. Waiting for the host to come back…",
     noMicrophone: "The microphone isn't available. Allow Tokuly to use it in Settings",
+    microphoneAsk: {
+      title: "Can Tokuly use your microphone?",
+      body: "Only while you talk in a room or a hangout. You can mute it any time!",
+    },
     more: "Show more",
     mineOnWeb: "Schedule (web)",
     moreOnWeb: "Scheduling, tags and invitations are on the web",

@@ -81,7 +81,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         cameraPermission:
           "トークの写真や、記憶・ショートを撮るために使います。/ Lets you take photos and videos for chats, stories and shorts.",
         microphonePermission:
-          "ルームやたまり場で話したり、記憶やショートの動画に音を入れるために使います。/ Lets you talk in rooms and hangouts, and records sound with the videos of your stories and shorts.",
+          "ルームやたまり場で話すときと、記憶やショートの動画に音を入れるときに使うよ！/ Lets you talk in rooms and hangouts, and records sound with the videos of your stories and shorts.",
       },
     ],
     [
