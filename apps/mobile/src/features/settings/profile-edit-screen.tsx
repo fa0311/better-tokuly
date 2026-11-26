@@ -24,6 +24,7 @@ import { SERVER_URL } from "#/lib/config";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
 import { uploadAndProcess } from "#/lib/upload";
+import { AVATAR_FRAME, BANNER_FRAME, fitToFrame } from "./profile-image";
 
 const MAX_NAME = 40;
 const MAX_BIO = 300;
@@ -43,7 +44,7 @@ const absolute = (url: string) => (url.startsWith("/") ? `${SERVER_URL}${url}` :
 
 /**
  * Everything other people see about the account, as on the web: the avatar
- * and banner (picked and cropped by the system picker), the name, handle,
+ * and banner (cropped by the system picker, scaled down as on the web), the name, handle,
  * bio and school. The status stays on the web.
  */
 export function ProfileEditScreen() {
@@ -90,9 +91,10 @@ function ProfileImages({ me }: { me: identity.Me }) {
         });
         const image = picked.canceled ? undefined : picked.assets[0];
         if (!image) return null;
+        const file = await fitToFrame(image, slot === "avatar" ? AVATAR_FRAME : BANNER_FRAME);
         ensureActive(account);
         const asset = await uploadAndProcess(
-          { uri: image.uri, name: `${slot}.jpg`, type: image.mimeType ?? "image/jpeg" },
+          { ...file, name: `${slot}.jpg` },
           {
             purpose: slot === "avatar" ? media.AssetPurpose.AVATAR : media.AssetPurpose.BANNER,
             api: account.api,
