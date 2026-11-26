@@ -17,7 +17,11 @@ for _ in 1 2 3 4 5; do   # GitHub computes mergeability lazily
 done
 [ "$mergeable" = MERGEABLE ] || { echo "#$pr is $mergeable: rebase it first; nothing was changed" >&2; exit 1; }
 gh api -X PUT "repos/$repo/pulls/$pr/merge" -f merge_method="$method" -f sha="$head" --jq .message
-# Only after a successful merge: the branch is not needed any more.
+# Only after a successful merge: stacked PRs move onto main first (GitHub closes a PR whose base
+# branch is deleted), then the branch is not needed any more.
+for child in $(gh pr list --repo "$repo" --base "$branch" --json number --jq '.[].number'); do
+  gh api -X PATCH "repos/$repo/pulls/$child" -f base=main --jq '"#\(.number) now targets \(.base.ref)"'
+done
 gh api -X DELETE "repos/$repo/git/refs/heads/$branch" >/dev/null 2>&1 || true
 git -C "$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)" pull -q --ff-only 2>/dev/null || true
 echo "merged #$pr ($head) and deleted $branch"
