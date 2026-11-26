@@ -327,6 +327,8 @@ async fn packs_and_stamps_people_paid_for_cannot_be_deleted() {
     assert_eq!(ctx.get_pack(Some(&creator), &draft_id).await.unwrap_err().reason, "PACK_NOT_FOUND");
     assert!(tokuly_stamp::stamp_refs(&ctx.app.core, &[stamp]).await.unwrap().is_empty());
     assert_eq!(ctx.app.events_by("stamp.pack.deleted", creator.id).await.len(), 1);
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_STAMP_PACK, &draft_id).await);
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_STAMP, &stamp.to_string()).await);
 
     // A published pack must keep at least one stamp.
     let single = ctx.published(&creator, "ひとつだけ", 0, &[], 1).await;

@@ -674,6 +674,7 @@ async fn deleting_a_short_releases_what_it_held() {
         (deleted[0].data["id"].as_str(), deleted[0].data["reason"].as_str()),
         (Some(short.id.as_str()), Some("owner"))
     );
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_SHORT, &short.id).await);
 }
 
 #[tokio::test]

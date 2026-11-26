@@ -48,10 +48,13 @@ get comments, likes, saves, shares and reports on your content.
 
 - On top of your resolver, engagement hides a subject from anyone in a block
   (either direction) with its owner — except for reports.
-- When you delete content, engagement is not told: its rows stay and lists
-  show the subject as "no longer available". They are purged when the
-  content is taken down by moderation (`admin.content.removed`) or its
-  owner's account is erased. See "Gaps".
+- When you delete a subject for good, say so in the same transaction with
+  `tokuly_core::outbound::subject_deleted(tx, subject_type, id)` (or
+  `subjects_deleted` for many): engagement then purges what it kept about
+  it. Not when the subject is only hidden, and not while your
+  `resolve_for_report` still answers for it — the comments on it are
+  reportable for as long as it is (rules in `docs/events.md`). Until the
+  event comes, lists show the subject as "no longer available".
 
 Engagement itself registers:
 
@@ -182,6 +185,7 @@ idempotent.
 | Topic | Reaction |
 |---|---|
 | `admin.content.removed` `{ subject_type, subject_id, … }` | `SUBJECT_TYPE_COMMENT`: the comment is deleted with its replies (counters, realtime and `engagement.comment.deleted` as for any deletion). Any other type: everything engagement kept about the subject is purged — comments with their uploads and likes, reactions, bookmarks, share counts, counters. Either way the open reports about the subject become `ACTION_TAKEN`, and the comment texts kept for reports (of the comment and its replies, or of every comment on the subject) are forgotten. |
+| `subject.deleted` `{ subject_type, subject_id }` | The owning domain deleted the subject for good (its owner did, a moderator, a retention timer): everything engagement kept about it is purged exactly as for a takedown — comments with their uploads and likes, the comment texts kept for reports, reactions, bookmarks (collection sizes follow), share counts, counters — and the subject's realtime topic is closed. Reports about it are **not** answered: a deletion by the owner is no decision of the moderation team, and the case keeps what was reported. Ignored for `SUBJECT_TYPE_COMMENT` (comments are engagement's own). A second delivery, or one after `admin.content.removed` for the same subject, finds nothing left. |
 | `admin.report.resolved` `{ report_ids: [uuid], action_taken: bool }` | The named reports become `ACTION_TAKEN` / `NO_ACTION`. Emitted by the admin domain when a moderator resolves the case the reports were filed into. |
 | `identity.user.deleted` `{ user_id }` | Erased: the user's comments (threads go with their replies), reactions, bookmarks and collections, reports they filed, screening rules, comment blocks (as owner and as blocked), mentions of them, the texts of their comments kept for reports. Purged: everything on the subjects they owned. Reports about them or their content stay, without the owner reference. Counters of other people's subjects follow, with callbacks. Works in batches of 200 per transaction. |
 | `social.user.blocked` `{ user_id, blocked_id }` | Everything either of the two wrote on the other's subjects is hidden (`HIDDEN`, reason `BLOCKED_COMMENTER`) for everyone and leaves the owner's review queue: the blocked user's comments because the blocker asked not to deal with them, the blocker's own because the owner of the content could no longer see, hide or delete them. Unblocking restores nothing; the owner can approve the comments. An event that arrives after the block was lifted changes nothing. 200 comments per transaction, like account erasure (and so for `BlockCommenter`). |
@@ -220,7 +224,7 @@ once.
 whom the subject resolves (and who are not in a block with its owner) may
 subscribe. A block and an unfriending re-check both people's `subject:`
 subscriptions (`Realtime::revoke_prefix`); a subject a moderator removed
-closes its topic. Deleted notes close theirs, and a note whose audience
+or its domain deleted (`subject.deleted`) closes its topic. Deleted notes close theirs, and a note whose audience
 narrows re-checks its followers (notes domain); a removal from a
 community re-checks the person's `subject:` subscriptions (community
 domain). Other changes
@@ -322,12 +326,14 @@ show its answer.
 
 ## Gaps and requests
 
-- **Deleted content.** Engagement cannot tell a deleted subject from one the
-  viewer may not see, so rows of content deleted by its owner stay (shown as
-  unavailable in "my comments", "my reactions" and bookmarks; counted
-  nowhere visible). A shared `…deleted { subject_type, subject_id }` event
-  from the owning domains could reuse the purge that
-  `admin.content.removed` runs (`cleanup::purge_subject`).
+- **Deleted content that is not announced.** `subject.deleted` covers what
+  the owning domains delete row by row. What goes by a database cascade is
+  not announced one by one (the chat lines of an erased live stream, the
+  messages of a deleted conversation); saves of those stay as "no longer
+  available" rows. Study rooms and spaces erased with their host's account
+  are not announced either: `identity.user.deleted` purges what was on
+  every subject the account owned. A comment written at the very moment its subject is
+  deleted can also arrive after the purge and stay the same way.
 - **`Subjects::counter_changed` in `tokuly-core`** keeps its registry lock
   guard alive across the resolver's `.await` (a `match` on
   `self.resolvers.read().get(..).cloned()`), which makes the returned future

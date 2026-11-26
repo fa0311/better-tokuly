@@ -65,6 +65,7 @@ transaction of the change they describe.
 | `chat.call.ended` | `{ call_id, conversation_id, end_reason, duration_seconds, participant_ids }` | A call ended. `end_reason` is `CallEndReason` as its number; `participant_ids` are the users who were connected at some point. |
 | `chat.assist.provider_updated` | `{ provider, enabled, model, base_url, api_key, allow_private_host, private_host }` | An admin saved an AI provider's operator settings (actor: the admin). `provider` is `AiProvider` as its number; `api_key` is `kept`, `set` or `cleared` (the key itself is never in it); `private_host` names the host the outbound guard's exception covers, when it is on. The record of who changed the AI configuration. |
 | `chat.assist.default_changed` | `{ provider }` | An admin chose the default AI provider (`0`: the first enabled one). |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A message was unsent or removed (`SUBJECT_TYPE_CHAT_MESSAGE`), next to `chat.message.deleted`. The message stays reportable from what this domain keeps; saves and share counts of it elsewhere go. Messages that go with a deleted conversation are not announced one by one. |
 
 Sending a message emits **no** domain event (it happens far too often);
 messages are counted through analytics (below).

@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use tokuly_core::{events as core_events, ids::Ref, outbound, prelude::*};
 use tokuly_media::assets::image_from_json;
 use tokuly_proto::{
-    common::Visibility,
+    common::{SubjectType, Visibility},
     video::{Playlist, PlaylistKind},
 };
 
@@ -407,6 +407,7 @@ pub(crate) async fn delete_in(
     if deleted.rows_affected() == 1 {
         outbound::unindex(&mut **tx, "playlist", playlist_id).await?;
         core_events::emit(&mut **tx, PLAYLIST_DELETED, actor, &PlaylistEvent { playlist_id, owner_id }).await?;
+        outbound::subject_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_PLAYLIST, playlist_id).await?;
     }
     Ok(())
 }

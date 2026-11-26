@@ -20,6 +20,7 @@
 use std::collections::{HashMap, HashSet};
 
 use tokuly_core::{livekit, outbound, prelude::*};
+use tokuly_proto::common::SubjectType;
 
 use crate::{
     Spaces, audio,
@@ -412,21 +413,30 @@ impl Spaces {
     pub async fn purge(&self) -> AppResult<()> {
         let db = &self.core.db;
         let evidence_days = self.cfg.evidence_days as i32;
-        sqlx::query(
+        // Rooms and hangouts are one subject type; only now, when nobody
+        // can report them any more, are they gone for the generic domains.
+        let mut tx = db.begin().await?;
+        let rooms: Vec<Uuid> = sqlx::query_scalar(
             "DELETE FROM spaces
              WHERE state IN ($1, $2) AND ended_at < now() - make_interval(days => $3)
-               AND (deleted_at IS NULL OR deleted_at < now() - make_interval(days => $4))",
+               AND (deleted_at IS NULL OR deleted_at < now() - make_interval(days => $4))
+             RETURNING id",
         )
         .bind(state::ENDED)
         .bind(state::CANCELLED)
         .bind(self.cfg.retention_days as i32)
         .bind(evidence_days)
-        .execute(db)
+        .fetch_all(&mut *tx)
         .await?;
-        sqlx::query("DELETE FROM hangouts WHERE deleted_at < now() - make_interval(days => $1)")
-            .bind(evidence_days)
-            .execute(db)
-            .await?;
+        outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_SPACE, &rooms).await?;
+        let hangouts: Vec<Uuid> = sqlx::query_scalar(
+            "DELETE FROM hangouts WHERE deleted_at < now() - make_interval(days => $1) RETURNING id",
+        )
+        .bind(evidence_days)
+        .fetch_all(&mut *tx)
+        .await?;
+        outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_SPACE, &hangouts).await?;
+        tx.commit().await?;
         sqlx::query("DELETE FROM hangout_members WHERE state = $1 AND left_at < now() - make_interval(days => $2)")
             .bind(member::FORMER)
             .bind(evidence_days)

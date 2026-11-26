@@ -93,8 +93,10 @@ async fn a_stream_is_created_edited_and_deleted() {
     assert_eq!(ctx.get_stream(None, &summary.short_id).await.unwrap_err().reason, "STREAM_NOT_FOUND");
     let deleted = ctx.app.events_by("live.stream.deleted", alice.id).await;
     assert!(deleted.iter().any(|event| event.data["stream_id"] == summary.id.as_str()));
-    // The row is kept for the retention period (what was said in it can still be reported).
+    // The row is kept for the retention period (what was said in it can still be
+    // reported), and so is what was written on it: it is not announced as gone yet.
     assert!(ctx.row(&stream).await.is_deleted());
+    assert!(!ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_LIVE_STREAM, &summary.id).await);
 }
 
 #[tokio::test]

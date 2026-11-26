@@ -180,6 +180,7 @@ transaction of the change.
 | `community.thread.deleted` | `{ community_id, thread_id }` | A thread was deleted (author, staff, review, site takedown). Not emitted for threads that go with a deleted channel or a closed community. |
 | `community.event.created` | `{ community_id, event_id, organizer_id, public }` | An event was put on the calendar. |
 | `community.event.attended` | `{ community_id, event_id, user_id, public }` | A member checked in at an event (code or by hand), once per member and event. |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A thread, reply or event was purged (`SUBJECT_TYPE_COMMUNITY_THREAD` / `_REPLY` / `_EVENT`), or a closed community was (`SUBJECT_TYPE_COMMUNITY`): by `purge_removed`, after the retention. Removed posts answer reports until then, with the comments and reactions on them, so their removal itself is not announced this way. |
 
 `visibility` / `category` are the enum numbers of `tokuly.community.v1`;
 `public` says the community is public. **For posts in anonymous channels

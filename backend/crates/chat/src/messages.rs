@@ -4,11 +4,11 @@
 use std::time::Duration;
 
 use sqlx::QueryBuilder;
-use tokuly_core::{events, page, prelude::*};
+use tokuly_core::{events, outbound, page, prelude::*};
 use tokuly_media::assets::{self, AssetRow};
 use tokuly_proto::{
     chat::{self as pb, list_messages_request::Position},
-    common::PageInfo,
+    common::{PageInfo, SubjectType},
     media::{AssetKind, AssetPurpose, AssetStatus},
 };
 
@@ -477,6 +477,10 @@ impl Chat {
             moderated,
         };
         events::emit(&mut *tx, MESSAGE_DELETED, deleted_by, &deleted).await?;
+        // The message stays reportable by those who received it (the report
+        // resolves from what this domain kept); what the generic domains
+        // attached to it — saves, share counts — has nothing left to show.
+        outbound::subject_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_CHAT_MESSAGE, message_id).await?;
         tx.commit().await?;
 
         self.push_message_updated(&tombstone, pb::MessageUpdateReason::MESSAGE_UPDATE_REASON_DELETED).await;

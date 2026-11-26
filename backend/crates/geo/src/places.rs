@@ -10,7 +10,7 @@ use tokuly_core::{
 };
 use tokuly_media::assets::{self, image_from_json};
 use tokuly_proto::{
-    common::Visibility,
+    common::{SubjectType, Visibility},
     geo::{Place, PlaceLabel},
     media::AssetPurpose,
 };
@@ -483,7 +483,8 @@ impl Geo {
         Ok(())
     }
 
-    /// Removes a place for good (by its owner, a moderator, or account deletion).
+    /// Removes a place for good (by its owner, a moderator, or account
+    /// deletion); what was attached to it elsewhere goes with it (`subject.deleted`).
     pub(crate) async fn remove_place(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -491,6 +492,7 @@ impl Geo {
     ) -> AppResult<()> {
         assets::detach_holder(&mut **tx, &photo_holder(place.id)).await?;
         sqlx::query("DELETE FROM geo_places WHERE id = $1").bind(place.id).execute(&mut **tx).await?;
+        outbound::subject_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_PLACE, place.id).await?;
         if place.visibility == PUBLIC {
             outbound::unindex(&mut **tx, "place", place.id).await?;
         }

@@ -129,6 +129,7 @@ The feed domain has no events of its own. It uses the outbound requests of
 |---|---|
 | `notify.requested` | the monthly recap notice (below) |
 | `search.changed` | a news article was stored, changed, hidden (source switched off), taken down or pruned: documents of kind `news` (`title`, `text` = excerpt, `tags`, `path` = `/news/articles/<id>`, `owner_id` = none, `extra` = `{ url, source_id, source_name, language }`) |
+| `subject.deleted` `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A news article was deleted (`SUBJECT_TYPE_NEWS_ARTICLE`): pruned after the retention period, or with its source (`DeleteNewsSource`). A takedown keeps the row as a tombstone and is announced by `admin.content.removed`. |
 
 ## Notification kinds
 

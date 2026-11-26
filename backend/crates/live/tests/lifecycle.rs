@@ -1020,4 +1020,5 @@ async fn recordings_nobody_needs_are_swept_and_nothing_is_archived_from_nothing(
         .await
         .unwrap();
     assert_eq!(left, 0);
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_LIVE_STREAM, &card(&old).id).await);
 }

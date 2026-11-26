@@ -8,6 +8,7 @@
 //! - [`notify`]   → `notify.requested`   → inbox entry + push
 //! - [`activity`] → `activity.recorded`  → activity log / friends' feed / map stories
 //! - [`index`] / [`unindex`] → `search.changed` → search index
+//! - [`subject_deleted`] → `subject.deleted` → whatever other domains attached to the subject
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
 use tokuly_proto::common::SubjectType;
@@ -18,6 +19,7 @@ use crate::{error::AppResult, events};
 pub const NOTIFY_TOPIC: &str = "notify.requested";
 pub const ACTIVITY_TOPIC: &str = "activity.recorded";
 pub const SEARCH_TOPIC: &str = "search.changed";
+pub const SUBJECT_DELETED_TOPIC: &str = "subject.deleted";
 
 /// Text in both supported languages; the recipient's locale picks one.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -304,9 +306,69 @@ pub async fn unindex<'e, E: PgExecutor<'e>>(executor: E, kind: &str, id: Uuid) -
     events::emit(executor, SEARCH_TOPIC, None, &SearchChange { kind: kind.to_owned(), id, doc: None }).await
 }
 
+/// `subject.deleted`: a subject is gone for good, whoever deleted it (its
+/// owner, a moderator, a retention timer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubjectDeleted {
+    /// `tokuly.common.v1.SubjectType` as its number.
+    pub subject_type: i32,
+    pub subject_id: Uuid,
+}
+
+/// Says that a subject is gone, so the generic domains drop what they
+/// attached to it (engagement: comments, reactions, bookmarks, counters).
+///
+/// Call it in the transaction that deletes the content, and only when the
+/// content is gone for good. Content that is merely hidden (made private,
+/// unpublished, behind a block) is still there; and content a domain keeps
+/// for a while after its removal, so the people it reached can still report
+/// it, is announced when that time is over: until then the comments on it
+/// are reportable too. The domain's own deletion event, if it has one, is
+/// emitted as before: that one carries what its consumers need (owner,
+/// audience, reason). Rules: `docs/events.md`.
+pub async fn subject_deleted<'e, E: PgExecutor<'e>>(
+    executor: E,
+    subject_type: SubjectType,
+    subject_id: Uuid,
+) -> AppResult<()> {
+    subjects_deleted(executor, subject_type, &[subject_id]).await
+}
+
+/// [`subject_deleted`] for many subjects of one type (a cascade, a retention
+/// sweep): one event each, written by one statement.
+pub async fn subjects_deleted<'e, E: PgExecutor<'e>>(
+    executor: E,
+    subject_type: SubjectType,
+    subject_ids: &[Uuid],
+) -> AppResult<()> {
+    if subject_ids.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO outbox (topic, data)
+         SELECT $1, jsonb_build_object('subject_type', $2::integer, 'subject_id', subject_id)
+         FROM unnest($3::uuid[]) AS subject_id",
+    )
+    .bind(SUBJECT_DELETED_TOPIC)
+    .bind(subject_type as i32)
+    .bind(subject_ids)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subject_deleted_travels_as_the_type_number_and_the_id() {
+        let subject_id = Uuid::now_v7();
+        let deleted = SubjectDeleted { subject_type: SubjectType::SUBJECT_TYPE_VIDEO as i32, subject_id };
+        let sent = serde_json::json!({ "subject_type": 5, "subject_id": subject_id });
+        assert_eq!(serde_json::to_value(deleted).unwrap(), sent);
+        assert_eq!(serde_json::from_value::<SubjectDeleted>(sent).unwrap(), deleted);
+    }
 
     #[test]
     fn localized_picks_by_locale_with_japanese_fallback() {

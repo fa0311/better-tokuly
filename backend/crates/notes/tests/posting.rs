@@ -608,6 +608,7 @@ async fn notes_are_deleted_by_their_author_only() {
     assert!(!ctx.is_indexed("hashtag", hashtag_id).await, "a hashtag without public notes leaves the index");
     let deleted = ctx.app.events_by("notes.note.deleted", alice.id).await;
     assert_eq!(deleted.len(), 1);
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_NOTE, &note_id.to_string()).await);
     assert_eq!(
         (deleted[0].data["note_id"].clone(), deleted[0].data["reason"].clone()),
         (serde_json::json!(note_id), serde_json::json!("author"))

@@ -1103,6 +1103,7 @@ pub async fn delete_in(
     // public, and removing a document that does not exist costs nothing.
     outbound::unindex(&mut **tx, "video", video.id).await?;
     core_events::emit(&mut **tx, VIDEO_DELETED, actor, &video.event(false)).await?;
+    outbound::subject_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_VIDEO, video.id).await?;
     Ok(Aftermath {
         assets: vec![(video.asset_id, video.owner_id, force_assets)],
         prefixes: vec![subtitles::object_prefix(video.id)],

@@ -74,6 +74,7 @@ transaction of the change.
 | `ask.answer.deleted` | `{ question_id, owner_id }` | An answer went away: deleted by its owner, with its question, by a takedown, or because its only content was an upload that was deleted. Actor: the owner, or nobody. |
 | `ask.prompt.opened` | `{ prompt_id, owner_id, closes_at }` | A prompt was posted to the owner's friends. Actor: the owner. |
 | `ask.round.completed` | `{ user_id, round_id, votes, skipped, coins }` | A user finished a round of compliment polls. `coins` is what the round pays. Actor: the user. Says nothing about who was picked. |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A question, prompt or prompt response was purged (`SUBJECT_TYPE_QUESTION`): only by the periodic purge, after the retention — a removed, withdrawn or taken-down item is kept for moderators until then and stays reportable. |
 
 Delivery events — this domain's own queue. **Do not consume them**: they are
 written for dropped and held items too, carry no actor and nothing but an ID.

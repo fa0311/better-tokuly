@@ -26,7 +26,7 @@ use std::{collections::HashMap, time::Duration};
 use tokuly_core::{events as core_events, ids::Ref, outbound, prelude::*, storage::Bucket};
 use tokuly_media::assets;
 use tokuly_proto::{
-    common::{ChannelSummary, Image, UserSummary},
+    common::{ChannelSummary, Image, SubjectType, UserSummary},
     live::{Clip, ClipStatus, live_event::Event},
     media::{AssetPurpose, VideoInfo},
 };
@@ -404,6 +404,7 @@ pub async fn delete_in(
     sqlx::query("DELETE FROM live_clips WHERE id = $1").bind(clip.id).execute(&mut **tx).await?;
     outbound::unindex(&mut **tx, "clip", clip.id).await?;
     core_events::emit(&mut **tx, CLIP_DELETED, actor, &clip.event()).await?;
+    outbound::subject_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_CLIP, clip.id).await?;
     Ok(clip
         .asset_id
         .map(|asset_id| AssetRemoval { asset_id, owner_id: if force { None } else { Some(clip.owner_id) } }))

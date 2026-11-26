@@ -66,6 +66,7 @@ transaction that makes the change.
 | `notes.story.created` | `{ story_id, owner_id, audience, expires_at }` | A story was posted. `audience` is `tokuly.notes.v1.StoryAudience` as its number (1 friends, 2 close friends). |
 | `notes.story.deleted` | `{ story_id, owner_id, reason }` | A story was deleted (same reasons as notes). Not emitted for an expiry. |
 | `notes.story.expired` | `{ story_id, owner_id }` | A story's day is over: it left the tray and is archive-only. Emitted exactly once per story by the expiry worker, shortly after `expires_at`. |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A note or a story was deleted for good (`SUBJECT_TYPE_NOTE` / `SUBJECT_TYPE_STORY`), whatever the reason: next to `notes.note.deleted` / `notes.story.deleted`, in the same transaction. Not for an expiry or a narrowed audience: the content is still there. |
 
 Likes, renotes and views emit no domain event (they happen constantly); see
 "Analytics" below. The feed domain can consume `notes.note.deleted` /

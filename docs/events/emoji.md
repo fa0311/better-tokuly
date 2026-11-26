@@ -104,6 +104,7 @@ transaction as the change they describe.
 | `emoji.emoji.updated` | `{ emoji_id, name, previous_name? }` | An emoji in the catalogue changed. `previous_name` is set when it was renamed. Not emitted for category renames (the catalogue version covers those). |
 | `emoji.emoji.removed` | `{ emoji_id, name, author_id, because }` | An emoji left the catalogue. `because`: `disabled`, `taken_down` (`admin.content.removed`), `deleted`, `asset_deleted`. |
 | `emoji.submitter.trust_changed` | `{ user_id, trusted, moderator_id }` | A moderator changed a submitter's trusted flag. |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A custom emoji was deleted for good (`SUBJECT_TYPE_CUSTOM_EMOJI`). Reactions made with it are not attached to the emoji and stay (see engagement). |
 
 `author_id` is `null` for imported emoji, uncredited additions and emoji
 whose author's account is gone. Using an emoji emits no event.

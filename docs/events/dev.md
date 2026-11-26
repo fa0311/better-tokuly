@@ -77,6 +77,7 @@ Payload structs: `tokuly_dev::events`.
 | `dev.bot.created` / `.updated` / `.deleted` | `BotEvent { bot_id, owner_id }` | A bot account was created, its profile edited, or it was deleted. |
 | `dev.bot.transferred` | `BotTransferEvent { bot_id, from_id, to_id }` | A bot was handed over to `to_id`, who accepted. Actor: the receiver. |
 | `dev.webhook.disabled` | `WebhookDisabled { webhook_id, account_id }` | A webhook was disabled because its deliveries kept failing. |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. An application was deleted (`SUBJECT_TYPE_APP`), next to `dev.app.deleted`. |
 
 No event is emitted in identity's name: a bot is not announced as `identity.user.created`, and a bot's profile change not as `identity.user.updated`.
 

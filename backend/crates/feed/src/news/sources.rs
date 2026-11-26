@@ -12,7 +12,7 @@ use tokuly_core::{
     outbound,
     prelude::*,
 };
-use tokuly_proto::feed::*;
+use tokuly_proto::{common::SubjectType, feed::*};
 use url::Url;
 
 use super::{
@@ -442,9 +442,10 @@ impl NewsAdminService for Feed {
                 .bind(source_id)
                 .fetch_all(&mut *tx)
                 .await?;
-            for article_id in article_ids {
-                outbound::unindex(&mut *tx, SEARCH_KIND, article_id).await?;
+            for article_id in &article_ids {
+                outbound::unindex(&mut *tx, SEARCH_KIND, *article_id).await?;
             }
+            outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_NEWS_ARTICLE, &article_ids).await?;
             sqlx::query("DELETE FROM news_sources WHERE id = $1").bind(source_id).execute(&mut *tx).await?;
             tx.commit().await?;
             ok(DeleteNewsSourceResponse::default())

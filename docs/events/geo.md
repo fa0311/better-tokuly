@@ -180,6 +180,7 @@ Known limits (accepted for now):
 | `notify.requested` | `NotificationRequest` | see "Notification kinds" |
 | `activity.recorded` | `ActivityEntry` | see "Activity entries" |
 | `search.changed` | `SearchChange` (kind `place`) | a place became public, changed while public, stopped being public or was deleted |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A place was removed for good (`SUBJECT_TYPE_PLACE`): by its owner, a moderator or account deletion. |
 
 The geo domain emits no domain events of its own: what other domains need
 from it is live (the `tokuly_core::geoindex` position index) or goes through
