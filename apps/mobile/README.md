@@ -127,10 +127,25 @@ its tests) and the web switches to it.
   every production dependency the app bundles with its licence and text, and
   the native libraries of the app's own modules (`modules/*/notices`). The
   output, `src/generated/licenses.json`, is not checked in.
-- **Settings** not native yet open the web in an in-app browser. The backend
-  has no flow to hand a session over to the web safely (a one-time code
-  exchanged for the cookie), and tokens never go into URLs, so the web asks to
-  sign in there.
+- **Web screens.** What the app does not have yet (notes, videos, live,
+  spaces, communities, school, plans, ask, quests, emoji, stamps, the wallet,
+  most settings, developers, the console) opens in a web view
+  (`features/web`), signed in as the account in use: 「もっと見る」 on the Me
+  tab lists them, the settings' web row opens the web settings, and pushes,
+  inbox entries and deep links to web-only paths open there too
+  (`features/notifications/target.ts`). Signing the web view in is the
+  identity domain's hand-off: the app asks for a one-time code as its own
+  session (`CreateWebHandoff`, 60 seconds, once) and loads
+  `/api/auth/handoff?code=…`, which sets the web session's cookie and goes on
+  to the page; the app's tokens never reach the web view, and the web
+  session ends with the app's. A code that comes back after another account
+  took over is dropped. The web view is incognito and keyed by its account's
+  session, so each starts without cookies (iOS: a store of its own, never
+  written; Android: the cookie store is emptied when one opens), and the
+  app's own API calls send no cookies (`lib/api.ts`), so a web session's
+  cookie never travels with them. Links to anywhere else open in the system
+  browser. Features move out of `features/web/features.ts` as they become
+  native.
 
 ## How a feature plugs in
 
@@ -255,7 +270,7 @@ unread message, send one, receive one from a second account (through the API),
 start a chat and open the inbox, post a story from the library and watch it as
 a friend (the emulator has no camera: the pictures are put in its library, and
 the camera is covered by a component test), post a short, swipe the feed and
-like it. CI
+like it, open a web-only feature from 「もっと見る」 and see it signed in. CI
 (the End to end workflow, `.github/workflows/e2e.yml`) builds a release APK for the emulator and
 runs them against the Compose stack; locally, with an emulator and a stack:
 
