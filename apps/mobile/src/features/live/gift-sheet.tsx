@@ -20,7 +20,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -176,7 +175,8 @@ export function GiftSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
       <Pressable accessibilityRole="none" className="flex-1 bg-black/40" onPress={close} />
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      {/* Android draws edge to edge: the window is not resized for the keyboard, so both pad. */}
+      <KeyboardAvoidingView behavior="padding">
         <View
           testID="gift-sheet"
           className="max-h-[560px] rounded-t-3xl bg-surface"

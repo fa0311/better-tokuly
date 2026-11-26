@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { KeyboardAvoidingView, Modal, Platform, Pressable, Text, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Pressable, Text, View } from "react-native";
 import { Button } from "#/components/button";
 import { ErrorNote } from "#/components/page";
 import { TextField } from "#/components/text-field";
@@ -29,7 +29,8 @@ export function CodePrompt({
   return (
     <Modal transparent visible={handle !== null} animationType="fade" onRequestClose={close}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        // Android draws edge to edge: the window is not resized for the keyboard, so both pad.
+        behavior="padding"
         className="flex-1 justify-end"
       >
         <Pressable

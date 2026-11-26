@@ -3,7 +3,7 @@ import { spaces } from "@tokuly/api";
 import { router } from "expo-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { KeyboardAvoidingView, Modal, Platform, Pressable, Text, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "#/components/button";
 import { TextField } from "#/components/text-field";
@@ -43,7 +43,8 @@ export function CreateSheet({ visible, onClose }: { visible: boolean; onClose():
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable accessibilityRole="none" className="flex-1 bg-black/40" onPress={onClose} />
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      {/* Android draws edge to edge: the window is not resized for the keyboard, so both pad. */}
+      <KeyboardAvoidingView behavior="padding">
         <View
           testID="spaces-create-sheet"
           className="gap-4 rounded-t-3xl bg-surface px-5 pt-5"
