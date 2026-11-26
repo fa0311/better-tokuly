@@ -14,7 +14,8 @@ describe("where a server path goes", () => {
       type: "screen",
       href: `/web?path=${encodeURIComponent("/notes/channels/abc")}`,
     });
-    expect(pushRoute("/settings")).toBe(`/web?path=${encodeURIComponent("/settings")}`);
+    expect(pushRoute("/settings/data")).toBe(`/web?path=${encodeURIComponent("/settings/data")}`);
+    expect(pushRoute("/settings/privacy")).toBe("/settings/privacy");
   });
 
   it("never opens an outside link by itself", () => {
