@@ -20,7 +20,8 @@ Copy the first rule into the brief word for word: a link to it is not enough, ag
   Classify every new RPC in `backend/crates/core/src/api_access.rs` and the dev scope catalogue.
 - **Web and mobile in the same PR** as the backend change they need; Japanese first.
 - **Checks**: build without warnings, the touched crates' tests, `buf lint`, web/mobile lint, typecheck and
-  tests, the browser or Maestro tests of the flows you changed (local emulator: `tools/agent/android.sh`).
+  tests, the browser or Maestro tests of the flows you changed (local emulator: `tools/agent/android.sh`; it is shared, so every APK install and Maestro run goes through
+  `tools/agent/android.sh use <command…>`; never change the system locale).
   Do not wait for GitHub Actions.
 - **PR**: Draft with `agent:*` and area labels, `Fixes #n`; screenshots if the UI changed
   (`gh pr create --attach`, later `tools/agent/pr-images.sh`); when local checks pass, `gh pr ready` and `needs-review`.
