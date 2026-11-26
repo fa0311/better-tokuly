@@ -15,6 +15,7 @@ import notelists from "./notelists";
 import notes from "./notes";
 import notifications from "./notifications";
 import profile from "./profile";
+import settings from "./settings";
 import shorts from "./shorts";
 import stories from "./stories";
 import video from "./video";
@@ -37,5 +38,6 @@ export default {
   clips,
   live,
   profile,
+  settings,
   mobile,
 };
