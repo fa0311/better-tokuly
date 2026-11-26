@@ -377,6 +377,7 @@ mod tests {
         ("geo", "routing_url"),
         ("geo", "weather_url"),
         ("dev", "webhook_allow_private"),
+        ("dev", "demo_operators"),
         ("feed", "news_allow_loopback"),
         ("feed", "news_feeds"),
         ("identity", "profile_links_allow_loopback"),
