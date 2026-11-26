@@ -1,5 +1,7 @@
 # Tokuly
 
+Agents: start with [`AGENTS.md`](AGENTS.md) (decisions, process, tools, machine).
+
 Location sharing + chat + notes + video + live + shorts in one app (a rebuild
 of the original Tokuly, modelled on Bump/Zenly). Monorepo:
 
