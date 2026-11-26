@@ -5,10 +5,20 @@ env:
 ---
 - runScript: ../scripts/friend-request.js
 - clearKeychain
-- launchApp:
-    clearState: true
-    permissions:
-      location: allow
+- runFlow:
+    when: { platform: Android }
+    commands:
+      - launchApp:
+          clearState: true
+          permissions:
+            location: allow
+- runFlow:
+    when: { platform: iOS }
+    commands:
+      - launchApp:
+          clearState: true
+          permissions:
+            location: always
 - extendedWaitUntil:
     visible: { id: "welcome-screen" }
     timeout: 60000
