@@ -35,7 +35,8 @@ impl LocationService for Geo {
         request: ServiceRequest<'_, ReportLocationsRequest>,
     ) -> ServiceResult<ReportLocationsResponse> {
         handle(async {
-            let user_id = ctx.user_id()?;
+            let auth = ctx.auth()?;
+            let user_id = auth.user_id;
             let req = request.to_owned_message();
             ensure!(
                 req.samples.len() <= MAX_SAMPLES,
@@ -46,7 +47,7 @@ impl LocationService for Geo {
             // One upload a second is plenty; what an upload may contain is
             // bounded by the pipeline (samples at least a second apart).
             self.core.cache.rate_limit(&format!("geo-report:{user_id}"), 60, Duration::from_secs(60)).await?;
-            let accepted = self.ingest_batch(user_id, Utc::now(), &req.samples).await?;
+            let accepted = self.ingest_batch(user_id, Some(auth.session_id), Utc::now(), &req.samples).await?;
             // The upload is durable once this returns; a ClickHouse outage must not fail it (rows stay buffered).
             if let Err(e) = self.flush_history().await {
                 tracing::warn!(error = %e, "location history not written; will retry");
@@ -68,8 +69,9 @@ impl LocationService for Geo {
     ) -> ServiceResult<StopSharingResponse> {
         handle(async {
             let req = request.to_owned_message();
-            let stopped_ms = crate::pipeline::stop_time(req.stopped_at.as_option(), Utc::now());
-            Geo::stop_sharing(self, ctx.user_id()?, stopped_ms).await?;
+            let stop = crate::pipeline::stop_time(req.stopped_at.as_option(), Utc::now());
+            let auth = ctx.auth()?;
+            Geo::stop_sharing(self, auth.user_id, auth.session_id, stop).await?;
             ok(StopSharingResponse::default())
         })
         .await

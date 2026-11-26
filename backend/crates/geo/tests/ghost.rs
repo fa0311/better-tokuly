@@ -644,6 +644,7 @@ async fn smaller_leaks_and_loose_ends_are_closed() {
     ctx.deliver("identity.user.deleted", ren.id, serde_json::json!({ "user_id": ren.id })).await;
     let report = tokuly_core::presence::LocationReport {
         user_id: ren.id,
+        session_id: None,
         received_at: Utc::now(),
         sample: sample(home, Utc::now()),
     };

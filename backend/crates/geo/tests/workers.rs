@@ -42,8 +42,12 @@ async fn workers_run_the_pipeline_the_event_consumer_and_the_housekeeping() {
     let home = somewhere();
     let track = [home, offset(home, 90.0, 60.0), offset(home, 90.0, 120.0)];
     for (point, age) in track.iter().zip([30, 20, 10]) {
-        let report =
-            LocationReport { user_id: aoi.id, received_at: Utc::now(), sample: sample(*point, seconds_ago(age)) };
+        let report = LocationReport {
+            user_id: aoi.id,
+            session_id: None,
+            received_at: Utc::now(),
+            sample: sample(*point, seconds_ago(age)),
+        };
         presence::submit_location(&core.bus, &report).await.unwrap();
     }
     let mut seen: Vec<Point> = Vec::new();

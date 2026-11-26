@@ -182,6 +182,7 @@ async fn location_samples_are_handed_to_the_geo_pipeline() {
     assert!(is_ack(&client.request(location_body(35.6595, 139.7005)).await));
     let report: LocationReport = next_on_bus(&mut samples, WAIT, |_| true).await.expect("a location report on the bus");
     assert_eq!(report.user_id, alice.id);
+    assert_eq!(report.session_id, Some(alice.session_id), "geo tells devices apart by it");
     assert!(report.received_at >= before - chrono::Duration::seconds(1));
     let position = report.sample.position.as_option().unwrap();
     assert_eq!((position.lat, position.lng), (35.6595, 139.7005));

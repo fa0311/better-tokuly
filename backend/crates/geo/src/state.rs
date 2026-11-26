@@ -138,6 +138,10 @@ pub struct LiveState {
     pub mocked: bool,
     /// Device time of the latest sample accurate enough for stays, distance and footprints.
     pub last_fine_ms: i64,
+    /// The session (device) that reported the pin's fix, when known: only a
+    /// fix of another device overtakes a stop (see `Geo::stop_sharing`).
+    #[serde(default)]
+    pub pin_from: Option<Uuid>,
     /// Device time of the latest `StopSharing`: samples recorded at or before
     /// it were on their way when the device stopped and are dropped, so they
     /// cannot turn sharing back on.

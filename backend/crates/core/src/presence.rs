@@ -45,6 +45,10 @@ pub struct PresenceChange {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocationReport<S> {
     pub user_id: Uuid,
+    /// The session the sample came in on: the device, as far as the server
+    /// can tell devices apart. `None` when there is none (simulators, tools).
+    #[serde(default)]
+    pub session_id: Option<Uuid>,
     pub received_at: DateTime<Utc>,
     pub sample: S,
 }

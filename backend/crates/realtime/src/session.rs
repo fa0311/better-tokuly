@@ -707,15 +707,15 @@ impl<'g> Session<'g> {
     /// Passes a location sample (an encoded `LocationSample`) on to the geo
     /// pipeline.
     async fn on_location(&mut self, sample: &[u8]) -> Result<(), Rejection> {
-        let user_id = self.user_id()?;
+        let auth = self.auth.as_ref().ok_or(SIGN_IN_REQUIRED)?;
         if !self.location_limit.allow() {
             return Err(RATE_LIMITED);
         }
         let received_at = Utc::now();
         let sample = location::decode(sample, received_at)?;
-        presence::submit_location(&self.gateway.core.bus, &LocationReport { user_id, received_at, sample })
-            .await
-            .map_err(|_| BUS_UNAVAILABLE)?;
+        let report =
+            LocationReport { user_id: auth.user_id, session_id: Some(auth.session_id), received_at, sample };
+        presence::submit_location(&self.gateway.core.bus, &report).await.map_err(|_| BUS_UNAVAILABLE)?;
         self.gateway.counters.locations_forwarded.incr();
         Ok(())
     }
