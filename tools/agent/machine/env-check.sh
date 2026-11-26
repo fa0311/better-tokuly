@@ -16,7 +16,7 @@ if [ "$wrapper" = "$HOME/.cargo/bin/sccache" ]; then ok "cargo rustc-wrapper is 
 grep -q 'REAL=' "$HOME/.cargo/bin/sccache" 2>/dev/null && ok "~/.cargo/bin/sccache is the gate script" || bad "~/.cargo/bin/sccache is not the gate script"
 [ -x "${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/libexec/sccache" ] && ok "real sccache present" || bad "real sccache missing at $TOKULY_DEV_HOME/libexec/sccache"
 max=$("${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/libexec/sccache" --show-stats 2>/dev/null | awk '/Max cache size/{print $4,$5}')
-case "$max" in "60 GiB") ok "sccache cache limit $max";; *) bad "sccache cache limit '${max:-unknown}', expected 60 GiB";; esac
+case "$max" in "40 GiB") ok "sccache cache limit $max";; *) bad "sccache cache limit '${max:-unknown}', expected 40 GiB";; esac
 
 # Is it used? Every real compilation (`rustc --crate-name ...`) must run under sccache: its
 # parent is the sccache server (or the gate's flock). Probes from build scripts (`rustc -vV`,

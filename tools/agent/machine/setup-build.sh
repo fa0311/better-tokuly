@@ -9,7 +9,7 @@ mkdir -p "$D/libexec" "$HOME/.cargo/bin" "$HOME/.config/sccache"
 [ -x "$D/libexec/sccache" ] || cargo install --locked --root "$D/libexec-build" sccache && \
   { [ -x "$D/libexec/sccache" ] || mv "$D/libexec-build/bin/sccache" "$D/libexec/sccache"; }
 install -m 755 "$(dirname "$0")/rustc-gate" "$HOME/.cargo/bin/sccache"
-printf '[cache.disk]\ndir = "%s/.cache/sccache"\nsize = 64424509440\n' "$HOME" > "$HOME/.config/sccache/config"
+printf '[cache.disk]\ndir = "%s/.cache/sccache"\nsize = 42949672960\n' "$HOME" > "$HOME/.config/sccache/config"
 grep -q '^rustc-wrapper' "$HOME/.cargo/config.toml" 2>/dev/null || cat >> "$HOME/.cargo/config.toml" <<CFG
 
 [build]
