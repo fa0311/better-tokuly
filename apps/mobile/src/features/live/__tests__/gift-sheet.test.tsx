@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 import { Code, ConnectError, create, live } from "@tokuly/api";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
 import { GiftSheet } from "../gift-sheet";
 
@@ -37,7 +38,20 @@ function account(sendGift: (request: live.SendGiftRequest) => Promise<unknown>) 
   return { object, sent };
 }
 
-async function open() {
+/** Makes `who` the account in use, as a sign-in or a switch does. */
+function signIn(who: ReturnType<typeof account>, userId: string) {
+  jest.mocked(api).mockReturnValue(who.object as never);
+  useSessionStore.setState({
+    state: { status: "signedIn", sessionId: `session-${userId}`, me: { user: { id: userId } } },
+  } as never);
+}
+
+const lostAnswer = async () => {
+  throw new Error("the network went away");
+};
+
+/** Opens the sheet; `step` is what it shows first (the confirmation, when a gift is unanswered). */
+async function open(step = "gift-tier-3") {
   await render(
     <SafeAreaProvider
       initialMetrics={{
@@ -50,7 +64,7 @@ async function open() {
       </QueryClientProvider>
     </SafeAreaProvider>,
   );
-  await screen.findByTestId("gift-tier-3");
+  await screen.findByTestId(step);
 }
 
 const confirm = async () => {
@@ -61,10 +75,8 @@ describe("GiftSheet", () => {
   beforeEach(() => jest.spyOn(Alert, "alert").mockImplementation(() => {}));
 
   it("repeats a gift whose answer was lost under its key, and nothing else", async () => {
-    const a = account(async () => {
-      throw new Error("the network went away");
-    });
-    jest.mocked(api).mockReturnValue(a.object as never);
+    const a = account(lostAnswer);
+    signIn(a, "u1");
     await open();
     await fireEvent.changeText(screen.getByTestId("gift-message"), "がんばれ！");
     await fireEvent.press(screen.getByTestId("gift-next"));
@@ -93,7 +105,7 @@ describe("GiftSheet", () => {
     const a = account(async () => {
       throw refusal;
     });
-    jest.mocked(api).mockReturnValue(a.object as never);
+    signIn(a, "u2");
     await open();
     await fireEvent.press(screen.getByTestId("gift-next"));
     await confirm();
@@ -104,5 +116,64 @@ describe("GiftSheet", () => {
     await confirm();
     expect(a.sent).toHaveLength(2);
     expect(a.sent[1]?.idempotencyKey).not.toBe(a.sent[0]?.idempotencyKey);
+  });
+
+  it("keeps the key of a gift whose answer was lost through going back and closing the app", async () => {
+    const a = account(lostAnswer);
+    signIn(a, "u3");
+    await open();
+    await fireEvent.press(screen.getByTestId("gift-tier-1"));
+    await fireEvent.press(screen.getByTestId("gift-next"));
+    await confirm();
+    // Back and on again with the same gift: still the gift that may have been paid.
+    await fireEvent.press(await screen.findByText("もどる"));
+    await fireEvent.press(screen.getByTestId("gift-next"));
+    expect(screen.getByText(/二重には贈られません/)).toBeOnTheScreen();
+    await confirm();
+    expect(a.sent).toHaveLength(2);
+    expect(a.sent[1]?.idempotencyKey).toBe(a.sent[0]?.idempotencyKey);
+
+    // The app is closed and opened again: the sheet comes back with that gift, under its key.
+    await screen.unmount();
+    await open("gift-confirm");
+    expect(await screen.findByText(/二重には贈られません/)).toBeOnTheScreen();
+    await confirm();
+    expect(a.sent).toHaveLength(3);
+    expect(a.sent[2]).toMatchObject({ coins: 10n, idempotencyKey: a.sent[0]?.idempotencyKey });
+  });
+
+  it("forgets a gift once the server answered, and never repeats another account's", async () => {
+    let answer: (request: live.SendGiftRequest) => Promise<unknown> = lostAnswer;
+    const a = account((request) => answer(request));
+    signIn(a, "u4");
+    await open();
+    await fireEvent.press(screen.getByTestId("gift-next"));
+    await confirm();
+    await screen.findByText(/二重には贈られません/);
+
+    // Another account on this phone, the same stream and the same gift: its own gift, its own key.
+    await screen.unmount();
+    const b = account(lostAnswer);
+    signIn(b, "u5");
+    await open();
+    expect(screen.queryByText(/二重には贈られません/)).not.toBeOnTheScreen();
+    await fireEvent.press(screen.getByTestId("gift-next"));
+    await confirm();
+    expect(b.sent[0]?.idempotencyKey).not.toBe(a.sent[0]?.idempotencyKey);
+
+    // Back as the first account, the repeat is answered: the next gift is a new one.
+    await screen.unmount();
+    signIn(a, "u4");
+    answer = async (request) => ({ gift: { coins: request.coins, message: request.message } });
+    await open("gift-confirm");
+    await screen.findByText(/二重には贈られません/);
+    await confirm();
+    expect(a.sent[1]?.idempotencyKey).toBe(a.sent[0]?.idempotencyKey);
+    await screen.unmount();
+    await open();
+    expect(screen.queryByText(/二重には贈られません/)).not.toBeOnTheScreen();
+    await fireEvent.press(screen.getByTestId("gift-next"));
+    await confirm();
+    expect(a.sent[2]?.idempotencyKey).not.toBe(a.sent[0]?.idempotencyKey);
   });
 });
