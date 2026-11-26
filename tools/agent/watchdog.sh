@@ -3,12 +3,12 @@
 #   watchdog.sh
 set -uo pipefail
 repo=fa0311/better-tokuly
-cd "$(git rev-parse --show-toplevel)" || exit 1
+cd "$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)" || exit 1
 state=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/run/watchdog.since
 since=$(cat "$state" 2>/dev/null || date -u -d '2 hours ago' +%FT%TZ)
 date -u +%FT%TZ > "$state"
 
-echo "== env-check"; "${TOKULY_ENV_CHECK:-true}" | grep -E 'FAIL|disk free' || true
+echo "== env-check"; "$(dirname "$(readlink -f "$0")")/machine/env-check.sh" | grep -E 'FAIL|disk free' || true
 echo "== services"; tools/dev/infra.sh status 2>&1 | grep -v ' up ' || true
 printf 'dev api %s\n' "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:58081/healthz)"
 echo "== open PRs"; gh pr list --repo $repo --json number,isDraft,headRefName,labels,title \

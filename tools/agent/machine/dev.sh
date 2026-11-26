@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Sandbox helper: run the backend binary and the web dev server on sandbox ports.
+: "${TOKULY_DEV_HOME:=$HOME/tokuly-dev}"
 set -euo pipefail
-REPO=${TOKULY_REPO:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}
+REPO=${TOKULY_REPO:-$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)}
 RUN=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/run; LOGS=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/logs
 BIN=${TOKULY_BIN:-${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/target/main/debug/tokuly}; [ -x "$BIN" ] || BIN=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/bin/tokuly-dev-api
 stop_one() { [ -f "$RUN/$1.pid" ] && kill "$(cat "$RUN/$1.pid")" 2>/dev/null || true; rm -f "$RUN/$1.pid"; }
