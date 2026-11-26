@@ -380,11 +380,10 @@ function AuthorBanner({ userId, onClear }: { userId: string; onClear(): void }) 
   const { t } = useTranslation("emoji");
   const profile = useQuery({
     queryKey: profileKeys.byId(userId),
-    queryFn: async () =>
-      (await profileClient().getProfile({ by: { case: "userId", value: userId } })).profile ?? null,
+    queryFn: () => profileClient().getProfile({ by: { case: "userId", value: userId } }),
     retry: false,
   });
-  const user = profile.data?.user;
+  const user = profile.data?.profile?.user;
   return (
     <div className="sticker flex items-center gap-3 rounded-card bg-surface p-3">
       <Avatar user={user} size="md" />
