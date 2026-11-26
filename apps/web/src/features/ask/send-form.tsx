@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { useBurst } from "#/features/engagement";
 import { boxClient } from "./api";
+import { signature } from "./model";
 import { Counter, ImageAttachmentField, Segmented, toastError, useImageAttachment } from "./parts";
 
 export interface SendFormProps {
@@ -47,8 +48,13 @@ export function SendForm({
   const image = useImageAttachment();
   const { fire, burst } = useBurst(["💌", "✨", "💜"]);
 
-  // Anonymous by default; signed when the sender chooses it or when it is the only way in.
-  const signed = anonymousAvailable ? allowSigned && wantSigned : allowSigned;
+  const [beganAnonymous] = useState(anonymousAvailable);
+  const { choice, signed, allowed } = signature({
+    allowSigned,
+    anonymousAvailable,
+    beganAnonymous,
+    wantSigned,
+  });
   const possible = anonymousAvailable || allowSigned;
   const length = charCount(text.trim());
 
@@ -74,7 +80,7 @@ export function SendForm({
       className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
-        if (length > 0 && length <= QUESTION_MAX && !image.busy) send.mutate();
+        if (allowed && length > 0 && length <= QUESTION_MAX && !image.busy) send.mutate();
       }}
     >
       <div className="rounded-control border-2 border-line bg-surface transition-colors focus-within:border-brand">
@@ -104,7 +110,7 @@ export function SendForm({
         <p className="px-1 text-xs text-ink-soft">{t("askForm.imageNote")}</p>
       )}
 
-      {anonymousAvailable && allowSigned && (
+      {choice && (
         <Segmented
           label={t("askForm.anonymous")}
           value={wantSigned ? "signed" : "anonymous"}
@@ -129,10 +135,12 @@ export function SendForm({
         {signed ? (
           <p className="font-bold">{t("askForm.signedNote", { name: recipientName })}</p>
         ) : (
-          <>
-            <p className="font-bold">{t("askForm.anonymousNote")}</p>
-            <p className="mt-1 text-xs text-ink-soft">{t("askForm.anonymousNote2")}</p>
-          </>
+          allowed && (
+            <>
+              <p className="font-bold">{t("askForm.anonymousNote")}</p>
+              <p className="mt-1 text-xs text-ink-soft">{t("askForm.anonymousNote2")}</p>
+            </>
+          )
         )}
       </div>
 
@@ -143,7 +151,7 @@ export function SendForm({
           size="lg"
           icon={<Send className="size-5" />}
           loading={send.isPending}
-          disabled={length === 0 || length > QUESTION_MAX || image.busy}
+          disabled={!allowed || length === 0 || length > QUESTION_MAX || image.busy}
         >
           {image.busy ? t("askForm.uploading") : submitLabel}
         </Button>

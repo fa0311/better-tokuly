@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parsePendingAsk } from "./guest-return";
-import { countdownClock, localized, parseMutedWords, wrapText } from "./model";
+import { countdownClock, localized, parseMutedWords, signature, wrapText } from "./model";
 import { noteServerTime, serverNow } from "./server-clock";
 
 describe("localized", () => {
@@ -107,5 +107,36 @@ describe("the server clock", () => {
     noteServerTime(3000, 3000);
     noteServerTime(0, 9000);
     expect(serverNow(4000)).toBe(4000);
+  });
+});
+
+describe("signature", () => {
+  const box = { allowSigned: true, anonymousAvailable: true, beganAnonymous: true };
+  it("is anonymous unless the sender signs", () => {
+    expect(signature({ ...box, wantSigned: false })).toEqual({
+      choice: true,
+      signed: false,
+      allowed: true,
+    });
+    expect(signature({ ...box, wantSigned: true })).toMatchObject({ signed: true, allowed: true });
+  });
+  it("signs when that was the only way in from the start", () => {
+    expect(
+      signature({ ...box, anonymousAvailable: false, beganAnonymous: false, wantSigned: false }),
+    ).toEqual({ choice: false, signed: true, allowed: true });
+  });
+  it("never signs for a sender who began anonymously, when the recipient stops hiding them", () => {
+    const now = { ...box, anonymousAvailable: false };
+    expect(signature({ ...now, wantSigned: false })).toEqual({
+      choice: true,
+      signed: false,
+      allowed: false,
+    });
+    expect(signature({ ...now, wantSigned: true })).toMatchObject({ signed: true, allowed: true });
+  });
+  it("sends nothing anonymous or signed where neither is accepted", () => {
+    expect(
+      signature({ ...box, allowSigned: false, anonymousAvailable: false, wantSigned: true }),
+    ).toEqual({ choice: false, signed: false, allowed: false });
   });
 });
