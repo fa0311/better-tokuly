@@ -259,13 +259,12 @@ const currentSlide = (page: Page): Locator =>
   page.locator('[data-testid="short-slide"]:not([data-state="idle"])');
 
 async function expectPlaying(page: Page, short: Short): Promise<void> {
-  await expect(slideOf(page, short)).toHaveAttribute("data-state", "playing", { timeout: 30_000 });
+  // The for-you feed brings a short round again where there are few: the visit on screen is the one.
+  const slide = slideOf(page, short).and(currentSlide(page));
+  await expect(slide).toHaveAttribute("data-state", "playing", { timeout: 30_000 });
   await expect
     .poll(
-      () =>
-        slideOf(page, short)
-          .locator("video")
-          .evaluate((element: HTMLVideoElement) => element.currentTime),
+      () => slide.locator("video").evaluate((element: HTMLVideoElement) => element.currentTime),
       { timeout: 30_000 },
     )
     .toBeGreaterThan(0.2);
