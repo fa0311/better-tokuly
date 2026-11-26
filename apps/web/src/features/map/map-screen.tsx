@@ -50,6 +50,7 @@ import { FriendListPanel } from "./friend-list";
 import { FriendSheet } from "./friend-sheet";
 import { GatheringSheet } from "./gathering-sheet";
 import { GhostIndicator, GhostPanel } from "./ghost";
+import { LAST_VIEW_KEY } from "./last-view";
 import { DEFAULT_CENTER, fitMapToPoints, MapPin, MapView, useMap } from "./map-view";
 import { MeSheet } from "./me-sheet";
 import { useSharing, useSharingState } from "./own-location";
@@ -67,7 +68,6 @@ import { StoryPanel, StoryTray } from "./stories";
 import { TripChips, TripLayer, TripsPanel } from "./trips";
 import { useFocusedUserId, useMapUi } from "./ui-store";
 
-const LAST_VIEW_KEY = "tokuly.map.view";
 /** Pins closer than this on screen are drawn as one stack. */
 const CLUSTER_PIXELS = 46;
 /** Pins this far outside the screen are still drawn, so they are there when the map pans. */
