@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as Location from "expo-location";
 import * as SecureStore from "expo-secure-store";
 import { choiceKey, useSharing } from "../sharing";
-import { SharingCard } from "../sharing-card";
+import { SharingCard, STOP_NOTICE_MS } from "../sharing-card";
 
 jest.mock("expo-location", () => ({
   hasServicesEnabledAsync: jest.fn(async () => true),
@@ -76,5 +76,22 @@ describe("SharingCard", () => {
     await render(<SharingCard />);
     expect(screen.getByText("位置情報がオフになってるよ")).toBeOnTheScreen();
     expect(screen.getByText("設定をひらく")).toBeOnTheScreen();
+  });
+
+  it("says the stop has not reached the server only once it is still owed after a few seconds", async () => {
+    jest.useFakeTimers();
+    try {
+      useSharing.setState({ choice: "off", stopOwed: true });
+      await render(<SharingCard />);
+      // On its way: no alarm for a request that is about to be answered.
+      expect(screen.queryByText("共有を止めたことを、まだ伝えられていないよ。")).toBeNull();
+      await act(() => jest.advanceTimersByTime(STOP_NOTICE_MS));
+      expect(screen.getByText("共有を止めたことを、まだ伝えられていないよ。")).toBeOnTheScreen();
+      // Told after all: it goes.
+      await act(() => useSharing.setState({ stopOwed: false }));
+      expect(screen.queryByText("共有を止めたことを、まだ伝えられていないよ。")).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

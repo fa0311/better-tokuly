@@ -47,8 +47,9 @@ interface SharingStore {
   choice: SharingChoice;
   access: LocationAccess | null;
   /**
-   * Sharing stopped here, but the server has not been told yet: friends may
-   * still see a live pin. Remembered per account and retried until it works.
+   * Sharing stopped here, but the server has not confirmed it yet (the stop
+   * is on its way, or it failed): friends may still see a live pin.
+   * Remembered per account and retried until it works.
    */
   stopOwed: boolean;
   /** The account is leaving (signing out, another account taking over): nothing more goes out for it. */
@@ -87,23 +88,24 @@ async function setStopOwed(userId: string, owed: boolean): Promise<void> {
 }
 
 /**
- * Tells the server that this account stopped sharing from here. A failure is
- * never dropped: it is remembered, shown, and tried again (next start, the
- * app coming back to the screen, the retry button). `account` is the API of
- * `userId`, taken before the caller's first wait: by the time this runs the
- * active one may be the next account's, and its sharing must not be stopped
- * in this one's place.
+ * Tells the server that this account stopped sharing from here. The stop is
+ * written down as owed before it is sent, so an app killed mid-request still
+ * owes it at the next start; it is tried again until it goes through (next
+ * start, the app coming back to the screen, the retry button). `account` is
+ * the API of `userId`, taken before the caller's first wait: by the time
+ * this runs the active one may be the next account's, and its sharing must
+ * not be stopped in this one's place.
  */
 async function tellServerStopped(userId: string, account: Api): Promise<boolean> {
+  await setStopOwed(userId, true);
   try {
     // The device's clock, as in its samples: what it sent before this moment never resumes sharing.
     await account.service(geo.LocationService).stopSharing({ stoppedAt: fromDate(new Date()) });
-    await setStopOwed(userId, false);
-    return true;
   } catch {
-    await setStopOwed(userId, true);
     return false;
   }
+  await setStopOwed(userId, false);
+  return true;
 }
 
 async function setChoice(userId: string, choice: SharingChoice): Promise<void> {

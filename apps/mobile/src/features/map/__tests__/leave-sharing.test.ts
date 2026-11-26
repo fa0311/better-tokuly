@@ -3,14 +3,17 @@ import { create, identity } from "@tokuly/api";
 import { currentAccount } from "#/features/session/account";
 import { useSessionStore } from "#/features/session/store";
 import { api, resetApi } from "#/lib/api";
+import { readSecure } from "#/platform/secure-storage";
 import lifecycle from "../lifecycle";
 import { useSharing } from "../sharing";
 
-/** The server, at the edge: records each call and who made it. */
+/** The server, at the edge: records each call, who made it and whether the stop was owed by then. */
 const calls: string[] = [];
+const owedWhenSent: (string | null)[] = [];
 async function mockServer(input: string, init: { headers: Headers }): Promise<Response> {
   const method = new URL(input).pathname.split("/").pop() ?? "";
   calls.push(`${method} as ${new Headers(init.headers).get("authorization")}`);
+  if (method === "StopSharing") owedWhenSent.push(await readSecure("tokuly.map.stopOwed.alice"));
   return new Response(new Uint8Array(), {
     status: 200,
     headers: { "content-type": "application/proto" },
@@ -62,5 +65,21 @@ describe("the map's beforeLeave", () => {
     await leaving;
 
     expect(calls).toEqual(["StopSharing as Bearer access-alice"]);
+  });
+
+  it("writes the stop down as owed before it is sent, and clears it once the server heard it", async () => {
+    owedWhenSent.length = 0;
+    await enter("alice");
+    const alice = currentAccount();
+    if (!alice) throw new Error("alice is signed in");
+
+    const leaving = lifecycle.beforeLeave(alice);
+    await settle();
+    mockReleaseStop();
+    await leaving;
+
+    // Killed mid-request, the next start would still find it owed and try again.
+    expect(owedWhenSent).toEqual(["1"]);
+    expect(await readSecure("tokuly.map.stopOwed.alice")).toBeNull();
   });
 });
