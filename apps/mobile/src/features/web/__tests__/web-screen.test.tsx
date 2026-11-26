@@ -208,6 +208,24 @@ describe("WebScreen", () => {
     await unmount();
     expect(mockEvents).toEqual(["cleared", "asked", "cleared"]);
   });
+
+  it("leaves a web screen opened after it its data when it closes", async () => {
+    // One web screen is replaced by another (a push about a note while the wallet is
+    // open, a tile tapped while the last screen still slides away): the first one is
+    // gone only after the second has loaded its hand-off. Android's web views share
+    // one cookie store, so clearing it now would sign the second one out.
+    const first = await render(<WebScreen path="/wallet" />);
+    await act(async () => asked[0]?.answer("code-wallet"));
+    const second = await render(<WebScreen path="/notes" />);
+    await act(async () => asked[1]?.answer("code-notes"));
+    mockEvents.length = 0;
+
+    await first.unmount();
+    expect(mockEvents).toEqual([]);
+    // The last one to close leaves nothing behind.
+    await second.unmount();
+    expect(mockEvents).toEqual(["cleared"]);
+  });
 });
 
 describe("the web screens' lifecycle", () => {
@@ -218,5 +236,22 @@ describe("the web screens' lifecycle", () => {
     expect(clearWebData).toHaveBeenCalledTimes(1);
     await runBeforeEnd(api(), [lifecycle]);
     expect(clearWebData).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not take a web screen's data when a departed session ends in the background", async () => {
+    // The departed sessions are settled while the app is already in use: the web screen
+    // on show started from empty data after that session left, and its cookie is its own.
+    const { unmount } = await render(<WebScreen path="/notes" />);
+    await act(async () => asked[0]?.answer("code-alice"));
+    mockEvents.length = 0;
+    await runBeforeEnd(api(), [lifecycle]);
+    expect(mockEvents).toEqual([]);
+
+    // The account in use leaving is another matter: its web screens are about to close.
+    const account = currentAccount();
+    if (!account) throw new Error("signed in");
+    await runBeforeLeave(account, [lifecycle]);
+    expect(mockEvents).toEqual(["cleared"]);
+    await unmount();
   });
 });

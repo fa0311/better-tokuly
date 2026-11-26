@@ -11,6 +11,7 @@ import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
 import { clearWebData } from "#/platform/web-data";
 import { requestWebSession, staysInApp, VERIFIER_HEADER, type WebSession } from "./handoff";
+import { webScreenOpened } from "./open-screens";
 
 /**
  * The web view without extra props. Its default (`P = undefined`) makes the
@@ -39,8 +40,9 @@ function useActiveSessionId(): string | null {
  * - the web view is incognito and keyed by its account's session, and the
  *   web views' data (cookies on disk too, localStorage, cache: Android
  *   shares them between all web views) is cleared before one opens, when
- *   it closes and before every switch or sign-out (`WebBackground`); the
- *   app's own API calls never carry cookies (`lib/api.ts`);
+ *   the last one closes (`open-screens.ts`) and before every switch or
+ *   sign-out (`lifecycle.ts`); the app's own API calls never carry cookies
+ *   (`lib/api.ts`);
  * - a switch or a sign-out starts the signed-in screens over, which closes
  *   it, and the server ends the web session with the app's session.
  *
@@ -82,8 +84,8 @@ export function WebScreen({ path }: { path: string }) {
     };
   }, [path, attempt]);
 
-  // Closing it leaves nothing behind.
-  useEffect(() => () => void clearWebData(), []);
+  // Closing it leaves nothing behind, once no other web screen is open.
+  useEffect(() => webScreenOpened(), []);
 
   // Android's back button goes back in the web view first.
   useEffect(() => {

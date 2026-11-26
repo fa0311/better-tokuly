@@ -142,7 +142,9 @@ its tests) and the web switches to it.
   session ends with the app's. A code that comes back after another account
   took over is dropped. The web view is incognito and keyed by its account's
   session; everything web views stored (cookies, on disk too, localStorage,
-  cache) is removed before one opens, when it closes, before every switch
+  cache) is removed before one opens, when the last one closes
+  (`open-screens.ts`: Android's web views share one store, and a screen
+  that closes late must not take the next one's cookie), before every switch
   or sign-out and before a departed session ends (`lifecycle.ts`, with the
   local module `modules/tokuly-web-data`), and the app's own
   API calls send no cookies (`lib/api.ts`). Links to anywhere else open in the system
