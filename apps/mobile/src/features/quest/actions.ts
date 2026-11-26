@@ -13,7 +13,8 @@ const NS = { namespace: "quest" } as const;
  * Collecting a mission's reward. A mission is sent once while its claim is
  * on its way, however often it is tapped (the server would not grant twice
  * either, but a second request is never made). The coins shown afterwards
- * are the wallet's, read again — never added up here.
+ * are the wallet's, read again — never added up here — also when the claim
+ * failed, since a lost answer does not mean a refused claim.
  */
 export function useClaim() {
   const { t } = useTranslation("quest");
@@ -40,7 +41,12 @@ export function useClaim() {
     },
     onError: (error) => {
       Alert.alert(errorMessage(error, NS));
+      // The claim may have gone through with only its answer lost (the app
+      // went to the background, the connection dropped): whatever it changed
+      // is read again from the server.
       void queryClient.invalidateQueries({ queryKey: questKeys.missions });
+      void queryClient.invalidateQueries({ queryKey: questKeys.progress });
+      void queryClient.invalidateQueries({ queryKey: coinsKey });
     },
     onSettled: (_answer, _error, mission) => {
       sending.current.delete(mission.id);

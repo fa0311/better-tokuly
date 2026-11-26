@@ -26,6 +26,7 @@ function server() {
   let switched = false;
   const claims: string[] = [];
   let answer = () => {};
+  let lose = () => {};
   const mission = () =>
     create(quest.MissionSchema, {
       id: "m1",
@@ -55,7 +56,12 @@ function server() {
       getBalance: async () => ({ balance: { coins } }),
       claimMission: ({ missionId }: { missionId: string }) => {
         claims.push(missionId);
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
+          lose = () => {
+            state = M.CLAIMED;
+            coins += 10n;
+            reject(new Error("the connection dropped before the answer arrived"));
+          };
           answer = () => {
             state = M.CLAIMED;
             coins += 10n;
@@ -79,6 +85,8 @@ function server() {
   return {
     claims,
     answer: () => answer(),
+    /** The server grants the claim, but its answer never reaches the phone. */
+    loseAnswer: () => lose(),
     switchAccount: () => {
       switched = true;
     },
@@ -124,6 +132,17 @@ describe("the quest screen", () => {
     await waitFor(() => expect(screen.getByTestId("quest-coins").props.children).toBe("🪙 110"));
     expect(api.claims).toEqual(["m1"]);
     expect(Alert.alert).toHaveBeenCalledWith("ミッション クリア!", "10コインと 20 XPをゲット!");
+  });
+
+  it("reads the balance and the mission again when a claim's answer is lost", async () => {
+    const api = server();
+    await show(<QuestScreen />);
+    await waitFor(() => expect(screen.getByTestId("quest-coins").props.children).toBe("🪙 100"));
+    await fireEvent.press(await screen.findByTestId("mission-claim-stamps_5"));
+    api.loseAnswer();
+    await waitFor(() => expect(screen.getByText("受け取りずみ")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("quest-coins").props.children).toBe("🪙 110"));
+    expect(api.claims).toEqual(["m1"]);
   });
 
   it("drops a claim answered after an account switch", async () => {
