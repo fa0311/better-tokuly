@@ -10,7 +10,7 @@
 //! - [`users`] — account rows, summaries, handle rules and validation;
 //! - [`sessions`] — sessions and refresh-token rotation; [`device_accounts`]
 //!   — several accounts on one device and switching between them (with the
-//!   threat model);
+//!   threat model); [`handoff`] — opening the web signed in from an app;
 //! - [`extras`] — the プロフ帳 (profile extras, their audiences, prompts,
 //!   search terms) and [`link_check`] — verifying profile links by a link back;
 //! - [`birthdays`] — who sees a birthday, for every domain;
@@ -32,6 +32,7 @@ pub mod bots;
 pub mod config;
 mod connections;
 pub mod device_accounts;
+pub mod handoff;
 pub mod extras;
 pub mod link_check;
 mod mailer;

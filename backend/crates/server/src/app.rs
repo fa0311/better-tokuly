@@ -371,6 +371,8 @@ pub fn api_router(core: Core, domains: &Domains, cors_origins: Vec<String>) -> a
         .merge(domains.dev.http_routes())
         // The pictures of link previews, fetched on the viewers' behalf.
         .merge(domains.media.http_routes())
+        // An app opening the web signed in (a one-time code for a cookie).
+        .merge(domains.identity.http_routes())
         .fallback_service(connect.into_axum_service())
         .layer(axum::middleware::from_fn_with_state(core.auth_layer.clone(), auth_middleware))
         // Our own infrastructure calling in. Both prove who they are in

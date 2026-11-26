@@ -186,6 +186,7 @@ pub struct Browser {
 impl Browser {
     pub fn new(ext: &Ext) -> Self {
         let router = axum::Router::new()
+            .merge(ext.identity.http_routes())
             .fallback_service(ext.identity.register(connectrpc::Router::new()).into_axum_service())
             .layer(axum::middleware::from_fn_with_state(
                 ext.app.core.auth_layer.clone(),
@@ -200,6 +201,45 @@ impl Browser {
             rng.random_range(1..255u8),
         ]);
         Self { router, jar: HashMap::new(), ip, split_cookies: false }
+    }
+
+    /// Follows a link: a `GET` of `path` with the jar's cookies. Keeps the
+    /// cookies the answer sets; returns its status, `Location` and the
+    /// `Set-Cookie` values.
+    pub async fn get(&mut self, path: &str) -> (u16, Option<String>, Vec<String>) {
+        let cookie: Vec<String> = self.jar.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let mut request = http::Request::builder()
+            .method("GET")
+            .uri(path)
+            .header("user-agent", "Mozilla/5.0 (Linux; Android 16; Pixel 10) Chrome/157.0.0.0 Mobile Safari/537.36")
+            .extension(axum::extract::ConnectInfo(std::net::SocketAddr::new(self.ip, 0)));
+        if !cookie.is_empty() {
+            request = request.header("cookie", cookie.join("; "));
+        }
+        let response = self.router.clone().oneshot(request.body(Body::empty()).unwrap()).await.unwrap();
+        let status = response.status().as_u16();
+        let location = response.headers().get("location").and_then(|v| v.to_str().ok()).map(str::to_owned);
+        let cookies: Vec<String> = response
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .filter_map(|v| v.to_str().ok().map(str::to_owned))
+            .collect();
+        self.keep(&cookies);
+        (status, location, cookies)
+    }
+
+    fn keep(&mut self, cookies: &[String]) {
+        for c in cookies {
+            let first = c.split(';').next().unwrap_or_default();
+            if let Some((key, value)) = first.split_once('=') {
+                if value.is_empty() || c.contains("Max-Age=0") {
+                    self.jar.remove(key);
+                } else {
+                    self.jar.insert(key.to_owned(), value.to_owned());
+                }
+            }
+        }
     }
 
     pub async fn call(&mut self, procedure: &str, access_token: Option<&str>, body: serde_json::Value) -> WebAnswer {
@@ -235,16 +275,7 @@ impl Browser {
             .iter()
             .filter_map(|v| v.to_str().ok().map(str::to_owned))
             .collect();
-        for c in &cookies {
-            let first = c.split(';').next().unwrap_or_default();
-            if let Some((key, value)) = first.split_once('=') {
-                if value.is_empty() || c.contains("Max-Age=0") {
-                    self.jar.remove(key);
-                } else {
-                    self.jar.insert(key.to_owned(), value.to_owned());
-                }
-            }
-        }
+        self.keep(&cookies);
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let body = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
         WebAnswer { status, reason, cookies, body }

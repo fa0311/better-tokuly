@@ -85,6 +85,19 @@ service AuthService {
   rpc SwitchAccount(SwitchAccountRequest) returns (AuthResponse);
   // Signs a parked account out of this device; the others stay.
   rpc RemoveDeviceAccount(RemoveDeviceAccountRequest) returns (RemoveDeviceAccountResponse);
+
+  // Opens the web signed in from an app: a single-use code (60 seconds) for
+  // the caller's session, which the app's web view loads as
+  // `<api path prefix>/auth/handoff?code=…`. That route (plain HTTP, not
+  // Connect) redeems it once, makes a web session of the same account linked
+  // to the app's session (ending the app's session ends it too; one per app
+  // session, a newer one replaces it), sets the refresh cookie and redirects
+  // to `path`. The session token never travels in a URL. Sessions only: not
+  // available to API tokens or OAuth apps, nor to a session that came from a
+  // hand-off itself. INVALID_PATH (not a path of the web app: a scheme, a
+  // host, `//`, a backslash, or an unknown route), NOT_AVAILABLE (a web
+  // session from a hand-off), RATE_LIMITED.
+  rpc CreateWebHandoff(CreateWebHandoffRequest) returns (CreateWebHandoffResponse);
 }
 
 message ClientInfo {
@@ -354,6 +367,20 @@ message RemoveDeviceAccountRequest {
 }
 
 message RemoveDeviceAccountResponse {}
+
+message CreateWebHandoffRequest {
+  // Where the web opens, a path of the web app with an optional query and
+  // fragment (`/settings`, `/notes?tab=home`). Empty: `/`.
+  string path = 1;
+}
+
+message CreateWebHandoffResponse {
+  // What the app's web view loads, relative to the server's origin
+  // (`/api/auth/handoff?code=…`).
+  string url = 1;
+  // When the code stops working (60 seconds after it was made).
+  google.protobuf.Timestamp expires_at = 2;
+}
 
 // ───────────────────────────── Account ─────────────────────────────
 

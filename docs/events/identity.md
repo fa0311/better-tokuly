@@ -71,6 +71,25 @@ Web clients get the parked refresh tokens in a second HttpOnly cookie,
 server. Security log entries: `ACCOUNT_SWITCHED` (on the target account),
 `SIGN_IN` with `added_account`.
 
+## Opening the web from an app (hand-off)
+
+See the module documentation of `handoff.rs`. `CreateWebHandoff` (a
+session's own, never an API token's or a hand-off web session's; 60 an
+account per 10 minutes) makes a single-use code for a checked path of the
+web app (`INVALID_PATH` otherwise: a scheme, a host, `//`, a backslash, an
+encoded one, an unknown first segment). The code lives 60 seconds in Valkey
+under its keyed hash (`id:handoff:<hash>`). `GET <api prefix>/auth/handoff?code=…`
+(60 an address per minute) takes it once and makes a web session of the same
+account with `sessions.linked_to` set to the app's session, sets `tokuly_rt`
+(HttpOnly, SameSite=Lax, Secure on https) and answers `303` to the path;
+any failure answers `303 /login` without a cookie, and a browser already
+signed in as another account keeps that account. An app session holds one
+such web session (a newer hand-off revokes the one before). It ends with the
+app's session (trigger `sessions_revoke_linked`, and the token cache through
+`forget_session_tokens`) and refreshes only while that session is live and
+not parked; `revoke_all_sessions(keep)` keeps both halves of a pair.
+Security log entry: `WEB_SIGN_IN_FROM_APP` (`session_id`, `app_session_id`).
+
 ## Configuration
 
 | Variable | Default | |

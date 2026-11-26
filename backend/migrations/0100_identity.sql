@@ -112,11 +112,33 @@ CREATE TABLE sessions (
     switched_at           timestamptz,
     -- When this session last passed a second factor (TOTP, recovery code or
     -- passkey). A switch to an account with TOTP on asks again past 12 hours.
-    mfa_at                timestamptz
+    mfa_at                timestamptz,
+    -- A web session an app opened through a hand-off (CreateWebHandoff): the
+    -- app's session it belongs to. It lives only as long as that one.
+    linked_to             uuid REFERENCES sessions (id) ON DELETE CASCADE
 );
 
 CREATE INDEX sessions_user ON sessions (user_id) WHERE revoked_at IS NULL;
 CREATE INDEX sessions_previous_hash ON sessions (previous_refresh_hash) WHERE previous_refresh_hash IS NOT NULL;
+CREATE INDEX sessions_linked ON sessions (linked_to) WHERE linked_to IS NOT NULL AND revoked_at IS NULL;
+
+-- Whatever ends a session (signing out, a switch's replacement, a password
+-- change, "sign out everywhere", a ban, deletion) ends the web sessions
+-- linked to it in the same statement. The code that revoked it also tells
+-- the token cache about them (`Identity::revoked_with_linked`).
+CREATE FUNCTION revoke_linked_sessions() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE sessions SET revoked_at = NEW.revoked_at
+    WHERE linked_to = NEW.id AND revoked_at IS NULL;
+    RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER sessions_revoke_linked
+AFTER UPDATE OF revoked_at ON sessions
+FOR EACH ROW WHEN (OLD.revoked_at IS NULL AND NEW.revoked_at IS NOT NULL)
+EXECUTE FUNCTION revoke_linked_sessions();
 
 CREATE TABLE passkeys (
     id            uuid PRIMARY KEY DEFAULT uuidv7(),

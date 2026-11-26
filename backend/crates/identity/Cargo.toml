@@ -40,10 +40,10 @@ unicode-normalization.workspace = true
 regex.workspace = true
 anyhow.workspace = true
 http.workspace = true
+axum.workspace = true
 
 [dev-dependencies]
 tokuly-testkit.workspace = true
-axum.workspace = true
 tower.workspace = true
 http-body-util.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
