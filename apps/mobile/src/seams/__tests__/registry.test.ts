@@ -22,11 +22,12 @@ describe("the seam registries", () => {
       "chat",
       "friends",
       "map",
+      "notes",
       "notifications",
       "profile",
       "shorts",
     ]);
-    expect(areasOf("profile")).toEqual([]);
+    expect(areasOf("profile")).toEqual(["notes"]);
   });
 
   it("stop the build for a seam file they would leave out", () => {

@@ -1,8 +1,9 @@
-/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, settings. */
+/** The screens only the phone app has: tabs, location permission, background sharing, chat and push, the camera, posts on their way, notes, settings. */
 export default {
   tabs: {
     map: "マップ",
     chat: "チャット",
+    notes: "ノート",
     shorts: "ショート",
     friends: "ともだち",
     inbox: "お知らせ",
@@ -98,7 +99,6 @@ export default {
     lead: "アプリにまだない機能も、ここからぜんぶ使えるよ！",
     note: "いまはWebの画面でひらくよ。順番にアプリにしていくから待っててね！",
     features: {
-      notes: "ノート",
       video: "動画",
       live: "ライブ",
       spaces: "スペース",
@@ -239,6 +239,21 @@ export default {
     commentPlaceholder: "コメントを書く…",
     commentSend: "送る",
     commentsOff: "このショートはコメントを受けつけてないよ",
+  },
+  notes: {
+    sources: "見るタイムライン",
+    noSources: "リストもアンテナもまだないよ。Webでつくれるよ！",
+    clips: "クリップ",
+    channels: "チャンネル（Web）",
+    editLists: "リストとアンテナを編集（Web）",
+    react: "リアクション",
+    share: "シェアする",
+    editOnWeb: "編集する（Web）",
+    reportOnWeb: "通報する（Web）",
+    defaultAudience: "いつもの公開範囲",
+    leaveTitle: "書きかけのノート、どうする？",
+    keepWriting: "書きつづける",
+    seeAll: "ノートをぜんぶ見る",
   },
   licenses: {
     title: "オープンソースライセンス",

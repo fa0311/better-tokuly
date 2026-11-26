@@ -15,6 +15,7 @@ describe("the features on the seams", () => {
     expect(TABS.map((tab) => [tab.name, tab.badge, tab.noHeader ?? false])).toEqual([
       ["map", undefined, true],
       ["chats", "chat", false],
+      ["notes", undefined, false],
       ["shorts", undefined, true],
       ["friends", "friends", false],
       ["inbox", "notifications", false],
@@ -23,6 +24,7 @@ describe("the features on the seams", () => {
     expect(TABS.map((tab) => tab.title())).toEqual([
       "マップ",
       "チャット",
+      "ノート",
       "ショート",
       "ともだち",
       "お知らせ",
@@ -51,6 +53,15 @@ describe("the features on the seams", () => {
       "licenses",
       "more",
       "new-chat",
+      "notes/[id]",
+      "notes/antenna/[id]",
+      "notes/clips/[id]",
+      "notes/clips/index",
+      "notes/compose",
+      "notes/drafts",
+      "notes/list/[id]",
+      "notes/tag/[tag]",
+      "notes/user/[id]",
       "settings",
       "shorts/mine",
       "shorts/new",
@@ -75,9 +86,11 @@ describe("the features on the seams", () => {
     expect(screenFor("/friends/requests")).toBe("/friends");
     expect(screenFor("/map")).toBe("/map");
     expect(screenFor("/notifications")).toBe("/inbox");
+    expect(screenFor("/notes/n1")).toBe("/notes/n1");
+    expect(screenFor("/notes/tags/ramen")).toBe("/notes/tag/ramen");
     // What only the web has opens in the app's web view, signed in.
     expect(screenFor("/stamps")).toBe(`/web?path=${encodeURIComponent("/stamps")}`);
-    expect(screenFor("/notes/n1")).toBe(`/web?path=${encodeURIComponent("/notes/n1")}`);
+    expect(screenFor("/notes/channels")).toBe(`/web?path=${encodeURIComponent("/notes/channels")}`);
     // What no feature claims opens on the web.
     expect(screenFor("/login")).toBeNull();
     expect(targetOf("/chat/c1?m=5")).toEqual({ type: "screen", href: "/chat/c1" });

@@ -5,7 +5,6 @@ import {
   type LucideIcon,
   MessageCircleQuestion,
   Mic,
-  NotebookPen,
   Radio,
   Settings,
   ShieldCheck,
@@ -33,7 +32,6 @@ export interface WebFeature {
  * `features/notifications/target.ts`).
  */
 export const WEB_FEATURES: readonly WebFeature[] = [
-  { key: "notes", path: "/notes", icon: NotebookPen },
   { key: "video", path: "/watch", icon: Tv },
   { key: "live", path: "/live", icon: Radio },
   { key: "spaces", path: "/spaces", icon: Mic },
