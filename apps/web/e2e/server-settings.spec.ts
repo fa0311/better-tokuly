@@ -91,7 +91,8 @@ test("an admin sees where each value comes from, changes one and exports the res
   await expect(page.getByText("保存したよ！再起動で反映されるよ")).toBeVisible();
   await expect(workers.getByText("再起動で反映されるよ（api / worker）")).toBeVisible();
   await workers.getByRole("button", { name: "media.image_concurrency の履歴" }).click();
-  await expect(page.getByRole("dialog").getByText("未設定 → 6")).toBeVisible();
+  // Newest first; a server this test ran on before keeps the earlier rounds below.
+  await expect(page.getByRole("dialog").getByRole("listitem").first()).toContainText("未設定 → 6");
   await page.keyboard.press("Escape");
 
   // The export: what is in force and not a default, without secrets.
