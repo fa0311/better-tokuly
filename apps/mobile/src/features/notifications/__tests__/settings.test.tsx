@@ -64,9 +64,11 @@ describe("notification settings", () => {
     await waitFor(() =>
       expect(main.updates).toEqual([{ pushPreview: notify.PushPreview.SENDER_ONLY }]),
     );
-    expect(screen.getByTestId("push-preview-senderOnly")).toHaveProp("accessibilityState", {
-      selected: true,
-    });
+    await waitFor(() =>
+      expect(screen.getByTestId("push-preview-senderOnly")).toHaveProp("accessibilityState", {
+        selected: true,
+      }),
+    );
   });
 
   it("build each quiet-hours change on the one before, even before it was answered", async () => {
