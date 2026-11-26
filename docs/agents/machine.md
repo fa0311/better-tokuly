@@ -24,7 +24,7 @@ Map tiles for the web: `pmtiles serve $TOKULY_DEV_HOME/data/tiles --port 58090 -
 | Limit | Guard |
 |---|---|
 | Memory: one `rustc` on the generated API crate takes 3–6 GB | `rustc-gate` (installed as `~/.cargo/bin/sccache`, set as `rustc-wrapper`): at most 3 heavy and 14 other compilations machine-wide; `memguard.sh` kills the largest `rustc` under 8 GB free |
-| Rebuilding the same dependencies per agent | sccache behind the gate, 60 GB cache, needs `CARGO_INCREMENTAL=0` |
+| Rebuilding the same dependencies per agent | sccache behind the gate, 40 GiB cache, needs `CARGO_INCREMENTAL=0` |
 | Disk: an agent's build directory grows to 10–100 GB | one `CARGO_TARGET_DIR` per agent under `$TOKULY_DEV_HOME/target/`, deleted when its PR merges; `diskguard.sh` |
 | Test leftovers (NATS streams, databases) | testkit removes them at exit and sweeps older runs (#196) |
 
