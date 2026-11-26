@@ -71,7 +71,7 @@ jobs:
       shard-count: ${{ steps.shards.outputs.count }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
         with:
           filters: |
@@ -122,8 +122,8 @@ jobs:
       CACHE: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'main' }}
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -157,7 +157,7 @@ jobs:
       # runner out of memory; the ci profile needs less, but the order costs nothing).
       - name: Backend
         if: contains(steps.plan.outputs.build, 'backend')
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: infra/docker/backend.Dockerfile
@@ -171,7 +171,7 @@ jobs:
             type=registry,ref=${{ env.REGISTRY }}/ci-cache:backend-main
           cache-to: ${{ env.PUSH == 'true' && format('type=registry,ref={0}/ci-cache:backend-{1},mode=max', env.REGISTRY, env.CACHE) || '' }}
       - name: Web
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: infra/docker/web.Dockerfile
@@ -183,14 +183,14 @@ jobs:
           cache-to: ${{ env.PUSH == 'true' && format('type=registry,ref={0}/ci-cache:web-{1},mode=max', env.REGISTRY, env.CACHE) || '' }}
       - name: Tiles
         if: contains(steps.plan.outputs.build, 'tiles')
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: infra/tiles
           tags: ${{ env.REGISTRY }}/ci-tiles:${{ env.TAG }}
           outputs: ${{ format(steps.plan.outputs.output, 'tiles') }}
       - name: Postgres
         if: contains(steps.plan.outputs.build, 'postgres')
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: infra/postgres
           tags: ${{ env.REGISTRY }}/ci-postgres:${{ env.TAG }}
@@ -330,7 +330,7 @@ jobs:
           java-version: 17
       # Gradle's own dependencies and build cache (written on main, read everywhere).
       - if: steps.apk.outputs.cache-hit != 'true'
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
       # A release build carries its JS bundle, built for the address the emulator sees.
       - name: Build the Android app
         if: steps.apk.outputs.cache-hit != 'true'
@@ -401,7 +401,7 @@ jobs:
       # Three flows today, one emulator. When there are many, `--shard-split` and a matrix
       # like the Playwright one spread them over several.
       - name: Maestro flows
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 34
           arch: x86_64
