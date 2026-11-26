@@ -1,5 +1,5 @@
 import { Tabs } from "expo-router";
-import { Bell, MapPin, MessageCircle, Smile, Users } from "lucide-react-native";
+import { Bell, Clapperboard, MapPin, MessageCircle, Smile, Users } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useUnread as useChatUnread } from "#/features/chat/data";
 import { useIncomingRequests } from "#/features/friends/data";
@@ -46,6 +46,15 @@ export default function TabsLayout() {
           tabBarButtonTestID: "tab-chats",
           tabBarBadge: badge(chats),
           tabBarIcon: ({ color, size }) => <MessageCircle color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="shorts"
+        options={{
+          title: t("tabs.shorts"),
+          headerShown: false,
+          tabBarButtonTestID: "tab-shorts",
+          tabBarIcon: ({ color, size }) => <Clapperboard color={color} size={size} />,
         }}
       />
       <Tabs.Screen
