@@ -64,6 +64,56 @@ docker compose up -d     # http://localhost
 2段階認証はそのまま使えます）。パスキーを使うなら `tokuly.example.home` のようなドメイン名を割り当てて
 `TOKULY_PUBLIC_URL` にしてください。`http://localhost` はドメイン名あつかいなので、手元ではパスキーも動きます。
 
+### デモを動かす
+
+はじめて開いたときに「友達がいるとこうなるんだ!」が分かるように、デモ用のボットを動かせます。
+ボットたちは地図の上を歩いたり自転車で走ったりして、グループチャットでしゃべり、ノート・ストーリー・ショートを
+投稿して、おたがいにリアクションします。ふだんはオフで、オンにしたときだけ動きます。
+
+```sh
+tools/demo-env.sh        # .env にデモ用の設定を追記（COMPOSE_PROFILES=demo など 3 行）
+docker compose up -d     # demo コンテナがボットを作って動かしはじめる
+```
+
+自分のアカウントでログインして、検索で `demo` と入れるとボット（`@demo_yui` など）が見つかります。
+だれか 1 人に友達リクエストを送るとすぐ承認されて、あいさつの DM が届き、そのボットの友達が何人か
+「友達になろ〜」とリクエストを送ってきます。承認すると地図にみんなが出てきます。ボットに DM すると
+（決まった文だけですが）返事もします。
+
+- ボットはふつうの API クライアントです。データベースには直接さわらず、公開 API だけを使うので、
+  公開範囲・ブロック・レート制限などのルールはぜんぶそのまま効きます。
+- ボットのアカウントには**ボットのしるし**が付き、プロフィールは「デモ用のボットです🤖」で始まります。
+  送っている位置情報も「シミュレーション」として送るので、Bump や「近くの人」には出てきません。
+- ボットから知らない人に話しかけることはありません。友達リクエストをくれた人にだけ反応します。
+- だれがいるか（名前・プロフィール・友達関係・街のつくり）はシード値で決まり、何が起きるか（歩くルート・
+  投稿・会話）はシード値と「エピソード」で決まります。エピソードは指定しなければ起動した時刻（1 時間単位）
+  なので、再起動しても同じ投稿がくり返されません。`TOKULY_DEMO_EPISODE` を決めれば毎回まったく同じデモに
+  なります。実在の人物や住所は出てきません（場所は「駅前」「いつもの公園」のような名前です）。
+
+| 変数（`.env`） | 中身 |
+|---|---|
+| `COMPOSE_PROFILES=demo` | デモのコンテナを起動する |
+| `TOKULY_DEV_DEMO_OPERATORS` | ボットの持ち主になるアカウントのメールアドレス（カンマ区切り、1 つにつきボット 5 体）。サーバーとシミュレーターの両方が読みます。ここに書いたアカウントのボットだけが、チャットや投稿などの「書き込み」をできます（コインは対象外） |
+| `TOKULY_DEMO_PASSWORD` | そのアカウントのパスワード |
+| `TOKULY_DEMO_CENTER` / `TOKULY_DEMO_RADIUS_M` | ボットが動く場所。中心の `緯度,経度`（既定は `35.7030,139.5795`）と半径メートル（既定 900）。地図を用意した範囲（`TOKULY_MAP_REGION_BBOX`）の中にしてください |
+| `TOKULY_DEMO_BOTS` / `TOKULY_DEMO_SEED` / `TOKULY_DEMO_PACE` | ボットの数（既定 12）、シード値（既定 2026）、時間の進む速さ（既定 1 = 実時間） |
+
+やめるときは `.env` の `COMPOSE_PROFILES` から `demo` を外して `docker compose up -d --remove-orphans`。
+ボットのアカウントと投稿は残るので、消したいときは持ち主のアカウント（上のメールアドレスとパスワード）で
+ログインして「開発者 → ボット」から削除します。`TOKULY_DEV_DEMO_OPERATORS` も外すと、残ったボットは
+ふつうのボット（自分のプロフィールしか書きかえられない）に戻ります。
+経路検索エンジン（`[geo] routing_url`）を設定してあれば実際の道に沿って歩き、なければ
+シミュレーターが引いた碁盤の目の道を歩きます。
+
+Docker なしで開発中のサーバーに対して動かすときは、同じ変数をサーバーにも渡して起動します:
+
+```sh
+export TOKULY_DEV_DEMO_OPERATORS=demo-1@demo.tokuly.invalid,demo-2@demo.tokuly.invalid,demo-3@demo.tokuly.invalid
+export TOKULY_DEMO_PASSWORD=$(openssl rand -hex 24)
+(cd backend && cargo run -p tokuly-server -- all)       # サーバー（この変数つきで起動）
+(cd backend && cargo run -p tokuly-server -- demo)      # 別のターミナルで。--help で全オプション
+```
+
 ### 設定
 
 設定は 3 か所にあり、上にあるものほど優先されます。
@@ -137,6 +187,8 @@ location sharing, chat and calls, notes and stories, video, live streaming, shor
 This repository is a ground-up rebuild of the original Tokuly and is under heavy development: the backend and
 the web app cover every area, the Expo mobile app covers accounts, the live map and friends so far.
 Run it with `tools/init-env.sh && docker compose up -d`; secrets go in `.env`, every other setting in
-`config/tokuly.toml` or the staff console. See the table above for what works today.
+`config/tokuly.toml` or the staff console. For a first look with friends on the map, `tools/demo-env.sh`
+turns on the demo simulator (Compose profile `demo`): clearly marked bots that walk around, chat and post
+through the public API. See the table above for what works today.
 The code is MIT; the published `backend` image also carries a GPL-3.0-or-later FFmpeg binary (run as a
 separate program), whose terms apply to that binary when the image is redistributed.

@@ -28,6 +28,8 @@
 #
 # Optional parts are Compose profiles (set COMPOSE_PROFILES in .env):
 #   observability  Grafana + OpenTelemetry collector + Loki/Tempo/Prometheus at http://localhost:3001
+#   demo           the demo simulator: bots that walk around the map, chat and post, for a first
+#                  look at the app (tools/demo-env.sh adds what it needs to .env)
 #
 # Settings live in three places:
 #   .env                  secrets and where the deployment is reached (tools/init-env.sh writes it)
@@ -375,6 +377,25 @@ services:
       - "127.0.0.1:${TOKULY_MAILPIT_PORT:-8025}:8025"
 
   # ── Optional ───────────────────────────────────────────────────────────────
+  # Demo data: bots that walk around a region of the map, chat with each other,
+  # post notes, stories and shorts, and befriend whoever asks one of them. An
+  # ordinary client of the API (`tokuly demo`). It needs the three lines that
+  # tools/demo-env.sh adds to .env; without them it says so and exits.
+  demo:
+    <<: *backend
+    profiles: ["demo"]
+    command: ["demo"]
+    # Stays stopped when it is not configured (exit 0), comes back after a failure.
+    restart: on-failure
+    environment:
+      TOKULY_DEMO_API_URL: http://api:8081
+      # Uploads are signed for the store's public address, which this
+      # container does not reach; it sends them to the store directly.
+      TOKULY_DEMO_STORAGE_URL: http://storage:9000
+    depends_on:
+      api:
+        condition: service_healthy
+
   # Traces, logs and metrics. Also set TOKULY_OTLP_ENDPOINT=http://observability:4317.
   observability:
     logging: *logging
