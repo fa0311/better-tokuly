@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { identity, type quest, toMillis } from "@tokuly/api";
 import { profileQuery } from "@tokuly/core/profile";
+import { formatDay, streakRuns, streakStatus } from "@tokuly/core/quest";
 import { EyeOff, MessageCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -12,7 +13,6 @@ import { EmojiText } from "#/features/emoji";
 import { useAccountNow, useAccountTimeZone, zonedDate } from "#/lib/account-time";
 import { profileClient } from "#/lib/api";
 import { useLocalized, useQuestProfile, useUserBadges } from "./api";
-import { formatDay, streakRuns, streakStatus } from "./model";
 import { BadgeMedal, LevelPill, SectionTitle, TitlePill, useBadgeName } from "./parts";
 
 /**

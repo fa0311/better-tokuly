@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { quest } from "@tokuly/api";
+import { enqueue, type Loudness, loudness } from "@tokuly/core/quest";
 import { X } from "lucide-react";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,6 @@ import { celebrate as rainGlyphs } from "#/features/footprints";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
 import { useLocalized } from "./api";
-import { enqueue, type Loudness, loudness } from "./model";
 import { BadgeMedal, useBadgeName } from "./parts";
 
 /**

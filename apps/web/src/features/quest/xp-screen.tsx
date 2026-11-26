@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { quest } from "@tokuly/api";
+import { formatDay, questKeys } from "@tokuly/core/quest";
 import { useTranslation } from "react-i18next";
 import { Coins } from "#/components/ui/coins";
 import { LoadMore } from "#/components/ui/load-more";
@@ -7,8 +8,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { shiftDate, useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { questClient, questKeys, useLocalized, useProgress } from "./api";
-import { formatDay } from "./model";
+import { questClient, useLocalized, useProgress } from "./api";
 import { SectionTitle } from "./parts";
 
 export type XpTab = "rules" | "history";

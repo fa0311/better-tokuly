@@ -1,5 +1,13 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { common, quest } from "@tokuly/api";
+import {
+  isHiddenSecret,
+  type RarityKey,
+  type Remaining,
+  rarityKey,
+  remaining,
+  tierKey,
+} from "@tokuly/core/quest";
 import { Lock } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,14 +17,6 @@ import { Coins } from "#/components/ui/coins";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { useLocalized } from "./api";
-import {
-  isHiddenSecret,
-  type RarityKey,
-  type Remaining,
-  rarityKey,
-  remaining,
-  tierKey,
-} from "./model";
 
 /** The sections of the quest area, as a row of links under every page's header. */
 export function QuestNav({ className }: { className?: string }) {

@@ -1,6 +1,16 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { errorReason, type quest, toMillis } from "@tokuly/api";
+import {
+  formatDay,
+  fraction,
+  questKeys,
+  restoreFailure,
+  restoreState,
+  STREAK_PAGE_SIZE,
+  type StreakStatus,
+  streakStatus,
+} from "@tokuly/core/quest";
 import { MessageCircle } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,15 +27,7 @@ import { BalancePill, useBalance } from "#/features/wallet";
 import { useAccountNow, useAccountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { questKeys, STREAK_PAGE_SIZE, streakClient } from "./api";
-import {
-  formatDay,
-  fraction,
-  restoreFailure,
-  restoreState,
-  type StreakStatus,
-  streakStatus,
-} from "./model";
+import { streakClient } from "./api";
 import { ProgressBar, QuestNav, SectionTitle, useRemainingText } from "./parts";
 
 const MILESTONES = [3, 7, 30, 100, 365, 500, 1000];

@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { quest, toMillis } from "@tokuly/api";
+import { difficultyKey, fraction, missionPath, showClaim, showReroll } from "@tokuly/core/quest";
 import { ArrowRight, Check, Gift, Shuffle } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,20 +13,9 @@ import { useBalance } from "#/features/wallet";
 import { useAccountNow } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { missionClient, questKeys, useLocalized, useMissions } from "./api";
+import { missionClient, useLocalized, useMissions } from "./api";
 import { reveal } from "./celebrate";
-import { fraction } from "./model";
 import { ProgressBar, RewardLine, SectionTitle, useRemainingText } from "./parts";
-
-/** Paths the server names for a mission that this app has under another address. */
-const PATH_ALIASES: Record<string, string> = { "/friends/add": "/friends" };
-
-const DIFFICULTY_KEY = {
-  [quest.MissionDifficulty.UNSPECIFIED]: undefined,
-  [quest.MissionDifficulty.EASY]: "easy",
-  [quest.MissionDifficulty.NORMAL]: "normal",
-  [quest.MissionDifficulty.HARD]: "hard",
-} as const;
 
 const DIFFICULTY_TINT = {
   easy: "bg-mint text-[#17122b]",
@@ -51,21 +41,7 @@ export function Missions() {
     mutationFn: (mission: quest.Mission) => missionClient().claimMission({ missionId: mission.id }),
     onSuccess: (response, asked) => {
       const mission = response.mission ?? asked;
-      queryClient.setQueryData<quest.ListMissionsResponse | undefined>(
-        questKeys.missions,
-        (known) =>
-          known
-            ? {
-                ...known,
-                daily: known.daily.map((item) => (item.id === mission.id ? mission : item)),
-                weekly: known.weekly?.id === mission.id ? mission : known.weekly,
-                unclaimed: known.unclaimed.filter((item) => item.id !== mission.id),
-                dailyBonus: response.dailyBonus ?? known.dailyBonus,
-              }
-            : known,
-      );
-      if (response.progress) queryClient.setQueryData(questKeys.progress, response.progress);
-      void queryClient.invalidateQueries({ queryKey: questKeys.missions });
+      showClaim(queryClient, response, asked);
       // The coins arrive as a wallet push too; asking makes the balance right even without one.
       void balance.refresh();
       if (!response.granted) return;
@@ -93,19 +69,7 @@ export function Missions() {
     mutationFn: (mission: quest.Mission) =>
       missionClient().rerollMission({ missionId: mission.id }),
     onSuccess: (response) => {
-      const mission = response.mission;
-      queryClient.setQueryData<quest.ListMissionsResponse | undefined>(
-        questKeys.missions,
-        (known) =>
-          known && mission
-            ? {
-                ...known,
-                daily: known.daily.map((item) => (item.id === mission.id ? mission : item)),
-                weekly: known.weekly?.id === mission.id ? mission : known.weekly,
-                rerollsLeft: response.rerollsLeft,
-              }
-            : known,
-      );
+      showReroll(queryClient, response);
       setRerolling(null);
       toast.success(t("missions.rerolled"));
     },
@@ -246,7 +210,7 @@ function MissionCard({
   const openPath = useOpenPath();
   const left = useRemainingText();
   const title = text(mission.title);
-  const difficulty = DIFFICULTY_KEY[mission.difficulty];
+  const difficulty = difficultyKey(mission.difficulty);
   const active = mission.state === quest.MissionState.ACTIVE;
   const completed = mission.state === quest.MissionState.COMPLETED;
   const claimed = mission.state === quest.MissionState.CLAIMED;
@@ -337,7 +301,7 @@ function MissionCard({
         ) : mission.path ? (
           <button
             type="button"
-            onClick={() => openPath(PATH_ALIASES[mission.path] ?? mission.path)}
+            onClick={() => openPath(missionPath(mission))}
             className="inline-flex h-9 items-center gap-1 rounded-full px-3 text-sm font-black text-brand hover:bg-surface-2"
           >
             {t("missions.go")}

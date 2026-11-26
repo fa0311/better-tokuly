@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { quest } from "@tokuly/api";
+import { applyQuestEvent, localized, loudness, questKeys } from "@tokuly/core/quest";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -8,9 +9,7 @@ import { openDirectChat } from "#/features/chat";
 import { celebrate as rainGlyphs } from "#/features/footprints";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
-import { applyQuestEvent, localized, questKeys } from "./api";
 import { clearReveals, motionFactor, RevealLayer, reveal } from "./celebrate";
-import { loudness } from "./model";
 
 /** Away from the quest pages, XP is announced at most this often (with everything earned since). */
 const XP_TOAST_EVERY_MS = 20_000;

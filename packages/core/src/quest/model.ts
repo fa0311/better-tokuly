@@ -1,5 +1,28 @@
 import { quest, toMillis } from "@tokuly/api";
-import { untilNextDay } from "#/lib/account-time";
+import { untilNextDay } from "../format/zoned";
+
+/** The key of a difficulty's name in the strings (`missions.difficulty.<key>`); `undefined` when not set. */
+export function difficultyKey(
+  difficulty: quest.MissionDifficulty,
+): "easy" | "normal" | "hard" | undefined {
+  switch (difficulty) {
+    case quest.MissionDifficulty.EASY:
+      return "easy";
+    case quest.MissionDifficulty.NORMAL:
+      return "normal";
+    case quest.MissionDifficulty.HARD:
+      return "hard";
+    default:
+      return undefined;
+  }
+}
+
+/** Paths the server names for a mission that the apps have under another address. */
+const PATH_ALIASES: Record<string, string> = { "/friends/add": "/friends" };
+
+/** Where a mission is done, as an app path; `""` when anywhere. */
+export const missionPath = (mission: quest.Mission): string =>
+  PATH_ALIASES[mission.path] ?? mission.path;
 
 /** How far a bar is filled, 0–1, for counts the API sends as 64-bit integers. */
 export function fraction(done: bigint | number, of: bigint | number): number {

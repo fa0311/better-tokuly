@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { quest } from "@tokuly/api";
 import { profileKeys } from "@tokuly/core/profile";
+import { questKeys } from "@tokuly/core/quest";
 import { Check, GripVertical, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -10,7 +11,7 @@ import { Sortable } from "#/components/ui/sortable";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
-import { badgeClient, questKeys, useLocalized, useUserBadges } from "./api";
+import { badgeClient, useLocalized, useUserBadges } from "./api";
 import { SHOWCASE_SIZE } from "./badge-screen";
 import { BadgeMedal, SectionTitle, TitlePill, useBadgeName } from "./parts";
 

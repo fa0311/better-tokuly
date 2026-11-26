@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { quest } from "@tokuly/api";
+import { claimable, levelFraction, xpToNextLevel } from "@tokuly/core/quest";
 import { ChevronRight, Trophy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import i18n from "#/lib/i18n";
 import type { HubTile } from "#/seams/hub";
 import { useMissions, useProgress } from "./api";
-import { claimable, levelFraction, xpToNextLevel } from "./model";
 import { ProgressBar } from "./parts";
 
 /**

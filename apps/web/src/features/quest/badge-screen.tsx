@@ -2,6 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { errorReason, toMillis } from "@tokuly/api";
 import { profileKeys } from "@tokuly/core/profile";
+import {
+  badgesChanged,
+  formatDay,
+  formatShare,
+  fraction,
+  isHiddenSecret,
+  questQueries,
+  tierKey,
+} from "@tokuly/core/quest";
 import { Send } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,8 +22,7 @@ import { ShareToChat } from "#/features/chat";
 import { EmojiText } from "#/features/emoji";
 import { useAccountTimeZone, zonedDate } from "#/lib/account-time";
 import { errorMessage } from "#/lib/errors";
-import { badgeClient, questKeys, useLocalized, useUserBadges } from "./api";
-import { formatDay, formatShare, fraction, isHiddenSecret, tierKey } from "./model";
+import { badgeClient, useLocalized, useUserBadges } from "./api";
 import { BadgeMedal, ProgressBar, RarityChip, TitlePill, useBadgeName } from "./parts";
 
 /** How many badges a showcase holds. */
@@ -31,19 +39,13 @@ export function BadgeScreen({ badgeKey }: { badgeKey: string }) {
   const badgeName = useBadgeName();
   const queryClient = useQueryClient();
   const zone = useAccountTimeZone();
-  const { data, isPending, error } = useQuery({
-    queryKey: questKeys.badge(badgeKey),
-    queryFn: () => badgeClient().getBadge({ key: badgeKey }),
-    retry: (count, failure) => errorReason(failure) !== "BADGE_NOT_FOUND" && count < 2,
-  });
+  const { data, isPending, error } = useQuery(questQueries.badge(badgeClient, badgeKey));
   const mine = useUserBadges("");
   const [sharing, setSharing] = useState(false);
   const badge = data?.badge;
 
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: questKeys.badges });
-    void queryClient.invalidateQueries({ queryKey: questKeys.progress });
-    void queryClient.invalidateQueries({ queryKey: questKeys.profiles });
+    badgesChanged(queryClient);
     void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
   };
   const onError = (failure: unknown) => toast.error(errorMessage(failure, { namespace: "quest" }));
