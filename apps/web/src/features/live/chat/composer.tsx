@@ -42,6 +42,7 @@ export function ChatComposer({
   const [caret, setCaret] = useState(0);
   /** When the last message went out, for slow mode. */
   const [sentAt, setSentAt] = useState<number | null>(null);
+  const inFlight = useRef(false);
   const now = useNow();
   const streamId = stream.summary?.id ?? "";
   const viewer = stream.viewer;
@@ -108,7 +109,17 @@ export function ChatComposer({
   const trimmed = text.trim();
   const canSend = trimmed.length > 0 && wait === 0 && !send.isPending;
   const submit = () => {
-    if (canSend) send.mutate({ text: trimmed });
+    // A second submit in the same frame (before `isPending` shows) sends nothing.
+    if (!canSend || inFlight.current) return;
+    inFlight.current = true;
+    send.mutate(
+      { text: trimmed },
+      {
+        onSettled: () => {
+          inFlight.current = false;
+        },
+      },
+    );
   };
 
   return (

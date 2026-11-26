@@ -45,6 +45,8 @@ export function ChatComposer({
   const input = useRef<ComponentRef<typeof TextInput>>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  /** A line on its way: a second press in the same frame (before `sending` shows) sends nothing. */
+  const inFlight = useRef(false);
   /** When the last line went out, for slow mode. */
   const [sentAt, setSentAt] = useState<number | null>(null);
   const now = useNow();
@@ -88,7 +90,8 @@ export function ChatComposer({
   const trimmed = text.trim();
   const canSend = trimmed.length > 0 && wait === 0 && !sending;
   const send = async () => {
-    if (!canSend) return;
+    if (!canSend || inFlight.current) return;
+    inFlight.current = true;
     const client = chatClient();
     setSending(true);
     try {
@@ -101,6 +104,7 @@ export function ChatComposer({
       if (errorReason(error) === "SLOW_MODE") setSentAt(Date.now());
       Alert.alert(errorMessage(error, { namespace: "live" }));
     } finally {
+      inFlight.current = false;
       setSending(false);
     }
   };

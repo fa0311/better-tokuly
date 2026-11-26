@@ -137,7 +137,14 @@ describe("WatchLiveScreen", () => {
 
     // A line goes out as the account that pressed send, and shows at once.
     await fireEvent.changeText(screen.getByTestId("live-chat-input"), "はじめまして");
-    await fireEvent.press(screen.getByTestId("live-chat-send"));
+    // Two presses in the same frame send it once.
+    const sendButton = screen.getByTestId("live-chat-send");
+    // The press handler itself, twice in one task: no render (and no `sending`) in between.
+    const { onClick } = sendButton.props as { onClick: (event: object) => void };
+    await act(async () => {
+      onClick({ nativeEvent: {} });
+      onClick({ nativeEvent: {} });
+    });
     expect(a.sent).toEqual([{ name: "a", text: "はじめまして" }]);
     expect(await screen.findByText("はじめまして")).toBeOnTheScreen();
   });
