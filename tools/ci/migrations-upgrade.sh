@@ -16,6 +16,10 @@ SERVER="$1"
 DIR=backend/migrations
 export PGOPTIONS="-c client_min_messages=warning"
 
+# sqlx knows a migration by its number: a second file with the same one fails on every database.
+shared="$(git ls-files "$DIR/*.sql" | sed 's|.*/\([0-9]*\)_.*|\1|' | sort | uniq -d)"
+[ -z "$shared" ] || { echo "More than one migration file has the number: ${shared//$'\n'/ }" >&2; exit 1; }
+
 release="$(git tag --list 'v[0-9]*' --no-contains HEAD | grep -v -- - | sort -V | tail -1 || true)"
 if [ -z "$release" ]; then
   echo "No stable release yet: nothing to upgrade from."
