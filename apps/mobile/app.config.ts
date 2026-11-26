@@ -1,4 +1,5 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
+import { AndroidConfig, type ConfigPlugin, withAndroidManifest } from "expo/config-plugins";
 
 /**
  * The open-source notices the app shows (Settings → licences), written from
@@ -25,89 +26,112 @@ const googleServicesFile = process.env.GOOGLE_SERVICES_JSON;
 const apnsMode = process.env.EXPO_PUBLIC_APNS_ENV === "production" ? "production" : "development";
 
 /**
+ * Bluetooth headsets before Android 12 need the old BLUETOOTH permission;
+ * from 12 on, BLUETOOTH_CONNECT (asked when a room opens) replaces it.
+ * LiveKit's libraries declare BLUETOOTH for every version, and Expo's build
+ * drops a maxSdkVersion that another manifest leaves out: the app's own
+ * declaration replaces theirs.
+ */
+const withLegacyBluetooth: ConfigPlugin = (config) =>
+  withAndroidManifest(config, (config) => {
+    const name = "android.permission.BLUETOOTH";
+    const manifest = AndroidConfig.Manifest.ensureToolsAvailable(config.modResults).manifest;
+    // Expo's manifest types know neither attribute; Android's merger reads both.
+    const legacy = { "android:name": name, "android:maxSdkVersion": "30", "tools:node": "replace" };
+    manifest["uses-permission"] = [
+      ...(manifest["uses-permission"] ?? []).filter((entry) => entry.$["android:name"] !== name),
+      { $: legacy },
+    ];
+    return config;
+  });
+
+/**
  * The native projects are generated (`expo prebuild`, Continuous Native
  * Generation) from this file: everything native is a config plugin here.
  */
-export default ({ config }: ConfigContext): ExpoConfig => ({
-  ...config,
-  name: "Tokuly",
-  slug: "tokuly",
-  scheme: "tokuly",
-  version: "0.1.0",
-  orientation: "portrait",
-  userInterfaceStyle: "automatic",
-  backgroundColor: "#f4f1ff",
-  ios: {
-    bundleIdentifier: "app.tokuly.mobile",
-    supportsTablet: true,
-    infoPlist: {
-      // Rooms and hangouts keep sounding with the screen off.
-      UIBackgroundModes: ["location", "audio"],
+export default ({ config }: ConfigContext): ExpoConfig =>
+  withLegacyBluetooth({
+    ...config,
+    name: "Tokuly",
+    slug: "tokuly",
+    scheme: "tokuly",
+    version: "0.1.0",
+    orientation: "portrait",
+    userInterfaceStyle: "automatic",
+    backgroundColor: "#f4f1ff",
+    ios: {
+      bundleIdentifier: "app.tokuly.mobile",
+      supportsTablet: true,
+      infoPlist: {
+        // Rooms and hangouts keep sounding with the screen off.
+        UIBackgroundModes: ["location", "audio"],
+      },
     },
-  },
-  android: {
-    package: "app.tokuly.mobile",
-    permissions: [
-      "ACCESS_COARSE_LOCATION",
-      "ACCESS_FINE_LOCATION",
-      "CAMERA",
-      "RECORD_AUDIO",
-      // Rooms and hangouts (WebRTC): the route of the sound, Bluetooth headsets.
-      "MODIFY_AUDIO_SETTINGS",
-      "BLUETOOTH_CONNECT",
-      "POST_NOTIFICATIONS",
+    android: {
+      package: "app.tokuly.mobile",
+      permissions: [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO",
+        // Rooms and hangouts (WebRTC): the route of the sound, Bluetooth headsets.
+        "MODIFY_AUDIO_SETTINGS",
+        "BLUETOOTH_CONNECT",
+        "POST_NOTIFICATIONS",
+      ],
+      // LiveKit's library asks for it too; the app never scans for or pairs devices.
+      blockedPermissions: ["android.permission.BLUETOOTH_ADMIN"],
+      ...(googleServicesFile ? { googleServicesFile } : {}),
+    },
+    plugins: [
+      "expo-router",
+      // Secure storage holds the sessions' tokens without Face ID: no prompt for it.
+      ["expo-secure-store", { faceIDPermission: false }],
+      "expo-localization",
+      "expo-web-browser",
+      "@maplibre/maplibre-react-native",
+      // Long videos keep playing in a small window (and on the lock screen) outside the app.
+      ["expo-video", { supportsPictureInPicture: true, supportsBackgroundPlayback: true }],
+      // Rooms and hangouts: LiveKit's WebRTC set up for voice chat.
+      ["@livekit/react-native-expo-plugin", { android: { audioType: "communication" } }],
+      ["expo-notifications", { mode: apnsMode, color: "#7c5cff" }],
+      // The camera of stories and shorts is VisionCamera; these texts are the system's
+      // prompts for it and for the library (the image picker's plugin writes them).
+      [
+        "expo-image-picker",
+        {
+          photosPermission:
+            "トークで送る写真や、記憶・ショートにする写真と動画をえらぶために使います。/ Lets you pick photos and videos for chats, stories and shorts.",
+          cameraPermission:
+            "トークの写真や、記憶・ショートを撮るために使います。/ Lets you take photos and videos for chats, stories and shorts.",
+          microphonePermission:
+            "ルームやたまり場で話すときと、記憶やショートの動画に音を入れるときに使うよ！/ Lets you talk in rooms and hangouts, and records sound with the videos of your stories and shorts.",
+        },
+      ],
+      [
+        "expo-location",
+        {
+          locationWhenInUsePermission:
+            "ともだちのマップにあなたのいまを出すために使います。/ Shows where you are on your friends' map.",
+          locationAlwaysAndWhenInUsePermission:
+            "アプリを閉じている間も、ともだちにいまを届けるために使います。/ Keeps your friends up to date while the app is closed.",
+          locationAlwaysPermission:
+            "アプリを閉じている間も、ともだちにいまを届けるために使います。/ Keeps your friends up to date while the app is closed.",
+          locationFullAccuracyPermission:
+            "ともだちのマップにあなたのいまをぴったり出すために使います!/ Shows your friends exactly where you are.",
+          // The background task pauses while the phone stays still.
+          motionUsagePermission:
+            "止まっている間は位置の送信をお休みして、電池を長持ちさせるために使います。/ Pauses location updates while you stay still, to save battery.",
+          isIosBackgroundLocationEnabled: true,
+          isAndroidBackgroundLocationEnabled: true,
+          isAndroidForegroundServiceEnabled: true,
+        },
+      ],
+      [
+        "expo-build-properties",
+        // A development or test stack is plain HTTP; a release against production is not.
+        { android: { usesCleartextTraffic: serverUrl.startsWith("http://") } },
+      ],
     ],
-    ...(googleServicesFile ? { googleServicesFile } : {}),
-  },
-  plugins: [
-    "expo-router",
-    // Secure storage holds the sessions' tokens without Face ID: no prompt for it.
-    ["expo-secure-store", { faceIDPermission: false }],
-    "expo-localization",
-    "expo-web-browser",
-    "@maplibre/maplibre-react-native",
-    // Long videos keep playing in a small window (and on the lock screen) outside the app.
-    ["expo-video", { supportsPictureInPicture: true, supportsBackgroundPlayback: true }],
-    // Rooms and hangouts: LiveKit's WebRTC set up for voice chat.
-    ["@livekit/react-native-expo-plugin", { android: { audioType: "communication" } }],
-    ["expo-notifications", { mode: apnsMode, color: "#7c5cff" }],
-    // The camera of stories and shorts is VisionCamera; these texts are the system's
-    // prompts for it and for the library (the image picker's plugin writes them).
-    [
-      "expo-image-picker",
-      {
-        photosPermission:
-          "トークで送る写真や、記憶・ショートにする写真と動画をえらぶために使います。/ Lets you pick photos and videos for chats, stories and shorts.",
-        cameraPermission:
-          "トークの写真や、記憶・ショートを撮るために使います。/ Lets you take photos and videos for chats, stories and shorts.",
-        microphonePermission:
-          "ルームやたまり場で話すときと、記憶やショートの動画に音を入れるときに使うよ！/ Lets you talk in rooms and hangouts, and records sound with the videos of your stories and shorts.",
-      },
-    ],
-    [
-      "expo-location",
-      {
-        locationWhenInUsePermission:
-          "ともだちのマップにあなたのいまを出すために使います。/ Shows where you are on your friends' map.",
-        locationAlwaysAndWhenInUsePermission:
-          "アプリを閉じている間も、ともだちにいまを届けるために使います。/ Keeps your friends up to date while the app is closed.",
-        locationAlwaysPermission:
-          "アプリを閉じている間も、ともだちにいまを届けるために使います。/ Keeps your friends up to date while the app is closed.",
-        locationFullAccuracyPermission:
-          "ともだちのマップにあなたのいまをぴったり出すために使います!/ Shows your friends exactly where you are.",
-        // The background task pauses while the phone stays still.
-        motionUsagePermission:
-          "止まっている間は位置の送信をお休みして、電池を長持ちさせるために使います。/ Pauses location updates while you stay still, to save battery.",
-        isIosBackgroundLocationEnabled: true,
-        isAndroidBackgroundLocationEnabled: true,
-        isAndroidForegroundServiceEnabled: true,
-      },
-    ],
-    [
-      "expo-build-properties",
-      // A development or test stack is plain HTTP; a release against production is not.
-      { android: { usesCleartextTraffic: serverUrl.startsWith("http://") } },
-    ],
-  ],
-  experiments: { reactCompiler: true },
-});
+    experiments: { reactCompiler: true },
+  });
