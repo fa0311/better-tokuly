@@ -1,7 +1,7 @@
 //! A test binary removes what it created when it exits, even when its tests
 //! panicked: this test runs a child copy of itself whose only test starts an
 //! app and panics, then checks that nothing of the child's run is left.
-use std::{collections::HashMap, process::Command};
+use std::{collections::HashMap, process::Command, time::Duration};
 
 use bytes::Bytes;
 use clap::Parser;
@@ -86,6 +86,19 @@ async fn a_panicking_test_binary_leaves_nothing_behind() {
         assert!(bucket.starts_with("tokuly-test-"), "the child had buckets of its own: {bucket}");
         assert!(s3.head_bucket().bucket(bucket).send().await.is_err(), "{bucket} was deleted");
     }
+
+    // Meilisearch deletes indexes asynchronously.
+    let index = child("search_index");
+    let search = meilisearch_sdk::client::Client::new(&cfg.meili_url, Some(&cfg.meili_key)).unwrap();
+    let mut index_left = true;
+    for _ in 0..50 {
+        index_left = search.get_index(index).await.is_ok();
+        if !index_left {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(!index_left, "{index} was deleted");
 }
 
 #[tokio::test]
@@ -102,6 +115,10 @@ async fn child_starts_an_app_and_panics() {
     // Something to empty before the bucket can go.
     let upload = app.core.storage.put(Bucket::Private, "left/behind.txt", Bytes::from_static(b"x"), "text/plain").await;
     upload.expect("upload to the run's bucket");
+    let index = format!("{}_users", tokuly_testkit::search_index_prefix());
+    let task = app.core.search.create_index(&index, Some("id")).await.expect("create an index");
+    task.wait_for_completion(&app.core.search, None, Some(Duration::from_secs(10))).await.expect("index created");
+    println!("child-run search_index={index}");
     println!("child-run media_bucket={}", cfg.s3_media_bucket);
     println!("child-run private_bucket={}", cfg.s3_private_bucket);
     panic!("the child's test fails");

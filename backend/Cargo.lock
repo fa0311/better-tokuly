@@ -6833,6 +6833,7 @@ dependencies = [
  "http",
  "http-body-util",
  "libc",
+ "meilisearch-sdk",
  "rand 0.10.4",
  "serde",
  "serde_json",

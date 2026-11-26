@@ -14,6 +14,7 @@ use tokuly_core::config::Config;
 use crate::{
     buckets, clickhouse, nats, postgres,
     run::{self, Run},
+    search_indexes,
 };
 
 const REMOVE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -46,7 +47,7 @@ pub(crate) fn base_config() -> Config {
     EnvConfig::parse_from(args).core
 }
 
-fn run() -> &'static Run {
+pub(crate) fn run() -> &'static Run {
     static RUN: OnceLock<Run> = OnceLock::new();
     RUN.get_or_init(Run::new)
 }
@@ -106,6 +107,7 @@ async fn sweep(base: &Config) {
         nats::sweep(base, now),
         clickhouse::sweep(base, now),
         buckets::sweep(base, now),
+        search_indexes::sweep(base, now),
     );
 }
 
@@ -114,16 +116,18 @@ async fn remove(base: &Config) {
     let run = run();
     // When setup panicked there is no environment: try everything.
     let env = ENV.get();
-    let (database, streams, analytics, objects) = tokio::join!(
+    let (database, streams, analytics, objects, indexes) = tokio::join!(
         bounded(postgres::remove(base, run)),
         bounded(nats::remove(base, run)),
         bounded_if(env.is_none_or(|env| env.clickhouse), clickhouse::remove(base, run)),
         bounded_if(env.is_none_or(|env| env.buckets), buckets::remove(base, run)),
+        bounded(search_indexes::remove(base, run)),
     );
     report("PostgreSQL database", database);
     report("JetStream streams", streams);
     report("ClickHouse database", analytics);
     report("buckets", objects);
+    report("Meilisearch indexes", indexes);
 }
 
 async fn bounded_if(created: bool, removal: impl Future<Output = anyhow::Result<()>>) -> anyhow::Result<()> {

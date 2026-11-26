@@ -37,6 +37,7 @@ mod env;
 mod nats;
 mod postgres;
 mod run;
+mod search_indexes;
 
 use std::time::Duration;
 
@@ -52,6 +53,13 @@ pub use tokuly_proto::realtime::ServerFrame;
 use tokuly_proto::{RealtimeEvent, common::SubjectType};
 use tower::ServiceExt as _;
 use uuid::Uuid;
+
+/// The Meilisearch index prefix of this test binary
+/// (`tokuly_test_<started>_<id>`), for `SearchConfig::index_prefix`. Every
+/// index whose name starts with it is deleted when the binary exits.
+pub fn search_index_prefix() -> String {
+    search_indexes::prefix(env::run())
+}
 
 fn random_suffix(len: usize) -> String {
     tokuly_core::ids::random_base62(len).to_ascii_lowercase()
