@@ -146,7 +146,7 @@ pub struct Config {
     /// ClickHouse user.
     #[arg(long, env = "TOKULY_CLICKHOUSE_USER", default_value = "tokuly")]
     pub clickhouse_user: String,
-    /// ClickHouse password.
+    /// ClickHouse password. Empty: none (a local server's `default` user).
     #[arg(
         long,
         env = "TOKULY_CLICKHOUSE_PASSWORD",
@@ -290,7 +290,7 @@ impl Config {
 impl Config {
     /// Settings whose empty value means something (none, off): an empty
     /// environment variable is that value, not "unset".
-    pub const EMPTY_IS_A_VALUE: &'static [&'static str] = &["api_path_prefix", "trusted_proxies"];
+    pub const EMPTY_IS_A_VALUE: &'static [&'static str] = &["api_path_prefix", "trusted_proxies", "clickhouse_password"];
 
     /// The settings the staff console (「サーバー設定」) may change, by
     /// `tokuly.toml` key. Everything else is set in tokuly.toml or the

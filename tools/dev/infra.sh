@@ -83,7 +83,7 @@ CADDY_VERSION=2.11.9 # the edge image of compose.yaml
 S3_ACCESS_KEY="${TOKULY_S3_ACCESS_KEY:-tokuly}"
 S3_SECRET_KEY="${TOKULY_S3_SECRET_KEY:-tokuly-secret}"
 MEILI_KEY="${TOKULY_MEILI_KEY:-tokuly-meili-key}"
-# The backend's defaults (an empty TOKULY_CLICKHOUSE_PASSWORD is ignored).
+# The backend's defaults.
 CLICKHOUSE_USER=tokuly
 CLICKHOUSE_PASSWORD=tokuly
 LIVEKIT_KEY="${TOKULY_LIVEKIT_API_KEY:-tokulydev}"

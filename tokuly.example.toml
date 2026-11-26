@@ -115,8 +115,8 @@
 # (TOKULY_CLICKHOUSE_USER; restart: api, realtime, worker)
 # clickhouse_user = "tokuly"
 
-# ClickHouse password.
-# (TOKULY_CLICKHOUSE_PASSWORD; secret; restart: api, realtime, worker)
+# ClickHouse password. Empty: none (a local server's `default` user).
+# (TOKULY_CLICKHOUSE_PASSWORD; secret; empty is a value; restart: api, realtime, worker)
 # clickhouse_password = "tokuly"
 
 # ClickHouse database holding the analytics tables.
