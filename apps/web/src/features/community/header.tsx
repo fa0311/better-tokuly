@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { common, community } from "@tokuly/api";
 import {
   can,
+  categoryOf,
   communityHref,
   communityKeys,
   imageUrl,
@@ -37,7 +38,6 @@ import { errorMessage } from "#/lib/errors";
 import { boardClient, communityClient, NS } from "./api";
 import {
   CommunityIcon,
-  categoryOf,
   MemberCount,
   Notice,
   RoleChip,

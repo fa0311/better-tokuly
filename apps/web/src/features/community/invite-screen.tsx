@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { community, errorReason } from "@tokuly/api";
 import {
+  categoryOf,
   communityQueries,
   imageUrl,
   inviteHref,
@@ -20,7 +21,7 @@ import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { useSessionStatus } from "#/stores/session";
 import { communityClient, NS } from "./api";
-import { CommunityIcon, categoryOf, MemberCount, VisibilityChip } from "./parts";
+import { CommunityIcon, MemberCount, VisibilityChip } from "./parts";
 
 /**
  * What an invite link opens: the community it leads to, and one button.

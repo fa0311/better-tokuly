@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import type { community } from "@tokuly/api";
+import { VISIBILITY_KEYS } from "@tokuly/core/community";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmojiText } from "#/features/emoji";
 import { NS } from "./api";
-import { useWhen, VISIBILITY_KEYS } from "./parts";
+import { useWhen } from "./parts";
 
 /** The rules of a community, numbered. */
 export function Rules({ community: c }: { community: community.Community }) {

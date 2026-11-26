@@ -18,8 +18,10 @@ export { communityKeys, type DirectoryOptions, type ThreadListOptions } from "./
 export {
   appPathOf,
   assignableRoles,
+  CATEGORIES,
   can,
   canRead,
+  categoryOf,
   checkInOpen,
   communityHref,
   type EventPhase,
@@ -42,6 +44,7 @@ export {
   threadHref,
   timeoutUntilMs,
   uniqueById,
+  VISIBILITY_KEYS,
   votePercent,
 } from "./model";
 export {

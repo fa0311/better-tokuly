@@ -122,6 +122,34 @@ export function inviteCodeOf(input: string): string {
   return match?.[1] ?? text;
 }
 
+// ───────────── Categories and visibility ─────────────
+
+const C = community.CommunityCategory;
+
+/** The categories people choose from, in display order, with the emoji that stands for each. */
+export const CATEGORIES: { value: community.CommunityCategory; key: string; emoji: string }[] = [
+  { value: C.SCHOOL, key: "school", emoji: "🏫" },
+  { value: C.CLUB, key: "club", emoji: "🎽" },
+  { value: C.GAME, key: "game", emoji: "🎮" },
+  { value: C.OSHI, key: "oshi", emoji: "💖" },
+  { value: C.LOCAL, key: "local", emoji: "🏘️" },
+  { value: C.STUDY, key: "study", emoji: "📚" },
+  { value: C.TECH, key: "tech", emoji: "💻" },
+  { value: C.OTHER, key: "other", emoji: "✨" },
+];
+
+export function categoryOf(value: community.CommunityCategory) {
+  return CATEGORIES.find((category) => category.value === value) ?? CATEGORIES[7]!;
+}
+
+const V = community.CommunityVisibility;
+export const VISIBILITY_KEYS: Record<community.CommunityVisibility, string> = {
+  [V.UNSPECIFIED]: "public",
+  [V.PUBLIC]: "public",
+  [V.RESTRICTED]: "restricted",
+  [V.HIDDEN]: "hidden",
+};
+
 // ───────────── Roles ─────────────
 
 const R = community.MemberRole;

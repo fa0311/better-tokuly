@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { community } from "@tokuly/api";
-import { handleOfPath, inviteCodeOf, refreshMembership } from "@tokuly/core/community";
+import { CATEGORIES, handleOfPath, inviteCodeOf, refreshMembership } from "@tokuly/core/community";
 import { KeyRound, Plus, Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -29,7 +29,7 @@ import {
   useTrending,
 } from "./api";
 import { EventCard } from "./events";
-import { CATEGORIES, CommunityCard, CommunityRow, RoleChip, SectionTitle } from "./parts";
+import { CommunityCard, CommunityRow, RoleChip, SectionTitle } from "./parts";
 import { ThreadCard } from "./thread-card";
 
 const C = community.CommunityCategory;
