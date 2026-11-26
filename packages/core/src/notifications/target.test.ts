@@ -47,9 +47,25 @@ describe("notification paths", () => {
     );
   });
 
+  it("sends likes and comments on a thread, a reply or an event to the community pages", () => {
+    // Engagement notifies with the subject's path, which the community domain published.
+    expect(notificationPath("engagement.like", "/c/neko/t/bXou6FpLkfK")).toBe(
+      "/g/neko/t/bXou6FpLkfK",
+    );
+    expect(notificationPath("engagement.heart", "/c/neko/t/bXou6FpLkfK?reply=0199-cd")).toBe(
+      "/g/neko/t/bXou6FpLkfK?reply=0199-cd",
+    );
+    expect(notificationPath("engagement.comment", "/c/neko/events/0199-ab?comment=0199-ef")).toBe(
+      "/g/neko/events/0199-ab?comment=0199-ef",
+    );
+  });
+
   it("leaves every other path alone, and a community path it cannot read", () => {
     expect(notificationPath("video.comment", "/c/someone")).toBe("/c/someone");
     expect(notificationPath(undefined, "/c/someone")).toBe("/c/someone");
     expect(notificationPath("community.review", "/c/neko/videos")).toBe("/c/neko/videos");
+    // A video channel's page is `/c/<handle>` or one of its tabs.
+    expect(notificationPath("engagement.like", "/c/someone/videos")).toBe("/c/someone/videos");
+    expect(notificationPath("social.follow", "/c/someone")).toBe("/c/someone");
   });
 });

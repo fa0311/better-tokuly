@@ -23,6 +23,7 @@ release APK for the emulator and runs them against the Compose stack.
 | `video` | opens the video feeds and subscribes to a channel |
 | `notes` | reads a friend's note, likes it and replies after agreeing to the rules, posts a note with a poll |
 | `live` | finds a friend's scheduled stream, asks for its reminder and chats before it starts |
+| `community` | finds a public community, joins it, replies in and likes a thread, starts one and sees the members |
 | `settings` | changes the account's settings and avatar on the native screens and finds them kept when they open again |
 | `spaces` | finds a friend's room, enters it (audio over LiveKit, Bluetooth headsets declined), raises a hand, sends an emoji, comes back from the mini player and leaves; accepts a hangout invitation, enters, mutes from the mini player on the tabs and leaves |
 | `web-screens` | opens a web-only feature from 「もっと見る」 and sees it signed in |

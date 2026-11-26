@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   applyInboxChange,
   NOTIFY_CATEGORIES,
+  notificationPath,
   notifyKeys,
   rereadInbox,
   storeUnread,
@@ -105,7 +106,7 @@ export function useNotificationsSync(): void {
         forgetOpeningTap();
         if (tap.notificationId)
           void markRead(queryClient, { ids: [tap.notificationId] }).catch(() => {});
-        router.push(pushRoute(tap.path) as never);
+        router.push(pushRoute(notificationPath(tap.kind, tap.path)) as never);
       }),
     [queryClient],
   );

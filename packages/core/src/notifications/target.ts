@@ -29,12 +29,18 @@ export function resolveTarget(path: string, origin: string): Target | null {
   return { type: "internal", href: pathname + url.search + url.hash };
 }
 
+/** A community's thread or event as the community domain publishes it: no video channel page looks like this. */
+const COMMUNITY_POST = /^\/c\/[^/?#]+\/(?:t|events)\/[^/?#]+(?:[?#]|$)/;
+
 /**
  * The path a notification of `kind` points to in the apps. The community
  * domain publishes its pages as `/c/…`, which names a video channel in
- * Tokuly: its notifications go to the community pages (`/g/…`) instead.
+ * Tokuly: its notifications go to the community pages (`/g/…`) instead, and
+ * so do other kinds' that point at a community's thread or event (a like or
+ * a comment carries the path of what was liked).
  */
 export function notificationPath(kind: string | undefined, path: string): string {
-  if (kind?.startsWith("community.")) return appPathOf(path) ?? path;
+  if (kind?.startsWith("community.") || COMMUNITY_POST.test(path.trim()))
+    return appPathOf(path) ?? path;
   return path;
 }
