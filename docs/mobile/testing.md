@@ -23,7 +23,7 @@ release APK for the emulator and runs them against the Compose stack.
 | `video` | opens the video feeds and subscribes to a channel |
 | `notes` | reads a friend's note, likes it and replies after agreeing to the rules, posts a note with a poll |
 | `live` | finds a friend's scheduled stream, asks for its reminder and chats before it starts |
-| `settings` | changes the account's settings on the native screens and finds them kept when they open again |
+| `settings` | changes the account's settings and avatar on the native screens and finds them kept when they open again |
 | `web-screens` | opens a web-only feature from 「もっと見る」 and sees it signed in |
 
 The flows screenshot each main screen into the run's `--test-output-dir`
