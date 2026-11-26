@@ -56,6 +56,8 @@ pub struct Previews {
     work_slots: tokio::sync::Semaphore,
     /// Bounds the pictures [`image_proxy`] decodes at once.
     decode_slots: tokio::sync::Semaphore,
+    /// The pictures waiting for a work slot.
+    waiting: image_proxy::Waiting,
 }
 
 /// Fetches (or recalls) the preview of `url`. `None` when the page has
@@ -181,6 +183,7 @@ impl Previews {
             policy,
             work_slots: tokio::sync::Semaphore::new(image_proxy::WORK_SLOTS),
             decode_slots: tokio::sync::Semaphore::new(image_proxy::DECODE_SLOTS),
+            waiting: image_proxy::Waiting::new(),
         })
     }
 
