@@ -4,7 +4,7 @@ import { Plus } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
-import { useMe } from "#/features/session/session";
+import { useMe } from "#/features/session/store";
 import { useTheme } from "#/lib/theme";
 import { useStoryTray } from "./data";
 

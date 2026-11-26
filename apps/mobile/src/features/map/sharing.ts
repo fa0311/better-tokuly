@@ -8,7 +8,7 @@ import {
 import { useEffect } from "react";
 import { AppState } from "react-native";
 import { create } from "zustand";
-import { onBeforeLeave, useMe } from "#/features/session/session";
+import { useMe } from "#/features/session/store";
 import { api } from "#/lib/api";
 import i18n from "#/lib/i18n";
 import { realtime } from "#/lib/realtime";
@@ -314,8 +314,9 @@ function useBackgroundTask(userId: string | null, active: boolean): void {
 /**
  * Runs while someone is signed in: keeps the store on the signed-in
  * account's own choice and the OS permission, shares while both say yes,
- * and before the account leaves (sign-out, another account) stops sending
- * and tells the server.
+ * and stops when either is taken back. Before the account leaves (sign-out,
+ * another account), `leaveSharing` stops sending and tells the server
+ * (`lifecycle.ts`).
  */
 export function useOwnLocationSharing(): void {
   const myId = useMe()?.user?.id ?? null;
@@ -337,7 +338,8 @@ export function useOwnLocationSharing(): void {
         readSecure(choiceKey(myId)),
         readSecure(stopOwedKey(myId)),
       ]);
-      if (!current) return;
+      // Read too late: the account is leaving, and its yes must not come back into the store.
+      if (!current || useSharing.getState().leaving) return;
       useSharing.setState({
         loaded: true,
         choice: stored === "on" || stored === "off" ? stored : null,
@@ -354,14 +356,9 @@ export function useOwnLocationSharing(): void {
       void refreshAccess();
       if (useSharing.getState().stopOwed) void confirmStop();
     });
-    const offLeave = onBeforeLeave(() => {
-      current = false;
-      return leaveSharing(myId);
-    });
     return () => {
       current = false;
       appState.remove();
-      offLeave();
     };
   }, [myId]);
 

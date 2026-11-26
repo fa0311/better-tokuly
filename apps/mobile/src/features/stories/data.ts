@@ -9,7 +9,7 @@ import {
   storyQueries,
 } from "@tokuly/core/stories";
 import { useEffect } from "react";
-import { useMe } from "#/features/session/session";
+import { useMe } from "#/features/session/store";
 import { api } from "#/lib/api";
 import { realtime } from "#/lib/realtime";
 

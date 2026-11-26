@@ -4,7 +4,7 @@ import { create, notes } from "@tokuly/api";
 import { storyKeys } from "@tokuly/core/stories";
 import { router } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { useSessionStore } from "#/features/session/session";
+import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
 import { StoryViewerScreen } from "../viewer-screen";
 

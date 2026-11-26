@@ -3,7 +3,14 @@ import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { waitFor } from "@testing-library/react-native";
 import { create, identity } from "@tokuly/api";
 import { readSecure, writeSecure } from "#/platform/secure-storage";
-import { startSession, useSessionStore } from "../session";
+import { startSession } from "../session";
+import { useSessionStore } from "../store";
+
+// Of the features' hooks (`#/seams/lifecycle`), the one a session that left meets: its push registrations go.
+jest.mock("#/generated/seams/lifecycle", () => {
+  const push = jest.requireActual("#/features/notifications/lifecycle").default;
+  return { __esModule: true, default: [{ beforeEnd: push.beforeEnd }] };
+});
 
 /** The app's own storage, at the edge: empty, as after a reinstall (the keychain outlived it). */
 const files = new Set<string>();

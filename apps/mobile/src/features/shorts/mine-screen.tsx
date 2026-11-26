@@ -7,7 +7,7 @@ import { Text, View } from "react-native";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
 import { PostsBanner } from "#/features/media/posts-banner";
-import { useMe } from "#/features/session/session";
+import { useMe } from "#/features/session/store";
 import { errorMessage } from "#/lib/errors";
 import { useMyShorts } from "./data";
 import { ShortGrid, watch } from "./grid";

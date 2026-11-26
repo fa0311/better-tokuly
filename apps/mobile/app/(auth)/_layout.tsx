@@ -2,7 +2,7 @@ import { Redirect, Stack } from "expo-router";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { routeFor, usePendingLink } from "#/features/session/routing";
-import { useSessionStore } from "#/features/session/session";
+import { useSessionStore } from "#/features/session/store";
 import { useTheme } from "#/lib/theme";
 
 export const unstable_settings = { initialRouteName: "welcome" };

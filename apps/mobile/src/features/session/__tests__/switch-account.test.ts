@@ -2,7 +2,9 @@ import { fromBinary, toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { create, identity } from "@tokuly/api";
 import { api, resetApi } from "#/lib/api";
-import { onBeforeLeave, switchAccount, useSessionStore } from "../session";
+import type { Account } from "../account";
+import { switchAccount } from "../session";
+import { useSessionStore } from "../store";
 import { activeTokenStore, parkedTokens } from "../vault";
 
 /** The server, at the edge: answers SwitchAccount as the account the refresh token belongs to. */
@@ -30,6 +32,13 @@ jest.mock("expo/fetch", () => ({
   fetch: (input: string, init: { body: Uint8Array }) => mockServer(input, init),
 }));
 
+/** What a feature does before its account leaves (`lifecycle.ts`), as the registry lists it. */
+const mockBeforeLeave = jest.fn<Promise<void> | void, [Account]>();
+jest.mock("#/generated/seams/lifecycle", () => ({
+  __esModule: true,
+  default: [{ beforeLeave: (account: Account) => mockBeforeLeave(account) }],
+}));
+
 const signedInAs = (user: string, sessionId: string, refreshToken: string) =>
   create(identity.AuthResponseSchema, {
     accessToken: `access-${user}`,
@@ -42,6 +51,7 @@ const signedInAs = (user: string, sessionId: string, refreshToken: string) =>
 beforeEach(async () => {
   calls.length = 0;
   switchFails = false;
+  mockBeforeLeave.mockReset();
   // `main` is signed in; `alt` is parked on this device.
   resetApi();
   await api().session.adopt(signedInAs("main", "s-main", "rt-main"));
@@ -54,13 +64,17 @@ describe("switchAccount", () => {
   it("parks the account in use and starts over as the parked one", async () => {
     switchAnswer = signedInAs("alt", "s-alt", "rt-alt-rotated");
     const left: string[] = [];
-    const off = onBeforeLeave(() => void left.push(`left while ${calls.length} calls`));
+    const main = api();
+    mockBeforeLeave.mockImplementation((account) => {
+      const itsOwn = account.api === main && api() === main;
+      left.push(`${account.userId} (${account.sessionId}) left while ${calls.length} calls`);
+      left.push(itsOwn ? "its session still the one in use" : "another session in use");
+    });
 
     await expect(switchAccount("s-alt")).resolves.toBe("switched");
-    off();
 
     // The account in use leaves once the switch went through, before the new one starts.
-    expect(left).toEqual(["left while 2 calls"]);
+    expect(left).toEqual(["main (s-main) left while 2 calls", "its session still the one in use"]);
     expect(calls).toEqual(["SwitchAccount", "token:rt-alt"]);
     expect(await activeTokenStore.get()).toBe("rt-alt-rotated");
     expect(await parkedTokens()).toEqual({ "s-main": "rt-main" });
@@ -73,23 +87,18 @@ describe("switchAccount", () => {
     switchAnswer = signedInAs("alt", "s-alt", "rt-alt-rotated");
     // What a restart would find if the app died while a leave hook was still running.
     const stored: Record<string, string>[] = [];
-    const off = onBeforeLeave(async () => void stored.push(await parkedTokens()));
+    mockBeforeLeave.mockImplementation(async () => void stored.push(await parkedTokens()));
 
     await expect(switchAccount("s-alt")).resolves.toBe("switched");
-    off();
 
     expect(stored).toEqual([{ "s-alt": "rt-alt-rotated" }]);
   });
 
   it("changes nothing until the second factor is given", async () => {
     switchAnswer = create(identity.AuthResponseSchema, { mfaRequired: true });
-    const left = jest.fn();
-    const off = onBeforeLeave(left);
-
     await expect(switchAccount("s-alt")).resolves.toBe("needsCode");
-    off();
 
-    expect(left).not.toHaveBeenCalled();
+    expect(mockBeforeLeave).not.toHaveBeenCalled();
     expect(await activeTokenStore.get()).toBe("rt-main");
     expect(await parkedTokens()).toEqual({ "s-alt": "rt-alt" });
     expect(useSessionStore.getState().generation).toBe(0);
@@ -97,13 +106,9 @@ describe("switchAccount", () => {
 
   it("keeps the account in use as it was when the switch fails", async () => {
     switchFails = true;
-    const left = jest.fn();
-    const off = onBeforeLeave(left);
-
     await expect(switchAccount("s-alt", "000000")).rejects.toThrow();
-    off();
 
-    expect(left).not.toHaveBeenCalled();
+    expect(mockBeforeLeave).not.toHaveBeenCalled();
     expect(await activeTokenStore.get()).toBe("rt-main");
     expect(await parkedTokens()).toEqual({ "s-alt": "rt-alt" });
     expect(useSessionStore.getState().generation).toBe(0);

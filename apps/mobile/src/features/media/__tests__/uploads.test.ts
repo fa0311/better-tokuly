@@ -1,5 +1,5 @@
 import { create, media, notes } from "@tokuly/api";
-import { useSessionStore } from "#/features/session/session";
+import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
 import { putFile, slicePart } from "#/platform/transfer";
 import { pauseRunning, runPost, submitPost, usePosts } from "../posts";
@@ -181,7 +181,7 @@ describe("uploads", () => {
       [{ uri: "file:///photo.jpg", kind: "image", name: "photo.jpg", contentType: "image/jpeg" }],
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
-    // What `onBeforeLeave` runs; the switch happens only once it is done.
+    // What the feature's `beforeLeave` runs; the switch happens only once it is done.
     await pauseRunning();
     signIn("B", account("b").object);
     expect(usePosts.getState().posts[0]?.status).toBe("paused");

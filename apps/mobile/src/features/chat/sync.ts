@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
 import { applyChatEvent, resynchronize } from "@tokuly/core/chat";
 import { useEffect } from "react";
-import { useMe } from "#/features/session/session";
+import { useMe } from "#/features/session/store";
 import { realtime } from "#/lib/realtime";
 import { chatSync, useConversationList } from "./data";
 import { useLive } from "./live";

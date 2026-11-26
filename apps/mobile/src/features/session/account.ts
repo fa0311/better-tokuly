@@ -1,6 +1,7 @@
 import type { Api } from "@tokuly/api";
-import { useSessionStore } from "#/features/session/session";
 import { api } from "#/lib/api";
+import { useSessionStore } from "./store";
+import { parkedTokens } from "./vault";
 
 /**
  * The account a piece of work was started as: its session and the API object
@@ -40,4 +41,15 @@ export function isActive(account: Account): boolean {
 /** Throws `AccountChanged` unless `account` is still the one in use. */
 export function ensureActive(account: Account): void {
   if (!isActive(account)) throw new AccountChanged();
+}
+
+/**
+ * The sessions this device holds: the one in use and the parked ones. What a
+ * feature keeps here for a session that is not among them can go.
+ */
+export async function accountsOnDevice(): Promise<Set<string>> {
+  const { state } = useSessionStore.getState();
+  const ids = new Set(Object.keys(await parkedTokens()));
+  if (state.status === "signedIn") ids.add(state.sessionId);
+  return ids;
 }

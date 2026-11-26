@@ -25,7 +25,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ActionSheet } from "#/components/action-sheet";
 import { Avatar } from "#/components/avatar";
 import { Spinner } from "#/components/page";
-import { useMe } from "#/features/session/session";
+import { useMe } from "#/features/session/store";
 import { mediaUrl } from "#/lib/config";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";

@@ -4,7 +4,8 @@ import { getLocales } from "expo-localization";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 import { create } from "zustand";
-import { asParked, onBeforeLeave, useMe, useSessionStore } from "#/features/session/session";
+import { asParked } from "#/features/session/parked";
+import { useMe, useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
 import { APNS_SANDBOX } from "#/lib/config";
 import { platform } from "#/platform/device";
@@ -230,8 +231,8 @@ export async function leavePush(sessionId: string): Promise<void> {
 
 /**
  * Runs while someone is signed in: registers the device for the account
- * that said yes, follows token changes and the permission, and unregisters
- * before the account leaves.
+ * that said yes, and follows token changes and the permission. Before the
+ * account leaves, `leavePush` unregisters it (`lifecycle.ts`).
  */
 export function usePushRegistration(): void {
   const myId = useMe()?.user?.id ?? null;
@@ -241,7 +242,6 @@ export function usePushRegistration(): void {
   useEffect(() => {
     if (!myId || !sessionId) return;
     void startPush(myId, sessionId);
-    const offLeave = onBeforeLeave(() => leavePush(sessionId));
     const offToken = onPushTokenChange(() => {
       if (stillFor(myId)) void register(myId);
     });
@@ -255,7 +255,6 @@ export function usePushRegistration(): void {
       });
     });
     return () => {
-      offLeave();
       offToken();
       appState.remove();
     };

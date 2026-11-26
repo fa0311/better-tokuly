@@ -1,6 +1,6 @@
 import { Redirect } from "expo-router";
 import { routeFor, usePendingLink } from "#/features/session/routing";
-import { useSessionStore } from "#/features/session/session";
+import { useSessionStore } from "#/features/session/store";
 
 /** `/` (a plain start, `tokuly:///`): the map when signed in, sign-in otherwise. */
 export default function Start() {
