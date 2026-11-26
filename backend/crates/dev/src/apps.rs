@@ -3,8 +3,11 @@ use std::time::Duration;
 
 use chrono::Utc;
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
-use tokuly_core::{api_tokens::Scopes, events, keys::secure_eq, prelude::*};
-use tokuly_proto::{common::Image, dev::*};
+use tokuly_core::{api_tokens::Scopes, events, keys::secure_eq, outbound, prelude::*};
+use tokuly_proto::{
+    common::{Image, SubjectType},
+    dev::*,
+};
 
 use crate::{
     Dev, clean_name, clean_text,
@@ -296,6 +299,7 @@ impl Dev {
         // Authorizations and tokens go with the row.
         sqlx::query("DELETE FROM dev_apps WHERE id = $1").bind(app.id).execute(&mut *tx).await?;
         events::emit(&mut *tx, "dev.app.deleted", actor, &AppEvent { app_id: app.id, owner_id: app.owner_id }).await?;
+        outbound::subject_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_APP, app.id).await?;
         tx.commit().await?;
         Ok(())
     }

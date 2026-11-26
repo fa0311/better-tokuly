@@ -18,6 +18,7 @@ transaction of the change it describes.
 | `spaces.room.ended` | `{ space_id, host_id, audience, reason, minutes, peak_listeners, total_listeners }` | A live room is over. `reason` is `SpaceEndReason` as its number; `minutes` rounds up. Actor: the (last) host. |
 | `spaces.room.joined` | `{ space_id, user_id, host_id, audience }` | Someone entered a room for the first time (not on re-entering; not the host starting it). Actor: the person. |
 | `spaces.hangout.joined` | `{ hangout_id, user_id, first, inside_count }` | Someone entered a hangout's voice room; `first` when they opened it. Actor: the person. |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A room or hangout was purged (`SUBJECT_TYPE_SPACE`): by the sweep, after the retention or evidence period. A room its host deleted and a closed hangout stay reportable until then and are not announced earlier. |
 
 `audience` is `SpaceAudience` as its number (1 public, 2 friends, 3 invited).
 

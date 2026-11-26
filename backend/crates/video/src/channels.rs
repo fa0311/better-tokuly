@@ -606,6 +606,7 @@ pub async fn delete_in(
     }
     outbound::unindex(&mut **tx, "channel", channel.id).await?;
     core_events::emit(&mut **tx, CHANNEL_DELETED, actor, &channel.event()).await?;
+    outbound::subject_deleted(&mut **tx, tokuly_proto::common::SubjectType::SUBJECT_TYPE_CHANNEL, channel.id).await?;
     Ok(aftermath)
 }
 

@@ -13,7 +13,7 @@ use crate::{
     categories,
     emojis::{self, Admission, Edit, Effects, NewEmoji, Tx},
     events::{AddedVia, RemovedBecause},
-    model::{EmojiRow, PICTURE_PURPOSE, Picture, Viewer, emoji_columns, state},
+    model::{EmojiRow, PICTURE_PURPOSES, Picture, Viewer, emoji_columns, state},
     validate::{self, MAX_ALIASES, MIN_IMAGE_EDGE},
 };
 
@@ -64,7 +64,7 @@ impl Emoji {
     /// Checks that an upload of `owner_id` can be an emoji picture.
     /// Errors: the `ASSET_*` reasons, `IMAGE_TOO_LARGE`, `IMAGE_TOO_SMALL`.
     pub(crate) async fn picture(&self, asset_id: &str, owner_id: Uuid) -> AppResult<Picture> {
-        let asset = assets::require_ready(&self.core, parse_id(asset_id)?, owner_id, &[PICTURE_PURPOSE]).await?;
+        let asset = assets::require_ready(&self.core, parse_id(asset_id)?, owner_id, &PICTURE_PURPOSES).await?;
         Picture::of(&asset, self.cfg.max_image_bytes())
     }
 

@@ -12,10 +12,10 @@
 use std::collections::HashSet;
 
 use sqlx::{Postgres, Transaction};
-use tokuly_core::prelude::*;
+use tokuly_core::{outbound, prelude::*};
 use tokuly_media::assets::{self, AssetRow};
 use tokuly_proto::{
-    common::{Image, StampFormat},
+    common::{Image, StampFormat, SubjectType},
     media::{AssetKind, AssetPurpose},
 };
 
@@ -199,9 +199,12 @@ pub struct DeletedStamp {
     pub asset_id: Option<Uuid>,
 }
 
-/// Lets go of the uploads deleted stamps held. An upload nothing else holds
-/// is then collected by the media domain.
+/// Lets go of the uploads deleted stamps held (an upload nothing else holds
+/// is then collected by the media domain) and says that the stamps are gone
+/// (`subject.deleted`).
 async fn release(tx: &mut Transaction<'_, Postgres>, mut deleted: Vec<DeletedStamp>) -> AppResult<Vec<DeletedStamp>> {
+    let stamp_ids: Vec<Uuid> = deleted.iter().map(|stamp| stamp.id).collect();
+    outbound::subjects_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_STAMP, &stamp_ids).await?;
     // Uploads are released in a fixed order, so two deletions that share
     // uploads cannot wait on each other.
     deleted.sort_by_key(|stamp| stamp.asset_id);

@@ -14,7 +14,7 @@ use crate::{
     Engagement,
     events::{
         ASSET_DELETED, AssetDeleted, CONTENT_REMOVED, FRIEND_PREFS_CHANGED, FRIEND_REMOVED, MUTE_CHANGED, MuteChanged,
-        REPORT_RESOLVED, USER_BLOCKED, USER_DELETED,
+        REPORT_RESOLVED, SUBJECT_DELETED, USER_BLOCKED, USER_DELETED,
     },
 };
 
@@ -26,8 +26,8 @@ impl Engagement {
     /// consumer `engagement` of `identity.user.deleted`,
     /// `social.user.blocked`, `social.friend.removed`,
     /// `social.friend.prefs_changed`, `notify.mute.changed`,
-    /// `media.asset.deleted`, `admin.content.removed` and
-    /// `admin.report.resolved`, and the hourly
+    /// `media.asset.deleted`, `admin.content.removed`, `subject.deleted`
+    /// and `admin.report.resolved`, and the hourly
     /// purge of removed comment texts.
     pub fn spawn_workers(&self) {
         let purging = self.clone();
@@ -59,6 +59,7 @@ impl Engagement {
                     MUTE_CHANGED,
                     ASSET_DELETED,
                     CONTENT_REMOVED,
+                    SUBJECT_DELETED,
                     REPORT_RESOLVED,
                 ],
                 // Erasing an account or purging a busy subject takes a while.
@@ -97,6 +98,7 @@ impl Engagement {
             }
             ASSET_DELETED => self.on_asset_deleted(event.data::<AssetDeleted>()?.asset_id).await,
             CONTENT_REMOVED => self.on_content_removed(event.data()?).await,
+            SUBJECT_DELETED => self.on_subject_deleted(event.data()?).await,
             REPORT_RESOLVED => self.on_report_resolved(event.data()?).await,
             _ => Ok(()),
         }

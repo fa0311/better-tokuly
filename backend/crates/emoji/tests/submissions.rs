@@ -140,6 +140,13 @@ async fn a_submission_is_checked_before_it_is_accepted() {
     );
     let avatar = ctx.upload(&author, AssetPurpose::ASSET_PURPOSE_AVATAR, AssetKind::ASSET_KIND_IMAGE).await.to_string();
     assert_eq!(refuse(SubmitEmojiRequest { asset_id: avatar, ..good.clone() }).await, "ASSET_WRONG_PURPOSE");
+    // A picture uploaded as a stamp, the purpose emoji borrowed before they
+    // had their own, is still an emoji picture.
+    // (Somebody else's submission, so the author's count below stays put.)
+    let as_stamp = ctx.upload(&other, AssetPurpose::ASSET_PURPOSE_STAMP, AssetKind::ASSET_KIND_IMAGE).await.to_string();
+    let from_stamp = SubmitEmojiRequest { name: unique("old"), asset_id: as_stamp.clone(), ..good.clone() };
+    let old: SubmitEmojiResponse = ctx.call("Submission", "SubmitEmoji", Some(&other), &from_stamp).await.unwrap();
+    assert_eq!(old.emoji.emoji.image.asset_id, as_stamp);
     let lottie = ctx.upload(&author, AssetPurpose::ASSET_PURPOSE_STAMP, AssetKind::ASSET_KIND_FILE).await.to_string();
     assert_eq!(refuse(SubmitEmojiRequest { asset_id: lottie, ..good.clone() }).await, "ASSET_NOT_IMAGE");
     let video = ctx.upload(&author, AssetPurpose::ASSET_PURPOSE_STAMP, AssetKind::ASSET_KIND_VIDEO).await.to_string();

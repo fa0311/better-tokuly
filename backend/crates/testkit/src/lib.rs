@@ -42,7 +42,7 @@ use sqlx::{Connection as _, PgConnection};
 use tokuly_core::{Core, auth::ClientMeta, config::Config, events::Event};
 use tokuly_identity::{Identity, IdentityConfig, UserRow};
 pub use tokuly_proto::realtime::ServerFrame;
-use tokuly_proto::RealtimeEvent;
+use tokuly_proto::{RealtimeEvent, common::SubjectType};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
@@ -514,6 +514,13 @@ impl TestApp {
                 .await
                 .expect("testkit: read outbox");
         rows.into_iter().map(|(id, topic, actor_id, data, occurred_at)| Event { id, topic, actor_id, occurred_at, data }).collect()
+    }
+
+    /// Whether `subject.deleted` is in the outbox for this subject (`id`:
+    /// its UUID, as the API gives it).
+    pub async fn subject_deleted(&self, subject_type: SubjectType, id: &str) -> bool {
+        let sent = serde_json::json!({ "subject_type": subject_type as i32, "subject_id": id });
+        self.events(tokuly_core::outbound::SUBJECT_DELETED_TOPIC).await.iter().any(|event| event.data == sent)
     }
 
     /// Events with `topic_prefix` caused by `actor` — use this instead of

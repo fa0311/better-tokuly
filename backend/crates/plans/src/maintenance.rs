@@ -349,6 +349,7 @@ impl Plans {
                 .await?;
                 let Some(successor) = successor else {
                     sqlx::query("DELETE FROM plans WHERE id = $1").bind(plan.id).execute(&mut *tx).await?;
+                    outbound::subject_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_PLAN, plan.id).await?;
                     continue;
                 };
                 sqlx::query("UPDATE plan_participants SET role = $3, rsvp = $4, waitlisted_at = NULL WHERE plan_id = $1 AND user_id = $2")

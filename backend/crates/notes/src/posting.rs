@@ -22,7 +22,7 @@ use tokuly_core::{
 use tokuly_identity::settings;
 use tokuly_media::assets;
 use tokuly_proto::{
-    common::{UserSummary, Visibility},
+    common::{SubjectType, UserSummary, Visibility},
     identity::Audience as PrivacyAudience,
     media::{AssetKind, AssetPurpose, Attachment},
     notes::{AttachmentDetailsInput, Mention, NoteCounters, PlaceTag, PollInput, notes_event::Event as Push},
@@ -869,7 +869,7 @@ impl Notes {
     /// likes, renotes, mentions and hashtag links go with the rows; counters
     /// of the notes they answered or quoted and of their hashtags are put
     /// right; uploads are released; search documents removed; and
-    /// `notes.note.deleted` is emitted for each. Replies to a deleted note
+    /// `notes.note.deleted` and `subject.deleted` are emitted for each. Replies to a deleted note
     /// stay. Call [`Self::announce_removed`] after the commit.
     pub(crate) async fn delete_notes(
         &self,
@@ -936,7 +936,10 @@ impl Notes {
         hashtags::adjust(tx, &public_tags, -1).await?;
         let touched = apply_counter_deltas(tx, &deltas).await?;
         channels::uncount_notes(tx, &channel_counts).await?;
-        Ok(Removed { note_ids: gone.into_iter().map(|note| note.id).collect(), touched })
+        let note_ids: Vec<Uuid> = gone.into_iter().map(|note| note.id).collect();
+        // What the generic domains attached (emoji reactions, bookmarks, shares) goes with them.
+        outbound::subjects_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_NOTE, &note_ids).await?;
+        Ok(Removed { note_ids, touched })
     }
 
     /// Tells clients watching the deleted notes (and the notes whose

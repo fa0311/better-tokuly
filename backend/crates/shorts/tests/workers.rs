@@ -496,6 +496,8 @@ async fn a_reported_short_is_withdrawn_not_destroyed() {
     // short really is gone, with its upload.
     let reviewed = ctx.get(Some(&moderator), &short.id).await.expect("moderators review withdrawn shorts");
     assert_eq!(reviewed.status, ShortStatus::SHORT_STATUS_WITHDRAWN);
+    // What was written on a withdrawn short stays with it until it is purged.
+    assert!(!ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_SHORT, &short.id).await);
     assert!(reviewed.playback.as_option().is_some() && reviewed.caption.starts_with("ひどい動画"));
     assert!(assets::find(&ctx.app.core, upload).await.unwrap().is_some());
     assert_eq!(ctx.get(Some(&moderator), &unreported.id).await.unwrap_err().reason, "SHORT_NOT_FOUND");
@@ -535,6 +537,7 @@ async fn a_reported_short_is_withdrawn_not_destroyed() {
         2,
         "the purge is not a second deletion"
     );
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_SHORT, &short.id).await);
 
     // A takedown ends the retention at once.
     let own_upload = id(&ctx.row(&own.id).await.asset_id.to_string());

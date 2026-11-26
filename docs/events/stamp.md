@@ -43,6 +43,7 @@ transaction as the change they describe.
 | `stamp.pack.installed` / `stamp.pack.uninstalled` | `{ pack_id, user_id }` | A user added a pack to / removed it from their library. Not emitted for the people who manage the pack. |
 | `stamp.pack.purchased` | `{ pack_id, buyer_id, creator_id, price, net, entry_id }` | A paid pack was bought. `net` is what the creator earned after the platform fee (0 for official packs); `entry_id` is the wallet ledger entry. |
 | `stamp.creator.trust_changed` | `{ user_id, trusted, moderator_id }` | A moderator changed a creator's trusted flag. |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A pack was deleted (`SUBJECT_TYPE_STAMP_PACK`), and each stamp that was deleted, alone or with its pack (`SUBJECT_TYPE_STAMP`): by its owner, a takedown or account erasure. |
 
 `creator_id` is `null` for official packs. Sending a stamp emits no event
 (it happens on every stamp message); see analytics below.

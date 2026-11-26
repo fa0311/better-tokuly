@@ -629,6 +629,7 @@ async fn deleting_for_everyone_leaves_a_tombstone() {
     let events = ctx.app.events_by("chat.message.deleted", taro.id).await;
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].data["message_id"], message.id);
+    assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_CHAT_MESSAGE, &message.id).await);
 
     // Deleting twice succeeds; a tombstone accepts nothing.
     let again: DeleteMessageResponse = ctx.call("Message", "DeleteMessage", &taro, &delete).await.unwrap();

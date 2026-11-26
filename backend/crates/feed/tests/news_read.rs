@@ -636,6 +636,7 @@ async fn articles_can_be_taken_down_and_stay_down() {
         .await
         .unwrap();
     assert_eq!(article(&ctx, None, &third).await.unwrap_err().reason, "NEWS_ARTICLE_NOT_FOUND");
+    assert!(ctx.app.subject_deleted(SubjectType::SUBJECT_TYPE_NEWS_ARTICLE, &third).await);
     let changes = ctx.search_changes(&third).await;
     assert!(changes.last().unwrap().data["doc"].is_null());
     let left: i64 = sqlx::query_scalar("SELECT count(*) FROM news_articles WHERE source_id = $1::uuid")

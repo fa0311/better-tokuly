@@ -361,7 +361,8 @@ impl Media {
         let poster_path = work.join("poster.png");
         self.ffmpeg.run(poster_args(&playlist_of(top), duration, &poster_path), None, timeout).await?;
         let poster_bytes = tokio::fs::read(&poster_path).await?;
-        let poster = self.publish_image(asset.id, blocking(move || image::decode(&poster_bytes)).await?).await?;
+        let decoded = blocking(move || image::decode(&poster_bytes)).await?;
+        let poster = self.publish_image(asset.id, decoded, image::LARGEST_EDGE).await?;
 
         let storyboard_dir = work.join("storyboard");
         tokio::fs::create_dir_all(&storyboard_dir).await?;

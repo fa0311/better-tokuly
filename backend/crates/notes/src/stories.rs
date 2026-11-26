@@ -15,7 +15,7 @@ use sqlx::{Postgres, Transaction};
 use tokuly_core::{analytics::AnalyticsEvent, events, outbound, prelude::*};
 use tokuly_media::assets;
 use tokuly_proto::{
-    common::{PageInfo, UserSummary},
+    common::{PageInfo, SubjectType, UserSummary},
     media::{AssetKind, AssetPurpose},
     notes::{
         Story, StoryDay, StoryItem, StoryReaction, StoryReel, StoryRef, StoryViewCount, StoryViewer,
@@ -385,7 +385,8 @@ impl Notes {
 
     /// Deletes stories inside `tx` with everything that hangs off them
     /// (audience, viewers, reactions, highlight entries — and highlights
-    /// left empty), releases their uploads and emits `notes.story.deleted`.
+    /// left empty), releases their uploads and emits `notes.story.deleted`
+    /// and `subject.deleted`.
     /// Call [`Self::announce_removed_stories`] after the commit.
     pub(crate) async fn delete_stories(
         &self,
@@ -417,6 +418,8 @@ impl Notes {
             });
             removed.push(RemovedStory { id, owner_id, live, chosen });
         }
+        let gone_ids: Vec<Uuid> = removed.iter().map(|story| story.id).collect();
+        outbound::subjects_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_STORY, &gone_ids).await?;
         // A highlight exists to show stories; one that lost its last story goes too.
         let mut owners: Vec<Uuid> = removed.iter().map(|story| story.owner_id).collect();
         owners.sort();

@@ -493,8 +493,18 @@ async fn removed_content_is_purged_once_its_retention_is_over() {
     for (table, id) in targets {
         removed_days_ago(&ctx, table, id, 31).await;
     }
+    assert!(!ctx.app.subject_deleted(SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD, &thread.id).await);
     ctx.community.run_maintenance().await.unwrap();
     assert_eq!(holds().await, vec![false; 4], "the uploads are released");
+    // Only now are they gone for the domains that attached things to them.
+    for (kind, id) in [
+        (SubjectType::SUBJECT_TYPE_COMMUNITY_THREAD, &thread.id),
+        (SubjectType::SUBJECT_TYPE_COMMUNITY_REPLY, &inside.id),
+        (SubjectType::SUBJECT_TYPE_COMMUNITY_REPLY, &lone.id),
+        (SubjectType::SUBJECT_TYPE_COMMUNITY_EVENT, &event.id),
+    ] {
+        assert!(ctx.app.subject_deleted(kind, id).await, "{kind:?}");
+    }
     assert_eq!(history(&ctx, &owner, thread_of(&thread)).await.unwrap_err().reason, "THREAD_NOT_FOUND");
     assert_eq!(history(&ctx, &owner, reply_of(&inside)).await.unwrap_err().reason, "REPLY_NOT_FOUND");
     assert_eq!(history(&ctx, &owner, reply_of(&lone)).await.unwrap_err().reason, "REPLY_NOT_FOUND");

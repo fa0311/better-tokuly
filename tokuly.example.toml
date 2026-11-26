@@ -378,13 +378,22 @@
 
 [media]
 
-# Largest profile-style image: avatars, banners, channel art, thumbnails, stamps.
+# Largest profile-style image: avatars, banners, channel and community art, thumbnails, stamps.
 # (TOKULY_MEDIA_MAX_AVATAR_MB; console; applies at once)
 # max_avatar_mb = 10
 
 # Largest photo in chats, notes, stories, places and day memos.
 # (TOKULY_MEDIA_MAX_IMAGE_MB; console; applies at once)
 # max_image_mb = 25
+
+# Largest picture in a comment.
+# (TOKULY_MEDIA_MAX_COMMENT_IMAGE_MB; console; applies at once)
+# max_comment_image_mb = 10
+
+# Largest custom emoji picture the media domain takes. The emoji domain accepts less
+# (`TOKULY_EMOJI_MAX_IMAGE_KB`); keep this one above it.
+# (TOKULY_MEDIA_MAX_EMOJI_MB; console; applies at once)
+# max_emoji_mb = 2
 
 # Largest short clip: chat and note videos, stories, avatar videos.
 # (TOKULY_MEDIA_MAX_CLIP_MB; console; applies at once)
@@ -779,7 +788,8 @@
 # recap_min_activities = 5
 
 # RSS/Atom feed URLs, comma separated, that exist as news sources from the first start (admins
-# manage the rest through the API).
+# manage the rest through the API). A source listed here is created again on every start, so the
+# console can switch it off but not delete it: take it out of this list first.
 # (TOKULY_NEWS_FEEDS; restart: api, worker)
 # news_feeds = ""
 

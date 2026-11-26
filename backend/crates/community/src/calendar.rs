@@ -26,7 +26,8 @@ use crate::{
 };
 
 /// Upload purposes accepted for an event's cover.
-const COVER_PURPOSES: [AssetPurpose; 4] = [
+const COVER_PURPOSES: [AssetPurpose; 5] = [
+    AssetPurpose::ASSET_PURPOSE_COMMUNITY_BANNER,
     AssetPurpose::ASSET_PURPOSE_BANNER,
     AssetPurpose::ASSET_PURPOSE_CHANNEL_BANNER,
     AssetPurpose::ASSET_PURPOSE_NOTE_IMAGE,

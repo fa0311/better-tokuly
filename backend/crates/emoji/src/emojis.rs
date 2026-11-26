@@ -685,6 +685,7 @@ pub async fn delete(
     actor_id: Option<Uuid>,
 ) -> AppResult<()> {
     sqlx::query("DELETE FROM emojis WHERE id = $1").bind(emoji.id).execute(&mut **tx).await?;
+    outbound::subject_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_CUSTOM_EMOJI, emoji.id).await?;
     assets::detach_holder(&mut **tx, &holder(emoji.id)).await?;
     if emoji.is_approved() {
         left_catalog(tx, fx, emoji, because, actor_id).await?;

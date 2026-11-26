@@ -24,6 +24,7 @@ position: notes, areas and titles stay inside the domain.
 | `plans.poll.created` | `{ poll_id, creator_id, invitee_ids, slot_count }` | A date poll was started. |
 | `plans.poll.finalized` | `{ poll_id, creator_id, plan_id, answered_count }` | A date poll was turned into a plan (`plans.plan.created` is emitted alongside). |
 | `plans.anniversary.started` | `{ anniversary_id, kind, user_ids: [lo, hi] }` | A "days since" counter came into being: a friendship counter was started, or a couple invitation was accepted. |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A plan was deleted (`SUBJECT_TYPE_PLAN`): its host's account was erased and nobody was left to take it over. A cancelled plan stays readable and is not announced. |
 
 ## Events consumed
 

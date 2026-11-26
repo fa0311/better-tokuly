@@ -379,9 +379,11 @@ message CreateCommunityRequest {
   repeated Rule rules = 8;
   // At most 5, each at most 200 characters.
   repeated string join_questions = 9;
-  // Image upload (purpose AVATAR or CHANNEL_ICON); empty = no icon.
+  // Image upload, purpose COMMUNITY_ICON (AVATAR and CHANNEL_ICON, used
+  // before, are still taken); empty = no icon.
   string icon_asset_id = 10;
-  // Image upload (purpose BANNER or CHANNEL_BANNER); empty = no banner.
+  // Image upload, purpose COMMUNITY_BANNER (BANNER and CHANNEL_BANNER, used
+  // before, are still taken); empty = no banner.
   string banner_asset_id = 11;
   // For SCHOOL and CLUB communities; empty = the creator's school.
   string school_name = 12;
@@ -1776,7 +1778,8 @@ message CreateEventRequest {
   EventPlace place = 6;
   bool online = 7;
   string online_url = 8;
-  // Image upload (purpose BANNER, CHANNEL_BANNER, NOTE_IMAGE or THUMBNAIL).
+  // Image upload (purpose COMMUNITY_BANNER, BANNER, CHANNEL_BANNER,
+  // NOTE_IMAGE or THUMBNAIL).
   string cover_asset_id = 9;
   // 0 = unlimited, at most 100000.
   int32 capacity = 10;

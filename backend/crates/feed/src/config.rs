@@ -52,7 +52,9 @@ pub struct FeedConfig {
     pub recap_min_activities: u32,
 
     /// RSS/Atom feed URLs, comma separated, that exist as news sources from
-    /// the first start (admins manage the rest through the API).
+    /// the first start (admins manage the rest through the API). A source
+    /// listed here is created again on every start, so the console can
+    /// switch it off but not delete it: take it out of this list first.
     #[arg(id = "news_feeds", long = "news-feeds", env = "TOKULY_NEWS_FEEDS", default_value = "")]
     pub news_feeds: String,
 

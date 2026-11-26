@@ -129,6 +129,7 @@ The feed domain has no events of its own. It uses the outbound requests of
 |---|---|
 | `notify.requested` | the monthly recap notice (below) |
 | `search.changed` | a news article was stored, changed, hidden (source switched off), taken down or pruned: documents of kind `news` (`title`, `text` = excerpt, `tags`, `path` = `/news/articles/<id>`, `owner_id` = none, `extra` = `{ url, source_id, source_name, language }`) |
+| `subject.deleted` `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. A news article was deleted (`SUBJECT_TYPE_NEWS_ARTICLE`): pruned after the retention period, or with its source (`DeleteNewsSource`). A takedown keeps the row as a tombstone and is announced by `admin.content.removed`. |
 
 ## Notification kinds
 
@@ -219,7 +220,7 @@ Computing a recap that is not cached is limited to 20 per user and minute
 | `TOKULY_FEED_BURST_MINUTES` | `60` | entries of one person and kind no further apart than this are one card; `0` disables collapsing |
 | `TOKULY_FEED_RECAP_CACHE_SECONDS` | `300` | cache time of a running period's recap |
 | `TOKULY_FEED_RECAP_MIN_ACTIVITIES` | `5` | entries in a month needed for the recap notice |
-| `TOKULY_NEWS_FEEDS` | empty | comma-separated RSS/Atom URLs created as sources at start |
+| `TOKULY_NEWS_FEEDS` | empty | comma-separated RSS/Atom URLs created as sources at start. A source whose feed is listed here (`ManagedNewsSource.configured`) cannot be deleted (`NEWS_SOURCE_CONFIGURED`): the next start would create it again, empty. Admins switch it off instead, or take the URL out of the setting first. |
 | `TOKULY_NEWS_FETCH_INTERVAL_SECONDS` | `900` | time between two fetches of a source (≥ 60) |
 | `TOKULY_NEWS_FETCH_TIMEOUT_SECONDS` | `15` | time one fetch may take, redirects included |
 | `TOKULY_NEWS_MAX_FEED_BYTES` | `5242880` | largest feed document accepted |

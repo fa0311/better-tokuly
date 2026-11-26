@@ -344,6 +344,7 @@ async fn the_purge_counts_from_the_day_something_was_removed() {
     // Moderators may still need them: a report filed today is about them.
     ctx.ask.purge().await.unwrap();
     assert!(exists("ask_questions", &question.id).await, "kept for the retention after its removal, however old it is");
+    assert!(!ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_QUESTION, &question.id).await);
     assert!(exists("ask_prompt_responses", &response.id).await);
     assert!(tokuly_media::assets::is_attached(&ctx.app.core, picture.id).await.unwrap());
 
@@ -360,6 +361,9 @@ async fn the_purge_counts_from_the_day_something_was_removed() {
     ctx.ask.purge().await.unwrap();
     assert!(!exists("ask_questions", &question.id).await);
     assert!(!exists("ask_prompt_responses", &response.id).await);
+    for gone in [&question.id, &response.id] {
+        assert!(ctx.app.subject_deleted(tokuly_proto::common::SubjectType::SUBJECT_TYPE_QUESTION, gone).await);
+    }
     assert!(!tokuly_media::assets::is_attached(&ctx.app.core, picture.id).await.unwrap());
 
     // A deleted prompt takes its responses along once it is purged.

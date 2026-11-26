@@ -238,6 +238,7 @@ transaction of the change they describe.
 | `live.gift.sent` | `{ gift_id, stream_id?, channel_id, sender_id, recipient_id, coins, net_coins, tier }` | A gift settled (once per gift). Actor: the sender. |
 | `live.clip.ready` | `ClipEvent` | A clip finished processing. Actor: its creator. |
 | `live.clip.deleted` | `ClipEvent` | A clip is gone. |
+| `subject.deleted` | `{ subject_type, subject_id }` | Shared event of `tokuly_core::outbound::subject_deleted`, no actor. `SUBJECT_TYPE_LIVE_STREAM`: a deleted stream was erased (the retention sweep, account erasure) — not at `live.stream.deleted`, since a deleted stream and the comments on it stay reportable while it is kept. `SUBJECT_TYPE_CLIP`: a clip was deleted, next to `live.clip.deleted`. `SUBJECT_TYPE_LIVE_CHAT_MESSAGE`: a chat line was removed, one event per line (also for the lines cleared with a restriction). Lines that go with an erased stream are not announced one by one. |
 
 `StreamEvent` is `{ stream_id, short_id, channel_id, owner_id, visibility, end_reason, went_live }`;
 `ClipEvent` is `{ clip_id, short_id, creator_id, channel_id, stream_id?, video_id?, asset_id? }`.

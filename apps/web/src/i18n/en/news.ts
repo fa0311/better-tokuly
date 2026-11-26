@@ -127,6 +127,9 @@ export default {
       empty: "No news sources yet",
       emptyBody: "Add an RSS / Atom feed and its articles start showing up in the news.",
       fromConfig: "From config",
+      configured: "In settings",
+      configuredHint:
+        "Listed in the server settings (TOKULY_NEWS_FEEDS). It cannot be deleted; disable it to stop it",
       menu: "Actions for {{name}}",
       refreshAll: "Fetch all now",
       refreshAllShort: "Fetch",
@@ -142,6 +145,10 @@ export default {
       deleteTitle: "Delete “{{name}}”?",
       deleteBody: "Its articles ({{count}}) are deleted with it. This cannot be undone.",
       deleted: "Source deleted",
+      configuredTitle: "“{{name}}” cannot be deleted",
+      configuredBody:
+        "A source listed in the server settings (TOKULY_NEWS_FEEDS) is created again every time the server starts. Disable it to stop it: it is no longer fetched and its articles leave the lists. To remove it for good, take it out of the settings first.",
+      alreadyOff: "Already disabled",
       articles: "Articles",
       lastSuccess: "Last fetched",
       nextFetch: "Next",
@@ -161,6 +168,8 @@ export default {
       TOO_MANY_NEWS_SOURCES: "There can be up to 500 news sources",
       NEWS_SOURCE_NOT_FOUND: "That source was not found",
       NEWS_SOURCE_DISABLED: "A disabled source cannot be fetched. Enable it first",
+      NEWS_SOURCE_CONFIGURED:
+        "A source listed in the server settings (TOKULY_NEWS_FEEDS) cannot be deleted. Disable it, or take it out of the settings first",
       NEWS_ARTICLE_NOT_FOUND: "That article was not found (it may have been taken down already)",
     },
   },

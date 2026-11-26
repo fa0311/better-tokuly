@@ -185,6 +185,9 @@ pub const FRIEND_PREFS_CHANGED: &str = "social.friend.prefs_changed";
 pub const MUTE_CHANGED: &str = "notify.mute.changed";
 pub const ASSET_DELETED: &str = "media.asset.deleted";
 pub const CONTENT_REMOVED: &str = "admin.content.removed";
+/// The owning domain deleted a subject for good. Payload:
+/// `tokuly_core::outbound::SubjectDeleted`.
+pub const SUBJECT_DELETED: &str = tokuly_core::outbound::SUBJECT_DELETED_TOPIC;
 /// A moderator resolved the case the reports were filed into. Payload:
 /// [`ReportResolved`].
 pub const REPORT_RESOLVED: &str = "admin.report.resolved";

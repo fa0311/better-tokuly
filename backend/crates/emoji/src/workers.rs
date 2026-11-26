@@ -17,7 +17,7 @@ use crate::{
         ASSET_DELETED, ASSET_FAILED, ASSET_READY, AssetEvent, CONTENT_REMOVED, ContentRemoved, ExportJob, ImportJob,
         JOB_EXPORT, JOB_IMPORT, RemovedBecause, USER_DELETED,
     },
-    model::{EmojiRow, PICTURE_PURPOSE, emoji_columns},
+    model::{EmojiRow, PICTURE_PURPOSES, emoji_columns},
     usage,
     validate::REASON_MAX_CHARS,
 };
@@ -131,7 +131,7 @@ impl Emoji {
                 let upload: AssetEvent = event.data()?;
                 // Every upload in the system passes by here; only pictures
                 // can belong to an import.
-                if upload.purpose == 0 || upload.purpose == PICTURE_PURPOSE as i32 {
+                if upload.purpose == 0 || PICTURE_PURPOSES.iter().any(|purpose| *purpose as i32 == upload.purpose) {
                     self.settle_asset(upload.asset_id).await?;
                 }
                 Ok(())

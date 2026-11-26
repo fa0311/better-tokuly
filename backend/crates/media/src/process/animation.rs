@@ -87,8 +87,10 @@ fn fit(frame: &RgbaImage, edge: u32) -> RgbaImage {
 
 /// Decodes and re-encodes an animation. `Ok(None)` when the file turns out
 /// to hold a single frame (the caller then treats it as a still).
-pub fn render(bytes: &[u8]) -> ProcessResult<Option<RenderedAnimation>> {
-    let mut edge = MAX_EDGE;
+///
+/// `max_edge` is the longest edge its purpose keeps (at most [`MAX_EDGE`]).
+pub fn render(bytes: &[u8], max_edge: u32) -> ProcessResult<Option<RenderedAnimation>> {
+    let mut edge = max_edge.clamp(MIN_EDGE, MAX_EDGE);
     let mut scaled: Vec<(RgbaImage, u32)> = Vec::new();
     let mut poster: Option<RgbaImage> = None;
     let mut pixels: u64 = 0;
@@ -177,7 +179,7 @@ mod tests {
     fn animated_gif_becomes_animated_webp() {
         let gif = test_gif(120, 80, 6);
         assert!(is_animated(&gif));
-        let rendered = render(&gif).unwrap().expect("animated");
+        let rendered = render(&gif, MAX_EDGE).unwrap().expect("animated");
         assert_eq!((rendered.width, rendered.height, rendered.frame_count), (120, 80, 6));
         assert_eq!((rendered.poster.width(), rendered.poster.height()), (120, 80));
 
@@ -211,7 +213,7 @@ mod tests {
     fn apng_and_animated_webp_inputs_are_animations_too() {
         let apng = test_apng(48, 32, &[[255, 0, 0, 255], [0, 255, 0, 128], [0, 0, 255, 255]]);
         assert!(is_animated(&apng));
-        let rendered = render(&apng).unwrap().expect("animated");
+        let rendered = render(&apng, MAX_EDGE).unwrap().expect("animated");
         assert_eq!((rendered.width, rendered.height, rendered.frame_count), (48, 32, 3));
         let frames = WebPDecoder::new(Cursor::new(&rendered.webp)).unwrap().into_frames().collect_frames().unwrap();
         assert_eq!(frames[0].delay().numer_denom_ms(), (150, 1));
@@ -219,17 +221,17 @@ mod tests {
 
         // Our own output is an animated WebP: feed it back in.
         assert!(is_animated(&rendered.webp));
-        let again = render(&rendered.webp).unwrap().expect("animated");
+        let again = render(&rendered.webp, MAX_EDGE).unwrap().expect("animated");
         assert_eq!((again.width, again.height, again.frame_count), (48, 32, 3));
 
         // A PNG with a single animation frame is just a picture.
-        assert!(render(&test_apng(16, 16, &[[9, 9, 9, 255]])).unwrap().is_none());
+        assert!(render(&test_apng(16, 16, &[[9, 9, 9, 255]]), MAX_EDGE).unwrap().is_none());
     }
 
     #[test]
     fn large_animations_are_scaled_down() {
         let gif = test_gif(1024, 640, 3);
-        let rendered = render(&gif).unwrap().expect("animated");
+        let rendered = render(&gif, MAX_EDGE).unwrap().expect("animated");
         assert_eq!((rendered.width, rendered.height), (512, 320));
         assert_eq!(rendered.poster.width(), 1024, "the poster keeps the original resolution");
     }
@@ -238,7 +240,7 @@ mod tests {
     fn single_frames_and_stills_are_not_animations() {
         let gif = test_gif(32, 32, 1);
         assert!(!is_animated(&gif));
-        assert!(render(&gif).unwrap().is_none());
+        assert!(render(&gif, MAX_EDGE).unwrap().is_none());
 
         let mut png = Cursor::new(Vec::new());
         DynamicImage::ImageRgba8(RgbaImage::from_pixel(8, 8, Rgba([1, 2, 3, 255]))).write_to(&mut png, ImageFormat::Png).unwrap();

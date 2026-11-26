@@ -17,7 +17,7 @@
 //!   content, releases the uploads and drops the edit history; a closed
 //!   community is then deleted altogether, memberships and log included.
 use sqlx::{Postgres, Transaction};
-use tokuly_core::prelude::*;
+use tokuly_core::{outbound, prelude::*};
 use tokuly_media::assets;
 use tokuly_proto::{
     common::SubjectType,
@@ -249,6 +249,7 @@ impl Community {
             ] {
                 sqlx::query(statement).bind(community_id).execute(&mut *tx).await?;
             }
+            outbound::subject_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_COMMUNITY, community_id).await?;
             tx.commit().await?;
         }
 
@@ -327,6 +328,7 @@ impl Community {
             ] {
                 sqlx::query(statement).bind(event_id).execute(&mut *tx).await?;
             }
+            outbound::subject_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_COMMUNITY_EVENT, event_id).await?;
             tx.commit().await?;
             purged += 1;
         }
@@ -350,7 +352,8 @@ impl Community {
 }
 
 /// Drops the edit history of one post and the reports that were counted
-/// against it.
+/// against it, and says that the post is gone for good (`subject.deleted`:
+/// until its purge a removed post answers reports, with what hangs off it).
 async fn forget(tx: &mut Transaction<'_, Postgres>, kind: i32, subject_type: SubjectType, id: Uuid) -> AppResult<()> {
     sqlx::query("DELETE FROM community_revisions WHERE kind = $2 AND content_id = $1")
         .bind(id)
@@ -362,7 +365,7 @@ async fn forget(tx: &mut Transaction<'_, Postgres>, kind: i32, subject_type: Sub
         .bind(subject_type as i32)
         .execute(&mut **tx)
         .await?;
-    Ok(())
+    outbound::subject_deleted(&mut **tx, subject_type, id).await
 }
 
 /// Purges one reply: its upload holds, its history, its content.

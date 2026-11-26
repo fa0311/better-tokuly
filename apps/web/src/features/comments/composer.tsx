@@ -141,7 +141,7 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
     setImage(draft);
     try {
       const asset = await uploadAndProcess(file, {
-        purpose: media.AssetPurpose.NOTE_IMAGE,
+        purpose: media.AssetPurpose.COMMENT_IMAGE,
         onProgress: (progress) =>
           setImage((current) =>
             current?.previewUrl === draft.previewUrl ? { ...current, progress } : current,

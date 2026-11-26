@@ -38,6 +38,38 @@ Three topics are generic requests handled by the generic domains
 | `activity.recorded` | `ActivityEntry` | feed |
 | `search.changed` | `SearchChange` | search |
 
+One topic is shared by every domain that owns subjects
+(`tokuly_core::outbound::subject_deleted` / `subjects_deleted`):
+
+| Topic | Payload | Handled by |
+|---|---|---|
+| `subject.deleted` | `SubjectDeleted { subject_type, subject_id }` (`tokuly.common.v1.SubjectType` as its number, the subject's UUID) | engagement |
+
+A domain emits it in the transaction that deletes a subject for good —
+whoever deleted it: its owner, a moderator, a retention timer, the erasure
+of an account — so that the generic domains drop what they attached to it
+(engagement: the comments on it, reactions, bookmarks, share counts,
+counters). The rules:
+
+- **Gone, not hidden.** Content that is made private, unpublished, narrowed
+  to an audience or put behind a block is still there; those changes have
+  their own events (`…visibility_changed` with `visible_to` and
+  `changed_at`, `…unpublished`) and never this one.
+- **Not while it answers reports.** A domain that keeps removed content for
+  a while so the people it reached can still report it (a deleted live
+  stream, a withdrawn short, a removed community post, a removed question)
+  emits when that time is over and the row goes: until then the comments on
+  it are reportable too. Content that takes no comments (a chat message)
+  may be announced at once.
+- **Next to the domain's own deletion event, not instead of it.**
+  `notes.note.deleted`, `video.video.deleted` and the others keep carrying
+  what their consumers need (owner, reason, audience); notify and feed
+  withdraw by those.
+- It has no actor and is delivered at least once like every event;
+  consumers treat a subject they know nothing about as done.
+
+Each domain's file says when it emits it.
+
 ## identity
 
 See `docs/events/identity.md`.
