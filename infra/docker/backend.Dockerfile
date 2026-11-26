@@ -67,6 +67,10 @@ RUN find crates/proto /src/proto /src/buf.yaml -exec touch -d @0 {} + \
  && install -m 0755 "target/$PROFILE/tokuly" /usr/local/bin/tokuly
 
 # Static ffmpeg/ffprobe (libx264, SVT-AV1, Opus...) for the media pipeline.
+# This build of FFmpeg is GPL-3.0-or-later (--enable-gpl --enable-version3,
+# with x264 and x265). The server only runs it as a separate program, so
+# Tokuly's own code stays MIT; whoever passes the image on passes on a GPL
+# binary and its terms with it (README, "ライセンス").
 FROM mwader/static-ffmpeg:8.0 AS ffmpeg
 
 FROM debian:trixie-slim AS runtime
