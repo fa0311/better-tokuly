@@ -1,15 +1,11 @@
 import type { common } from "@tokuly/api";
+import * as shared from "@tokuly/core/ask";
 
-/** Limits of the API, for counters and `maxLength`. */
-export const QUESTION_MAX = 300;
-export const ANSWER_MAX = 1000;
+/** Limits of the API, for counters and `maxLength` (the question's and the answer's are `@tokuly/core/ask`). */
 export const BOX_PROMPT_MAX = 80;
 export const PROMPT_MAX = 100;
 export const MUTED_WORD_MAX = 30;
 export const MUTED_WORDS_MAX = 100;
-
-/** Length as the server counts it: characters, not UTF-16 units (an emoji is one). */
-export const charCount = (text: string): number => Array.from(text).length;
 
 /** A text the server sends in both languages, in the one the app is shown in. */
 export function localized(text: common.LocalizedText | undefined, language: string): string {
@@ -19,7 +15,7 @@ export function localized(text: common.LocalizedText | undefined, language: stri
 
 /** The public page of a box: what a share link and the image card point at. */
 export function boxShareUrl(handle: string, origin: string = window.location.origin): string {
-  return `${origin}/q/${handle}`;
+  return shared.boxShareUrl(handle, origin);
 }
 
 /** The public page of a box with one answer brought to the top. */
@@ -28,7 +24,7 @@ export function answerShareUrl(
   questionId: string,
   origin: string = window.location.origin,
 ): string {
-  return `${boxShareUrl(handle, origin)}?a=${questionId}`;
+  return shared.answerShareUrl(handle, questionId, origin);
 }
 
 /** A countdown as a clock: "59:07", or "1:02:03" from an hour up. Never negative. */

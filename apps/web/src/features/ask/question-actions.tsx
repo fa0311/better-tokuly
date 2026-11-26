@@ -2,6 +2,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ask } from "@tokuly/api";
 import {
+  askKeys,
+  dropFromInbox,
+  questionSubject,
+  refreshAnswers,
+  refreshInbox,
+} from "@tokuly/core/ask";
+import {
   Archive,
   ArchiveRestore,
   ExternalLink,
@@ -19,9 +26,8 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import type { MenuAction } from "#/components/ui/menu";
 import { ReportDialog } from "#/features/engagement";
 import { AnswerComposer } from "./answer-composer";
-import { askKeys, boxClient, dropFromInbox, refreshAnswers, refreshInbox } from "./api";
+import { boxClient } from "./api";
 import { toastError } from "./parts";
-import { questionSubject } from "./qa-card";
 
 const { QuestionFolder } = ask;
 

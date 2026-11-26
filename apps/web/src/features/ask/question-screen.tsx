@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ask, common, create } from "@tokuly/api";
+import { hasEngagement, questionSubject } from "@tokuly/core/ask";
 import { MoreHorizontal, PenLine } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
@@ -9,7 +10,7 @@ import { CommentThread } from "#/features/comments";
 import { ReportButton } from "#/features/engagement";
 import { useMe } from "#/stores/session";
 import { useQuestion } from "./api";
-import { hasEngagement, QaCard, questionSubject } from "./qa-card";
+import { QaCard } from "./qa-card";
 import { useQuestionActions } from "./question-actions";
 
 /** One question with its answer and the comments on it: where notifications, search and shared links lead. */

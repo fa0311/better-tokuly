@@ -1,22 +1,16 @@
 import { Link } from "@tanstack/react-router";
-import { ask, common, toMillis } from "@tokuly/api";
+import { ask, toMillis } from "@tokuly/api";
+import { hasEngagement, questionSubject } from "@tokuly/core/ask";
 import { Heart, ImageDown, MessageCircle } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmojiText } from "#/features/emoji";
-import { compactCount, LikeButton, type Subject } from "#/features/engagement";
+import { compactCount, LikeButton } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
 import { AnswerBody, AudienceBadge, Picture, Sender } from "./parts";
 import { AnswerShareSheet } from "./share-sheet";
-
-export const questionSubject = (id: string): Subject => ({ type: common.SubjectType.QUESTION, id });
-
-/** Whether likes and comments exist for this answer: only on the Q&A page (public or friends). */
-export const hasEngagement = (question: ask.Question): boolean =>
-  question.answer?.audience === ask.AnswerAudience.PUBLIC ||
-  question.answer?.audience === ask.AnswerAudience.FRIENDS;
 
 /**
  * One answered question as a card: the question on top (who asked, when

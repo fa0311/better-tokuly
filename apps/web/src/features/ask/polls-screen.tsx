@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ask, type common, errorReason, toMillis } from "@tokuly/api";
+import { askKeys } from "@tokuly/core/ask";
 import { Flame, Shuffle, SkipForward } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +14,7 @@ import { EmojiText } from "#/features/emoji";
 import { useBurst } from "#/features/engagement";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
-import { askKeys, complimentClient } from "./api";
+import { complimentClient } from "./api";
 import { countdownClock, localized } from "./model";
 import { askError, toastError } from "./parts";
 import { serverNow } from "./server-clock";

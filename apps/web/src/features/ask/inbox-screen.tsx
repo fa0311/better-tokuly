@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ask, toMillis } from "@tokuly/api";
+import { rememberCounts } from "@tokuly/core/ask";
 import { Archive, ArchiveRestore, MoreHorizontal, PenLine, Share2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { compactAge } from "#/lib/format";
 import { useMe } from "#/stores/session";
-import { boxClient, rememberCounts, useInbox, useInboxCounts, useSettings } from "./api";
+import { boxClient, useInbox, useInboxCounts, useSettings } from "./api";
 import { Picture, Sender } from "./parts";
 import { QaCard } from "./qa-card";
 import { useQuestionActions } from "./question-actions";

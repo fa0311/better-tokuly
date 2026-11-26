@@ -5,38 +5,12 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { ask } from "@tokuly/api";
+import { askKeys, boxQueries, PAGE_SIZE } from "@tokuly/core/ask";
 import { api } from "#/lib/api";
 
 export const boxClient = () => api().service(ask.QuestionBoxService);
 export const promptClient = () => api().service(ask.PromptService);
 export const complimentClient = () => api().service(ask.ComplimentService);
-
-export const PAGE_SIZE = 20;
-
-export const askKeys = {
-  all: ["ask"] as const,
-  settings: ["ask", "settings"] as const,
-  box: (user: string) => ["ask", "box", user] as const,
-  counts: ["ask", "counts"] as const,
-  inboxAll: ["ask", "inbox"] as const,
-  inbox: (folder: ask.QuestionFolder) => ["ask", "inbox", folder] as const,
-  asked: ["ask", "asked"] as const,
-  answersAll: ["ask", "answers"] as const,
-  answers: (user: string) => ["ask", "answers", user] as const,
-  question: (id: string) => ["ask", "question", id] as const,
-  blocks: ["ask", "blocks"] as const,
-  promptsAll: ["ask", "prompts"] as const,
-  promptsOf: (user: string) => ["ask", "prompts", "of", user] as const,
-  friendPrompts: ["ask", "prompts", "friends"] as const,
-  prompt: (id: string) => ["ask", "prompt", id] as const,
-  responsesAll: (promptId: string) => ["ask", "responses", promptId] as const,
-  responses: (promptId: string, filter: ask.ResponseFilter) =>
-    ["ask", "responses", promptId, filter] as const,
-  round: ["ask", "round"] as const,
-  flames: ["ask", "flames"] as const,
-  flameSummary: ["ask", "flameSummary"] as const,
-  topFlames: ["ask", "topFlames"] as const,
-};
 
 type Paged<T> = InfiniteData<T, string>;
 const cursorOf = (page: { page?: { nextCursor: string; hasMore: boolean } }) =>
@@ -46,128 +20,40 @@ const pageRequest = (cursor: string) => ({ cursor, limit: PAGE_SIZE });
 // ───────────────────────────── Question box ─────────────────────────────
 
 export function useSettings() {
-  return useQuery({
-    queryKey: askKeys.settings,
-    queryFn: async () => (await boxClient().getSettings({})).settings!,
-  });
+  return useQuery(boxQueries.settings(boxClient));
 }
 
 /** A person's box as the viewer sees it; `null` when there is none to show (no such person, or a block). */
 export function useBox(user: string | undefined) {
-  return useQuery({
-    queryKey: askKeys.box(user ?? ""),
-    queryFn: async () => (await boxClient().getBox({ user: user! })).box ?? null,
-    enabled: Boolean(user),
-  });
+  return useQuery({ ...boxQueries.box(boxClient, user ?? ""), enabled: Boolean(user) });
 }
 
 export function useInboxCounts(enabled = true) {
-  return useQuery({
-    queryKey: askKeys.counts,
-    queryFn: async () => (await boxClient().getInboxCounts({})).counts!,
-    staleTime: 5 * 60_000,
-    enabled,
-  });
+  return useQuery({ ...boxQueries.counts(boxClient), enabled });
 }
 
 export function useInbox(folder: ask.QuestionFolder) {
-  return useInfiniteQuery({
-    queryKey: askKeys.inbox(folder),
-    queryFn: ({ pageParam }) => boxClient().listInbox({ folder, page: pageRequest(pageParam) }),
-    initialPageParam: "",
-    getNextPageParam: cursorOf,
-  });
+  return useInfiniteQuery(boxQueries.inbox(boxClient, folder));
 }
 
 export function useAskedQuestions() {
-  return useInfiniteQuery({
-    queryKey: askKeys.asked,
-    queryFn: ({ pageParam }) => boxClient().listAskedQuestions({ page: pageRequest(pageParam) }),
-    initialPageParam: "",
-    getNextPageParam: cursorOf,
-  });
+  return useInfiniteQuery(boxQueries.asked(boxClient));
 }
 
 /** Someone's Q&A page. */
 export function useAnswers(user: string | undefined) {
   return useInfiniteQuery({
-    queryKey: askKeys.answers(user ?? ""),
-    queryFn: ({ pageParam }) =>
-      boxClient().listAnswers({ user: user!, page: pageRequest(pageParam) }),
-    initialPageParam: "",
-    getNextPageParam: cursorOf,
+    ...boxQueries.answers(boxClient, user ?? ""),
     enabled: Boolean(user),
   });
 }
 
 export function useQuestion(id: string) {
-  return useQuery({
-    queryKey: askKeys.question(id),
-    queryFn: async () => (await boxClient().getQuestion({ questionId: id })).question!,
-  });
+  return useQuery(boxQueries.question(boxClient, id));
 }
 
 export function useSenderBlocks() {
-  return useInfiniteQuery({
-    queryKey: askKeys.blocks,
-    queryFn: ({ pageParam }) => boxClient().listSenderBlocks({ page: pageRequest(pageParam) }),
-    initialPageParam: "",
-    getNextPageParam: cursorOf,
-  });
-}
-
-/** Puts the counts a response carried into the cache (the badge and the tabs read them). */
-export function rememberCounts(
-  queryClient: QueryClient,
-  counts: ask.InboxCounts | undefined,
-): void {
-  if (counts) queryClient.setQueryData(askKeys.counts, counts);
-}
-
-/** Takes a question out of every loaded inbox folder at once, so the row leaves under the finger. */
-export function dropFromInbox(queryClient: QueryClient, questionId: string): void {
-  queryClient.setQueriesData<Paged<ask.ListInboxResponse>>(
-    { queryKey: askKeys.inboxAll },
-    (data) =>
-      data
-        ? {
-            ...data,
-            pages: data.pages.map((page) => ({
-              ...page,
-              questions: page.questions.filter((question) => question.id !== questionId),
-            })),
-          }
-        : data,
-  );
-}
-
-/** A question that just arrived goes on top of the loaded inbox. */
-export function addToInbox(queryClient: QueryClient, question: ask.Question): void {
-  queryClient.setQueryData<Paged<ask.ListInboxResponse>>(
-    askKeys.inbox(ask.QuestionFolder.INBOX),
-    (data) => {
-      if (
-        !data?.pages[0] ||
-        data.pages.some((page) => page.questions.some((known) => known.id === question.id))
-      )
-        return data;
-      const [first, ...rest] = data.pages;
-      return { ...data, pages: [{ ...first, questions: [question, ...first.questions] }, ...rest] };
-    },
-  );
-}
-
-/** After anything that changed where questions sit: lists and counts are read again. */
-export function refreshInbox(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({ queryKey: askKeys.inboxAll });
-  void queryClient.invalidateQueries({ queryKey: askKeys.counts });
-}
-
-/** After an answer appeared, changed or went away. */
-export function refreshAnswers(queryClient: QueryClient, question?: ask.Question): void {
-  refreshInbox(queryClient);
-  void queryClient.invalidateQueries({ queryKey: askKeys.answersAll });
-  if (question) queryClient.setQueryData(askKeys.question(question.id), question);
+  return useInfiniteQuery(boxQueries.blocks(boxClient));
 }
 
 // ───────────────────────────── Prompts ─────────────────────────────

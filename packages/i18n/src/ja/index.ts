@@ -1,6 +1,7 @@
 // One namespace per file, named after it. Listed by hand: React Native has no import.meta.glob.
 
 import accounts from "./accounts";
+import ask from "./ask";
 import auth from "./auth";
 import chat from "./chat";
 import clips from "./clips";
@@ -47,5 +48,6 @@ export default {
   spaces,
   community,
   plans,
+  ask,
   mobile,
 };
