@@ -4,8 +4,9 @@
 //!   as realtime frames and cache invalidations.
 //! - JetStream streams carry durable work: `EVENTS` (domain events from the
 //!   outbox), `JOBS` (background jobs), `ANALYTICS` (product analytics rows on
-//!   their way to ClickHouse) and `LOCATIONS` (location samples for the geo
-//!   pipeline).
+//!   their way to ClickHouse), `LOCATIONS` (location samples for the geo
+//!   pipeline) and `DEAD` (events and jobs their handlers gave up on, see
+//!   [`crate::dead_letters`]).
 use std::time::Duration;
 
 use async_nats::jetstream::{
@@ -22,6 +23,7 @@ pub const STREAM_EVENTS: &str = "EVENTS";
 pub const STREAM_JOBS: &str = "JOBS";
 pub const STREAM_ANALYTICS: &str = "ANALYTICS";
 pub const STREAM_LOCATIONS: &str = "LOCATIONS";
+pub const STREAM_DEAD: &str = "DEAD";
 
 #[derive(Clone)]
 pub struct Bus {
@@ -63,6 +65,15 @@ impl Bus {
         }
     }
 
+    /// A subject as received from the bus without this deployment's
+    /// namespace: the inverse of [`Self::subject`].
+    pub fn plain_subject<'a>(&self, subject: &'a str) -> &'a str {
+        if self.prefix.is_empty() {
+            return subject;
+        }
+        subject.strip_prefix(self.prefix.as_str()).and_then(|rest| rest.strip_prefix('.')).unwrap_or(subject)
+    }
+
     /// The namespaced form of a stream name.
     pub fn stream_name(&self, name: &str) -> String {
         if self.prefix.is_empty() {
@@ -99,6 +110,12 @@ impl Bus {
                 vec!["loc.>"],
                 RetentionPolicy::Limits,
                 day,
+            ),
+            (
+                STREAM_DEAD,
+                vec!["dead.>"],
+                RetentionPolicy::Limits,
+                crate::dead_letters::RETENTION,
             ),
         ];
         for (name, subjects, retention, max_age) in specs {

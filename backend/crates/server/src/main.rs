@@ -9,6 +9,7 @@
 //! - `tokuly all`       everything in one process (development)
 //!
 //! `tokuly healthcheck <url>` is the container health probe for these roles.
+//! `tokuly promote-admin` and `tokuly dead-letters` are the operator's tools.
 //!
 //! Settings come from the command line, the `TOKULY_*` environment, the
 //! `tokuly.toml` named by `TOKULY_CONFIG` and the staff console, in that
@@ -54,6 +55,12 @@ enum Command {
         /// Handle or e-mail address of the account.
         account: String,
     },
+    /// Events and jobs their handlers gave up on (kept for 30 days): `list`
+    /// shows them, `redrive` sends them round again once the cause is fixed.
+    DeadLetters {
+        #[command(subcommand)]
+        action: DeadLettersAction,
+    },
     /// Settings files: `example` prints every setting with its default (the
     /// source of `tokuly.example.toml`); `show` prints what the command line,
     /// the environment and `tokuly.toml` set (console values not included).
@@ -66,6 +73,54 @@ enum Command {
         /// For example `http://127.0.0.1:8081/readyz`.
         url: String,
     },
+}
+
+#[derive(Subcommand, Clone)]
+enum DeadLettersAction {
+    /// Print the buried messages, oldest first: where each failed and why.
+    List {
+        /// Only what failed in consumers whose name starts with this
+        /// (`notify`, `job-media`).
+        consumer: Option<String>,
+    },
+    /// Publish the buried messages again and remove them from the list. A
+    /// redriven event reaches every consumer of its topic, not only the one
+    /// that failed (consumers are idempotent).
+    Redrive {
+        /// Only what failed in consumers whose name starts with this.
+        consumer: Option<String>,
+    },
+}
+
+/// The most dead letters one command reads.
+const DEAD_LETTERS_PER_RUN: usize = 10_000;
+
+async fn dead_letters(core: &Core, action: DeadLettersAction) -> anyhow::Result<()> {
+    use tokuly_core::dead_letters::{list, redrive};
+    match action {
+        DeadLettersAction::List { consumer } => {
+            let buried = list(&core.bus, consumer.as_deref(), DEAD_LETTERS_PER_RUN).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            for item in &buried {
+                let letter = &item.letter;
+                println!(
+                    "{}\t{}\t{}\t{}\tafter {} deliveries: {}",
+                    item.sequence,
+                    letter.died_at.format("%Y-%m-%dT%H:%M:%SZ"),
+                    letter.consumer,
+                    letter.subject,
+                    letter.deliveries,
+                    letter.error.replace(['\n', '\t'], " "),
+                );
+            }
+            eprintln!("{} dead letter(s)", buried.len());
+        }
+        DeadLettersAction::Redrive { consumer } => {
+            let done = redrive(&core.bus, consumer.as_deref(), DEAD_LETTERS_PER_RUN).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("{} sent round again, {} could not be sent and stay buried", done.sent, done.failed);
+            anyhow::ensure!(done.failed == 0, "some dead letters could not be sent");
+        }
+    }
+    Ok(())
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -125,7 +180,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Worker => "tokuly-worker",
         Command::Migrate => "tokuly-migrate",
         Command::All => "tokuly-all",
-        Command::PromoteAdmin { .. } => "tokuly-admin",
+        Command::PromoteAdmin { .. } | Command::DeadLetters { .. } => "tokuly-admin",
         Command::Healthcheck { .. } | Command::Config { .. } => unreachable!("handled above"),
     };
     let _telemetry = telemetry::init(&cli.core, service);
@@ -181,6 +236,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("{account}: no such account, or it already is an admin");
             }
         }
+        Command::DeadLetters { action } => dead_letters(&core, action).await?,
         Command::Api => app::serve_api(core, domains, cli.api.listen, cli.api.cors_origins).await?,
         Command::Realtime => domains.gateway.run().await?,
         Command::Worker => {

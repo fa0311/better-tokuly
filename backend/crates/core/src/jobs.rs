@@ -3,7 +3,8 @@
 //! `enqueue` stores a JSON payload under `job.<name>`; workers `run` a handler
 //! per job name. A running job keeps its lease alive with progress acks, so
 //! long transcodes are not redelivered while healthy, and failed jobs retry
-//! with exponential backoff up to `max_deliver` attempts.
+//! with exponential backoff up to `max_deliver` attempts. A job that failed
+//! its last attempt is buried ([`crate::dead_letters`]), not dropped.
 use std::{future::Future, sync::Arc, time::Duration};
 
 use async_nats::jetstream::{self, AckKind};
@@ -13,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     bus::{Bus, STREAM_JOBS},
+    dead_letters,
     error::{AppError, AppResult},
 };
 
@@ -27,7 +29,7 @@ pub struct JobOptions {
     pub concurrency: usize,
     /// Lease duration; renewed automatically while the handler runs.
     pub lease: Duration,
-    /// Attempts before the job is abandoned.
+    /// Attempts before the job is given up on and buried.
     pub max_deliver: i64,
 }
 
@@ -147,9 +149,10 @@ impl Jobs {
                 let handler = handler.clone();
                 let name = name.to_owned();
                 let options = options.clone();
+                let (bus, durable) = (self.bus.clone(), durable.clone());
                 tokio::spawn(async move {
                     let _permit = permit;
-                    run_one(message, &name, &options, handler).await;
+                    run_one(&bus, &durable, message, &name, &options, handler).await;
                 });
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -158,6 +161,8 @@ impl Jobs {
 }
 
 async fn run_one<T, F, Fut>(
+    bus: &Bus,
+    durable: &str,
     message: jetstream::Message,
     name: &str,
     options: &JobOptions,
@@ -167,15 +172,15 @@ async fn run_one<T, F, Fut>(
     F: Fn(T) -> Fut,
     Fut: Future<Output = AppResult<()>>,
 {
+    let delivered = message.info().map(|i| i.delivered).unwrap_or(1);
     let payload: T = match serde_json::from_slice(&message.payload) {
         Ok(p) => p,
         Err(e) => {
-            tracing::error!(job = name, error = %e, "undecodable job dropped");
+            dead_letters::bury_or_log(bus, durable, &message.subject, &message.payload, &format!("undecodable job: {e}"), delivered).await;
             let _ = message.ack_with(AckKind::Term).await;
             return;
         }
     };
-    let delivered = message.info().map(|i| i.delivered).unwrap_or(1);
     let started = std::time::Instant::now();
     let work = handler(payload);
     tokio::pin!(work);
@@ -201,7 +206,7 @@ async fn run_one<T, F, Fut>(
             }
         }
         Err(e) if delivered >= options.max_deliver => {
-            tracing::error!(job = name, delivered, error = %e, "job failed permanently");
+            dead_letters::bury_or_log(bus, durable, &message.subject, &message.payload, &e.to_string(), delivered).await;
             let _ = message.ack_with(AckKind::Term).await;
         }
         Err(e) => {
