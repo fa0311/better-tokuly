@@ -319,8 +319,12 @@ export function canWork(plan: plans.Plan): boolean {
   );
 }
 
+/** The hosts invite; guests too when the plan lets them, unless they said they are not coming. */
 export function canInvite(plan: plans.Plan): boolean {
-  return plan.status === plans.PlanStatus.ACTIVE && (isHostLike(plan) || plan.guestsCanInvite);
+  return (
+    plan.status === plans.PlanStatus.ACTIVE &&
+    (isHostLike(plan) || (plan.guestsCanInvite && plan.myRsvp !== plans.Rsvp.DECLINED))
+  );
 }
 
 /** The key of the short label for an answer under `rsvp.short` ("行く", "たぶん", ...). */
