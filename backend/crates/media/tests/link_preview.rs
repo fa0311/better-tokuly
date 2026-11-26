@@ -64,6 +64,9 @@ impl Site {
                     if path.starts_with("/slow") {
                         // Holds a download slot of the proxy for a while.
                         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    } else if path.starts_with("/brief") {
+                        // A picture of an ordinary site.
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                     }
                     let response = respond(&path);
                     let _ = socket.write_all(&response).await;
@@ -134,7 +137,7 @@ fn respond(path: &str) -> Vec<u8> {
             body.extend(std::iter::repeat_n(0u8, 9 * 1024 * 1024));
             http("200 OK", &[("Content-Type", "image/png")], &body)
         }
-        path if path.starts_with("/slow") => http("200 OK", &[("Content-Type", "image/png")], &png(16, 16)),
+        path if path.starts_with("/slow") || path.starts_with("/brief") => http("200 OK", &[("Content-Type", "image/png")], &png(16, 16)),
         "/own-media" => http(
             "200 OK",
             &[HTML],
@@ -404,77 +407,138 @@ async fn this_instances_own_media_is_never_copied() {
     assert_eq!(h.http.get(&forged).send().await.unwrap().status(), 404);
 }
 
-#[tokio::test]
-async fn misses_beyond_the_download_slots_are_turned_away_uncached() {
-    let h = loopback_harness().await;
-    let site = Site::start().await;
-    let origin = serve_routes(&h).await;
-    let core = &h.app.core;
-    let url = |n: usize| local(&origin, &proxy_url(core, Kind::Image, &site.url(&format!("/slow-{n}.png"))));
-
-    // Four slow downloads take every slot; the fifth is not queued.
-    let running: Vec<_> = (0..4)
-        .map(|n| {
-            let (http, url) = (h.http.clone(), url(n));
-            tokio::spawn(async move { http.get(url).send().await.unwrap().status() })
-        })
-        .collect();
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    let busy = h.http.get(url(4)).send().await.unwrap();
-    assert_eq!(busy.status(), 503);
-    assert_eq!(busy.headers()["cache-control"], "no-store");
-    assert_eq!(busy.headers()["retry-after"], "60");
-    for task in running {
-        assert_eq!(task.await.unwrap(), 200);
-    }
-    // Nothing was remembered of the refusal.
-    assert_eq!(h.http.get(url(4)).send().await.unwrap().status(), 200);
+/// The media routes behind the auth layer, as the API serves them: requests
+/// come from a client address.
+struct Proxy {
+    router: axum::Router,
+    origin: String,
 }
 
-#[tokio::test]
-async fn misses_are_limited_per_client_through_the_auth_layer() {
-    use tower::ServiceExt as _;
+impl Proxy {
+    fn new(h: &Harness) -> Self {
+        let core = &h.app.core;
+        let router = h
+            .media
+            .http_routes()
+            .layer(axum::middleware::from_fn_with_state(core.auth_layer.clone(), tokuly_core::auth::auth_middleware));
+        Self { router, origin: core.cfg.public_url().to_owned() }
+    }
 
-    let h = loopback_harness().await;
-    let site = Site::start().await;
-    let core = &h.app.core;
-    let router = h
-        .media
-        .http_routes()
-        .layer(axum::middleware::from_fn_with_state(core.auth_layer.clone(), tokuly_core::auth::auth_middleware));
-    // A fresh /64 of the documentation range for this run.
-    let net: u16 = rand_u16();
-    let address = |host: u16| std::net::IpAddr::from([0x2001, 0xdb8, net, 7, 0, 0, 0, host]);
-    let get = |url: String, ip: std::net::IpAddr| {
-        let router = router.clone();
+    /// The path of the proxy URL of `target`.
+    fn path(&self, core: &tokuly_core::Core, target: &str) -> String {
+        let proxied = proxy_url(core, Kind::Image, target);
+        assert!(proxied.starts_with(&self.origin));
+        proxied[proxied.find("/media/link-image/").unwrap()..].to_owned()
+    }
+
+    /// Status and `Cache-Control` of a request from `ip`.
+    fn get(&self, path: String, ip: std::net::IpAddr) -> impl Future<Output = (u16, Option<String>)> + Send + 'static {
+        use tower::ServiceExt as _;
+        let router = self.router.clone();
         async move {
-            let request = axum::http::Request::get(url)
+            let request = axum::http::Request::get(path)
                 .extension(axum::extract::ConnectInfo(std::net::SocketAddr::new(ip, 4000)))
                 .body(axum::body::Body::empty())
                 .unwrap();
             let response = router.oneshot(request).await.unwrap();
-            (response.status().as_u16(), response.headers().get("cache-control").map(|v| v.to_str().unwrap().to_owned()))
+            (
+                response.status().as_u16(),
+                response.headers().get("cache-control").map(|v| v.to_str().unwrap().to_owned()),
+            )
         }
-    };
-    let path = |name: &str| {
-        let proxied = proxy_url(core, Kind::Image, &site.url(name));
-        proxied[proxied.find("/media/link-image/").unwrap()..].to_owned()
-    };
+    }
+}
+
+/// An address of a fresh /64 of the documentation range: its own client.
+fn client_network() -> impl Fn(u16) -> std::net::IpAddr {
+    let net = rand_u16();
+    move |host| std::net::IpAddr::from([0x2001, 0xdb8, net, 7, 0, 0, 0, host])
+}
+
+#[tokio::test]
+async fn a_list_of_new_pictures_loads_at_once() {
+    let h = loopback_harness().await;
+    let site = Site::start().await;
+    let proxy = Proxy::new(&h);
+    let client = client_network()(1);
+
+    // A news list shows a dozen pictures nobody has asked for yet: more than
+    // there are download slots, all requested together. Each waits its turn.
+    let started = std::time::Instant::now();
+    let answers = futures::future::join_all(
+        (0..12).map(|n| proxy.get(proxy.path(&h.app.core, &site.url(&format!("/brief-{n}.png"))), client)),
+    )
+    .await;
+    for (n, (status, _)) in answers.iter().enumerate() {
+        assert_eq!(*status, 200, "picture {n}");
+    }
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+}
+
+#[tokio::test]
+async fn one_client_cannot_park_requests_beyond_its_share() {
+    let h = loopback_harness().await;
+    let site = Site::start().await;
+    let proxy = Proxy::new(&h);
+    let core = &h.app.core;
+    let address = client_network();
+    let picture = |name: String| proxy.path(core, &site.url(&name));
+
+    // Slow downloads take every slot; sixteen more misses of the same client
+    // wait for one.
+    let holding: Vec<_> =
+        (0..4).map(|n| tokio::spawn(proxy.get(picture(format!("/slow-{n}.png")), address(1)))).collect();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let waiting: Vec<_> =
+        (0..16).map(|n| tokio::spawn(proxy.get(picture(format!("/brief-{n}.png")), address(n + 2)))).collect();
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // One more of that client is turned away at once, and not remembered.
+    let started = std::time::Instant::now();
+    assert_eq!(proxy.get(picture("/brief-extra.png".into()), address(99)).await, (503, Some("no-store".to_owned())));
+    assert!(started.elapsed() < std::time::Duration::from_millis(500), "refused without waiting");
+    // Another client still gets a place in the queue.
+    let elsewhere = std::net::IpAddr::from([0x2001, 0xdb8, rand_u16(), 8, 0, 0, 0, 1]);
+    let other = tokio::spawn(proxy.get(picture("/brief-other.png".into()), elsewhere));
+
+    for task in holding.into_iter().chain(waiting) {
+        assert_eq!(task.await.unwrap().0, 200);
+    }
+    assert_eq!(other.await.unwrap().0, 200);
+    assert_eq!(proxy.get(picture("/brief-extra.png".into()), address(99)).await.0, 200);
+}
+
+#[tokio::test]
+async fn misses_are_limited_per_client_through_the_auth_layer() {
+    let h = loopback_harness().await;
+    let site = Site::start().await;
+    let proxy = Proxy::new(&h);
+    let core = &h.app.core;
+    let net: u16 = rand_u16();
+    let address = |host: u16| std::net::IpAddr::from([0x2001, 0xdb8, net, 7, 0, 0, 0, host]);
+    let path = |name: &str| proxy.path(core, &site.url(name));
 
     // One picture fetched while the client is within its limit.
-    assert_eq!(get(path("/photo.png"), address(1)).await.0, 200);
+    assert_eq!(proxy.get(path("/photo.png"), address(1)).await.0, 200);
     // Use up the rest of the minute's 120 misses of this /64.
     for _ in 0..119 {
-        let _ = core.cache.rate_limit(&format!("media:link-image-client:2001:db8:{net:x}:7::/64"), 120, std::time::Duration::from_secs(60)).await;
+        let _ = core
+            .cache
+            .rate_limit(
+                &format!("media:link-image-client:2001:db8:{net:x}:7::/64"),
+                120,
+                std::time::Duration::from_secs(60),
+            )
+            .await;
     }
     let hits = site.hits();
     // Another address of the same /64 is the same client.
-    assert_eq!(get(path("/favicon-32.png"), address(2)).await, (503, Some("no-store".to_owned())));
+    assert_eq!(proxy.get(path("/favicon-32.png"), address(2)).await, (503, Some("no-store".to_owned())));
     assert_eq!(site.hits(), hits, "nothing was fetched");
     // What is cached is still served; other networks are not affected.
-    assert_eq!(get(path("/photo.png"), address(3)).await.0, 200);
+    assert_eq!(proxy.get(path("/photo.png"), address(3)).await.0, 200);
     let elsewhere = std::net::IpAddr::from([0x2001, 0xdb8, net, 8, 0, 0, 0, 1]);
-    assert_eq!(get(path("/favicon-32.png"), elsewhere).await.0, 200);
+    assert_eq!(proxy.get(path("/favicon-32.png"), elsewhere).await.0, 200);
 }
 
 fn rand_u16() -> u16 {

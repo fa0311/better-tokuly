@@ -27,7 +27,7 @@
 //! passed through unchanged: proxying them would keep a copy alive after
 //! the original was deleted or taken down. Anything else on this instance's
 //! own origin is dropped.
-use std::{io::Cursor, net::IpAddr, time::Duration};
+use std::{collections::HashMap, io::Cursor, net::IpAddr, sync::Mutex, time::Duration};
 
 use axum::{
     Extension, Router,
@@ -60,14 +60,21 @@ const WEBP_QUALITY: f32 = 80.0;
 /// How long a picture (or "there is none") is reused, by us and by caches.
 pub const CACHE_SECONDS: u64 = 24 * 3600;
 const FAILURE_CACHE_SECONDS: u64 = 30 * 60;
-/// Pictures one address may have fetched (not served from the cache) per minute.
+/// Pictures not in the cache one address may ask for per minute.
 const FETCHES_PER_MINUTE_PER_CLIENT: u32 = 120;
-/// Pictures fetched (and then decoded) at once in one API process. A miss
-/// that finds every slot taken is answered `503` at once instead of
-/// queueing, so parallel requests cannot pile up downloads in memory.
+/// Pictures fetched (and then decoded) at once in one API process, so
+/// parallel requests cannot pile up downloads in memory.
 pub(crate) const WORK_SLOTS: usize = 4;
 /// Of those, decodes running at once.
 pub(crate) const DECODE_SLOTS: usize = 2;
+/// How long a miss that finds every slot taken waits for one (a news list
+/// asks for a dozen new pictures at once) before it is answered `503`.
+const SLOT_WAIT: Duration = Duration::from_secs(5);
+/// Misses waiting for a slot in one API process, and of those, from one
+/// client: beyond them a miss is answered `503` at once, so nobody can park
+/// hundreds of requests here.
+const WAITING: usize = 64;
+const WAITING_PER_CLIENT: usize = 16;
 /// Picture fetches towards one site per minute, across all viewers; a
 /// budget of its own so viewers' misses do not starve page previews.
 const HOST_FETCHES_PER_MINUTE: u32 = 60;
@@ -172,8 +179,9 @@ enum Missing {
     Unknown,
     /// Fetched, and there is nothing to show (remembered for a while).
     Nothing,
-    /// The other site gets no more requests from us right now, or this
-    /// client asked for too many: try again later (not remembered).
+    /// The other site gets no more requests from us right now, this client
+    /// asked for too many, or no slot came free in time: try again later
+    /// (not remembered).
     Busy,
 }
 
@@ -248,13 +256,11 @@ impl Previews {
             Err(e) => tracing::warn!(error = %e, "link image cache unavailable"),
         }
 
-        // A miss costs a download and a decode: a bounded number at once
-        // (taken before anything is downloaded), per client, and per site
+        // A miss costs a download and a decode: a bounded number per client,
+        // at once (a slot taken before anything is downloaded), and per site
         // across everyone.
-        let Ok(_slot) = self.work_slots.try_acquire() else {
-            return Err(Missing::Busy);
-        };
-        if let Some(client) = client_key(client_ip)
+        let client = client_key(client_ip);
+        if let Some(client) = &client
             && core
                 .cache
                 .rate_limit(
@@ -267,6 +273,7 @@ impl Previews {
         {
             return Err(Missing::Busy);
         }
+        let _slot = self.work_slot(client).await.ok_or(Missing::Busy)?;
         let server = format!("{}:{}", url.host_str().unwrap_or_default(), url.port_or_known_default().unwrap_or(0));
         if core
             .cache
@@ -282,6 +289,16 @@ impl Previews {
             tracing::warn!(error = %e, "link image not cached");
         }
         rendered.ok_or(Missing::Nothing)
+    }
+
+    /// A work slot: free now, or within [`SLOT_WAIT`] if there is room to
+    /// wait for one.
+    async fn work_slot(&self, client: Option<String>) -> Option<tokio::sync::SemaphorePermit<'_>> {
+        if let Ok(slot) = self.work_slots.try_acquire() {
+            return Some(slot);
+        }
+        let _place = self.waiting.enter(client)?;
+        tokio::time::timeout(SLOT_WAIT, self.work_slots.acquire()).await.ok()?.ok()
     }
 
     async fn fetch_picture(&self, url: &Url, kind: Kind) -> Option<Vec<u8>> {
@@ -304,6 +321,53 @@ impl Previews {
             Err(e) => {
                 tracing::warn!(error = %e, "link image decoder failed");
                 None
+            }
+        }
+    }
+}
+
+/// The misses waiting for a work slot: at most [`WAITING`], and at most
+/// [`WAITING_PER_CLIENT`] of one client.
+pub(super) struct Waiting {
+    places: tokio::sync::Semaphore,
+    per_client: Mutex<HashMap<String, usize>>,
+}
+
+/// A place in the queue, given up when dropped.
+struct Place<'a> {
+    _place: tokio::sync::SemaphorePermit<'a>,
+    client: Option<(&'a Waiting, String)>,
+}
+
+impl Waiting {
+    pub(super) fn new() -> Self {
+        Self { places: tokio::sync::Semaphore::new(WAITING), per_client: Mutex::default() }
+    }
+
+    /// A place for a miss of `client`; `None` when the queue, or the
+    /// client's share of it, is full.
+    fn enter(&self, client: Option<String>) -> Option<Place<'_>> {
+        let place = self.places.try_acquire().ok()?;
+        if let Some(client) = &client {
+            let mut counts = self.per_client.lock().expect("not poisoned");
+            let count = counts.entry(client.clone()).or_default();
+            if *count >= WAITING_PER_CLIENT {
+                return None;
+            }
+            *count += 1;
+        }
+        Some(Place { _place: place, client: client.map(|client| (self, client)) })
+    }
+}
+
+impl Drop for Place<'_> {
+    fn drop(&mut self) {
+        let Some((waiting, client)) = &self.client else { return };
+        let mut counts = waiting.per_client.lock().expect("not poisoned");
+        if let Some(count) = counts.get_mut(client) {
+            *count -= 1;
+            if *count == 0 {
+                counts.remove(client);
             }
         }
     }

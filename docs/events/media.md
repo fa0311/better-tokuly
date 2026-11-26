@@ -170,9 +170,10 @@ rows, link preview cache rows (30 days) and cached preview pictures (a day).
   SVG) re-encoded as WebP of at most 1200 px (pictures) or 128 px (icons).
   Results are cached for 24 hours ("nothing to show" for 30 minutes);
   responses carry `Cache-Control: public, max-age=86400`.
-- Misses are bounded: 4 downloads at once per API process (beyond that
-  `503` with `Retry-After: 60`), 60 picture fetches a minute per site and
-  120 misses a minute per client address (per /64 for IPv6).
+- Misses are bounded: 120 a minute per client address (per /64 for IPv6),
+  4 downloads at once per API process (a miss waits up to 5 s for one, with
+  at most 64 waiting, 16 of one client) and 60 picture fetches a minute per
+  site; beyond that `503` with `Retry-After: 60`.
 - A picture on this instance's media origin (`TOKULY_MEDIA_URL`) is not
   proxied: the preview keeps its URL, so it ends the moment the file is
   deleted. Any other URL of this instance is dropped.
