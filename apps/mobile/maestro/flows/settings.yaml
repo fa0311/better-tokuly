@@ -38,10 +38,9 @@ env:
 - tapOn: { id: "profile-bio" }
 - inputText: "ramen and maps"
 - hideKeyboard
-# The swipe starts on the banner: the bio field would scroll itself.
-- swipe:
-    start: 50%, 25%
-    end: 50%, 5%
+# The save button is below the form, further down on a slow or small screen.
+- scrollUntilVisible:
+    element: { id: "profile-save" }
 - tapOn: { id: "profile-save" }
 - tapOn: "OK"
 - back
