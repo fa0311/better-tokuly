@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { community } from "@tokuly/api";
+import { isMember } from "@tokuly/core/community";
 import { Lock, PenLine, VenetianMask, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,6 @@ import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { NS, useChannels, useThreads } from "./api";
 import { AnonymousNotice, ThreadComposer } from "./composer";
-import { isMember } from "./model";
 import { Notice, useDurationLabel } from "./parts";
 import { ThreadCard } from "./thread-card";
 

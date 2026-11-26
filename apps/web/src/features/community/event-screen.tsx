@@ -2,6 +2,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, community, errorReason } from "@tokuly/api";
 import {
+  can,
+  checkInOpen,
+  communityHref,
+  communityKeys,
+  eventHref,
+  eventPhase,
+  imageUrl,
+  isMember,
+  placesLeft,
+  timeoutUntilMs,
+} from "@tokuly/core/community";
+import {
   Ban,
   CalendarClock,
   Check,
@@ -35,21 +47,10 @@ import { EmojiText } from "#/features/emoji";
 import { ReactionBar } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { eventClient, keys, NS, useAttendees, useEvent } from "./api";
+import { eventClient, NS, useAttendees, useEvent } from "./api";
 import { useCurrentCommunity } from "./context";
 import { EventFormDialog, MyAnswerChip } from "./events";
 import { ContentHistoryDialog, ReasonDialog } from "./mod-dialogs";
-import {
-  can,
-  checkInOpen,
-  communityHref,
-  eventHref,
-  eventPhase,
-  imageUrl,
-  isMember,
-  placesLeft,
-  timeoutUntilMs,
-} from "./model";
 import { Notice, SectionTitle, useWhen } from "./parts";
 import { useShareMenu } from "./share";
 
@@ -261,10 +262,10 @@ function RsvpBar({ event }: { event: community.CalendarEvent }) {
     mutationFn: (answer: community.RsvpAnswer) => eventClient().rsvp({ eventId: event.id, answer }),
     onSuccess: ({ event: next }) => {
       if (!next) return;
-      queryClient.setQueryData(keys.event(event.id), next);
-      void queryClient.invalidateQueries({ queryKey: keys.attendeeLists(event.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.eventLists(c.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.myEvents });
+      queryClient.setQueryData(communityKeys.event(event.id), next);
+      void queryClient.invalidateQueries({ queryKey: communityKeys.attendeeLists(event.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.eventLists(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.myEvents });
       const status = next.viewer?.status;
       if (status === A.WAITLISTED)
         toast(t("event.toast.waitlisted", { position: next.viewer?.waitlistPosition }), {
@@ -348,7 +349,7 @@ function CheckIn({ event }: { event: community.CalendarEvent }) {
   const checkIn = useMutation({
     mutationFn: () => eventClient().checkIn({ eventId: event.id, code: code.trim() }),
     onSuccess: ({ event: next }) => {
-      if (next) queryClient.setQueryData(keys.event(event.id), next);
+      if (next) queryClient.setQueryData(communityKeys.event(event.id), next);
       setCode("");
       toast.success(t("checkIn.welcome"), { icon: "🎉" });
     },
@@ -456,8 +457,8 @@ function Attendees({ event }: { event: community.CalendarEvent }) {
   const checkIn = useMutation({
     mutationFn: (userId: string) => eventClient().checkInAttendee({ eventId: event.id, userId }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.attendeeLists(event.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.event(event.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.attendeeLists(event.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.event(event.id) });
       toast.success(t("checkIn.byHandDone"));
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: NS })),
@@ -541,14 +542,14 @@ function EventActions({ event }: { event: community.CalendarEvent }) {
     report: !event.viewer?.canManage,
   });
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: keys.eventLists(c.id) });
-    void queryClient.invalidateQueries({ queryKey: keys.myEvents });
+    void queryClient.invalidateQueries({ queryKey: communityKeys.eventLists(c.id) });
+    void queryClient.invalidateQueries({ queryKey: communityKeys.myEvents });
   };
   const cancel = useMutation({
     mutationFn: (reason: string) => eventClient().cancelEvent({ eventId: event.id, reason }),
     onSuccess: ({ event: next }) => {
       setCancelling(false);
-      if (next) queryClient.setQueryData(keys.event(event.id), next);
+      if (next) queryClient.setQueryData(communityKeys.event(event.id), next);
       refresh();
       toast(t("event.cancelDone"));
     },

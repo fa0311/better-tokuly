@@ -3,8 +3,8 @@ import { type common, community } from "@tokuly/api";
 /**
  * Pure rules of the community screens: what a viewer may do (always read
  * from the server's `viewer` blocks, never from a copy of the permission
- * table), the addresses of community pages in this app, and small helpers
- * for forms.
+ * table), the addresses of community pages in the apps, and small helpers for
+ * forms.
  */
 
 const P = community.Permission;
@@ -68,7 +68,7 @@ export function timeoutUntilMs(
 
 // ───────────── Addresses ─────────────
 //
-// The server publishes community pages under `/c/<handle>/…`; in this app
+// The server publishes community pages under `/c/<handle>/…`; in Tokuly
 // `/c/<handle>` is a video channel, so communities live under `/g/<handle>`
 // and invites under `/join/<code>`.
 
@@ -121,6 +121,34 @@ export function inviteCodeOf(input: string): string {
   const match = /\/join\/([A-Za-z0-9]+)(?:[/?#].*)?$/.exec(text);
   return match?.[1] ?? text;
 }
+
+// ───────────── Categories and visibility ─────────────
+
+const C = community.CommunityCategory;
+
+/** The categories people choose from, in display order, with the emoji that stands for each. */
+export const CATEGORIES: { value: community.CommunityCategory; key: string; emoji: string }[] = [
+  { value: C.SCHOOL, key: "school", emoji: "🏫" },
+  { value: C.CLUB, key: "club", emoji: "🎽" },
+  { value: C.GAME, key: "game", emoji: "🎮" },
+  { value: C.OSHI, key: "oshi", emoji: "💖" },
+  { value: C.LOCAL, key: "local", emoji: "🏘️" },
+  { value: C.STUDY, key: "study", emoji: "📚" },
+  { value: C.TECH, key: "tech", emoji: "💻" },
+  { value: C.OTHER, key: "other", emoji: "✨" },
+];
+
+export function categoryOf(value: community.CommunityCategory) {
+  return CATEGORIES.find((category) => category.value === value) ?? CATEGORIES[7]!;
+}
+
+const V = community.CommunityVisibility;
+export const VISIBILITY_KEYS: Record<community.CommunityVisibility, string> = {
+  [V.UNSPECIFIED]: "public",
+  [V.PUBLIC]: "public",
+  [V.RESTRICTED]: "restricted",
+  [V.HIDDEN]: "hidden",
+};
 
 // ───────────── Roles ─────────────
 

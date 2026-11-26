@@ -1,4 +1,5 @@
 import { community } from "@tokuly/api";
+import { can, pseudonymName } from "@tokuly/core/community";
 import { History } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,6 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { NS, useModerationLog } from "../api";
 import { ContentHistoryDialog } from "../mod-dialogs";
-import { can, pseudonymName } from "../model";
 import { useWhen } from "../parts";
 
 const M = community.ModerationAction;

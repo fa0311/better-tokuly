@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet } from "@tanstack/react-router";
 import { errorReason } from "@tokuly/api";
+import { canRead, communityKeys } from "@tokuly/core/community";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
@@ -9,10 +10,9 @@ import { PaneSpinner } from "#/components/ui/spinner";
 import { errorMessage } from "#/lib/errors";
 import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
-import { keys, NS, useCommunity } from "./api";
+import { NS, useCommunity } from "./api";
 import { CommunityContext } from "./context";
 import { FrontDoor } from "./front-door";
-import { canRead } from "./model";
 
 /**
  * Frame of every page of one community: loads it, keeps it and its boards
@@ -35,7 +35,8 @@ export function CommunityLayout({ handle }: { handle: string }) {
     const { release } = realtime().subscribe(`community:${communityId}`, {
       // In effect (first, or again after a gap): its board as read before may lack what was
       // posted in between.
-      onSubscribed: () => void queryClient.invalidateQueries({ queryKey: keys.of(communityId) }),
+      onSubscribed: () =>
+        void queryClient.invalidateQueries({ queryKey: communityKeys.of(communityId) }),
       // Removed, banned, or the community closed: read it again, which shows the front door
       // (or "not found") instead of the board.
       onRevoked: () => void refetch(),

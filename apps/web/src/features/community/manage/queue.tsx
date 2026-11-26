@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { community, errorReason } from "@tokuly/api";
+import { can, communityKeys } from "@tokuly/core/community";
 import { Eye, History } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,9 +12,8 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
-import { keys, moderationClient, NS, useReviewQueue } from "../api";
+import { moderationClient, NS, useReviewQueue } from "../api";
 import { ContentHistoryDialog, ReasonDialog, RevealAuthorDialog } from "../mod-dialogs";
-import { can } from "../model";
 import { Notice, PostAuthor, PostBody, PostImages } from "../parts";
 
 /** Hidden posts waiting for a decision: put back, or removed for good. */
@@ -67,9 +67,9 @@ function QueueItem({
       moderationClient().reviewPost({ post: { post: ref }, ...input }),
     onSuccess: (_, { decision }) => {
       setRemoving(false);
-      void queryClient.invalidateQueries({ queryKey: keys.queue(c.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.threadLists(c.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.communities });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.queue(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.threadLists(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.communities });
       toast(
         decision === community.ReviewDecision.RESTORE
           ? t("manage.queue.restored")

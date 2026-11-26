@@ -17,6 +17,7 @@ listed in its `package.json`), each with its own tests:
 | `@tokuly/core/friends`       | follow and circle keys, the follow summary, what to re-read after a change                                                                  |
 | `@tokuly/core/map`           | map keys, pin and ghost rules, clustering, live edits, fix reporting, style                                                                 |
 | `@tokuly/core/chat`          | chat keys, limits, message rules, the message window and its paging, realtime events in the cache, unread totals, tokens, times, previews   |
+| `@tokuly/core/community`     | community keys and options, viewer permissions, page addresses, thread and reply cache edits, pushed community events                       |
 | `@tokuly/core/notes`         | notes, list and clip keys, timeline pages and fresh rows, note cache edits, realtime events, text reading, audiences, polls                 |
 | `@tokuly/core/notifications` | notify keys, unread counts, inbox cache edits, inbox times, push targets                                                                    |
 | `@tokuly/core/search`        | search kinds and their names, hit fields, where a hit leads, trend and recent-search keys and options, tag queries, suggestion lists        |

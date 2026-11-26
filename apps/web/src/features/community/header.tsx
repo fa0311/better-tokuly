@@ -2,6 +2,17 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { common, community } from "@tokuly/api";
 import {
+  can,
+  categoryOf,
+  communityHref,
+  communityKeys,
+  imageUrl,
+  inviteCodeOf,
+  isStaff,
+  refreshMembership,
+  storeCommunity,
+} from "@tokuly/core/community";
+import {
   Bell,
   CheckCheck,
   Clock,
@@ -24,11 +35,9 @@ import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
-import { boardClient, communityClient, keys, NS, refreshMembership, storeCommunity } from "./api";
-import { can, communityHref, imageUrl, inviteCodeOf, isStaff } from "./model";
+import { boardClient, communityClient, NS } from "./api";
 import {
   CommunityIcon,
-  categoryOf,
   MemberCount,
   Notice,
   RoleChip,
@@ -392,7 +401,7 @@ function MembershipSettings({
     }) => communityClient().updateMembership({ communityId: c.id, ...change }),
     onSuccess: ({ viewer }) => {
       if (viewer) storeCommunity(queryClient, { ...c, viewer });
-      void queryClient.invalidateQueries({ queryKey: keys.my });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.my });
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: NS })),
   });

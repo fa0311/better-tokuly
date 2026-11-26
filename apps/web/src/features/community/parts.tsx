@@ -1,5 +1,13 @@
 import { Link } from "@tanstack/react-router";
 import { type common, community, media } from "@tokuly/api";
+import {
+  categoryOf,
+  imageUrl,
+  pseudonymName,
+  ROLE_KEYS,
+  safeColor,
+  splitMentions,
+} from "@tokuly/core/community";
 import { EyeOff, ImagePlus, Lock, Users, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,35 +23,8 @@ import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import { uploadAndProcess } from "#/lib/upload";
 import { NS } from "./api";
-import { imageUrl, pseudonymName, ROLE_KEYS, safeColor, splitMentions } from "./model";
 
 // ───────────── Words for enums ─────────────
-
-const C = community.CommunityCategory;
-
-/** The categories people choose from, in display order, with the emoji that stands for each. */
-export const CATEGORIES: { value: community.CommunityCategory; key: string; emoji: string }[] = [
-  { value: C.SCHOOL, key: "school", emoji: "🏫" },
-  { value: C.CLUB, key: "club", emoji: "🎽" },
-  { value: C.GAME, key: "game", emoji: "🎮" },
-  { value: C.OSHI, key: "oshi", emoji: "💖" },
-  { value: C.LOCAL, key: "local", emoji: "🏘️" },
-  { value: C.STUDY, key: "study", emoji: "📚" },
-  { value: C.TECH, key: "tech", emoji: "💻" },
-  { value: C.OTHER, key: "other", emoji: "✨" },
-];
-
-export function categoryOf(value: community.CommunityCategory) {
-  return CATEGORIES.find((category) => category.value === value) ?? CATEGORIES[7]!;
-}
-
-const V = community.CommunityVisibility;
-export const VISIBILITY_KEYS: Record<community.CommunityVisibility, string> = {
-  [V.UNSPECIFIED]: "public",
-  [V.PUBLIC]: "public",
-  [V.RESTRICTED]: "restricted",
-  [V.HIDDEN]: "hidden",
-};
 
 // ───────────── Time ─────────────
 
@@ -125,14 +106,14 @@ export function CommunityIcon({
 /** "🔒 承認制" / "🙈 招待のみ"; nothing for a public community. */
 export function VisibilityChip({ visibility }: { visibility: community.CommunityVisibility }) {
   const { t } = useTranslation(NS);
-  if (visibility === V.RESTRICTED)
+  if (visibility === community.CommunityVisibility.RESTRICTED)
     return (
       <Chip>
         <Lock className="size-3" />
         {t("visibility.restricted")}
       </Chip>
     );
-  if (visibility === V.HIDDEN)
+  if (visibility === community.CommunityVisibility.HIDDEN)
     return (
       <Chip>
         <EyeOff className="size-3" />

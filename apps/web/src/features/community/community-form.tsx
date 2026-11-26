@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { community, media } from "@tokuly/api";
+import { CATEGORIES, imageUrl, parseTags, VISIBILITY_KEYS } from "@tokuly/core/community";
 import { Check, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,8 +12,7 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
 import { communityClient, NS } from "./api";
-import { imageUrl, parseTags } from "./model";
-import { CATEGORIES, SectionTitle, VISIBILITY_KEYS } from "./parts";
+import { SectionTitle } from "./parts";
 
 const V = community.CommunityVisibility;
 const C = community.CommunityCategory;

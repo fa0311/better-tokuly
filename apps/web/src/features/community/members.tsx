@@ -2,6 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { community, fromDate } from "@tokuly/api";
 import {
+  assignableRoles,
+  can,
+  communityKeys,
+  ROLE_KEYS,
+  refreshMembership,
+  storeCommunity,
+} from "@tokuly/core/community";
+import {
   Ban,
   Clock,
   Crown,
@@ -29,17 +37,8 @@ import { openDirectChat } from "#/features/chat";
 import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
-import {
-  communityClient,
-  keys,
-  moderationClient,
-  NS,
-  refreshMembership,
-  storeCommunity,
-  useMembers,
-} from "./api";
+import { communityClient, moderationClient, NS, useMembers } from "./api";
 import { ReasonDialog } from "./mod-dialogs";
-import { assignableRoles, can, ROLE_KEYS } from "./model";
 import { RoleChip, useDurationLabel, useWhen } from "./parts";
 
 const R = community.MemberRole;
@@ -129,8 +128,8 @@ function MemberRow({
 
   const refresh = () => {
     setDialog(null);
-    void queryClient.invalidateQueries({ queryKey: keys.memberLists(c.id) });
-    void queryClient.invalidateQueries({ queryKey: keys.communities });
+    void queryClient.invalidateQueries({ queryKey: communityKeys.memberLists(c.id) });
+    void queryClient.invalidateQueries({ queryKey: communityKeys.communities });
   };
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: NS }));
   const setRole = useMutation({
@@ -166,7 +165,7 @@ function MemberRow({
       }),
     onSuccess: () => {
       refresh();
-      void queryClient.invalidateQueries({ queryKey: keys.bans(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.bans(c.id) });
       toast(t("members.banDone", { name: user?.displayName }));
     },
     onError,

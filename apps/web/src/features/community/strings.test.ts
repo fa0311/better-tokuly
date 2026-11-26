@@ -1,9 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { en as enAll, ja as jaAll } from "@tokuly/i18n";
 import { describe, expect, it } from "vitest";
-import en from "#/i18n/en/community";
-import ja from "#/i18n/ja/community";
 
 /** Every leaf of a strings file as "a.b.c". */
 function paths(value: unknown, prefix = ""): string[] {
@@ -32,6 +31,9 @@ function sources(directory: string): string[] {
     return /\.tsx?$/.test(entry.name) && !entry.name.includes(".test.") ? [path] : [];
   });
 }
+
+const { community: en } = enAll;
+const { community: ja } = jaAll;
 
 describe("community strings", () => {
   it("has the same keys in Japanese and English", () => {

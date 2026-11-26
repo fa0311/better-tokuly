@@ -16,6 +16,6 @@ export {
   withRemoved,
 } from "./inbox-cache";
 export { notifyKeys } from "./keys";
-export { resolveTarget, type Target } from "./target";
+export { notificationPath, resolveTarget, type Target } from "./target";
 export { NOTHING_UNREAD, type Unread, unreadOf, unreadQuery } from "./unread";
 export { type DayBucket, dayBucket, formatWhen, minutesToTime, timeToMinutes } from "./when";

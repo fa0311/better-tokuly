@@ -5,6 +5,7 @@ import auth from "./auth";
 import chat from "./chat";
 import clips from "./clips";
 import common from "./common";
+import community from "./community";
 import errors from "./errors";
 import follows from "./follows";
 import friends from "./friends";
@@ -43,5 +44,6 @@ export default {
   search,
   settings,
   spaces,
+  community,
   mobile,
 };

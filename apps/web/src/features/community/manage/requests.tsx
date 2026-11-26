@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { community } from "@tokuly/api";
+import { communityKeys } from "@tokuly/core/community";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
@@ -9,7 +10,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
-import { communityClient, keys, NS, useJoinRequests } from "../api";
+import { communityClient, NS, useJoinRequests } from "../api";
 import { Age, Notice } from "../parts";
 
 /** People asking to join, oldest first, with their answers. */
@@ -21,9 +22,9 @@ export function RequestsSection({ community: c }: { community: community.Communi
     mutationFn: (input: { requestId: string; approve: boolean }) =>
       communityClient().respondJoinRequest(input),
     onSuccess: (_, { approve }) => {
-      void queryClient.invalidateQueries({ queryKey: keys.requests(c.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.memberLists(c.id) });
-      void queryClient.invalidateQueries({ queryKey: keys.communities });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.requests(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.memberLists(c.id) });
+      void queryClient.invalidateQueries({ queryKey: communityKeys.communities });
       toast(approve ? t("manage.requests.approved") : t("manage.requests.declined"));
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: NS })),
