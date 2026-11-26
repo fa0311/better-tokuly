@@ -22,7 +22,7 @@ src/routes/            file-based routes. `_app/*` needs a signed-in user (clien
 src/features/<area>/   one folder per product area: screens, components, hooks, clients
 src/components/ui/     design-system primitives (see below)
 src/components/        app-wide pieces (AppShell, the hub and launcher, AuthLayout, BackgroundFeatures)
-src/seams/             where features plug into the app (see "How a feature plugs in")
+src/seams/             where features plug into the app (see below)
 src/lib/               api, realtime, i18n, formatting, errors, appearance, upload, account time
 src/stores/            zustand stores for live state (session, locations, badges, shell)
 src/i18n/{ja,en}/      strings of the web-only areas, one file (= namespace) per feature area
@@ -43,25 +43,14 @@ else in the folder is private to it.
 ## Shared with the other apps
 
 The mobile and desktop apps run the same logic as this one. It lives in
-`packages/` (see [`packages/README.md`](../../packages/README.md)), not here:
-
-- `@tokuly/i18n`: the strings of session, map, friends, chat, notifications,
-  stories, shorts, profile and the common words. `src/i18n/{ja,en}.ts` merge
-  them with the web-only namespaces in `src/i18n/{ja,en}/`.
-- `@tokuly/core/<area>`: query keys and options, domain rules, cache edits,
-  formatting and error texts of those areas. A feature folder keeps what is
-  the web's: hooks, stores, screens, components, the browser's APIs.
-
-> 「共通化の為に責務が多いコンポーネントになったりするのは本質的じゃない。
-> 工数を少なく出来るのは嬉しいが、バグが増えたり保守性も考慮するべきだ」
-
-So only logic is shared, never UI: no components, no hooks, no `window` or
-platform branches in a package. Where shared logic speaks or fetches, it takes
-the web's i18next instance or client as an argument; `#/lib/format`,
-`#/lib/errors` and the feature files that re-export from `@tokuly/core` pass
-them, so screens import as before. Moving more: the logic moves with its
-tests into the area's folder of `packages/core/src`, the feature imports it
-from there; anything that needs the browser stays here.
+`packages/` ([`packages/README.md`](../../packages/README.md)), not here:
+the strings of the areas every app has in `@tokuly/i18n` (`src/i18n/{ja,en}.ts`
+merge them with the web-only namespaces), query keys and options, domain
+rules, cache edits, formatting and error texts in `@tokuly/core/<area>`.
+Only logic is shared, never UI. A feature folder keeps what is the web's:
+hooks, stores, screens, components, the browser's APIs. Where shared logic
+speaks or fetches, it takes the web's i18next instance or client as an
+argument (`#/lib/format`, `#/lib/errors`). Logic moves there with its tests.
 
 ## How a feature plugs in
 
@@ -84,52 +73,16 @@ touching the same file.
 | `channel-tab.tsx`              | `ChannelTab` (`features/video`)         | a tab on every channel page                                                           |
 | `forget-user.ts`               | `ForgetUser` (`#/seams/forget-user`)    | after an unfriend or a block: that person's content leaves the area's cached queries  |
 
-```tsx
-// src/features/plans/hub.tsx — a tile. `section` is one of the hub's groups:
-// "play" (あそぶ), "out" (おでかけ), "make" (つくる・みる), "me" (アカウント).
-export default [
-  { id: "plans", section: "play", order: 20, to: "/plans", label: () => i18n.t("plans:tile"),
-    icon: CalendarHeart, tint: "bg-lime", badge: "plans", keywords: ["予定", "calendar"] },
-] satisfies HubTile[];
+- A new area needs a `hub.tsx` to be reachable, and a `nav.ts` when its
+  routes belong under a primary item (map, chat, notes, watch).
+- Unfriending and blocking call `forgetUser(queryClient, userId)`
+  (`#/seams/forget-user`): a feature that caches other people's content
+  takes theirs out in its `forget-user.ts`, or drops its lists.
+- A page that needs the phone's whole height calls `useHideTabBar()`
+  (`#/stores/shell`) instead of covering the tab bar. Toasts are not moved
+  per screen.
 
-// src/features/stories/nav.ts — /stories/* belongs to "notes" in the tab bar and the rail.
-export default { primary: "notes", paths: ["/stories"] } satisfies NavClaim;
-
-// src/features/plans/profile.tsx — slots: "status" (under the bio), "action" (a button),
-// "card", "stat" (a cell of the numbers card), "content" (the lists at the bottom).
-export default [
-  { id: "plans", slot: "card", order: 10, Component: ({ profile, user, isSelf }) => (
-      <ProfilePlans cards={profile.cards} user={user} isSelf={isSelf} className="mt-5" />
-    ) },
-] satisfies ProfileSection[];
-
-// src/features/ask/badges.ts — `useBadge("ask")` is then this hook's result everywhere.
-export default { ask: () => useAskBadge() } satisfies BadgeSources;
-```
-
-**Forgetting a person.** Unfriending and blocking call `forgetUser(queryClient, userId)`
-from `#/seams/forget-user`, which runs every feature's `forget-user.ts`. A feature that
-caches other people's content (timelines, trays, feeds) takes theirs out there, so
-nothing of a blocked person keeps showing from the cache; one that cannot tell whose
-an item is drops its lists and lets them load again.
-
-Badges are counts by key (`#/stores/badges`). A feature that already listens
-for the events that change its count calls `setBadge("chat", n)` from its
-`background.tsx`; one whose count simply follows its queries exports a hook
-from `badges.ts`. Tiles and navigation items name the key they show.
-
-**Navigation.** The primary destinations (map, chat, notes, watch) are one
-tap away in the phone tab bar and the rail (`components/app-shell.tsx`).
-Everything else is opened from the hub (`/me`, the last tab on phones, with
-search on top), the launcher (the rail's "アプリ") and the quick search
-(Cmd/Ctrl+K, which also finds hub tiles by name and keyword). A new area
-needs a `hub.tsx` to be reachable and a `nav.ts` when its routes belong
-under a primary item; pages nobody claims light the hub's slot.
-
-A page that needs the phone's whole height (a conversation, a full-screen
-player) calls `useHideTabBar()` from `#/stores/shell` instead of covering
-the tab bar. Toasts appear above the tab bar on phones and at the top on
-wide screens; do not move them per screen.
+Examples, badges and navigation: [`docs/web/seams.md`](../../docs/web/seams.md).
 
 **Between features.** Before writing your own, use what is there:
 
@@ -172,13 +125,11 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
   which maps the API's reason code to text: reasons any screen can hit live in
   `src/i18n/*/errors.ts`, reasons specific to a feature under an `errors` key
   in that feature's namespace (`stamps.ts` → `errors: { PACK_NOT_FOUND: … }`).
-  The rules are `@tokuly/core/errors`; the shared areas' namespaces are in
-  `@tokuly/i18n`.
 - Infinite lists: `useInfiniteQuery` + `<LoadMore query={query} />` after the
   last row.
 - Uploads: `uploadAndProcess(file, { purpose })` from `#/lib/upload`.
 - Unread counters: `setBadge("notifications", n)` from `#/stores/badges`, or
-  a hook in the feature's `badges.ts` (see "How a feature plugs in").
+  a hook in the feature's `badges.ts`.
 
 **UI**
 
