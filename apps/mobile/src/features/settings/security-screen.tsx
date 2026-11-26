@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { common, identity, toMillis } from "@tokuly/api";
+import { common, errorReason, identity, toMillis } from "@tokuly/api";
 import { compactAge } from "@tokuly/core/format";
 import { router } from "expo-router";
 import {
@@ -196,9 +196,17 @@ function SessionsSection() {
       const account = currentAccount();
       if (!account) return;
       const service = account.api.service(identity.AccountService);
-      await Promise.all(
-        sessions.map((session) => service.revokeSession({ sessionId: session.id })),
+      // Every one is tried, whatever happens to another; one that left meanwhile is signed out all the same.
+      const results = await Promise.allSettled(
+        sessions
+          .filter((session) => session.id !== account.sessionId)
+          .map((session) => service.revokeSession({ sessionId: session.id })),
       );
+      const failed = results.find(
+        (result) =>
+          result.status === "rejected" && errorReason(result.reason) !== "SESSION_NOT_FOUND",
+      );
+      if (failed?.status === "rejected") throw failed.reason;
     },
     onSuccess: (_, sessions) =>
       Alert.alert(
