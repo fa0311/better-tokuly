@@ -1065,7 +1065,7 @@ async fn recordings_nobody_needs_are_swept_and_nothing_is_archived_from_nothing(
     assert!(!orphan.exists(), "a recording without a stream goes");
     assert!(!dropped.exists(), "a recording that will not be archived goes");
     assert!(kept.exists(), "a stream on air keeps its recording");
-    // A stream deleted long ago is erased by the same sweep.
+    // A stream deleted long ago is erased by the sweep's purge.
     let old = ctx.stream(&alice, &channel, "むかし消した").await;
     let _: DeleteStreamResponse = ctx
         .call(
@@ -1093,7 +1093,10 @@ async fn recordings_nobody_needs_are_swept_and_nothing_is_archived_from_nothing(
     .fetch_all(&ctx.app.core.db)
     .await
     .unwrap();
-    assert!(ctx.live.sweep_recordings().await.unwrap().erased_streams >= 1);
+    // Two sweeps at once (two servers): the stream is erased, and announced, once.
+    let purge = || tokuly_live::streams::purge_deleted(&ctx.app.core, test_config().deleted_retention_days);
+    let (one, other) = tokio::join!(purge(), purge());
+    assert!(one.unwrap() + other.unwrap() >= 1);
     for (line, removed_before) in &lines {
         let expected = if *removed_before { 0 } else { 1 };
         assert_eq!(ctx.announced(SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, &line.to_string()).await, expected);
