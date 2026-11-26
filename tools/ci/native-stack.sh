@@ -14,8 +14,11 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 tokuly="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 timeout="${2:-300}"
-logs="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/logs"
-run="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/run"
+dev_home="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}"
+logs="$dev_home/logs" run="$dev_home/run"
+# The ports infra.sh uses (its defaults, or the machine's own in ports.env).
+# shellcheck disable=SC1091
+[ -f "$dev_home/ports.env" ] && . "$dev_home/ports.env"
 : "${P_EDGE:=8080}" "${P_API:=8081}" "${P_RT_WS:=8082}" "${P_S3:=9000}" "${P_LIVEKIT:=7880}"
 export P_EDGE P_API P_RT_WS P_S3 P_LIVEKIT
 
@@ -42,7 +45,7 @@ echo $! >"$run/tokuly.pid"
 
 # Ready when the API answers through the edge.
 deadline=$((SECONDS + timeout))
-until curl -fsS -o /dev/null "http://127.0.0.1:$P_EDGE/api/readyz"; do
+until curl -fs -o /dev/null "http://127.0.0.1:$P_EDGE/api/readyz"; do
   if ! kill -0 "$(cat "$run/tokuly.pid")" 2>/dev/null; then
     tail -50 "$logs/tokuly.log"; echo "native-stack: tokuly exited" >&2; exit 1
   fi

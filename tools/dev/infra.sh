@@ -159,7 +159,7 @@ install_bins() {
   if [ "$PLATFORM" = unsupported ]; then
     echo "infra.sh: runs on Linux x86-64 and macOS on Apple silicon, not $(uname -s) $(uname -m)" >&2; exit 1
   fi
-  local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
+  local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"; trap - RETURN' RETURN
   [ "$PLATFORM" = darwin-arm64 ] && brew_install
   install_bin nats-server
   install_bin meilisearch
