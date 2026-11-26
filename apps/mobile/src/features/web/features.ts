@@ -9,7 +9,6 @@ import {
   SmilePlus,
   Sticker,
   Trophy,
-  UsersRound,
   Wallet,
 } from "lucide-react-native";
 
@@ -29,7 +28,6 @@ export interface WebFeature {
  * `features/notifications/target.ts`).
  */
 export const WEB_FEATURES: readonly WebFeature[] = [
-  { key: "community", path: "/communities", icon: UsersRound },
   { key: "school", path: "/school", icon: GraduationCap },
   { key: "plans", path: "/plans", icon: CalendarDays },
   { key: "ask", path: "/ask", icon: MessageCircleQuestion },

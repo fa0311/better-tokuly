@@ -89,6 +89,8 @@ export async function prepareChannels(names: Record<string, string>): Promise<vo
 /** What the server put beside a notification to route a tap (`path`, `notification_id`). */
 export interface PushTap {
   key: string;
+  /** The notification's kind (`community.reply`): some kinds' paths lead elsewhere in the app. */
+  kind: string;
   path: string;
   notificationId: string;
 }
@@ -99,6 +101,7 @@ function tapOf(response: Notifications.NotificationResponse): PushTap {
   const data = (content.data ?? {}) as Record<string, unknown>;
   return {
     key: response.notification.request.identifier,
+    kind: typeof data.kind === "string" ? data.kind : "",
     path: typeof data.path === "string" ? data.path : "",
     notificationId: typeof data.notification_id === "string" ? data.notification_id : "",
   };

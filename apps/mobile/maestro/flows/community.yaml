@@ -1,0 +1,91 @@
+appId: app.tokuly.mobile
+name: Find a community, join it, reply in a thread, start one and see its members
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/community-board.js
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+
+# Communities are under the own profile.
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-community" }
+- tapOn: { id: "me-community" }
+- extendedWaitUntil:
+    visible: { id: "communities" }
+    timeout: 15000
+- takeScreenshot: 30-communities-mine
+- tapOn: { id: "communities-tab-find" }
+- tapOn: { id: "community-search" }
+- inputText: ${output.suffix}
+- extendedWaitUntil:
+    visible: { id: "${'community-' + output.handle}" }
+    timeout: 15000
+- hideKeyboard
+- takeScreenshot: 31-communities-find
+- tapOn: { id: "${'community-' + output.handle}" }
+
+# A public community's board is open to read; joining is one tap.
+- extendedWaitUntil:
+    visible: { id: "${'thread-' + output.thread}" }
+    timeout: 15000
+- tapOn: { id: "community-join" }
+- tapOn: "OK"
+- extendedWaitUntil:
+    visible: { id: "community-joined" }
+    timeout: 15000
+- takeScreenshot: 32-community
+- tapOn: { id: "${'thread-' + output.thread}" }
+- extendedWaitUntil:
+    visible: { id: "thread-screen" }
+    timeout: 15000
+- tapOn: { id: "reply-input" }
+- inputText: "e2e reply"
+- tapOn: { id: "reply-send" }
+- extendedWaitUntil:
+    visible: "e2e reply"
+    timeout: 15000
+- hideKeyboard
+- tapOn: { id: "thread-like" }
+- takeScreenshot: 33-community-thread
+- runFlow: ../subflows/back.yaml
+
+# Starting a thread of one's own.
+- extendedWaitUntil:
+    visible: { id: "thread-new" }
+    timeout: 15000
+- tapOn: { id: "thread-new" }
+- extendedWaitUntil:
+    visible: { id: "thread-compose" }
+    timeout: 15000
+- tapOn: { id: "compose-title" }
+- inputText: "e2e thread"
+- tapOn: { id: "compose-body" }
+- inputText: "posted from the app"
+- hideKeyboard
+- takeScreenshot: 34-community-compose
+- tapOn: { id: "compose-post" }
+- extendedWaitUntil:
+    visible: { id: "thread-title" }
+    timeout: 15000
+- assertVisible: "e2e thread"
+- runFlow: ../subflows/back.yaml
+
+# The members, with the owner's role.
+- scrollUntilVisible:
+    element: { id: "community-members" }
+    direction: UP
+- tapOn: { id: "community-members" }
+- extendedWaitUntil:
+    visible: { id: "${'member-' + output.owner}" }
+    timeout: 15000
+- takeScreenshot: 35-community-members

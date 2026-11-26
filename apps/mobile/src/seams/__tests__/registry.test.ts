@@ -28,6 +28,7 @@ describe("the seam registries", () => {
     ]);
     expect(areasOf("tabs")).toEqual(["chat", "map", "notes", "notifications", "profile", "shorts"]);
     expect(areasOf("hub")).toEqual([
+      "community",
       "friends",
       "live",
       "search",

@@ -7,6 +7,7 @@ import {
   entriesOf,
   formatWhen,
   type InboxFilter,
+  notificationPath,
 } from "@tokuly/core/notifications";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -65,7 +66,7 @@ function Face({ entry }: { entry: notify.Notification }) {
 /** Tapping an entry: it becomes read, and its screen opens (or the web, for what the app has not yet). */
 function open(queryClient: ReturnType<typeof useQueryClient>, entry: notify.Notification) {
   if (!entry.read) void markRead(queryClient, { ids: [entry.id] }).catch(() => {});
-  const target = targetOf(entry.path);
+  const target = targetOf(notificationPath(entry.kind, entry.path));
   if (target?.type === "screen") router.push(target.href as never);
   else if (target?.type === "web") void WebBrowser.openBrowserAsync(target.url);
 }
