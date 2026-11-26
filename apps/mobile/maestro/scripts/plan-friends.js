@@ -24,7 +24,7 @@ function signUp(prefix) {
 }
 
 // `me` and a `friend` who planned karaoke for tomorrow evening at a place on the map, with `me`
-// invited.
+// invited. `day` is the 15th of next month, the day the flow gives the plan it makes itself.
 const me = signUp("me");
 const friend = signUp("fr");
 const sent = call(
@@ -55,5 +55,9 @@ call(
   },
   friend.token,
 );
+const now = new Date();
+const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 15));
 output.me = me.handle;
+output.friend = friend.handle;
 output.title = title;
+output.day = next.toISOString().slice(0, 10);

@@ -291,6 +291,10 @@ export default {
     extrasOnWeb: "持ち物・割り勘・コメント",
     extrasOnWebHint: "この予定のWeb画面でつかえるよ",
     openInMaps: "地図アプリでひらく",
+    choose: "えらぶ",
+    hour: "時",
+    minute: "分",
+    inviteToPlan: "予定にさそう",
   },
   licenses: {
     title: "オープンソースライセンス",

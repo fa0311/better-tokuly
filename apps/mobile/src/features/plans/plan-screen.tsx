@@ -102,7 +102,7 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
           {
             key: "edit",
             label: t("plans:plan.menu.edit"),
-            onPress: () => router.push(webScreenHref(`/plans/${plan.id}`) as never),
+            onPress: () => router.push(`/plans/${plan.id}/edit`),
           },
         ]
       : []),

@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { create, fromDate, plans } from "@tokuly/api";
+import { router } from "expo-router";
 import type { ReactNode } from "react";
 import { Linking } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
+import { PlanNewScreen } from "../plan-new-screen";
 import { PlanScreen } from "../plan-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -51,9 +53,14 @@ function signIn() {
   const sent: { method: string; request: unknown }[] = [];
   const service = {
     getPlan: async () => ({ plan: PLAN }),
+    listFriends: async () => ({ friends: [{ user: YUI }] }),
     respondToPlan: async (request: { rsvp: plans.Rsvp }) => {
       sent.push({ method: "respondToPlan", request });
       return { plan: { ...PLAN, myRsvp: request.rsvp }, rsvp: request.rsvp };
+    },
+    createPlan: async (request: unknown) => {
+      sent.push({ method: "createPlan", request });
+      return { plan: create(plans.PlanSchema, { id: "p2", title: "new" }) };
     },
   };
   jest.mocked(api).mockReturnValue({ service: () => service } as never);
@@ -109,5 +116,41 @@ describe("PlanScreen", () => {
     expect(openURL).toHaveBeenCalledWith(
       expect.stringMatching(/^(geo:35\.66,139\.7\?q=|maps:\?ll=35\.66,139\.7&q=)/),
     );
+  });
+});
+
+describe("PlanNewScreen", () => {
+  it("starts with the friend it was opened for and creates the plan on the account's clock", async () => {
+    const sent = signIn();
+    await show(<PlanNewScreen inviteId="yui" />);
+    expect(await screen.findByText("ゆい")).toBeOnTheScreen();
+
+    // Nothing is sent before the plan has a name.
+    await act(() => fireEvent.press(screen.getByTestId("plan-create")));
+    expect(screen.getByText("なにをするか書いてね")).toBeOnTheScreen();
+    expect(sent).toEqual([]);
+
+    await act(() => fireEvent.changeText(screen.getByTestId("plan-form-title"), "映画"));
+    await act(() => fireEvent.press(screen.getByTestId("plan-when-time")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-form-date")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-day-next")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-day-next")));
+    await act(() => fireEvent.press(screen.getByTestId(/^plan-day-\d{4}-\d{2}-10$/)));
+    await act(() => fireEvent.press(screen.getByTestId("plan-form-time")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-hour-19")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-minute-30")));
+    await act(() => fireEvent.press(screen.getByTestId("plan-create")));
+
+    expect(sent).toHaveLength(1);
+    const request = sent[0]?.request as plans.CreatePlanRequest;
+    expect(request.title).toBe("映画");
+    expect(request.inviteeIds).toEqual(["yui"]);
+    expect(request.time?.timeZone).toBe("Asia/Tokyo");
+    // 19:30 in Tokyo is 10:30 UTC.
+    const start = request.time?.start;
+    expect(
+      start?.case === "startAt" && new Date(Number(start.value.seconds) * 1000).toISOString(),
+    ).toMatch(/T10:30:00\.000Z$/);
+    expect(router.replace).toHaveBeenCalledWith("/plans/p2");
   });
 });

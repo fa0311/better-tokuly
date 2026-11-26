@@ -46,7 +46,7 @@ export function PlansScreen() {
       <Button
         testID="plans-new"
         icon={<Plus size={18} color={colors["on-brand"]} />}
-        onPress={() => router.push(webScreenHref("/plans/new") as never)}
+        onPress={() => router.push("/plans/new")}
       >
         {t("plans:plan.new")}
       </Button>
