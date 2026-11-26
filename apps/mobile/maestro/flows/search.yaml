@@ -56,7 +56,8 @@ env:
     timeout: 15000
 - takeScreenshot: 15-search-recent
 - tapOn: { id: "search-history-clear" }
-- tapOn: "ぜんぶ消す"
+# The confirmation (the device runs in English, as in CI).
+- tapOn: "CLEAR ALL|Clear all|ぜんぶ消す"
 - extendedWaitUntil:
     notVisible: ${output.other}
     timeout: 15000
