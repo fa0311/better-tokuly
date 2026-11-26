@@ -594,6 +594,69 @@ async fn an_erased_account_leaves_nothing_but_bookkeeping() {
     }
 }
 
+/// Some of an erased account's lines can go at the same time with a stream
+/// the retention sweep erases: the rest still go, each announced once.
+#[tokio::test]
+async fn an_account_erased_while_a_stream_with_its_lines_goes_leaves_no_line() {
+    let ctx = start().await;
+    let db = &ctx.app.core.db;
+    let alice = ctx.app.user("alice").await;
+    let bob = ctx.app.user("bob").await;
+    let channel = ctx.channel(&alice, "ch").await;
+    let erased = ctx.stream(&alice, &channel, "消える配信").await;
+    let kept = ctx.stream(&alice, &channel, "残る配信").await;
+    // Bob's first lines are on the stream that goes, more than a batch on the other.
+    for (stream, count) in [(&erased, 10), (&kept, 1500)] {
+        sqlx::query(
+            "INSERT INTO live_chat_messages (stream_id, user_id, kind, text)
+             SELECT $1, $2, 1, 'いるよ' FROM generate_series(1, $3) AS n",
+        )
+        .bind(sid(stream))
+        .bind(bob.id)
+        .bind(count)
+        .execute(db)
+        .await
+        .unwrap();
+    }
+    let lines: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM live_chat_messages WHERE stream_id = $1")
+        .bind(sid(&kept))
+        .fetch_all(db)
+        .await
+        .unwrap();
+
+    let mut sweep = db.begin().await.unwrap();
+    sqlx::query("DELETE FROM live_streams WHERE id = $1").bind(sid(&erased)).execute(&mut *sweep).await.unwrap();
+    let erase = ctx.deliver_event("identity.user.deleted", None, serde_json::json!({ "user_id": bob.id }));
+    let sweep_commits = async {
+        // Once the erasure waits for the lines the sweep holds.
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity
+                 WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%DELETE FROM live_chat_messages%'",
+            )
+            .fetch_one(db)
+            .await
+            .unwrap();
+            if waiting > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        sweep.commit().await.unwrap();
+    };
+    tokio::join!(erase, sweep_commits);
+
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM live_chat_messages WHERE user_id = $1")
+        .bind(bob.id)
+        .fetch_one(db)
+        .await
+        .unwrap();
+    assert_eq!(left, 0, "every line of the account goes");
+    for line in &lines {
+        assert_eq!(ctx.announced(SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, &line.to_string()).await, 1);
+    }
+}
+
 /// One account asking for many things at once must not leave the API
 /// without database connections: every transaction here reads through
 /// itself, never through the pool (checklist 1). The test pool has five

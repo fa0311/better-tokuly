@@ -521,22 +521,28 @@ pub(crate) async fn announce_erased_chat(tx: &mut Tx<'_>, stream_id: Uuid) -> Ap
 /// Erases every chat line by `user_id` (their account is being erased), in
 /// batches in the caller's transaction, with `subject.deleted` for the
 /// lines that were still shown.
+///
+/// A batch is chosen before it is deleted: lines that go meanwhile with
+/// their stream leave it short, so only an empty choice means none is left.
 pub(crate) async fn erase_lines_of(tx: &mut Tx<'_>, user_id: Uuid) -> AppResult<()> {
     loop {
-        let erased: Vec<(Uuid, bool)> = sqlx::query_as(
-            "DELETE FROM live_chat_messages
-             WHERE id IN (SELECT id FROM live_chat_messages WHERE user_id = $1 ORDER BY id LIMIT $2)
-             RETURNING id, deleted_at IS NULL",
-        )
-        .bind(user_id)
-        .bind(ERASE_BATCH)
-        .fetch_all(&mut **tx)
-        .await?;
-        let shown: Vec<Uuid> = erased.iter().filter(|(_, shown)| *shown).map(|(id, _)| *id).collect();
-        outbound::subjects_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, &shown).await?;
-        if (erased.len() as i64) < ERASE_BATCH {
+        let lines: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM live_chat_messages WHERE user_id = $1 ORDER BY id LIMIT $2")
+                .bind(user_id)
+                .bind(ERASE_BATCH)
+                .fetch_all(&mut **tx)
+                .await?;
+        if lines.is_empty() {
             return Ok(());
         }
+        let shown: Vec<Uuid> = sqlx::query_scalar(
+            "WITH erased AS (DELETE FROM live_chat_messages WHERE id = ANY($1) RETURNING id, deleted_at)
+             SELECT id FROM erased WHERE deleted_at IS NULL",
+        )
+        .bind(&lines)
+        .fetch_all(&mut **tx)
+        .await?;
+        outbound::subjects_deleted(&mut **tx, SubjectType::SUBJECT_TYPE_LIVE_CHAT_MESSAGE, &shown).await?;
     }
 }
 
