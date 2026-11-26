@@ -1,9 +1,9 @@
-import { media } from "@tokuly/api";
+import { type Api, media } from "@tokuly/api";
 import { AssetFailedError } from "@tokuly/core/errors";
 import { api } from "#/lib/api";
 import { SERVER_URL } from "#/lib/config";
 
-const mediaClient = () => api().service(media.MediaService);
+const mediaClient = (options: { api?: Api }) => (options.api ?? api()).service(media.MediaService);
 
 /** A file on the device (a photo from the library or the camera), as the pickers hand it over. */
 export interface LocalFile {
@@ -16,6 +16,8 @@ export interface UploadOptions {
   purpose: media.AssetPurpose;
   /** 0..1 as bytes reach the object store. */
   onProgress?(fraction: number): void;
+  /** The account the upload belongs to (`Account.api`); the active one when left out. */
+  api?: Api;
 }
 
 const PARALLEL_PARTS = 3;
@@ -57,7 +59,7 @@ async function putParts(
   const worker = async () => {
     while (next <= created.partCount) {
       const partNumber = next++;
-      const { parts } = await mediaClient().getUploadParts({
+      const { parts } = await mediaClient(options).getUploadParts({
         uploadId: created.uploadId,
         partNumbers: [partNumber],
       });
@@ -76,8 +78,8 @@ async function putParts(
 }
 
 /** Resolves once the asset finished processing (READY); rejects when it failed. */
-async function waitForAsset(assetId: string): Promise<media.Asset> {
-  for await (const update of mediaClient().watchAsset({ assetId })) {
+async function waitForAsset(assetId: string, options: UploadOptions): Promise<media.Asset> {
+  for await (const update of mediaClient(options).watchAsset({ assetId })) {
     const asset = update.asset;
     if (asset?.status === media.AssetStatus.READY) return asset;
     if (asset?.status === media.AssetStatus.FAILED)
@@ -96,7 +98,7 @@ export async function uploadAndProcess(
   options: UploadOptions,
 ): Promise<media.Asset> {
   const blob = await (await fetch(file.uri)).blob();
-  const created = await mediaClient().createUpload({
+  const created = await mediaClient(options).createUpload({
     purpose: options.purpose,
     fileName: file.name,
     contentType: file.type || blob.type || "application/octet-stream",
@@ -109,13 +111,13 @@ export async function uploadAndProcess(
         options.onProgress?.(bytes / blob.size),
       );
     else await putParts(blob, created, options);
-    asset = (await mediaClient().completeUpload({ uploadId: created.uploadId })).asset!;
+    asset = (await mediaClient(options).completeUpload({ uploadId: created.uploadId })).asset!;
     options.onProgress?.(1);
   } catch (error) {
-    void mediaClient()
+    void mediaClient(options)
       .abortUpload({ uploadId: created.uploadId })
       .catch(() => {});
     throw error;
   }
-  return asset.status === media.AssetStatus.READY ? asset : waitForAsset(asset.id);
+  return asset.status === media.AssetStatus.READY ? asset : waitForAsset(asset.id, options);
 }

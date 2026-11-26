@@ -1,0 +1,99 @@
+appId: app.tokuly.mobile
+name: Change the account's settings on native screens
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/web-account.js
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- tapOn: { id: "sign-in-identifier" }
+- inputText: ${output.handle}
+- tapOn: { id: "sign-in-password" }
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn: { id: "sign-in-submit" }
+- extendedWaitUntil:
+    visible: { id: "map-screen" }
+    timeout: 30000
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-settings" }
+- tapOn: { id: "me-settings" }
+- extendedWaitUntil:
+    visible: { id: "settings-screen" }
+    timeout: 15000
+
+# Profile: a new bio is saved and shows when the screen opens again.
+- tapOn: { id: "settings-profile" }
+- extendedWaitUntil:
+    visible: { id: "profile-edit" }
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 19-profile
+- tapOn: { id: "profile-bio" }
+- inputText: "ramen and maps"
+- hideKeyboard
+# The swipe starts on the banner: the bio field would scroll itself.
+- swipe:
+    start: 50%, 25%
+    end: 50%, 5%
+- tapOn: { id: "profile-save" }
+- tapOn: "OK"
+- back
+- tapOn: { id: "settings-profile" }
+- assertVisible: "ramen and maps"
+- back
+
+# Privacy: a choice and a switch save at once, and are still there when the screen opens again.
+- tapOn: { id: "settings-privacy" }
+- extendedWaitUntil:
+    visible: { id: "privacy-screen" }
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 20-privacy
+- tapOn: { id: "privacy-friendRequestsFrom" }
+- tapOn: { id: "privacy-friendRequestsFrom-NOBODY" }
+- tapOn: { id: "privacy-shareBattery" }
+- back
+- tapOn: { id: "settings-privacy" }
+- extendedWaitUntil:
+    visible: { id: "privacy-screen" }
+    timeout: 15000
+- assertVisible: "だれにも|Nobody"
+- back
+
+# Notifications: what a push shows on the lock screen, and a pause that can be ended at once.
+- tapOn: { id: "settings-notifications" }
+- extendedWaitUntil:
+    visible: { id: "push-preview-hidden" }
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 21-notification-settings
+- tapOn: { id: "push-preview-senderOnly" }
+- scrollUntilVisible:
+    element: { id: "push-pause-1h" }
+- tapOn: { id: "push-pause-1h" }
+- tapOn: "OK"
+- assertVisible: { id: "push-resume" }
+- tapOn: { id: "push-resume" }
+- tapOn: "OK"
+- back
+
+# Security: this phone among the signed-in devices; two-step verification starts with a key
+# (no screenshot: that screen is hidden from capture).
+- tapOn: { id: "settings-security" }
+- extendedWaitUntil:
+    visible: { id: "session-row" }
+    timeout: 15000
+- waitForAnimationToEnd
+- takeScreenshot: 22-security
+- tapOn: { id: "totp-enable" }
+- extendedWaitUntil:
+    visible: { id: "totp-secret" }
+    timeout: 15000
+- back
+- back

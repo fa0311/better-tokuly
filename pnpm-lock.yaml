@@ -403,6 +403,9 @@ importers:
       expo-router:
         specifier: ~58.0.32
         version: 58.0.32(d88f9985f71c10cab8be48b083af652c)
+      expo-screen-capture:
+        specifier: ~58.0.6
+        version: 58.0.6(expo@58.0.26)(react@19.3.0)
       expo-secure-store:
         specifier: ~58.0.3
         version: 58.0.3(expo@58.0.26)
@@ -4191,6 +4194,12 @@ packages:
         optional: true
       react-server-dom-webpack:
         optional: true
+
+  expo-screen-capture@58.0.6:
+    resolution: {integrity: sha512-mJLGEyoP0TiQjxL/+x0pmvx9/QXVzGa4vywVLeH2InEPUTGsqWm5AYW6fQghauch5RmafkMr6oyoxy8RZu/zoA==}
+    peerDependencies:
+      expo: '*'
+      react: '*'
 
   expo-secure-store@58.0.3:
     resolution: {integrity: sha512-RpubZfqJREEcwKbx3HFoWbtDd31t+yESMj7Ei5/mGQp5vViwUBzL4nUCZRLFyt+O690mT8We7dDtIUZeIk6LbQ==}
@@ -10664,6 +10673,11 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
       - '@types/react-dom'
+
+  expo-screen-capture@58.0.6(expo@58.0.26)(react@19.3.0):
+    dependencies:
+      expo: 58.0.26(2bbcdee4a6d47a3b8fc3102b657b7895)
+      react: 19.3.0
 
   expo-secure-store@58.0.3(expo@58.0.26):
     dependencies:

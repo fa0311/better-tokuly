@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { identity } from "@tokuly/api";
 import { errorReason } from "@tokuly/api";
+import { graphemes } from "@tokuly/core/format";
 import { profileKeys } from "@tokuly/core/profile";
 import { Check, X } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
@@ -14,7 +15,6 @@ import { accountClient, authClient, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { adoptMe, keys } from "../data";
 import { Group } from "../shell/settings-page";
-import { graphemes } from "./graphemes";
 
 const MAX_NAME = 40;
 const MAX_BIO = 300;

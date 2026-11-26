@@ -93,6 +93,17 @@ export default {
     version: "バージョン {{version}}",
     server: "サーバー {{url}}",
   },
+  totp: {
+    step1: "1. 認証アプリにキーを追加する",
+    openApp: "認証アプリでひらく",
+    noApp: "認証アプリが見つからなかったよ。下のキーを長押ししてコピーしてね",
+    manual: "認証アプリに手で入力するときは、このキーを使ってね（長押しでコピー）",
+    shareCodes: "共有して保存する",
+    noCapture: "安全のため、この画面はスクショできないよ。下のボタンで保存してね",
+  },
+  security: {
+    onWeb: "Webでひらくよ",
+  },
   more: {
     title: "もっと見る",
     open: "もっと見る",

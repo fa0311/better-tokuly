@@ -19,8 +19,16 @@ export function Page({ children, testID }: { children: ReactNode; testID?: strin
   );
 }
 
-/** A heading over a group of rows. */
-export function Section({ title, children }: { title?: string; children: ReactNode }) {
+/** A heading over a group of rows, and a line on what they are about (`lead`). */
+export function Section({
+  title,
+  lead,
+  children,
+}: {
+  title?: string;
+  lead?: string;
+  children: ReactNode;
+}) {
   return (
     <View className="gap-2">
       {title && (
@@ -28,6 +36,7 @@ export function Section({ title, children }: { title?: string; children: ReactNo
           {title}
         </Text>
       )}
+      {lead && <Text className="-mt-1 px-1 text-xs text-ink-soft">{lead}</Text>}
       <View className="overflow-hidden rounded-card bg-surface">{children}</View>
     </View>
   );
