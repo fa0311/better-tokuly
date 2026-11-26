@@ -58,7 +58,8 @@ its tests) and the web switches to it.
   is kept aside (`departed`) until the server has removed its push
   registrations and ended it, retried on each start when it was offline.
   Every use of a parked or departed token waits its turn, so none is ever
-  sent twice.
+  sent twice; a sign-out waits too, behind a switch on its way, and ends the
+  account that was in use when it was asked, never the one switched to.
 - **Location.** The same rules as the web (`features/map/sharing.ts`): nothing
   is sent for an account until it says yes on this device; stopping, a
   revoked permission, a sign-out or a switch tell the server, and a stop that

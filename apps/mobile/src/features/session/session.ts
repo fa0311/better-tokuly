@@ -141,18 +141,42 @@ export function removeParkedAccount(sessionId: string): Promise<void> {
  * server is known to have ended it (offline, the sign-out does not reach it):
  * see `settleDeparted`. `everywherePending`: every session was to end, and
  * the server has not done it yet — the person is told it will be.
+ *
+ * It takes its turn in the queue of the device's tokens, behind a switch
+ * that may be on its way: the account it ends is the one in use when it was
+ * asked. When a switch went through meanwhile, that account is parked by
+ * then; it leaves the device all the same and the new one stays signed in.
  */
 export async function signOut(allSessions = false): Promise<{ everywherePending: boolean }> {
-  await leave();
   const sessionId = activeSessionId();
-  const token = await activeTokenStore.get();
-  if (sessionId && token)
-    await withParkedTokens(() => addDeparted(sessionId, { token, allSessions }));
-  await api().session.signOut(allSessions);
-  await startOver(null);
+  await withParkedTokens(async () => {
+    if (sessionId && activeSessionId() !== sessionId) await departParked(sessionId, allSessions);
+    else await signOutActive(allSessions);
+  });
   await settleDeparted();
   const pending = sessionId ? (await departedTokens())[sessionId] : undefined;
   return { everywherePending: Boolean(allSessions && pending) };
+}
+
+/** The account in use leaves and the app starts over signed out. Runs in the queue of the device's tokens. */
+async function signOutActive(allSessions: boolean): Promise<void> {
+  await leave();
+  const sessionId = activeSessionId();
+  const token = await activeTokenStore.get();
+  if (sessionId && token) await addDeparted(sessionId, { token, allSessions });
+  await api().session.signOut(allSessions);
+  await startOver(null);
+}
+
+/**
+ * A parked account leaves the device the way a signed-out one does: its
+ * token goes aside as departed (before it is forgotten as parked, so it is
+ * never lost), for `settleDeparted` to end it on the server.
+ */
+async function departParked(sessionId: string, allSessions: boolean): Promise<void> {
+  const token = (await parkedTokens())[sessionId];
+  if (token) await addDeparted(sessionId, { token, allSessions });
+  await forgetParked(sessionId);
 }
 
 /**
