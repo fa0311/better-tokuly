@@ -27,7 +27,7 @@ env:
     visible: { id: "live-browse" }
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/09-live
+- takeScreenshot: 09-live
 - tapOn: { id: "live-tab-upcoming" }
 - extendedWaitUntil:
     visible: { id: "friend-upcoming" }

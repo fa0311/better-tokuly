@@ -25,6 +25,14 @@ release APK for the emulator and runs them against the Compose stack.
 | `live` | finds a friend's scheduled stream, asks for its reminder and chats before it starts |
 | `web-screens` | opens a web-only feature from 「もっと見る」 and sees it signed in |
 
+On the way the flows take a screenshot of each main screen (the map, the
+chats, a conversation, notes, じぶん, friends, shorts, videos, live, the
+settings). Maestro writes them only inside the run's output folder
+(`--test-output-dir`), as `<run>/<flow>/takeScreenshot/<name>.png`: under
+`apps/mobile/maestro/screenshots` with `pnpm e2e`, in the `mobile-screenshots`
+artifact of the End to end workflow in CI. A `takeScreenshot` step names the
+file, never a path outside that folder (Maestro fails the flow on one).
+
 What the flows cannot do is covered by component tests: the emulator has no
 camera (the pictures are put in its library; the camera screen has a
 component test), and a flow's script cannot upload a video (playback is

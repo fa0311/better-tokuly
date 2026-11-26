@@ -27,7 +27,7 @@ env:
     visible: { id: "video-feeds" }
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/08-video-home
+- takeScreenshot: 08-video-home
 - tapOn: { id: "video-feed-subscriptions" }
 - extendedWaitUntil:
     visible: "(登録チャンネルの動画はまだありません|No videos from your subscriptions yet).*"

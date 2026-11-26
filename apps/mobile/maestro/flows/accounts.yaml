@@ -27,7 +27,7 @@ env:
     visible: { id: "settings-screen" }
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/10-settings
+- takeScreenshot: 10-settings
 - tapOn: { id: "settings-accounts" }
 - tapOn: { id: "accounts-add" }
 - tapOn: { id: "sign-in-identifier" }

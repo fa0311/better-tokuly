@@ -30,13 +30,13 @@ env:
 - scrollUntilVisible:
     element: { id: "me-friends" }
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/05-me
+- takeScreenshot: 05-me
 - tapOn: { id: "me-friends" }
 - extendedWaitUntil:
     visible: { id: "friends-screen" }
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/06-friends
+- takeScreenshot: 06-friends
 - tapOn: { id: "friends-tab-requests" }
 - tapOn: { id: "${'accept-' + output.friend}" }
 - tapOn: "OK"
@@ -49,7 +49,7 @@ env:
     visible: "(1 on the map|マップに1人)"
     timeout: 30000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/01-map
+- takeScreenshot: 01-map
 - tapOn: { id: "map-friends-chip" }
 - tapOn: { id: "${'map-friend-' + output.friend}" }
 - assertVisible: { id: "friend-card" }

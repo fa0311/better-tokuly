@@ -26,13 +26,13 @@ env:
     visible: { id: "${'unread-' + output.friendName}" }
     timeout: 20000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/02-chats
+- takeScreenshot: 02-chats
 - tapOn: { id: "${'conversation-' + output.friendName}" }
 - extendedWaitUntil:
     visible: "やっほー！あそぼ"
     timeout: 15000
 - waitForAnimationToEnd
-- takeScreenshot: ${SHOTS}/03-conversation
+- takeScreenshot: 03-conversation
 
 # Send one (the device keyboard types ASCII only).
 - tapOn: { id: "composer-input" }
