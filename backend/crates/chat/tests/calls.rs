@@ -715,7 +715,13 @@ async fn every_join_makes_sure_the_room_exists() {
     let (ctx, livekit) = start_with_room_service().await;
     let (group, owner, members) = ctx.group_of("部活", 2).await;
     let created = |room: &str| {
-        livekit.calls.lock().unwrap().iter().filter(|(method, body)| method == "CreateRoom" && body["name"] == room).count()
+        livekit
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(method, body)| method == "CreateRoom" && body["name"] == room)
+            .count()
     };
     let started = start_call(&ctx, &owner, &group.id, false).await;
     let (call_id, room) = (started.call.id.clone(), started.credentials.room.clone());

@@ -395,6 +395,16 @@ impl Chat {
         moderated: bool,
     ) -> AppResult<Option<MessageRow>> {
         let mut tx = self.core.db.begin().await?;
+        // The conversation before the message and the members, the order in
+        // which a conversation that goes takes them.
+        let conversation_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT conversation_id FROM chat_messages WHERE id = $1")
+                .bind(message_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if let Some(conversation_id) = conversation_id {
+            access::lock_conversation_if_present(&mut tx, conversation_id).await?;
+        }
         let row: Option<MessageRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {MSG} FROM chat_messages x WHERE x.id = $1 FOR UPDATE"
         )))

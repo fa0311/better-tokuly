@@ -13,6 +13,7 @@ use tokuly_social::{
 
 use crate::{
     Chat, access,
+    conversations::delete_conversation,
     events::{
         ASSET_DELETED, ASSET_FAILED, ASSET_READY, AssetRef, CONTENT_REMOVED, ContentRemoved, FRIEND_ACCEPTED,
         USER_BLOCKED, USER_CREATED, USER_DELETED, USER_UNBLOCKED,
@@ -55,7 +56,8 @@ impl Chat {
         };
         let blocked = graph::is_blocked_either(core, lo, hi).await?;
         let mut tx = core.db.begin().await?;
-        let conv = access::lock_conversation(&mut tx, conversation_id).await?;
+        // Deleted meanwhile: both accounts were erased.
+        let Some(conv) = access::lock_conversation_if_present(&mut tx, conversation_id).await? else { return Ok(()) };
         let members: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_members WHERE conversation_id = $1")
             .bind(conversation_id)
             .fetch_one(&mut *tx)
@@ -122,8 +124,9 @@ impl Chat {
 
     /// `identity.user.deleted`: the user's memberships, reactions, AI
     /// settings and keys, and co-presence go. Their messages stay and show a deleted user; direct
-    /// conversations become read-only for the other side; groups lose a
-    /// member (and get a new owner when they owned one).
+    /// conversations become read-only for the other side, and go once that
+    /// side was erased too; groups lose a member (and get a new owner when
+    /// they owned one).
     pub(crate) async fn on_user_deleted(&self, user_id: Uuid) -> AppResult<()> {
         let core = &self.core;
         let memberships: Vec<(Uuid, i16)> = sqlx::query_as(
@@ -136,28 +139,43 @@ impl Chat {
         for (conversation_id, conversation_kind) in memberships {
             if conversation_kind == kind::GROUP {
                 let mut tx = core.db.begin().await?;
-                let mut conv = access::lock_conversation(&mut tx, conversation_id).await?;
+                let Some(mut conv) = access::lock_conversation_if_present(&mut tx, conversation_id).await? else {
+                    continue;
+                };
                 let Some(member) = access::member_in_tx(&mut tx, conversation_id, user_id).await? else { continue };
                 let departure = self.remove_member_tx(&mut tx, &mut conv, &member, None).await?;
                 tx.commit().await?;
                 self.after_departure(&departure, pb::ConversationRemovalReason::CONVERSATION_REMOVAL_REASON_LEFT).await;
             } else {
                 let mut tx = core.db.begin().await?;
-                access::lock_conversation(&mut tx, conversation_id).await?;
+                // Gone already: the other side was erased meanwhile and took it along.
+                let Some(conv) = access::lock_conversation_if_present(&mut tx, conversation_id).await? else {
+                    continue;
+                };
                 let removed = sqlx::query("DELETE FROM chat_members WHERE conversation_id = $1 AND user_id = $2")
                     .bind(conversation_id)
                     .bind(user_id)
                     .execute(&mut *tx)
                     .await?;
-                if removed.rows_affected() > 0 {
-                    sqlx::query("UPDATE chat_conversations SET member_count = member_count - 1 WHERE id = $1")
-                        .bind(conversation_id)
-                        .execute(&mut *tx)
-                        .await?;
+                let left = if removed.rows_affected() > 0 {
+                    sqlx::query_scalar(
+                        "UPDATE chat_conversations SET member_count = member_count - 1 WHERE id = $1 RETURNING member_count",
+                    )
+                    .bind(conversation_id)
+                    .fetch_one(&mut *tx)
+                    .await?
+                } else {
+                    conv.member_count
+                };
+                // Nobody is left to read it: it goes like an empty group.
+                if left <= 0 {
+                    delete_conversation(&mut tx, conversation_id).await?;
                 }
                 tx.commit().await?;
                 self.forget_presence(conversation_id, user_id).await;
-                self.refresh_direct_state(conversation_id).await?;
+                if left > 0 {
+                    self.refresh_direct_state(conversation_id).await?;
+                }
             }
         }
         sqlx::query("DELETE FROM chat_reactions WHERE user_id = $1").bind(user_id).execute(&core.db).await?;

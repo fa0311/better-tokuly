@@ -22,7 +22,13 @@ struct Evidence;
 
 #[async_trait]
 impl ReportEvidence for Evidence {
-    async fn hold(&self, conn: &mut PgConnection, subject_type: SubjectType, subject_id: Uuid, holder: &str) -> AppResult<()> {
+    async fn hold(
+        &self,
+        conn: &mut PgConnection,
+        subject_type: SubjectType,
+        subject_id: Uuid,
+        holder: &str,
+    ) -> AppResult<()> {
         if subject_type == SubjectType::SUBJECT_TYPE_CHAT_MESSAGE {
             tokuly_chat::hold_message_media(conn, subject_id, holder).await?;
         }
@@ -40,7 +46,9 @@ async fn start_with_admin() -> (Ctx, Admin) {
     let migrations: Vec<&str> = MIGRATIONS.iter().copied().chain(["1600"]).collect();
     let app = TestApp::start(&migrations, |core, identity, router| {
         let social = Social::new(core.clone(), identity.clone(), SocialConfig::default()).expect("social domain");
-        let stamp = Stamp::new(core.clone(), identity.clone(), StampConfig { seed_official: false, ..Default::default() }).expect("stamp domain");
+        let stamp =
+            Stamp::new(core.clone(), identity.clone(), StampConfig { seed_official: false, ..Default::default() })
+                .expect("stamp domain");
         let chat = Chat::new(core.clone(), identity.clone(), test_config()).expect("chat domain");
         let admin = Admin::new(core.clone(), identity.clone(), AdminConfig::default()).expect("admin domain");
         let router = admin.register(chat.register(stamp.register(social.register(identity.register(router)))));
@@ -91,8 +99,15 @@ async fn unsending_a_reported_message_keeps_its_photo_for_the_case() {
         .unwrap();
 
     // Taro unsends it: the message lets go of the photo, the case does not.
-    let _: DeleteMessageResponse =
-        ctx.call("Message", "DeleteMessage", &taro, &DeleteMessageRequest { message_id: message.id.clone(), ..Default::default() }).await.unwrap();
+    let _: DeleteMessageResponse = ctx
+        .call(
+            "Message",
+            "DeleteMessage",
+            &taro,
+            &DeleteMessageRequest { message_id: message.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
     let holders: Vec<String> = sqlx::query_scalar("SELECT holder FROM media_asset_holders WHERE asset_id = $1")
         .bind(photo_id)
         .fetch_all(&ctx.app.core.db)
@@ -102,11 +117,13 @@ async fn unsending_a_reported_message_keeps_its_photo_for_the_case() {
     assert!(tokuly_media::assets::is_attached(&ctx.app.core, photo_id).await.unwrap(), "the janitor leaves it alone");
 
     // Long after the case is resolved, it lets go too.
-    sqlx::query("UPDATE moderation_cases SET status = 'resolved', resolved_at = now() - interval '91 days' WHERE id = $1")
-        .bind(case_id)
-        .execute(&ctx.app.core.db)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE moderation_cases SET status = 'resolved', resolved_at = now() - interval '91 days' WHERE id = $1",
+    )
+    .bind(case_id)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
     admin.release_due_evidence().await.unwrap();
     assert!(!tokuly_media::assets::is_attached(&ctx.app.core, photo_id).await.unwrap());
 }

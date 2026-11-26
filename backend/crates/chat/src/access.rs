@@ -81,11 +81,21 @@ pub(crate) async fn lock_conversation(
     tx: &mut Transaction<'_, Postgres>,
     conversation_id: Uuid,
 ) -> AppResult<ConversationRow> {
-    sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT {CONV} FROM chat_conversations c WHERE c.id = $1 FOR UPDATE")))
-        .bind(conversation_id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or_else(conversation_not_found)
+    lock_conversation_if_present(tx, conversation_id).await?.ok_or_else(conversation_not_found)
+}
+
+/// [`lock_conversation`] for work that has nothing left to do once the
+/// conversation was deleted meanwhile (event consumers).
+pub(crate) async fn lock_conversation_if_present(
+    tx: &mut Transaction<'_, Postgres>,
+    conversation_id: Uuid,
+) -> AppResult<Option<ConversationRow>> {
+    Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {CONV} FROM chat_conversations c WHERE c.id = $1 FOR UPDATE"
+    )))
+    .bind(conversation_id)
+    .fetch_optional(&mut **tx)
+    .await?)
 }
 
 pub(crate) async fn find_member(core: &Core, conversation_id: Uuid, user_id: Uuid) -> AppResult<Option<MemberRow>> {
