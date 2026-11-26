@@ -25,11 +25,15 @@ env:
     visible: { id: "map-screen" }
     timeout: 30000
 
-# The request waits under the friends tab.
-- tapOn: { id: "tab-friends" }
+# The request waits with the friends, the first entry under the own profile.
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-friends" }
+- tapOn: { id: "me-friends" }
 - tapOn: { id: "friends-tab-requests" }
 - tapOn: { id: "${'accept-' + output.friend}" }
 - tapOn: "OK"
+- back
 
 # Friends now: the friend is on the map, with a card. (MapLibre's map view does not expose its
 # markers to accessibility, so the flow, like a screen reader, goes through the map's list.)
@@ -66,7 +70,10 @@ env:
     timeout: 10000
 
 # Someone else, by handle.
-- tapOn: { id: "tab-friends" }
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-friends" }
+- tapOn: { id: "me-friends" }
 - tapOn: { id: "friends-add" }
 - tapOn: { id: "add-friend-handle" }
 - inputText: ${output.stranger}

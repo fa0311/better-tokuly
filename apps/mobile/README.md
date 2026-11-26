@@ -192,7 +192,7 @@ same file.
 | file in `src/features/<area>/` | default export                           | what it does                                                                  |
 | ------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------- |
 | `tabs.tsx`                     | `TabEntry[]` (`#/seams/tabs`)            | a tab; its route is `app/(app)/(tabs)/<name>.tsx`                             |
-| `hub.ts`                       | `HubEntry[]` (`#/seams/hub`)             | the area's way in from the last tab, for what has no tab                      |
+| `hub.ts`                       | `HubEntry[]` (`#/seams/hub`)             | the area's way in from the last tab, for what has no tab (with its count)     |
 | `screens.ts`                   | `ScreenEntry[]` (`#/seams/screens`)      | how its routes under `app/(app)/` are presented: title, modal, no header      |
 | `links.ts`                     | `LinkTarget[]` (`#/seams/links`)         | which of the server's paths (notifications, pushes) open which of its screens |
 | `settings-rows.ts`             | `SettingsRow[]` (`#/seams/settings`)     | rows of the settings screen                                                   |
@@ -221,6 +221,17 @@ export default [
   { path: /^\/plans\/([^/]+)$/, screen: (match) => `/plans/${match[1]}` },
 ] satisfies LinkTarget[];
 ```
+
+**The bar holds six at most.** Today: マップ (the heart: where the app opens),
+チャット, ノート, ショート, お知らせ, じぶん — what a high schooler opens many
+times a day, and the two places things arrive (the chats' and the inbox's
+counters). Everything else is an entry of the hub under the own profile:
+ともだち first (the list, requests, adding someone: friends themselves are met
+on the map and in the chats), 「もっと見る」, the settings. An entry names the
+count that waits behind it (`badge`), the entry shows it and the じぶん tab
+shows the sum, so a friend request is still seen from the bar (and it is an
+inbox entry and a push as well). A new area that wants a tab has to make the
+case against one of the six; `src/seams/__tests__/seams.test.ts` holds the line.
 
 Routes stay files: Expo Router finds `app/(app)/plans/[id].tsx` by itself, and
 a route file only renders a screen of the feature. A route without an entry in
@@ -298,7 +309,7 @@ the screens that matter and mock only the edges: the network (`expo/fetch`),
 device modules, the clock.
 
 The Maestro flows (`maestro/flows`) sign up and in, switch accounts, accept a
-friend and see them on the map, use ghost mode and sharing, open a chat with an
+friend (from ともだち under the own profile) and see them on the map, use ghost mode and sharing, open a chat with an
 unread message, send one, receive one from a second account (through the API),
 start a chat and open the inbox, post a story from the library and watch it as
 a friend (the emulator has no camera: the pictures are put in its library, and

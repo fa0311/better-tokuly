@@ -12,8 +12,10 @@ import tabs from "#/generated/seams/tabs";
  *       icon: MessageCircle, badge: "chat" },
  *   ] satisfies TabEntry[];
  *
- * The bar holds five or six: an area that is not opened many times a day
- * belongs on the hub (`#/seams/hub`).
+ * The bar holds six at most (today: map, chats, notes, shorts, inbox, me);
+ * `src/seams/__tests__/seams.test.ts` holds that line. An area that is not
+ * opened many times a day belongs on the hub (`#/seams/hub`), where its
+ * count still reaches the bar through the hub's tab.
  */
 export interface TabEntry {
   /** The route's file name under `app/(app)/(tabs)/`; the button's test ID is `tab-<name>`. */
