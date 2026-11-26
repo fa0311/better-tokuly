@@ -77,8 +77,24 @@ env:
     visible: { id: "hangout-mic", selected: true }
     timeout: 10000
 - takeScreenshot: 25-hangout
-- tapOn: { id: "hangout-mic" }
+
+# Out on the tabs, the mini player says the microphone is open and mutes it; a tap leads back.
+- runFlow: ../subflows/back.yaml
+- runFlow: ../subflows/back.yaml
+- extendedWaitUntil:
+    visible: { id: "spaces-inside-bar-mic", selected: true }
+    timeout: 10000
+- takeScreenshot: 26-mini-player
+- tapOn: { id: "spaces-inside-bar-mic" }
+- extendedWaitUntil:
+    visible: { id: "spaces-inside-bar-mic", selected: false }
+    timeout: 10000
+- tapOn: { id: "spaces-inside-bar" }
 - assertVisible: { id: "hangout-mic", selected: false }
+- tapOn: { id: "hangout-mic" }
+- extendedWaitUntil:
+    visible: { id: "hangout-mic", selected: true }
+    timeout: 10000
 - tapOn: { id: "hangout-leave" }
 - extendedWaitUntil:
     visible: { id: "hangout-join" }
