@@ -43,4 +43,4 @@ http.workspace = true
 http-body-util.workspace = true
 tower.workspace = true
 # A signalling connection to LiveKit stands in for a client that joined a room.
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
