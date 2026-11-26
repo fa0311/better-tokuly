@@ -1,4 +1,5 @@
 import { search } from "@tokuly/api";
+import { extraFlag, extraNumber, extraText, type HitExtra, hitExtra } from "@tokuly/core/search";
 import { BadgeCheck, EyeOff, ListVideo, MessageCircle, Reply, UsersRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,6 @@ import { ageLabel, formatCount, formatDuration } from "./format";
 import { Segments } from "./highlight";
 import { hitHref } from "./hit-href";
 import { KindTile } from "./kind-icon";
-import { extraFlag, extraNumber, extraText, type HitExtra, hitExtra } from "./kinds";
 
 const K = search.SearchKind;
 

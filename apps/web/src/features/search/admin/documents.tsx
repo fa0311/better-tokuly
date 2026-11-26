@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { search } from "@tokuly/api";
+import { isKind, KINDS, type Kind, kindSlug, searchKeys } from "@tokuly/core/search";
 import { Search, Trash2 } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,10 +9,9 @@ import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
-import { searchAdminClient, searchClient, searchKeys } from "../api";
+import { searchAdminClient, searchClient } from "../api";
 import { useDebounced } from "../hooks";
 import { KindTile } from "../kind-icon";
-import { isKind, KINDS, type Kind, kindSlug } from "../kinds";
 import { Pane, staffErrorMessage } from "./parts";
 
 /** A document to take out of the index: found by searching, or named by kind and ID. */

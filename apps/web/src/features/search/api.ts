@@ -1,36 +1,12 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { search } from "@tokuly/api";
+import { searchKeys, searchQueries } from "@tokuly/core/search";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
-import type { Sort } from "./params";
 
 export const searchClient = () => api().service(search.SearchService);
 export const searchAdminClient = () => api().service(search.SearchAdminService);
-
-/** Query keys of the search domain. Everything starts with `"search"`. */
-export const searchKeys = {
-  all: ["search"] as const,
-  /** Every result list of a query, whatever the tab. */
-  query: (query: string) => ["search", "results", query] as const,
-  results: (
-    query: string,
-    kind: search.SearchKind,
-    sort: Sort | undefined,
-    owner: string | undefined,
-  ) => ["search", "results", query, kind, sort ?? "relevance", owner ?? ""] as const,
-  /** Every typeahead answer. */
-  suggestions: ["search", "suggest"] as const,
-  suggest: (text: string, kind: search.SearchKind) => ["search", "suggest", text, kind] as const,
-  trending: ["search", "trending"] as const,
-  recent: ["search", "recent"] as const,
-  admin: {
-    all: ["search", "admin"] as const,
-    stats: ["search", "admin", "stats"] as const,
-    blockedTerms: ["search", "admin", "blocked"] as const,
-    synonyms: ["search", "admin", "synonyms"] as const,
-  },
-};
 
 // ───────────────────────────── What was searched on purpose ─────────────────────────────
 
@@ -66,25 +42,14 @@ export function submitSearch(queryClient: QueryClient, query: string): void {
 
 /** What many people are searching for right now. */
 export function useTrending(limit = 10) {
-  return useQuery({
-    queryKey: [...searchKeys.trending, limit],
-    queryFn: () => searchClient().getTrending({ limit }),
-    staleTime: 60_000,
-  });
+  return useQuery(searchQueries.trending(searchClient, limit));
 }
 
 // ───────────────────────────── Recent searches ─────────────────────────────
 
-/** The API keeps at most this many recent searches per person. */
-const RECENT_LIMIT = 50;
-
 /** The person's own recent searches (newest first) and whether their history is paused. */
 export function useRecentSearches(enabled = true) {
-  return useQuery({
-    queryKey: searchKeys.recent,
-    queryFn: () => searchClient().listRecentSearches({ page: { limit: RECENT_LIMIT } }),
-    enabled,
-  });
+  return useQuery({ ...searchQueries.recent(searchClient), enabled });
 }
 
 /** A search that was just remembered shows up in the history without waiting for the cache to go stale. */

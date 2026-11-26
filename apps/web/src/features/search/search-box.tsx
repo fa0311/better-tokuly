@@ -1,10 +1,10 @@
 import type { search } from "@tokuly/api";
+import { MAX_QUERY_LENGTH } from "@tokuly/core/search";
 import { Search, X } from "lucide-react";
 import { type FormEvent, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
-import { MAX_QUERY_LENGTH } from "./params";
 import { optionId, SuggestionList, useOpenSuggestion, useSuggestionKeys } from "./suggestion-list";
 import { useSuggestions } from "./typeahead";
 

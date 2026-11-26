@@ -1,13 +1,12 @@
 import { defaultStringifySearch } from "@tanstack/react-router";
-import { search } from "@tokuly/api";
-import { type Kind, kindFromSlug, kindSlug } from "./kinds";
-
-/** Result orders the API offers besides relevance, by their name in the address. */
-export const SORTS = ["newest", "popular"] as const;
-export type Sort = (typeof SORTS)[number];
-
-/** Longest query the API accepts. */
-export const MAX_QUERY_LENGTH = 100;
+import {
+  type Kind,
+  kindFromSlug,
+  kindSlug,
+  MAX_QUERY_LENGTH,
+  SORTS,
+  type Sort,
+} from "@tokuly/core/search";
 
 /**
  * What `/search` shows, as kept in the address: the address is the only
@@ -47,12 +46,6 @@ export function parseSearchParams(input: Record<string, unknown>): SearchParams 
   };
 }
 
-export function sortValue(sort: Sort | undefined): search.SearchSort {
-  if (sort === "newest") return search.SearchSort.NEWEST;
-  if (sort === "popular") return search.SearchSort.POPULAR;
-  return search.SearchSort.RELEVANCE;
-}
-
 /**
  * The address of a result page: `/search?q=…&kind=…`. Written with the
  * router's own search serialisation, so the router reads back exactly what
@@ -70,10 +63,3 @@ export function searchHref(
   };
   return `/search${defaultStringifySearch(params)}`;
 }
-
-/** A query that only looks at tags starts with '#'. */
-export const isTagQuery = (query: string): boolean => /^[#＃]/.test(query.trim());
-
-export const toTagQuery = (query: string): string => `#${query.trim().replace(/^[#＃]+/, "")}`;
-
-export const fromTagQuery = (query: string): string => query.trim().replace(/^[#＃]+/, "");

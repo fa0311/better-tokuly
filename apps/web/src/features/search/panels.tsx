@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { isKind, kindSlug } from "@tokuly/core/search";
 import { Clock, Flame, MoreHorizontal, Pause, Play, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,6 @@ import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { submitSearch, useHistoryActions, useRecentSearches, useTrending } from "./api";
 import { ageLabel } from "./format";
-import { isKind, kindSlug } from "./kinds";
 
 const heading = "flex min-w-0 flex-1 items-center gap-2 text-lg font-black";
 

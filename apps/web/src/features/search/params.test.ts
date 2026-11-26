@@ -1,15 +1,8 @@
 import { defaultParseSearch } from "@tanstack/react-router";
 import { search } from "@tokuly/api";
+import { MAX_QUERY_LENGTH } from "@tokuly/core/search";
 import { describe, expect, it } from "vitest";
-import {
-  fromTagQuery,
-  isTagQuery,
-  MAX_QUERY_LENGTH,
-  parseSearchParams,
-  searchHref,
-  sortValue,
-  toTagQuery,
-} from "./params";
+import { parseSearchParams, searchHref } from "./params";
 
 describe("the address of a result page", () => {
   it("reads query, tab, order and owner", () => {
@@ -73,26 +66,5 @@ describe("the address of a result page", () => {
       "a&b=c",
     ])
       expect(read(searchHref(query)).q, query).toBe(query);
-  });
-
-  it("maps the order to the API's", () => {
-    expect(sortValue(undefined)).toBe(search.SearchSort.RELEVANCE);
-    expect(sortValue("newest")).toBe(search.SearchSort.NEWEST);
-    expect(sortValue("popular")).toBe(search.SearchSort.POPULAR);
-  });
-});
-
-describe("tag-only queries", () => {
-  it("are recognized by a leading '#', half or full width", () => {
-    expect(isTagQuery("#さんぽ")).toBe(true);
-    expect(isTagQuery(" ＃さんぽ")).toBe(true);
-    expect(isTagQuery("さんぽ #犬")).toBe(false);
-  });
-
-  it("switch on and off without piling up '#'", () => {
-    expect(toTagQuery("さんぽ")).toBe("#さんぽ");
-    expect(toTagQuery("##さんぽ")).toBe("#さんぽ");
-    expect(fromTagQuery("＃さんぽ")).toBe("さんぽ");
-    expect(fromTagQuery(toTagQuery("さんぽ"))).toBe("さんぽ");
   });
 });

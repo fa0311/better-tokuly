@@ -12,6 +12,6 @@
  *   `searchHref("カフェ", { owner: user.id })` for "search this profile".
  * - `SEARCH_KINDS` / `SearchKindId`: the kinds a result page has tabs for.
  */
-export { KINDS as SEARCH_KINDS, type Kind as SearchKindId } from "./kinds";
+export { KINDS as SEARCH_KINDS, type Kind as SearchKindId } from "@tokuly/core/search";
 export { searchHref } from "./params";
 export { closeQuickSearch, openQuickSearch, QuickSearch } from "./quick-search";
