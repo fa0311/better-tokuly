@@ -133,9 +133,11 @@ jobs:
           path: ${{ runner.temp }}/backend
 
       # The service binaries of tools/dev/infra.sh depend on nothing but its pinned versions.
+      # Saved as soon as they are installed: a job that fails later (the flows) keeps them.
       - name: Service binaries
+        id: services
         timeout-minutes: 5
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ~/tokuly-dev/bin
           key: native-services-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/dev/infra.sh') }}
@@ -152,6 +154,12 @@ jobs:
         run: |
           brew install --quiet ffmpeg
           tools/dev/infra.sh install
+      - if: steps.services.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        uses: actions/cache/save@v6
+        with:
+          path: ~/tokuly-dev/bin
+          key: ${{ steps.services.outputs.cache-primary-key }}
       - name: Start the stack
         timeout-minutes: 8
         env:
