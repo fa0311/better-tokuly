@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { social } from "@tokuly/api";
-import { friendKeys, friendQueries } from "@tokuly/core/friends";
+import { followKeys, friendKeys, friendQueries } from "@tokuly/core/friends";
 import { useEffect } from "react";
 import { Alert } from "react-native";
 import { api } from "#/lib/api";
@@ -9,6 +9,20 @@ import i18n from "#/lib/i18n";
 import { realtime } from "#/lib/realtime";
 
 export const friendClient = () => api().service(social.FriendService);
+export const followClient = () => api().service(social.FollowService);
+
+/**
+ * Whether the account in use is locked (鍵アカウント; accounts of minors are
+ * created locked): what it shares publicly reaches only its followers and friends.
+ */
+export function useAccountLocked(): boolean {
+  const settings = useQuery({
+    queryKey: followKeys.settings,
+    queryFn: () => followClient().getFollowSettings({}),
+    staleTime: 60_000,
+  });
+  return settings.data?.settings?.locked ?? false;
+}
 
 export const useFriends = (query: string) => useQuery(friendQueries.list(friendClient, query));
 export const useIncomingRequests = () => useQuery(friendQueries.incoming(friendClient));

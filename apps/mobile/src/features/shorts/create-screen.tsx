@@ -4,12 +4,13 @@ import { durationLimit } from "@tokuly/core/errors";
 import { circleKeys, isCloseFriends } from "@tokuly/core/friends";
 import { clock, completeToken, MAX_CAPTION, tokenAtCaret } from "@tokuly/core/shorts";
 import { router } from "expo-router";
-import { Camera, Film } from "lucide-react-native";
+import { Camera, Film, Lock } from "lucide-react-native";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Modal, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "#/components/button";
+import { useAccountLocked } from "#/features/friends/data";
 import { CameraScreen } from "#/features/media/camera-screen";
 import { useRecordingLimits } from "#/features/media/limits";
 import { pickFromLibrary, trimVideo } from "#/features/media/pick";
@@ -44,6 +45,7 @@ export function CreateShortScreen() {
   const { t } = useTranslation("shorts");
   const { t: tm } = useTranslation("mobile");
   const { colors } = useTheme();
+  const locked = useAccountLocked();
   const limit = useRecordingLimits((limits) => limits[media.AssetPurpose.SHORT]);
   const [video, setVideo] = useState<LocalMedia | null>(null);
   const [caption, setCaption] = useState("");
@@ -186,10 +188,21 @@ export function CreateShortScreen() {
                 className={`gap-0.5 px-4 py-3 ${visibility === option.value ? "bg-brand-soft" : ""}`}
               >
                 <Text className="font-black text-ink">{t(`visibility.${option.key}.label`)}</Text>
-                <Text className="text-xs text-ink-soft">{t(`visibility.${option.key}.hint`)}</Text>
+                <Text className="text-xs text-ink-soft">
+                  {/* Public, from a locked account, is not public: it never says "everyone, search too". */}
+                  {locked && option.value === Visibility.PUBLIC
+                    ? t("form.lockedNote")
+                    : t(`visibility.${option.key}.hint`)}
+                </Text>
               </Pressable>
             ))}
           </View>
+          {locked && (
+            <View testID="locked-note" className="flex-row items-start gap-2 px-1">
+              <Lock color={colors["ink-soft"]} size={16} />
+              <Text className="flex-1 text-sm text-ink-soft">{t("form.lockedNote")}</Text>
+            </View>
+          )}
           {visibility === Visibility.CIRCLE && (
             <View className="gap-2">
               <Text className="px-1 text-xs font-black text-ink-soft">{t("form.circle")}</Text>
