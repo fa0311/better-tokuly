@@ -105,6 +105,18 @@ export async function forgetDeparted(sessionId: string): Promise<void> {
   await writeJson(DEPARTED_KEY, rest);
 }
 
+/**
+ * The active store may still hold the token of an account that signed out
+ * (it was set aside, then the phone refused to empty the store): that
+ * account left, and is not resumed at the next start.
+ */
+export async function dropDepartedActive(): Promise<void> {
+  const active = await activeTokenStore.get();
+  if (!active) return;
+  const departed = Object.values(await departedTokens());
+  if (departed.some(({ token }) => token === active)) await activeTokenStore.clear();
+}
+
 /** The token store of one departed session: a refresh keeps the rotated token, a refused one ends it here. */
 export function departedTokenStore(sessionId: string): RefreshTokenStore {
   return {

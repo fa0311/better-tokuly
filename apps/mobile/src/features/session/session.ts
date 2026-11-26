@@ -14,6 +14,7 @@ import {
   departedTokenStore,
   departedTokens,
   departPreviousInstall,
+  dropDepartedActive,
   forgetDeparted,
   forgetParked,
   parkActive,
@@ -43,6 +44,7 @@ export async function startSession(): Promise<void> {
       [...ACCOUNT_KEYS, DEVICE_ID_KEY, ...FEATURE_SECURE_KEYS],
       departPreviousInstall,
     );
+    await dropDepartedActive();
     await prepareRealtime();
     bindStore();
     if (await activeTokenStore.get()) await api().session.restore();
@@ -175,7 +177,13 @@ async function signOutActive(allSessions: boolean): Promise<void> {
     const token = await activeTokenStore.get();
     if (sessionId && token) await addDeparted(sessionId, { token, allSessions });
   });
-  await api().session.signOut(allSessions);
+  // Set aside, the account has left: the app is signed out even when the phone refuses to
+  // empty the active store (the next start does not resume what is left there).
+  try {
+    await api().session.signOut(allSessions);
+  } catch (error) {
+    console.warn("Could not empty the active token store; signed out all the same.", error);
+  }
   await startOver(null);
 }
 
