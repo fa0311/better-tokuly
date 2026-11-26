@@ -223,9 +223,9 @@ export function toCreateRequest(
 }
 
 /**
- * What changed between two states of the form, as an update. The time and
- * the place are only sent when they changed: each such change tells
- * everyone in the plan.
+ * What changed between two states of the form, as an update: only those
+ * fields, so someone else's change made meanwhile stays. A change of the
+ * time or the place tells everyone in the plan.
  */
 export function toUpdateRequest(
   planId: string,
@@ -236,20 +236,23 @@ export function toUpdateRequest(
   const same = (a: unknown, b: unknown) =>
     JSON.stringify(a, (_key, item) => (typeof item === "bigint" ? item.toString() : item)) ===
     JSON.stringify(b, (_key, item) => (typeof item === "bigint" ? item.toString() : item));
-  const time = toPlanTime(value, zone);
-  return {
-    planId,
-    title: value.title.trim(),
-    emoji: value.emoji,
-    description: value.description.trim(),
-    time: same(toPlanTime(before, zone), time) ? undefined : time,
-    place: same(toPlanPlace(before), toPlanPlace(value)) ? undefined : toPlanPlace(value),
-    guestsCanInvite: value.guestsCanInvite,
-    capacity: value.capacity ? Number(value.capacity) : 0,
-    remindDayBefore: value.remindDayBefore,
-    remindMinutesBefore: value.remindMinutesBefore,
-    currency: value.currency,
-  };
+  const fields = (form: PlanFormValue) => ({
+    title: form.title.trim(),
+    emoji: form.emoji,
+    description: form.description.trim(),
+    time: toPlanTime(form, zone),
+    place: toPlanPlace(form),
+    guestsCanInvite: form.guestsCanInvite,
+    capacity: form.capacity ? Number(form.capacity) : 0,
+    remindDayBefore: form.remindDayBefore,
+    remindMinutesBefore: form.remindMinutesBefore,
+    currency: form.currency,
+  });
+  const [was, now] = [fields(before), fields(value)];
+  const changed = Object.fromEntries(
+    Object.entries(now).filter(([key, item]) => !same(was[key as keyof typeof was], item)),
+  );
+  return { planId, ...changed };
 }
 
 /** "12月24日(火) 18:00〜21:00", "12月24日(火)", or "日にち未定", in the language of `i18n`. */

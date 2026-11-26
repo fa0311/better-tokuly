@@ -90,6 +90,26 @@ describe("the plan form", () => {
     const moved = toUpdateRequest("p1", before, { ...before, time: "19:00" }, TOKYO);
     expect(moved.time).toBeDefined();
   });
+
+  it("sends only what changed, so a co-host's edit at the same time is not undone", () => {
+    const plan = create(plans.PlanSchema, {
+      id: "p1",
+      title: "カラオケ",
+      capacity: 6,
+      remindMinutesBefore: 30,
+      time: timed("2026-12-24T09:00:00Z"),
+    });
+    const before = formFromPlan(plan, TOKYO);
+    expect(toUpdateRequest("p1", before, { ...before, title: " カラオケ! " }, TOKYO)).toEqual({
+      planId: "p1",
+      title: "カラオケ!",
+    });
+    expect(toUpdateRequest("p1", before, { ...before, capacity: "" }, TOKYO)).toEqual({
+      planId: "p1",
+      capacity: 0,
+    });
+    expect(toUpdateRequest("p1", before, before, TOKYO)).toEqual({ planId: "p1" });
+  });
 });
 
 describe("the time of a plan in words", () => {
