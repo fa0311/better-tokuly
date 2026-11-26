@@ -60,7 +60,7 @@ function Pager({
 }) {
   const [height, setHeight] = useState(0);
   const [current, setCurrent] = useState(start);
-  const [inFront, setInFront] = useState(AppState.currentState === "active");
+  const [inFront, setInFront] = useState(AppState.currentState !== "background");
   const [focused, setFocused] = useState(true);
   const source = playbackSource(context);
 

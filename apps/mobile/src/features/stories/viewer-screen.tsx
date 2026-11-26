@@ -108,7 +108,7 @@ function Player({ reels, startReel }: { reels: Reel[]; startReel: number }) {
   const [holding, setHolding] = useState(false);
   const [typing, setTyping] = useState(false);
   const [sheet, setSheet] = useState<"viewers" | "menu" | null>(null);
-  const [inFront, setInFront] = useState(AppState.currentState === "active");
+  const [inFront, setInFront] = useState(AppState.currentState !== "background");
   const [muted, setMuted] = useState(false);
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
   /** The viewer's reactions made here, by story; `""` = taken back. */

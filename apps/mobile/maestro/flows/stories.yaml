@@ -59,14 +59,21 @@ env:
 - extendedWaitUntil:
     visible: { id: "${'story-unseen-' + output.friend}" }
     timeout: 20000
-- tapOn: { id: "${'story-ring-' + output.friend}" }
+# A photo plays for five seconds, and this is the only reel: the viewer closes by itself
+# after it. The taps do not wait for the screen to settle (the progress bar keeps moving).
+- tapOn:
+    id: "${'story-ring-' + output.friend}"
+    waitToSettleTimeoutMs: 500
 - extendedWaitUntil:
-    visible: { id: "story-viewer" }
+    visible: "maestro day"
+    timeout: 5000
+- tapOn:
+    id: "story-react-0"
+    waitToSettleTimeoutMs: 500
+# Watched: the viewer is gone, and the ring is no longer the unseen one.
+- extendedWaitUntil:
+    notVisible: { id: "story-viewer" }
     timeout: 15000
-- assertVisible: "maestro day"
-- tapOn: { id: "story-react-0" }
-- tapOn: { id: "story-close" }
-# Watched: the ring is no longer the unseen one.
 - extendedWaitUntil:
     notVisible: { id: "${'story-unseen-' + output.friend}" }
     timeout: 15000

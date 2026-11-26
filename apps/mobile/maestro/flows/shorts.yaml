@@ -82,7 +82,9 @@ env:
 
 # Swipe on: the feed comes round again with it (nothing else is left to show), marked as a repeat.
 - swipe:
-    direction: UP
+    start: 50%, 75%
+    end: 50%, 15%
+    duration: 300
 - extendedWaitUntil:
     visible: { id: "short-repeat" }
     timeout: 20000
