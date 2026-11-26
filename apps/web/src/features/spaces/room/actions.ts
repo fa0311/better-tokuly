@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { spacesKeys } from "@tokuly/core/spaces";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
-import { keys } from "../api";
 
 /** Something a person does in a room: the call, and what to say when it worked. */
 export interface RoomAction {
@@ -25,7 +25,7 @@ export function useRoomAction(spaceId: string) {
     onSuccess: (_result, action) => {
       if (action.done) toast.success(action.done);
       action.after?.();
-      void queryClient.invalidateQueries({ queryKey: keys.everyParticipants(spaceId) });
+      void queryClient.invalidateQueries({ queryKey: spacesKeys.everyParticipants(spaceId) });
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: "spaces" })),
   });

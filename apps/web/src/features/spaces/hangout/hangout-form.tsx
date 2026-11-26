@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { common, spaces } from "@tokuly/api";
+import { rememberHangout, spacesKeys } from "@tokuly/core/spaces";
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,7 +13,7 @@ import { TextField } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { EmojiPicker } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
-import { hangoutClient, keys, rememberHangout } from "../api";
+import { hangoutClient } from "../api";
 import { FriendPicker } from "../friend-picker";
 import { PersonName } from "../parts";
 
@@ -66,7 +67,7 @@ function Fields({ hangout, onDone }: { hangout?: spaces.Hangout; onDone(): void 
     },
     onSuccess: (saved) => {
       rememberHangout(queryClient, saved);
-      void queryClient.invalidateQueries({ queryKey: keys.hangouts });
+      void queryClient.invalidateQueries({ queryKey: spacesKeys.hangouts });
       onDone();
       if (hangout) return void toast.success(t("toast.saved"));
       toast.success(t("toast.hangoutCreated"));

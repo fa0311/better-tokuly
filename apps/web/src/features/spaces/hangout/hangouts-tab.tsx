@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { spaces } from "@tokuly/api";
+import { forgetHangout, insideOf, nameOf, rememberHangout, spacesKeys } from "@tokuly/core/spaces";
 import { BellOff, Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,8 +11,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { forgetHangout, hangoutClient, keys, rememberHangout, useHangouts } from "../api";
-import { insideOf, nameOf } from "../model";
+import { hangoutClient, useHangouts } from "../api";
 import { Faces } from "../parts";
 import { HangoutForm } from "./hangout-form";
 
@@ -173,7 +173,7 @@ export function useRespondToInvite(hangoutId: string) {
         rememberHangout(queryClient, response.hangout);
         toast.success(t("toast.hangoutJoined"));
       } else forgetHangout(queryClient, hangoutId);
-      void queryClient.invalidateQueries({ queryKey: keys.hangouts });
+      void queryClient.invalidateQueries({ queryKey: spacesKeys.hangouts });
     },
     onError: (error) => toast.error(errorMessage(error, { namespace: "spaces" })),
   });

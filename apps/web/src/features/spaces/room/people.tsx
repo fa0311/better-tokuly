@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { type common, spaces } from "@tokuly/api";
+import { isModerator, nameOf, onStage } from "@tokuly/core/spaces";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -20,7 +21,6 @@ import { Dialog } from "#/components/ui/dialog";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
 import { spaceClient } from "../api";
-import { isModerator, nameOf, onStage } from "../model";
 import { PersonName } from "../parts";
 import type { Voices } from "../session";
 import type { RoomAction } from "./actions";

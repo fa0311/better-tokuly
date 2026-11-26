@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, spaces } from "@tokuly/api";
+import { isModerator, nameOf, onStage, patchSpace, rememberSpace } from "@tokuly/core/spaces";
 import {
   Ban,
   ChevronDown,
@@ -32,9 +33,8 @@ import { EmojiText } from "#/features/emoji";
 import { useSubjectMenu } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { useHideTabBar } from "#/stores/shell";
-import { patchSpace, rememberSpace, spaceClient, useParticipants, useSpacesConfig } from "../api";
+import { spaceClient, useParticipants, useSpacesConfig } from "../api";
 import { DevicesDialog } from "../devices-dialog";
-import { isModerator, nameOf, onStage } from "../model";
 import { AudienceLabel, LiveBadge, PersonName, TagList } from "../parts";
 import {
   enterSpace,

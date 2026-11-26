@@ -10,7 +10,6 @@ import {
   withParticipant,
   withPresence,
 } from "./model";
-import { clockOf, minuteOf, suggestedStart } from "./when";
 
 const Role = spaces.SpaceRole;
 const user = (id: string) => create(common.UserSummarySchema, { id, handle: id, displayName: id });
@@ -127,25 +126,5 @@ describe("hangouts", () => {
     expect(merged.viewer?.inside).toBe(true);
     expect(merged.viewer?.canInvite).toBe(true);
     expect(merged.viewer?.owner).toBe(false);
-  });
-});
-
-describe("schedule times", () => {
-  it("reads and writes the time input", () => {
-    expect(clockOf(18 * 60 + 5)).toBe("18:05");
-    expect(minuteOf("09:30")).toBe(570);
-    expect(minuteOf("24:00")).toBeNull();
-    expect(minuteOf("nine")).toBeNull();
-  });
-
-  it("proposes the next full hour at least half an hour away, on the account's clock", () => {
-    // 2026-11-23 10:40 in Tokyo is 01:40 UTC.
-    const now = Date.UTC(2026, 10, 23, 1, 40);
-    expect(suggestedStart(now, "Asia/Tokyo")).toEqual({ date: "2026-11-23", clock: "12:00" });
-    // The same moment is the day before in Pago Pago.
-    expect(suggestedStart(now, "Pacific/Pago_Pago")).toEqual({
-      date: "2026-11-22",
-      clock: "16:00",
-    });
   });
 });

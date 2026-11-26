@@ -1,12 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import type { spaces } from "@tokuly/api";
+import { nameOf } from "@tokuly/core/spaces";
 import { Mic } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { useFriendsInRooms } from "./api";
-import { nameOf } from "./model";
 
 /** Where a friend's room or hangout is in the app. */
 function VenueLink({

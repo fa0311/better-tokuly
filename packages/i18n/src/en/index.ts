@@ -18,6 +18,7 @@ import profile from "./profile";
 import search from "./search";
 import settings from "./settings";
 import shorts from "./shorts";
+import spaces from "./spaces";
 import stories from "./stories";
 import video from "./video";
 
@@ -41,5 +42,6 @@ export default {
   profile,
   search,
   settings,
+  spaces,
   mobile,
 };

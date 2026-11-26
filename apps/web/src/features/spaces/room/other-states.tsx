@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { common, spaces, toMillis } from "@tokuly/api";
+import { isModerator, minutesOf } from "@tokuly/core/spaces";
 import { CalendarClock, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +14,6 @@ import { ReportButton, SubjectMoreButton } from "#/features/engagement";
 import { useAccountTimeZone, useAccountToday } from "#/lib/account-time";
 import { useMe } from "#/stores/session";
 import { useParticipants } from "../api";
-import { isModerator, minutesOf } from "../model";
 import { MySpaceActions } from "../my-space-actions";
 import { AudienceLabel, PersonName, TagList } from "../parts";
 import { ReminderButton } from "../reminder-button";

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { spaces } from "@tokuly/api";
+import { rememberSpace, spacesKeys } from "@tokuly/core/spaces";
 import { Pencil, Play, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,7 @@ import { toast } from "sonner";
 import { Button, type ButtonProps } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { errorMessage } from "#/lib/errors";
-import { keys, rememberSpace, spaceClient } from "./api";
+import { spaceClient } from "./api";
 import { adoptSpace, ensureAudioFocus } from "./session";
 import { SpaceForm } from "./space-form";
 
@@ -33,7 +34,7 @@ export function MySpaceActions({
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState<"cancel" | "delete" | null>(null);
   const fail = (error: unknown) => toast.error(errorMessage(error, { namespace: "spaces" }));
-  const refreshLists = () => void queryClient.invalidateQueries({ queryKey: keys.lists });
+  const refreshLists = () => void queryClient.invalidateQueries({ queryKey: spacesKeys.lists });
 
   const start = useMutation({
     mutationFn: async () =>
@@ -60,7 +61,7 @@ export function MySpaceActions({
   const remove = useMutation({
     mutationFn: () => spaceClient().deleteSpace({ spaceId: space.id }),
     onSuccess: () => {
-      queryClient.setQueryData(keys.space(space.id), null);
+      queryClient.setQueryData(spacesKeys.space(space.id), null);
       refreshLists();
       setConfirming(null);
       toast.success(t("toast.deleted"));

@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { spaces } from "@tokuly/api";
+import { spacesKeys } from "@tokuly/core/spaces";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
-import { keys, useSpace } from "../api";
+import { useSpace } from "../api";
 import { ExitNotice } from "../exit-notice";
 import { useSpaceTopic } from "../live";
 import { acknowledgeExit, enterSpace, useAudioSession } from "../session";
@@ -34,7 +35,7 @@ export function SpaceScreen({ spaceId }: { spaceId: string }) {
             <Button
               onClick={() => {
                 acknowledgeExit();
-                void queryClient.invalidateQueries({ queryKey: keys.space(spaceId) });
+                void queryClient.invalidateQueries({ queryKey: spacesKeys.space(spaceId) });
                 void enterSpace(queryClient, space);
               }}
             >

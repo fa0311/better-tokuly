@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, spaces } from "@tokuly/api";
+import { forgetHangout, insideOf, nameOf, rememberHangout, spacesKeys } from "@tokuly/core/spaces";
 import {
   Bell,
   BellOff,
@@ -32,11 +33,10 @@ import { useSubjectMenu } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
-import { forgetHangout, hangoutClient, keys, rememberHangout, useHangout } from "../api";
+import { hangoutClient, useHangout } from "../api";
 import { DevicesDialog } from "../devices-dialog";
 import { ExitNotice } from "../exit-notice";
 import { FriendPicker } from "../friend-picker";
-import { insideOf, nameOf } from "../model";
 import { PersonName } from "../parts";
 import {
   acknowledgeExit,
@@ -146,7 +146,7 @@ function Loaded({ hangout }: { hangout: spaces.Hangout }) {
     },
     onSuccess: (_result, kind) => {
       forgetHangout(queryClient, hangoutId);
-      void queryClient.invalidateQueries({ queryKey: keys.hangouts });
+      void queryClient.invalidateQueries({ queryKey: spacesKeys.hangouts });
       toast.success(t(kind === "quit" ? "toast.hangoutQuit" : "toast.hangoutDeleted"));
       toList();
     },

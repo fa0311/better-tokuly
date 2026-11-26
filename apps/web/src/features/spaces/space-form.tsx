@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type common, fromDate, spaces, toMillis } from "@tokuly/api";
+import { parseTags, rememberSpace, spacesKeys } from "@tokuly/core/spaces";
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,9 +15,8 @@ import { Tabs } from "#/components/ui/tabs";
 import { accountTimeZone, zonedMoment } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { keys, rememberSpace, spaceClient, useSpacesConfig } from "./api";
+import { spaceClient, useSpacesConfig } from "./api";
 import { FriendPicker } from "./friend-picker";
-import { parseTags } from "./model";
 import { AudienceLabel, PersonName } from "./parts";
 import { adoptSpace, ensureAudioFocus } from "./session";
 import { inputsOf, minuteOf, suggestedStart } from "./when";
@@ -129,7 +129,7 @@ function Fields({
       const saved = response?.space;
       if (!saved) return;
       rememberSpace(queryClient, saved);
-      void queryClient.invalidateQueries({ queryKey: keys.lists });
+      void queryClient.invalidateQueries({ queryKey: spacesKeys.lists });
       onDone();
       if (space) return void toast.success(t("toast.saved"));
       if (response && "credentials" in response && saved.state === spaces.SpaceState.LIVE) {
