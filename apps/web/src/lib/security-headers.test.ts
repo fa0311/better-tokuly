@@ -9,6 +9,7 @@ function directive(policy: string, name: string): string[] {
 describe("deploymentFrom", () => {
   it("allows the origins the backend hands out", () => {
     const deployment = deploymentFrom({
+      TOKULY_ENV: "production",
       TOKULY_PUBLIC_URL: "https://tokuly.example",
       TOKULY_RT_PUBLIC_WT_URL: "https://rt.tokuly.example:4433/rt",
       TOKULY_LIVEKIT_PUBLIC_URL: "wss://lk.tokuly.example",
@@ -21,6 +22,7 @@ describe("deploymentFrom", () => {
     });
     expect(deployment.connect).toEqual([
       "https://rt.tokuly.example:4433",
+      "wss://tokuly.example",
       "wss://lk.tokuly.example",
       "https://lk.tokuly.example",
       "https://live.tokuly.example:8889",
@@ -43,11 +45,42 @@ describe("deploymentFrom", () => {
     });
     expect(deployment.connect).toEqual([
       "https://tokuly.example:4433",
+      "ws://tokuly.example:8082",
       "http://localhost:8889",
       "http://localhost:8888",
       "http://localhost:9996",
       "http://localhost:9000",
     ]);
+  });
+});
+
+describe("deploymentFrom, the realtime gateway", () => {
+  const realtime = (env: Record<string, string>) => deploymentFrom(env).connect.slice(0, 2);
+
+  it("is reached through the edge in production", () => {
+    expect(
+      realtime({ TOKULY_ENV: "production", TOKULY_PUBLIC_URL: "https://tokuly.example" }),
+    ).toEqual(["https://tokuly.example:4433", "wss://tokuly.example"]);
+    expect(realtime({ TOKULY_ENV: "production", TOKULY_PUBLIC_URL: "http://localhost" })).toEqual([
+      "https://localhost:4433",
+      "ws://localhost",
+    ]);
+  });
+
+  it("is reached on its own ports in development", () => {
+    expect(realtime({})).toEqual(["https://localhost:4433", "ws://localhost:8082"]);
+    expect(realtime({ TOKULY_RT_WS_LISTEN: "0.0.0.0:58082" })[1]).toBe("ws://localhost:58082");
+  });
+
+  it("uses the configured addresses, and none for WebTransport when it is off", () => {
+    const env = {
+      TOKULY_ENV: "production",
+      TOKULY_PUBLIC_URL: "https://tokuly.example",
+      TOKULY_RT_PUBLIC_WT_URL: "https://rt.tokuly.example/rt",
+      TOKULY_RT_PUBLIC_WS_URL: " wss://rt.tokuly.example/rt/ws ",
+    };
+    expect(realtime(env)).toEqual(["https://rt.tokuly.example", "wss://rt.tokuly.example"]);
+    expect(realtime({ ...env, TOKULY_RT_WT_LISTEN: "" })[0]).toBe("wss://rt.tokuly.example");
   });
 });
 

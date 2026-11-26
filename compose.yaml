@@ -147,6 +147,7 @@ services:
     restart: unless-stopped
     environment:
       <<: *browser-addresses
+      TOKULY_ENV: production
       # Set only when media is served by a CDN, or the realtime gateway is
       # reached elsewhere than <public host>:4433.
       TOKULY_MEDIA_URL: ${TOKULY_MEDIA_URL:-}

@@ -33,16 +33,12 @@ type Env = Record<string, string | undefined>;
  */
 export function deploymentFrom(env: Env): Deployment {
   const value = (name: string, fallback = "") => env[name] ?? fallback;
-  const publicUrl = value("TOKULY_PUBLIC_URL", "http://localhost:8080");
-  const publicHost = origin(publicUrl) ? new URL(publicUrl).hostname : "localhost";
-  const wtPort = value("TOKULY_RT_WT_LISTEN", "0.0.0.0:4433").split(":").pop();
   const livekit = value("TOKULY_LIVEKIT_PUBLIC_URL");
   const hls = value("TOKULY_LIVE_HLS_URL", "http://localhost:8888");
   const playback = value("TOKULY_LIVE_PLAYBACK_URL", "http://localhost:9996");
   const files = origins([value("TOKULY_MEDIA_URL")]);
   const connect = [
-    env.TOKULY_RT_PUBLIC_WT_URL?.trim() || `https://${publicHost}:${wtPort}`,
-    value("TOKULY_RT_PUBLIC_WS_URL"),
+    ...realtimeUrls(env),
     // LiveKit's client checks the server over HTTP(S) before opening the socket.
     livekit,
     livekit.replace(/^ws/, "http"),
@@ -53,6 +49,29 @@ export function deploymentFrom(env: Env): Deployment {
     value("TOKULY_S3_PUBLIC_ENDPOINT", value("TOKULY_S3_ENDPOINT", "http://localhost:9000")),
   ];
   return { connect: origins(connect), media: origins([hls, playback]), files };
+}
+
+/**
+ * Where the realtime gateway tells clients to connect: the rules of the
+ * backend's `realtime/src/endpoints.rs`. WebTransport is the gateway's own
+ * port on the public host. The WebSocket is `/rt/ws` of the public origin in
+ * production (named anyway: older browsers do not count `ws:` as `'self'`)
+ * and the gateway's port in development.
+ */
+function realtimeUrls(env: Env): string[] {
+  const configured = (name: string) => env[name]?.trim() || undefined;
+  const port = (name: string, fallback: string) => (env[name] ?? fallback).split(":").pop();
+  const publicUrl = parsed(env.TOKULY_PUBLIC_URL ?? "") ?? new URL("http://localhost:8080");
+  const wtPort = port("TOKULY_RT_WT_LISTEN", "0.0.0.0:4433");
+  const webTransport = wtPort
+    ? (configured("TOKULY_RT_PUBLIC_WT_URL") ?? `https://${publicUrl.hostname}:${wtPort}`)
+    : "";
+  const webSocket =
+    configured("TOKULY_RT_PUBLIC_WS_URL") ??
+    (env.TOKULY_ENV === "production"
+      ? publicUrl.origin.replace(/^http/, "ws")
+      : `ws://${publicUrl.hostname}:${port("TOKULY_RT_WS_LISTEN", "0.0.0.0:8082")}`);
+  return [webTransport, webSocket];
 }
 
 /** The `Content-Security-Policy` of a page. `embeddable` pages may be framed by any site. */
@@ -144,15 +163,17 @@ function quote(origin: string): string {
   return `"${origin}"`;
 }
 
-function origin(url: string): string | undefined {
+function parsed(url: string): URL | undefined {
   try {
     const parsed = new URL(url);
-    return parsed.origin === "null" ? undefined : parsed.origin;
+    return parsed.origin === "null" ? undefined : parsed;
   } catch {
     return undefined;
   }
 }
 
 function origins(urls: string[]): string[] {
-  return [...new Set(urls.map(origin).filter((value) => value !== undefined))];
+  return [
+    ...new Set(urls.map((url) => parsed(url)?.origin).filter((value) => value !== undefined)),
+  ];
 }
