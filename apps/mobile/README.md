@@ -106,6 +106,19 @@ its tests) and the web switches to it.
   suggestions, who sees it: public, followers, friends, close friends, a circle,
   only me) and the creator's own list with what is still being processed or
   failed, and why.
+- **Videos.** Long videos, from 「動画」 in the Me tab's hub, are
+  `@tokuly/core/video` (keys, cache edits, feeds, the watch page's rules,
+  playback reporting): the home, subscriptions and trending feeds with
+  genre chips (holding a card: watch later, save, not interested), the
+  watch screen with expo-video (HLS, native controls, full screen,
+  picture-in-picture and the lock screen's controls, from the `expo-video`
+  config plugin), starting where the viewer left off or at a link's `?t=`,
+  chapters and description times that jump, likes, watch later, playlists,
+  subscriptions with their notification level, comments, the playlist
+  being played and "up next". Playback is reported as the account that
+  opened the screen (`features/video/playback.ts`). Channel pages,
+  playlists, the history and the subscriptions list are native too;
+  uploading, editing, analytics and watch parties open the studio on the web.
 - **Push.** The phones' own services through `expo-notifications`, no Expo push
   service: FCM on Android (the build needs `GOOGLE_SERVICES_JSON`, the path of
   the Firebase project's `google-services.json`), APNs on iOS
@@ -127,7 +140,7 @@ its tests) and the web switches to it.
   every production dependency the app bundles with its licence and text, and
   the native libraries of the app's own modules (`modules/*/notices`). The
   output, `src/generated/licenses.json`, is not checked in.
-- **Web screens.** What the app does not have yet (notes, videos, live,
+- **Web screens.** What the app does not have yet (notes, live,
   spaces, communities, school, plans, ask, quests, emoji, stamps, the wallet,
   most settings, developers, the console) opens in a web view
   (`features/web`), signed in as the account in use. It plugs in through
@@ -274,7 +287,8 @@ unread message, send one, receive one from a second account (through the API),
 start a chat and open the inbox, post a story from the library and watch it as
 a friend (the emulator has no camera: the pictures are put in its library, and
 the camera is covered by a component test), post a short, swipe the feed and
-like it, open a web-only feature from 「もっと見る」 and see it signed in. CI
+like it, open the video feeds and subscribe to a channel (playback is covered
+by the watch screen's component test: a flow's script cannot upload a video), open a web-only feature from 「もっと見る」 and see it signed in. CI
 (the End to end workflow, `.github/workflows/e2e.yml`) builds a release APK for the emulator and
 runs them against the Compose stack; locally, with an emulator and a stack:
 
