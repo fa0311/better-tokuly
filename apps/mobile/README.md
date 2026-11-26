@@ -138,8 +138,9 @@ its tests) and the web switches to it.
   attempt (a gift whose answer was lost is repeated under its key, so
   nothing is paid twice). Going live stays on the web screen (`/studio/live`):
   the app has no WHIP or RTMP publisher, and the web's studio sets a stream
-  up and publishes from the camera in the browser. So do the archive (a
-  video), clips, the gift history, buying coins and the moderation tools.
+  up and publishes from the camera in the browser. So do clips, the gift
+  history, buying coins and the moderation tools; the archive opens as a
+  video, the channel as its page.
 - **Push.** The phones' own services through `expo-notifications`, no Expo push
   service: FCM on Android (the build needs `GOOGLE_SERVICES_JSON`, the path of
   the Firebase project's `google-services.json`), APNs on iOS
