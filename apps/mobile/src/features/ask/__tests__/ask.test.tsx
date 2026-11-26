@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { ask, create } from "@tokuly/api";
+import { ask, common, create, engagement } from "@tokuly/api";
 import type { ReactNode } from "react";
 import { Alert, type AlertButton } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -9,15 +9,21 @@ import { screenFor } from "#/seams/links";
 import { AskForm } from "../ask-form";
 import { InboxScreen } from "../inbox-screen";
 import links from "../links";
+import { ReportSheet } from "../parts";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
 jest.mock("expo-router", () => ({ router: { push: jest.fn(), back: jest.fn() } }));
+/** Whether the account that started a piece of work is still the one in use. */
+let mockActive = true;
 jest.mock("#/features/session/account", () => {
   const { api } = jest.requireMock("#/lib/api");
   return {
     currentAccount: () => ({ sessionId: "s1", userId: "me", api: api() }),
-    isActive: () => true,
+    isActive: () => mockActive,
   };
+});
+beforeEach(() => {
+  mockActive = true;
 });
 jest.mock("#/features/session/store", () => ({
   useMe: () => ({ user: { id: "me", handle: "me" } }),
@@ -45,22 +51,28 @@ function server(questions: ask.Question[]) {
       },
       blockSender: record("blockSender"),
       askQuestion: record("askQuestion"),
+      createReport: record("createReport"),
     }),
   } as never);
   return sent;
 }
 
+const queryClient = new QueryClient();
+afterEach(() => queryClient.clear());
+
+const framed = (children: ReactNode) => (
+  <SafeAreaProvider
+    initialMetrics={{
+      frame: { x: 0, y: 0, width: 320, height: 640 },
+      insets: { top: 0, left: 0, right: 0, bottom: 0 },
+    }}
+  >
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  </SafeAreaProvider>
+);
+
 async function show(children: ReactNode) {
-  await render(
-    <SafeAreaProvider
-      initialMetrics={{
-        frame: { x: 0, y: 0, width: 320, height: 640 },
-        insets: { top: 0, left: 0, right: 0, bottom: 0 },
-      }}
-    >
-      <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
-    </SafeAreaProvider>,
-  );
+  await render(framed(children));
 }
 
 describe("the inbox", () => {
@@ -143,6 +155,36 @@ describe("asking", () => {
     await fireEvent.changeText(screen.getByTestId("ask-input"), "元気?");
     await fireEvent.press(screen.getByTestId("ask-send"));
     await waitFor(() => expect(sent.askQuestion?.[0]).toMatchObject({ signed: true }));
+  });
+});
+
+describe("reporting", () => {
+  it("sends the question's ID and the reason, nothing else", async () => {
+    const sent = server([]);
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    await show(<ReportSheet questionId="q1" onClose={() => {}} />);
+    await fireEvent.press(screen.getByTestId("sheet-report-HARASSMENT"));
+    await waitFor(() => expect(alert).toHaveBeenCalledWith("通報したよ。教えてくれてありがとう！"));
+    expect(sent.createReport).toEqual([
+      {
+        subject: { type: common.SubjectType.QUESTION, id: "q1" },
+        category: engagement.ReportCategory.HARASSMENT,
+        text: "",
+      },
+    ]);
+    alert.mockRestore();
+  });
+
+  it("says nothing once another account took over", async () => {
+    const sent = server([]);
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    await show(<ReportSheet questionId="q1" onClose={() => {}} />);
+    mockActive = false;
+    await fireEvent.press(screen.getByTestId("sheet-report-SPAM"));
+    await waitFor(() => expect(sent.createReport).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(alert).not.toHaveBeenCalled();
+    alert.mockRestore();
   });
 });
 

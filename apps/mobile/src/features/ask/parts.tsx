@@ -12,6 +12,7 @@ import { ActionSheet } from "#/components/action-sheet";
 import { Avatar } from "#/components/avatar";
 import { Button } from "#/components/button";
 import { useEngagement, useLike } from "#/features/engagement/data";
+import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
 import { SERVER_URL } from "#/lib/config";
 import { errorMessage } from "#/lib/errors";
@@ -267,7 +268,8 @@ const REPORT_CATEGORIES = [
 /**
  * Reporting a question (with its answer): the reasons rise from the bottom.
  * The server decides who is told what; an anonymous sender stays anonymous
- * to the one who reports.
+ * to the one who reports. The report is made as the account in use when the
+ * reason was tapped, and only that account hears how it went.
  */
 export function ReportSheet({
   questionId,
@@ -280,12 +282,14 @@ export function ReportSheet({
   const { t } = useTranslation("mobile");
   const send = async (category: engagement.ReportCategory) => {
     if (!questionId) return;
-    const reports = api().service(engagement.ReportService);
+    const account = currentAccount();
+    const reports = (account?.api ?? api()).service(engagement.ReportService);
+    const mine = () => account !== null && isActive(account);
     try {
       await reports.createReport({ subject: questionSubject(questionId), category, text: "" });
-      Alert.alert(t("ask.report.sent"));
+      if (mine()) Alert.alert(t("ask.report.sent"));
     } catch (error) {
-      showAskError(error);
+      if (mine()) showAskError(error);
     }
   };
   return (
