@@ -8,11 +8,13 @@ import { Avatar } from "#/components/avatar";
 import { EmptyState, Page, Spinner } from "#/components/page";
 import { profileClient } from "#/lib/api";
 import { sticker, useTheme } from "#/lib/theme";
+import { type ProfileSectionProps, ProfileSlotView } from "#/seams/profile";
 
 /**
  * A person's profile, read-only for now: who they are, their status and bio,
- * how the viewer is connected to them, and their numbers. `footer` holds the
- * screen's own actions (the own profile's settings).
+ * how the viewer is connected to them, their numbers, and what the other
+ * features show of them (`#/seams/profile`). `footer` holds the screen's own
+ * actions (the own profile's hub).
  */
 export function ProfileScreen({ handle, footer }: { handle: string; footer?: ReactNode }) {
   const { t, i18n } = useTranslation("profile");
@@ -28,6 +30,7 @@ export function ProfileScreen({ handle, footer }: { handle: string; footer?: Rea
   const user = profile.user;
   const friendsSince = toDate(profile.friendsSince);
   const stats = profile.stats;
+  const section: ProfileSectionProps = { profile, user, isSelf, isFriend };
   const numbers = stats
     ? [
         { label: t("stats.friends"), value: stats.friendCount },
@@ -67,6 +70,7 @@ export function ProfileScreen({ handle, footer }: { handle: string; footer?: Rea
           )}
         </View>
       )}
+      <ProfileSlotView slot="action" {...section} />
       {numbers.length > 0 && (
         <View className="flex-row rounded-card bg-surface py-3" style={sticker(colors)}>
           {numbers.map((cell) => (
@@ -82,6 +86,7 @@ export function ProfileScreen({ handle, footer }: { handle: string; footer?: Rea
           {t("joined", { name: user.displayName, count: stats.daysSinceJoined })}
         </Text>
       )}
+      <ProfileSlotView slot="content" {...section} />
       {footer}
     </Page>
   );

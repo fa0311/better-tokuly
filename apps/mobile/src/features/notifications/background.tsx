@@ -5,7 +5,7 @@ import { useNotificationsSync } from "./sync";
  * badge stay live, push follows the account's choice, taps on pushes open
  * their screens.
  */
-export function NotificationsBackground() {
+export default function NotificationsBackground() {
   useNotificationsSync();
   return null;
 }
