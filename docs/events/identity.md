@@ -34,6 +34,7 @@ Durable `identity-sessions`:
 | Topic | Effect |
 |---|---|
 | `identity.user.banned` | Its own event: every session the account had when it was banned is revoked and its access tokens refused at once (`Identity::sign_out_banned`), parked sessions on other devices included. Whoever banned does this right after the commit too; the event makes it at least once. Sessions made after the ban are left alone. |
+| `identity.user.deleted` | Its own event: the dead letters that mention the account are removed (`tokuly_core::dead_letters::erase_users`, `docs/events.md`). |
 
 ## Jobs and timers
 
@@ -42,7 +43,7 @@ Durable `identity-sessions`:
 | `identity.export` | Builds the personal data archive (the account, the プロフ帳 with its audiences, settings, sessions with their switch marks, every domain's exporter) and mails a link. |
 | `identity.profile.links` | `{ user_id }`: fetches the account's profile links that are due (never checked, or checked a week ago) through `tokuly_core::egress` (512 KiB, 5 s) and marks a link verified while the page has an `<a>` or `<link>` with `rel="me"` pointing at `<public url>/u/<handle>` or `/@<handle>`. At most 20 never-checked links per account and day. Queued after links or the handle change, and by `RecheckProfileLinks`. Idempotent. |
 | timer, 6 h | Queues `identity.profile.links` for accounts with links that are due. |
-| timer, 1 h | Erases accounts whose deletion grace period ran out (the プロフ帳 and its uploads included) and emits `identity.user.deleted`. |
+| timer, 1 h | Erases accounts whose deletion grace period ran out (the プロフ帳 and its uploads included) and emits `identity.user.deleted`; removes dead letters about accounts erased in the last day that were buried after the event was handled. |
 
 ## Public Rust API for other domains
 

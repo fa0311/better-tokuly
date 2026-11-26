@@ -10,7 +10,8 @@ size); producers keep events small (`visible_to` lists are bounded by
 
 A consumer retries a failing event with a growing delay (twelve deliveries,
 about twenty minutes), a job worker up to the job's `max_deliver`. What
-still fails, or cannot be decoded, is kept on the `DEAD` stream for 30 days
+still fails, or cannot be decoded, is kept on the `DEAD` stream, payload
+included, for `TOKULY_DEAD_LETTER_RETENTION_DAYS` (7 by default, at most 30)
 with the consumer it failed in and the last error. Once the cause is fixed:
 
 ```sh
@@ -21,6 +22,10 @@ docker compose run --rm api dead-letters redrive notify  # only what failed in c
 
 A redriven event is handled only by the consumer it failed in (header
 `Tokuly-Redrive-For`); the others handled it long ago and ack it unread.
+
+When an account is erased, identity removes every letter that mentions its
+ID, except `identity.user.deleted` itself: that one holds only the ID, and
+redriving it is how a consumer that failed still erases its part.
 
 Three topics are generic requests handled by the generic domains
 (`tokuly_core::outbound`):

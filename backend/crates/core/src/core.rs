@@ -87,7 +87,7 @@ impl Core {
         if !cfg.rate_limits {
             tracing::warn!("request rate limits are OFF (TOKULY_RATE_LIMITS=false): never expose this deployment to the internet");
         }
-        let bus = Bus::connect(&cfg.nats_url, &cfg.nats_prefix).await?;
+        let bus = Bus::connect(&cfg.nats_url, &cfg.nats_prefix).await?.with_dead_letter_retention(cfg.dead_letter_retention());
         bus.ensure_streams().await?;
         let tokens = Tokens::new(&keys)?.with_revocations(cache.clone());
         let api_tokens = ApiTokens::default();
