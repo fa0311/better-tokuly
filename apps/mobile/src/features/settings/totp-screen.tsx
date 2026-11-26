@@ -53,12 +53,19 @@ export function TotpSetupScreen() {
       return response.recoveryCodes;
     },
     onSuccess: setRecoveryCodes,
-    onError: (failure) =>
+    onError: (failure) => {
+      const reason = errorReason(failure);
       setError(
-        errorReason(failure) === "INVALID_CREDENTIALS"
+        reason === "INVALID_CREDENTIALS"
           ? t("settings:account.password.wrongCurrent")
           : errorMessage(failure, { namespace: "settings" }),
-      ),
+      );
+      // The key ran out (ten minutes): no code for it will ever do, so the setup starts over with a new one.
+      if (reason === "TOTP_SETUP_EXPIRED") {
+        setCode("");
+        void setup.refetch();
+      }
+    },
   });
 
   if (recoveryCodes) {
