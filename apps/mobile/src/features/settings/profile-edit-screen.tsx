@@ -73,6 +73,9 @@ function ProfileImages({ me }: { me: identity.Me }) {
           aspect: slot === "avatar" ? [1, 1] : [3, 1],
           quality: 0.9,
           exif: false,
+          // An uncropped iPhone photo would be HEIC, which the server does not decode.
+          preferredAssetRepresentationMode:
+            ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
         });
         const image = picked.canceled ? undefined : picked.assets[0];
         if (!image) return null;
