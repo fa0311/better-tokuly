@@ -43,7 +43,8 @@ function useActiveSessionId(): string | null {
  * - a switch or a sign-out starts the signed-in screens over, which closes
  *   it, and the server ends the web session with the app's session.
  *
- * Links to anywhere but this server open in the system browser.
+ * Links to anywhere but this server open in the system browser; embeds of
+ * other sites (frames) stay in the page.
  */
 export function WebScreen({ path }: { path: string }) {
   const { t } = useTranslation("mobile");
@@ -127,7 +128,9 @@ export function WebScreen({ path }: { path: string }) {
         // `target="_blank"` stays in this web view, where the check below sees it.
         setSupportMultipleWindows={false}
         onShouldStartLoadWithRequest={(request) => {
-          if (staysInApp(request.url)) return true;
+          // iOS asks for frames too: an embed in a note (a video, a song) loads in its frame.
+          // Android asks for the top frame only (`isTopFrame` is not given there).
+          if (request.isTopFrame === false || staysInApp(request.url)) return true;
           void Linking.openURL(request.url).catch(() => {});
           return false;
         }}

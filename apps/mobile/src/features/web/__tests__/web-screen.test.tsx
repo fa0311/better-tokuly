@@ -93,6 +93,7 @@ async function becomeActive(user: string, sessionId: string) {
 const loadedUrls = () => webViews.map((props) => (props.source as { uri: string }).uri);
 
 beforeEach(async () => {
+  jest.clearAllMocks();
   webViews.length = 0;
   asked.length = 0;
   await becomeActive("alice", "s-alice");
@@ -169,5 +170,21 @@ describe("WebScreen", () => {
     expect(decide({ url: "mailto:hi@example.com" })).toBe(false);
     expect(openURL).toHaveBeenCalledWith("https://example.com/page");
     expect(openURL).toHaveBeenCalledWith("mailto:hi@example.com");
+  });
+
+  it("leaves embeds of other sites in the page (iOS asks for iframes too)", async () => {
+    const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+    await render(<WebScreen path="/notes/abc" />);
+    await act(async () => asked[0]?.answer("code-alice"));
+    const decide = webViews.at(-1)?.onShouldStartLoadWithRequest as (r: {
+      url: string;
+      isTopFrame?: boolean;
+    }) => boolean;
+    expect(decide({ url: "https://www.youtube.com/embed/abc", isTopFrame: false })).toBe(true);
+    expect(decide({ url: "https://open.spotify.com/embed/track/1", isTopFrame: false })).toBe(true);
+    expect(openURL).not.toHaveBeenCalled();
+    // The page itself going elsewhere still leaves the app.
+    expect(decide({ url: "https://www.youtube.com/watch?v=abc", isTopFrame: true })).toBe(false);
+    expect(openURL).toHaveBeenCalledWith("https://www.youtube.com/watch?v=abc");
   });
 });
