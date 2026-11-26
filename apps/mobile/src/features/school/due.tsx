@@ -13,7 +13,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
 import { ActionSheet } from "#/components/action-sheet";
-import { Spinner } from "#/components/page";
+import { ErrorNote, Spinner } from "#/components/page";
 import { webScreenHref } from "#/features/web/handoff";
 import { errorMessage } from "#/lib/errors";
 import { INK_ON_BRIGHT, useTheme } from "#/lib/theme";
@@ -157,6 +157,9 @@ export function DueList({ limit }: { limit: number }) {
   const exams = useExams();
   const assignments = useAssignments(school.AssignmentFilter.OPEN);
   if (exams.isPending || assignments.isPending) return <Spinner />;
+  // Half a list, or none, is not "nothing is due".
+  const failed = (exams.error && !exams.data) || (assignments.error && !assignments.data);
+  if (failed) return <ErrorNote>{errorMessage(failed, { namespace: NS })}</ErrorNote>;
   const items = dueItems(exams.data ?? [], assignments.data?.assignments ?? [], zone);
   if (items.length === 0)
     return (

@@ -13,7 +13,8 @@ import {
 import { router } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
-import { Spinner } from "#/components/page";
+import { ErrorNote, Spinner } from "#/components/page";
+import { errorMessage } from "#/lib/errors";
 import { INK_ON_BRIGHT, sticker, useTheme } from "#/lib/theme";
 import { NS, useAccountNow, useClassNow } from "./data";
 
@@ -75,9 +76,10 @@ export function SubjectPill({
 export function ClassNowCard() {
   const { t, i18n } = useTranslation(NS);
   const { colors } = useTheme();
-  const { data, isPending } = useClassNow();
+  const { data, error, isPending } = useClassNow();
   const { ms: now, date: today } = useAccountNow(15_000);
   if (isPending) return <Spinner />;
+  if (error && !data) return <ErrorNote>{errorMessage(error, { namespace: NS })}</ErrorNote>;
   const current = currentClass(data, now);
   const next = data?.next;
   const fill = current ? classColor(current) : colors.surface;

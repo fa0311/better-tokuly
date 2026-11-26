@@ -8,8 +8,9 @@ import { useTranslation } from "react-i18next";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { IconButton } from "#/components/icon-button";
-import { Row, Section, Spinner } from "#/components/page";
+import { ErrorNote, Row, Section, Spinner } from "#/components/page";
 import { webScreenHref } from "#/features/web/handoff";
+import { errorMessage } from "#/lib/errors";
 import { sticker, useTheme } from "#/lib/theme";
 import { NS, useAccountNow, useDay, useWeek } from "./data";
 import { DueList } from "./due";
@@ -153,7 +154,9 @@ function Classes() {
         <Spinner />
       ) : day.data ? (
         <DayClasses day={day.data} nowMs={date === today ? now : undefined} />
-      ) : null}
+      ) : (
+        <ErrorNote>{errorMessage(day.error, { namespace: NS })}</ErrorNote>
+      )}
       {day.data?.kind === school.DayKind.OUT_OF_TERM && (
         <Pressable
           testID="school-setup-timetable"

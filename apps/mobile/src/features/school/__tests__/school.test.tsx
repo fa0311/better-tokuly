@@ -36,9 +36,10 @@ const homework = create(school.AssignmentSchema, {
 
 /**
  * One account's school services. `switchOnWrite` answers every write only
- * after the person switched to another account. What was written is listed.
+ * after the person switched to another account; `unreadable` refuses every
+ * read (the network is down). What was written is listed.
  */
-function schoolOf({ switchOnWrite = false } = {}) {
+function schoolOf({ switchOnWrite = false, unreadable = false } = {}) {
   let switched = false;
   const written: string[] = [];
   const write = <T,>(name: string, answer: T) => {
@@ -60,12 +61,21 @@ function schoolOf({ switchOnWrite = false } = {}) {
         { date, period: 2, subject: math, entryId: "e2", status: school.ClassStatus.CANCELLED },
       ],
     });
+  const read =
+    <T,>(answer: () => T) =>
+    async (..._args: unknown[]) => {
+      if (unreadable) throw new Error("offline");
+      return answer();
+    };
   const client = {
     service: () => ({
-      getNow: async () => ({ now: create(school.ClassNowSchema, {}) }),
-      getDay: async ({ date }: { date: string }) => ({ day: day(date) }),
-      listDays: async () => ({ days: [] }),
-      listExams: async () => ({
+      getNow: read(() => ({ now: create(school.ClassNowSchema, {}) })),
+      getDay: async ({ date }: { date: string }) => {
+        if (unreadable) throw new Error("offline");
+        return { day: day(date) };
+      },
+      listDays: read(() => ({ days: [] })),
+      listExams: read(() => ({
         exams: [
           create(school.ExamSchema, {
             id: "x1",
@@ -75,9 +85,9 @@ function schoolOf({ switchOnWrite = false } = {}) {
             daysUntilStart: 5,
           }),
         ],
-      }),
-      listAssignments: async () => ({ assignments: [homework] }),
-      listStudyingFriends: async () => ({
+      })),
+      listAssignments: read(() => ({ assignments: [homework] })),
+      listStudyingFriends: read(() => ({
         friends: [
           create(school.StudyingFriendSchema, {
             sessionId: "f1",
@@ -86,7 +96,7 @@ function schoolOf({ switchOnWrite = false } = {}) {
             studiedSeconds: 1500,
           }),
         ],
-      }),
+      })),
       updateAssignment: () => write("done", { assignment: homework }),
       createAssignment: () => write("create", { assignment: homework }),
       cheerStudy: () => write("cheer", {}),
@@ -108,7 +118,11 @@ async function show(children: ReactNode) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        {children}
+      </QueryClientProvider>
     </SafeAreaProvider>,
   );
 }
@@ -125,6 +139,15 @@ describe("the school screen", () => {
     expect(await screen.findByText("数学のワーク p.30")).toBeTruthy();
     expect(screen.getByText("期末テスト")).toBeTruthy();
     expect(await screen.findByText("みお")).toBeTruthy();
+  });
+
+  it("says it could not load instead of 「何もないよ」 when nothing can be read", async () => {
+    schoolOf({ unreadable: true });
+    await show(<SchoolScreen />);
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBe(4));
+    expect(screen.queryByTestId("school-due-empty")).toBeNull();
+    expect(screen.queryByTestId("school-studying-empty")).toBeNull();
+    expect(screen.queryByText("授業の予定はないよ")).toBeNull();
   });
 
   it("cheers a friend who is studying", async () => {

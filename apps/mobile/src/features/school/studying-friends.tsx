@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
 import { Button } from "#/components/button";
-import { Spinner } from "#/components/page";
+import { ErrorNote, Spinner } from "#/components/page";
 import { errorMessage } from "#/lib/errors";
 import { INK_ON_BRIGHT } from "#/lib/theme";
 import { asAccount, NS, studyClient, useAccountNow, useStudyingFriends } from "./data";
@@ -23,9 +23,10 @@ const isBreak = (phase: school.TimerPhase) =>
  */
 export function StudyingFriends() {
   const { t, i18n } = useTranslation(NS);
-  const { data, isPending, dataUpdatedAt } = useStudyingFriends();
+  const { data, error, isPending, dataUpdatedAt } = useStudyingFriends();
   const { ms: now } = useAccountNow(30_000);
   if (isPending) return <Spinner />;
+  if (error && !data) return <ErrorNote>{errorMessage(error, { namespace: NS })}</ErrorNote>;
   const friends = data ?? [];
   if (friends.length === 0)
     return (
