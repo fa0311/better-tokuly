@@ -81,7 +81,14 @@ env:
     timeout: 10000
 
 # Swipe on: the feed comes round again with it (nothing else is left to show), marked as a
-# repeat. Swiping goes on until it is on screen (the emulator is slow while a video plays).
+# repeat. The emulator draws video in software and hardly takes a swipe while one plays: a
+# tap pauses it first.
+- tapOn:
+    id: "short-player"
+    index: 0
+    waitToSettleTimeoutMs: 500
+- waitForAnimationToEnd:
+    timeout: 3000
 - scrollUntilVisible:
     element: { id: "short-repeat" }
     direction: DOWN
