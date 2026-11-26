@@ -15,9 +15,11 @@
 	# For every answer of the edge. Nothing here is guessed from its bytes
 	# (a file served with the wrong type must not run as a script), and
 	# other sites learn the origin a link was followed from, never the
-	# page: a path can name a person, a conversation or a place.
+	# page: a path can name a person, a conversation or a place. A page
+	# that keeps even that to itself (an OBS overlay, whose address is its
+	# secret; the OAuth pages) says so, and its stricter policy stays.
 	header X-Content-Type-Options nosniff
-	header Referrer-Policy strict-origin-when-cross-origin
+	header ?Referrer-Policy strict-origin-when-cross-origin
 	# Once reached over HTTPS, always over HTTPS (a year). Not sent over
 	# plain HTTP, where browsers ignore it: http://localhost and a LAN
 	# address keep working.
