@@ -30,12 +30,17 @@ where the code is. The rules a contributor follows are in
   away when the account leaves the device.
 - **Location and push are the account's decision on this device.** Nothing
   is sent, and no push token registered, until the account says yes here.
-  A stop, a sign-out or a switch tells the server first; what did not reach
-  it is retried at every start, so the next account never gets the previous
-  one's pushes.
+  A stop, a sign-out or a switch tells the server first, written down as
+  owed before it is sent; what did not reach it is retried at every start
+  (a location stop with its own time, void once the account shares again),
+  so the next account never gets the previous one's pushes.
 - **Tokens**: the access token in memory, refresh tokens in secure storage.
   A signed-out session's token is kept until the server has ended the
   session and removed its push registrations.
+  Once an account left, its API never refreshes (`lib/api.ts`): only a call
+  with the access token it still holds goes out, any other is refused
+  (`ACCOUNT_LEFT`). A sign-out waits behind a switch on its way and ends the
+  account that was in use when it was asked.
 - **Limits come from the server**: the longest recording per purpose
   (stories 60 s, shorts 3 min) is shown before recording; a refusal shows
   the server's reason in ja/en.
