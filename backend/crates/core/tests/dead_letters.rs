@@ -63,6 +63,21 @@ async fn an_event_its_consumer_gives_up_on_is_buried_and_can_be_sent_round_again
             .await;
         })
     };
+    // Another consumer of the topic, which handles the event the first time.
+    let bystander_saw = Arc::new(AtomicUsize::new(0));
+    let bystander = {
+        let (bus, stop, saw) = (bus.clone(), stop.clone(), bystander_saw.clone());
+        tokio::spawn(async move {
+            events::consume(bus, "bystander", &["identity.user.deleted"], ConsumeOptions::default(), stop, move |_event: Event| {
+                let saw = saw.clone();
+                async move {
+                    saw.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }
+            })
+            .await;
+        })
+    };
     let event = Event {
         id: Uuid::now_v7(),
         topic: "identity.user.deleted".into(),
@@ -82,15 +97,22 @@ async fn an_event_its_consumer_gives_up_on_is_buried_and_can_be_sent_round_again
     assert_eq!(serde_json::from_value::<Event>(letter.payload.clone()).unwrap().id, event.id);
     assert!(dead_letters::list(&bus, Some("notify"), 10).await.unwrap().is_empty(), "another consumer's letters only");
 
+    until("the bystander handled it", async || bystander_saw.load(Ordering::SeqCst) == 1).await;
+
     // The cause is fixed; the operator sends it round again.
     broken.store(false, Ordering::SeqCst);
     let redriven = dead_letters::redrive(&bus, Some("purger"), 10).await.unwrap();
     assert_eq!((redriven.sent, redriven.failed), (1, 0));
     until("the event is handled", async || handled.load(Ordering::SeqCst) == 1).await;
     assert!(dead_letters::list(&bus, None, 10).await.unwrap().is_empty(), "sent letters leave the stream");
+    // Only the consumer it failed in hears of it again: the other one handled
+    // it the first time and is not made to (it would notify people twice).
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(bystander_saw.load(Ordering::SeqCst), 1, "the bystander is not sent the redrive");
 
     stop.cancel();
     let _ = consumer.await;
+    let _ = bystander.await;
     remove_streams(&bus).await;
 }
 

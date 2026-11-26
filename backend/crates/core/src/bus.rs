@@ -196,19 +196,28 @@ impl Bus {
         payload: impl Into<Bytes>,
         dedupe_id: Option<&str>,
     ) -> AppResult<()> {
+        let mut headers = async_nats::HeaderMap::new();
+        if let Some(id) = dedupe_id {
+            headers.insert("Nats-Msg-Id", id);
+        }
+        self.publish_durable_with_headers(subject, headers, payload).await
+    }
+
+    /// [`Self::publish_durable`] with headers of the caller's choosing.
+    pub async fn publish_durable_with_headers(
+        &self,
+        subject: impl Into<String>,
+        headers: async_nats::HeaderMap,
+        payload: impl Into<Bytes>,
+    ) -> AppResult<()> {
         let subject = self.subject(&subject.into());
         let unavailable = |e: String| {
             AppError::unavailable("BUS_UNAVAILABLE", format!("durable publish failed: {e}"))
         };
-        let ack = match dedupe_id {
-            Some(id) => {
-                let mut headers = async_nats::HeaderMap::new();
-                headers.insert("Nats-Msg-Id", id);
-                self.js
-                    .publish_with_headers(subject, headers, payload.into())
-                    .await
-            }
-            None => self.js.publish(subject, payload.into()).await,
+        let ack = if headers.is_empty() {
+            self.js.publish(subject, payload.into()).await
+        } else {
+            self.js.publish_with_headers(subject, headers, payload.into()).await
         }
         .map_err(|e| unavailable(e.to_string()))?;
         ack.await.map_err(|e| unavailable(e.to_string()))?;

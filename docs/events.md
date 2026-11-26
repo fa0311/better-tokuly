@@ -23,9 +23,11 @@ docker compose run --rm api dead-letters redrive         # publish everything ag
 docker compose run --rm api dead-letters redrive notify  # only what failed in consumers named notify…
 ```
 
-A redriven event goes back on its topic, so every consumer of the topic
-sees it again, not only the one that failed: one more reason every consumer
-must give the same result when an event arrives twice.
+A redriven event goes back on its topic with a `Tokuly-Redrive-For` header
+naming the consumer it failed in; every other consumer of the topic acks it
+unread. They handled it weeks ago, and what they remember of handled events
+(notify and feed keep event IDs for 8 days) is shorter than a letter is
+kept, so a redrive to everyone would notify people again of old news.
 
 Three topics are generic requests handled by the generic domains
 (`tokuly_core::outbound`):

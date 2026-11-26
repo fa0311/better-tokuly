@@ -344,6 +344,10 @@ where
     F: Fn(Event) -> Fut,
     Fut: Future<Output = AppResult<()>>,
 {
+    if dead_letters::redriven_for_another(&message, durable) {
+        let _ = message.ack().await;
+        return;
+    }
     let delivered = message.info().map(|i| i.delivered).unwrap_or(1);
     let event: Event = match serde_json::from_slice(&message.payload) {
         Ok(e) => e,

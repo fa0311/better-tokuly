@@ -16,11 +16,13 @@
 //! tokuly dead-letters redrive notify     # what failed in consumers named notify…
 //! ```
 //!
-//! A redriven event goes back on its topic, so *every* consumer of the topic
-//! sees it again, not only the one that failed. That is safe because
-//! consumers are idempotent (delivery was always at least once), and it
-//! keeps this module out of the consumers' business. A redriven job goes
-//! back on its queue.
+//! A redriven event goes back on its topic addressed to the consumer it
+//! failed in ([`REDRIVE_FOR`]): the other consumers of the topic handled it
+//! long ago and pass it by. They must, because a letter can be a month old
+//! and the records consumers keep of what they handled are not (notify and
+//! feed remember event IDs for a week): sent to everyone, a redrive would
+//! notify people again of what happened weeks ago. A redriven job goes back
+//! on its queue.
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -30,6 +32,15 @@ use crate::{
     bus::{Bus, STREAM_DEAD},
     error::{AppError, AppResult},
 };
+
+/// The header naming the one consumer a redriven event is for.
+pub const REDRIVE_FOR: &str = "Tokuly-Redrive-For";
+
+/// Whether `message` is an event sent round again for a consumer other than
+/// `consumer`, which then lets it pass.
+pub(crate) fn redriven_for_another(message: &async_nats::Message, consumer: &str) -> bool {
+    message.headers.as_ref().and_then(|h| h.get(REDRIVE_FOR)).is_some_and(|target| target.as_str() != consumer)
+}
 
 /// How long a buried message waits for an operator.
 pub const RETENTION: Duration = Duration::from_secs(30 * 24 * 3600);
@@ -132,8 +143,8 @@ pub async fn list(bus: &Bus, consumer_prefix: Option<&str>, limit: usize) -> App
     Ok(buried)
 }
 
-/// Sends buried messages round again (see the module documentation) and
-/// removes the ones that were sent. Run it once the cause of the failures
+/// Sends buried messages round again, each to the consumer it failed in
+/// (see the module documentation), and removes the ones that were sent. Run it once the cause of the failures
 /// is fixed: a message that fails again is buried again.
 pub async fn redrive(bus: &Bus, consumer_prefix: Option<&str>, limit: usize) -> AppResult<Redriven> {
     let stream = bus
@@ -148,7 +159,9 @@ pub async fn redrive(bus: &Bus, consumer_prefix: Option<&str>, limit: usize) -> 
             None => serde_json::to_vec(&letter.payload).map_err(|e| AppError::internal(anyhow::anyhow!("dead letter payload: {e}")))?,
         };
         // No deduplication ID: the stream may still remember the original's.
-        match bus.publish_durable(letter.subject.clone(), payload, None).await {
+        let mut headers = async_nats::HeaderMap::new();
+        headers.insert(REDRIVE_FOR, letter.consumer.as_str());
+        match bus.publish_durable_with_headers(letter.subject.clone(), headers, payload).await {
             Ok(()) => {
                 if let Err(e) = stream.delete_message(sequence).await {
                     tracing::warn!(sequence, error = %e, "redriven message could not be removed from the dead letters");

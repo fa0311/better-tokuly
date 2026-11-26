@@ -84,8 +84,7 @@ enum DeadLettersAction {
         consumer: Option<String>,
     },
     /// Publish the buried messages again and remove them from the list. A
-    /// redriven event reaches every consumer of its topic, not only the one
-    /// that failed (consumers are idempotent).
+    /// redriven event reaches only the consumer it failed in.
     Redrive {
         /// Only what failed in consumers whose name starts with this.
         consumer: Option<String>,

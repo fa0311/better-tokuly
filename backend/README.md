@@ -319,8 +319,8 @@ Everything else is asynchronous, through `tokuly_core`:
 
 An event or job whose handler keeps failing is retried (events for about
 twenty minutes) and then buried, not dropped: `tokuly dead-letters list`
-shows what is buried and `tokuly dead-letters redrive` publishes it again
-(`tokuly_core::dead_letters`, `docs/events.md`). Return an error from a
+shows what is buried and `tokuly dead-letters redrive` sends it again to
+the consumer it failed in (`tokuly_core::dead_letters`, `docs/events.md`). Return an error from a
 handler only for something a retry can fix; for an event that can never be
 handled (the row it names is gone, the payload makes no sense) log and
 return `Ok(())`, or it will sit in the dead letters.
