@@ -334,6 +334,11 @@ export default {
     dueHint: "By 23:59 that day",
     actions: "Assignment menu",
   },
+  quest: {
+    coins: "Your coins",
+    onWeb: "Open on the web",
+    badgesHint: "{{count}} collected!",
+  },
   licenses: {
     title: "Open-source licences",
     lead: "Tokuly is built with {{count}} open-source packages. Thank you!",

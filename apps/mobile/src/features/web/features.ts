@@ -5,7 +5,6 @@ import {
   ShieldCheck,
   SmilePlus,
   Sticker,
-  Trophy,
   Wallet,
 } from "lucide-react-native";
 
@@ -25,7 +24,6 @@ export interface WebFeature {
  * `features/notifications/target.ts`).
  */
 export const WEB_FEATURES: readonly WebFeature[] = [
-  { key: "quest", path: "/quest", icon: Trophy },
   { key: "emoji", path: "/emoji", icon: SmilePlus },
   { key: "stamps", path: "/stamps", icon: Sticker },
   { key: "wallet", path: "/wallet", icon: Wallet },
