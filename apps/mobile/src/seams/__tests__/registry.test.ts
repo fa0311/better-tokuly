@@ -30,6 +30,7 @@ describe("the seam registries", () => {
     expect(areasOf("hub")).toEqual([
       "ask",
       "community",
+      "emoji",
       "friends",
       "live",
       "plans",

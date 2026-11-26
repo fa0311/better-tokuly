@@ -26,7 +26,8 @@ where the code is. The rules a contributor follows are in
 | Push | FCM and APNs through `expo-notifications` (no Expo push service); a tap opens the notification's screen | — | `features/notifications` (`push.ts`, `target.ts`) |
 | Question box | opening and sharing one's box, the inbox (new, answered, archived, filtered; read on sight), answering with who may read it, editing and taking back an answer, archiving, deleting, blocking whoever sent a question and reporting it, asking someone (anonymously where their box allows it), the questions sent (waiting or answered, withdrawing), a box's Q&A and the newest answers on a profile; new questions and answers live | pictures and stamps on questions and answers, prompts, compliment polls and flames, the box's settings and sender blocks | `features/ask`, `@tokuly/core/ask` |
 | Stamps | the picker (recently used, favourites, one's own, each installed pack) in chat, notes and replies; stamps in messages and notes; the store (picks, ranking, new, tags, search), a pack, adding and taking out free and bought packs, the packs in one's picker | buying with coins, making stamps and packs, the studio, favouriting, the picker's order, the history | `features/stamps`, `@tokuly/core/stamps` |
-| Everything else | — | emoji, wallet, the rarer settings, developers, the console | `features/web` |
+| Custom emoji | the picker (deck, recently used, each category, search in Japanese and English) in chat, notes and replies; `:name:` drawn in messages; the catalogue kept in memory and updated live; an emoji's page, pinning to and taking off the deck | the Unicode table (the keyboard has it), `:` autocomplete, the deck's order, sending in emoji, one's submissions, moderation | `features/emoji`, `@tokuly/core/emoji` |
+| Everything else | — | wallet, the rarer settings, developers, the console | `features/web` |
 
 ## Rules that hold everywhere
 

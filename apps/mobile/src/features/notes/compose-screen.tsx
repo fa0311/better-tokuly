@@ -18,7 +18,7 @@ import {
 import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
 import { router, useNavigation, usePreventRemove } from "expo-router";
-import { BarChart3, ImagePlus, Sticker, TriangleAlert, X } from "lucide-react-native";
+import { BarChart3, ImagePlus, Smile, Sticker, TriangleAlert, X } from "lucide-react-native";
 import { type ComponentRef, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -33,6 +33,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "#/components/button";
 import { EmptyState, Spinner } from "#/components/page";
+import { EmojiPicker } from "#/features/emoji/picker";
 import { useStamp } from "#/features/stamps/data";
 import { StampPicker } from "#/features/stamps/picker";
 import { StampImage } from "#/features/stamps/stamp-image";
@@ -205,6 +206,7 @@ function Composer({
   const shownStamp = stamp ?? kept;
   const stampId = stamp?.id ?? (keptGone ? "" : keptStampId);
   const [pickingStamp, setPickingStamp] = useState(false);
+  const [pickingEmoji, setPickingEmoji] = useState(false);
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState<"post" | "draft">();
   const [idempotencyKey] = useState(() => randomUUID());
@@ -299,6 +301,14 @@ function Composer({
   const edit = (next: string) => {
     setText(next);
     setTouched(true);
+  };
+  // A custom emoji goes in where the caret is, as its `:name:`.
+  const insertEmoji = (code: string) => {
+    const at = Math.min(caret, text.length);
+    const before = text.slice(0, at);
+    const spaced = `${before && !/\s$/.test(before) ? " " : ""}${code} `;
+    edit(before + spaced + text.slice(at));
+    setCaret(at + spaced.length);
   };
   const title = replyTo
     ? t("compose.title.reply")
@@ -478,6 +488,15 @@ function Composer({
             <ImagePlus color={colors.brand} size={22} />
           </Pressable>
           <Pressable
+            testID="note-add-emoji"
+            accessibilityRole="button"
+            accessibilityLabel={tm("emoji.pick")}
+            onPress={() => setPickingEmoji(true)}
+            className="rounded-full p-2.5"
+          >
+            <Smile color={colors.brand} size={22} />
+          </Pressable>
+          <Pressable
             testID="note-add-stamp"
             accessibilityRole="button"
             accessibilityLabel={tm("stamps.pick")}
@@ -532,6 +551,11 @@ function Composer({
           </Button>
         </View>
       </KeyboardAvoidingView>
+      <EmojiPicker
+        visible={pickingEmoji}
+        onPick={insertEmoji}
+        onClose={() => setPickingEmoji(false)}
+      />
       <StampPicker
         visible={pickingStamp}
         onPick={(picked) => {

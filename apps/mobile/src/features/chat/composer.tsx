@@ -2,11 +2,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { chat, type common, create } from "@tokuly/api";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { ImagePlus, SendHorizontal, Sticker, X } from "lucide-react-native";
+import { ImagePlus, SendHorizontal, Smile, Sticker, X } from "lucide-react-native";
 import { type ComponentRef, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { ActionSheet } from "#/components/action-sheet";
+import { EmojiPicker } from "#/features/emoji/picker";
 import { StampPicker } from "#/features/stamps/picker";
 import { errorMessage } from "#/lib/errors";
 import { realtime } from "#/lib/realtime";
@@ -30,7 +31,7 @@ function photoOf(asset: ImagePicker.ImagePickerAsset): OutgoingPhoto {
 }
 
 /**
- * Writing in a conversation: text, photos from the library or the camera
+ * Writing in a conversation: text with custom emoji, photos from the library or the camera
  * (sent through the media upload flow), a stamp, a reply to a message, or editing
  * one of the viewer's own messages. Others see "typing" while it goes on.
  */
@@ -60,6 +61,8 @@ export function Composer({
   const [photos, setPhotos] = useState<OutgoingPhoto[]>([]);
   const [picking, setPicking] = useState(false);
   const [stamps, setStamps] = useState(false);
+  const [emoji, setEmoji] = useState(false);
+  const caret = useRef(0);
   const typedAt = useRef(0);
   const input = useRef<ComponentRef<typeof TextInput>>(null);
 
@@ -143,6 +146,15 @@ export function Composer({
   const sendStamp = (stamp: common.StampRef) => {
     send(queryClient, conversationId, { text: "", stamp, replyTo: replyTo ?? undefined });
     onDone();
+  };
+
+  // A custom emoji goes in where the caret is, as its `:name:`.
+  const insertEmoji = (code: string) => {
+    const at = Math.min(caret.current, text.length);
+    const before = text.slice(0, at);
+    const spaced = `${before && !/\s$/.test(before) ? " " : ""}${code} `;
+    change(before + spaced + text.slice(at));
+    caret.current = at + spaced.length;
   };
 
   const banner = editing
@@ -233,11 +245,23 @@ export function Composer({
           placeholderTextColor={colors["ink-faint"]}
           value={text}
           onChangeText={change}
+          onSelectionChange={(event) => {
+            caret.current = event.nativeEvent.selection.end;
+          }}
           onBlur={stopTyping}
           multiline
           maxLength={maxTextLength}
           className="max-h-32 min-h-11 flex-1 rounded-3xl bg-surface-2 px-4 py-2.5 text-base text-ink"
         />
+        <Pressable
+          testID="composer-emoji"
+          accessibilityRole="button"
+          accessibilityLabel={tm("emoji.pick")}
+          onPress={() => setEmoji(true)}
+          className="h-11 w-9 items-center justify-center"
+        >
+          <Smile size={22} color={colors["ink-soft"]} />
+        </Pressable>
         <Pressable
           testID="composer-send"
           accessibilityRole="button"
@@ -250,6 +274,7 @@ export function Composer({
           <SendHorizontal size={20} color={canSend ? colors["on-brand"] : colors["ink-faint"]} />
         </Pressable>
       </View>
+      <EmojiPicker visible={emoji} onPick={insertEmoji} onClose={() => setEmoji(false)} />
       <StampPicker visible={stamps} onPick={sendStamp} onClose={() => setStamps(false)} />
       <ActionSheet
         visible={picking}

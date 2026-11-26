@@ -347,6 +347,13 @@ export default {
     moreOnWebHint: "Opens on the web",
     remove: "Remove the stamp",
   },
+  emoji: {
+    pick: "Emoji",
+    deckEmptyBody: "Open an emoji and pin it to your deck!",
+    submit: "Submit an emoji",
+    submissions: "Your submissions",
+    onWeb: "Opens on the web",
+  },
   licenses: {
     title: "Open-source licences",
     lead: "Tokuly is built with {{count}} open-source packages. Thank you!",

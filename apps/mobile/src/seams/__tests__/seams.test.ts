@@ -45,6 +45,7 @@ describe("the features on the seams", () => {
       ["ask", "/ask"],
       ["school", "/school"],
       ["stamps", "/stamps"],
+      ["emoji", "/emoji"],
       ["more", "/more"],
       ["settings", "/settings"],
     ]);
@@ -78,6 +79,8 @@ describe("the features on the seams", () => {
       "chat/[id]",
       "communities",
       "create-account",
+      "emoji/[name]",
+      "emoji/index",
       "friends",
       "g/[handle]/index",
       "g/[handle]/members",
