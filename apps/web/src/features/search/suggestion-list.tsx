@@ -1,5 +1,6 @@
 import { useRouter } from "@tanstack/react-router";
 import { search } from "@tokuly/api";
+import { extraFlag, extraNumber, extraText, hitExtra, isKind, kindSlug } from "@tokuly/core/search";
 import { BadgeCheck, Clock, CornerDownLeft, Search, TrendingUp, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,7 +10,6 @@ import { useHistoryActions } from "./api";
 import { hitHref } from "./hit-href";
 import { useHasKeyboard } from "./hooks";
 import { KindTile } from "./kind-icon";
-import { extraFlag, extraNumber, extraText, hitExtra, isKind, kindSlug } from "./kinds";
 import type { Suggestion, SuggestionGroup } from "./suggestions";
 
 /**

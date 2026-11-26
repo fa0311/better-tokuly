@@ -24,7 +24,7 @@ export const KINDS = [
 ] as const;
 export type Kind = (typeof KINDS)[number];
 
-/** A kind's name in the address (`/search?kind=people`) and in the `kinds.*` strings. */
+/** A kind's name in an address (`/search?kind=people`) and in the `search:kinds.*` strings. */
 const SLUGS: Record<Kind, string> = {
   [K.USER]: "people",
   [K.CHANNEL]: "channels",

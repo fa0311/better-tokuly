@@ -1,6 +1,7 @@
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { MAX_QUERY_LENGTH } from "@tokuly/core/search";
 import { ArrowDown, ArrowUp, CornerDownLeft, Search, X } from "lucide-react";
 import { type ReactNode, type RefObject, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,7 +12,6 @@ import { cn } from "#/lib/cn";
 import { HUB_TILES } from "#/seams/hub";
 import { submitSearch } from "./api";
 import { useHasKeyboard } from "./hooks";
-import { MAX_QUERY_LENGTH } from "./params";
 import { optionId, SuggestionList, useOpenSuggestion, useSuggestionKeys } from "./suggestion-list";
 import { destinationSuggestions } from "./suggestions";
 import { useSuggestions } from "./typeahead";
