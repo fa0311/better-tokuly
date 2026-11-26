@@ -1,0 +1,77 @@
+appId: app.tokuly.mobile
+name: Open the question box, answer an anonymous question, ask a friend and see it among the sent
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/ask-friends.js
+- clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
+
+# The own box, from the last tab: closed until its owner opens it.
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: ask }
+- extendedWaitUntil:
+    visible: { id: "ask-box-state", text: "(おやすみ中|Closed)" }
+    timeout: 15000
+- tapOn: { id: "ask-open" }
+- extendedWaitUntil:
+    visible: { id: "ask-box-state", text: "(受付中|Open)" }
+    timeout: 10000
+- takeScreenshot: 27-ask-hub
+
+# A friend asks, anonymously. In the inbox the question has no name on it.
+- runScript:
+    file: ../scripts/ask-question.js
+    env:
+      ME: ${output.meId}
+      TOKEN: ${output.friendToken}
+- tapOn: { id: "ask-inbox-row" }
+- extendedWaitUntil:
+    visible: ${output.question}
+    timeout: 15000
+- assertVisible: "(匿名さん|Anonymous)"
+- assertNotVisible: ${output.friend}
+- takeScreenshot: 28-ask-inbox
+- tapOn: { id: "ask-answer" }
+- tapOn: { id: "ask-answer-input" }
+- inputText: "e2e answer"
+- tapOn: { id: "ask-audience-friends" }
+- hideKeyboard
+- tapOn: { id: "ask-answer-submit" }
+- tapOn: "OK"
+- tapOn: { id: "ask-inbox-tab-answered" }
+- extendedWaitUntil:
+    visible: "e2e answer"
+    timeout: 10000
+- takeScreenshot: 29-ask-answered
+
+# The friend's box: asked anonymously, then it waits among the questions sent.
+- openLink: "tokuly://ask/u/${output.friend}"
+- extendedWaitUntil:
+    visible: { id: "ask-input" }
+    timeout: 15000
+- tapOn: { id: "ask-input" }
+- inputText: "e2e question back"
+- hideKeyboard
+- assertVisible: { id: "ask-privacy-note" }
+- tapOn: { id: "ask-send" }
+- extendedWaitUntil:
+    visible: { id: "ask-sent" }
+    timeout: 10000
+- tapOn: { id: "ask-see-sent" }
+- extendedWaitUntil:
+    visible: "e2e question back"
+    timeout: 10000
+- assertVisible: { id: "ask-sent-state", text: "(⏳ 回答まち|⏳ Waiting)" }
+- takeScreenshot: 30-ask-sent

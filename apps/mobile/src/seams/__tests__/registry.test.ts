@@ -28,6 +28,7 @@ describe("the seam registries", () => {
     ]);
     expect(areasOf("tabs")).toEqual(["chat", "map", "notes", "notifications", "profile", "shorts"]);
     expect(areasOf("hub")).toEqual([
+      "ask",
       "community",
       "friends",
       "live",
@@ -38,7 +39,7 @@ describe("the seam registries", () => {
       "video",
       "web",
     ]);
-    expect(areasOf("profile")).toEqual(["notes", "plans"]);
+    expect(areasOf("profile")).toEqual(["ask", "notes", "plans"]);
   });
 
   it("stop the build for a seam file they would leave out", () => {
