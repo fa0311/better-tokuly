@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { video } from "@tokuly/api";
+import { nextInQueue, playlistTitle } from "@tokuly/core/video";
 import { ListVideo, Play } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,6 @@ import { LoadMore } from "#/components/ui/load-more";
 import { cn } from "#/lib/cn";
 import { nextCursor, playlistClient, videoKeys } from "../api";
 import { announceTrafficSource } from "../playback-session";
-import { playlistTitle } from "../save-dialog";
 import { Thumbnail } from "../video-card";
 
 export interface PlaylistQueueState {
@@ -49,8 +49,7 @@ export function usePlaylistQueue(
     query.data?.pages.flatMap((page) =>
       page.items.flatMap((item) => (item.video ? [item.video] : [])),
     ) ?? [];
-  const index = items.findIndex((item) => item.id === currentId);
-  return { playlist: playlist.data, items, next: index >= 0 ? items[index + 1] : undefined, query };
+  return { playlist: playlist.data, items, next: nextInQueue(items, currentId), query };
 }
 
 /** The list being played, next to the player: where the viewer is in it and a tap to jump anywhere. */

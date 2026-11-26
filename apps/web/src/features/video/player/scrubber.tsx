@@ -1,4 +1,5 @@
 import type { video } from "@tokuly/api";
+import { chapterAt } from "@tokuly/core/video";
 import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
@@ -10,16 +11,6 @@ import { cn } from "#/lib/cn";
 import { formatClock } from "../format";
 import { scriptUrl } from "./media-url";
 import { frameAt, parseStoryboard, type StoryboardFrame } from "./vtt";
-
-/** The chapter playing at `time` (chapters are sorted by start). */
-export function chapterAt(chapters: video.Chapter[], time: number): video.Chapter | undefined {
-  let current: video.Chapter | undefined;
-  for (const chapter of chapters) {
-    if (chapter.startSeconds <= time + 0.001) current = chapter;
-    else break;
-  }
-  return current;
-}
 
 /** Loads the seek-preview track the first time it is wanted. */
 function useStoryboard(url: string, wanted: boolean): StoryboardFrame[] {

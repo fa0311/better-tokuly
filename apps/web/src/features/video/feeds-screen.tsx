@@ -1,6 +1,18 @@
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { video } from "@tokuly/api";
+import {
+  CATEGORIES,
+  type Dismissal,
+  FEED_SOURCES,
+  FEEDS,
+  type Feed,
+  type FeedSearch,
+  feedKey,
+  feedVideos,
+  loadFeedPage,
+  validateFeedSearch,
+} from "@tokuly/core/video";
 import { Ban, Clapperboard, History, ListVideo, ThumbsDown, Undo2, Users } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,34 +26,11 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { channelClient, feedClient, nextCursor, videoKeys } from "./api";
 import { ChannelRow } from "./channel/channel-row";
-import { CATEGORIES } from "./labels";
 import { ChannelAvatar, VideoCard, VideoCardSkeleton, VideoGrid } from "./video-card";
 
-const { VideoCategory, TrafficSource } = video;
+const { VideoCategory } = video;
 
-export const FEEDS = ["home", "subscriptions", "trending"] as const;
-export type Feed = (typeof FEEDS)[number];
-
-export interface FeedSearch {
-  feed?: Feed;
-  category?: video.VideoCategory;
-}
-
-/** Reads `?feed=` and `?category=` of `/watch`; unknown values fall back to the home feed without a genre. */
-export function validateFeedSearch(search: Record<string, unknown>): FeedSearch {
-  const feed = FEEDS.find((candidate) => candidate === search.feed);
-  const category = CATEGORIES.find((entry) => entry.value === Number(search.category))?.value;
-  return { ...(feed && feed !== "home" ? { feed } : {}), ...(category ? { category } : {}) };
-}
-
-const SOURCES: Record<Feed, video.TrafficSource> = {
-  home: TrafficSource.HOME,
-  subscriptions: TrafficSource.SUBSCRIPTIONS,
-  trending: TrafficSource.TRENDING,
-};
-
-/** What the viewer asked not to see again, until they leave the page (so it can be undone in place). */
-type Dismissal = { kind: "video" } | { kind: "channel"; channelId: string };
+export { FEEDS, type Feed, type FeedSearch, validateFeedSearch };
 
 /**
  * `/watch`: the three feeds — recommendations, the channels the viewer
@@ -61,20 +50,8 @@ export function FeedsScreen({
 
   const query = useInfiniteQuery({
     // Trending is filtered by the server; the other two feeds are filtered here, from what is loaded.
-    queryKey:
-      feed === "home"
-        ? videoKeys.home
-        : feed === "subscriptions"
-          ? videoKeys.subscriptionsFeed
-          : videoKeys.trending(category),
-    queryFn: ({
-      pageParam,
-    }): Promise<{ videos: video.VideoSummary[]; page?: { nextCursor: string } }> => {
-      const page = { limit: 24, cursor: pageParam };
-      if (feed === "home") return feedClient().getHomeFeed({ page });
-      if (feed === "subscriptions") return feedClient().getSubscriptionsFeed({ page });
-      return feedClient().listTrending({ category, page });
-    },
+    queryKey: feedKey(feed, category),
+    queryFn: ({ pageParam }) => loadFeedPage(feedClient, feed, category, pageParam),
     initialPageParam: "",
     getNextPageParam: nextCursor,
   });
@@ -119,24 +96,7 @@ export function FeedsScreen({
     });
   };
 
-  const hiddenChannels = new Set(
-    Object.values(dismissed).flatMap((entry) =>
-      entry.kind === "channel" ? [entry.channelId] : [],
-    ),
-  );
-  const seen = new Set<string>();
-  const videos = (query.data?.pages.flatMap((page) => page.videos) ?? []).filter((summary) => {
-    if (seen.has(summary.id)) return false;
-    seen.add(summary.id);
-    if (
-      feed !== "trending" &&
-      category !== VideoCategory.UNSPECIFIED &&
-      summary.category !== category
-    )
-      return false;
-    // Other videos of a channel the viewer just turned away disappear; the card they used stays as the way back.
-    return dismissed[summary.id] !== undefined || !hiddenChannels.has(summary.channel?.id ?? "");
-  });
+  const videos = feedVideos(query.data?.pages ?? [], feed, category, dismissed);
 
   const setFeed = (next: Feed) =>
     onSearchChange({
@@ -260,7 +220,7 @@ export function FeedsScreen({
                   <VideoCard
                     key={summary.id}
                     video={summary}
-                    source={SOURCES[feed]}
+                    source={FEED_SOURCES[feed]}
                     actions={actions}
                   />
                 );

@@ -13,6 +13,7 @@ import notifications from "./notifications";
 import profile from "./profile";
 import shorts from "./shorts";
 import stories from "./stories";
+import video from "./video";
 
 export default {
   common,
@@ -26,6 +27,7 @@ export default {
   notifications,
   stories,
   shorts,
+  video,
   profile,
   mobile,
 };

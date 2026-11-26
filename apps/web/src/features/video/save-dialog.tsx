@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { common, video } from "@tokuly/api";
+import { playlistTitle } from "@tokuly/core/video";
 import { Check, Clock3, ListVideo, Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,16 +24,6 @@ const useSaveTarget = create<{ video: video.VideoSummary | null }>(() => ({ vide
 /** Opens "save to…" for a video, from anywhere in the app. */
 export function openSaveDialog(summary: video.VideoSummary): void {
   useSaveTarget.setState({ video: summary });
-}
-
-/** A playlist's name: built-in lists have none of their own. */
-export function playlistTitle(
-  playlist: Pick<video.Playlist, "kind" | "title">,
-  t: (key: string) => string,
-): string {
-  if (playlist.kind === PlaylistKind.WATCH_LATER) return t("playlist.watchLater");
-  if (playlist.kind === PlaylistKind.LIKED) return t("playlist.liked");
-  return playlist.title;
 }
 
 /**

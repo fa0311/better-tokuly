@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { media, video } from "@tokuly/api";
+import { chapterAt } from "@tokuly/core/video";
 import {
   Captions,
   CaptionsOff,
@@ -35,7 +36,7 @@ import { cn } from "#/lib/cn";
 import { formatClock } from "../format";
 import { useMediaEngine } from "./engine";
 import { scriptUrl } from "./media-url";
-import { chapterAt, Scrubber } from "./scrubber";
+import { Scrubber } from "./scrubber";
 import { SettingsMenu } from "./settings-menu";
 import { commandForKey, type PlayerCommand, playerOwnsKey, stepRate } from "./shortcuts";
 import { activeCues, type Cue, parseVtt } from "./vtt";
