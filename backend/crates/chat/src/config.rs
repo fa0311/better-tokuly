@@ -110,7 +110,12 @@ pub struct ChatConfig {
     pub openai_base_url: String,
 
     /// OpenAI model used by the AI assistant.
-    #[arg(id = "chat_openai_model", long = "chat-openai-model", env = "TOKULY_OPENAI_MODEL", default_value = "gpt-5-mini")]
+    #[arg(
+        id = "chat_openai_model",
+        long = "chat-openai-model",
+        env = "TOKULY_OPENAI_MODEL",
+        default_value = "gpt-5-mini"
+    )]
     pub openai_model: String,
 
     /// `reasoning_effort` sent to OpenAI (`minimal`, `low`, `medium`,

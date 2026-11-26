@@ -26,8 +26,10 @@ const NO_OWNER: Uuid = Uuid::nil();
 /// that shows none, is gone already, or whose uploads were taken down holds
 /// nothing.
 pub async fn hold_message_media(conn: &mut sqlx::PgConnection, message_id: Uuid, holder: &str) -> AppResult<usize> {
-    let assets: Vec<Uuid> =
-        sqlx::query_scalar("SELECT asset_id FROM chat_message_assets WHERE message_id = $1").bind(message_id).fetch_all(&mut *conn).await?;
+    let assets: Vec<Uuid> = sqlx::query_scalar("SELECT asset_id FROM chat_message_assets WHERE message_id = $1")
+        .bind(message_id)
+        .fetch_all(&mut *conn)
+        .await?;
     let mut held = 0;
     for asset_id in assets {
         match tokuly_media::assets::attach(&mut *conn, asset_id, holder).await {

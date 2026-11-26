@@ -648,10 +648,12 @@ pub(crate) fn ensure_group(conv: &ConversationRow) -> AppResult<()> {
 /// Messages announced per statement when a conversation goes.
 const DELETE_BATCH: i64 = 1000;
 
-/// Deletes a group nobody is left in, releasing every upload its messages
-/// and its icon held. The messages go with it (`ON DELETE CASCADE`); those
-/// not deleted before get `subject.deleted` here, in batches, so that saves
-/// of them elsewhere go too (a deleted message was announced then).
+/// Deletes a conversation nobody is left in (a group everyone left, a direct
+/// conversation whose two accounts were erased), releasing every upload its
+/// messages and its icon held. The messages go with it (`ON DELETE
+/// CASCADE`); those not deleted before get `subject.deleted` here, in
+/// batches, so that saves of them elsewhere go too (a deleted message was
+/// announced then).
 pub(crate) async fn delete_conversation(tx: &mut Transaction<'_, Postgres>, conversation_id: Uuid) -> AppResult<()> {
     let mut after = 0_i64;
     loop {

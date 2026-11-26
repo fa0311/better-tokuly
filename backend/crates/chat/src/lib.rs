@@ -70,9 +70,11 @@ pub use calls::{CONNECT_GRACE_SECONDS, MAX_RINGING_GROUP_MEMBERS};
 pub use config::ChatConfig;
 pub use conversations::direct_members;
 pub use send::{JOB_LINK_PREVIEW, LinkPreviewJob};
-pub use server_notices::{JOB_NOTICES, NOTICE_BATCH, NOTICES_PER_CONVERSATION_PER_DAY, NoticeBatch, direct_conversations_of};
-pub use subjects::hold_message_media;
+pub use server_notices::{
+    JOB_NOTICES, NOTICE_BATCH, NOTICES_PER_CONVERSATION_PER_DAY, NoticeBatch, direct_conversations_of,
+};
 pub use signals::PRESENCE_TTL_SECONDS;
+pub use subjects::hold_message_media;
 
 pub struct ChatInner {
     pub core: Core,
@@ -112,7 +114,8 @@ impl Chat {
     /// Registers the chat services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
         use tokuly_proto::chat::{
-            AssistAdminServiceExt, AssistServiceExt, CallServiceExt, ConversationServiceExt, MessageServiceExt, PovServiceExt,
+            AssistAdminServiceExt, AssistServiceExt, CallServiceExt, ConversationServiceExt, MessageServiceExt,
+            PovServiceExt,
         };
         let me = Arc::new(self.clone());
         let router = ConversationServiceExt::register(me.clone(), router);

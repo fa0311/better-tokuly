@@ -35,7 +35,11 @@ struct Recorded {
 impl Recorded {
     /// The text of the user turn: what was sent about the user's content.
     fn prompt(&self) -> &str {
-        self.body["messages"].as_array().and_then(|turns| turns.last()).and_then(|turn| turn["content"].as_str()).unwrap_or_default()
+        self.body["messages"]
+            .as_array()
+            .and_then(|turns| turns.last())
+            .and_then(|turn| turn["content"].as_str())
+            .unwrap_or_default()
     }
 
     /// The system prompt, in either protocol.
@@ -108,15 +112,23 @@ async fn completions(
     let (recorded, _) = record(&stub, &headers, body);
     let schema = recorded.body.get("response_format").is_some();
     if schema && stub.rejects_schema.load(Ordering::SeqCst) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "'response_format.type' must be 'json_object' or 'text'" })));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "'response_format.type' must be 'json_object' or 'text'" })),
+        );
     }
     if recorded.prompt().contains("BADKEY") {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": { "type": "invalid_request_error", "message": "stub" } })));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": { "type": "invalid_request_error", "message": "stub" } })),
+        );
     }
     if recorded.prompt().contains("REFUSE") {
         return (
             StatusCode::OK,
-            Json(serde_json::json!({ "choices": [{ "index": 0, "message": { "role": "assistant", "content": null, "refusal": "I can't help with that." }, "finish_reason": "stop" }] })),
+            Json(
+                serde_json::json!({ "choices": [{ "index": 0, "message": { "role": "assistant", "content": null, "refusal": "I can't help with that." }, "finish_reason": "stop" }] }),
+            ),
         );
     }
     let answer = answer_for(recorded.system());
@@ -663,15 +675,21 @@ async fn users_choose_among_the_enabled_providers_and_can_switch_the_assistant_o
     assert_eq!(settings.effective_provider.as_known(), Some(AiProvider::AI_PROVIDER_ANTHROPIC));
     assert_eq!(settings.effective_recipient, "127.0.0.1");
 
-    let choose = |provider: AiProvider, off: bool| ChooseAssistProviderRequest { provider: provider.into(), off, ..Default::default() };
+    let choose = |provider: AiProvider, off: bool| ChooseAssistProviderRequest {
+        provider: provider.into(),
+        off,
+        ..Default::default()
+    };
     assert_eq!(
         ctx.reason("Assist", "ChooseAssistProvider", &taro, &choose(AiProvider::AI_PROVIDER_OPENAI, false)).await,
         "PROVIDER_NOT_AVAILABLE"
     );
 
     // Off: every assistant RPC says so, and the capabilities agree.
-    let off: ChooseAssistProviderResponse =
-        ctx.call("Assist", "ChooseAssistProvider", &taro, &choose(AiProvider::AI_PROVIDER_UNSPECIFIED, true)).await.unwrap();
+    let off: ChooseAssistProviderResponse = ctx
+        .call("Assist", "ChooseAssistProvider", &taro, &choose(AiProvider::AI_PROVIDER_UNSPECIFIED, true))
+        .await
+        .unwrap();
     let off = off.settings.into_option().unwrap();
     assert!(off.off && off.effective_provider.as_known() == Some(AiProvider::AI_PROVIDER_UNSPECIFIED));
     assert_eq!(
@@ -683,8 +701,10 @@ async fn users_choose_among_the_enabled_providers_and_can_switch_the_assistant_o
     assert!(!capabilities.capabilities.assist_enabled);
     assert_eq!(stub.count(), 0);
 
-    let _: ChooseAssistProviderResponse =
-        ctx.call("Assist", "ChooseAssistProvider", &taro, &choose(AiProvider::AI_PROVIDER_ANTHROPIC, false)).await.unwrap();
+    let _: ChooseAssistProviderResponse = ctx
+        .call("Assist", "ChooseAssistProvider", &taro, &choose(AiProvider::AI_PROVIDER_ANTHROPIC, false))
+        .await
+        .unwrap();
     let _: RewriteDraftResponse =
         ctx.call("Assist", "RewriteDraft", &taro, &rewrite("おはよう", RewriteTone::REWRITE_TONE_CUTE)).await.unwrap();
     assert_eq!(stub.count(), 1);
@@ -707,8 +727,10 @@ async fn openai_is_asked_for_a_strict_schema_and_translations_are_cached_per_mod
     assert_eq!(settings.effective_provider.as_known(), Some(AiProvider::AI_PROVIDER_OPENAI));
     assert_eq!(settings.effective_recipient, "127.0.0.1", "the stub, not api.openai.com");
 
-    let rewritten: RewriteDraftResponse =
-        ctx.call("Assist", "RewriteDraft", &taro, &rewrite("おはようございます", RewriteTone::REWRITE_TONE_CUTE)).await.unwrap();
+    let rewritten: RewriteDraftResponse = ctx
+        .call("Assist", "RewriteDraft", &taro, &rewrite("おはようございます", RewriteTone::REWRITE_TONE_CUTE))
+        .await
+        .unwrap();
     assert_eq!(rewritten.text, "おはよ〜！今日もがんばろっ✨");
     let sent = stub.last();
     assert!(sent.openai());
@@ -722,9 +744,15 @@ async fn openai_is_asked_for_a_strict_schema_and_translations_are_cached_per_mod
     assert!(sent.prompt().contains("<draft>\nおはようございます\n</draft>"));
     assert_anonymous(&sent, &[&taro]);
 
-    assert_eq!(ctx.reason("Assist", "RewriteDraft", &taro, &rewrite("REFUSE", RewriteTone::REWRITE_TONE_CUTE)).await, "AI_REFUSED");
+    assert_eq!(
+        ctx.reason("Assist", "RewriteDraft", &taro, &rewrite("REFUSE", RewriteTone::REWRITE_TONE_CUTE)).await,
+        "AI_REFUSED"
+    );
     let before = stub.count();
-    assert_eq!(ctx.reason("Assist", "RewriteDraft", &taro, &rewrite("BADKEY", RewriteTone::REWRITE_TONE_CUTE)).await, "AI_UNAVAILABLE");
+    assert_eq!(
+        ctx.reason("Assist", "RewriteDraft", &taro, &rewrite("BADKEY", RewriteTone::REWRITE_TONE_CUTE)).await,
+        "AI_UNAVAILABLE"
+    );
     assert_eq!(stub.count() - before, 1, "a rejected key is not retried");
 
     // Translated by OpenAI, then by Anthropic: another model, another translation.
@@ -754,12 +782,19 @@ async fn own_api_keys_are_used_for_their_owner_only_and_never_shown_again() {
     let (taro, hanako) = (ctx.app.user("taro").await, ctx.app.user("hanako").await);
     let own_key = "sk-ant-taro-own-key-WXYZ";
 
-    let set = |provider: AiProvider, key: &str| SetOwnApiKeyRequest { provider: provider.into(), api_key: key.into(), ..Default::default() };
+    let set = |provider: AiProvider, key: &str| SetOwnApiKeyRequest {
+        provider: provider.into(),
+        api_key: key.into(),
+        ..Default::default()
+    };
     assert_eq!(
         ctx.reason("Assist", "SetOwnApiKey", &taro, &set(AiProvider::AI_PROVIDER_OPENAI_COMPATIBLE, own_key)).await,
         "PROVIDER_INVALID"
     );
-    assert_eq!(ctx.reason("Assist", "SetOwnApiKey", &taro, &set(AiProvider::AI_PROVIDER_ANTHROPIC, "short")).await, "API_KEY_INVALID");
+    assert_eq!(
+        ctx.reason("Assist", "SetOwnApiKey", &taro, &set(AiProvider::AI_PROVIDER_ANTHROPIC, "short")).await,
+        "API_KEY_INVALID"
+    );
     assert_eq!(
         ctx.reason("Assist", "SetOwnApiKey", &taro, &set(AiProvider::AI_PROVIDER_ANTHROPIC, "has a space in it")).await,
         "API_KEY_INVALID"
@@ -852,11 +887,12 @@ async fn a_deleted_account_takes_its_ai_keys_and_settings_along() {
     };
     ctx.chat.handle_event(&event).await.unwrap();
     for table in ["chat_ai_user_keys", "chat_ai_user_settings"] {
-        let left: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table} WHERE user_id = $1")))
-            .bind(taro.id)
-            .fetch_one(&ctx.app.core.db)
-            .await
-            .unwrap();
+        let left: i64 =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table} WHERE user_id = $1")))
+                .bind(taro.id)
+                .fetch_one(&ctx.app.core.db)
+                .await
+                .unwrap();
         assert_eq!(left, 0, "{table}");
     }
 }
@@ -876,11 +912,16 @@ async fn settings_saved_at_once_from_one_account_end_up_as_one_row() {
         let taro = &taro;
         async move { ctx.call::<_, SetOwnApiKeyResponse>("Assist", "SetOwnApiKey", taro, &request).await }
     }));
-    let consented = futures::future::join_all(consents.map(|request| {
-        let ctx = &ctx;
-        let taro = &taro;
-        async move { ctx.call::<_, SetAiMessageConsentResponse>("Assist", "SetAiMessageConsent", taro, &request).await }
-    }));
+    let consented =
+        futures::future::join_all(
+            consents.map(|request| {
+                let ctx = &ctx;
+                let taro = &taro;
+                async move {
+                    ctx.call::<_, SetAiMessageConsentResponse>("Assist", "SetAiMessageConsent", taro, &request).await
+                }
+            }),
+        );
     let (saved, consented) = tokio::join!(saved, consented);
     assert!(saved.iter().all(Result::is_ok) && consented.iter().all(Result::is_ok));
     let settings = settings_of(&ctx, &taro).await;

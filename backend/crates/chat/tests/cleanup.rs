@@ -13,6 +13,7 @@ use tokuly_proto::{
     common::SubjectType,
     media::{AssetKind, AssetPurpose, AssetStatus},
 };
+use tokuly_testkit::TestUser;
 use uuid::Uuid;
 
 fn event(topic: &str, data: serde_json::Value) -> Event {
@@ -115,6 +116,127 @@ async fn a_deleted_account_leaves_its_messages_behind() {
     ctx.chat.handle_event(&deleted).await.unwrap();
     assert_eq!(ctx.conversation(&hanako, &group.id).await.conversation.member_count, 2);
     assert_eq!(ctx.latest(&hanako, &direct.id).await.len(), 2);
+}
+
+/// What identity does when the grace period is over: anonymise, then announce.
+async fn erase(ctx: &Ctx, user: &TestUser) -> Event {
+    sqlx::query("UPDATE users SET deleted_at = now(), display_name = '' WHERE id = $1")
+        .bind(user.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    event("identity.user.deleted", serde_json::json!({ "user_id": user.id }))
+}
+
+/// How often each of `ids` was announced by `subject.deleted` as a chat message.
+async fn announcements(ctx: &Ctx, ids: &[Uuid]) -> Vec<Uuid> {
+    sqlx::query_scalar(
+        "SELECT (data->>'subject_id')::uuid FROM outbox WHERE topic = 'subject.deleted' AND data->>'subject_type' = $1
+           AND (data->>'subject_id')::uuid = ANY($2)",
+    )
+    .bind((SubjectType::SUBJECT_TYPE_CHAT_MESSAGE as i32).to_string())
+    .bind(ids)
+    .fetch_all(&ctx.app.core.db)
+    .await
+    .unwrap()
+}
+
+/// A direct conversation with a history longer than one batch of
+/// announcements, a photo and a message unsent before. Returns every message.
+async fn long_direct(ctx: &Ctx, taro: &TestUser, hanako: &TestUser) -> (Conversation, Vec<Uuid>, Uuid, String) {
+    let direct = ctx.direct(taro, hanako).await;
+    let photo = ctx.photo(taro).await;
+    ctx.send(taro, &media_request(&direct.id, &[&photo], "")).await.unwrap();
+    let unsent = ctx.text(hanako, &direct.id, "やっぱなし").await;
+    let _: DeleteMessageResponse = ctx
+        .call(
+            "Message",
+            "DeleteMessage",
+            hanako,
+            &DeleteMessageRequest { message_id: unsent.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO chat_messages (conversation_id, seq, sender_id, kind, text)
+         SELECT c.id, c.last_seq + n, $2, 1, 'むかしの話' FROM chat_conversations c, generate_series(1, 1500) AS n
+         WHERE c.id = $1::uuid",
+    )
+    .bind(&direct.id)
+    .bind(hanako.id)
+    .execute(&ctx.app.core.db)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chat_conversations SET last_seq = last_seq + 1500 WHERE id = $1::uuid")
+        .bind(&direct.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let history: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM chat_messages WHERE conversation_id = $1::uuid")
+        .bind(&direct.id)
+        .fetch_all(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert!(history.len() > 1500);
+    (direct, history, unsent.id.parse().unwrap(), photo)
+}
+
+async fn conversation_exists(ctx: &Ctx, conversation_id: &str) -> bool {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM chat_conversations WHERE id = $1::uuid)")
+        .bind(conversation_id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_direct_conversation_goes_with_the_second_account_and_its_messages_are_announced_once() {
+    let ctx = start().await;
+    let (taro, hanako) = ctx.friends("taro", "hanako").await;
+    let (direct, history, unsent, photo) = long_direct(&ctx, &taro, &hanako).await;
+
+    // The first side goes: the other keeps the conversation and every message in it.
+    let taro_deleted = erase(&ctx, &taro).await;
+    ctx.chat.handle_event(&taro_deleted).await.unwrap();
+    assert!(ctx.conversation(&hanako, &direct.id).await.conversation.read_only);
+    assert_eq!(announcements(&ctx, &history).await, vec![unsent], "only the unsent message, when it was unsent");
+
+    // The second side goes: nobody is left, the conversation goes and so do saves of its messages.
+    let hanako_deleted = erase(&ctx, &hanako).await;
+    ctx.chat.handle_event(&hanako_deleted).await.unwrap();
+    assert!(!conversation_exists(&ctx, &direct.id).await);
+    let announced = announcements(&ctx, &history).await;
+    assert_eq!(announced.len(), history.len(), "every message once");
+    assert_eq!(announced.iter().filter(|id| **id == unsent).count(), 1);
+    assert!(
+        !tokuly_media::assets::is_attached(&ctx.app.core, photo.parse().unwrap()).await.unwrap(),
+        "uploads of its messages are released"
+    );
+
+    // Delivered again (at-least-once), in any order: nothing more is announced.
+    ctx.chat.handle_event(&hanako_deleted).await.unwrap();
+    ctx.chat.handle_event(&taro_deleted).await.unwrap();
+    assert_eq!(announcements(&ctx, &history).await.len(), history.len());
+}
+
+#[tokio::test]
+async fn two_accounts_erased_together_still_delete_their_direct_conversation_once() {
+    let ctx = start().await;
+    let (taro, hanako) = ctx.friends("taro", "hanako").await;
+    let (direct, history, _, _) = long_direct(&ctx, &taro, &hanako).await;
+
+    let (taro_deleted, hanako_deleted) = (erase(&ctx, &taro).await, erase(&ctx, &hanako).await);
+    let (a, b, c) = tokio::join!(
+        ctx.chat.handle_event(&taro_deleted),
+        ctx.chat.handle_event(&hanako_deleted),
+        ctx.chat.handle_event(&taro_deleted),
+    );
+    a.unwrap();
+    b.unwrap();
+    c.unwrap();
+
+    assert!(!conversation_exists(&ctx, &direct.id).await);
+    assert_eq!(announcements(&ctx, &history).await.len(), history.len(), "every message once");
 }
 
 #[tokio::test]
