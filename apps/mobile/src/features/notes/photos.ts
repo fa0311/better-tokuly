@@ -2,7 +2,7 @@ import { media } from "@tokuly/api";
 import { useEffect, useRef, useState } from "react";
 import { pickFromLibrary } from "#/features/media/pick";
 import { uploadFile } from "#/features/media/upload";
-import { currentAccount } from "#/features/session/account";
+import { type Account, currentAccount, isActive } from "#/features/session/account";
 import { forgetFiles, keepFile } from "#/platform/transfer";
 
 /** The most photos a note takes (the server's limit). */
@@ -22,17 +22,22 @@ let counter = 0;
 
 /**
  * The photos of a note being written. Each goes up as soon as it is picked,
- * as the account that picked it (captured before anything is awaited; the
- * upload stops when that account is no longer the active one), kept in the
- * app's documents while it goes. Leaving the composer stops what is still
- * going and throws the copies away; the server drops unused uploads itself.
+ * as the account that opened the library (captured before the library is
+ * awaited: pictures chosen after another account took over, or after the
+ * composer closed, are dropped; the upload stops when that account is no
+ * longer the active one), kept in the app's documents while it goes. Leaving
+ * the composer stops what is still going and throws the copies away; the
+ * server drops unused uploads itself.
  */
 export function useNotePhotos(initial: NotePhoto[] = []) {
   const [photos, setPhotos] = useState<NotePhoto[]>(initial);
   const aborts = useRef(new Map<string, AbortController>());
+  const closed = useRef(false);
   useEffect(() => {
     const running = aborts.current;
+    closed.current = false;
     return () => {
+      closed.current = true;
       for (const [key, abort] of running) {
         abort.abort();
         forgetFiles(key);
@@ -46,11 +51,10 @@ export function useNotePhotos(initial: NotePhoto[] = []) {
     );
 
   const upload = async (
+    account: Account,
     key: string,
     picked: { uri: string; name: string; contentType: string },
   ) => {
-    const account = currentAccount();
-    if (!account) return;
     const abort = new AbortController();
     aborts.current.set(key, abort);
     try {
@@ -77,11 +81,14 @@ export function useNotePhotos(initial: NotePhoto[] = []) {
 
   /** Picks photos from the library; `"denied"` when the library may not be read. */
   const pick = async (): Promise<"denied" | undefined> => {
+    const account = currentAccount();
     const room = MAX_PHOTOS - photos.length;
-    if (room <= 0) return;
+    if (!account || room <= 0) return;
     const result = await pickFromLibrary({ kinds: ["images"], limit: room });
     if (!result) return;
     if ("denied" in result) return "denied";
+    // The library was open for a while: the pictures belong to whoever opened it, in the composer still open.
+    if (closed.current || !isActive(account)) return;
     const added = result.media.map((picked) => ({
       picked,
       key: `note-photo-${Date.now()}-${counter++}`,
@@ -90,7 +97,7 @@ export function useNotePhotos(initial: NotePhoto[] = []) {
       ...current,
       ...added.map(({ picked, key }) => ({ key, uri: picked.uri, progress: 0 })),
     ]);
-    for (const { picked, key } of added) void upload(key, picked);
+    for (const { picked, key } of added) void upload(account, key, picked);
   };
 
   const remove = (key: string) => {
