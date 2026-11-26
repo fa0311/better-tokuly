@@ -100,8 +100,8 @@ fetch() { # url dest
 # Where each service's build for this machine is released.
 release_url() { # service
   case "$1:$PLATFORM" in
-    nats:linux-amd64) echo "https://github.com/nats-io/nats-server/releases/download/v$NATS_VERSION/nats-server-v$NATS_VERSION-linux-amd64.tar.gz" ;;
-    nats:darwin-arm64) echo "https://github.com/nats-io/nats-server/releases/download/v$NATS_VERSION/nats-server-v$NATS_VERSION-darwin-arm64.tar.gz" ;;
+    nats-server:linux-amd64) echo "https://github.com/nats-io/nats-server/releases/download/v$NATS_VERSION/nats-server-v$NATS_VERSION-linux-amd64.tar.gz" ;;
+    nats-server:darwin-arm64) echo "https://github.com/nats-io/nats-server/releases/download/v$NATS_VERSION/nats-server-v$NATS_VERSION-darwin-arm64.tar.gz" ;;
     meilisearch:linux-amd64) echo "https://github.com/meilisearch/meilisearch/releases/download/v$MEILI_VERSION/meilisearch-linux-amd64" ;;
     meilisearch:darwin-arm64) echo "https://github.com/meilisearch/meilisearch/releases/download/v$MEILI_VERSION/meilisearch-macos-apple-silicon" ;;
     rustfs:linux-amd64) echo "https://github.com/rustfs/rustfs/releases/download/$RUSTFS_VERSION/rustfs-linux-x86_64-gnu-v$RUSTFS_VERSION.zip" ;;
