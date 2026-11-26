@@ -116,7 +116,9 @@ its tests) and the web switches to it.
   chapters and description times that jump, likes, watch later, playlists,
   subscriptions with their notification level, comments, the playlist
   being played and "up next". Playback is reported as the account that
-  opened the screen (`features/video/playback.ts`). Channel pages,
+  opened the screen and ends with it (`features/video/playback.ts`, its
+  `lifecycle.ts`); it counts while the picture is on the screen, in the app
+  or its small window, not as sound behind another app. Channel pages,
   playlists, the history and the subscriptions list are native too;
   uploading, editing, analytics and watch parties open the studio on the web.
 - **Push.** The phones' own services through `expo-notifications`, no Expo push

@@ -126,7 +126,7 @@ function Watch({
       created.play();
     },
   );
-  usePlaybackReport({
+  const picture = usePlaybackReport({
     videoId: item.playback ? summary.id : undefined,
     player,
     source,
@@ -178,6 +178,7 @@ function Watch({
             fullscreenOptions={{ enable: true }}
             allowsPictureInPicture
             startsPictureInPictureAutomatically
+            {...picture}
           />
         ) : (
           <Blocked item={item} poster={poster} />

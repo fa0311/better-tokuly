@@ -1,9 +1,4 @@
-import {
-  type QueryClient,
-  useInfiniteQuery,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { common, video } from "@tokuly/api";
 import { nextCursor } from "@tokuly/core/query";
 import {
@@ -12,8 +7,8 @@ import {
   loadFeedPage,
   nextInQueue,
   patchVideoEverywhere,
+  rateVideo,
   videoKeys,
-  withRating,
 } from "@tokuly/core/video";
 import { Alert } from "react-native";
 import { api } from "#/lib/api";
@@ -172,39 +167,20 @@ export function useHistory() {
 
 // ───────────────────────────── Changing ─────────────────────────────
 
-function patchVideo(
-  queryClient: QueryClient,
-  videoId: string,
-  change: (item: video.Video) => video.Video,
-): void {
-  queryClient.setQueryData<video.Video | null>(videoKeys.video(videoId), (current) =>
-    current ? change(current) : current,
-  );
-}
-
 /**
  * Likes or dislikes a video (or takes it back): the thumb moves at once, the
- * server's count follows, and a refusal puts it back.
+ * server's count follows, and a refusal puts it back (`rateVideo`).
  */
 export function useRate(videoId: string): (item: video.Video, next: video.Rating) => Promise<void> {
   const queryClient = useQueryClient();
   return async (item, next) => {
     const client = videoClient();
-    const before = queryClient.getQueryData<video.Video | null>(videoKeys.video(videoId));
-    patchVideo(queryClient, videoId, (current) => withRating(current, next));
     try {
-      const response = await client.rateVideo({
-        videoId: item.summary?.id ?? videoId,
-        rating: next,
-      });
-      patchVideo(queryClient, videoId, (current) => ({
-        ...current,
-        viewer: current.viewer && { ...current.viewer, rating: response.rating },
-        summary: current.summary && { ...current.summary, likeCount: response.likeCount },
-      }));
+      await rateVideo(queryClient, videoId, next, () =>
+        client.rateVideo({ videoId: item.summary?.id ?? videoId, rating: next }),
+      );
       void queryClient.invalidateQueries({ queryKey: videoKeys.playlistItems("LL") });
     } catch (error) {
-      queryClient.setQueryData(videoKeys.video(videoId), before);
       alertError(error);
     }
   };
