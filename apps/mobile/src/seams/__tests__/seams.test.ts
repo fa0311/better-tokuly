@@ -42,6 +42,7 @@ describe("the features on the seams", () => {
       ["live", "/live"],
       ["spaces", "/spaces"],
       ["ask", "/ask"],
+      ["school", "/school"],
       ["more", "/more"],
       ["settings", "/settings"],
     ]);
@@ -101,6 +102,9 @@ describe("the features on the seams", () => {
       "plans/index",
       "plans/new",
       "playlist/[id]",
+      "school/assignments",
+      "school/index",
+      "school/new-assignment",
       "search",
       "settings/index",
       "settings/notifications",

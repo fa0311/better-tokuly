@@ -1,6 +1,5 @@
 import {
   Code,
-  GraduationCap,
   type LucideIcon,
   Settings,
   ShieldCheck,
@@ -26,7 +25,6 @@ export interface WebFeature {
  * `features/notifications/target.ts`).
  */
 export const WEB_FEATURES: readonly WebFeature[] = [
-  { key: "school", path: "/school", icon: GraduationCap },
   { key: "quest", path: "/quest", icon: Trophy },
   { key: "emoji", path: "/emoji", icon: SmilePlus },
   { key: "stamps", path: "/stamps", icon: Sticker },
