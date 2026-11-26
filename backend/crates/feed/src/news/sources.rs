@@ -75,8 +75,9 @@ impl SourceRow {
         }
     }
 
-    fn to_managed(&self, article_count: i64) -> ManagedNewsSource {
+    fn to_managed(&self, article_count: i64, configured: &ConfiguredFeeds) -> ManagedNewsSource {
         ManagedNewsSource {
+            configured: configured.lists(&self.feed_url),
             id: self.id.to_string(),
             name: self.name.clone(),
             feed_url: self.feed_url.clone(),
@@ -96,6 +97,23 @@ impl SourceRow {
             updated_at: ts(self.updated_at),
             ..Default::default()
         }
+    }
+}
+
+/// The feeds `TOKULY_NEWS_FEEDS` lists now, as sources store their URLs.
+/// A source of one of them is created again on every start
+/// (`Feed::seed_config_sources`), so it cannot be deleted, only switched off.
+pub(crate) struct ConfiguredFeeds(Vec<String>);
+
+impl ConfiguredFeeds {
+    /// The entries of the setting that are fetchable URLs; the others never
+    /// become sources.
+    pub(crate) fn of<'a>(entries: impl IntoIterator<Item = &'a str>, policy: Policy) -> Self {
+        Self(entries.into_iter().filter_map(|raw| validate_feed_url(raw, policy).ok()).map(String::from).collect())
+    }
+
+    pub(crate) fn lists(&self, feed_url: &str) -> bool {
+        self.0.iter().any(|configured| configured == feed_url)
     }
 }
 
@@ -201,6 +219,11 @@ fn not_found() -> AppError {
 }
 
 impl Feed {
+    /// The feeds the settings list now (see [`ConfiguredFeeds`]).
+    pub(crate) fn configured_feeds(&self) -> ConfiguredFeeds {
+        ConfiguredFeeds::of(self.cfg.seed_feed_urls(), self.news_policy)
+    }
+
     /// Creates a source; `None` when the feed URL is already a source.
     pub(crate) async fn insert_source(
         &self,
@@ -247,7 +270,7 @@ impl Feed {
         .fetch_optional(&self.core.db)
         .await?
         .ok_or_else(not_found)?;
-        Ok(row.source.to_managed(row.article_count))
+        Ok(row.source.to_managed(row.article_count, &self.configured_feeds()))
     }
 
     /// Adds (`listed`) or removes every article of a source to or from the
@@ -289,7 +312,9 @@ impl NewsAdminService for Feed {
             .bind(MAX_SOURCES)
             .fetch_all(&self.core.db)
             .await?;
-            ok(ListManagedNewsSourcesResponse { sources: rows.iter().map(|row| row.source.to_managed(row.article_count)).collect(), ..Default::default() })
+            let configured = self.configured_feeds();
+            let sources = rows.iter().map(|row| row.source.to_managed(row.article_count, &configured)).collect();
+            ok(ListManagedNewsSourcesResponse { sources, ..Default::default() })
         })
         .await
     }
@@ -332,7 +357,8 @@ impl NewsAdminService for Feed {
             if source.enabled {
                 self.enqueue_fetch(source.id).await;
             }
-            ok(CreateNewsSourceResponse { source: source.to_managed(0).into(), ..Default::default() })
+            let created = source.to_managed(0, &self.configured_feeds());
+            ok(CreateNewsSourceResponse { source: created.into(), ..Default::default() })
         })
         .await
     }
@@ -432,11 +458,20 @@ impl NewsAdminService for Feed {
             ctx.require_role("admin")?;
             let source_id = parse_id(request.source_id)?;
             let mut tx = self.core.db.begin().await?;
-            let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM news_sources WHERE id = $1 FOR UPDATE")
-                .bind(source_id)
-                .fetch_optional(&mut *tx)
-                .await?;
-            ensure!(exists.is_some(), not_found, "NEWS_SOURCE_NOT_FOUND", "news source not found");
+            let feed_url: Option<String> =
+                sqlx::query_scalar("SELECT feed_url FROM news_sources WHERE id = $1 FOR UPDATE")
+                    .bind(source_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            let feed_url = feed_url.ok_or_else(not_found)?;
+            // The next start would create it again, without its articles.
+            ensure!(
+                !self.configured_feeds().lists(&feed_url),
+                precondition,
+                "NEWS_SOURCE_CONFIGURED",
+                "this source is listed in TOKULY_NEWS_FEEDS and would be created again on the next start: \
+                 disable it, or remove it from the setting first"
+            );
             // The articles go with the source: out of search first.
             let article_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM news_articles WHERE source_id = $1")
                 .bind(source_id)

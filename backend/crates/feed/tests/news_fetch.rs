@@ -758,6 +758,54 @@ async fn an_article_carried_by_two_feeds_is_stored_once() {
 }
 
 #[tokio::test]
+async fn a_source_listed_in_the_settings_is_disabled_not_deleted() {
+    let server = FeedServer::start().await;
+    let t = token();
+    let (listed, typed, own) = (
+        server.feed_url(&format!("{t}-listed")),
+        server.feed_url(&format!("{t}-typed")),
+        server.feed_url(&format!("{t}-own")),
+    );
+    let ctx = start_with(FeedConfig { news_feeds: format!("{listed}, {typed} ,not-a-url"), ..test_config() }).await;
+    let admin = ctx.admin().await;
+    // One source an admin added before the start found its feed in the
+    // settings, one the start creates, and one the settings know nothing of.
+    let typed = ctx.source_for(&admin, &typed, "ja").await;
+    assert_eq!(ctx.feed.seed_config_sources().await.unwrap(), 1);
+    let own = ctx.source_for(&admin, &own, "ja").await;
+    let all: ListManagedNewsSourcesResponse = ctx
+        .call(NEWS_ADMIN, "ListManagedNewsSources", Some(&admin), &ListManagedNewsSourcesRequest::default())
+        .await
+        .unwrap();
+    let seeded = all.sources.iter().find(|source| source.feed_url == listed).expect("the seeded source").clone();
+    assert!(seeded.from_config && seeded.configured);
+    assert!(!typed.from_config && typed.configured, "what counts is the setting now, not who created the source");
+    assert!(!own.configured);
+
+    // Deleted, either would be back after the next start, without its articles.
+    let delete = |source: &ManagedNewsSource| DeleteNewsSourceRequest { source_id: source.id.clone(), ..Default::default() };
+    for source in [&seeded, &typed] {
+        let refused = ctx
+            .call::<_, DeleteNewsSourceResponse>(NEWS_ADMIN, "DeleteNewsSource", Some(&admin), &delete(source))
+            .await
+            .unwrap_err();
+        assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("failed_precondition", "NEWS_SOURCE_CONFIGURED"));
+        assert!(refused.message.contains("TOKULY_NEWS_FEEDS") && refused.message.contains("disable"), "{}", refused.message);
+        assert!(ctx.managed_source(&admin, &source.id).await.enabled, "the refusal changed nothing");
+    }
+    // Switching it off is what stays off: the next start leaves it alone.
+    let off = UpdateNewsSourceRequest { source_id: seeded.id.clone(), enabled: Some(false), ..Default::default() };
+    let _: UpdateNewsSourceResponse = ctx.call(NEWS_ADMIN, "UpdateNewsSource", Some(&admin), &off).await.unwrap();
+    assert_eq!(ctx.feed.seed_config_sources().await.unwrap(), 0);
+    let after = ctx.managed_source(&admin, &seeded.id).await;
+    assert!(!after.enabled && after.configured);
+
+    // A source the settings do not list is deleted as before.
+    let _: DeleteNewsSourceResponse =
+        ctx.call(NEWS_ADMIN, "DeleteNewsSource", Some(&admin), &delete(&own)).await.unwrap();
+}
+
+#[tokio::test]
 async fn sources_are_seeded_from_configuration_and_fetched_on_schedule() {
     let server = FeedServer::start().await;
     let t = token();
