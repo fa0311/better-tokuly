@@ -121,6 +121,25 @@ its tests) and the web switches to it.
   or its small window, not as sound behind another app. Channel pages,
   playlists, the history and the subscriptions list are native too;
   uploading, editing, analytics and watch parties open the studio on the web.
+- **Live.** Watching is native (`features/live`, from 「ライブ」 in the Me tab's
+  hub and from every `/live/<id>` link or push): friends on air, the channels
+  the viewer subscribes to, everyone public, and what is scheduled. A stream
+  plays as Low-Latency HLS in expo-video (AVPlayer and ExoPlayer play the
+  partial segments natively; the app has no WebRTC stack, so WHEP stays the
+  web's), opened again with fresh URLs when it fails, with the viewer's
+  heartbeat (`ReportWatching`) while the app is in front. The rules and the
+  cache are `@tokuly/core/live`: the stream's topic goes through `LiveChats`
+  (lines, deletions, pins, highlighted gifts, polls, numbers, the end, a
+  raid), lines of people the viewer blocked stay out, and the chat is read
+  again after every gap without losing what was pushed meanwhile. Chat with
+  mentions, slow mode and the server's reason when the viewer may not write;
+  likes, sharing, reminders, votes, reports; gifts with the tier's colours
+  and message length, a preview, a confirmation and one idempotency key per
+  attempt (a gift whose answer was lost is repeated under its key, so
+  nothing is paid twice). Going live stays on the web screen (`/studio/live`):
+  the app has no WHIP or RTMP publisher, and the web's studio sets a stream
+  up and publishes from the camera in the browser. So do the archive (a
+  video), clips, the gift history, buying coins and the moderation tools.
 - **Push.** The phones' own services through `expo-notifications`, no Expo push
   service: FCM on Android (the build needs `GOOGLE_SERVICES_JSON`, the path of
   the Firebase project's `google-services.json`), APNs on iOS
@@ -142,7 +161,7 @@ its tests) and the web switches to it.
   every production dependency the app bundles with its licence and text, and
   the native libraries of the app's own modules (`modules/*/notices`). The
   output, `src/generated/licenses.json`, is not checked in.
-- **Web screens.** What the app does not have yet (notes, live,
+- **Web screens.** What the app does not have yet (notes,
   spaces, communities, school, plans, ask, quests, emoji, stamps, the wallet,
   most settings, developers, the console) opens in a web view
   (`features/web`), signed in as the account in use. It plugs in through
@@ -290,7 +309,9 @@ start a chat and open the inbox, post a story from the library and watch it as
 a friend (the emulator has no camera: the pictures are put in its library, and
 the camera is covered by a component test), post a short, swipe the feed and
 like it, open the video feeds and subscribe to a channel (playback is covered
-by the watch screen's component test: a flow's script cannot upload a video), open a web-only feature from 「もっと見る」 and see it signed in. CI
+by the watch screen's component test: a flow's script cannot upload a video),
+find a friend's scheduled stream, ask for its reminder and chat before it
+starts, open a web-only feature from 「もっと見る」 and see it signed in. CI
 (the End to end workflow, `.github/workflows/e2e.yml`) builds a release APK for the emulator and
 runs them against the Compose stack; locally, with an emulator and a stack:
 
