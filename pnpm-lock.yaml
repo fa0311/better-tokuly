@@ -303,6 +303,9 @@ catalogs:
       specifier: 5.1.0
       version: 5.1.0
 
+overrides:
+  '@maplibre/maplibre-react-native>@maplibre/maplibre-gl-style-spec': 26.9.0
+
 importers:
 
   .:
@@ -1918,10 +1921,6 @@ packages:
 
   '@maplibre/geojson-vt@6.3.3':
     resolution: {integrity: sha512-sfftN4326foT7uex0aN0jqr+vq/lfgeTfASOd+kvdUd0uMMIgXZDPdntCazKFKKcxPH002NPCy4j396peanWCg==}
-
-  '@maplibre/maplibre-gl-style-spec@26.4.4':
-    resolution: {integrity: sha512-hG4RZR4PBd/+6A3ODdZ3AnQRF106ZQk1y3bhwDg8bH/A4Oz2tnRUJVVWs9BZa6gXZ1d3UKe89C+Mm+olGBELvA==}
-    hasBin: true
 
   '@maplibre/maplibre-gl-style-spec@26.9.0':
     resolution: {integrity: sha512-cQZK2lG3d6I5FjriPZCgJx/LiVMpWqoVibF+cgp2mkQ/P4BIGOsrA3WsvLw1wB28Q9JU9v2fapsQUJUbjjwa6g==}
@@ -8412,15 +8411,6 @@ snapshots:
     dependencies:
       kdbush: 4.1.0
 
-  '@maplibre/maplibre-gl-style-spec@26.4.4':
-    dependencies:
-      '@mapbox/jsonlint-lines-primitives': 2.0.3
-      '@mapbox/unitbezier': 1.0.0
-      json-stringify-pretty-compact: 4.0.0
-      minimist: 1.2.8
-      quickselect: 3.0.0
-      tinyqueue: 3.0.0
-
   '@maplibre/maplibre-gl-style-spec@26.9.0':
     dependencies:
       '@mapbox/jsonlint-lines-primitives': 2.0.3
@@ -8432,7 +8422,7 @@ snapshots:
 
   '@maplibre/maplibre-react-native@11.5.1(@types/geojson@7946.0.16)(@types/react@19.3.0)(expo@58.0.26)(react-native@0.88.1(@babel/core@7.29.13(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.13(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)':
     dependencies:
-      '@maplibre/maplibre-gl-style-spec': 26.4.4
+      '@maplibre/maplibre-gl-style-spec': 26.9.0
       '@turf/distance': 7.4.0
       '@turf/helpers': 7.4.0
       '@turf/length': 7.4.0
