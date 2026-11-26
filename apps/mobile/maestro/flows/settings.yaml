@@ -20,6 +20,8 @@ env:
     visible: { id: "map-screen" }
     timeout: 30000
 - tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-settings" }
 - tapOn: { id: "me-settings" }
 - extendedWaitUntil:
     visible: { id: "settings-screen" }
