@@ -1,6 +1,7 @@
 import type { InfiniteData, UseInfiniteQueryResult } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { spaces } from "@tokuly/api";
+import type { SpacePage } from "@tokuly/core/spaces";
 import { CalendarPlus, Mic, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,13 +11,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { useBadge } from "#/stores/badges";
-import {
-  type SpacePage,
-  useLiveSpaces,
-  useMySpaces,
-  usePopularTags,
-  useUpcomingSpaces,
-} from "./api";
+import { useLiveSpaces, useMySpaces, usePopularTags, useUpcomingSpaces } from "./api";
 import { HangoutsTab } from "./hangout/hangouts-tab";
 import { MySpaceActions } from "./my-space-actions";
 import { FriendsInRoomsStrip } from "./presence";

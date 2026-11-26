@@ -1,5 +1,13 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { errorReason, isNotFound, spaces } from "@tokuly/api";
+import {
+  onStage,
+  patchHangout,
+  patchSpace,
+  rememberHangout,
+  rememberSpace,
+  spacesKeys,
+} from "@tokuly/core/spaces";
 import type { DisconnectReason, Room } from "livekit-client";
 import { toast } from "sonner";
 import { create } from "zustand";
@@ -14,16 +22,7 @@ import {
 } from "#/lib/livekit";
 import { realtime } from "#/lib/realtime";
 import { audioFocusHolder, claimAudioFocus, releaseAudioFocus } from "#/stores/audio-focus";
-import {
-  hangoutClient,
-  keys,
-  patchHangout,
-  patchSpace,
-  rememberHangout,
-  rememberSpace,
-  spaceClient,
-} from "./api";
-import { onStage } from "./model";
+import { hangoutClient, spaceClient } from "./api";
 
 /**
  * The room or hangout this browser is inside. There is at most one (the
@@ -390,8 +389,8 @@ export async function enterSpace(
     if (mine !== generation) return false;
     fail(error);
     await close();
-    if (isNotFound(error)) queryClient.setQueryData(keys.space(space.id), null);
-    else void queryClient.invalidateQueries({ queryKey: keys.space(space.id) });
+    if (isNotFound(error)) queryClient.setQueryData(spacesKeys.space(space.id), null);
+    else void queryClient.invalidateQueries({ queryKey: spacesKeys.space(space.id) });
     // Entered on the server but never connected: do not stay inside as a ghost.
     void spaceClient()
       .leaveSpace({ spaceId: space.id })
@@ -444,7 +443,7 @@ export async function enterHangout(
     if (mine !== generation) return false;
     fail(error);
     await close();
-    void queryClient.invalidateQueries({ queryKey: keys.hangout(hangout.id) });
+    void queryClient.invalidateQueries({ queryKey: spacesKeys.hangout(hangout.id) });
     void hangoutClient()
       .leaveHangout({ hangoutId: hangout.id })
       .catch(() => {});
@@ -465,7 +464,7 @@ export async function leaveVenue(queryClient: QueryClient): Promise<void> {
           : space,
       );
       await spaceClient().leaveSpace({ spaceId: active.id });
-      void queryClient.invalidateQueries({ queryKey: keys.space(active.id) });
+      void queryClient.invalidateQueries({ queryKey: spacesKeys.space(active.id) });
     } else {
       await hangoutClient().leaveHangout({ hangoutId: active.id });
       patchHangout(queryClient, active.id, (hangout) =>

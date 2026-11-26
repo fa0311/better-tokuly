@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { spaces } from "@tokuly/api";
+import { patchSpace, rememberSpace, spacesKeys } from "@tokuly/core/spaces";
 import { Bell, BellRing } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button, type ButtonProps } from "#/components/ui/button";
 import { errorMessage } from "#/lib/errors";
-import { keys, patchSpace, rememberSpace, spaceClient } from "./api";
+import { spaceClient } from "./api";
 
 /** "Tell me when it starts" for an upcoming room; pressed again it takes that back. */
 export function ReminderButton({
@@ -36,7 +37,7 @@ export function ReminderButton({
     },
     onSuccess: (response, next) => {
       rememberSpace(queryClient, response.space);
-      void queryClient.invalidateQueries({ queryKey: keys.lists });
+      void queryClient.invalidateQueries({ queryKey: spacesKeys.lists });
       toast.success(t(next ? "toast.reminderOn" : "toast.reminderOff"));
     },
     onError: (error, next) => {

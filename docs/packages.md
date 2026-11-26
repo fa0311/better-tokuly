@@ -23,6 +23,7 @@ listed in its `package.json`), each with its own tests:
 | `@tokuly/core/stories`       | story keys and options, story cache edits                                                                                                   |
 | `@tokuly/core/shorts`        | shorts keys, captions, feed contexts, the slide window                                                                                      |
 | `@tokuly/core/live`          | live keys and options, gift, chat and poll rules, a stream and its chat in the cache, pushed live events                                    |
+| `@tokuly/core/spaces`        | room and hangout keys and options, stage rules (who talks, who moderates, its order), pushed spaces events in the cache, tag input          |
 | `@tokuly/core/video`         | video keys, cache edits, feeds, the watch page's rules (start position, chapters, description links), playlists, playback reporting, clocks |
 
 ## Using it from an app

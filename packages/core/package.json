@@ -20,6 +20,7 @@
     "./session": "./src/session/index.ts",
     "./shorts": "./src/shorts/index.ts",
     "./live": "./src/live/index.ts",
+    "./spaces": "./src/spaces/index.ts",
     "./stories": "./src/stories/index.ts",
     "./video": "./src/video/index.ts"
   },

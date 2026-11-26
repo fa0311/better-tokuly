@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { spaces } from "@tokuly/api";
+import { rememberSpace, spacesKeys } from "@tokuly/core/spaces";
 import { UserPlus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +11,7 @@ import { TextArea, TextField } from "#/components/ui/field";
 import { LoadMore } from "#/components/ui/load-more";
 import { PaneSpinner } from "#/components/ui/spinner";
 import { errorMessage } from "#/lib/errors";
-import { keys, rememberSpace, spaceClient, useBans, useSpaceInvites } from "../api";
+import { spaceClient, useBans, useSpaceInvites } from "../api";
 import { FriendPicker } from "../friend-picker";
 import { PersonRow } from "./people";
 
@@ -114,7 +115,8 @@ export function InvitesDialog({
   const [picking, setPicking] = useState(false);
   const invites = useSpaceInvites(space.id, open && moderator);
   const invited = invites.data?.pages.flatMap((page) => page.invites) ?? [];
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: keys.invites(space.id) });
+  const refresh = () =>
+    void queryClient.invalidateQueries({ queryKey: spacesKeys.invites(space.id) });
 
   const invite = useMutation({
     mutationFn: (userIds: string[]) => spaceClient().inviteToSpace({ spaceId: space.id, userIds }),
@@ -214,7 +216,7 @@ export function BansDialog({
   const unban = useMutation({
     mutationFn: (userId: string) => spaceClient().unbanUser({ spaceId: space.id, userId }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: keys.bans(space.id) });
+      void queryClient.invalidateQueries({ queryKey: spacesKeys.bans(space.id) });
       toast.success(t("toast.unbanned"));
     },
     onError: fail,
