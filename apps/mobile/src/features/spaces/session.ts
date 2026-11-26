@@ -187,11 +187,10 @@ async function connect(
 
   await session.connect(credentials.url, credentials.token);
   if (!current()) return void closeRoom(session);
-  update({
-    phase: "connected",
-    canPublish: session.localParticipant.permissions?.canPublish ?? credentials.canPublish,
-  });
-  if (options.microphone) await setMicrophone(true);
+  const canPublish = session.localParticipant.permissions?.canPublish ?? credentials.canPublish;
+  update({ phase: "connected", canPublish });
+  // Only where the server lets this person talk: sent off stage meanwhile, they come back muted.
+  if (options.microphone && canPublish) await setMicrophone(true);
 }
 
 /** Fresh credentials for what the person holds now, from the venue they are inside. */
