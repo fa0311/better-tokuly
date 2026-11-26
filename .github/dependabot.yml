@@ -40,6 +40,15 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: react-native
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # The rest of what Expo pins per SDK (`npx expo install --check`): native modules and
+      # the React it was built with. They move with the SDK, never on their own (#150 broke them).
+      - dependency-name: "react-native-*"
+      - dependency-name: "expo-*"
+      - dependency-name: "@expo/*"
+      - dependency-name: "@shopify/flash-list"
+      - dependency-name: "@maplibre/maplibre-react-native"
+      - dependency-name: react
+      - dependency-name: react-dom
 
   - package-ecosystem: docker
     directories: ["/infra/docker", "/infra/postgres", "/infra/tiles"]
