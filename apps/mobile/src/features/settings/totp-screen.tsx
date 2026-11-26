@@ -52,7 +52,12 @@ export function TotpSetupScreen() {
       await adoptTotp(account, true);
       return response.recoveryCodes;
     },
-    onSuccess: setRecoveryCodes,
+    onSuccess: (codes) => {
+      // Nothing typed here is needed any more.
+      setCode("");
+      setPassword("");
+      setRecoveryCodes(codes);
+    },
     onError: (failure) => {
       const reason = errorReason(failure);
       setError(

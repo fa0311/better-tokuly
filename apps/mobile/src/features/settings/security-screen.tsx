@@ -149,6 +149,7 @@ function TotpSection() {
                 disabled={disable.isPending}
                 onPress={() => {
                   setDisabling(false);
+                  setCode("");
                   setError(null);
                 }}
               >
