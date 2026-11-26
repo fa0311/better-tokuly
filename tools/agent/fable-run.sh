@@ -14,13 +14,14 @@ branch=api/$name
 case "$base" in origin/main) ;; *) branch=${base#origin/} ;; esac
 if [ ! -d "$wt" ]; then
   if [ "$branch" = "api/$name" ]; then git -C "$repo" worktree add -q -b "$branch" "$wt" "$base"
-  else git -C "$repo" worktree add -q -B "$branch" "$wt" "$base"; fi
+  # An existing PR branch is usually checked out in its author's worktree: work detached on it.
+  else git -C "$repo" worktree add -q --detach "$wt" "$base"; fi
 fi
 cat "$notes/common.md" "$task" > "$notes/$name.prompt"
 "$(dirname "$(readlink -f "$0")")/claude-api.sh" "$wt" claude-fable-5-2 "$budget" "$notes/$name.prompt" > "$notes/$name.report" 2>&1 || true
 # The run may end before pushing (budget, crash): push whatever it committed.
-if [ -n "$(git -C "$wt" log --oneline "origin/$branch..$branch" 2>/dev/null || git -C "$wt" log --oneline "$base..$branch")" ]; then
-  git -C "$wt" push -q -u origin "$branch" 2>&1 | grep -v '^remote:' || true
+if [ -n "$(git -C "$wt" log --oneline "origin/$branch..HEAD" 2>/dev/null || git -C "$wt" log --oneline "$base..HEAD")" ]; then
+  git -C "$wt" push -q origin "HEAD:refs/heads/$branch" 2>&1 | grep -v '^remote:' || true
 fi
 [ -n "$(git -C "$wt" status --porcelain | grep -v '^??')" ] && echo "NOTE: $wt has uncommitted changes"
 tail -c 4000 "$notes/$name.report"
