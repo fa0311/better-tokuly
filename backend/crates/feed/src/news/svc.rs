@@ -193,7 +193,7 @@ impl Feed {
         Ok(ListNewsResponse {
             articles: rows
                 .iter()
-                .map(|row| row.to_proto(&marks, random.get(&row.id).copied().unwrap_or(false)))
+                .map(|row| row.to_proto(&self.core, &marks, random.get(&row.id).copied().unwrap_or(false)))
                 .collect(),
             page: tokuly_proto::common::PageInfo {
                 next_cursor: if has_more {
@@ -236,7 +236,7 @@ impl Feed {
         let info = page.finish(&mut rows, |row| (row.published_at, row.id));
         let marks = self.reader_marks(viewer, &rows.iter().map(|row| row.id).collect::<Vec<_>>()).await?;
         Ok(ListNewsResponse {
-            articles: rows.iter().map(|row| row.to_proto(&marks, false)).collect(),
+            articles: rows.iter().map(|row| row.to_proto(&self.core, &marks, false)).collect(),
             page: info.into(),
             recommended: false,
             ..Default::default()
@@ -307,7 +307,7 @@ impl NewsService for Feed {
             let viewer = ctx.maybe_user_id()?;
             let row = self.visible_article(parse_id(request.article_id)?).await?;
             let marks = self.reader_marks(viewer, &[row.id]).await?;
-            ok(GetNewsArticleResponse { article: row.to_proto(&marks, false).into(), ..Default::default() })
+            ok(GetNewsArticleResponse { article: row.to_proto(&self.core, &marks, false).into(), ..Default::default() })
         })
         .await
     }
@@ -498,7 +498,7 @@ impl NewsService for Feed {
             .fetch_all(&self.core.db)
             .await?;
             ok(ListNewsSourcesResponse {
-                sources: rows.iter().map(SourceRow::to_proto).collect(),
+                sources: rows.iter().map(|row| row.to_proto(&self.core)).collect(),
                 ..Default::default()
             })
         })

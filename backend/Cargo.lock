@@ -6225,6 +6225,7 @@ dependencies = [
  "tokuly-core",
  "tokuly-identity",
  "tokuly-live",
+ "tokuly-media",
  "tokuly-notes",
  "tokuly-proto",
  "tokuly-shorts",

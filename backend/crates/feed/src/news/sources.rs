@@ -12,11 +12,12 @@ use tokuly_core::{
     outbound,
     prelude::*,
 };
+use tokuly_media::link_preview::image_proxy::Kind;
 use tokuly_proto::{common::SubjectType, feed::*};
 use url::Url;
 
 use super::{
-    articles::{ArticleRow, SEARCH_KIND, article_columns},
+    articles::{ArticleRow, SEARCH_KIND, article_columns, picture},
     parse::MAX_URL_LEN,
     tagging::normalize_tag,
 };
@@ -64,25 +65,25 @@ pub struct SourceRow {
 }
 
 impl SourceRow {
-    pub fn to_proto(&self) -> NewsSource {
+    pub fn to_proto(&self, core: &Core) -> NewsSource {
         NewsSource {
             id: self.id.to_string(),
             name: self.name.clone(),
             site_url: self.site_url.clone(),
-            favicon_url: self.favicon_url.clone(),
+            favicon_url: picture(core, Kind::Icon, &self.favicon_url),
             language: self.language.clone(),
             ..Default::default()
         }
     }
 
-    fn to_managed(&self, article_count: i64, configured: &ConfiguredFeeds) -> ManagedNewsSource {
+    fn to_managed(&self, core: &Core, article_count: i64, configured: &ConfiguredFeeds) -> ManagedNewsSource {
         ManagedNewsSource {
             configured: configured.lists(&self.feed_url),
             id: self.id.to_string(),
             name: self.name.clone(),
             feed_url: self.feed_url.clone(),
             site_url: self.site_url.clone(),
-            favicon_url: self.favicon_url.clone(),
+            favicon_url: picture(core, Kind::Icon, &self.favicon_url),
             language: self.language.clone(),
             default_tags: self.default_tags.clone(),
             enabled: self.enabled,
@@ -270,7 +271,7 @@ impl Feed {
         .fetch_optional(&self.core.db)
         .await?
         .ok_or_else(not_found)?;
-        Ok(row.source.to_managed(row.article_count, &self.configured_feeds()))
+        Ok(row.source.to_managed(&self.core, row.article_count, &self.configured_feeds()))
     }
 
     /// Adds (`listed`) or removes every article of a source to or from the
@@ -286,7 +287,7 @@ impl Feed {
         .await?;
         for row in rows {
             if listed {
-                outbound::index(&mut **tx, row.doc().search_doc()).await?;
+                outbound::index(&mut **tx, row.doc().search_doc(&self.core)).await?;
             } else {
                 outbound::unindex(&mut **tx, SEARCH_KIND, row.id).await?;
             }
@@ -313,7 +314,7 @@ impl NewsAdminService for Feed {
             .fetch_all(&self.core.db)
             .await?;
             let configured = self.configured_feeds();
-            let sources = rows.iter().map(|row| row.source.to_managed(row.article_count, &configured)).collect();
+            let sources = rows.iter().map(|row| row.source.to_managed(&self.core, row.article_count, &configured)).collect();
             ok(ListManagedNewsSourcesResponse { sources, ..Default::default() })
         })
         .await
@@ -357,7 +358,7 @@ impl NewsAdminService for Feed {
             if source.enabled {
                 self.enqueue_fetch(source.id).await;
             }
-            let created = source.to_managed(0, &self.configured_feeds());
+            let created = source.to_managed(&self.core, 0, &self.configured_feeds());
             ok(CreateNewsSourceResponse { source: created.into(), ..Default::default() })
         })
         .await

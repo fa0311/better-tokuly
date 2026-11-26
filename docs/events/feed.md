@@ -2,8 +2,8 @@
 
 Crate `tokuly-feed`, migration `1300_feed.sql`, API `tokuly.feed.v1`
 (`ActivityService`, `MapStoryService`, `HomeFeedService`, `NewsService`,
-`NewsAdminService`, `RecapService`). Depends on `core`, `proto`, `identity`
-and `social`.
+`NewsAdminService`, `RecapService`). Depends on `core`, `proto`, `identity`,
+`social` and `media` (the image proxy).
 
 ## How an activity travels
 
@@ -184,6 +184,12 @@ news_sources ──(scheduler / RefreshNewsSources)──▶ feed.news.fetch job
   of the positions, evenly spaced, with random recent articles the reader has
   not opened, flagged `random_pick`. The order of a reading session is kept in
   Valkey for 30 minutes and can be rebuilt from the cursor alone.
+- **Pictures** (an article's image, a source's icon) are stored as the feed
+  gives them and handed out only as URLs of media's image proxy
+  (`/media/link-image/…`, see [media](media.md)): in articles, sources (the
+  admins' list too), search documents and subject info. Readers' apps never
+  contact the news sites; the proxy fetches through the egress guard within
+  its own limits and caches for a day.
 - **Comments, likes, reports**: a `SubjectResolver` is registered for
   `SUBJECT_TYPE_NEWS_ARTICLE` (owner = nil UUID: official content, nobody is
   notified); `counter_changed("like_count" | "comment_count")` is applied.
