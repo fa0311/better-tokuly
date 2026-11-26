@@ -42,6 +42,7 @@ const WEB_ONLY = [
 export default [
   {
     path: new RegExp(`^/(?:${WEB_ONLY.join("|")})(?:/.*)?$`),
-    screen: (match) => webScreenHref(match[0]),
+    takesLink: true,
+    screen: (_match, link) => webScreenHref(link),
   },
 ] satisfies LinkTarget[];

@@ -20,8 +20,7 @@ export function targetOf(path: string): AppTarget | null {
   const target = resolveTarget(path, SERVER_URL);
   if (!target) return null;
   if (target.type === "external") return { type: "web", url: target.url };
-  const pathname = target.href.split(/[?#]/)[0] ?? "";
-  const screen = screenFor(pathname);
+  const screen = screenFor(target.href);
   if (screen) return { type: "screen", href: screen };
   return { type: "web", url: `${SERVER_URL}${target.href}` };
 }
