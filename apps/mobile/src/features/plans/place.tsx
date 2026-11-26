@@ -3,7 +3,7 @@ import type { plans } from "@tokuly/api";
 import { buildMapStyle } from "@tokuly/core/map";
 import { MapPin } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import { Linking, Platform, View } from "react-native";
+import { Linking, Platform, Text, View } from "react-native";
 import { TILE_CONFIG } from "#/lib/config";
 import { INK_ON_BRIGHT, sticker, useTheme } from "#/lib/theme";
 
@@ -23,7 +23,11 @@ export function openInMaps(place: plans.PlanPlace): void {
   void Linking.openURL(mapsUrl(place));
 }
 
-/** The place on the app's own map, as a still picture with its pin; a tap opens the map app. */
+/**
+ * The place on the app's own map, as a still picture with its pin; a tap
+ * opens the map app. The map cannot be touched, so the data's credit (the
+ * map screen's ⓘ) is written on it.
+ */
 export function PlaceMap({ location }: { location: NonNullable<plans.PlanPlace["location"]> }) {
   const theme = useTheme();
   const { i18n } = useTranslation();
@@ -61,6 +65,7 @@ export function PlaceMap({ location }: { location: NonNullable<plans.PlanPlace["
           </View>
         </Marker>
       </MapLibre>
+      <Text className="absolute bottom-1 right-2 text-[10px] text-ink-soft">© OpenStreetMap</Text>
     </View>
   );
 }
