@@ -33,6 +33,7 @@ import { useEngagement, useLike } from "#/features/engagement/data";
 import { webScreenHref } from "#/features/web/handoff";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
+import { screenFor } from "#/seams/links";
 import { afterSheet, ReportSheet } from "./actions";
 import { LiveChat } from "./chat-panel";
 import { shareStream, streamClient, useStream } from "./data";
@@ -51,6 +52,9 @@ import { useLiveRoom, useWatchingReport } from "./room";
 const { StreamStatus, ArchiveStatus } = live;
 
 const openWeb = (path: string) => router.push(webScreenHref(path) as never);
+
+/** A path of the server, on the app's own screen when there is one (a video, a channel), else on the web. */
+const openPath = (path: string) => router.push((screenFor(path) ?? webScreenHref(path)) as never);
 
 /** Whether the app is in front: a stream in the background is not watched (nor reported as watched). */
 function useInFront(): boolean {
@@ -254,7 +258,7 @@ function EndedStage({ stream }: { stream: live.Stream }) {
       <View className="items-center gap-2 p-4">
         <Text className="text-lg font-black text-white">{t("ended.title")}</Text>
         {stream.archiveVideoId ? (
-          <Button size="sm" onPress={() => openWeb(`/watch/${stream.archiveVideoId}`)}>
+          <Button size="sm" onPress={() => openPath(`/watch/${stream.archiveVideoId}`)}>
             {t("app.archive")}
           </Button>
         ) : archive === ArchiveStatus.PENDING || archive === ArchiveStatus.PROCESSING ? (
@@ -402,7 +406,16 @@ function StreamInfo({ stream }: { stream: live.Stream }) {
   return (
     <View className="gap-2 border-b-2 border-line px-3 py-2">
       <View className="flex-row items-center gap-2.5">
-        {channel && <ChannelFace channel={channel} size="sm" />}
+        {channel && (
+          <Pressable
+            testID="live-channel"
+            accessibilityRole="button"
+            accessibilityLabel={channel.name}
+            onPress={() => openPath(`/c/${channel.handle}`)}
+          >
+            <ChannelFace channel={channel} size="sm" />
+          </Pressable>
+        )}
         <View className="min-w-0 flex-1">
           <Text testID="live-title" numberOfLines={1} className="text-sm font-black text-ink">
             {summary.title}
