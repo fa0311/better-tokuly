@@ -20,13 +20,13 @@ describe("the seam registries", () => {
     expect(areasOf("lifecycle")).toEqual(["map", "media", "notifications", "web"]);
     expect(areasOf("tabs")).toEqual([
       "chat",
-      "friends",
       "map",
       "notes",
       "notifications",
       "profile",
       "shorts",
     ]);
+    expect(areasOf("hub")).toEqual(["friends", "settings", "web"]);
     expect(areasOf("profile")).toEqual(["notes"]);
   });
 

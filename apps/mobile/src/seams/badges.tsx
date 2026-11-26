@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import badges from "#/generated/seams/badges";
+import { HUB_BADGE, waitingInHub } from "./hub";
 
 /**
  * Badges: unread counts by key, shown on the tabs that name the key.
@@ -20,8 +21,14 @@ const SOURCES = badges.flatMap((sources: BadgeSources) => Object.entries(sources
 
 const useCounts = create<Record<string, number>>(() => ({}));
 
-/** Every count by key; a key nobody set is not there (nothing unread). */
-export const useBadges = (): Record<string, number> => useCounts();
+/**
+ * Every count by key; a key nobody set is not there (nothing unread). The
+ * hub's own key is the sum of what its entries name.
+ */
+export function useBadges(): Record<string, number> {
+  const counts = useCounts();
+  return { ...counts, [HUB_BADGE]: waitingInHub(counts) };
+}
 
 function Source({ badge, useCount }: { badge: string; useCount: () => number }) {
   const count = useCount();

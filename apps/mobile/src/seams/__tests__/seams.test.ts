@@ -1,6 +1,6 @@
 import { targetOf } from "#/features/notifications/target";
 import { SERVER_URL } from "#/lib/config";
-import { HUB_ENTRIES } from "../hub";
+import { HUB_ENTRIES, waitingInHub } from "../hub";
 import { screenFor } from "../links";
 import { SCREENS } from "../screens";
 import { SETTINGS_CARDS, SETTINGS_ROWS } from "../settings";
@@ -17,16 +17,16 @@ describe("the features on the seams", () => {
       ["chats", "chat", false],
       ["notes", undefined, false],
       ["shorts", undefined, true],
-      ["friends", "friends", false],
       ["inbox", "notifications", false],
-      ["me", undefined, false],
+      ["me", "hub", false],
     ]);
+    // A seventh area goes to the hub, or takes the place of one that moves there.
+    expect(TABS.length).toBeLessThanOrEqual(6);
     expect(TABS.map((tab) => tab.title())).toEqual([
       "マップ",
       "チャット",
       "ノート",
       "ショート",
-      "ともだち",
       "お知らせ",
       "じぶん",
     ]);
@@ -34,9 +34,12 @@ describe("the features on the seams", () => {
 
   it("the hub and the settings", () => {
     expect(HUB_ENTRIES.map((entry) => [entry.id, entry.href])).toEqual([
+      ["friends", "/friends"],
       ["more", "/more"],
       ["settings", "/settings"],
     ]);
+    // What waits behind an entry (a friend request) still shows on the bar, on the hub's tab.
+    expect(waitingInHub({ friends: 2, chat: 5 })).toBe(2);
     expect(SETTINGS_ROWS.map((row) => row.id)).toEqual(["accounts", "web", "licenses"]);
     expect(SETTINGS_CARDS.map((card) => card.id)).toEqual(["push"]);
   });
@@ -49,6 +52,7 @@ describe("the features on the seams", () => {
       "add-friend",
       "chat/[id]",
       "create-account",
+      "friends",
       "invite/[code]",
       "licenses",
       "more",
