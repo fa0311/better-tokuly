@@ -48,19 +48,27 @@ function filesUnder(folder) {
 }
 
 /**
- * The files that carry a seam's name but would not plug in: anywhere but
- * `<area>/<seam>.ts(x)`, or without a default export. Such a file is left out
- * of its registry without a sound — for `lifecycle`, an account that leaves
- * with its position still shared — so it stops the build instead.
+ * Why `file` (a path from the features folder) carries a seam's name but
+ * would not plug in: it is anywhere but `<area>/<seam>.ts(x)`, or has no
+ * default export (`source` reads it). `null` for every other file.
  */
-function strayFiles(features = FEATURES) {
-  return filesUnder(features).flatMap((file) => {
-    const { dir, name, ext } = path.parse(file);
-    if (!SEAMS.includes(name) || !/^\.[cm]?[jt]sx?$/.test(ext)) return [];
-    if (dir === "" || dir.includes(path.sep) || ![".ts", ".tsx"].includes(ext))
-      return [`${file}: a seam file is src/features/<area>/${name}.ts(x)`];
-    const source = fs.readFileSync(path.join(features, file), "utf8");
-    return /^export default\b/m.test(source) ? [] : [`${file}: no \`export default\``];
+function strayReason(file, source) {
+  const { dir, name, ext } = path.parse(file);
+  if (!SEAMS.includes(name) || !/^\.[cm]?[jt]sx?$/.test(ext)) return null;
+  if (dir === "" || dir.includes(path.sep) || ![".ts", ".tsx"].includes(ext))
+    return `a seam file is src/features/<area>/${name}.ts(x)`;
+  return /^export default\b/m.test(source()) ? null : "no `export default`";
+}
+
+/**
+ * The seam files no registry would list. Such a file is left out without a
+ * sound — for `lifecycle`, an account that leaves with its position still
+ * shared — so it stops the build instead.
+ */
+function strayFiles() {
+  return filesUnder(FEATURES).flatMap((file) => {
+    const reason = strayReason(file, () => fs.readFileSync(path.join(FEATURES, file), "utf8"));
+    return reason ? [`${file}: ${reason}`] : [];
   });
 }
 
@@ -100,6 +108,6 @@ function writeRegistries() {
   for (const seam of staleRegistries()) fs.writeFileSync(registryFile(seam), registrySource(seam));
 }
 
-module.exports = { SEAMS, areasOf, staleRegistries, strayFiles, writeRegistries };
+module.exports = { SEAMS, areasOf, staleRegistries, strayFiles, strayReason, writeRegistries };
 
 if (require.main === module) writeRegistries();
