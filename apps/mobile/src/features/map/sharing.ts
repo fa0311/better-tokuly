@@ -129,11 +129,11 @@ async function oweStop(userId: string): Promise<void> {
 async function tellOwedStop(userId: string, account: Api): Promise<boolean> {
   const since = await stopOwedSince(userId);
   if (since === null) return true;
-  await loadSequence();
+  await loadSequence(userId);
   try {
     await account
       .service(geo.LocationService)
-      .stopSharing({ stoppedAt: fromDate(new Date(since)), sequence: takeSequence() });
+      .stopSharing({ stoppedAt: fromDate(new Date(since)), sequence: takeSequence(userId) });
   } catch {
     return false;
   }
@@ -236,12 +236,12 @@ export async function sendFix(position: OwnPosition, userId: string): Promise<vo
   const connection = realtime();
   if (!stillSharing(userId, account)) return;
   const battery = await readBattery();
-  await loadSequence();
+  await loadSequence(userId);
   if (!stillSharing(userId, account)) return;
   const sample = locationSample(position, {
     ...battery,
     foreground: true,
-    sequence: takeSequence(),
+    sequence: takeSequence(userId),
   });
   if (connection.sendLocation(sample)) return;
   try {

@@ -47,13 +47,13 @@ async function reportInBackground(positions: OwnPosition[]): Promise<void> {
   if (reportDecision(newest, last, ANY_PACE, Date.now(), true) !== "send") return;
   last = { at: Date.now(), position: newest };
   const battery = await readBattery();
-  await loadSequence();
+  await loadSequence(owner);
   // Back on screen, or stopped there meanwhile: the foreground decides now.
   if (AppState.currentState === "active" || stoppedHere(owner)) return;
   const sample = locationSample(newest, {
     ...battery,
     foreground: false,
-    sequence: takeSequence(),
+    sequence: takeSequence(owner),
   });
   try {
     await locationClient().reportLocations({ samples: [sample] });

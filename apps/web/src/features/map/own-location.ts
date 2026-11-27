@@ -51,8 +51,12 @@ export type SharingChoice = "on" | "off" | null;
 
 const choiceKey = (userId: string) => `tokuly.map.sharing.${userId}`;
 const stopOwedKey = (userId: string) => `tokuly.map.stopOwed.${userId}`;
-/** This browser's running count (`nextSequence`), shared by its tabs. */
-const SEQUENCE_KEY = "tokuly.map.sequence";
+/**
+ * The account's running count in this browser (`nextSequence`), shared by its
+ * tabs. Per account, as its choice is: the count says nothing about who else
+ * signs in here.
+ */
+const sequenceKey = (userId: string) => `tokuly.map.sequence.${userId}`;
 
 /** What could not be written to storage (private windows, full or blocked storage): kept for this page. */
 const memory = new Map<string, string>();
@@ -79,19 +83,22 @@ function writeStored(key: string, value: string | null): boolean {
   }
 }
 
-let lastSequence = 0;
+/** The latest number of each account on this page: storage may be cleared under it. */
+const lastSequence = new Map<string, number>();
 
 /**
- * The browser's next running number, for a sample or a stop. Taken right
- * where the last check that sharing is on was made, with no wait in
- * between: a stop then gets a number above every sample sent before it,
- * from any tab, whatever the clock does.
+ * The next running number of `userId` in this browser, for a sample or a
+ * stop. Taken right where the last check that sharing is on was made, with
+ * no wait in between: a stop then gets a number above every sample sent
+ * before it, from any tab, whatever the clock does.
  */
-function takeSequence(): bigint {
-  const stored = Number(readStored(SEQUENCE_KEY)) || 0;
-  lastSequence = nextSequence(Math.max(lastSequence, stored), Date.now());
-  writeStored(SEQUENCE_KEY, String(lastSequence));
-  return BigInt(lastSequence);
+function takeSequence(userId: string): bigint {
+  const stored = Number(readStored(sequenceKey(userId))) || 0;
+  const latest = Math.max(lastSequence.get(userId) ?? 0, stored);
+  const next = nextSequence(latest, Date.now());
+  lastSequence.set(userId, next);
+  writeStored(sequenceKey(userId), String(next));
+  return BigInt(next);
 }
 
 function readChoice(userId: string | null): SharingChoice {
@@ -157,7 +164,7 @@ async function tellServerStopped(quiet = false): Promise<boolean> {
     // The device's clock and count, as in its samples: what it sent before this moment never resumes sharing.
     await locationClient().stopSharing({
       stoppedAt: fromDate(new Date()),
-      sequence: takeSequence(),
+      sequence: userId ? takeSequence(userId) : 0n,
     });
     setStopOwed(userId, false);
     return true;
@@ -278,8 +285,12 @@ async function readBattery(): Promise<BatteryManager | null> {
  * Sends one fix. `stillSharing` is asked again after every wait: a stop (in
  * this tab or another) must not be followed by one more sample.
  */
-async function report(position: OwnPosition, stillSharing: () => boolean): Promise<void> {
-  const sample = await sampleOf(position, stillSharing);
+async function report(
+  position: OwnPosition,
+  userId: string,
+  stillSharing: () => boolean,
+): Promise<void> {
+  const sample = await sampleOf(position, userId, stillSharing);
   if (!sample) return;
   // Prefer the realtime connection; fall back to a plain RPC while it is down.
   if (realtime().sendLocation(sample)) return;
@@ -291,8 +302,12 @@ async function report(position: OwnPosition, stillSharing: () => boolean): Promi
 }
 
 /** Sends one fix over the plain RPC and waits until the server has taken it. */
-async function reportNow(position: OwnPosition, stillSharing: () => boolean): Promise<void> {
-  const sample = await sampleOf(position, stillSharing);
+async function reportNow(
+  position: OwnPosition,
+  userId: string,
+  stillSharing: () => boolean,
+): Promise<void> {
+  const sample = await sampleOf(position, userId, stillSharing);
   if (!sample) return;
   try {
     await locationClient().reportLocations({ samples: [sample] });
@@ -303,6 +318,7 @@ async function reportNow(position: OwnPosition, stillSharing: () => boolean): Pr
 
 async function sampleOf(
   position: OwnPosition,
+  userId: string,
   stillSharing: () => boolean,
 ): Promise<geo.LocationSample | null> {
   const battery = await readBattery();
@@ -311,7 +327,7 @@ async function sampleOf(
     batteryPercent: battery ? battery.level * 100 : undefined,
     charging: battery?.charging,
     foreground: document.visibilityState === "visible",
-    sequence: takeSequence(),
+    sequence: takeSequence(userId),
   });
 }
 
@@ -344,7 +360,7 @@ export async function reportFreshFix(): Promise<OwnPosition | null> {
   }
   // Awaited over the plain RPC, so the server has processed it when this returns (a fix it
   // already has is simply skipped there).
-  await reportNow(position, stillSharing);
+  await reportNow(position, userId, stillSharing);
   return position;
 }
 
@@ -518,7 +534,7 @@ export function useOwnLocationReporting(): void {
         return;
       }
       lastReport = { at: now, position };
-      void report(position, stillSharing);
+      void report(position, userId, stillSharing);
     };
 
     const accept = (result: GeolocationPosition, force = false) => {
