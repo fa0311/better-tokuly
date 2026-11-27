@@ -1,13 +1,12 @@
 import { Camera, type CameraRef, Map as MapLibre, Marker } from "@maplibre/maplibre-react-native";
 import type { geo } from "@tokuly/api";
-import { buildMapStyle } from "@tokuly/core/map";
 import { Ghost, LocateFixed, X } from "lucide-react-native";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { IconButton } from "#/components/icon-button";
-import { TILE_CONFIG } from "#/lib/config";
+import { useMapStyle } from "#/lib/map-style";
 import { sticker, useTheme } from "#/lib/theme";
 import { useNow } from "./clock";
 import { boundsOf, CLOSEST_ZOOM, type Crowd, crowdsAt } from "./crowds";
@@ -55,12 +54,7 @@ export function MapScreen() {
   const [panel, setPanel] = useState<Panel>(null);
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
 
-  // MapLibre Native draws the same basemap as the web; the globe and sky are GL JS only.
-  const {
-    sky: _sky,
-    projection: _projection,
-    ...style
-  } = buildMapStyle("tokuly", theme.dark, i18n.language, TILE_CONFIG);
+  const mapStyle = useMapStyle();
   const pins = Object.values(locations).filter((location) => location.position);
   const ghostChip = ghostChipText(ghost, now, t, i18n.language);
   const selected = panel?.kind === "friend" ? panel.userId : null;
@@ -88,7 +82,7 @@ export function MapScreen() {
     <View className="flex-1 bg-bg" testID="map-screen">
       <MapLibre
         style={{ flex: 1 }}
-        mapStyle={style}
+        mapStyle={mapStyle}
         attribution
         attributionPosition={{ bottom: 8, left: 8 }}
         logo={false}

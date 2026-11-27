@@ -4,6 +4,7 @@ import { applyChatEvent, resynchronize } from "@tokuly/core/chat";
 import { useEffect } from "react";
 import { useMe } from "#/features/session/store";
 import { realtime } from "#/lib/realtime";
+import { useAfterFirstScreen } from "#/seams/background";
 import { chatSync, useConversationList } from "./data";
 import { useLive } from "./live";
 import { clearOutbox, settle } from "./outbox";
@@ -38,8 +39,8 @@ function noteLive(event: chat.ChatEvent["event"], myId: string): void {
 export function useChatSync(): void {
   const queryClient = useQueryClient();
   const myId = useMe()?.user?.id ?? "";
-  // Loaded up front: the chat tab opens without a spinner, and events have a list to update.
-  useConversationList("inbox");
+  // Loaded ahead of the chat tab (it opens without a spinner), once the first screen is up.
+  useConversationList("inbox", { enabled: useAfterFirstScreen() });
   useEffect(() => {
     if (!myId) return;
     const client = realtime();

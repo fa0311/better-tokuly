@@ -5,11 +5,9 @@ import {
   Map as MapLibre,
   Marker,
 } from "@maplibre/maplibre-react-native";
-import { buildMapStyle } from "@tokuly/core/map";
 import type { LatLng } from "@tokuly/core/places";
-import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { TILE_CONFIG } from "#/lib/config";
+import { useMapStyle } from "#/lib/map-style";
 import { sticker, useTheme } from "#/lib/theme";
 
 /** A stop of the day to mark on the map: its number in the day and its emoji. */
@@ -28,12 +26,7 @@ export interface DayStop {
  */
 export function DayMap({ path, stops }: { path: LatLng[]; stops: DayStop[] }) {
   const theme = useTheme();
-  const { i18n } = useTranslation();
-  const {
-    sky: _sky,
-    projection: _projection,
-    ...style
-  } = buildMapStyle("tokuly", theme.dark, i18n.language, TILE_CONFIG);
+  const mapStyle = useMapStyle();
   const points = [...path, ...stops.map((stop) => stop.position)];
   if (points.length === 0) return null;
   const lats = points.map((point) => point.lat);
@@ -56,7 +49,7 @@ export function DayMap({ path, stops }: { path: LatLng[]; stops: DayStop[] }) {
     >
       <MapLibre
         style={{ flex: 1 }}
-        mapStyle={style}
+        mapStyle={mapStyle}
         logo={false}
         attribution={false}
         compass={false}

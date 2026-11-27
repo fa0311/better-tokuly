@@ -24,11 +24,15 @@ import {
 
 let unbind: (() => void) | null = null;
 
-function bindStore(): void {
+/** The store follows the active API's session; `nextGeneration`: it is another account's tree now. */
+function bindStore(nextGeneration = false): void {
   unbind?.();
   const session = api().session;
   unbind = session.subscribe((state) => useSessionStore.setState({ state }));
-  useSessionStore.setState({ state: session.state });
+  useSessionStore.setState((s) => ({
+    state: session.state,
+    generation: nextGeneration ? s.generation + 1 : s.generation,
+  }));
 }
 
 /**
@@ -64,13 +68,22 @@ async function leave(): Promise<void> {
   if (account) await runBeforeLeave(account);
 }
 
-/** Starts the app over as the account of `response` (or signed out): a new API, connection and cache. */
+/**
+ * Starts the app over as the account of `response` (or signed out): a new API, connection and
+ * cache. The screens change once, when the next account is known: its state and its generation
+ * reach the store in one update, so the signed-in tree mounts once, as that account. A
+ * signed-in tree on screen goes at once all the same: from here on `api()` speaks for the next
+ * account, and nothing may pair it with the one that tree shows (`currentAccount()`).
+ */
 async function startOver(response: identity.AuthResponse | null): Promise<void> {
   resetRealtime();
   resetApi();
-  bindStore();
-  if (!response || !(await api().session.adopt(response))) api().session.assumeSignedOut();
-  useSessionStore.setState((s) => ({ generation: s.generation + 1 }));
+  unbind?.();
+  unbind = null;
+  const session = api().session;
+  if (response && activeSessionId()) useSessionStore.setState({ state: { status: "unknown" } });
+  if (!response || !(await session.adopt(response))) session.assumeSignedOut();
+  bindStore(true);
 }
 
 /**
