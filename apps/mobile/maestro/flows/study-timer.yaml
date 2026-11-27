@@ -1,0 +1,66 @@
+appId: app.tokuly.mobile
+name: Study with the timer (pomodoro, a subject), pause it, cheer a friend, stop and log it
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/study-timer.js
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+
+# The timer is the first thing on the school screen, under the own profile.
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-school" }
+- tapOn: { id: "me-school" }
+- tapOn: { id: "school-timer-entry" }
+- extendedWaitUntil:
+    visible: { id: "timer-start" }
+    timeout: 15000
+
+# A pomodoro for 数学.
+- tapOn: { id: "timer-mode-pomodoro" }
+- tapOn: "数学"
+- takeScreenshot: 43-study-timer
+- tapOn: { id: "timer-start" }
+- extendedWaitUntil:
+    visible: { id: "timer-clock" }
+    timeout: 15000
+- assertVisible: "24:5.|25:00"
+- takeScreenshot: 44-study-timer-running
+
+# Paused and going again.
+- tapOn: { id: "timer-pause" }
+- extendedWaitUntil:
+    visible: { id: "timer-resume" }
+    timeout: 15000
+- tapOn: { id: "timer-resume" }
+- extendedWaitUntil:
+    visible: { id: "timer-pause" }
+    timeout: 15000
+
+# The friend who is studying gets a cheer from here too.
+- scrollUntilVisible:
+    element: { id: "${'cheer-' + output.friend}" }
+- tapOn: { id: "${'cheer-' + output.friend}" }
+- extendedWaitUntil:
+    visible: { id: "${'cheered-' + output.friend}" }
+    timeout: 15000
+
+# Stopped after asking, and the timer is ready for the next time.
+- scrollUntilVisible:
+    element: { id: "timer-stop" }
+    direction: UP
+- tapOn: { id: "timer-stop" }
+- tapOn: "記録しておわる|Log and finish"
+- tapOn: "OK"
+- extendedWaitUntil:
+    visible: { id: "timer-start" }
+    timeout: 15000
