@@ -107,4 +107,20 @@ describe("restoring the session while the API is rate-limited", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     expect(server.refreshes).toHaveLength(5);
   });
+
+  it("stays signed out when the person signs out during the wait", async () => {
+    vi.useFakeTimers();
+    const server = busyServer(1, "10");
+    const { session, states } = restoring(server);
+
+    const restored = session.restore();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await session.signOut();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // The cookie is still good (the sign-out did not reach the server): it is not used.
+    expect(await restored).toBe(false);
+    expect(states).toEqual(["signedOut"]);
+    expect(server.refreshes).toHaveLength(1);
+  });
 });

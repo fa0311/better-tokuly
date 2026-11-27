@@ -169,8 +169,11 @@ export class Session {
       waitedMs + refreshed.retryInMs <= RATE_LIMIT_WAIT_MS.inAll
     ) {
       const { retryInMs } = refreshed;
+      const before = this.current;
       await new Promise((resolve) => setTimeout(resolve, retryInMs));
       waitedMs += retryInMs;
+      // Signed out or signed in during the wait: the person decided, and that stands.
+      if (this.current !== before) return this.current.status === "signedIn";
       refreshed = await this.refreshOnce();
     }
     const resumed = refreshed === true;
