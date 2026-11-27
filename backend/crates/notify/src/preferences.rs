@@ -116,9 +116,6 @@ pub fn validate_quiet_hours(quiet: &QuietHours) -> AppResult<()> {
     Ok(())
 }
 
-/// Accounts younger than this are created with [`PushPreview::PUSH_PREVIEW_SENDER_ONLY`].
-pub const ADULT_AGE_YEARS: i32 = 18;
-
 /// The stored preview setting (`notify_settings.push_preview`); a value
 /// this build does not know reads as full.
 pub fn push_preview_from(stored: Option<i16>) -> PushPreview {
@@ -151,20 +148,42 @@ async fn stored_push_preview(core: &Core, user_id: Uuid) -> AppResult<Option<i16
 }
 
 /// Stores the preview setting a new account starts with: sender only for
-/// minors, full for adults. The age is read once, here, when the account is
-/// created (`identity.user.created`), and the result is stored: computing it
-/// on every read would change the setting on the 18th birthday and tell
-/// anyone watching when that is. Idempotent, and never overrides a choice the
-/// owner already made.
+/// minors (`tokuly_identity::age`: no birthdate counts as one), full for
+/// adults. The age is read once, here, when the account is created
+/// (`identity.user.created`), and the result is stored: computing it on every
+/// read would change the setting on the 18th birthday and tell anyone
+/// watching when that is. Idempotent, and never overrides a stored value.
 pub async fn set_initial_push_preview(core: &Core, user_id: Uuid) -> AppResult<()> {
+    let preview = match tokuly_identity::age::is_minor(core, user_id).await? {
+        true => PushPreview::PUSH_PREVIEW_SENDER_ONLY,
+        false => PushPreview::PUSH_PREVIEW_FULL,
+    };
     sqlx::query(
         "INSERT INTO notify_settings (user_id, push_preview)
-         SELECT id, CASE WHEN birthdate > current_date - make_interval(years => $2) THEN 2 ELSE 1 END
-         FROM users WHERE id = $1 AND deleted_at IS NULL
+         SELECT id, $2 FROM users WHERE id = $1 AND deleted_at IS NULL
          ON CONFLICT (user_id) DO UPDATE SET push_preview = COALESCE(notify_settings.push_preview, EXCLUDED.push_preview)",
     )
     .bind(user_id)
-    .bind(ADULT_AGE_YEARS)
+    .bind(preview as i16)
+    .execute(&core.db)
+    .await?;
+    Ok(())
+}
+
+/// A minor gave the birthdate after the account was made
+/// (`identity.user.birthdate_given`): pushes show the sender only from now,
+/// as they would have from sign-up, unless the owner chose a setting
+/// themselves. Narrows only (hidden stays hidden); idempotent.
+pub async fn apply_minor_push_preview(core: &Core, user_id: Uuid) -> AppResult<()> {
+    sqlx::query(
+        "INSERT INTO notify_settings (user_id, push_preview)
+         SELECT id, $2 FROM users WHERE id = $1 AND deleted_at IS NULL
+         ON CONFLICT (user_id) DO UPDATE SET push_preview = EXCLUDED.push_preview
+         WHERE NOT notify_settings.push_preview_chosen AND COALESCE(notify_settings.push_preview, $3) = $3",
+    )
+    .bind(user_id)
+    .bind(PushPreview::PUSH_PREVIEW_SENDER_ONLY as i16)
+    .bind(PushPreview::PUSH_PREVIEW_FULL as i16)
     .execute(&core.db)
     .await?;
     Ok(())

@@ -149,8 +149,8 @@ impl PreferencesService for Notify {
             }
             if let Some(preview) = push_preview {
                 sqlx::query(
-                    "INSERT INTO notify_settings (user_id, push_preview) VALUES ($1, $2)
-                     ON CONFLICT (user_id) DO UPDATE SET push_preview = EXCLUDED.push_preview",
+                    "INSERT INTO notify_settings (user_id, push_preview, push_preview_chosen) VALUES ($1, $2, true)
+                     ON CONFLICT (user_id) DO UPDATE SET push_preview = EXCLUDED.push_preview, push_preview_chosen = true",
                 )
                 .bind(user_id)
                 .bind(preview)

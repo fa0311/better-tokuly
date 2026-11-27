@@ -4,6 +4,7 @@
 //! - `notify.requested` — `tokuly_core::outbound::NotificationRequest`
 //! - `social.friend.prefs_changed` — [`FriendPrefsChanged`]
 //! - `identity.user.created` — [`UserCreated`]
+//! - `identity.user.birthdate_given` — [`BirthdateGiven`]
 //! - `identity.user.deleted` — [`UserDeleted`]
 //! - `social.user.blocked`, `social.user.unblocked` — [`UserBlocked`]
 //! - deletion events of other domains (see `withdraw.rs`)
@@ -15,6 +16,7 @@ use uuid::Uuid;
 
 pub const FRIEND_PREFS_CHANGED_TOPIC: &str = "social.friend.prefs_changed";
 pub const USER_CREATED_TOPIC: &str = "identity.user.created";
+pub const BIRTHDATE_GIVEN_TOPIC: &str = "identity.user.birthdate_given";
 pub const USER_DELETED_TOPIC: &str = "identity.user.deleted";
 pub const USER_BLOCKED_TOPIC: &str = "social.user.blocked";
 pub const USER_UNBLOCKED_TOPIC: &str = "social.user.unblocked";
@@ -41,6 +43,14 @@ pub struct UserBlocked {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserCreated {
     pub user_id: Uuid,
+}
+
+/// Our view of identity's `identity.user.birthdate_given`: an account gave
+/// its birthdate after sign-up; `minor` is the age group on that day.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BirthdateGiven {
+    pub user_id: Uuid,
+    pub minor: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,6 +1,9 @@
 //! What pushes show on the lock screen (「通知に内容を表示」): the choice,
 //! its default by age, and that left-out text never enters the payload.
-use tokuly_notify::{consumer::PushDecision, consumer::RequestOutcome, events::USER_CREATED_TOPIC};
+use tokuly_notify::{
+    consumer::{PushDecision, RequestOutcome},
+    events::{BIRTHDATE_GIVEN_TOPIC, USER_CREATED_TOPIC},
+};
 use tokuly_proto::notify::*;
 use tokuly_testkit::TestUser;
 
@@ -200,6 +203,63 @@ async fn a_minor_whose_sign_up_event_never_arrived_still_gets_sender_only() {
     let adult = ctx.app.user("adult").await;
     assert_eq!(preview_of(&ctx, &adult).await, PushPreview::PUSH_PREVIEW_FULL);
     set_birthdate(&ctx, &adult, 15).await;
+    assert_eq!(preview_of(&ctx, &adult).await, PushPreview::PUSH_PREVIEW_FULL);
+}
+
+/// No birthdate counts as a minor (`tokuly_identity::age`), at sign-up as
+/// everywhere else.
+#[tokio::test]
+async fn an_account_without_a_birthdate_starts_with_sender_only() {
+    let ctx = start_insecure().await;
+    let unknown = ctx.app.user("unknown").await;
+    sqlx::query("UPDATE users SET birthdate = NULL WHERE id = $1").bind(unknown.id).execute(&ctx.app.core.db).await.unwrap();
+    created(&ctx, &unknown).await;
+    assert_eq!(preview_of(&ctx, &unknown).await, PushPreview::PUSH_PREVIEW_SENDER_ONLY);
+}
+
+async fn birthdate_given(ctx: &Ctx, user: &TestUser, minor: bool) {
+    let event = event(BIRTHDATE_GIVEN_TOPIC, serde_json::json!({ "user_id": user.id, "minor": minor }));
+    ctx.notify.handle_event(event).await.unwrap();
+}
+
+/// What an account from before the birthdate question has stored: full, by
+/// the rule of its day.
+async fn stored_full(ctx: &Ctx, user: &TestUser) {
+    sqlx::query("INSERT INTO notify_settings (user_id, push_preview) VALUES ($1, 1)")
+        .bind(user.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+}
+
+/// A minor who gives the birthdate later gets the minors' default then,
+/// unless they chose; it only narrows, and a redelivery changes nothing.
+#[tokio::test]
+async fn a_minor_giving_the_birthdate_later_gets_sender_only_unless_they_chose() {
+    let ctx = start_insecure().await;
+    let (teen, chose, hid, adult, fresh) = (
+        ctx.app.user("teen").await,
+        ctx.app.user("chose").await,
+        ctx.app.user("hid").await,
+        ctx.app.user("adult").await,
+        ctx.app.user("fresh").await,
+    );
+    for user in [&teen, &adult] {
+        stored_full(&ctx, user).await;
+    }
+    choose(&ctx, &chose, PushPreview::PUSH_PREVIEW_FULL).await;
+    choose(&ctx, &hid, PushPreview::PUSH_PREVIEW_HIDDEN).await;
+
+    for _ in 0..2 {
+        for user in [&teen, &chose, &hid, &fresh] {
+            birthdate_given(&ctx, user, true).await;
+        }
+        birthdate_given(&ctx, &adult, false).await;
+    }
+    assert_eq!(preview_of(&ctx, &teen).await, PushPreview::PUSH_PREVIEW_SENDER_ONLY);
+    assert_eq!(preview_of(&ctx, &fresh).await, PushPreview::PUSH_PREVIEW_SENDER_ONLY, "nothing stored yet");
+    assert_eq!(preview_of(&ctx, &chose).await, PushPreview::PUSH_PREVIEW_FULL, "their own choice stays");
+    assert_eq!(preview_of(&ctx, &hid).await, PushPreview::PUSH_PREVIEW_HIDDEN, "only narrows");
     assert_eq!(preview_of(&ctx, &adult).await, PushPreview::PUSH_PREVIEW_FULL);
 }
 
