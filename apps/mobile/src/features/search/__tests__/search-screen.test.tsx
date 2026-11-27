@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, search } from "@tokuly/api";
 import { router } from "expo-router";
 import { Alert, type AlertButton } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { SearchScreen, type SearchStart } from "../search-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -71,7 +72,7 @@ async function show(start: SearchStart = {}) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={testQueryClient()}>
         <SearchScreen start={start} />
       </QueryClientProvider>
     </SafeAreaProvider>,

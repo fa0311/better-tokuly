@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { Code, ConnectError, create, live } from "@tokuly/api";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { GiftSheet } from "../gift-sheet";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -59,7 +60,7 @@ async function open(step = "gift-tier-3") {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={testQueryClient()}>
         <GiftSheet stream={stream} visible onClose={() => {}} />
       </QueryClientProvider>
     </SafeAreaProvider>,

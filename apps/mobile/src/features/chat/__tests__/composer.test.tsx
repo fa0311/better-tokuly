@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { create, emoji } from "@tokuly/api";
 import { EMPTY_CATALOG } from "@tokuly/core/emoji";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { syncCatalog, useCatalogStore } from "#/features/emoji/catalog";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { Composer } from "../composer";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -38,7 +39,7 @@ async function openComposer() {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={testQueryClient()}>
         <Composer
           conversationId="c1"
           myId="u1"

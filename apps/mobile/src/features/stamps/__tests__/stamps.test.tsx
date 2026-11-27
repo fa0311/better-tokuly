@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { common, create, stamp } from "@tokuly/api";
 import type { ReactNode } from "react";
@@ -7,6 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
 import { screenFor } from "#/seams/links";
+import { testQueryClient } from "#/testing/query";
 import { PackScreen } from "../pack-screen";
 import { StampPicker } from "../picker";
 import { StoreScreen } from "../store-screen";
@@ -88,7 +89,7 @@ async function show(children: ReactNode) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
+      <QueryClientProvider client={testQueryClient()}>{children}</QueryClientProvider>
     </SafeAreaProvider>,
   );
 }

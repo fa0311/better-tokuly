@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, video } from "@tokuly/api";
 import { AppState } from "react-native";
@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount } from "#/features/session/account";
 import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import lifecycle from "../lifecycle";
 import { WatchScreen } from "../watch-screen";
 
@@ -120,11 +121,7 @@ async function open(params = {}) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider
-        client={
-          new QueryClient({ defaultOptions: { queries: { gcTime: Number.POSITIVE_INFINITY } } })
-        }
-      >
+      <QueryClientProvider client={testQueryClient()}>
         <WatchScreen videoId="abc123" params={params} />
       </QueryClientProvider>
     </SafeAreaProvider>,

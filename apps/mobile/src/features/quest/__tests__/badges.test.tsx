@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, identity, quest } from "@tokuly/api";
 import { router } from "expo-router";
@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { BadgeScreen } from "../badge-screen";
 import { BadgesScreen } from "../badges-screen";
 import profile from "../profile";
@@ -98,7 +99,7 @@ async function show(children: ReactNode) {
       }}
     >
       <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        client={testQueryClient({ defaultOptions: { queries: { retry: false } } })}
       >
         {children}
       </QueryClientProvider>

@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, quest, wallet } from "@tokuly/api";
 import { rememberBalance } from "@tokuly/core/wallet";
@@ -7,6 +7,7 @@ import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { QuestScreen } from "../quest-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -100,7 +101,7 @@ function server(start: quest.MissionState = M.COMPLETED) {
   };
 }
 
-async function show(children: ReactNode, queryClient = new QueryClient()) {
+async function show(children: ReactNode, queryClient = testQueryClient()) {
   await render(
     <SafeAreaProvider
       initialMetrics={{
@@ -128,7 +129,7 @@ describe("the quest screen", () => {
 
   it("shows the wallet's balance: coins that arrive elsewhere in the app arrive here", async () => {
     server();
-    const queryClient = new QueryClient();
+    const queryClient = testQueryClient();
     await show(<QuestScreen />, queryClient);
     await waitFor(() => expect(screen.getByTestId("quest-coins").props.children).toBe("🪙 100"));
     // A login bonus claimed in the wallet, or a push of the wallet's.

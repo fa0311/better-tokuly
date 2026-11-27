@@ -1,8 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, notes } from "@tokuly/api";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { markNoteDeleted } from "../data";
 import { hintTimelines } from "../live";
 import { Timeline } from "../timeline";
@@ -36,7 +37,7 @@ describe("Timeline", () => {
         recordNoteViews: async () => ({}),
       }),
     } as never);
-    const queryClient = new QueryClient();
+    const queryClient = testQueryClient();
     await render(
       <SafeAreaProvider
         initialMetrics={{

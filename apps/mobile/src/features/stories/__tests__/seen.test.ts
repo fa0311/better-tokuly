@@ -1,6 +1,6 @@
-import { QueryClient } from "@tanstack/react-query";
 import { create, notes } from "@tokuly/api";
 import { storyKeys } from "@tokuly/core/stories";
+import { testQueryClient } from "#/testing/query";
 import { seenMarker } from "../seen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -9,7 +9,7 @@ const story = (id: string, viewed = false) =>
   create(notes.StorySchema, { id, viewed, owner: { id: "friend" }, items: [{}] });
 
 function setUp(markStoryViewed = jest.fn(async () => ({}))) {
-  const queryClient = new QueryClient();
+  const queryClient = testQueryClient();
   queryClient.setQueryData(storyKeys.tray, [
     create(notes.StoryReelSchema, {
       user: { id: "friend" },

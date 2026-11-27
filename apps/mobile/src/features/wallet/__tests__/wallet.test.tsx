@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, wallet } from "@tokuly/api";
 import { walletKeys } from "@tokuly/core/wallet";
@@ -7,6 +7,7 @@ import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { HistoryScreen } from "../history-screen";
 import links from "../links";
 import { WalletScreen } from "../wallet-screen";
@@ -127,7 +128,7 @@ function server() {
   };
 }
 
-async function show(children: ReactNode, queryClient = new QueryClient()) {
+async function show(children: ReactNode, queryClient = testQueryClient()) {
   await render(
     <SafeAreaProvider
       initialMetrics={{
@@ -189,7 +190,7 @@ describe("the wallet screen", () => {
 
   it("shows a claim as won only until the next bonus, not for one made elsewhere later", async () => {
     const api = server();
-    const queryClient = new QueryClient();
+    const queryClient = testQueryClient();
     const readBonus = () => queryClient.invalidateQueries({ queryKey: walletKeys.dailyBonus });
     await show(<WalletScreen />, queryClient);
     await fireEvent.press(await screen.findByTestId("wallet-bonus-claim"));

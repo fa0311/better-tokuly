@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { create, spaces } from "@tokuly/api";
 import { applySpacesEvent, onStage } from "@tokuly/core/spaces";
@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount } from "#/features/session/account";
 import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import lifecycle from "../lifecycle";
 import { SpaceScreen } from "../room-screen";
 import { useAudioSession } from "../session";
@@ -92,7 +93,7 @@ function signIn(who: ReturnType<typeof account>, userId: string) {
 }
 
 async function open() {
-  const queryClient = new QueryClient();
+  const queryClient = testQueryClient();
   await render(
     <SafeAreaProvider
       initialMetrics={{

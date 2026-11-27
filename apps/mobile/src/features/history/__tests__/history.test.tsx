@@ -1,5 +1,5 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, fromDate, geo, toDate } from "@tokuly/api";
 import { router } from "expo-router";
@@ -8,6 +8,7 @@ import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { DayScreen } from "../day-screen";
 import { DeleteHistoryScreen } from "../delete-screen";
 import { HistoryScreen } from "../history-screen";
@@ -119,12 +120,7 @@ function historyOf({ switchOnWrite = false, emptyDays = false, holdWrites = fals
 let queryClient: QueryClient;
 
 async function show(children: ReactNode) {
-  queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: Infinity },
-      mutations: { gcTime: Infinity },
-    },
-  });
+  queryClient = testQueryClient({ defaultOptions: { queries: { retry: false } } });
   const tree = (content: ReactNode) => (
     <SafeAreaProvider
       initialMetrics={{
