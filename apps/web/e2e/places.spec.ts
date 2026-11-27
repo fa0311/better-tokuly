@@ -201,9 +201,37 @@ test("the pin can be placed without a pointer: move the map, then put the pin at
   await expect(page.getByTestId("place-pin")).toBeVisible({ timeout: MAP_TIMEOUT });
 
   // The map pans with the arrow keys; the button brings the pin to wherever its centre is now.
-  await page.locator(".maplibregl-canvas").focus();
+  const canvas = page.locator(".maplibregl-canvas");
+  await canvas.focus();
+  await expect(canvas).toBeFocused();
   for (let press = 0; press < 4; press++) await page.keyboard.press("ArrowRight");
-  await page.waitForTimeout(1500);
+  // The canvas can be visible before the keyboard pan has finished, especially with software WebGL.
+  // Read the map's camera instead of guessing how long its animation takes on this runner.
+  const map = page.locator(".maplibregl-map");
+  await expect
+    .poll(
+      async () => {
+        const center = await map.evaluate((element) => {
+          const instance = (
+            element as HTMLDivElement & {
+              tokulyMap?: {
+                getCenter(): { lat: number; lng: number };
+                isMoving(): boolean;
+              };
+            }
+          ).tokulyMap;
+          const at = instance?.getCenter();
+          return {
+            moving: instance?.isMoving() ?? true,
+            lat: at?.lat ?? 0,
+            lng: at?.lng ?? 0,
+          };
+        });
+        return !center.moving && metersBetween(DEVICE, { lat: center.lat, lng: center.lng }) > 20;
+      },
+      { timeout: MAP_TIMEOUT, intervals: [100] },
+    )
+    .toBe(true);
   await page.getByRole("button", { name: "マップの中心にピンを置く" }).focus();
   await page.keyboard.press("Enter");
 
