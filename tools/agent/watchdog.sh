@@ -15,8 +15,6 @@ if [ -z "$since" ]; then
     *) since=$(date -u -d '2 hours ago' +%FT%TZ) ;;
   esac
 fi
-date -u +%FT%TZ > "$state"
-
 case "$(uname -s)" in
   Linux)
     echo "== env-check"
@@ -36,14 +34,49 @@ case "$(uname -s)" in
 esac
 echo "== services"; tools/dev/infra.sh status 2>&1 | grep -v ' up ' || true
 printf 'dev api %s\n' "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:58081/healthz)"
-echo "== open PRs"; gh pr list --repo $repo --json number,isDraft,headRefName,labels,title \
-  --jq '.[]|"#\(.number) draft=\(.isDraft) \(.headRefName) [\([.labels[].name]|join(","))] \(.title)"'
-echo "== new issues since $since (author!)"
-gh api "repos/$repo/issues?state=all&since=$since&per_page=100" \
-  --jq ".[]|select(.created_at>=\"$since\")|\"#\(.number) \(.user.login) pr=\(.pull_request!=null) \(.title)\""
-echo "== new comments since $since"
-gh api "repos/$repo/issues/comments?since=$since&per_page=100" \
-  --jq '.[]|"#\(.issue_url|split("/")|last) \(.user.login) \(.body[0:120]|gsub("\n";" "))"'
-echo "== main CI (latest per workflow)"
-gh run list --repo $repo --branch main -L 20 --json name,status,conclusion,headSha \
-  --jq 'group_by(.name)|map(.[0])|.[]|"\(.name) \(.status) \(.conclusion) \(.headSha[0:8])"'
+
+# Capture the start of this check. Anything posted after this point will still
+# be returned by the next run if it arrives while the requests are in flight.
+checked_at=$(date -u +%FT%TZ) || { echo "FAIL could not read the current time; cursor unchanged" >&2; exit 1; }
+tmp=$(mktemp -d /tmp/tokuly-watchdog.XXXXXX) || { echo "FAIL could not create a temporary directory; cursor unchanged" >&2; exit 1; }
+state_tmp="$state.tmp.$$"
+trap 'rm -rf "$tmp"; rm -f "$state_tmp"' EXIT
+
+if ! gh pr list --repo "$repo" --json number,isDraft,headRefName,labels,title \
+  --jq '.[]|"#\(.number) draft=\(.isDraft) \(.headRefName) [\([.labels[].name]|join(","))] \(.title)"' >"$tmp/open-prs"; then
+  echo "FAIL GitHub open-PR query failed; cursor unchanged at $since" >&2
+  exit 1
+fi
+if ! gh api --paginate "repos/$repo/issues?state=all&since=$since&per_page=100" \
+  --jq ".[]|select(.created_at>=\"$since\")|\"#\(.number) \(.user.login) pr=\(.pull_request!=null) \(.title)\"" >"$tmp/issues"; then
+  echo "FAIL GitHub issue query failed; cursor unchanged at $since" >&2
+  exit 1
+fi
+if ! gh api --paginate "repos/$repo/issues/comments?since=$since&per_page=100" \
+  --jq '.[]|"#\(.issue_url|split("/")|last) \(.user.login) \(.body[0:120]|gsub("\n";" "))"' >"$tmp/comments"; then
+  echo "FAIL GitHub comment query failed; cursor unchanged at $since" >&2
+  exit 1
+fi
+if ! gh api --paginate "repos/$repo/pulls/comments?since=$since&per_page=100" \
+  --jq '.[]|"#\(.pull_request_url|split("/")|last) \(.user.login) [inline] \(.body[0:120]|gsub("\n";" "))"' >"$tmp/review-comments"; then
+  echo "FAIL GitHub pull-request review comment query failed; cursor unchanged at $since" >&2
+  exit 1
+fi
+if ! gh run list --repo "$repo" --branch main -L 20 --json name,status,conclusion,headSha \
+  --jq 'group_by(.name)|map(.[0])|.[]|"\(.name) \(.status) \(.conclusion) \(.headSha[0:8])"' >"$tmp/main-ci"; then
+  echo "FAIL GitHub CI query failed; cursor unchanged at $since" >&2
+  exit 1
+fi
+
+# Advance only after every GitHub query succeeded. The timestamp represents
+# the start of the check, so comments created during it are picked up next time.
+if ! printf '%s\n' "$checked_at" >"$state_tmp" || ! mv -f "$state_tmp" "$state"; then
+  echo "FAIL could not save watchdog cursor; previous cursor remains $since" >&2
+  exit 1
+fi
+
+echo "== open PRs"; cat "$tmp/open-prs"
+echo "== new issues since $since (author!)"; cat "$tmp/issues"
+echo "== new comments since $since"; cat "$tmp/comments"
+echo "== new inline review comments since $since"; cat "$tmp/review-comments"
+echo "== main CI (latest per workflow)"; cat "$tmp/main-ci"
