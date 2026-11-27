@@ -26,11 +26,8 @@ import {
   useUnreact,
 } from "./api";
 import type { BookmarksSearch, BookmarksTab } from "./bookmarks-search";
-import {
-  COLLECTION_NAME_MAX,
-  openCollectionChooser,
-  useCollectionName,
-} from "./collection-chooser";
+import { COLLECTION_NAME_MAX, useCollectionName } from "./collection-chooser";
+import { openCollectionChooser } from "./collection-chooser-host";
 import { ReactionEmoji } from "./reaction-emoji";
 import { SubjectCard } from "./subject-card";
 

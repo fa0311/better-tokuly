@@ -3,41 +3,8 @@ import type { Subject, ViewerReaction } from "@tokuly/core/engagement";
 import { motion } from "motion/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { motionFactor } from "./burst";
+import { keyOf, type Listener, listeners, MAX_POPS, POP_SECONDS } from "./pop-events";
 import { ReactionEmoji } from "./reaction-emoji";
-
-// Reactions from other people, popping up over a subject's reaction bar as they arrive (the realtime `reaction_added`).
-
-type Listener = (reaction: ViewerReaction) => void;
-
-const listeners = new Map<string, Set<Listener>>();
-/** What this browser itself just added, by subject and emoji, so its own reaction coming back over the topic does not pop a second time. */
-const own = new Map<string, number>();
-const OWN_ECHO_MS = 4000;
-/** Pops on screen at once per bar; more are skipped (the counts follow anyway). */
-const MAX_POPS = 6;
-const POP_SECONDS = 1.3;
-
-const keyOf = (type: Subject["type"], uuid: string) => `${type}:${uuid}`;
-
-/** Called by the feature's background component for every `reaction_added`. */
-export function emitPop(type: Subject["type"], uuid: string, reaction: ViewerReaction): void {
-  const echoKey = `${keyOf(type, uuid)}:${reaction.kind}:${reaction.emoji}`;
-  const echo = own.get(echoKey);
-  if (echo !== undefined) {
-    own.delete(echoKey);
-    if (Date.now() - echo < OWN_ECHO_MS) return;
-  }
-  for (const listener of listeners.get(keyOf(type, uuid)) ?? []) listener(reaction);
-}
-
-/** The caller just added this reaction to the subject (its UUID): its echo is not shown. */
-export function noteOwnReaction(
-  type: Subject["type"],
-  uuid: string,
-  reaction: ViewerReaction,
-): void {
-  own.set(`${keyOf(type, uuid)}:${reaction.kind}:${reaction.emoji}`, Date.now());
-}
 
 interface Pop {
   id: number;

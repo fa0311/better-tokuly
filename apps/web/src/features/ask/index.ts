@@ -11,6 +11,8 @@
  * `/ask/q/<question id>`, `/ask/prompts/<prompt id>`, `/ask/inbox`,
  * `/ask/flames`, `/ask/polls`, and the public `/q/<handle>`.
  */
+
+export { useAskBadge } from "./api";
 export { boxShareUrl } from "./model";
-export { ProfileAnswers, ProfileAskButton, useAskBadge } from "./profile-ask";
+export { ProfileAnswers, ProfileAskButton } from "./profile-ask";
 export { QaCard } from "./qa-card";

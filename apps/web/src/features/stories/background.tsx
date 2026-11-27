@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
 import { addStory, forgetUserStories, patchStory, removeStory, storyKeys } from "./api";
-import { StoryViewerHost } from "./viewer";
+import { StoryViewerHost } from "./viewer-host";
 import { closeStoryViewer, dropFromStoryViewer, useStoryViewer } from "./viewer-store";
 
 /**

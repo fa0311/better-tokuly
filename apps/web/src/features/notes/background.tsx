@@ -1,20 +1,25 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
 import { forgetUserNotes } from "@tokuly/core/notes";
-import { useEffect } from "react";
-import { registerSubjectCard } from "#/features/engagement";
+import { lazy, useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
 import { resetDeletedNotes } from "./api";
-import { ComposeHost } from "./compose";
+import { ComposeHost } from "./compose-host";
 import { closeCompose } from "./compose-store";
 import { discardAllDrafts } from "./drafts";
 import { applyNotesFrame, hintTimelines } from "./live";
-import { NoteSubjectCard } from "./subject-card";
 import { resetViews } from "./views";
 
-// Saved and reacted-to notes are drawn as notes on `/bookmarks`.
-registerSubjectCard(common.SubjectType.NOTE, NoteSubjectCard);
+const NoteSubjectCard = lazy(() =>
+  import("./subject-card").then((module) => ({ default: module.NoteSubjectCard })),
+);
+
+// Saved and reacted-to notes are drawn as notes on `/bookmarks`. Registered once engagement has
+// loaded, off the way of the first page: a list drawn before then draws again.
+void import("#/features/engagement").then(({ registerSubjectCard }) =>
+  registerSubjectCard(common.SubjectType.NOTE, NoteSubjectCard),
+);
 
 /**
  * Runs while someone is signed in: keeps cached notes current from the

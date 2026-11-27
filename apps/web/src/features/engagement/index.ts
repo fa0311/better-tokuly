@@ -42,7 +42,7 @@ export {
 } from "./api";
 export { BookmarkButton, type BookmarkButtonProps } from "./bookmark-button";
 export { useBurst } from "./burst";
-export { openCollectionChooser } from "./collection-chooser";
+export { openCollectionChooser } from "./collection-chooser-host";
 export { EmojiPicker, type EmojiPickerProps } from "./emoji-picker";
 export { useSubjectLive, useSubjectTopic } from "./live";
 export { useOpenPath } from "./open-path";

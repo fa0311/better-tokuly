@@ -1,5 +1,8 @@
 import { create } from "zustand";
 
+/** Marks the page's own search field, so the "/" shortcut can focus it instead of opening the palette. */
+export const SEARCH_BOX_ATTRIBUTE = "data-search-box";
+
 /** Whether the quick search is open, apart from the palette itself so a button can open it cheaply. */
 export const usePalette = create<{ open: boolean; query: string }>(() => ({
   open: false,

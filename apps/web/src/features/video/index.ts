@@ -25,7 +25,7 @@ export type { ChannelTab } from "./channel/tabs";
 export { formatClock, formatCount } from "./format";
 export { announceTrafficSource } from "./playback-session";
 export { type PlayerHandle, VideoPlayer, type VideoPlayerProps } from "./player/player";
-export { openSaveDialog } from "./save-dialog";
+export { openSaveDialog } from "./save-target";
 export { SubscribeButton, type SubscribeButtonProps } from "./subscribe-button";
 export {
   ChannelAvatar,

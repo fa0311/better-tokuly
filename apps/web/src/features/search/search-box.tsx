@@ -5,11 +5,9 @@ import { type FormEvent, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
+import { SEARCH_BOX_ATTRIBUTE } from "./palette";
 import { optionId, SuggestionList, useOpenSuggestion, useSuggestionKeys } from "./suggestion-list";
 import { useSuggestions } from "./typeahead";
-
-/** Marks the page's own search field, so the "/" shortcut can focus it instead of opening the palette. */
-export const SEARCH_BOX_ATTRIBUTE = "data-search-box";
 
 /**
  * The search field of `/search`: answers while typing with completions and

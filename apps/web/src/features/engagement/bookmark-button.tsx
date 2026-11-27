@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { cn } from "#/lib/cn";
 import { useBookmark, useEngagement } from "./api";
 import { useBurst } from "./burst";
-import { openCollectionChooser } from "./collection-chooser";
+import { openCollectionChooser } from "./collection-chooser-host";
 
 export interface BookmarkButtonProps {
   subject: Subject;

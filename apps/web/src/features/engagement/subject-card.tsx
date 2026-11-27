@@ -1,6 +1,6 @@
 import { common, type engagement } from "@tokuly/api";
 import { ChevronRight } from "lucide-react";
-import type { ComponentType } from "react";
+import { type ComponentType, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { create } from "zustand";
 import { useOpenPath } from "./open-path";
@@ -18,8 +18,12 @@ const useRegistry = create<Partial<Record<common.SubjectType, ComponentType<Subj
 /**
  * Tells the lists of saved and reacted-to subjects how to draw one type of
  * content. Each content feature registers its own card once, when its module
- * loads (its `background.tsx` is a good place):
+ * loads (its `background.tsx` is a good place), as a `lazy` component so the
+ * card's code loads with the first list that draws one:
  *
+ *   const VideoSubjectCard = lazy(() =>
+ *     import("./subject-card").then((module) => ({ default: module.VideoSubjectCard })),
+ *   );
  *   registerSubjectCard(common.SubjectType.VIDEO, VideoSubjectCard);
  *
  * Types without a card of their own get a generic row with the title, the
@@ -97,7 +101,11 @@ export function SubjectCard({ preview }: SubjectCardProps) {
     );
   }
   const Card = registered ?? GenericSubjectCard;
-  return <Card preview={preview} />;
+  return (
+    <Suspense fallback={null}>
+      <Card preview={preview} />
+    </Suspense>
+  );
 }
 
 /** The fallback card: thumbnail, type, title, and a tap that opens the subject's page. */

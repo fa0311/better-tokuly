@@ -62,15 +62,6 @@ function motionOff(): boolean {
   );
 }
 
-/** The viewer, mounted once with the stories background. */
-export function StoryViewerHost() {
-  const reels = useStoryViewer((state) => state.reels);
-  const reelIndex = useStoryViewer((state) => state.reelIndex);
-  const storyId = useStoryViewer((state) => state.storyId);
-  if (!reels) return null;
-  return <StoryViewer reels={reels} startReel={reelIndex} startStoryId={storyId} />;
-}
-
 type Sheet = "viewers" | "delete" | "report" | "highlight" | "editHighlight" | "deleteHighlight";
 
 /**
@@ -78,7 +69,7 @@ type Sheet = "viewers" | "delete" | "report" | "highlight" | "editHighlight" | "
  * back, holding pauses, a swipe sideways moves between people and a swipe
  * down closes. Friends react with an emoji; the owner sees who watched.
  */
-function StoryViewer({
+export function StoryViewer({
   reels,
   startReel,
   startStoryId,

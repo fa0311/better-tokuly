@@ -9,7 +9,6 @@ import { Button } from "#/components/ui/button";
 import { useMe } from "#/stores/session";
 import {
   mapKeys,
-  mapStoryClient,
   useActiveTrips,
   useGhostSettings,
   useLiveShares,
@@ -19,6 +18,7 @@ import {
 } from "./data";
 import { useSharing, useSharingState } from "./own-location";
 import { MapSheet, SheetSection } from "./sheet";
+import { mapStoryClient } from "./stories-api";
 import { type Panel, useMapUi } from "./ui-store";
 
 /** What each sharing state reads as, and what the button offers. */

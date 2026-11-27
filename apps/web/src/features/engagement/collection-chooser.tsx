@@ -5,7 +5,6 @@ import { BookmarkX, Check, FolderPlus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { create } from "zustand";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
@@ -23,26 +22,6 @@ import {
 /** The longest collection name the server takes. */
 export const COLLECTION_NAME_MAX = 50;
 
-const useChooser = create<{ subject: Subject | null }>(() => ({ subject: null }));
-
-/** Opens the collection chooser for a subject, from anywhere (a button, a toast, a list row). */
-export function openCollectionChooser(subject: Subject): void {
-  useChooser.setState({ subject });
-}
-
-/** The one chooser of the app; mounted with the engagement background so it outlives the control that opened it. */
-export function CollectionChooserHost() {
-  const subject = useChooser((state) => state.subject);
-  if (!subject) return null;
-  return (
-    <CollectionChooser
-      key={`${subject.type}:${subject.id}`}
-      subject={subject}
-      onClose={() => useChooser.setState({ subject: null })}
-    />
-  );
-}
-
 /** A collection's name as people see it: the default one is called "saved" by the server and gets a localized name. */
 export function useCollectionName(): (
   collection: Pick<engagement.Collection, "name" | "isDefault">,
@@ -57,7 +36,7 @@ export function useCollectionName(): (
  * to take it out, create a new collection on the spot, or stop saving it
  * altogether.
  */
-function CollectionChooser({ subject, onClose }: { subject: Subject; onClose(): void }) {
+export function CollectionChooser({ subject, onClose }: { subject: Subject; onClose(): void }) {
   const { t } = useTranslation("engagement");
   const queryClient = useQueryClient();
   const collections = useCollectionsFor(subject, true);

@@ -17,7 +17,7 @@ import { playlistClient, useMyChannels, videoKeys } from "./api";
 import { formatAge, formatClock, formatCount } from "./format";
 import { visibilityOption } from "./labels";
 import { announceTrafficSource } from "./playback-session";
-import { openSaveDialog } from "./save-dialog";
+import { openSaveDialog } from "./save-target";
 
 const { ProcessingState, VideoStatus, VideoOrigin } = video;
 

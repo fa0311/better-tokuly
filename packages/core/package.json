@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Platform-neutral app logic shared by web and mobile: query keys and options, domain rules, cache updates, formatting, error texts. No UI, no DOM.",
   "license": "MIT",
+  "sideEffects": false,
   "exports": {
     "./format": "./src/format/index.ts",
     "./errors": "./src/errors/index.ts",

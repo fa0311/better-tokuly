@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, useEffect } from "react";
 import { setBadge } from "#/stores/badges";
 
 /**
@@ -12,8 +12,8 @@ import { setBadge } from "#/stores/badges";
  *   export default { ask: useAskBadge } satisfies BadgeSources;
  *
  * A hook must be cheap on every page: one query that realtime events keep
- * current, never polling. Each file is its own chunk, loaded after the page
- * has rendered.
+ * current, never polling. Each file is its own chunk, loaded with the
+ * background features.
  */
 export type BadgeSources = Record<string, () => number>;
 
@@ -38,11 +38,7 @@ function Source({ badge, useCount }: { badge: string; useCount: () => number }) 
   return null;
 }
 
-/** Runs every badge source; mounted once inside the signed-in layout. */
+/** Runs every badge source; mounted once inside the signed-in layout (suspends until loaded). */
 export function BadgeSourceRunner() {
-  return RUNNERS.map(({ path, Runner }) => (
-    <Suspense key={path} fallback={null}>
-      <Runner />
-    </Suspense>
-  ));
+  return RUNNERS.map(({ path, Runner }) => <Runner key={path} />);
 }

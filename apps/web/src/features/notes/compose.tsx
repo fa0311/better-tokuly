@@ -49,11 +49,10 @@ import { api, profileClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useLocations } from "#/stores/locations";
-import { useMe } from "#/stores/session";
 import { postNote } from "./actions";
 import { draftClient, useHashtagSearch, useTrendingHashtags } from "./api";
 import { PollEditor, ScheduleField } from "./compose-extras";
-import { type ComposeContext, closeCompose, useCompose } from "./compose-store";
+import { type ComposeContext, closeCompose } from "./compose-store";
 import { discardDraft, draftKey, loadDraft, saveDraft } from "./drafts";
 import { NoteBody } from "./note-card";
 import { RulesAgreement, useNoteRules } from "./rules";
@@ -67,15 +66,6 @@ const PLACE_NAME_MAX = 100;
 const MAX_IMAGES = 10;
 /** The count of characters shows only near the end: a quick note stays quick. */
 const COUNT_FROM = NOTE_MAX_CHARS - 200;
-
-/** The composer of the app. It is mounted once (with the notes background) and opened through `openCompose`. */
-export function ComposeHost() {
-  const open = useCompose((state) => state.open);
-  const context = useCompose((state) => state.context);
-  const me = useMe();
-  if (!open || !me?.user) return null;
-  return <Composer context={context} user={me.user} />;
-}
 
 interface PlaceDraft {
   name: string;
@@ -148,7 +138,7 @@ function useSuggestions(completion: Completion | undefined): Suggestion[] {
   return [];
 }
 
-function Composer({ context, user }: { context: ComposeContext; user: common.UserSummary }) {
+export function Composer({ context, user }: { context: ComposeContext; user: common.UserSummary }) {
   const { t } = useTranslation("notes");
   const queryClient = useQueryClient();
   const navigate = useNavigate();

@@ -1,4 +1,5 @@
 {
   "rootJsGzipKb": 255,
-  "routeJsGzipKb": 1120
+  "backgroundJsGzipKb": 315,
+  "routeJsGzipKb": 1110
 }

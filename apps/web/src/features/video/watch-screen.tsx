@@ -28,7 +28,7 @@ import { StartPartyDialog } from "./party/start-party";
 import { takeTrafficSource, usePlaybackSession } from "./playback-session";
 import { type PlayerHandle, VideoPlayer } from "./player/player";
 import { PlaylistQueue, usePlaylistQueue } from "./playlists/queue";
-import { openSaveDialog } from "./save-dialog";
+import { openSaveDialog } from "./save-target";
 import { SubscribeButton } from "./subscribe-button";
 import { ChannelAvatar, ChannelName, imageUrl, VideoCard, VideoCardSkeleton } from "./video-card";
 

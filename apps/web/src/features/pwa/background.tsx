@@ -1,16 +1,19 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useAppBadge } from "./app-badge";
 import { useInstall } from "./install";
 import { InstallBanner } from "./install-banner";
-import { InstallGuide } from "./install-guide";
 import { OfflineIndicator } from "./offline-indicator";
 import { useProtocolWatch } from "./protocol";
 import { startServiceWorker } from "./service-worker";
 import "./standalone.css";
 import { useThemeColor } from "./theme-color";
 import { useUpdateToast } from "./update-toast";
+
+const InstallGuide = lazy(() =>
+  import("./install-guide").then((module) => ({ default: module.InstallGuide })),
+);
 
 /**
  * Runs for as long as someone is signed in: everything that makes the web
@@ -21,6 +24,10 @@ import { useUpdateToast } from "./update-toast";
 export default function PwaBackground() {
   const { t } = useTranslation("pwa");
   const justInstalled = useInstall((state) => state.justInstalled);
+  // The guide loads the first time it opens, and stays mounted so it can animate out.
+  const guideOpen = useInstall((state) => state.guideOpen);
+  const [guideOpened, setGuideOpened] = useState(false);
+  if (guideOpen && !guideOpened) setGuideOpened(true);
 
   useEffect(startServiceWorker, []);
   useAppBadge();
@@ -36,7 +43,11 @@ export default function PwaBackground() {
     <>
       <OfflineIndicator />
       <InstallBanner />
-      <InstallGuide />
+      {guideOpened && (
+        <Suspense fallback={null}>
+          <InstallGuide />
+        </Suspense>
+      )}
     </>
   );
 }

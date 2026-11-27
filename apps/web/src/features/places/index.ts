@@ -8,6 +8,8 @@
  *   <PlaceBubble place={place} />        // a place's emoji in its sticker bubble
  *   <GazetteerCredit />                  // the credit line required next to area names from the server
  */
+
+export { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "#/lib/device-memory";
 export {
   currentPosition,
   DEFAULT_CENTER,
@@ -22,5 +24,4 @@ export {
 } from "./api";
 export { CheckInDialog, type CheckInTarget } from "./check-in-dialog";
 export { GazetteerCredit } from "./credit";
-export { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "./device-memory";
 export { PlaceBubble, PlaceRow } from "./place-row";

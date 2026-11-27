@@ -1,8 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { realtime } from "#/lib/realtime";
 import { patchVideoEverywhere, videoKeys } from "./api";
-import { SaveDialogHost } from "./save-dialog";
+import { useSaveTarget } from "./save-target";
+
+const SaveDialogHost = lazy(() =>
+  import("./save-dialog").then((module) => ({ default: module.SaveDialogHost })),
+);
 
 /**
  * Runs for as long as someone is signed in. A creator's videos change state
@@ -28,5 +32,15 @@ export default function VideoBackground() {
     return offFrame;
   }, [queryClient]);
 
-  return <SaveDialogHost />;
+  // The dialog loads the first time a video is saved, and stays mounted so it can animate out.
+  const saving = useSaveTarget((state) => state.video !== null);
+  const [opened, setOpened] = useState(false);
+  if (saving && !opened) setOpened(true);
+  return (
+    opened && (
+      <Suspense fallback={null}>
+        <SaveDialogHost />
+      </Suspense>
+    )
+  );
 }

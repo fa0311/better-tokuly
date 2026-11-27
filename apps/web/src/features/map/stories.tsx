@@ -11,9 +11,10 @@ import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
 import { useMe } from "#/stores/session";
 import { useFlyTo } from "./camera";
-import { mapKeys, mapStoryClient, useStoryTray } from "./data";
+import { mapKeys } from "./data";
 import { MapPin } from "./map-view";
 import { MapSheet } from "./sheet";
+import { mapStoryClient, useStoryTray } from "./stories-api";
 import { useMapUi } from "./ui-store";
 
 /** How long one story item stays up before the reel moves on. */

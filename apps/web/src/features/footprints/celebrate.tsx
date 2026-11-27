@@ -1,5 +1,4 @@
-import { motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { dopamineFactor } from "#/lib/appearance";
 
 const DEFAULT_GLYPHS = ["🎉", "✨", "👣", "🗺️", "⭐"];
@@ -15,7 +14,7 @@ export function celebrate(glyphs: string[] = DEFAULT_GLYPHS): void {
   for (const listener of listeners) listener(glyphs);
 }
 
-interface Piece {
+export interface Piece {
   id: number;
   glyph: string;
   left: number;
@@ -25,11 +24,13 @@ interface Piece {
   size: number;
 }
 
-interface Shower {
+export interface Shower {
   id: number;
   seconds: number;
   pieces: Piece[];
 }
+
+const Falling = lazy(() => import("./falling").then((module) => ({ default: module.Falling })));
 
 /** Where `celebrate()` draws. Mounted once for the signed-in app. */
 export function CelebrationLayer() {
@@ -70,23 +71,8 @@ export function CelebrationLayer() {
 
   if (!shower) return null;
   return (
-    <div
-      key={shower.id}
-      className="pointer-events-none fixed inset-0 z-[70] overflow-hidden"
-      aria-hidden
-    >
-      {shower.pieces.map((piece) => (
-        <motion.span
-          key={piece.id}
-          className="absolute top-0 select-none"
-          style={{ left: `${piece.left}%`, fontSize: `${piece.size}rem` }}
-          initial={{ y: "-10vh", x: 0, rotate: 0, opacity: 1 }}
-          animate={{ y: "110vh", x: piece.drift, rotate: piece.spin, opacity: [1, 1, 0.9, 0] }}
-          transition={{ duration: shower.seconds, delay: piece.delay, ease: "easeIn" }}
-        >
-          {piece.glyph}
-        </motion.span>
-      ))}
-    </div>
+    <Suspense fallback={null}>
+      <Falling key={shower.id} shower={shower} />
+    </Suspense>
   );
 }
