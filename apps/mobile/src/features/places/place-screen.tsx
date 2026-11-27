@@ -2,9 +2,10 @@ import { Camera, Map as MapLibre, Marker } from "@maplibre/maplibre-react-native
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { geo, toDate, toMillis } from "@tokuly/api";
 import { compactAge, compactDuration, zonedDate } from "@tokuly/core/format";
+import { historyKeys } from "@tokuly/core/history";
 import { buildMapStyle } from "@tokuly/core/map";
 import { type LatLng, labelMeta, placeKeys, toLatLng, visibilityKey } from "@tokuly/core/places";
-import { router, Stack } from "expo-router";
+import { router, Stack, useNavigation } from "expo-router";
 import {
   Bookmark,
   BookmarkCheck,
@@ -13,6 +14,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react-native";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Linking, Platform, Pressable, Text, View } from "react-native";
 import { Button } from "#/components/button";
@@ -43,6 +45,7 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
   const { t, i18n } = useTranslation(NS);
   const { colors } = useTheme();
   const queryClient = useQueryClient();
+  const navigation = useNavigation();
   const me = useMe();
   const zone = useAccountTimeZone();
   const query = usePlace(placeId);
@@ -70,21 +73,37 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
     },
     onError: (error) => Alert.alert(errorMessage(error, { namespace: NS })),
   });
+  // A deletion is sent once: the row and its question can be tapped again while it is on its way.
+  const deleting = useRef(false);
   const remove = useMutation({
     mutationFn: () => asAccount(() => placeClient().deletePlace({ placeId })),
     onSuccess: (answer) => {
       if (!answer) return;
-      queryClient.removeQueries({ queryKey: placeKeys.place(placeId) });
-      void queryClient.invalidateQueries({ queryKey: placeKeys.all });
-      router.back();
+      // Reset, not marked stale: the place is in no list, search or visit
+      // shown from memory, not even for the moment a re-read takes.
+      void queryClient.resetQueries({ queryKey: placeKeys.all });
+      void queryClient.resetQueries({ queryKey: historyKeys.all });
     },
-    onError: (error) => Alert.alert(errorMessage(error, { namespace: NS })),
+    onError: (error) => {
+      deleting.current = false;
+      Alert.alert(errorMessage(error, { namespace: NS }));
+    },
   });
-  const confirmDelete = () =>
+  const sendDelete = () => {
+    if (deleting.current) return;
+    deleting.current = true;
+    // Closing is this screen's own: under another screen the answer moves nothing.
+    remove.mutate(undefined, {
+      onSuccess: (answer) => answer && navigation.isFocused() && router.back(),
+    });
+  };
+  const confirmDelete = () => {
+    if (deleting.current) return;
     Alert.alert(t("place.deleteTitle", { name: place?.name ?? "" }), t("place.deleteBody"), [
       { text: t("common:actions.cancel"), style: "cancel" },
-      { text: t("place.delete"), style: "destructive", onPress: () => remove.mutate() },
+      { text: t("place.delete"), style: "destructive", onPress: sendDelete },
     ]);
+  };
 
   if (query.isPending) return <Spinner />;
   if (!place || !center) {
