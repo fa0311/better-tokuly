@@ -85,6 +85,8 @@ export function useDismissed(userId: string) {
     queryFn: () => [] as string[],
     initialData: [] as string[],
     staleTime: Number.POSITIVE_INFINITY,
+    // Kept while the account is signed in, also while the list is off screen.
+    gcTime: Number.POSITIVE_INFINITY,
   });
   const dismiss = (suggestion: geo.PlaceSuggestion, current: geo.PlaceSuggestion[]) =>
     queryClient.setQueryData<string[]>(DISMISSED_KEY, (marks = []) =>

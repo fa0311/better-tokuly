@@ -174,6 +174,14 @@ describe("the places screen", () => {
     });
   });
 
+  it("offers a registered spot only once, even while the server still suggests it", async () => {
+    const written = placesOf();
+    await show(<PlacesScreen />);
+    await fireEvent.press(await screen.findByTestId("places-suggestion-accept"));
+    await waitFor(() => expect(screen.queryByTestId("places-suggestion")).toBeNull());
+    expect(written.map((entry) => entry.name)).toEqual(["create"]);
+  });
+
   it("puts a suggestion off without telling the server", async () => {
     const written = placesOf();
     await show(<PlacesScreen />);

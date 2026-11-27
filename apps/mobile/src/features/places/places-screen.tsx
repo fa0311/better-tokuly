@@ -134,6 +134,7 @@ function Suggestions() {
   const userId = useMe()?.user?.id ?? "";
   const { data } = useSuggestions();
   const { dismissed, dismiss } = useDismissed(userId);
+  const all = data?.suggestions ?? [];
   const accept = useMutation({
     mutationFn: (suggestion: geo.PlaceSuggestion) =>
       asAccount(() =>
@@ -144,14 +145,15 @@ function Suggestions() {
           visibility: common.Visibility.PRIVATE,
         }),
       ),
-    onSuccess: (answer) => {
+    onSuccess: (answer, suggestion) => {
       if (!answer) return;
+      // It is a place now: not offered again while the server still lists it.
+      dismiss(suggestion, all);
       Alert.alert(t("suggestions.accepted", { name: answer.place?.name ?? "" }));
       void queryClient.invalidateQueries({ queryKey: placeKeys.all });
     },
     onError: (error) => Alert.alert(errorMessage(error, { namespace: NS })),
   });
-  const all = data?.suggestions ?? [];
   const shown = shownSuggestions(userId, all, dismissed);
   if (shown.length === 0) return null;
   return (
