@@ -39,6 +39,7 @@ describe("the features on the seams", () => {
       ["video", "/watch"],
       ["community", "/communities"],
       ["plans", "/plans"],
+      ["quest", "/quest"],
       ["live", "/live"],
       ["spaces", "/spaces"],
       ["ask", "/ask"],
@@ -102,6 +103,7 @@ describe("the features on the seams", () => {
       "plans/index",
       "plans/new",
       "playlist/[id]",
+      "quest/index",
       "school/assignments",
       "school/index",
       "school/new-assignment",
@@ -155,6 +157,11 @@ describe("the features on the seams", () => {
     expect(screenFor("/plans/polls/abc")).toBe(
       `/web?path=${encodeURIComponent("/plans/polls/abc")}`,
     );
+    expect(screenFor("/quest")).toBe("/quest");
+    expect(screenFor("/quest/badges/chatter_gold")).toBe(
+      `/web?path=${encodeURIComponent("/quest/badges/chatter_gold")}`,
+    );
+    expect(screenFor("/quest/streaks")).toBe(`/web?path=${encodeURIComponent("/quest/streaks")}`);
     expect(screenFor("/settings/privacy")).toBe("/settings/privacy");
     expect(screenFor("/notifications/settings")).toBe("/settings/notifications");
     expect(screenFor("/settings/data")).toBe(`/web?path=${encodeURIComponent("/settings/data")}`);

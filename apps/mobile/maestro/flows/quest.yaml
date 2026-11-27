@@ -1,0 +1,43 @@
+appId: app.tokuly.mobile
+name: Collect a finished mission's reward once
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/quest-missions.js
+- clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
+
+# Quests, from the last tab: the mission the script finished waits with its reward.
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: quest }
+- extendedWaitUntil:
+    visible: { id: "quest-screen" }
+    timeout: 15000
+- assertVisible: { id: "quest-level" }
+- extendedWaitUntil:
+    visible: { id: "${'mission-claim-' + output.mission}" }
+    timeout: 20000
+- takeScreenshot: 40-quest
+# A double tap sends one claim: one reward, one message.
+- doubleTapOn: { id: "${'mission-claim-' + output.mission}" }
+- extendedWaitUntil:
+    visible: "OK"
+    timeout: 15000
+- tapOn: "OK"
+- assertNotVisible: "OK"
+- extendedWaitUntil:
+    visible: { id: "${'mission-claimed-' + output.mission}" }
+    timeout: 15000
+- assertVisible: { id: "quest-coins" }
+- takeScreenshot: 41-quest-claimed

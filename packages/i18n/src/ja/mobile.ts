@@ -335,6 +335,11 @@ export default {
     dueHint: "その日の23:59まで",
     actions: "課題のメニュー",
   },
+  quest: {
+    coins: "もってるコイン",
+    onWeb: "Webでひらく",
+    badgesHint: "{{count}}こゲット!",
+  },
   licenses: {
     title: "オープンソースライセンス",
     lead: "Tokulyは{{count}}こ のオープンソースソフトウェアでできてるよ。ありがとう！",
