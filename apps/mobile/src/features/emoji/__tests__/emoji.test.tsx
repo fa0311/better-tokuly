@@ -135,6 +135,20 @@ function Line({ text, size }: { text: string; size: number }) {
 }
 
 describe("text with custom emoji", () => {
+  it("draws catalogue emoji sharp for their size, and leaves the rest as typed", async () => {
+    server();
+    await syncCatalog();
+    await show(<Line text=":neko: :nope: https://x.test/a.png" size={44} />);
+    const drawn = screen.getByLabelText(":neko:");
+    // 44 points want the 128 px rendition on a 2× screen, not the smallest.
+    expect(drawn.props.source).toEqual({ uri: expect.stringMatching(/neko-128\.webp$/) });
+    expect(drawn.props.style).toMatchObject({ width: 44, height: 44 });
+    expect(screen.getByTestId("line")).toHaveTextContent(":nope: https://x.test/a.png", {
+      exact: false,
+    });
+    expect(screen.queryByLabelText(":nope:")).toBeNull();
+  });
+
   it("keeps a sensitive emoji as its code: the phone has no way to blur it inline", async () => {
     server();
     await syncCatalog();
