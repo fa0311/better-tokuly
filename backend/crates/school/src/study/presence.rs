@@ -160,9 +160,16 @@ impl School {
         let session =
             session.ok_or_else(|| AppError::precondition("NOT_STUDYING", "this person is not studying right now"))?;
         core.cache.rate_limit(&format!("school:cheer:{from}"), 60, StdDuration::from_secs(60)).await?;
+        // The cool-down has a reason of its own: the client shows the last
+        // cheer as still counting, which it must not do when the sender's
+        // overall limit refused this one.
         core.cache
             .rate_limit(&format!("school:cheer:{from}:{to}"), 1, StdDuration::from_secs(CHEER_COOLDOWN_SECONDS))
-            .await?;
+            .await
+            .map_err(|e| match e.reason.as_ref() {
+                "RATE_LIMITED" => AppError::rate_limited("CHEER_TOO_SOON", "one cheer per friend every few minutes"),
+                _ => e,
+            })?;
 
         let sender = tokuly_identity::summary(core, from).await?;
         let notify = settings::of(core, to).await?.cheer_notifications;

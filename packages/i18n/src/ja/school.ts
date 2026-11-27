@@ -602,6 +602,7 @@ export default {
     STUDY_NOT_SHARED: "勉強のようすは公開されていないよ",
     NOT_STUDYING: "いまは勉強中じゃないみたい",
     CANNOT_CHEER_SELF: "自分には送れないよ",
+    CHEER_TOO_SOON: "さっき送ったばかりだよ。少し待ってね",
     ROOM_TITLE_INVALID: "部屋のなまえは1〜40文字で入力してね",
     MEMBER_CAP_INVALID: "定員は2〜50人にしてね",
     ALREADY_HOSTING: "もう部屋をひらいているよ。先にそっちを閉じてね",

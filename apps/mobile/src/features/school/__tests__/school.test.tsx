@@ -1,4 +1,5 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, fromDate, school, toDate } from "@tokuly/api";
@@ -43,9 +44,18 @@ const created: { dueAt?: Timestamp }[] = [];
 /**
  * One account's school services. `switchOnWrite` answers every write only
  * after the person switched to another account; `unreadable` refuses every
- * read (the network is down). What was written is listed.
+ * read (the network is down); `cheerRefusal` refuses a cheer with that
+ * reason. What was written is listed.
  */
-function schoolOf({ switchOnWrite = false, unreadable = false } = {}) {
+function schoolOf({
+  switchOnWrite = false,
+  unreadable = false,
+  cheerRefusal,
+}: {
+  switchOnWrite?: boolean;
+  unreadable?: boolean;
+  cheerRefusal?: string;
+} = {}) {
   let switched = false;
   const written: string[] = [];
   created.length = 0;
@@ -110,7 +120,12 @@ function schoolOf({ switchOnWrite = false, unreadable = false } = {}) {
         created.push(request);
         return write("create", { assignment: homework });
       },
-      cheerStudy: () => write("cheer", {}),
+      cheerStudy: () =>
+        cheerRefusal
+          ? Promise.reject(
+              new ConnectError("", Code.ResourceExhausted, { "x-tokuly-error": cheerRefusal }),
+            )
+          : write("cheer", {}),
     }),
   };
   jest.mocked(api).mockReturnValue(client as never);
@@ -172,6 +187,25 @@ describe("the school screen", () => {
     await fireEvent.press(await screen.findByTestId("cheer-u2"));
     await waitFor(() => expect(written).toEqual(["cheer"]));
     expect(await screen.findByText("送ったよ")).toBeTruthy();
+  });
+
+  it("keeps the last cheer as sent while the friend's cool-down lasts", async () => {
+    schoolOf({ cheerRefusal: "CHEER_TOO_SOON" });
+    await show(<SchoolScreen />);
+    await fireEvent.press(await screen.findByTestId("cheer-u2"));
+    expect(await screen.findByText("送ったよ")).toBeTruthy();
+    expect(Alert.alert).toHaveBeenCalledWith("さっき送ったばかりだよ。少し待ってね");
+  });
+
+  it("does not say 「送ったよ」 when the sender's own limit refused the cheer", async () => {
+    schoolOf({ cheerRefusal: "RATE_LIMITED" });
+    await show(<SchoolScreen />);
+    await fireEvent.press(await screen.findByTestId("cheer-u2"));
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith("ちょっと待ってから、もう一度ためしてね"),
+    );
+    expect(screen.queryByText("送ったよ")).toBeNull();
+    expect(screen.getByTestId("cheer-u2")).toBeTruthy();
   });
 });
 

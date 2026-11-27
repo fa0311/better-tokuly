@@ -311,7 +311,7 @@ async fn cheers_and_invitations_do_not_multiply() {
     // Twelve cheers at once: one gets through, the friend's phone stays quiet.
     ctx.start_stopwatch(&friend).await;
     let cheer = CheerStudyRequest { user_id: friend.id.to_string(), ..Default::default() };
-    one_ok(&burst::<_, CheerStudyResponse>(&ctx, STUDY, "CheerStudy", &me, &cheer).await, "RATE_LIMITED");
+    one_ok(&burst::<_, CheerStudyResponse>(&ctx, STUDY, "CheerStudy", &me, &cheer).await, "CHEER_TOO_SOON");
     assert_eq!(ctx.heartbeat(&friend).await.cheer_count, 1);
 
     // Twelve invitations of the same friend at once: invited once, notified once.

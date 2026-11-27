@@ -35,6 +35,7 @@ export {
   dueItems,
   examCountdown,
   inkOn,
+  lastCheerStillCounts,
   takesPlace,
   untilText,
   urgencyKey,

@@ -1,4 +1,5 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { fromDate, school } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
 import { testI18n } from "../testing/i18n";
@@ -8,6 +9,7 @@ import {
   dueItems,
   examCountdown,
   inkOn,
+  lastCheerStillCounts,
   takesPlace,
   untilText,
 } from "./model";
@@ -91,5 +93,17 @@ describe("what is due", () => {
     expect(
       examCountdown(i18n, { status: school.ExamStatus.ONGOING, daysUntilStart: 0, daysLeft: 3 }),
     ).toBe(i18n.t("school:exams.ongoing", { count: 3 }));
+  });
+});
+
+describe("cheers", () => {
+  const refused = (reason: string) =>
+    new ConnectError("", Code.ResourceExhausted, { "x-tokuly-error": reason });
+
+  it("counts the last cheer only when the friend's cool-down refused this one", () => {
+    expect(lastCheerStillCounts(refused("CHEER_TOO_SOON"))).toBe(true);
+    // The sender's own limit: nothing was sent to this friend.
+    expect(lastCheerStillCounts(refused("RATE_LIMITED"))).toBe(false);
+    expect(lastCheerStillCounts(new Error("offline"))).toBe(false);
   });
 });

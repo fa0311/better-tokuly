@@ -915,6 +915,28 @@ async fn the_weekly_ranking_is_among_friends_who_joined() {
 }
 
 #[tokio::test]
+async fn the_senders_cheer_limit_is_told_from_a_friends_cool_down() {
+    let ctx = start().await;
+    let (me, busy, other) = (ctx.app.user("me").await, ctx.app.user("busy").await, ctx.app.user("other").await);
+    ctx.befriend(&me, &busy).await;
+    ctx.befriend(&me, &other).await;
+    ctx.at(2026, 4, 13, 18, 0);
+    ctx.start_stopwatch(&busy).await;
+    ctx.start_stopwatch(&other).await;
+    let cheer = |user: &TestUser| CheerStudyRequest { user_id: user.id.to_string(), ..Default::default() };
+
+    // The client shows "sent" on a cool-down, so only the friend's own
+    // cool-down may say CHEER_TOO_SOON: 60 a minute in all, then RATE_LIMITED
+    // for a friend who was never cheered on.
+    let _: CheerStudyResponse = ctx.ok(STUDY, "CheerStudy", &me, &cheer(&busy)).await;
+    for _ in 1..60 {
+        assert_eq!(ctx.reason(STUDY, "CheerStudy", &me, &cheer(&busy)).await, "CHEER_TOO_SOON");
+    }
+    assert_eq!(ctx.reason(STUDY, "CheerStudy", &me, &cheer(&other)).await, "RATE_LIMITED");
+    assert_eq!(current(&ctx, &other).await.unwrap().cheer_count, 0);
+}
+
+#[tokio::test]
 async fn a_cheer_is_a_quiet_nudge_between_friends() {
     let ctx = start().await;
     let (me, friend, fan, stranger) = (
@@ -952,7 +974,7 @@ async fn a_cheer_is_a_quiet_nudge_between_friends() {
     assert_eq!(current(&ctx, &friend).await.unwrap().cheer_count, 1);
 
     // One cheer per friend every few minutes; not for oneself; not from strangers.
-    assert_eq!(ctx.reason(STUDY, "CheerStudy", &me, &cheer(&friend)).await, "RATE_LIMITED");
+    assert_eq!(ctx.reason(STUDY, "CheerStudy", &me, &cheer(&friend)).await, "CHEER_TOO_SOON");
     assert_eq!(ctx.reason(STUDY, "CheerStudy", &friend, &cheer(&friend)).await, "CANNOT_CHEER_SELF");
     assert_eq!(ctx.reason(STUDY, "CheerStudy", &stranger, &cheer(&friend)).await, "NOT_STUDYING");
     assert_eq!(ctx.reason(STUDY, "CheerStudy", &friend, &cheer(&me)).await, "NOT_STUDYING");
