@@ -1,5 +1,5 @@
 import { type Client, Code, ConnectError, createClient, type Transport } from "@connectrpc/connect";
-import { isUnauthenticated } from "./errors.js";
+import { isRateLimited, isUnauthenticated, retryAfterMs } from "./errors.js";
 import { type AuthResponse, AuthService, type Me } from "./gen/tokuly/identity/v1/identity_pb.js";
 import { toMillis } from "./time.js";
 
@@ -27,6 +27,12 @@ type AccountChangeListener = (next: { userId: string; sessionId: string }) => vo
 /** Refresh this long before the access token actually expires. */
 const REFRESH_MARGIN_MS = 60_000;
 
+/** How long `restore()` waits on a rate limit that names no wait, and at most. */
+const RATE_LIMIT_WAIT_MS = { unnamed: 5_000, longest: 60_000 };
+
+/** What a refresh came to: adopted or not, or rate-limited and to be tried again in so long. */
+type Refreshed = boolean | { retryInMs: number };
+
 /**
  * Holds the signed-in state and the short-lived access token.
  *
@@ -37,7 +43,7 @@ const REFRESH_MARGIN_MS = 60_000;
 export class Session {
   private accessTokenValue: string | null = null;
   private expiresAtMs = 0;
-  private refreshing: Promise<boolean> | null = null;
+  private refreshing: Promise<Refreshed> | null = null;
   private current: SessionState = { status: "unknown" };
   private readonly listeners = new Set<Listener>();
   private readonly accountListeners = new Set<AccountChangeListener>();
@@ -134,18 +140,33 @@ export class Session {
     if (this.current.status === "unknown") this.setState({ status: "signedOut" });
   }
 
-  /** Tries to resume a previous session. Resolves to whether it worked. */
+  /**
+   * Tries to resume a previous session. Resolves to whether it worked. A
+   * rate-limited refresh (a school opening the app after the bell) says
+   * nothing about the session: the state stays unknown, and the refresh is
+   * tried again after the wait the server named.
+   */
   async restore(): Promise<boolean> {
-    const ok = await this.refresh();
-    if (!ok && this.current.status === "unknown") this.setState({ status: "signedOut" });
-    return ok;
+    let refreshed = await this.refreshOnce();
+    while (typeof refreshed === "object") {
+      const { retryInMs } = refreshed;
+      await new Promise((resolve) => setTimeout(resolve, retryInMs));
+      refreshed = await this.refreshOnce();
+    }
+    if (!refreshed && this.current.status === "unknown") this.setState({ status: "signedOut" });
+    return refreshed;
   }
 
   /**
    * Exchanges the refresh token for a new access token. Concurrent callers
-   * share one request. Resolves to false when the session is gone.
+   * share one request. Resolves to false when the session is gone, or the
+   * refresh did not go through this time.
    */
-  refresh(): Promise<boolean> {
+  async refresh(): Promise<boolean> {
+    return (await this.refreshOnce()) === true;
+  }
+
+  private refreshOnce(): Promise<Refreshed> {
     if (this.stale) return Promise.resolve(false);
     this.refreshing ??= this.doRefresh().finally(() => {
       this.refreshing = null;
@@ -153,7 +174,7 @@ export class Session {
     return this.refreshing;
   }
 
-  private async doRefresh(): Promise<boolean> {
+  private async doRefresh(): Promise<Refreshed> {
     try {
       const refreshToken = this.store ? ((await this.store.get()) ?? "") : "";
       if (this.store && !refreshToken) {
@@ -168,6 +189,10 @@ export class Session {
       if (isUnauthenticated(error)) {
         await this.store?.clear();
         this.forget();
+      }
+      if (isRateLimited(error)) {
+        const wait = retryAfterMs(error) ?? RATE_LIMIT_WAIT_MS.unnamed;
+        return { retryInMs: Math.min(wait, RATE_LIMIT_WAIT_MS.longest) };
       }
       return false;
     }

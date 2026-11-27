@@ -24,6 +24,18 @@ export function isUnauthenticated(error: unknown): boolean {
   return error instanceof ConnectError && error.code === Code.Unauthenticated;
 }
 
+/** True when the server asks the caller to slow down: a rate limit. */
+export function isRateLimited(error: unknown): error is ConnectError {
+  return error instanceof ConnectError && error.code === Code.ResourceExhausted;
+}
+
+/** How long the server asked to wait before trying again (`Retry-After`), in milliseconds. */
+export function retryAfterMs(error: unknown): number | undefined {
+  if (!(error instanceof ConnectError)) return undefined;
+  const seconds = Number(error.metadata.get("retry-after")?.split(",")[0]);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : undefined;
+}
+
 /** Reasons that mean the access token should be refreshed and the call retried. */
 const STALE_TOKEN_REASONS = new Set(["TOKEN_EXPIRED", "TOKEN_INVALID"]);
 

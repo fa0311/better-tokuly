@@ -214,8 +214,9 @@ export function settleDeparted(): Promise<void> {
     for (const [sessionId, { allSessions }] of Object.entries(await departedTokens())) {
       try {
         const account = apiWith(departedTokenStore(sessionId));
-        // Refused (already ended): its store forgets it. Unreachable: kept for next time.
-        if (!(await account.session.restore())) continue;
+        // Refused (already ended): its store forgets it. Unreachable or rate-limited: kept for
+        // next time (a restore would wait out the limit, holding up the device's tokens).
+        if (!(await account.session.refresh())) continue;
         await runBeforeEnd(account);
         await account.service(identity.AuthService).signOut({ allSessions });
         await forgetDeparted(sessionId);
