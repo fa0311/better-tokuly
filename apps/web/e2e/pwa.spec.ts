@@ -83,8 +83,8 @@ const mainNav = (page: Page) => page.getByRole("navigation", { name: "main" });
 const toast = (page: Page, message: string) =>
   page.locator("[data-sonner-toast]").filter({ hasText: message });
 
-/** Longer than the banner waits after the app starts: "it is not there" means something after this. */
-const SETTLED_MS = 3500;
+/** Leave margin for a busy phone beyond the banner's 2.5-second startup timer. */
+const SETTLED_MS = 5000;
 
 // ── Manifest, icons, head ───────────────────────────────────────────
 
