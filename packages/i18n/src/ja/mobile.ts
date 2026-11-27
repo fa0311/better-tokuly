@@ -344,6 +344,10 @@ export default {
     editOnWeb: "場所を編集する（Web）",
     talkOnWeb: "リアクション・コメント（Web）",
   },
+  footprints: {
+    mapOnWeb: "スクラッチマップを見る（Web）",
+    recapSeen: "見たよ!",
+  },
   quest: {
     coins: "もってるコイン",
     onWeb: "Webでひらく",

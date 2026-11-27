@@ -31,6 +31,7 @@ describe("the seam registries", () => {
       "ask",
       "community",
       "emoji",
+      "footprints",
       "friends",
       "history",
       "live",

@@ -82,4 +82,5 @@ call("tokuly.geo.v1.LocationService/ReportLocations", { samples }, me.token);
 const pad = (value) => String(value).padStart(2, "0");
 const local = new Date(Date.now() + offset * 3600000);
 output.me = me.handle;
+output.meId = me.id;
 output.today = `${local.getUTCFullYear()}-${pad(local.getUTCMonth() + 1)}-${pad(local.getUTCDate())}`;

@@ -1,0 +1,40 @@
+appId: app.tokuly.mobile
+name: See the own footprints after a walk — level, regions, ranking — and the recap, then mark it seen
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+# A café, a walk and a park in the last half hour: new cells to see.
+- runScript: ../scripts/history-day.js
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+
+# Footprints are under the own profile.
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-footprints" }
+- tapOn: { id: "me-footprints" }
+- extendedWaitUntil:
+    visible: { id: "footprints-hero" }
+    timeout: 15000
+- assertVisible: { id: "footprints-level" }
+- takeScreenshot: 50-footprints
+- scrollUntilVisible:
+    element: { id: "${'footprints-rank-' + output.meId}" }
+    timeout: 30000
+
+# What is new since the last look, marked seen.
+- scrollUntilVisible:
+    element: { id: "footprints-recap-seen" }
+    direction: UP
+- tapOn: { id: "footprints-recap-seen" }
+- extendedWaitUntil:
+    notVisible: { id: "footprints-recap" }
+    timeout: 15000

@@ -27,6 +27,7 @@ release APK for the emulator and runs them against the Compose stack.
 | `school` | sees today's classes and what is due, cheers a friend who is studying, ticks homework off and adds new homework |
 | `history` | sees today on the calendar, the day's café, walk and park on the map and in order, writes its memo and deletes the day |
 | `places` | finds an own place, checks in there with a few words, finds it by name and deletes it |
+| `footprints` | after a walk sees the own level, regions and place in the ranking, and marks the recap seen |
 | `settings` | changes the account's settings and avatar on the native screens and finds them kept when they open again |
 | `spaces` | finds a friend's room, enters it (audio over LiveKit, Bluetooth headsets declined), raises a hand, sends an emoji, comes back from the mini player and leaves; accepts a hangout invitation, enters, mutes from the mini player on the tabs and leaves |
 | `plans` | answers a friend's plan and sees its place on the map, makes a plan on a chosen day with a place and invites the friend |
