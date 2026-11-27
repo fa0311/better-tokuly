@@ -320,8 +320,26 @@ export default {
     },
   },
   school: {
+    timerStart: "Start it and track your study time!",
+    subject: "Subject",
+    noSubject: "None",
+    timerNote:
+      "The timer runs while the app is open. Left closed, it stops by itself after about {{minutes}} minutes, so you'll get a heads-up first",
+    idleReminder: {
+      title: "Your timer is about to stop!",
+      body: "Still studying? Open the app to keep it going",
+    },
+    reminderAsk: {
+      title: "Can we ping you before it stops?",
+      body: "Left closed, the timer stops by itself after about {{minutes}} minutes. We'll send a notification when it's about to!",
+      later: "Not now",
+      allow: "Turn on reminders",
+    },
+    reminderOff:
+      "Notifications are off, so you won't get the heads-up. Keep the app open while you study! (Left closed for about {{minutes}} minutes, it stops)",
+    reminderTurnOn: "Turn on notifications",
+    logOnWeb: "Log and charts (web)",
     onWeb: "Opens on the web",
-    timer: "Study timer (web)",
     rooms: "Study rooms (web)",
     exams: "Exams (web)",
     timetable: "Make or change the timetable (web)",

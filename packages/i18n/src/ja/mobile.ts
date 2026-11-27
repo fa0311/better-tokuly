@@ -321,8 +321,26 @@ export default {
     },
   },
   school: {
+    timerStart: "スタートして、勉強時間をはかろう!",
+    subject: "教科",
+    noSubject: "なし",
+    timerNote:
+      "アプリを開いている間、タイマーは進むよ。閉じたままだと{{minutes}}分くらいで自動で止まるから、止まる前にお知らせするね",
+    idleReminder: {
+      title: "タイマー、止まっちゃいそう!",
+      body: "まだ勉強中? アプリを開くと、そのまま続けられるよ",
+    },
+    reminderAsk: {
+      title: "止まる前にお知らせしてもいい?",
+      body: "アプリを閉じたままだと、タイマーは{{minutes}}分くらいで止まっちゃうんだ。止まりそうなとき、通知でお知らせするね!",
+      later: "あとで",
+      allow: "お知らせをオンにする",
+    },
+    reminderOff:
+      "通知がオフだから、止まる前のお知らせが届かないよ。勉強中はアプリを開いたままにしてね!（{{minutes}}分くらい閉じたままだと止まるよ）",
+    reminderTurnOn: "通知をオンにする",
+    logOnWeb: "記録・グラフを見る（Web）",
     onWeb: "Webでひらくよ",
-    timer: "勉強タイマー（Web）",
     rooms: "もくもく部屋（Web）",
     exams: "テスト（Web）",
     timetable: "時間割をつくる・変える（Web）",

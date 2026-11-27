@@ -27,6 +27,7 @@ release APK for the emulator and runs them against the Compose stack.
 | `live` | finds a friend's scheduled stream, asks for its reminder and chats before it starts |
 | `community` | finds a public community, joins it, replies in and likes a thread, starts one and sees the members |
 | `school` | sees today's classes and what is due, cheers a friend who is studying, ticks homework off and adds new homework |
+| `study-timer` | starts a pomodoro for a subject (puts off the reminder's permission and sees the keep-open note), pauses and resumes it, cheers a friend who is studying, stops and logs it |
 | `history` | sees today on the calendar, the day's café, walk and park on the map and in order, writes its memo and deletes the day |
 | `places` | finds an own place, checks in there with a few words, finds it by name and deletes it |
 | `footprints` | after a walk sees the own level, regions and place in the ranking, and marks the recap seen |

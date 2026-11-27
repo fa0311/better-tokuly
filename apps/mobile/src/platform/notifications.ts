@@ -141,3 +141,42 @@ export function showWhileOpen(quiet: (path: string) => boolean): void {
     },
   });
 }
+
+export interface LocalReminder {
+  title: string;
+  body: string;
+  /** Where a tap leads, like a push's `path`. */
+  path: string;
+  /** Android channel: one of the notification categories. */
+  channel: string;
+}
+
+/**
+ * Shows `reminder` in `seconds` unless cancelled first; a reminder with the
+ * same `id` replaces the one before it. Only when notifications are allowed:
+ * a reminder never asks for the permission.
+ */
+export async function scheduleReminder(
+  id: string,
+  reminder: LocalReminder,
+  seconds: number,
+): Promise<void> {
+  if ((await readPushPermission()) !== "granted") return;
+  await Notifications.scheduleNotificationAsync({
+    identifier: id,
+    content: { title: reminder.title, body: reminder.body, data: { path: reminder.path } },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      seconds: Math.max(1, Math.round(seconds)),
+      channelId: reminder.channel,
+    },
+  });
+}
+
+/** Takes back a reminder, scheduled or already shown. */
+export async function cancelReminder(id: string): Promise<void> {
+  await Promise.all([
+    Notifications.cancelScheduledNotificationAsync(id),
+    Notifications.dismissNotificationAsync(id),
+  ]);
+}
