@@ -1,5 +1,6 @@
 import { type quest, toMillis } from "@tokuly/api";
 import { levelFraction, xpToNextLevel } from "@tokuly/core/quest";
+import { formatCoins } from "@tokuly/core/wallet";
 import { router } from "expo-router";
 import {
   Award,
@@ -151,7 +152,7 @@ function LevelCard() {
           divided
           testID="quest-coins"
           label={t("mobile:quest.coins")}
-          value={coins.data === undefined ? "…" : `🪙 ${coins.data.toLocaleString()}`}
+          value={coins.data === undefined ? "…" : `🪙 ${formatCoins(coins.data)}`}
         />
       </View>
     </View>

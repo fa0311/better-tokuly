@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { collectedSteps, countdown, formatMoney, parseMemo } from "./format";
+import { collectedSteps, countdown, formatCoins, formatMoney, parseMemo } from "./format";
+
+describe("formatCoins", () => {
+  it("groups digits without rounding large balances", () => {
+    expect(formatCoins(12_345n)).toBe("12,345");
+    expect(formatCoins(999_999_999n)).toBe("999,999,999");
+    expect(formatCoins(12_345_678_901_234_567_890n)).toBe("12,345,678,901,234,567,890");
+  });
+
+  it("keeps a negative sign", () => {
+    expect(formatCoins(-12_345n)).toBe("-12,345");
+  });
+});
 
 describe("formatMoney", () => {
   it("writes minor units in the currency's own precision", () => {
