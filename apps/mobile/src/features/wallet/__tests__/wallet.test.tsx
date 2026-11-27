@@ -114,7 +114,7 @@ function server() {
   };
 }
 
-async function show(children: ReactNode) {
+async function show(children: ReactNode, queryClient = new QueryClient()) {
   await render(
     <SafeAreaProvider
       initialMetrics={{
@@ -122,7 +122,7 @@ async function show(children: ReactNode) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </SafeAreaProvider>,
   );
 }
@@ -155,6 +155,23 @@ describe("the wallet screen", () => {
     await waitFor(() => expect(screen.getByText("ゲット！ 🪙 +15")).toBeTruthy());
     await waitFor(() => expect(coinsShown()).toBe("🪙 115"));
     expect(api.claims).toHaveLength(1);
+  });
+
+  it("sends one claim when the wallet is open twice and both are tapped", async () => {
+    const api = server();
+    await show(
+      <>
+        <WalletScreen />
+        <WalletScreen />
+      </>,
+    );
+    await waitFor(() => expect(screen.getAllByTestId("wallet-bonus-claim")).toHaveLength(2));
+    for (const claim of screen.getAllByTestId("wallet-bonus-claim")) await fireEvent.press(claim);
+    expect(api.claims).toHaveLength(1);
+    api.answer();
+    await waitFor(() => expect(screen.getByText("ゲット！ 🪙 +15")).toBeTruthy());
+    expect(screen.getByText("今日のぶんは受け取ったよ")).toBeTruthy();
+    expect(Alert.alert).not.toHaveBeenCalled();
   });
 
   it("never shows a claim whose answer was lost as won, and reads the server again", async () => {
