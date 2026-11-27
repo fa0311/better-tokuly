@@ -18,51 +18,13 @@ import { Group } from "../shell/settings-page";
  * after the grace period, and can be kept by cancelling before that.
  */
 export function DeletionCard({ me }: { me: identity.Me }) {
-  const { t, i18n } = useTranslation("settings");
+  const { t } = useTranslation("settings");
   const [asking, setAsking] = useState(false);
-  const scheduled = toDate(me.deletionScheduledAt);
 
-  const cancel = useMutation({
-    mutationFn: () => accountClient().cancelAccountDeletion({}),
-    onSuccess: () => {
-      adoptMe({ ...me, deletionScheduledAt: undefined });
-      toast.success(t("data.deletion.cancelled"));
-    },
-    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
-  });
-
-  if (scheduled) {
-    const daysLeft = Math.max(
-      0,
-      Math.ceil((scheduled.getTime() - Date.now()) / (24 * 3600 * 1000)),
-    );
+  if (me.deletionScheduledAt) {
     return (
       <Group title={t("data.deletion.title")}>
-        <div
-          role="status"
-          className="flex items-start gap-3 rounded-2xl bg-sun p-4 text-[#17122b]"
-          data-testid="deletion-scheduled"
-        >
-          <CalendarClock className="mt-0.5 size-6 shrink-0" />
-          <div className="min-w-0">
-            <p className="font-black">
-              {t("data.deletion.scheduled", {
-                date: scheduled.toLocaleDateString(i18n.language, { dateStyle: "long" }),
-              })}
-            </p>
-            <p className="mt-1 text-sm leading-relaxed">
-              {t("data.deletion.scheduledBody", { count: daysLeft })}
-            </p>
-          </div>
-        </div>
-        <Button
-          variant="lime"
-          className="mt-4"
-          loading={cancel.isPending}
-          onClick={() => cancel.mutate()}
-        >
-          {t("data.deletion.cancel")}
-        </Button>
+        <DeletionScheduled me={me} />
       </Group>
     );
   }
@@ -77,7 +39,55 @@ export function DeletionCard({ me }: { me: identity.Me }) {
   );
 }
 
-function DeletionDialog({ me, onClose }: { me: identity.Me; onClose(): void }) {
+/** When the scheduled deletion happens, and the way to keep the account. */
+export function DeletionScheduled({ me }: { me: identity.Me }) {
+  const { t, i18n } = useTranslation("settings");
+  const scheduled = toDate(me.deletionScheduledAt);
+
+  const cancel = useMutation({
+    mutationFn: () => accountClient().cancelAccountDeletion({}),
+    onSuccess: () => {
+      adoptMe({ ...me, deletionScheduledAt: undefined });
+      toast.success(t("data.deletion.cancelled"));
+    },
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
+  });
+
+  if (!scheduled) return null;
+  const daysLeft = Math.max(0, Math.ceil((scheduled.getTime() - Date.now()) / (24 * 3600 * 1000)));
+  return (
+    <>
+      <div
+        role="status"
+        className="flex items-start gap-3 rounded-2xl bg-sun p-4 text-[#17122b]"
+        data-testid="deletion-scheduled"
+      >
+        <CalendarClock className="mt-0.5 size-6 shrink-0" />
+        <div className="min-w-0">
+          <p className="font-black">
+            {t("data.deletion.scheduled", {
+              date: scheduled.toLocaleDateString(i18n.language, { dateStyle: "long" }),
+            })}
+          </p>
+          <p className="mt-1 text-sm leading-relaxed">
+            {t("data.deletion.scheduledBody", { count: daysLeft })}
+          </p>
+        </div>
+      </div>
+      <Button
+        variant="lime"
+        className="mt-4"
+        loading={cancel.isPending}
+        onClick={() => cancel.mutate()}
+      >
+        {t("data.deletion.cancel")}
+      </Button>
+    </>
+  );
+}
+
+/** Asks for the reason, the password and the handle, then schedules the deletion. */
+export function DeletionDialog({ me, onClose }: { me: identity.Me; onClose(): void }) {
   const { t } = useTranslation(["settings", "common"]);
   const handle = me.user?.handle ?? "";
   const [reason, setReason] = useState("");

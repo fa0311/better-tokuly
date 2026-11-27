@@ -49,6 +49,7 @@ const HELLO_REQUIRED: Rejection = Rejection::new(Code::FailedPrecondition, "HELL
 const HELLO_TIMEOUT: Rejection = Rejection::new(Code::FailedPrecondition, "HELLO_TIMEOUT");
 const IDLE_TIMEOUT: Rejection = Rejection::new(Code::FailedPrecondition, "IDLE_TIMEOUT");
 const SIGN_IN_REQUIRED: Rejection = Rejection::new(Code::Unauthenticated, "SIGN_IN_REQUIRED");
+const ACCOUNT_TOO_YOUNG: Rejection = Rejection::new(Code::PermissionDenied, tokuly_core::auth::ACCOUNT_TOO_YOUNG);
 const TOKEN_EXPIRED: Rejection = Rejection::new(Code::Unauthenticated, "TOKEN_EXPIRED");
 const SESSION_REVOKED: Rejection = Rejection::new(Code::Unauthenticated, "SESSION_REVOKED");
 const USER_MISMATCH: Rejection = Rejection::new(Code::PermissionDenied, "USER_MISMATCH");
@@ -207,6 +208,9 @@ impl<'g> Session<'g> {
             auth.next_revocation_check = now + cfg.revocation_check;
             if self.gateway.core.tokens.is_revoked(auth.session_id) {
                 verdict = Some((SESSION_REVOKED, true));
+            } else if self.gateway.core.tokens.is_too_young(auth.user_id) {
+                // The account answered under the minimum age while connected.
+                verdict = Some((ACCOUNT_TOO_YOUNG, true));
             }
         }
         if verdict.is_none() {
@@ -343,6 +347,8 @@ impl<'g> Session<'g> {
             Ok(claimed) => claimed,
             // The reason (TOKEN_EXPIRED, TOKEN_INVALID, SESSION_REVOKED)
             // tells the client whether refreshing its token will help.
+            // Not a token a refresh would mend.
+            Err(tokuly_core::auth::ACCOUNT_TOO_YOUNG) => return Some(self.fatal(id, ACCOUNT_TOO_YOUNG)),
             Err(reason) => return Some(self.fatal(id, Rejection::new(Code::Unauthenticated, reason))),
         };
         // A connection may sign in, and refresh its token, but never become
@@ -422,6 +428,10 @@ impl<'g> Session<'g> {
             return Ok(None);
         }
         let verified = match self.gateway.core.tokens.authenticate_shared(access_token).await {
+            // An account under the minimum age has nothing to listen to.
+            tokuly_core::auth::AuthState::Authenticated(verified) if verified.too_young => {
+                return Err(tokuly_core::auth::ACCOUNT_TOO_YOUNG);
+            }
             tokuly_core::auth::AuthState::Authenticated(verified) => verified,
             tokuly_core::auth::AuthState::Invalid(reason) => return Err(reason),
             tokuly_core::auth::AuthState::Anonymous => return Err("TOKEN_INVALID"),

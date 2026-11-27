@@ -982,6 +982,18 @@ async fn a_bot_has_webhooks_of_its_own() {
     ctx.app.identity.set_banned(owen.id, None).await.unwrap();
     let owen = ctx.app.sign_in(owen.id).await;
     assert_eq!(ctx.dev.fan_out(&friend_request(&bot, &friend)).await.unwrap(), 1);
+    // The same while the owner is under the minimum age.
+    let born = |years: u32| chrono::Utc::now().date_naive().checked_sub_months(chrono::Months::new(12 * years));
+    for (years, heard) in [(12, 0), (13, 1)] {
+        sqlx::query("UPDATE users SET birthdate = $2 WHERE id = $1")
+            .bind(owen.id)
+            .bind(born(years))
+            .execute(&ctx.app.core.db)
+            .await
+            .unwrap();
+        assert_eq!(ctx.dev.fan_out(&friend_request(&bot, &friend)).await.unwrap(), heard, "the bot, owner aged {years}");
+        assert_eq!(ctx.dev.fan_out(&friend_request(&owen, &friend)).await.unwrap(), heard, "the owner aged {years}");
+    }
     ctx.app
         .call::<_, DeleteWebhookResponse>(
             &format!("{WEBHOOK_SERVICE}/DeleteWebhook"),

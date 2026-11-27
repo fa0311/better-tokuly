@@ -448,3 +448,53 @@ async fn a_bot_cannot_take_a_handle_held_for_the_person_who_gave_it_up() {
         .unwrap_err();
     assert_eq!(refused.reason, "HANDLE_TAKEN");
 }
+
+/// The birthdate of someone who turns `years` today.
+fn born(years: u32) -> chrono::NaiveDate {
+    chrono::Utc::now().date_naive().checked_sub_months(chrono::Months::new(12 * years)).unwrap()
+}
+
+/// An account under the minimum age cannot use Tokuly through a session, and
+/// no more through what acts for it: its tokens, its bots, the applications
+/// it let in. They stop with the answer and work again from that birthday.
+#[tokio::test]
+async fn the_credentials_of_an_account_under_the_minimum_age_stop_until_that_birthday() {
+    let ctx = start().await;
+    let (kid, dana) = (ctx.app.user("kid").await, ctx.app.user("dana").await);
+    let (_, pat) = personal_token(&ctx, &kid, &["identity:read"]).await;
+    let bot = create_bot(&ctx, &kid, "Helper").await;
+    let (_, bot_secret) = bot_token(&ctx, &kid, &bot, &["identity:read"]).await;
+    let app = create_app(&ctx, &dana, &["identity:read"], AppClientType::APP_CLIENT_TYPE_CONFIDENTIAL).await;
+    let (access, _) = obtain_tokens(&ctx, &kid, &app, "identity:read").await;
+    let (_, others) = personal_token(&ctx, &dana, &["identity:read"]).await;
+    let credentials = [("personal", pat), ("bot", bot_secret), ("oauth", access)];
+    for (kind, secret) in &credentials {
+        assert!(whoami(&ctx, &with_token(&kid, secret)).await.is_ok(), "{kind}");
+    }
+
+    let answer = |birthdate: chrono::NaiveDate| {
+        let (ctx, kid) = (&ctx, &kid);
+        async move {
+            sqlx::query("UPDATE users SET birthdate = $2 WHERE id = $1")
+                .bind(kid.id)
+                .bind(birthdate)
+                .execute(&ctx.app.core.db)
+                .await
+                .unwrap();
+            let given = event("identity.user.birthdate_given", serde_json::json!({ "user_id": kid.id, "minor": true }));
+            ctx.dev.on_account_event(&given).await.unwrap();
+        }
+    };
+    answer(born(12)).await;
+    for (kind, secret) in &credentials {
+        // At once, although the token was in use a moment ago; and as any
+        // revoked token: the application does not learn why.
+        assert_eq!(whoami(&ctx, &with_token(&kid, secret)).await.unwrap_err().reason, "TOKEN_REVOKED", "{kind}");
+    }
+    assert!(whoami(&ctx, &with_token(&dana, &others)).await.is_ok());
+
+    answer(born(13)).await;
+    for (kind, secret) in &credentials {
+        assert!(whoami(&ctx, &with_token(&kid, secret)).await.is_ok(), "{kind}: nothing was revoked");
+    }
+}

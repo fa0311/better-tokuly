@@ -51,3 +51,29 @@ async fn a_process_that_starts_later_knows_earlier_revocations() {
     assert!(gateway.load_revocations().await.unwrap() >= 1);
     assert_eq!(gateway.verify(&token).unwrap_err(), "SESSION_REVOKED");
 }
+
+#[tokio::test]
+async fn an_account_held_as_too_young_is_held_by_another_process_on_its_next_request() {
+    let (identity, api) = (process().await, process().await);
+    let (user, other) = (Uuid::now_v7(), Uuid::now_v7());
+    let (token, _) = identity.issue(user, Uuid::now_v7(), &[]).unwrap();
+    let (other_token, _) = identity.issue(other, Uuid::now_v7(), &[]).unwrap();
+    let too_young = |token: String| {
+        let api = api.clone();
+        async move {
+            match api.authenticate_shared(&token).await {
+                AuthState::Authenticated(ctx) => ctx.too_young,
+                state => panic!("{state:?}"),
+            }
+        }
+    };
+    assert!(!too_young(token.clone()).await);
+
+    // No broadcast reaches `api`: only Valkey knows. The token stays a
+    // valid one (it signs out and deletes the account), with the claim.
+    identity.hold_too_young(user).await;
+    assert!(too_young(token.clone()).await);
+    assert!(!too_young(other_token).await, "other accounts are untouched");
+    // Once seen, the hold is also known in memory (for synchronous checks).
+    assert!(api.is_too_young(user) && api.verify(&token).unwrap().too_young);
+}

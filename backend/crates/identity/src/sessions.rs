@@ -55,6 +55,17 @@ fn session_id_of(token: &str) -> Option<Uuid> {
 }
 
 impl Identity {
+    /// An access token of `user`'s session. While the account is under the
+    /// minimum age it reaches signing in and the account's deletion only
+    /// ([`Self::too_young`]); from that birthday on, the next token
+    /// is a normal one.
+    fn access_token(&self, user: &UserRow, session_id: Uuid) -> AppResult<(String, Time)> {
+        if self.too_young(user.birthdate) {
+            return self.core.tokens.issue_too_young(user.id, session_id);
+        }
+        self.core.tokens.issue(user.id, session_id, &user.roles)
+    }
+
     /// Creates a session for `user` and issues its first token pair.
     pub async fn create_session(
         &self,
@@ -121,7 +132,7 @@ impl Identity {
         tx.commit().await?;
         self.forget_session_tokens(&replaced).await?;
 
-        let (access_token, access_expires_at) = core.tokens.issue(user.id, session_id, &user.roles)?;
+        let (access_token, access_expires_at) = self.access_token(user, session_id)?;
         Ok(Issued { session_id, access_token, access_expires_at, refresh_token })
     }
 
@@ -250,7 +261,7 @@ impl Identity {
                 .map_err(|_| invalid())?
         };
 
-        let (access_token, access_expires_at) = core.tokens.issue(user.id, row.id, &user.roles)?;
+        let (access_token, access_expires_at) = self.access_token(&user, row.id)?;
         Ok((Issued { session_id: row.id, access_token, access_expires_at, refresh_token }, user))
     }
 

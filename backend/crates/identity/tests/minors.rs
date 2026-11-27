@@ -324,14 +324,12 @@ async fn an_adult_giving_the_birthdate_keeps_the_settings() {
 }
 
 #[tokio::test]
-async fn set_birthdate_validates_and_stores_nothing_under_the_minimum_age() {
+async fn set_birthdate_validates_the_answer() {
     let app = app().await;
     let old = without_birthdate(&app).await;
     for (birthdate, reason) in [("soon", "BIRTHDATE_INVALID"), ("2999-01-01", "BIRTHDATE_INVALID")] {
         assert_eq!(set_birthdate(&app, &old, birthdate).await.unwrap_err().reason, reason, "{birthdate}");
     }
-    let err = set_birthdate(&app, &old, &born(12).to_string()).await.unwrap_err();
-    assert_eq!((err.code.as_str(), err.reason.as_str()), ("permission_denied", "AGE_RESTRICTED"));
     assert!(me_birthdate(&app, &old).await.is_empty());
     assert!(app.events_by("identity.user.birthdate_given", old.id).await.is_empty());
     // A signed-up account has one already.
@@ -346,6 +344,125 @@ async fn set_birthdate_validates_and_stores_nothing_under_the_minimum_age() {
         .await
         .unwrap_err();
     assert_eq!(anonymous.code, "unauthenticated");
+}
+
+/// An answer under the minimum age is kept: the account is too young. It
+/// signs in to read why and to delete itself, and does nothing else until
+/// that birthday.
+#[tokio::test]
+async fn an_answer_under_the_minimum_age_makes_the_account_too_young() {
+    let app = app().await;
+    let child = without_birthdate(&app).await;
+    let (elsewhere, bystander) = (app.sign_in(child.id).await, sign_up(&app, born(30)).await);
+    let response = set_birthdate(&app, &child, &born(12).to_string()).await.unwrap();
+    let answered = response.me.as_option().unwrap();
+    assert!(answered.too_young && answered.minor);
+    assert_eq!(answered.birthdate, born(12).to_string());
+    let given: BirthdateGiven = app.events_by("identity.user.birthdate_given", child.id).await[0].data().unwrap();
+    assert!(given.minor, "the defaults for minors, as for any minor");
+
+    // The token the answer was given with is no way around it, nor is
+    // another device's: they reach what a too-young account may, at once.
+    for held in [&child, &elsewhere] {
+        assert!(me(&app, held).await.too_young);
+        let refused = app
+            .call::<_, GetSettingsResponse>(
+                "tokuly.identity.v1.AccountService/GetSettings",
+                Some(held),
+                &GetSettingsRequest::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(refused.reason, "ACCOUNT_TOO_YOUNG");
+    }
+    assert!(privacy(&app, &bystander).await.nearby_discoverable, "nobody else is held");
+
+    // The next token (a refresh, or signing in again) is a too-young one.
+    let child = app.sign_in(child.id).await;
+    assert!(me(&app, &child).await.too_young);
+    let refused = app
+        .call::<_, GetSettingsResponse>(
+            "tokuly.identity.v1.AccountService/GetSettings",
+            Some(&child),
+            &GetSettingsRequest::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!((refused.code.as_str(), refused.reason.as_str()), ("permission_denied", "ACCOUNT_TOO_YOUNG"));
+    let again = set_birthdate(&app, &child, "2000-01-01").await.unwrap_err();
+    assert_eq!(again.reason, "ACCOUNT_TOO_YOUNG", "no second answer");
+    let deletion: RequestAccountDeletionResponse = app
+        .call(
+            "tokuly.identity.v1.AccountService/RequestAccountDeletion",
+            Some(&child),
+            &RequestAccountDeletionRequest { current_password: "correct horse battery".into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert!(deletion.deletion_scheduled_at.as_option().is_some());
+
+}
+
+/// On the 13th birthday the account is let in: the next token is a normal one.
+#[tokio::test]
+async fn a_too_young_account_is_let_in_on_its_birthday() {
+    let app = app().await;
+    let child = sign_up(&app, born(15)).await;
+    let set_born = |years: u32| {
+        sqlx::query("UPDATE users SET birthdate = $2 WHERE id = $1").bind(child.id).bind(born(years)).execute(&app.core.db)
+    };
+    set_born(12).await.unwrap();
+    let young = app.sign_in(child.id).await;
+    let held = me(&app, &young).await;
+    assert!(held.too_young);
+    let until = held.too_young_until.as_option().expect("the client is told when to look again");
+    let birthday = born(12).checked_add_months(Months::new(12 * 13)).unwrap();
+    assert_eq!(until.seconds, birthday.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp(), "the 13th birthday");
+
+    set_born(13).await.unwrap();
+    assert!(me(&app, &young).await.too_young == false, "by the date, whatever the token");
+    let teen = app.sign_in(child.id).await;
+    let let_in = me(&app, &teen).await;
+    assert!(!let_in.too_young && let_in.too_young_until.as_option().is_none());
+    assert_eq!(privacy(&app, &teen).await.discoverable_to, FOF);
+}
+
+/// The answer is the same at sign-up: there is no account yet to keep.
+#[tokio::test]
+async fn sign_up_under_the_minimum_age_stores_nothing() {
+    let app = app().await;
+    let tag = unique("child");
+    let request = SignUpRequest {
+        email: format!("{tag}@example.com"),
+        password: "correct horse battery".into(),
+        handle: tag,
+        display_name: "テスト".into(),
+        birthdate: born(12).to_string(),
+        accept_terms: true,
+        ..Default::default()
+    };
+    let err = app.call::<_, AuthResponse>("tokuly.identity.v1.AuthService/SignUp", None, &request).await.unwrap_err();
+    assert_eq!((err.code.as_str(), err.reason.as_str()), ("permission_denied", "AGE_RESTRICTED"));
+}
+
+/// Strangers meet within their age group; an account without a birthdate is
+/// in neither.
+#[tokio::test]
+async fn an_account_without_a_birthdate_is_in_no_age_group() {
+    use tokuly_identity::age::{AgeGroup, age_groups_among};
+    let app = app().await;
+    let teen = sign_up(&app, born(15)).await;
+    let adult = sign_up(&app, born(30)).await;
+    let old = without_birthdate(&app).await;
+    let mut tx = app.core.db.begin().await.unwrap();
+    let bot = tokuly_identity::bots::create_bot_account(&mut tx, teen.id, &unique("bot"), "ボット", "").await.unwrap();
+    tx.commit().await.unwrap();
+    let groups = age_groups_among(&app.core, &[teen.id, adult.id, old.id, bot]).await.unwrap();
+    assert_eq!(
+        groups,
+        [(teen.id, AgeGroup::Minors), (adult.id, AgeGroup::Adults), (bot, AgeGroup::Minors)].into_iter().collect()
+    );
+    assert!(tokuly_identity::age::is_minor(&app.core, old.id).await.unwrap(), "while the limits still apply");
 }
 
 #[tokio::test]

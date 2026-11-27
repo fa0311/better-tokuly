@@ -22,6 +22,7 @@ pub const ACCOUNT_TOPICS: &[&str] = &[
     "identity.user.banned",
     "identity.user.unbanned",
     "identity.user.password_changed",
+    "identity.user.birthdate_given",
     "identity.user.deleted",
     "admin.content.removed",
     "dev.bot.transferred",
@@ -39,6 +40,9 @@ impl Dev {
             "identity.user.password_changed" => {
                 self.on_password_changed(event.data::<UserRef>()?.user_id, event.occurred_at).await
             }
+            // The answer may be under the minimum age: the account's tokens and
+            // its bots' stop at once (`verify`), not when the cached answer expires.
+            "identity.user.birthdate_given" => self.judge_afresh(event.data::<UserRef>()?.user_id).await,
             "identity.user.deleted" => self.on_user_deleted(event.data::<UserRef>()?.user_id).await,
             "admin.content.removed" => {
                 let removed: ContentRemoved = event.data()?;

@@ -248,6 +248,7 @@ mod tests {
                 roles: Vec::new(),
                 expires_at: Utc::now(),
                 api_token: None,
+                too_young: false,
             })
         };
         let address = Some(ip("2001:db8::5"));

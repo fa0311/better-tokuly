@@ -32,9 +32,11 @@ pub struct UserCreated {
     pub minor: bool,
 }
 
-/// An account made before sign-up asked for a birthdate has given one. A
-/// domain that starts new minors with defaults of its own applies them now,
-/// by `minor` (the age on that day), as it would have at sign-up.
+/// An account made before sign-up asked for a birthdate has given one, or
+/// (once, migration `0101`) a minor gave it before the defaults for minors
+/// came. A domain that starts new minors with defaults of its own applies
+/// them now, by `minor` (the age on that day), unless the person already
+/// chose otherwise.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BirthdateGiven {
     pub user_id: Uuid,

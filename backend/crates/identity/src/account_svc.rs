@@ -327,7 +327,9 @@ impl AccountService for Identity {
             let user_id = ctx.user_id()?;
             let core = &self.core;
             core.cache.rate_limit(&format!("set-birthdate:{user_id}"), 10, Duration::from_secs(3600)).await?;
-            let birthdate = users::validate_birthdate(request.birthdate, self.cfg.min_age)?;
+            // An answer under the minimum age is stored as well: the account
+            // is then too young, and cannot answer again.
+            let birthdate = users::validate_birthdate(request.birthdate, 0)?;
             let minor = crate::age::minor_on(Some(birthdate), Utc::now().date_naive());
             let mut tx = core.db.begin().await?;
             let stored: Option<serde_json::Value> =
@@ -359,6 +361,11 @@ impl AccountService for Identity {
             // adult is out of the limits an account without a birthdate has.
             events::emit(&mut *tx, "identity.user.privacy_changed", Some(user_id), &UserRef { user_id }).await?;
             tx.commit().await?;
+            if self.too_young(Some(birthdate)) {
+                // Not only from the next token on: the ones that are out
+                // (this device's and the others') reach no more either.
+                core.hold_too_young(user_id).await;
+            }
             let user = users::get(core, user_id).await?;
             let me = self.me(&user).await?;
             ok(SetBirthdateResponse {
