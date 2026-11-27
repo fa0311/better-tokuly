@@ -1,0 +1,72 @@
+appId: app.tokuly.mobile
+name: See the coins, claim the login bonus once, open the history, a movement and the purchases
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/wallet-coins.js
+- clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
+
+# The wallet, from the last tab: the coins bought by the script, today's bonus waiting.
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: wallet }
+- extendedWaitUntil:
+    visible: { id: "wallet-screen" }
+    timeout: 15000
+- extendedWaitUntil:
+    visible: { id: "wallet-coins" }
+    timeout: 15000
+- extendedWaitUntil:
+    visible: { id: "wallet-bonus-claim" }
+    timeout: 15000
+- takeScreenshot: 50-wallet
+# A double tap sends one claim: the card says what was won, once.
+- doubleTapOn: { id: "wallet-bonus-claim" }
+- extendedWaitUntil:
+    visible: { id: "wallet-bonus-claimed" }
+    timeout: 15000
+- assertVisible: "ゲット！.*"
+- assertNotVisible: "今日のボーナスはもう受け取ってるよ！"
+- takeScreenshot: 51-wallet-claimed
+
+# The history by day, and one movement.
+- scrollUntilVisible:
+    element: { id: "wallet-history" }
+- tapOn: { id: "wallet-history" }
+- extendedWaitUntil:
+    visible: { id: "wallet-history-list" }
+    timeout: 15000
+- assertVisible: "今日"
+- takeScreenshot: 52-wallet-history
+- tapOn: "ログインボーナス.*"
+- extendedWaitUntil:
+    visible: { id: "wallet-entry-sheet" }
+    timeout: 5000
+- takeScreenshot: 53-wallet-entry
+- tapOn: { id: "sheet-wallet-entry-close" }
+- tapOn: { id: "wallet-history-filter-earnings" }
+- extendedWaitUntil:
+    visible: "収益はまだこれから！"
+    timeout: 15000
+- runFlow: ../subflows/back.yaml
+
+# The purchases, with the one the script made.
+- scrollUntilVisible:
+    element: { id: "wallet-purchases" }
+- tapOn: { id: "wallet-purchases" }
+- extendedWaitUntil:
+    visible: { id: "wallet-purchases-list" }
+    timeout: 15000
+- assertVisible: "完了"
+- takeScreenshot: 54-wallet-purchases

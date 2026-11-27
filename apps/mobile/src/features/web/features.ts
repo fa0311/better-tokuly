@@ -1,4 +1,4 @@
-import { Code, type LucideIcon, Settings, ShieldCheck, Wallet } from "lucide-react-native";
+import { Code, type LucideIcon, Settings, ShieldCheck } from "lucide-react-native";
 
 /** A part of Tokuly the app shows through the web for now, and where it starts on the web. */
 export interface WebFeature {
@@ -16,7 +16,6 @@ export interface WebFeature {
  * `features/notifications/target.ts`).
  */
 export const WEB_FEATURES: readonly WebFeature[] = [
-  { key: "wallet", path: "/wallet", icon: Wallet },
   { key: "settings", path: "/settings", icon: Settings },
   { key: "dev", path: "/developers", icon: Code },
   { key: "admin", path: "/admin", icon: ShieldCheck, staff: true },

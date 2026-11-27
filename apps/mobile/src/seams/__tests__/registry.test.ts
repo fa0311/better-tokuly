@@ -44,6 +44,7 @@ describe("the seam registries", () => {
       "spaces",
       "stamps",
       "video",
+      "wallet",
       "web",
     ]);
     expect(areasOf("profile")).toEqual(["ask", "notes", "plans", "quest"]);

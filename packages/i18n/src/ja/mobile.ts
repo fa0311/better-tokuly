@@ -361,6 +361,11 @@ export default {
     moreOnWebHint: "Web の画面でひらくよ",
     remove: "スタンプをはずす",
   },
+  wallet: {
+    onWeb: "Webでひらく",
+    buyHint: "コインの購入はWebの画面でするよ",
+    purchasesLead: "タップすると、その購入のくわしい画面(Web)がひらくよ",
+  },
   emoji: {
     pick: "絵文字",
     deckEmptyBody: "絵文字をひらいて「デッキにピンどめ」しよう！",

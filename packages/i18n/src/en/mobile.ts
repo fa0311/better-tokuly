@@ -361,6 +361,11 @@ export default {
     moreOnWebHint: "Opens on the web",
     remove: "Remove the stamp",
   },
+  wallet: {
+    onWeb: "Open on the web",
+    buyHint: "Coins are bought on the web screens",
+    purchasesLead: "Tap a purchase to open its details (on the web)",
+  },
   emoji: {
     pick: "Emoji",
     deckEmptyBody: "Open an emoji and pin it to your deck!",
