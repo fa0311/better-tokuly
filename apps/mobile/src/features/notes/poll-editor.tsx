@@ -7,7 +7,7 @@ import {
 } from "@tokuly/core/notes";
 import { Plus, X } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import { Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { Pressable, Switch, Text, TextInput, View } from "react-native";
 import { useTheme } from "#/lib/theme";
 
 const RESULTS = [
@@ -64,7 +64,7 @@ export function PollEditor({
             onChangeText={(value) => setChoice(index, value)}
             placeholder={t("compose.poll.choice", { index: index + 1 })}
             placeholderTextColor={colors["ink-faint"]}
-            className="h-10 flex-1 rounded-control bg-surface-2 px-3 text-base text-ink"
+            className="h-10 py-0 flex-1 rounded-control bg-surface-2 px-3 text-base text-ink"
           />
           {poll.choices.length > 2 && (
             <Pressable
@@ -98,11 +98,7 @@ export function PollEditor({
         />
       </View>
       <Text className="text-xs font-black text-ink-soft">{t("compose.poll.duration")}</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerClassName="gap-2"
-      >
+      <View className="flex-row flex-wrap gap-2">
         {POLL_DURATIONS.map((seconds) => (
           <Chip
             key={seconds}
@@ -111,7 +107,7 @@ export function PollEditor({
             onPress={() => onChange({ ...poll, durationSeconds: seconds })}
           />
         ))}
-      </ScrollView>
+      </View>
       <Text className="text-xs font-black text-ink-soft">{t("compose.poll.results")}</Text>
       <View className="flex-row flex-wrap gap-2">
         {RESULTS.map((option) => (

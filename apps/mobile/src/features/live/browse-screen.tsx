@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { live, video } from "@tokuly/api";
 import { liveKeys } from "@tokuly/core/live";
-import { router } from "expo-router";
+import { router, Stack } from "expo-router";
 import { Gift, Video } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -73,7 +73,32 @@ export function BrowseLiveScreen() {
   useListsAfterGaps();
   return (
     <View className="flex-1 bg-bg" testID="live-browse">
-      <View className="flex-row items-center justify-between gap-2 px-4 pt-3 pb-2">
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <View className="flex-row items-center gap-1">
+              <Pressable
+                testID="live-gift-history"
+                accessibilityRole="button"
+                accessibilityLabel={t("giftHistory.title")}
+                onPress={() => router.push(webScreenHref("/live/gifts") as never)}
+                className="p-2"
+              >
+                <Gift size={22} color={colors.ink} />
+              </Pressable>
+              <Button
+                testID="live-go-live"
+                size="sm"
+                icon={<Video size={16} color={colors["on-brand"]} />}
+                onPress={() => router.push(GO_LIVE_HREF as never)}
+              >
+                {t("browse.goLive")}
+              </Button>
+            </View>
+          ),
+        }}
+      />
+      <View className="flex-row px-4 pt-3 pb-2">
         <Tabs
           testID="live-tab"
           items={(["now", "upcoming"] as const).map((key) => ({
@@ -83,25 +108,6 @@ export function BrowseLiveScreen() {
           value={tab}
           onChange={setTab}
         />
-        <View className="flex-row items-center gap-1">
-          <Pressable
-            testID="live-gift-history"
-            accessibilityRole="button"
-            accessibilityLabel={t("giftHistory.title")}
-            onPress={() => router.push(webScreenHref("/live/gifts") as never)}
-            className="p-2"
-          >
-            <Gift size={22} color={colors.ink} />
-          </Pressable>
-          <Button
-            testID="live-go-live"
-            size="sm"
-            icon={<Video size={16} color={colors["on-brand"]} />}
-            onPress={() => router.push(GO_LIVE_HREF as never)}
-          >
-            {t("browse.goLive")}
-          </Button>
-        </View>
       </View>
       {tab === "now" ? <LiveNow /> : <Upcoming />}
     </View>

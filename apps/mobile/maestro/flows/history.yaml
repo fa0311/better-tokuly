@@ -48,7 +48,9 @@ env:
     env: { ID: history-memo }
 - inputText: "e2e memo"
 - hideKeyboard
-- tapOn: { id: "history-memo-save" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: history-memo-save }
 - extendedWaitUntil:
     notVisible: { id: "history-memo-save" }
     timeout: 15000

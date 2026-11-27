@@ -136,7 +136,7 @@ export function ChatComposer({
           returnKeyType="send"
           submitBehavior="submit"
           onSubmitEditing={() => void send()}
-          className="h-11 min-w-0 flex-1 rounded-full border-2 border-line bg-surface px-4 text-[15px] text-ink"
+          className="h-11 py-0 min-w-0 flex-1 rounded-full border-2 border-line bg-surface px-4 text-[15px] text-ink"
         />
         {onGift && (
           <Pressable

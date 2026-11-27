@@ -58,7 +58,7 @@ function FriendList() {
         value={query}
         onChangeText={setQuery}
         autoCapitalize="none"
-        className="mx-4 mb-2 h-11 rounded-full bg-surface px-4 text-ink"
+        className="mx-4 mb-2 h-11 py-0 rounded-full bg-surface px-4 text-ink"
       />
       {isPending ? (
         <Spinner />

@@ -19,7 +19,9 @@ env:
 - waitForAnimationToEnd
 
 # The picker in a chat and in the note composer (the catalogue of a fresh stack may be empty).
-- tapOn: { id: "tab-chats" }
+- runFlow:
+    file: ../subflows/open-tab.yaml
+    env: { TAB: tab-chats }
 - tapOn: { id: "${'conversation-' + output.friendName}" }
 - tapOn: { id: "composer-emoji" }
 - extendedWaitUntil:

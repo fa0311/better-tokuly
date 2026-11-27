@@ -18,7 +18,9 @@ env:
       PASSWORD: ${PASSWORD}
 
 # The friends' timeline has the friend's note; a like shows at once.
-- tapOn: { id: "tab-notes" }
+- runFlow:
+    file: ../subflows/open-tab.yaml
+    env: { TAB: tab-notes }
 - extendedWaitUntil:
     visible: ${output.friendNote}
     timeout: 30000

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installs what tools/agent/android.sh needs into $TOKULY_DEV_HOME (survives container recreates):
 # a JDK 17, the Android SDK with the emulator and the CI's system image (API 34, google_apis, x86_64),
-# the AVD `tokuly` (Pixel 6) and Maestro. Needs /dev/kvm to be useful.
+# the AVDs `tokuly` (Pixel 6) and `tokuly-small` (320x640 mdpi, for `android.sh small`) and Maestro. Needs /dev/kvm to be useful.
 : "${TOKULY_DEV_HOME:=$HOME/tokuly-dev}"
 set -euo pipefail
 D=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}
@@ -21,5 +21,10 @@ yes | "$sm" --licenses >/dev/null || true
 "$sm" --install platform-tools emulator "system-images;android-34;google_apis;x86_64" >/dev/null
 echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n tokuly \
   -k "system-images;android-34;google_apis;x86_64" -d pixel_6 --force >/dev/null
+echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n tokuly-small \
+  -k "system-images;android-34;google_apis;x86_64" --force >/dev/null
+c=$ANDROID_AVD_HOME/tokuly-small.avd/config.ini
+sed -i '/^hw\.\(lcd\.width\|lcd\.height\|lcd\.density\|ramSize\)=/d' "$c"
+printf 'hw.lcd.width=320\nhw.lcd.height=640\nhw.lcd.density=160\nhw.ramSize=1536M\n' >>"$c"
 [ -x "$HOME/.maestro/bin/maestro" ] || curl -fsSL https://get.maestro.mobile.dev | bash
 echo "ready: $(dirname "$0")/../android.sh start"
