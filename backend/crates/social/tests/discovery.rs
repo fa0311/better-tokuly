@@ -102,6 +102,42 @@ async fn hints_from_other_domains_rank_above_friends_of_friends() {
     assert_eq!(suggested(&suggestions_for(&ctx, &me, 0).await), vec![(regular.id, "NEARBY_OFTEN"), (fof.id, "FRIEND_OF_FRIEND")]);
 }
 
+/// Someone found by friends of friends only (every minor, at most) is
+/// suggested to friends of their friends, as one, and to nobody else: no
+/// address book, invite or school finds them.
+#[tokio::test]
+async fn someone_found_by_friends_of_friends_only_is_suggested_only_as_one() {
+    let ctx = start().await;
+    let (me, friend, stranger) = (ctx.app.user("me").await, ctx.app.user("friend").await, ctx.app.user("stranger").await);
+    let (shy, kid) = (ctx.app.user("shy").await, ctx.app.user("kid").await);
+    ctx.set_privacy(&shy, |p| p.discoverable_to = Audience::AUDIENCE_FRIENDS_OF_FRIENDS.into()).await;
+    ctx.make_minor(&kid).await; // stored "everyone", read within the limits for minors
+    ctx.befriend(&me, &friend).await;
+    for hidden in [&shy, &kid] {
+        ctx.befriend(hidden, &friend).await; // a minor takes requests from friends of friends only
+        for user in [&me, &stranger] {
+            suggestions::suggest(&ctx.app.core, user.id, hidden.id, SuggestionReason::Contact).await.unwrap();
+        }
+    }
+
+    let mut seen = suggested(&suggestions_for(&ctx, &me, 0).await).into_iter().map(|(id, reason)| (id, reason.to_owned())).collect::<Vec<_>>();
+    seen.sort();
+    let mut expected = vec![(shy.id, "FRIEND_OF_FRIEND".to_owned()), (kid.id, "FRIEND_OF_FRIEND".to_owned())];
+    expected.sort();
+    assert_eq!(seen, expected, "as a friend of a friend, never as a contact");
+    let for_stranger = suggestions_for(&ctx, &stranger, 0).await;
+    assert!(suggested(&for_stranger).iter().all(|(id, _)| *id != shy.id && *id != kid.id), "nobody else");
+    let matched = ctx
+        .friends::<_, MatchContactsResponse>(
+            "MatchContacts",
+            &stranger,
+            &MatchContactsRequest { contact_hashes: vec![contact_hash(&email_of(&shy)), contact_hash(&email_of(&kid))], ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert!(matched.matches.is_empty(), "no address book finds them");
+}
+
 #[tokio::test]
 async fn contacts_match_verified_discoverable_accounts_by_email_hash() {
     let ctx = start().await;
@@ -418,6 +454,27 @@ async fn minors_and_adults_do_not_find_each_other_nearby() {
     assert!(everyone(&adult_saw).is_empty(), "an adult is never shown minors nearby");
     assert!(!everyone(&kid_saw).contains(&adult.id), "nor a minor adults");
     assert!(everyone(&kid_saw).contains(&other_kid.id), "minors find each other");
+}
+
+#[tokio::test]
+async fn an_account_without_a_birthdate_meets_minors_nearby_until_it_gives_one() {
+    let ctx = start().await;
+    let (adult, kid, unknown) = (ctx.app.user("adult").await, ctx.app.user("kid").await, ctx.app.user("unknown").await);
+    ctx.make_minor(&kid).await;
+    sqlx::query("UPDATE users SET birthdate = NULL WHERE id = $1").bind(unknown.id).execute(&ctx.app.core.db).await.unwrap();
+    let spot = somewhere();
+    let app = &ctx.app;
+    let open = |user: &TestUser, delay: u64| {
+        let user = user.clone();
+        async move {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+            app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&user), &nearby_at(north_of(spot, 5.0)), 10, Duration::from_secs(5)).await.unwrap()
+        }
+    };
+    let (adult_saw, unknown_saw, _) = tokio::join!(open(&adult, 0), open(&unknown, 500), open(&kid, 0));
+    let everyone = |snapshots: &[DiscoverNearbyResponse]| snapshots.iter().flat_map(seen).map(|(id, _)| id).collect::<Vec<Uuid>>();
+    assert!(everyone(&adult_saw).is_empty(), "an adult meets neither");
+    assert!(everyone(&unknown_saw).contains(&kid.id) && !everyone(&unknown_saw).contains(&adult.id), "counted as a minor");
 }
 
 #[tokio::test]

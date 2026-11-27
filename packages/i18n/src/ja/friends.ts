@@ -17,6 +17,9 @@ export default {
     decline: "拒否",
     cancel: "取り消す",
     mutual: "共通のともだち {{count}}人",
+    mutualNamed: "{{names}}と共通のともだち",
+    mutualNamedMore: "{{names}}ほか{{count}}人と共通のともだち",
+    nameSeparator: "、",
   },
   actions: {
     add: "追加",

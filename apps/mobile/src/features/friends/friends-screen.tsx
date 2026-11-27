@@ -1,4 +1,5 @@
 import { FlashList } from "@shopify/flash-list";
+import { requestNote } from "@tokuly/core/friends";
 import { Link } from "expo-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -83,7 +84,7 @@ function FriendList() {
 }
 
 function RequestLists() {
-  const { t } = useTranslation("friends");
+  const { t, i18n } = useTranslation("friends");
   const incoming = useIncomingRequests();
   const outgoing = useOutgoingRequests();
   if (incoming.isPending || outgoing.isPending) return <Spinner />;
@@ -121,14 +122,7 @@ function RequestLists() {
           );
         const user = item.kind === "incoming" ? item.request.from : item.request.to;
         return (
-          <PersonRow
-            user={user}
-            detail={
-              item.request.mutualFriendCount > 0
-                ? t("requests.mutual", { count: item.request.mutualFriendCount })
-                : undefined
-            }
-          >
+          <PersonRow user={user} note={requestNote(i18n, item.request)}>
             <RequestActions request={item.request} incoming={item.kind === "incoming"} />
           </PersonRow>
         );

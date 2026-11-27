@@ -37,30 +37,20 @@ pub(crate) async fn visible_by_handle(core: &Core, viewer: Uuid, handle: &str) -
     Ok(user.id)
 }
 
-/// Age from which a user counts as an adult.
-const ADULT_AGE_YEARS: i32 = 18;
-
-/// The members of `user_ids` who are minors by the birthdate on their
-/// account. Accounts without a birthdate count as adults.
+/// The members of `user_ids` the limits for minors apply to
+/// (`tokuly_identity::age`: by the birthdate today; no birthdate yet counts
+/// as a minor).
 ///
 /// Strangers only meet within their own age group where the server puts
 /// them in touch by position (nearby discovery, bumps): an adult is never
 /// shown a minor they do not know, nor the other way round.
 pub(crate) async fn minors_among(core: &Core, user_ids: &[Uuid]) -> AppResult<HashSet<Uuid>> {
-    if user_ids.is_empty() {
-        return Ok(HashSet::new());
-    }
-    let minors: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE id = ANY($1) AND birthdate > current_date - make_interval(years => $2)")
-        .bind(user_ids)
-        .bind(ADULT_AGE_YEARS)
-        .fetch_all(&core.db)
-        .await?;
-    Ok(minors.into_iter().collect())
+    tokuly_identity::age::minors_among(core, user_ids).await
 }
 
 /// Up to `limit` people who name the same school as `user_id` and are in
 /// the same age group (minors with minors, adults with adults; no birthdate
-/// counts as adult, as in [`minors_among`]), newest accounts first.
+/// counts as a minor, as in [`minors_among`]), newest accounts first.
 ///
 /// A school is whatever an account types: on its own it must not show an
 /// adult a school's pupils, nor the other way round. The age group is part
@@ -71,13 +61,13 @@ pub(crate) async fn schoolmates_of_age_group(core: &Core, user_id: Uuid, limit: 
     Ok(sqlx::query_scalar(
         "SELECT mate.id FROM users me JOIN users mate ON mate.school_name = me.school_name AND mate.id <> me.id
          WHERE me.id = $1 AND me.school_name <> '' AND mate.deleted_at IS NULL AND mate.banned_at IS NULL AND NOT mate.bot
-           AND coalesce(mate.birthdate > current_date - make_interval(years => $3), false)
-             = coalesce(me.birthdate > current_date - make_interval(years => $3), false)
+           AND coalesce(mate.birthdate > current_date - make_interval(years => $3), true)
+             = coalesce(me.birthdate > current_date - make_interval(years => $3), true)
          ORDER BY mate.id DESC LIMIT $2",
     )
     .bind(user_id)
     .bind(limit)
-    .bind(ADULT_AGE_YEARS)
+    .bind(tokuly_identity::age::ADULT_AGE as i32)
     .fetch_all(&core.db)
     .await?)
 }

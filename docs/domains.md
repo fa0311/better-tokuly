@@ -63,9 +63,12 @@ See their proto files. Summary of behaviour that is not obvious from the API:
   weekly streak counter, plus manual favourites. Blocking is silent and hides
   both users from each other everywhere. Invite links/QR count "intros".
   Nearby discovery pairs users with the add-friend screen open within ~50 m
-  (minors only with minors, adults only with adults). Mutual friends (on
-  profiles, in search, requests and suggestions) follow the other user's
-  friend list audience, like their best friends.
+  (minors only with minors, adults only with adults; no birthdate yet
+  counts as a minor). Mutual friends (on profiles, in search, requests and
+  suggestions) follow the other user's friend list audience, like their best
+  friends, except on a received request: whoever asks shows whom both know.
+  Someone found by friends of friends only (every minor) is suggested to
+  them as a friend of a friend and to nobody else.
   A bump is two shake attempts within ~4 s and ~30 m; friends of both get
   "A and B bumped!". Strangers bump only when both allow nearby discovery and are
   in the same age group. Buzz needs the two to be within 200 m. Map reactions

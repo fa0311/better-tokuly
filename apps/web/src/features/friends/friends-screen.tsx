@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type common, errorReason, identity, social } from "@tokuly/api";
-import { friendKeys, friendQueries } from "@tokuly/core/friends";
+import { friendKeys, friendQueries, requestNote } from "@tokuly/core/friends";
 import { Check, ChevronRight, Copy, Radar, Star, UserPlus, X } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
@@ -134,7 +134,7 @@ function FriendList() {
 }
 
 function Requests() {
-  const { t } = useTranslation("friends");
+  const { t, i18n } = useTranslation("friends");
   const queryClient = useQueryClient();
   const incoming = useQuery(friendQueries.incoming(friendClient));
   const outgoing = useQuery(friendQueries.outgoing(friendClient));
@@ -172,10 +172,10 @@ function Requests() {
                   key={request.id}
                   user={request.from}
                   subtitle={
-                    request.message ||
-                    (request.mutualFriendCount > 0
-                      ? t("requests.mutual", { count: request.mutualFriendCount })
-                      : undefined)
+                    // Whom both know is what helps decide: it may take a second line.
+                    <span className="line-clamp-2 whitespace-normal">
+                      {requestNote(i18n, request) ?? `@${request.from.handle}`}
+                    </span>
                   }
                   trailing={
                     <span className="flex gap-2">

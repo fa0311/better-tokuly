@@ -8,11 +8,14 @@ import { Avatar } from "#/components/avatar";
 export function PersonRow({
   user,
   detail,
+  note,
   online,
   children,
 }: {
   user: common.UserSummary | undefined;
   detail?: string;
+  /** A line of its own under the handle, up to two lines long. */
+  note?: string;
   online?: boolean;
   children?: ReactNode;
 }) {
@@ -33,6 +36,11 @@ export function PersonRow({
           @{user.handle}
           {detail ? ` · ${detail}` : ""}
         </Text>
+        {note && (
+          <Text numberOfLines={2} className="text-xs text-ink-soft">
+            {note}
+          </Text>
+        )}
       </View>
       {children}
     </Pressable>

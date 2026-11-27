@@ -9,7 +9,7 @@
 //!   inside such a transaction takes a second pooled connection: all
 //!   pool-backed checks happen before `begin()` and are re-validated under
 //!   the lock where a race would matter.
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use chrono::{DateTime, Utc};
 use sqlx::{PgExecutor, Postgres, Transaction};
@@ -30,6 +30,7 @@ use crate::{
     Social, copy,
     events::{FRIEND_ACCEPTED, FRIEND_REQUESTED, FriendAccepted, FriendRequested},
     graph, idcache, people,
+    suggestions::MUTUAL_PREVIEW,
 };
 
 const MAX_MESSAGE_GRAPHEMES: usize = 140;
@@ -415,20 +416,26 @@ impl Social {
         Page::from_view(page, MAX_REQUESTS_PAGE)
     }
 
-    /// Request rows as `viewer` (one of the two parties) sees them.
+    /// Request rows as `viewer` (one of the two parties) sees them. The
+    /// mutual friends of a received request are shown whatever the sender's
+    /// friend list audience: whoever asks shows whom both know.
     async fn requests_to_proto(&self, viewer: Uuid, rows: Vec<RequestRow>) -> AppResult<Vec<FriendRequest>> {
+        let others: Vec<Uuid> = rows.iter().map(|r| if r.from_user_id == viewer { r.to_user_id } else { r.from_user_id }).collect();
+        let senders: HashSet<Uuid> = rows.iter().filter(|r| r.to_user_id == viewer).map(|r| r.from_user_id).collect();
+        let mut mutual = self.mutual_friends_with(viewer, &others).await?;
+        let visible = self.friend_lists_visible_to(viewer, &others).await?;
+        mutual.retain(|id, _| senders.contains(id) || visible.contains(id));
+
         let mut user_ids: Vec<Uuid> = rows.iter().flat_map(|r| [r.from_user_id, r.to_user_id]).collect();
+        user_ids.extend(mutual.values().flat_map(|friends| friends.iter().take(MUTUAL_PREVIEW)));
         user_ids.sort_unstable();
         user_ids.dedup();
         let summaries = tokuly_identity::summaries(&self.core, &user_ids).await?;
-        let mut mutual = graph::mutual_friend_counts(&self.core, viewer, &user_ids).await?;
-        // Only for people whose friend list the viewer may see.
-        let visible = self.friend_lists_visible_to(viewer, &user_ids).await?;
-        mutual.retain(|id, _| visible.contains(id));
         Ok(rows
             .into_iter()
             .map(|row| {
                 let other = if row.from_user_id == viewer { row.to_user_id } else { row.from_user_id };
+                let shared = mutual.get(&other).map(Vec::as_slice).unwrap_or_default();
                 FriendRequest {
                     id: row.id.to_string(),
                     from: users::pick(&summaries, row.from_user_id).into(),
@@ -436,7 +443,8 @@ impl Social {
                     source: row.source.into(),
                     message: row.message,
                     created_at: ts(row.created_at),
-                    mutual_friend_count: mutual.get(&other).copied().unwrap_or(0),
+                    mutual_friend_count: shared.len() as i32,
+                    mutual_friends: shared.iter().take(MUTUAL_PREVIEW).map(|friend| users::pick(&summaries, *friend)).collect(),
                     ..Default::default()
                 }
             })
