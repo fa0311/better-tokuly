@@ -18,6 +18,9 @@ Copy the first rule into the brief word for word: a link to it is not enough, ag
 - **Keep the existing rules** of the area you extend: audiences and blocks both ways, withdrawal events,
   rate limits, the egress guard, session revocation, account safety on mobile (`apps/mobile/README.md`).
   Classify every new RPC in `backend/crates/core/src/api_access.rs` and the dev scope catalogue.
+- **Migrations**: never edit a migration file that is on main — released databases and every dev database
+  have it applied, and sqlx refuses a changed checksum. Append a new file in the domain's band
+  (`backend/README.md`, "After a release").
 - **Web and mobile in the same PR** as the backend change they need; Japanese first.
 - **Checks**: build without warnings, the touched crates' tests, `buf lint`, web/mobile lint, typecheck and
   tests, the browser or Maestro tests of the flows you changed (local emulator: `tools/agent/android.sh`; it is shared, so every APK install and Maestro run goes through
