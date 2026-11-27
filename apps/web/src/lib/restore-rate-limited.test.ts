@@ -80,4 +80,31 @@ describe("restoring the session while the API is rate-limited", () => {
     expect(await Promise.all([first, second])).toEqual([true, true]);
     expect(server.refreshes).toHaveLength(2);
   });
+
+  it("does not ask again at once when the server names no wait at all", async () => {
+    vi.useFakeTimers();
+    const server = busyServer(Number.POSITIVE_INFINITY, "0");
+    const { session } = restoring(server);
+
+    void session.restore();
+    await vi.advanceTimersByTimeAsync(900);
+
+    expect(server.refreshes).toHaveLength(1);
+  });
+
+  it("gives up after two minutes: the sign-in screen instead of the splash for good", async () => {
+    vi.useFakeTimers();
+    const server = busyServer(Number.POSITIVE_INFINITY, "30");
+    const { session, states } = restoring(server);
+
+    const restored = session.restore();
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(states).toEqual([]);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(await restored).toBe(false);
+    expect(states).toEqual(["signedOut"]);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(server.refreshes).toHaveLength(5);
+  });
 });

@@ -27,8 +27,12 @@ type AccountChangeListener = (next: { userId: string; sessionId: string }) => vo
 /** Refresh this long before the access token actually expires. */
 const REFRESH_MARGIN_MS = 60_000;
 
-/** How long `restore()` waits on a rate limit that names no wait, and at most. */
-const RATE_LIMIT_WAIT_MS = { unnamed: 5_000, longest: 60_000 };
+/**
+ * How `restore()` waits on a rate limit: `unnamed` when the server names no
+ * wait, never less than `shortest` or more than `longest` at a time, and
+ * `inAll` at most (two of the server's one-minute windows) before it gives up.
+ */
+const RATE_LIMIT_WAIT_MS = { unnamed: 5_000, shortest: 1_000, longest: 60_000, inAll: 120_000 };
 
 /** What a refresh came to: adopted or not, or rate-limited and to be tried again in so long. */
 type Refreshed = boolean | { retryInMs: number };
@@ -146,7 +150,9 @@ export class Session {
    * rate-limited refresh (a school opening the app after the bell) says
    * nothing about the session: the state stays unknown, and the refresh is
    * tried again after the wait the server named. Concurrent callers share
-   * one attempt, and so one wait.
+   * one attempt, and so one wait. A server that keeps limiting is given up
+   * on like one that cannot be reached: signed out here, the refresh token
+   * kept, so the person gets a screen and the next start resumes.
    */
   restore(): Promise<boolean> {
     this.restoring ??= this.doRestore().finally(() => {
@@ -157,13 +163,19 @@ export class Session {
 
   private async doRestore(): Promise<boolean> {
     let refreshed = await this.refreshOnce();
-    while (typeof refreshed === "object") {
+    let waitedMs = 0;
+    while (
+      typeof refreshed === "object" &&
+      waitedMs + refreshed.retryInMs <= RATE_LIMIT_WAIT_MS.inAll
+    ) {
       const { retryInMs } = refreshed;
       await new Promise((resolve) => setTimeout(resolve, retryInMs));
+      waitedMs += retryInMs;
       refreshed = await this.refreshOnce();
     }
-    if (!refreshed && this.current.status === "unknown") this.setState({ status: "signedOut" });
-    return refreshed;
+    const resumed = refreshed === true;
+    if (!resumed && this.current.status === "unknown") this.setState({ status: "signedOut" });
+    return resumed;
   }
 
   /**
@@ -201,7 +213,8 @@ export class Session {
       }
       if (isRateLimited(error)) {
         const wait = retryAfterMs(error) ?? RATE_LIMIT_WAIT_MS.unnamed;
-        return { retryInMs: Math.min(wait, RATE_LIMIT_WAIT_MS.longest) };
+        const { shortest, longest } = RATE_LIMIT_WAIT_MS;
+        return { retryInMs: Math.min(Math.max(wait, shortest), longest) };
       }
       return false;
     }
