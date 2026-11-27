@@ -8,20 +8,33 @@ import { readSecure, writeSecure } from "#/platform/secure-storage";
 import {
   choiceKey,
   confirmStop,
+  sendFix,
   stopSharing,
   turnOn,
   useOwnLocationSharing,
   useSharing,
 } from "../sharing";
 
-/** The server, at the edge: the time of each stop it was told; unreachable while `offline`. */
+/**
+ * The server, at the edge: the time of each stop it was told, and the
+ * running numbers of the stops and fixes; unreachable while `offline`.
+ */
 const stops: number[] = [];
+const numbered: { stop: boolean; sequence: bigint }[] = [];
 let offline = false;
 async function mockServer(input: string, init: { body: Uint8Array }): Promise<Response> {
   const method = new URL(input).pathname.split("/").pop() ?? "";
-  if (method !== "StopSharing") throw new Error(`unexpected ${method}`);
   if (offline) throw new TypeError("Network request failed");
-  stops.push(toMillis(fromBinary(geo.StopSharingRequestSchema, init.body).stoppedAt));
+  if (method === "StopSharing") {
+    const stop = fromBinary(geo.StopSharingRequestSchema, init.body);
+    stops.push(toMillis(stop.stoppedAt));
+    numbered.push({ stop: true, sequence: stop.sequence });
+  } else if (method === "ReportLocations") {
+    for (const { sequence } of fromBinary(geo.ReportLocationsRequestSchema, init.body).samples)
+      numbered.push({ stop: false, sequence });
+  } else {
+    throw new Error(`unexpected ${method}`);
+  }
   return new Response(new Uint8Array(), {
     status: 200,
     headers: { "content-type": "application/proto" },
@@ -49,12 +62,16 @@ jest.mock("#/platform/location", () => ({
   readBattery: jest.fn(async () => ({})),
 }));
 
+// No realtime connection: fixes go over the plain RPC.
+jest.mock("#/lib/realtime", () => ({ realtime: () => ({ sendLocation: () => false }) }));
+
 const OWED_KEY = "tokuly.map.stopOwed.alice";
 const settle = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** alice is signed in and shares from here. */
 beforeEach(async () => {
   stops.length = 0;
+  numbered.length = 0;
   offline = false;
   mockHeldStop = null;
   resetApi();
@@ -127,5 +144,33 @@ describe("a stop the server has not heard of", () => {
     expect(stops).toEqual([]);
     expect(useSharing.getState()).toMatchObject({ choice: "on", stopOwed: false });
     expect(await readSecure(OWED_KEY)).toBeNull();
+  });
+});
+
+describe("the device's running count", () => {
+  const fixAt = (recordedAt: number) => ({
+    lat: 35.66,
+    lng: 139.7,
+    accuracyMeters: 8,
+    speedMps: null,
+    headingDegrees: null,
+    recordedAt,
+  });
+
+  it("numbers a stop above the fixes before it, and the fixes after above the stop, when the clock goes back", async () => {
+    const now = Date.now();
+    await sendFix(fixAt(now), "alice");
+    const clock = jest.spyOn(Date, "now").mockReturnValue(now - 3_600_000);
+    try {
+      await stopSharing();
+      await turnOn();
+      await sendFix(fixAt(now - 3_590_000), "alice");
+    } finally {
+      clock.mockRestore();
+    }
+
+    expect(numbered.map(({ stop }) => stop)).toEqual([false, true, false]);
+    const [before = 0n, stop = 0n, after = 0n] = numbered.map(({ sequence }) => sequence);
+    expect(stop > before && after > stop).toBe(true);
   });
 });

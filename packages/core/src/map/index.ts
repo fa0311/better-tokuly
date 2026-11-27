@@ -35,6 +35,7 @@ export {
   type LastReport,
   locationSample,
   MOVED_METERS,
+  nextSequence,
   type OwnPosition,
   type ReportCadence,
   type ReportDecision,

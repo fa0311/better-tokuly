@@ -66,6 +66,18 @@ export function finiteOrUndefined(value: number | null | undefined): number | un
     : undefined;
 }
 
+/**
+ * The number after `previous` in this device's running count
+ * (`LocationSample.sequence`, `StopSharingRequest.sequence`): larger than
+ * every number before, whatever the clock does, so the server can tell a
+ * fix taken before a stop from one taken after it when the clock went back.
+ * It starts from the clock: a count lost with its storage picks up from
+ * about where it was.
+ */
+export function nextSequence(previous: number, now: number): number {
+  return Math.max(previous + 1, Math.floor(now));
+}
+
 /** What the device says about itself next to the fix. */
 export interface SampleContext {
   /** 0–100, when the platform tells. */
@@ -73,6 +85,8 @@ export interface SampleContext {
   charging?: boolean;
   /** The app is on screen. */
   foreground: boolean;
+  /** The device's running number for this sample (`nextSequence`). */
+  sequence: bigint;
 }
 
 /** The sample the geo API takes for one fix: the moment the device took it, not the moment it is sent. */
@@ -87,5 +101,6 @@ export function locationSample(position: OwnPosition, context: SampleContext): g
       context.batteryPercent === undefined ? undefined : Math.round(context.batteryPercent),
     charging: context.charging,
     foreground: context.foreground,
+    sequence: context.sequence,
   });
 }

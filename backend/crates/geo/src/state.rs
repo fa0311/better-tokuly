@@ -131,6 +131,13 @@ pub struct Pushed {
     pub fingerprint: u64,
 }
 
+/// A device's stop by its own count (`StopSharingRequest.sequence`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceStop {
+    pub session: Uuid,
+    pub sequence: u64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LiveState {
     pub pin: Pin,
@@ -147,6 +154,11 @@ pub struct LiveState {
     /// cannot turn sharing back on.
     #[serde(default)]
     pub stopped_ms: i64,
+    /// The latest numbered stop of each device that stopped lately, newest
+    /// last: its samples numbered at or below it are dropped as well, which
+    /// holds when the device's clock went back (see [`LiveState::stopped_before`]).
+    #[serde(default)]
+    pub device_stops: Vec<DeviceStop>,
     /// The latest fix that is the account's real position, for checking
     /// positions claimed in other domains (see [`crate::claims`]).
     #[serde(default)]
@@ -197,6 +209,39 @@ impl LiveState {
     /// Whether the state holds a position at all.
     pub fn located(&self) -> bool {
         self.pin.recorded_ms > 0
+    }
+
+    /// Remembers that the device signed in with `session` stopped at its
+    /// number `sequence` (0: it does not count). The devices that stopped
+    /// longest ago are forgotten first; their samples are then held to
+    /// `stopped_ms` alone, as unnumbered ones are.
+    pub fn remember_stop(&mut self, session: Uuid, sequence: u64) {
+        const KEPT: usize = 8;
+        if sequence == 0 {
+            return;
+        }
+        let mut stop = DeviceStop { session, sequence };
+        if let Some(index) = self.device_stops.iter().position(|known| known.session == session) {
+            stop.sequence = stop.sequence.max(self.device_stops.remove(index).sequence);
+        }
+        if self.device_stops.len() >= KEPT {
+            self.device_stops.remove(0);
+        }
+        self.device_stops.push(stop);
+    }
+
+    /// Whether a sample was taken before sharing stopped and is only now
+    /// arriving: recorded at or before the latest stop of any device, or
+    /// numbered at or below the latest stop of its own. The number is what
+    /// counts when the device's clock went back between the fix and the stop.
+    pub fn stopped_before(&self, session: Option<Uuid>, recorded_ms: i64, sequence: u64) -> bool {
+        if recorded_ms <= self.stopped_ms {
+            return true;
+        }
+        sequence > 0
+            && session.is_some_and(|session| {
+                self.device_stops.iter().any(|stop| stop.session == session && sequence <= stop.sequence)
+            })
     }
 
     /// Remembers a footprint cell as the current one. Returns false if it
@@ -401,6 +446,34 @@ mod tests {
         assert!(!state.remember_cell(40));
         assert_eq!(state.recent_cells.last(), Some(&40), "a known cell becomes the current one");
         assert_eq!(state.recent_cells.len(), 48);
+    }
+
+    #[test]
+    fn a_stop_drops_what_came_before_it_by_time_or_by_the_devices_own_count() {
+        let (phone, tablet) = (Uuid::now_v7(), Uuid::now_v7());
+        let mut state = LiveState { stopped_ms: 1_000, ..Default::default() };
+        state.remember_stop(phone, 30);
+        assert!(state.stopped_before(Some(tablet), 1_000, 0), "at or before the stop's time: any device");
+        assert!(state.stopped_before(Some(phone), 5_000, 30), "the phone's count says before");
+        assert!(!state.stopped_before(Some(phone), 5_000, 31));
+        assert!(!state.stopped_before(Some(phone), 5_000, 0), "unnumbered: the time alone");
+        assert!(!state.stopped_before(Some(tablet), 5_000, 7), "the tablet counts on its own");
+        assert!(!state.stopped_before(None, 5_000, 7));
+
+        // A stop retried with an older number does not lower the mark; an unnumbered one leaves it.
+        state.remember_stop(phone, 20);
+        state.remember_stop(phone, 0);
+        assert!(state.stopped_before(Some(phone), 5_000, 30));
+        // Only the devices that stopped last are kept, each once.
+        for _ in 0..8 {
+            state.remember_stop(Uuid::now_v7(), 1);
+        }
+        assert_eq!(state.device_stops.len(), 8);
+        assert!(!state.stopped_before(Some(phone), 5_000, 30), "forgotten: held to the time alone");
+        state.remember_stop(tablet, 3);
+        state.remember_stop(tablet, 4);
+        assert_eq!(state.device_stops.iter().filter(|stop| stop.session == tablet).count(), 1);
+        assert_eq!(state.device_stops.len(), 8);
     }
 
     #[test]

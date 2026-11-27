@@ -13,7 +13,8 @@ import {
 } from "#/platform/location";
 import { readSecure } from "#/platform/secure-storage";
 import { locationClient } from "./data";
-import { BACKGROUND_OWNER_KEY, choiceKey } from "./sharing";
+import { loadSequence, takeSequence } from "./sequence";
+import { BACKGROUND_OWNER_KEY, choiceKey, stoppedHere } from "./sharing";
 
 let last: LastReport | null = null;
 const ANY_PACE = { movingSeconds: 0, stationarySeconds: 0 };
@@ -45,10 +46,17 @@ async function reportInBackground(positions: OwnPosition[]): Promise<void> {
   // The OS already paces the fixes (distance, deferred batches); only a repeat is dropped.
   if (reportDecision(newest, last, ANY_PACE, Date.now(), true) !== "send") return;
   last = { at: Date.now(), position: newest };
+  const battery = await readBattery();
+  await loadSequence(owner);
+  // Back on screen, or stopped there meanwhile: the foreground decides now.
+  if (AppState.currentState === "active" || stoppedHere(owner)) return;
+  const sample = locationSample(newest, {
+    ...battery,
+    foreground: false,
+    sequence: takeSequence(owner),
+  });
   try {
-    await locationClient().reportLocations({
-      samples: [locationSample(newest, { ...(await readBattery()), foreground: false })],
-    });
+    await locationClient().reportLocations({ samples: [sample] });
   } catch {
     // The next fix supersedes this one.
   }

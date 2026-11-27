@@ -23,9 +23,11 @@ service LocationService {
   // newest one already processed are skipped, not rejected: see
   // `accepted_count`.
   // Fixes less than a second after the previous one (device time) are
-  // skipped as well, and so are fixes recorded at or before the latest
-  // StopSharing (`StopSharingRequest.stopped_at`): an upload already on its
-  // way when the device stopped never turns sharing back on.
+  // skipped as well, and so are fixes from before the latest StopSharing:
+  // recorded at or before its `stopped_at`, or, from the device that
+  // stopped, numbered at or below its `sequence`. An upload already on its
+  // way when the device stopped never turns sharing back on, also when the
+  // device's clock went back in between.
   // Errors: TOO_MANY_SAMPLES, RATE_LIMITED, LOCATION_BUSY.
   rpc ReportLocations(ReportLocationsRequest) returns (ReportLocationsResponse);
   // Tells the server the device stopped sharing (permission revoked, signed
@@ -105,6 +107,10 @@ message LocationSample {
   bool mocked = 10;
   // The app was in the foreground when the sample was taken.
   bool foreground = 11;
+  // This device's running number: larger for every sample and stop it
+  // sends, whatever its clock does (see `StopSharingRequest.sequence`).
+  // 0 means none.
+  uint64 sequence = 12;
 }
 
 message ReportLocationsRequest {
@@ -131,6 +137,12 @@ message StopSharingRequest {
   // be ordered against another device's samples. Values more than two minutes ahead of
   // the server are taken as the server's time plus two minutes.
   google.protobuf.Timestamp stopped_at = 1;
+  // The device's running number at the stop (`LocationSample.sequence`):
+  // above every sample it sent before, below every sample it sends after.
+  // Samples of this session numbered at or below it are dropped, whatever
+  // their times say: a clock that went back cannot let one through. 0 means
+  // none.
+  uint64 sequence = 2;
 }
 
 message StopSharingResponse {}

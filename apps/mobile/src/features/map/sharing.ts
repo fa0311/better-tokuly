@@ -26,6 +26,7 @@ import {
 } from "#/platform/location";
 import { readSecure, writeSecure } from "#/platform/secure-storage";
 import { useLocations } from "./locations-store";
+import { loadSequence, takeSequence } from "./sequence";
 
 /**
  * What an account decided about sharing its position from this device. The
@@ -82,6 +83,16 @@ function stillSharing(userId: string, account: Api): boolean {
   );
 }
 
+/**
+ * Whether this app, while it runs, stopped sharing for `userId` or is
+ * letting it leave: the store knows before the storage does. The background
+ * task asks right before it numbers a fix.
+ */
+export function stoppedHere(userId: string): boolean {
+  const state = useSharing.getState();
+  return state.userId === userId && state.loaded && (state.choice !== "on" || state.leaving);
+}
+
 /** When `userId` stopped sharing from here while the server has not heard of it yet (ms), or `null`. */
 async function stopOwedSince(userId: string): Promise<number | null> {
   const since = Number(await readSecure(stopOwedKey(userId)));
@@ -107,20 +118,22 @@ async function oweStop(userId: string): Promise<void> {
  * Tells the server the stop `userId` owes it, with the time sharing
  * stopped (the device's clock, as in its samples: what was sent before that
  * moment never resumes sharing, what another device sent after it is not
- * undone by a late retry). Tried again until it goes through: the next
- * start, the app coming back to the screen, the retry button. Nothing owed
- * (sharing was turned on again meanwhile), nothing is sent. `account` is
- * the API of `userId`, taken before the caller's first wait: by the time
- * this runs the active one may be the next account's, and its sharing must
- * not be stopped in this one's place.
+ * undone by a late retry) and the device's next running number (above
+ * every fix it sent, also when the clock went back). Tried again until it
+ * goes through: the next start, the app coming back to the screen, the
+ * retry button. Nothing owed (sharing was turned on again meanwhile),
+ * nothing is sent. `account` is the API of `userId`, taken before the
+ * caller's first wait: by the time this runs the active one may be the next
+ * account's, and its sharing must not be stopped in this one's place.
  */
 async function tellOwedStop(userId: string, account: Api): Promise<boolean> {
   const since = await stopOwedSince(userId);
   if (since === null) return true;
+  await loadSequence(userId);
   try {
     await account
       .service(geo.LocationService)
-      .stopSharing({ stoppedAt: fromDate(new Date(since)) });
+      .stopSharing({ stoppedAt: fromDate(new Date(since)), sequence: takeSequence(userId) });
   } catch {
     return false;
   }
@@ -223,8 +236,13 @@ export async function sendFix(position: OwnPosition, userId: string): Promise<vo
   const connection = realtime();
   if (!stillSharing(userId, account)) return;
   const battery = await readBattery();
+  await loadSequence(userId);
   if (!stillSharing(userId, account)) return;
-  const sample = locationSample(position, { ...battery, foreground: true });
+  const sample = locationSample(position, {
+    ...battery,
+    foreground: true,
+    sequence: takeSequence(userId),
+  });
   if (connection.sendLocation(sample)) return;
   try {
     await account.service(geo.LocationService).reportLocations({ samples: [sample] });
