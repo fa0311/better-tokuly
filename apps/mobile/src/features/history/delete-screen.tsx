@@ -37,17 +37,21 @@ export function DeleteHistoryScreen({ date }: { date?: string }) {
   const everything = !date && scope === "all";
   const start = dayRange(date ?? from, zone)?.from;
   const end = dayRange(date ?? to, zone)?.to;
-  const valid = everything || Boolean(start && end && start < end);
+  // What goes: everything only when that was chosen, else the days picked.
+  // Days that cannot be read delete nothing — never everything instead.
+  const range = everything
+    ? {}
+    : start && end && start < end
+      ? { from: fromDate(start), to: fromDate(end) }
+      : null;
 
   const remove = useMutation({
-    mutationFn: () =>
-      asAccount(() =>
-        historyClient().deleteHistory(
-          everything || !start || !end
-            ? { includeFootprints: footprints }
-            : { from: fromDate(start), to: fromDate(end), includeFootprints: footprints },
-        ),
-      ),
+    mutationFn: async () =>
+      range
+        ? asAccount(() =>
+            historyClient().deleteHistory({ ...range, includeFootprints: footprints }),
+          )
+        : undefined,
     onSuccess: (answer) => {
       if (!answer) return;
       for (const queryKey of DELETED_HISTORY_KEYS) void queryClient.resetQueries({ queryKey });
@@ -94,7 +98,7 @@ export function DeleteHistoryScreen({ date }: { date?: string }) {
                 max={today}
                 onChange={setTo}
               />
-              {!valid && <ErrorNote>{t("delete.invalidRange")}</ErrorNote>}
+              {!range && <ErrorNote>{t("delete.invalidRange")}</ErrorNote>}
             </View>
           )}
         </>
@@ -119,7 +123,7 @@ export function DeleteHistoryScreen({ date }: { date?: string }) {
         variant="danger"
         block
         size="lg"
-        disabled={!valid}
+        disabled={!range}
         loading={remove.isPending}
         onPress={() => remove.mutate()}
       >
