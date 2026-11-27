@@ -311,7 +311,7 @@ function SubtitleForm({
             event.target.value = "";
             if (!file) return;
             if (file.size > 1024 * 1024) {
-              toast.error(t("errors.SUBTITLE_TOO_LARGE"));
+              toast.error(t("errors:SUBTITLE_TOO_LARGE"));
               return;
             }
             setContent(await file.text());

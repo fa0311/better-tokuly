@@ -96,9 +96,4 @@ export default {
     explored: "Footprints: {{percent}} explored",
     countries: "Footprints: {{count}} countries visited",
   },
-  errors: {
-    FOOTPRINTS_PRIVATE: "These footprints are not shown",
-    REGION_NOT_FOUND: "That area was not found",
-    INVALID_BOUNDS: "The map area is not valid",
-  },
 } as const;

@@ -10,7 +10,7 @@ import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage, reasonText } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
 import {
   patchShortEverywhere,
@@ -147,9 +147,8 @@ function EditForm({ short }: { short: shorts.Short }) {
           </p>
           <p className="mt-0.5 text-sm text-ink-soft">
             {short.status === ShortStatus.FAILED
-              ? t(`errors.${short.studio?.processingError || "PROCESSING_FAILED"}`, {
-                  defaultValue: t("errors.PROCESSING_FAILED"),
-                })
+              ? (reasonText(short.studio?.processingError ?? "", { namespace: "shorts" }) ??
+                t("errors:PROCESSING_FAILED"))
               : published
                 ? short.studio?.coverPending
                   ? t("edit.coverPending")

@@ -219,11 +219,4 @@ export default {
       TOO_MANY_SYNONYM_GROUPS: "There can be up to 500 synonym groups",
     },
   },
-  errors: {
-    QUERY_REQUIRED: "Type something to search for",
-    KIND_UNKNOWN: "That kind cannot be searched",
-    SORT_UNKNOWN: "That order is not available",
-    SEARCH_UNAVAILABLE: "Search is taking a nap. Try again in a moment",
-    RECENT_SEARCH_NOT_FOUND: "That search is already gone from your history",
-  },
 } as const;

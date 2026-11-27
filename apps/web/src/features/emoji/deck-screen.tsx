@@ -65,7 +65,7 @@ export function DeckScreen() {
   const full = codes.length >= DECK_MAX;
   const pin = (emoji: string) => {
     if (codes.includes(emoji)) return void toast(t("deck.already"));
-    if (full) return void toast.error(t("errors.DECK_TOO_LONG"));
+    if (full) return void toast.error(t("errors:DECK_TOO_LONG"));
     save.mutate([...codes, emoji]);
   };
   const recentChoices = toChoices(recent.data ?? [], catalog);

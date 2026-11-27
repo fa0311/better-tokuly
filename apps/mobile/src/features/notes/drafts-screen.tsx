@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
 import { ActionSheet } from "#/components/action-sheet";
 import { EmptyState, Spinner } from "#/components/page";
+import { reasonText } from "#/lib/errors";
 import i18n from "#/lib/i18n";
 import { useDeleteDraft, usePublishDraft } from "./actions";
 import { composeHref } from "./compose-href";
@@ -63,7 +64,8 @@ export function DraftsScreen() {
               {item.failureReason && (
                 <Text className="text-xs font-bold text-danger">
                   {t("drafts.failed", {
-                    reason: t(`errors.${item.failureReason}`, { defaultValue: item.failureReason }),
+                    reason:
+                      reasonText(item.failureReason, { namespace: "notes" }) ?? item.failureReason,
                   })}
                 </Text>
               )}

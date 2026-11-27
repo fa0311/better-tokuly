@@ -242,7 +242,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
       <SchoolPage back="/school/rooms" title={t("rooms.one")}>
         <EmptyState
           emoji="🚪"
-          title={closed || room?.closedAt ? t("rooms.closedTitle") : t("errors.ROOM_NOT_FOUND")}
+          title={closed || room?.closedAt ? t("rooms.closedTitle") : t("errors:ROOM_NOT_FOUND")}
           body={t("rooms.closedBody")}
           action={<Button onClick={leaveToList}>{t("rooms.backToList")}</Button>}
         />

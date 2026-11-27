@@ -147,21 +147,8 @@ export default {
     antennaDeleted: "Antenna deleted",
   },
   errors: {
-    LIST_NOT_FOUND: "List not found",
-    ANTENNA_NOT_FOUND: "Antenna not found",
-    INVALID_NAME: "Check the length of the name",
     DESCRIPTION_TOO_LONG: "Descriptions are up to 200 characters",
-    TOO_MANY_LISTS: "You can have up to 50 lists",
     TOO_MANY_MEMBERS: "A list holds up to 500 people",
-    MEMBER_NOT_ALLOWED:
-      "A locked account can only go on your public list once it has approved you as a follower",
-    CANNOT_FOLLOW_OWN_LIST: "You can't follow your own list",
-    TOO_MANY_FOLLOWED_LISTS: "You can follow up to 200 lists",
-    INVALID_KEYWORDS:
-      "Check the keywords (10 groups × 5 words, 10 left-out words, 50 characters each)",
-    INVALID_USERS: "Choose 1–50 people",
-    INVALID_SOURCE: "Choose where to look again",
-    TOO_MANY_ANTENNAS: "You can have up to 5 antennas",
     USER_NOT_FOUND: "User not found",
   },
 };

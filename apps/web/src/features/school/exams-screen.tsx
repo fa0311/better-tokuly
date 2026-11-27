@@ -266,7 +266,7 @@ export function ExamScreen({ examId }: { examId: string }) {
   if (isError || !exam) {
     return (
       <SchoolPage back="/school/exams" title={t("exams.one")}>
-        <EmptyState emoji="🫥" title={t("errors.EXAM_NOT_FOUND")} />
+        <EmptyState emoji="🫥" title={t("errors:EXAM_NOT_FOUND")} />
       </SchoolPage>
     );
   }

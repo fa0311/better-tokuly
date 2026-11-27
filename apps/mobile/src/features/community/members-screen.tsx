@@ -52,7 +52,7 @@ export function MembersScreen({ handle }: { handle: string }) {
     return (
       <View className="flex-1 bg-bg" testID={c ? "members-members-only" : "community-not-found"}>
         {c ? (
-          <EmptyState emoji="🔒" title={t("errors.NOT_A_MEMBER")} />
+          <EmptyState emoji="🔒" title={t("errors:NOT_A_MEMBER")} />
         ) : (
           <EmptyState emoji="🫥" title={t("notFound.title")} body={t("notFound.body")} />
         )}

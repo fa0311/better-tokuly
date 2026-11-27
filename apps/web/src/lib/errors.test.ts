@@ -28,8 +28,8 @@ describe("error messages", () => {
     expect(errorMessage(failure("HANDLE_TAKEN"))).toBe("このハンドルはもう使われています");
   });
 
-  it("then use another feature's text rather than a generic apology", () => {
-    // Only chat knows this reason; a caller from elsewhere (or one that names no feature) still gets it.
+  it("have a text for a reason of a feature whose strings are not loaded", () => {
+    // Only chat hits this reason; the shared `errors` namespace has it for every screen.
     expect(errorMessage(failure("POV_ALREADY_OPEN"), { namespace: "stamps" })).toBe(
       "まだ答えを待っているPOVリクエストがあるよ",
     );
@@ -38,10 +38,10 @@ describe("error messages", () => {
     );
   });
 
-  it("leave callers that name no feature with the wording they had", () => {
-    // A bad cursor: three features have a text; without a namespace the first one in order still wins, as before.
+  it("give callers that name no feature the shared wording", () => {
+    // A bad cursor: several features word it their own way; the shared text fits any screen.
     expect(errorMessage(failure("INVALID_CURSOR"))).toBe(
-      "一覧の続きを読み込めませんでした。ページを開き直してね",
+      "続きを読み込めなかったよ。ページを開き直してね",
     );
     expect(errorMessage(failure("INVALID_CURSOR"), { namespace: "wallet" })).toBe(
       "一覧を読み込み直してね",

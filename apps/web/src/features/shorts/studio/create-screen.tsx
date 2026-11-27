@@ -129,12 +129,12 @@ export function CreateScreen({ search }: { search: CreateSearch }) {
       const facts = await probeVideo(url);
       if (facts.width > 0 && facts.width / facts.height > MAX_ASPECT + 0.01) {
         URL.revokeObjectURL(url);
-        toast.error(t("errors.SHORT_NOT_VERTICAL"));
+        toast.error(t("errors:SHORT_NOT_VERTICAL"));
         return;
       }
       if (facts.durationSeconds > MAX_SECONDS + 0.5 && !trimmable) {
         URL.revokeObjectURL(url);
-        toast.error(t("errors.SHORT_TOO_LONG"));
+        toast.error(t("errors:SHORT_TOO_LONG"));
         return;
       }
       take({ kind: "file", file, url, duration: facts.durationSeconds });

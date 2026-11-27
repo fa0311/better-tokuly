@@ -152,7 +152,7 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
         {detail.isError ? (
           <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
         ) : (
-          <EmptyState emoji="🧭" title={t("errors.CASE_NOT_FOUND")} />
+          <EmptyState emoji="🧭" title={t("errors:CASE_NOT_FOUND")} />
         )}
       </ConsolePage>
     );

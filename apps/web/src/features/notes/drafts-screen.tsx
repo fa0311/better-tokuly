@@ -10,7 +10,7 @@ import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage, reasonText } from "#/lib/errors";
 import { draftClient } from "./api";
 import { NotesPage } from "./shell";
 import { noteDateTime } from "./time";
@@ -94,7 +94,8 @@ export function DraftsScreen() {
             {draft.failureReason && (
               <p className="mt-1.5 text-sm font-bold text-danger">
                 {t("drafts.failed", {
-                  reason: t(`errors.${draft.failureReason}`, { defaultValue: draft.failureReason }),
+                  reason:
+                    reasonText(draft.failureReason, { namespace: "notes" }) ?? draft.failureReason,
                 })}
               </p>
             )}

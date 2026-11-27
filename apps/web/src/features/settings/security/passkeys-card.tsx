@@ -201,7 +201,7 @@ function AddPasskeyDialog({
         setPasswordError(t("settings:account.password.wrongCurrent"));
       // The authenticator already holds a passkey for this account.
       else if (error instanceof Error && error.name === "InvalidStateError")
-        toast.error(t("settings:errors.PASSKEY_EXISTS"));
+        toast.error(t("errors:PASSKEY_EXISTS"));
       else toast.error(errorMessage(error));
     },
   });

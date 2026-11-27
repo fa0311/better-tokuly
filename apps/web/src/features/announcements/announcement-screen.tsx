@@ -27,7 +27,7 @@ export function AnnouncementScreen({ announcementId }: { announcementId: string 
       ) : !announcement ? (
         <EmptyState
           emoji="🧭"
-          title={detail.isError ? errorMessage(detail.error) : t("errors.ANNOUNCEMENT_NOT_FOUND")}
+          title={detail.isError ? errorMessage(detail.error) : t("errors:ANNOUNCEMENT_NOT_FOUND")}
           action={
             <Link
               to="/announcements"

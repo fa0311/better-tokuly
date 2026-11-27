@@ -23,10 +23,4 @@ export default {
   onDevice: "Continue with an account on this device",
   addTitle: "Add an account",
   addLead: "The account you are using stays signed in; switch back any time!",
-  errors: {
-    ACCOUNT_NOT_ON_DEVICE: "That account was signed out of this device. Sign in again.",
-    ACCOUNT_ALREADY_ACTIVE: "That account is already in use",
-    TOO_MANY_ACCOUNTS: "This device cannot hold any more accounts",
-    SWITCH_REQUIRED: "Switch to this account first",
-  },
 } as const;

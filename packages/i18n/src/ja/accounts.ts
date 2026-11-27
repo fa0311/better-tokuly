@@ -23,11 +23,4 @@ export default {
   onDevice: "この端末のアカウントで続ける",
   addTitle: "アカウントを追加",
   addLead: "いまのアカウントはそのまま。あとから切り替えられます！",
-  errors: {
-    ACCOUNT_NOT_ON_DEVICE:
-      "このアカウントはこの端末からログアウトしています。もう一度ログインしてね",
-    ACCOUNT_ALREADY_ACTIVE: "このアカウントはもう使用中です",
-    TOO_MANY_ACCOUNTS: "この端末にはこれ以上アカウントを追加できません",
-    SWITCH_REQUIRED: "アカウントを切り替えてね",
-  },
 } as const;

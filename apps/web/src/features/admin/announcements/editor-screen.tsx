@@ -299,7 +299,7 @@ function Editor({ announcement }: { announcement?: admin.ManagedAnnouncement }) 
                       rows={14}
                       error={
                         language === "ja" && showErrors && missingBody
-                          ? t("errors.BODY_INVALID")
+                          ? t("errors:BODY_INVALID")
                           : undefined
                       }
                       onChange={(event) =>

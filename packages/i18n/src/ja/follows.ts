@@ -123,13 +123,5 @@ export default {
   },
   errors: {
     MISSING_TARGET: "フォローする相手をえらんでね",
-    CANNOT_FOLLOW_SELF: "自分はフォローできないよ",
-    USER_BLOCKED: "ブロック中の人はフォローできないよ",
-    FOLLOW_LIMIT_REACHED: "フォローできる人数の上限だよ!フォローを整理してみてね",
-    REQUEST_NOT_FOUND: "このリクエストはもうないみたい",
-    FOLLOW_LIST_PRIVATE: "鍵アカウントのリストは見られないよ",
-    NOT_FOLLOWING: "この人はフォローしていないよ",
-    INVALID_MUTE_DURATION: "ミュートの期間がおかしいみたい",
-    QUERY_TOO_LONG: "検索ワードが長すぎるよ",
   },
 } as const;

@@ -13,7 +13,4 @@ export default {
   emptyBody: "When there is something new, you'll find it here!",
   emptyCategory: "Nothing in this category yet",
   backToList: "Back to what's new",
-  errors: {
-    ANNOUNCEMENT_NOT_FOUND: "This announcement could not be found",
-  },
 } as const;

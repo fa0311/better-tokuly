@@ -77,7 +77,7 @@ export function TakedownDialog({
       <TextField
         label={t("moderation.takedown.id")}
         hint={t("moderation.takedown.idHint")}
-        error={idMissing ? t("errors.SUBJECT_INVALID") : undefined}
+        error={idMissing ? t("errors:SUBJECT_INVALID") : undefined}
         value={id}
         onChange={(event) => {
           setId(event.target.value);

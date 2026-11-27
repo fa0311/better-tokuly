@@ -295,7 +295,7 @@ export function FriendTimetableScreen({ userId }: { userId: string }) {
       <SchoolPage back="/school/friends" title={t("friends.title")}>
         <EmptyState
           emoji="🙈"
-          title={hidden ? t("errors.TIMETABLE_NOT_SHARED") : t("loadFailed")}
+          title={hidden ? t("errors:TIMETABLE_NOT_SHARED") : t("loadFailed")}
           body={hidden ? t("friends.notSharedBody") : undefined}
         />
       </SchoolPage>

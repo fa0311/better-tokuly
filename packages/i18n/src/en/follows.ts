@@ -123,13 +123,5 @@ export default {
   },
   errors: {
     MISSING_TARGET: "Choose someone to follow",
-    CANNOT_FOLLOW_SELF: "You can't follow yourself",
-    USER_BLOCKED: "You can't follow someone you blocked",
-    FOLLOW_LIMIT_REACHED: "You're following as many accounts as you can. Try tidying up!",
-    REQUEST_NOT_FOUND: "That request is gone",
-    FOLLOW_LIST_PRIVATE: "The lists of a private account are hidden",
-    NOT_FOLLOWING: "You don't follow this account",
-    INVALID_MUTE_DURATION: "That mute length doesn't work",
-    QUERY_TOO_LONG: "That search is too long",
   },
 } as const;

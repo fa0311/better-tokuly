@@ -6,26 +6,26 @@ export interface ErrorMessageOptions {
   /**
    * The i18n namespace of the feature that is showing the error. Its own
    * `errors.<REASON>` text is preferred, so a reason several features can hit
-   * (an upload that failed, a bad cursor) reads right on each of their screens.
+   * (an upload that failed, a name too long) reads right on each of their screens.
    */
   namespace?: string;
 }
 
 /**
- * The localized text for an API reason: the calling feature's own wording
- * first, then the shared list (`errors` namespace: reasons any screen can hit,
- * such as a failed upload, in neutral words), then any other feature's
- * `errors` group, in namespace order.
+ * The localized text for an API reason, also one that came without an error
+ * (a draft that failed, a refused name): the calling feature's own wording
+ * first, then the shared one (the `errors` namespace, which has every reason
+ * the API returns, so the text never depends on which features' strings an
+ * app has loaded). Undefined for a reason nobody knows.
  */
-function reasonMessage(i18n: I18n, reason: string, namespace?: string): string | undefined {
+export function reasonText(
+  i18n: I18n,
+  reason: string,
+  { namespace }: ErrorMessageOptions = {},
+): string | undefined {
   if (namespace && i18n.exists(`errors.${reason}`, { ns: namespace }))
     return i18n.t(`errors.${reason}`, { ns: namespace });
   if (i18n.exists(reason, { ns: "errors" })) return i18n.t(reason, { ns: "errors" });
-  // Features keep the reasons only they can hit under `errors.<REASON>` in their own namespace.
-  for (const other of Object.keys(i18n.getDataByLanguage(i18n.language) ?? {})) {
-    if (i18n.exists(`errors.${reason}`, { ns: other }))
-      return i18n.t(`errors.${reason}`, { ns: other });
-  }
   return undefined;
 }
 
@@ -39,9 +39,9 @@ export function errorMessage(
   error: unknown,
   options: ErrorMessageOptions = {},
 ): string {
-  if (error instanceof AssetFailedError) return assetFailureMessage(i18n, error, options.namespace);
+  if (error instanceof AssetFailedError) return assetFailureMessage(i18n, error, options);
   const reason = errorReason(error);
-  const known = reason ? reasonMessage(i18n, reason, options.namespace) : undefined;
+  const known = reason ? reasonText(i18n, reason, options) : undefined;
   if (known) return known;
   if (reason === "RATE_LIMITED" || (isApiError(error) && error.code === Code.ResourceExhausted))
     return i18n.t("RATE_LIMITED", { ns: "errors" });
@@ -62,11 +62,15 @@ export function durationLimit(i18n: I18n, seconds: number): string {
 }
 
 /** What to say about an upload the server refused after processing. */
-function assetFailureMessage(i18n: I18n, error: AssetFailedError, namespace?: string): string {
+function assetFailureMessage(
+  i18n: I18n,
+  error: AssetFailedError,
+  options: ErrorMessageOptions,
+): string {
   if (error.reason === "MEDIA_TOO_LONG" && error.maxDurationSeconds > 0)
     return i18n.t("MEDIA_TOO_LONG_LIMIT", {
       ns: "errors",
       limit: durationLimit(i18n, error.maxDurationSeconds),
     });
-  return reasonMessage(i18n, error.reason, namespace) ?? i18n.t("generic", { ns: "errors" });
+  return reasonText(i18n, error.reason, options) ?? i18n.t("generic", { ns: "errors" });
 }

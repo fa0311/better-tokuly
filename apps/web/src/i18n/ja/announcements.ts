@@ -13,7 +13,4 @@ export default {
   emptyBody: "新しいアップデートが出たら、ここでお知らせするね！",
   emptyCategory: "このカテゴリのお知らせはまだありません",
   backToList: "アップデート情報にもどる",
-  errors: {
-    ANNOUNCEMENT_NOT_FOUND: "このお知らせは見つかりませんでした",
-  },
 } as const;

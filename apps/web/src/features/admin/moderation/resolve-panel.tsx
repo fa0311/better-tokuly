@@ -159,7 +159,7 @@ export function ResolvePanel({
           <TextArea
             label={t("common.reason")}
             hint={t("common.reasonHint")}
-            error={reasonMissing ? t("errors.REASON_REQUIRED") : undefined}
+            error={reasonMissing ? t("errors:REASON_REQUIRED") : undefined}
             value={reason}
             maxLength={REASON_MAX}
             onChange={(event) => {

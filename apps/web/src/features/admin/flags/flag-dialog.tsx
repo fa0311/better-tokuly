@@ -109,7 +109,7 @@ export function FlagDialog({
           <TextField
             label={t("admin:flags.fields.name")}
             hint={t("admin:flags.fields.nameHint")}
-            error={nameError ? t("admin:errors.FLAG_NAME_INVALID") : undefined}
+            error={nameError ? t("errors:FLAG_NAME_INVALID") : undefined}
             value={name}
             maxLength={64}
             placeholder="new_map_pins"

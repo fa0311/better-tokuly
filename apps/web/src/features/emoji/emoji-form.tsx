@@ -11,7 +11,7 @@ import { SelectField } from "#/components/ui/select";
 import { Spinner } from "#/components/ui/spinner";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage, reasonText } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
 import { submissionClient } from "./api";
 import { useCatalog } from "./catalog";
@@ -141,7 +141,7 @@ export function EmojiForm({
     name && !wellFormed
       ? t("form.nameInvalid")
       : checkable && refused
-        ? t(`errors.${refused}`, { defaultValue: t("errors.NAME_TAKEN") })
+        ? (reasonText(refused, { namespace: "emoji" }) ?? t("errors:NAME_TAKEN"))
         : undefined;
   const nameOk = wellFormed && (name === currentName || (checkable && check.data && !refused));
 

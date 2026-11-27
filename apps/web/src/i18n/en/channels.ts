@@ -91,16 +91,9 @@ export default {
     removedDone: "Taken out of the channel",
   },
   errors: {
-    CHANNEL_NOT_FOUND: "Channel not found",
-    NOT_CHANNEL_MODERATOR: "Only the owner and moderators can do that",
-    NOT_CHANNEL_OWNER: "Only the owner can do that",
-    CHANNEL_ARCHIVED: "This channel is archived",
     TOO_MANY_CHANNELS: "You can create up to 10 channels",
-    TOO_MANY_FOLLOWED_CHANNELS: "You can follow up to 500 channels",
-    TOO_MANY_MODERATORS: "A channel can have up to 20 moderators",
     TOO_MANY_PINNED: "You can pin up to 5 notes",
     INVALID_NAME: "Names are 1–50 characters",
     DESCRIPTION_TOO_LONG: "Descriptions are up to 500 characters",
-    INVALID_COLOR: "Pick another colour",
   },
 };

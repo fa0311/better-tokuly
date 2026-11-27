@@ -139,13 +139,8 @@ export default {
     done: "History deleted",
   },
   errors: {
-    HISTORY_UNAVAILABLE:
-      "History cannot be changed right now. Nothing was deleted; try again in a little while",
     INVALID_RANGE: "Choose a valid range",
     INVALID_DATE: "That date cannot be used",
-    INVALID_TIME_ZONE: "Could not read the time zone",
     TEXT_TOO_LONG: "A memo has at most 2000 characters",
-    TOO_MANY_PHOTOS: "A memo has at most 10 photos",
-    LOCATION_BUSY: "Your location is being processed. Try again in a moment",
   },
 } as const;

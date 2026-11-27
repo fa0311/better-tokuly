@@ -174,9 +174,6 @@ export default {
     },
   },
   errors: {
-    NEWS_ARTICLE_NOT_FOUND: "This article is no longer available",
-    INVALID_TAG: "That tag cannot be used as a filter",
     INVALID_LANGUAGE: "That language cannot be used as a filter",
-    INVALID_FEEDBACK: "That feedback could not be sent",
   },
 } as const;
