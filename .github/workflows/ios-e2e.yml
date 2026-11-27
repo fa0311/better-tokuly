@@ -18,20 +18,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 18 * * *" # 03:00 in Japan
-  pull_request:
-    paths:
-      - apps/mobile/**
-      - packages/**
-      - proto/**
-      - backend/**
-      - pnpm-lock.yaml
-      - .github/workflows/ios-e2e.yml
-      - .github/actions/**
-      - tools/dev/infra.sh
-      - tools/ci/native-stack.sh
-      - infra/caddy/**
-  push:
-    branches: [main]
+  # Nightly and by hand only: the macOS runners are the scarcest, and nobody waits for it.
 
 concurrency:
   group: ios-e2e-${{ github.ref }}

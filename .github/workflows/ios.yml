@@ -8,14 +8,8 @@ name: iOS
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - apps/mobile/**
-      - packages/**
-      - proto/**
-      - pnpm-lock.yaml
-      - .github/workflows/ios.yml
-      - .github/actions/**
+  # Not on pull requests: they merge without waiting for it (docs/agents/rules.md); main covers it
+  # (a newer push cancels the older run), and a pull request can still start it by hand.
   push:
     branches: [main]
 

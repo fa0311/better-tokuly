@@ -19,16 +19,8 @@ name: End to end
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - apps/web/**
-      - apps/mobile/**
-      - packages/**
-      - proto/**
-      - pnpm-lock.yaml
-      - .github/workflows/e2e.yml
-      - .github/actions/**
-      - tools/ci/use-images.sh
+  # Not on pull requests: they merge without waiting for it (docs/agents/rules.md); main covers it
+  # (a newer push cancels the older run), and a pull request can still start it by hand.
   push:
     branches: [main]
     paths:

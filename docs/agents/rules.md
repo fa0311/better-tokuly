@@ -23,7 +23,8 @@ Binding for every agent. Newer lines win over older ones. Dates are 2026.
 - Web and mobile share platform-neutral logic only (`packages/`); no multi-purpose "universal" components;
   small duplication beats a shared abstraction with platform branches (11/25).
 - Never wait for CI: merge after review and local checks; collect CI failures and fix them in batches;
-  everything green before a release tag (11/24, 11/26). A newer push cancels older runs, main included (11/27).
+  everything green before a release tag (11/24, 11/26). A newer push cancels older runs, main included; End to end and the iOS
+  builds run on main only, iOS end to end nightly — CI must never be the bottleneck (11/27).
 - Pull requests that change the UI carry screenshots (phone and desktop, Japanese, test data only) (11/26).
 - One outcome per issue, one concern per PR; review fixes go on the same PR (11/26).
 - A machine-wide setting lives in machine config and is checked by `tools/agent/machine/env-check.sh`;
