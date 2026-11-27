@@ -130,8 +130,11 @@ bundled: purchases go through a pluggable provider interface, with a built-in
   idempotent on a caller-supplied key.
 - Accounts per user: spendable coins and creator earnings (received gifts,
   stamp sales) kept apart.
+- Monthly spending limit: under 18, coin purchases plus coins sent to others
+  stay within ¥5,000 a calendar month (Japan time). Anyone may set a lower
+  limit of their own (minors up to ¥5,000, not clearing it); it stays after 18.
 - RPCs: balance, ledger history, coin packages on sale, purchase (provider
-  flow), daily login bonus, earnings summary, payout requests (reviewed by
+  flow), daily login bonus, spending limit, earnings summary, payout requests (reviewed by
   admins).
 - Public Rust API for other domains: `spend`, `transfer` (payer → recipient
   earnings, with platform fee percentage from config), `refund`.

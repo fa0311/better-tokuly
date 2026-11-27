@@ -102,6 +102,30 @@ export default {
       confirmDevelopment: "Make test purchase",
     },
   },
+  limit: {
+    title: "Spending limit",
+    hint: "The most you can spend in a month",
+    remaining: "You can spend {{amount}} more this month",
+    reached: "You've hit this month's limit! You can spend again from {{date}}",
+    none: "No limit. Setting one keeps spending in check!",
+    spent: "Spent this month",
+    of: "Limit {{amount}}",
+    resets: "Resets on {{date}}",
+    ceiling:
+      "Until you turn 18 you can spend up to {{amount}} a month. Going lower is fine anytime!",
+    counts:
+      "Coin purchases plus coins you send to others, like gifts (1 coin = ¥1). Login bonuses don't count.",
+    own: "Your own limit",
+    unlimited: "No limit",
+    choose: "Pick a limit",
+    custom: "Enter an amount (yen)",
+    save: "Use this limit",
+    clear: "Remove the limit",
+    saved: "Your limit is now {{amount}}!",
+    cleared: "Limit removed",
+    change: "Change the limit",
+    overLimit: "Over your limit",
+  },
   provider: {
     development: "Development (test payment)",
     developmentNote:

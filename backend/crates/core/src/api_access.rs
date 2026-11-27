@@ -1112,6 +1112,9 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("ListPurchases", Read),
         ("GetDailyBonus", Read),
         ("ClaimDailyBonus", Write),
+        ("GetSpendingLimit", Read),
+        // A leaked token must not lift a protection the owner chose.
+        ("SetSpendingLimit", Session),
     ]),
     ("tokuly.wallet.v1.EarningsService", &[
         ("GetEarningsSummary", Read),
@@ -1544,6 +1547,7 @@ mod tests {
             "/tokuly.geo.v1.SafetyService/ResolveSos",
             "/tokuly.wallet.v1.EarningsService/RequestPayout",
             "/tokuly.wallet.v1.WalletService/StartPurchase",
+            "/tokuly.wallet.v1.WalletService/SetSpendingLimit",
             "/tokuly.admin.v1.UserAdminService/SuspendUser",
             "/tokuly.admin.v1.AnnouncementService/ListAnnouncements",
             "/tokuly.wallet.v1.WalletAdminService/AdjustBalance",

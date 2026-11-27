@@ -20,6 +20,7 @@ import { useCountUp } from "./celebration";
 import { DailyBonusCard } from "./daily-bonus-card";
 import { LedgerList } from "./ledger";
 import { LinkButton, SectionTitle } from "./parts";
+import { SpendingLimitBanner } from "./spending-limit";
 import { useBalance } from "./use-balance";
 
 /** How many of the latest movements the home page shows. */
@@ -33,6 +34,7 @@ export function WalletHomeScreen() {
       <div className="grid items-start gap-5 lg:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-5">
           <BalanceHero />
+          <SpendingLimitBanner />
           <DailyBonusCard />
         </div>
         <div className="flex min-w-0 flex-col gap-5">

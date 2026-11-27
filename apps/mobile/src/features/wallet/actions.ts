@@ -44,3 +44,28 @@ export function useClaimBonus(onWon: (coins: bigint) => void, onError: (message:
     claiming,
   };
 }
+
+/**
+ * Choosing one's own monthly limit (`null` removes it, from 18 on). The
+ * screen shows the limit the server answers with, never the one asked for.
+ */
+export function useSetSpendingLimit(
+  onSaved: (limitYen: bigint | null) => void,
+  onError: (message: string) => void,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (limitYen: bigint | null) =>
+      asAccount((account) =>
+        account.api
+          .service(wallet.WalletService)
+          .setSpendingLimit({ limitYen: limitYen ?? undefined }),
+      ),
+    onSuccess: (response, limitYen) => {
+      if (!response) return;
+      if (response.limit) queryClient.setQueryData(walletKeys.spendingLimit, response.limit);
+      onSaved(limitYen);
+    },
+    onError: (error) => onError(errorMessage(error, { namespace: "wallet" })),
+  });
+}

@@ -14,6 +14,7 @@ export const walletKeys = {
   purchases: ["wallet", "purchases"] as const,
   purchase: (purchaseId: string) => ["wallet", "purchase", purchaseId] as const,
   dailyBonus: ["wallet", "dailyBonus"] as const,
+  spendingLimit: ["wallet", "spendingLimit"] as const,
   earnings: ["wallet", "earnings"] as const,
   earningsSummary: (range: string) => ["wallet", "earnings", range] as const,
   payouts: ["wallet", "payouts"] as const,

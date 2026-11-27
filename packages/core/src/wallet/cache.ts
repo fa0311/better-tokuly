@@ -73,6 +73,8 @@ export function rememberPurchase(
   });
   // A purchase the list has not seen yet: let it load again from the top.
   if (!listed) void queryClient.invalidateQueries({ queryKey: walletKeys.purchases });
+  // Started and completed purchases count against the monthly limit; failed ones stop counting.
+  void queryClient.invalidateQueries({ queryKey: walletKeys.spendingLimit });
 }
 
 /** Stores the latest state of one of the user's payout requests and refreshes what depends on it. */
@@ -108,6 +110,9 @@ export function applyWalletEvent(queryClient: QueryClient, event: wallet.WalletE
       rememberBalance(queryClient, balance);
       if (!entry) return;
       rememberEntry(queryClient, entry);
+      // Coins sent to others (and their refunds) move this month's spending.
+      if (entry.coinsDelta !== 0n)
+        void queryClient.invalidateQueries({ queryKey: walletKeys.spendingLimit });
       if (entry.earningsDelta !== 0n)
         void queryClient.invalidateQueries({ queryKey: walletKeys.earnings });
       // Claimed on another device: the bonus card must stop offering it here.

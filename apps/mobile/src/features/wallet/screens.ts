@@ -5,4 +5,5 @@ export default [
   { name: "wallet/index", options: () => ({ title: i18n.t("wallet:title") }) },
   { name: "wallet/history", options: () => ({ title: i18n.t("wallet:history.title") }) },
   { name: "wallet/purchases", options: () => ({ title: i18n.t("wallet:purchases.title") }) },
+  { name: "wallet/limit", options: () => ({ title: i18n.t("wallet:limit.title") }) },
 ] satisfies ScreenEntry[];

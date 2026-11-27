@@ -1000,6 +1000,9 @@ export default {
   SELF_REVIEW: "自分の出金申請は審査できません",
   SKU_INVALID: "SKUの形式が正しくありません",
   SKU_TAKEN: "このSKUはすでに使われています",
+  SPENDING_LIMIT_INVALID: "上限は0円〜1億円のあいだで決めてね",
+  SPENDING_LIMIT_REACHED: "今月使えるのはここまで！来月になったらまた使えるよ",
+  SPENDING_LIMIT_RESTRICTED: "18歳になるまでは、上限をこれより上げたり外したりはできないよ",
   // reasons no screen had a text for yet
   ACCOUNT_CLOSED: "相手のアカウントはもう削除されているよ",
   ACCOUNT_EXISTS: "このメールアドレスのアカウントはもうあるよ",

@@ -1000,6 +1000,9 @@ export default {
   SELF_REVIEW: "You can't review your own payout request",
   SKU_INVALID: "That SKU isn't valid",
   SKU_TAKEN: "This SKU is already in use",
+  SPENDING_LIMIT_INVALID: "Pick a limit between ¥0 and ¥100,000,000",
+  SPENDING_LIMIT_REACHED: "That's all you can spend this month! It starts over next month",
+  SPENDING_LIMIT_RESTRICTED: "Until you turn 18, the limit can't go higher than this or be removed",
   // reasons no screen had a text for yet
   ACCOUNT_CLOSED: "The other account has been deleted",
   ACCOUNT_EXISTS: "An account with this email address already exists",

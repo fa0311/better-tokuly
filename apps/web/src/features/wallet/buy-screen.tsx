@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toMillis, wallet } from "@tokuly/api";
 import {
+  fitsLimit,
   formatCoins,
   formatMoney,
+  packageYen,
   rememberBalance,
   rememberPurchase,
   walletKeys,
@@ -23,6 +25,7 @@ import { walletClient } from "./api";
 import { BalancePill } from "./balance-pill";
 import { Fact, LinkButton } from "./parts";
 import { DEVELOPMENT_PROVIDER, DevelopmentNote, PurchaseProgress, providerName } from "./purchase";
+import { SpendingLimitBanner, useSpendingLimit } from "./spending-limit";
 
 const BADGES: Partial<Record<wallet.PackageBadge, { key: string; className: string }>> = {
   [wallet.PackageBadge.POPULAR]: { key: "shop.badge.popular", className: "bg-pink text-white" },
@@ -44,6 +47,7 @@ export function BuyScreen() {
   const [chosenProvider, setChosenProvider] = useState<string | null>(null);
   const [buying, setBuying] = useState<{ pkg: wallet.CoinPackage; attempt: number } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const { data: limit } = useSpendingLimit();
 
   const providers = data?.providers ?? [];
   const provider =
@@ -76,6 +80,7 @@ export function BuyScreen() {
       ) : (
         <>
           <p className="px-1 text-sm font-bold text-ink-soft">{t("shop.lead")}</p>
+          <SpendingLimitBanner className="mt-3" />
           {providers.length > 1 && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="px-1 text-sm font-black text-ink-soft">{t("shop.payWith")}</span>
@@ -91,7 +96,11 @@ export function BuyScreen() {
             <ul className="mt-5 grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 lg:grid-cols-4">
               {data.packages.map((pkg) => (
                 <li key={pkg.id}>
-                  <PackageCard pkg={pkg} onBuy={() => buy(pkg)} />
+                  <PackageCard
+                    pkg={pkg}
+                    overLimit={!fitsLimit(limit, packageYen(pkg))}
+                    onBuy={() => buy(pkg)}
+                  />
                 </li>
               ))}
             </ul>
@@ -126,8 +135,20 @@ export function BuyScreen() {
   );
 }
 
-/** One package on the shelf; the whole card is the buy button. */
-function PackageCard({ pkg, onBuy }: { pkg: wallet.CoinPackage; onBuy(): void }) {
+/**
+ * One package on the shelf; the whole card is the buy button. Past what is
+ * left of the month's spending limit it cannot be bought (the server would
+ * refuse it), and says so.
+ */
+function PackageCard({
+  pkg,
+  overLimit,
+  onBuy,
+}: {
+  pkg: wallet.CoinPackage;
+  overLimit: boolean;
+  onBuy(): void;
+}) {
   const { t, i18n } = useTranslation("wallet");
   const badge = BADGES[pkg.badge];
   const endsAt = toMillis(pkg.availableUntil);
@@ -137,8 +158,9 @@ function PackageCard({ pkg, onBuy }: { pkg: wallet.CoinPackage; onBuy(): void })
     <button
       type="button"
       onClick={onBuy}
+      disabled={overLimit}
       aria-label={t("shop.packageLabel", { coins: formatCoins(pkg.coins + pkg.bonusCoins), price })}
-      className="pressable sticker relative flex h-full w-full flex-col items-center gap-2 rounded-card bg-surface px-3 pt-6 pb-3 text-center"
+      className="pressable sticker relative flex h-full w-full flex-col items-center gap-2 rounded-card bg-surface px-3 pt-6 pb-3 text-center disabled:opacity-60"
     >
       {badge && (
         <span
@@ -167,8 +189,13 @@ function PackageCard({ pkg, onBuy }: { pkg: wallet.CoinPackage; onBuy(): void })
           {t("shop.endsIn", { time: compactDuration(Math.max(0, endsAt - Date.now())) })}
         </span>
       )}
-      <span className="sticker-sm mt-auto inline-flex h-10 w-full items-center justify-center rounded-full bg-brand font-black text-on-brand">
-        {price}
+      <span
+        className={cn(
+          "sticker-sm mt-auto inline-flex h-10 w-full items-center justify-center rounded-full font-black",
+          overLimit ? "bg-surface-2 text-ink-soft" : "bg-brand text-on-brand",
+        )}
+      >
+        {overLimit ? t("limit.overLimit") : price}
       </span>
     </button>
   );
