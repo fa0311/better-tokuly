@@ -340,6 +340,14 @@ export default {
     openPrivacy: "プライバシー設定をひらく",
     memoPhotos: "写真 {{count}}枚はそのままのこるよ（写真の追加・削除はWebで）",
   },
+  places: {
+    editOnWeb: "場所を編集する（Web）",
+    talkOnWeb: "リアクション・コメント（Web）",
+  },
+  footprints: {
+    mapOnWeb: "スクラッチマップを見る（Web）",
+    recapSeen: "見たよ!",
+  },
   quest: {
     coins: "もってるコイン",
     onWeb: "Webでひらく",
