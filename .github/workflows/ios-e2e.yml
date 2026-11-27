@@ -36,6 +36,9 @@ jobs:
     name: iOS app (release, for the simulator)
     runs-on: macos-26
     timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write # the pods and DerivedData caches in GHCR
     steps:
       - uses: actions/checkout@v7
       # The runner image can update Xcode without any app source changing.
@@ -88,11 +91,12 @@ jobs:
         with:
           setup_only: true
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: backend
           shared-key: macos-ci-profile
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build
         working-directory: backend
         run: |
@@ -127,7 +131,7 @@ jobs:
           path: ${{ runner.temp }}/backend
 
       # The service binaries of tools/dev/infra.sh depend on nothing but its pinned versions.
-      # Saved as soon as they are installed: a job that fails later (the flows) keeps them.
+      # Saved on main as soon as they are installed: a job that fails later (the flows) keeps them.
       - name: Service binaries
         id: services
         timeout-minutes: 5
@@ -148,7 +152,7 @@ jobs:
         run: |
           brew install --quiet ffmpeg
           tools/dev/infra.sh install
-      - if: steps.services.outputs.cache-hit != 'true'
+      - if: github.ref == 'refs/heads/main' && steps.services.outputs.cache-hit != 'true'
         timeout-minutes: 5
         uses: actions/cache/save@v6
         with:

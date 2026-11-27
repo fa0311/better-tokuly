@@ -149,10 +149,13 @@ jobs:
         with:
           setup_only: true
       - uses: dtolnay/rust-toolchain@stable
+      # Saved on main only, read by pull requests: per-branch caches would fill the 10 GB limit.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: backend
+          shared-key: backend
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build
         working-directory: backend
         run: |
@@ -199,6 +202,7 @@ jobs:
         with:
           workspaces: backend
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # A type check is enough to hold the MSRV (the inference differences are type errors), and a full
       # build of the generated API crate here ran the runner out of memory after an hour.
       - name: Check server
@@ -273,10 +277,13 @@ jobs:
         with:
           setup_only: true
       - uses: dtolnay/rust-toolchain@stable
+      # Runs on pull requests only: starts from main's cache of the build job (same toolchain
+      # and settings), saves nothing.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: backend
-          cache-on-failure: true
+          shared-key: backend
+          save-if: false
       - working-directory: backend
         run: |
           for crate in $(printf '%s\n' $TOUCHED | grep '^tokuly-'); do

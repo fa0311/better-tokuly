@@ -4,7 +4,8 @@
 # what gives the app its entitlements on the simulator (without them the
 # keychain, where the sessions are kept, refuses it). The step prints errors,
 # the build result and project warnings; the full log is kept on failure.
-# Expects the JavaScript workspace (setup-js) to be set up.
+# Expects the JavaScript workspace (setup-js) to be set up, and `packages: write`
+# for the caches in GHCR.
 name: iOS simulator app
 description: Generate, install the pods and build the app for the simulator.
 inputs:
@@ -40,29 +41,41 @@ runs:
         [ -z "$SERVER_URL" ] || export EXPO_PUBLIC_TOKULY_URL="$SERVER_URL"
         pnpm exec expo prebuild --platform ios --no-install
 
-    # Pods depend on the generated Podfile and on the JS packages that bring native code.
+    # Pods depend on the generated Podfile and on the JS packages that bring native code. The
+    # pods and Xcode's build products are kept in GHCR (ghcr-cache): too big for the Actions cache.
     - name: CocoaPods
-      uses: actions/cache@v6
+      id: pods
+      uses: ./.github/actions/ghcr-cache
       with:
+        mode: restore
+        name: ios-pods
+        key: ${{ hashFiles('apps/mobile/ios/Podfile', 'apps/mobile/ios/Podfile.properties.json', 'pnpm-lock.yaml', 'apps/mobile/modules/*/ios/*.podspec') }}
         path: |
           ~/Library/Caches/CocoaPods
           apps/mobile/ios/Pods
-        key: ios-pods-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile', 'apps/mobile/ios/Podfile.properties.json', 'pnpm-lock.yaml', 'apps/mobile/modules/*/ios/*.podspec') }}
-        restore-keys: ios-pods-${{ runner.os }}-
     - name: Install the pods
       shell: bash
       working-directory: apps/mobile/ios
       run: pod install
-
-    # Xcode's build products, per configuration: written on main, read everywhere (a pull
-    # request's cache is its own; main's is what every branch starts from).
-    - name: DerivedData
-      id: derived-data
-      uses: actions/cache/restore@v6
+    - if: github.ref == 'refs/heads/main' && steps.pods.outputs.hit != 'true'
+      uses: ./.github/actions/ghcr-cache
       with:
+        mode: save
+        name: ios-pods
+        key: ${{ hashFiles('apps/mobile/ios/Podfile', 'apps/mobile/ios/Podfile.properties.json', 'pnpm-lock.yaml', 'apps/mobile/modules/*/ios/*.podspec') }}
+        path: |
+          ~/Library/Caches/CocoaPods
+          apps/mobile/ios/Pods
+
+    # Xcode's build products, per configuration and toolchain: written by every run on main,
+    # read everywhere.
+    - name: DerivedData
+      uses: ./.github/actions/ghcr-cache
+      with:
+        mode: restore
+        name: ios-derived-data-${{ inputs.configuration }}-${{ steps.toolchain.outputs.key }}
+        key: ${{ github.sha }}
         path: apps/mobile/ios/build
-        key: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-${{ steps.toolchain.outputs.key }}-${{ github.sha }}
-        restore-keys: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-${{ steps.toolchain.outputs.key }}-
 
     - name: Build for the simulator
       id: build
@@ -97,11 +110,13 @@ runs:
         grep -q 'BUILD SUCCEEDED' "$RUNNER_TEMP/xcodebuild.log"
         echo "app=$PWD/build/Build/Products/$CONFIGURATION-iphonesimulator/Tokuly.app" >> "$GITHUB_OUTPUT"
 
-    - if: github.ref == 'refs/heads/main' && steps.derived-data.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v6
+    - if: github.ref == 'refs/heads/main'
+      uses: ./.github/actions/ghcr-cache
       with:
+        mode: save
+        name: ios-derived-data-${{ inputs.configuration }}-${{ steps.toolchain.outputs.key }}
+        key: ${{ github.sha }}
         path: apps/mobile/ios/build
-        key: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-${{ steps.toolchain.outputs.key }}-${{ github.sha }}
 
     - name: Keep the build log
       if: failure()

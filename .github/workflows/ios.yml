@@ -27,6 +27,9 @@ jobs:
     name: iOS app (simulator build)
     runs-on: macos-26
     timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write # the pods and DerivedData caches in GHCR
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-js
