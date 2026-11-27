@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { create, emoji } from "@tokuly/api";
+import { create, emoji, type MessageInitShape } from "@tokuly/api";
 import { EMPTY_CATALOG } from "@tokuly/core/emoji";
 import type { ReactNode } from "react";
 import { Alert } from "react-native";
@@ -19,7 +19,10 @@ jest.mock("expo-router", () => ({
   Stack: { Screen: () => null },
 }));
 
-const custom = (name: string, fields: Partial<emoji.CustomEmoji> = {}) =>
+const custom = (
+  name: string,
+  fields: Omit<MessageInitShape<typeof emoji.CustomEmojiSchema>, "$typeName"> = {},
+) =>
   create(emoji.CustomEmojiSchema, {
     id: `id-${name}`,
     name,
