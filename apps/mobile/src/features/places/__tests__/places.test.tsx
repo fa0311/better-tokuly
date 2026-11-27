@@ -254,6 +254,28 @@ describe("a place", () => {
     expect(router.back).not.toHaveBeenCalled();
   });
 
+  it("is checked in at once", async () => {
+    const written = placesOf();
+    await show(<CheckInScreen placeId="p1" />);
+    await fireEvent.press(await screen.findByTestId("check-in-submit"));
+    await waitFor(() => expect(router.back).toHaveBeenCalled());
+    const submit = screen.getByTestId("check-in-submit");
+    await waitFor(() => expect(submit.props.accessibilityState.disabled).toBe(true));
+    await fireEvent.press(submit);
+    expect(written.map((entry) => entry.name)).toEqual(["checkIn"]);
+  });
+
+  it("checked in at after the screen was closed closes nothing else", async () => {
+    const written = placesOf({ held: true });
+    const view = await show(<CheckInScreen placeId="p1" />);
+    await fireEvent.press(await screen.findByTestId("check-in-submit"));
+    await waitFor(() => expect(written).toHaveLength(1));
+    await view.unmount();
+    await answerWrites();
+    expect(written.map((entry) => entry.name)).toEqual(["checkIn"]);
+    expect(router.back).not.toHaveBeenCalled();
+  });
+
   it("is checked in at with a few words", async () => {
     const written = placesOf();
     await show(<CheckInScreen placeId="p1" />);

@@ -37,7 +37,6 @@ export function CheckInScreen({ placeId }: { placeId: string }) {
       void queryClient.invalidateQueries({ queryKey: placeKeys.all });
       void queryClient.invalidateQueries({ queryKey: historyKeys.all });
       Alert.alert(t("checkIn.done"));
-      router.back();
     },
     onError: (error) => Alert.alert(errorMessage(error, { namespace: NS })),
   });
@@ -61,8 +60,13 @@ export function CheckInScreen({ placeId }: { placeId: string }) {
         variant="lime"
         block
         size="lg"
+        // Every check-in is a visit of its own and is told to friends: one per opening.
+        disabled={checkIn.isSuccess}
         loading={checkIn.isPending}
-        onPress={() => checkIn.mutate()}
+        // Closing is this screen's own: once the person left it, the answer moves nothing.
+        onPress={() =>
+          checkIn.mutate(undefined, { onSuccess: (answer) => answer && router.back() })
+        }
       >
         {t("checkIn.submit")}
       </Button>
