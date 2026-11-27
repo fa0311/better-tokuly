@@ -205,6 +205,19 @@ function Composer({
   const kept = keptGone ? undefined : lookup.data?.stamp?.stampRef;
   const shownStamp = stamp ?? kept;
   const stampId = stamp?.id ?? (keptGone ? "" : keptStampId);
+  // Posting or saving can race the lookup that checks a draft's saved stamp.
+  const stampIdToKeep = async () => {
+    if (stamp) return stamp.id;
+    if (!keptStampId) return "";
+    const current = lookup.isPending || lookup.isFetching ? await lookup.refetch() : lookup;
+    if (current.isError) {
+      return current.error instanceof ConnectError && current.error.code === Code.NotFound
+        ? ""
+        : keptStampId;
+    }
+    const saved = current.data?.stamp;
+    return saved?.usable ? (saved.stampRef?.id ?? "") : "";
+  };
   const [pickingStamp, setPickingStamp] = useState(false);
   const [pickingEmoji, setPickingEmoji] = useState(false);
   const [touched, setTouched] = useState(false);
@@ -236,10 +249,10 @@ function Composer({
   const done = useRef(false);
   const unsaved = touched && hasContent && !busy && !done.current;
 
-  const draftContent = (): NoteContent => ({
+  const draftContent = (stampIdOverride = stampId): NoteContent => ({
     text: text.trim(),
     assetIds: photos.assetIds,
-    stampId,
+    stampId: stampIdOverride,
     ...audienceFields(chosen),
     replyToId: replyTo?.id ?? content?.replyToId ?? "",
     quoteOfId: quote?.id ?? content?.quoteOfId ?? "",
@@ -259,7 +272,13 @@ function Composer({
     setBusy("draft");
     try {
       // A draft waiting for its time keeps it: only the words change here.
-      await saveDraft(queryClient, client, draft?.id ?? "", draftContent(), draft?.scheduledAt);
+      await saveDraft(
+        queryClient,
+        client,
+        draft?.id ?? "",
+        draftContent(await stampIdToKeep()),
+        draft?.scheduledAt,
+      );
       Alert.alert(t("toast.draftSaved"));
       leave();
     } catch (error) {
@@ -274,7 +293,10 @@ function Composer({
     const drafts = draftClient();
     setBusy("post");
     try {
-      await postNote(queryClient, client, { ...draftContent(), idempotencyKey });
+      await postNote(queryClient, client, {
+        ...draftContent(await stampIdToKeep()),
+        idempotencyKey,
+      });
       if (draft) await drafts.deleteDraft({ draftId: draft.id }).catch(() => {});
       leave();
     } catch (error) {
