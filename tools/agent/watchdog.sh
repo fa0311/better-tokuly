@@ -57,6 +57,11 @@ if ! gh api --paginate "repos/$repo/issues/comments?since=$since&per_page=100" \
   echo "FAIL GitHub comment query failed; cursor unchanged at $since" >&2
   exit 1
 fi
+if ! gh api --paginate "repos/$repo/pulls/comments?since=$since&per_page=100" \
+  --jq '.[]|"#\(.pull_request_url|split("/")|last) \(.user.login) [inline] \(.body[0:120]|gsub("\n";" "))"' >"$tmp/review-comments"; then
+  echo "FAIL GitHub pull-request review comment query failed; cursor unchanged at $since" >&2
+  exit 1
+fi
 if ! gh run list --repo "$repo" --branch main -L 20 --json name,status,conclusion,headSha \
   --jq 'group_by(.name)|map(.[0])|.[]|"\(.name) \(.status) \(.conclusion) \(.headSha[0:8])"' >"$tmp/main-ci"; then
   echo "FAIL GitHub CI query failed; cursor unchanged at $since" >&2
@@ -73,4 +78,5 @@ fi
 echo "== open PRs"; cat "$tmp/open-prs"
 echo "== new issues since $since (author!)"; cat "$tmp/issues"
 echo "== new comments since $since"; cat "$tmp/comments"
+echo "== new inline review comments since $since"; cat "$tmp/review-comments"
 echo "== main CI (latest per workflow)"; cat "$tmp/main-ci"
