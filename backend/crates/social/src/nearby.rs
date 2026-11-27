@@ -4,6 +4,9 @@
 //! live GEO set (see [`crate::livegeo`]) and receives the set of other such
 //! users within ~50 m whenever it changes. Being in the set is the only way
 //! to see it, and users who switched off `nearby_discoverable` cannot join.
+//! There is one set per age group, since strangers only meet within theirs
+//! (see [`people::age_groups_among`]): a session searches its own, so in a
+//! crowd the other group does not take the places of the people it may meet.
 //!
 //! Sessions learn about arrivals and departures without polling each other:
 //! whoever joins or leaves publishes a wake-up on the bus for their map cell
@@ -37,6 +40,10 @@ const MAX_SESSION: Duration = Duration::from_secs(600);
 const MAX_ACCURACY_ALLOWANCE: f64 = 25.0;
 /// Most users reported at once (a crowded venue).
 const MAX_NEARBY: usize = 50;
+/// Most members read from the set per look. A look reads past the people
+/// in a block with the user, so that they do not take the places of others;
+/// someone who blocked very many may see fewer than [`MAX_NEARBY`] in a crowd.
+const MAX_SCAN: usize = 500;
 /// Sessions one user may open per [`SESSION_WINDOW`]. Every session is a
 /// look at a point near the user (within what [`crate::claims`] lets pass):
 /// few of them keep it from becoming a way to close in on someone.
@@ -53,7 +60,21 @@ fn coarse_distance(meters: f64) -> f64 {
     DISTANCE_BANDS.into_iter().find(|band| meters <= *band).unwrap_or(DISTANCE_BANDS[DISTANCE_BANDS.len() - 1])
 }
 
-pub(crate) const NEARBY: LiveGeoSet = LiveGeoSet::new("social:nearby:geo", "social:nearby:seen", PRESENCE_TTL);
+const NEARBY_MINORS: LiveGeoSet = LiveGeoSet::new("social:nearby:minors:geo", "social:nearby:minors:seen", PRESENCE_TTL);
+const NEARBY_ADULTS: LiveGeoSet = LiveGeoSet::new("social:nearby:adults:geo", "social:nearby:adults:seen", PRESENCE_TTL);
+/// The set of everyone from before the split: only pruned, it empties itself
+/// once no server of an older release checks anyone in.
+const NEARBY_BEFORE_AGE_GROUPS: LiveGeoSet = LiveGeoSet::new("social:nearby:geo", "social:nearby:seen", PRESENCE_TTL);
+/// Every nearby set, for leaving and pruning.
+pub(crate) const NEARBY_SETS: [&LiveGeoSet; 3] = [&NEARBY_MINORS, &NEARBY_ADULTS, &NEARBY_BEFORE_AGE_GROUPS];
+
+/// The set of the people of `group`.
+fn nearby_set(group: AgeGroup) -> &'static LiveGeoSet {
+    match group {
+        AgeGroup::Minors => &NEARBY_MINORS,
+        AgeGroup::Adults => &NEARBY_ADULTS,
+    }
+}
 
 /// Holds the ID of a user's current session; older sessions end when they
 /// see it changed. Outlives the longest session a little.
@@ -66,8 +87,9 @@ const SESSION_KEY_TTL: Duration = Duration::from_secs(MAX_SESSION.as_secs() + 60
 #[derive(Debug, Clone, Copy)]
 struct Spot {
     user_id: Uuid,
-    /// The user's age group: they only meet people of the same one, and
-    /// nobody without one (see [`people::age_groups_among`]).
+    /// The user's age group when the session opened: the set they are in
+    /// and search. Without one they are in none and meet nobody (see
+    /// [`people::age_groups_among`]).
     age_group: Option<AgeGroup>,
     lat: f64,
     lng: f64,
@@ -113,7 +135,9 @@ impl Social {
         // Listen before showing up, so nobody arriving after our first look
         // goes unnoticed.
         let wakeups = core.bus.subscribe(wake_subject(cell_of(lat, lng))).await?;
-        NEARBY.check_in(&core.cache, user_id, lat, lng).await?;
+        if let Some(group) = age_group {
+            nearby_set(group).check_in(&core.cache, user_id, lat, lng).await?;
+        }
         self.announce_nearby_change(lat, lng).await;
 
         let (sender, receiver) = mpsc::channel(4);
@@ -142,7 +166,9 @@ impl Social {
                 _ = &mut timeout => break,
                 _ = self.core.shutdown.cancelled() => break,
                 _ = heartbeat.tick() => {
-                    if let Err(e) = NEARBY.check_in(cache, spot.user_id, spot.lat, spot.lng).await {
+                    if let Some(group) = spot.age_group
+                        && let Err(e) = nearby_set(group).check_in(cache, spot.user_id, spot.lat, spot.lng).await
+                    {
                         tracing::warn!(error = %e, "nearby heartbeat failed");
                     }
                 }
@@ -174,7 +200,9 @@ impl Social {
             }
             last_sent = Some(seen_now);
         }
-        if let Err(e) = NEARBY.leave_unless_taken_over(cache, spot.user_id, &session_key(spot.user_id), &session).await {
+        if let Some(group) = spot.age_group
+            && let Err(e) = nearby_set(group).leave_unless_taken_over(cache, spot.user_id, &session_key(spot.user_id), &session).await
+        {
             tracing::warn!(error = %e, "could not leave nearby discovery; the entry expires by itself");
         }
         self.announce_nearby_change(spot.lat, spot.lng).await;
@@ -186,7 +214,10 @@ impl Social {
     pub(crate) async fn end_nearby_discovery(&self, user_id: Uuid) -> AppResult<()> {
         let cache = &self.core.cache;
         cache.del(&session_key(user_id)).await?;
-        NEARBY.leave(cache, user_id).await
+        for set in NEARBY_SETS {
+            set.leave(cache, user_id).await?;
+        }
+        Ok(())
     }
 
     /// Wakes every session that could see a user at this position.
@@ -199,20 +230,26 @@ impl Social {
         }
     }
 
-    /// Everyone else in discovery around `spot`, nearest first. People in a
-    /// block with the user are left out, in both directions, and so is
-    /// everyone of the other age group (minors and adults) or without one.
+    /// Everyone else in discovery around `spot`, nearest first: up to
+    /// [`MAX_NEARBY`] of the user's age group. People in a block with the
+    /// user are left out, in both directions.
     async fn nearby_users(&self, spot: &Spot) -> AppResult<Vec<(Uuid, NearbyUser)>> {
         let core = &self.core;
+        let Some(group) = spot.age_group else {
+            return Ok(Vec::new());
+        };
         let hidden = graph::blocked_ids_either(core, spot.user_id).await?;
-        let mut found: Vec<(Uuid, f64)> = NEARBY
-            .within(&core.cache, spot.lat, spot.lng, spot.radius_meters, MAX_NEARBY + 1)
+        let scan = (MAX_NEARBY + 1 + hidden.len()).min(MAX_SCAN);
+        let mut found: Vec<(Uuid, f64)> = nearby_set(group)
+            .within(&core.cache, spot.lat, spot.lng, spot.radius_meters, scan)
             .await?
             .into_iter()
             .filter(|(id, _)| *id != spot.user_id && !hidden.contains(id))
             .collect();
+        // A set holds the group of when a session opened: someone who
+        // turned 18 since is in the other one now.
         let groups = people::age_groups_among(core, &found.iter().map(|(id, _)| *id).collect::<Vec<_>>()).await?;
-        found.retain(|(id, _)| spot.age_group.is_some() && groups.get(id) == spot.age_group.as_ref());
+        found.retain(|(id, _)| groups.get(id) == Some(&group));
         found.truncate(MAX_NEARBY);
         let ids: Vec<Uuid> = found.iter().map(|(id, _)| *id).collect();
         let summaries = tokuly_identity::summaries(core, &ids).await?;

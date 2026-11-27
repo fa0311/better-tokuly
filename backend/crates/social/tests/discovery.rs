@@ -480,6 +480,41 @@ async fn an_account_without_a_birthdate_meets_nobody_nearby() {
     assert!(!everyone(&adult_saw).contains(&unknown.id), "an adult is not shown it");
 }
 
+/// Up to 50 people are shown, and they are 50 the user may see: in a crowd,
+/// the nearest minors and people in a block with the user do not take the
+/// places of the adults further away.
+#[tokio::test]
+async fn a_crowd_of_others_does_not_hide_the_people_one_may_meet() {
+    let ctx = start().await;
+    let (adult, further) = (ctx.app.user("adult").await, ctx.app.user("further").await);
+    let mut kids = Vec::new();
+    let mut blocked = Vec::new();
+    for _ in 0..51 {
+        let kid = ctx.app.user("kid").await;
+        ctx.make_minor(&kid).await;
+        kids.push(kid);
+        let other = ctx.app.user("blocked").await;
+        let request = BlockUserRequest { user_id: other.id.to_string(), ..Default::default() };
+        let _: BlockUserResponse = ctx.friends("BlockUser", &adult, &request).await.unwrap();
+        blocked.push(other);
+    }
+    let spot = somewhere();
+    let app = &ctx.app;
+    let stay = |user: &TestUser, meters: f64| {
+        let user = user.clone();
+        async move {
+            app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&user), &nearby_at(north_of(spot, meters)), 100, Duration::from_secs(4)).await.unwrap();
+        }
+    };
+    let crowd = futures::future::join_all(kids.iter().chain(&blocked).map(|user| stay(user, 5.0)));
+    let look = async {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&adult), &nearby_at(spot), 1, Duration::from_secs(3)).await.unwrap()
+    };
+    let (_, _, adult_saw) = tokio::join!(crowd, stay(&further, 30.0), look);
+    assert_eq!(seen(&adult_saw[0]), vec![(further.id, Relationship::RELATIONSHIP_NONE)]);
+}
+
 #[tokio::test]
 async fn counts_leave_out_whom_the_lists_leave_out() {
     let ctx = start().await;

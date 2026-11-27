@@ -240,7 +240,9 @@ impl Social {
         circles::circles_changed(core, &touched_circles, &[&their_members[..], &[user_id]].concat()).await;
         // Valkey entries expire by themselves; failing here must not make the
         // whole cleanup retry.
-        let _ = nearby::NEARBY.leave(&core.cache, user_id).await;
+        for set in nearby::NEARBY_SETS {
+            let _ = set.leave(&core.cache, user_id).await;
+        }
         let _ = self.bump_attempts().leave(&core.cache, user_id).await;
 
         self.recompute_ranks(&friends).await?;
@@ -273,7 +275,9 @@ impl Social {
             .bind(map_reactions::PENDING_DAYS)
             .execute(&core.db)
             .await?;
-        nearby::NEARBY.prune(&core.cache).await?;
+        for set in nearby::NEARBY_SETS {
+            set.prune(&core.cache).await?;
+        }
         self.bump_attempts().prune(&core.cache).await?;
         Ok(())
     }
