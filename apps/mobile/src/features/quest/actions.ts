@@ -2,11 +2,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { quest } from "@tokuly/api";
 import { profileKeys } from "@tokuly/core/profile";
 import { badgesChanged, questKeys, showClaim, showReroll } from "@tokuly/core/quest";
+import { walletKeys } from "@tokuly/core/wallet";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert } from "react-native";
 import { errorMessage } from "#/lib/errors";
-import { asAccount, coinsKey } from "./data";
+import { asAccount } from "./data";
 
 const NS = { namespace: "quest" } as const;
 
@@ -29,7 +30,7 @@ export function useClaim() {
     onSuccess: (response, mission) => {
       if (!response) return;
       showClaim(queryClient, response, mission);
-      void queryClient.invalidateQueries({ queryKey: coinsKey });
+      void queryClient.invalidateQueries({ queryKey: walletKeys.balance });
       if (!response.granted) return;
       const coins = (response.reward?.coins ?? 0) + (response.bonus?.coins ?? 0);
       const xp = (response.reward?.xp ?? 0) + (response.bonus?.xp ?? 0);
@@ -47,7 +48,7 @@ export function useClaim() {
       // is read again from the server.
       void queryClient.invalidateQueries({ queryKey: questKeys.missions });
       void queryClient.invalidateQueries({ queryKey: questKeys.progress });
-      void queryClient.invalidateQueries({ queryKey: coinsKey });
+      void queryClient.invalidateQueries({ queryKey: walletKeys.balance });
     },
     onSettled: (_answer, _error, mission) => sending.done(mission),
   });

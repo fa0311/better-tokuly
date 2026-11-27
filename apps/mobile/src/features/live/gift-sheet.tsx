@@ -12,6 +12,7 @@ import {
   sameGift,
   tierFor,
 } from "@tokuly/core/live";
+import { walletKeys } from "@tokuly/core/wallet";
 import { randomUUID } from "expo-crypto";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -34,7 +35,7 @@ import { webScreenHref } from "#/features/web/handoff";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
 import { GiftBubble, tierColors } from "./chat-line";
-import { coinsKey, useCoins, useGiftTiers } from "./data";
+import { useCoins, useGiftTiers } from "./data";
 import { keepPendingGift, readPendingGift, settlePendingGift } from "./pending-gift";
 import { liveChats } from "./room";
 
@@ -137,7 +138,7 @@ export function GiftSheet({
       });
       await settlePendingGift(account.userId, attempt);
       if (response.message) liveChats.addOwn(queryClient, response.message);
-      void queryClient.invalidateQueries({ queryKey: coinsKey });
+      void queryClient.invalidateQueries({ queryKey: walletKeys.balance });
       void queryClient.invalidateQueries({ queryKey: liveKeys.gifts });
       void queryClient.invalidateQueries({ queryKey: liveKeys.supporters(streamId) });
       // Never claim a gift that was not the one sent: an earlier attempt can come back instead.
@@ -157,7 +158,7 @@ export function GiftSheet({
         await settlePendingGift(account.userId, attempt);
         setLost(null);
         setConfirming(false);
-        void queryClient.invalidateQueries({ queryKey: coinsKey });
+        void queryClient.invalidateQueries({ queryKey: walletKeys.balance });
       }
     } finally {
       busy.current = false;

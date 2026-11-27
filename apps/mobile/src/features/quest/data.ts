@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type common, quest, wallet } from "@tokuly/api";
-import { localized, questKeys, questQueries } from "@tokuly/core/quest";
+import { localized, questQueries } from "@tokuly/core/quest";
+import { walletQueries } from "@tokuly/core/wallet";
 import { useTranslation } from "react-i18next";
 import { type Account, currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
@@ -15,13 +16,16 @@ export const missionClient = () => api().service(quest.MissionService);
 export const badgeClient = () => api().service(quest.BadgeService);
 const walletClient = () => api().service(wallet.WalletService);
 
-/** The caller's coins as the wallet has them; read again after every claim (and every reconnect). */
-export const coinsKey = [...questKeys.all, "coins"] as const;
-
+/**
+ * The caller's coins: the wallet's own balance in the cache
+ * (`walletKeys.balance`), so a bonus claimed in the wallet or a push shows
+ * here too. Read again after every claim.
+ */
 export function useCoins() {
+  const queryClient = useQueryClient();
   return useQuery({
-    queryKey: coinsKey,
-    queryFn: async () => (await walletClient().getBalance({})).balance?.coins ?? 0n,
+    ...walletQueries.balance(walletClient, queryClient),
+    select: (balance) => balance.coins,
   });
 }
 
