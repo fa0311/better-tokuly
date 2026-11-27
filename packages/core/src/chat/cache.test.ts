@@ -8,7 +8,7 @@ import {
   readConversation,
 } from "./conversation-cache";
 import { chatKeys } from "./keys";
-import { readTimeline, storeCreated, storeOwnRead } from "./message-cache";
+import { readTimeline, storeCreated, storeOwnRead, toggleReaction } from "./message-cache";
 import { timelineOf } from "./timeline";
 import { adjustUnread, NO_UNREAD, type Unread } from "./unread";
 
@@ -118,5 +118,33 @@ describe("unread totals", () => {
       true,
     );
     expect(queryClient.getQueryData<Unread>(chatKeys.unread)?.badge).toBe(0);
+  });
+});
+
+describe("reactions", () => {
+  const reactionsOf = (queryClient: QueryClient) =>
+    readTimeline(queryClient, "c")?.messages.find((held) => held.id === "m1")?.reactions;
+
+  it("show the viewer's tap at once and settle on the server's answer", async () => {
+    const queryClient = holding();
+    let resolve: (answer: { reactions: chat.ReactionCount[] }) => void = () => {};
+    const answer = new Promise<{ reactions: chat.ReactionCount[] }>((done) => {
+      resolve = done;
+    });
+    const client = () => ({ addReaction: () => answer }) as never;
+    const toggled = toggleReaction(queryClient, client, message("m1", 1n), "🎉");
+    expect(reactionsOf(queryClient)).toMatchObject([{ emoji: "🎉", count: 1, reactedByMe: true }]);
+    resolve({
+      reactions: [create(chat.ReactionCountSchema, { emoji: "🎉", count: 3, reactedByMe: true })],
+    });
+    await toggled;
+    expect(reactionsOf(queryClient)).toMatchObject([{ emoji: "🎉", count: 3 }]);
+  });
+
+  it("take the tap back when the server refuses it", async () => {
+    const queryClient = holding();
+    const client = () => ({ addReaction: () => Promise.reject(new Error("offline")) }) as never;
+    await expect(toggleReaction(queryClient, client, message("m1", 1n), "🎉")).rejects.toThrow();
+    expect(reactionsOf(queryClient)).toEqual([]);
   });
 });

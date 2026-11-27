@@ -1,6 +1,13 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { chat, type common, create, fromDate } from "@tokuly/api";
-import type { PendingState } from "@tokuly/core/chat";
+import type { chat, common } from "@tokuly/api";
+import {
+  type OutgoingMessage,
+  type PendingState,
+  placeOf,
+  previewMessage as preview,
+  SendQueue,
+  sendChangesViewer,
+} from "@tokuly/core/chat";
 import { create as createStore } from "zustand";
 import { realtime } from "#/lib/realtime";
 import { uploadAndProcess, uploadFile } from "#/lib/upload";
@@ -15,23 +22,8 @@ import { storeCreated, storeUpdated } from "./messages";
  * the moment it is sent; this is where it lives until the server has it (or
  * refuses it, when it stays with a "retry" until the person decides).
  */
-export interface Outgoing {
-  /** The idempotency key: retries with it can never send twice. */
-  clientId: string;
-  conversationId: string;
-  createdAt: number;
-  text: string;
-  stamp?: common.StampRef;
+export interface Outgoing extends OutgoingMessage {
   files: OutgoingFile[];
-  location?: { lat: number; lng: number; name: string; address: string };
-  /** The message this one answers. */
-  replyTo?: chat.Message;
-  /** Set when this is the answer to a POV request (sent through PovService). */
-  povRequestId?: string;
-  status: "sending" | "failed";
-  /** Upload progress, 0..1. */
-  progress: number;
-  error?: string;
 }
 
 interface OutboxStore {
@@ -88,86 +80,10 @@ export function previewMessage(
   item: Outgoing,
   me: common.UserSummary,
 ): { message: chat.Message; state: PendingState } {
-  const kind = item.stamp
-    ? chat.MessageKind.STAMP
-    : item.files.length > 0
-      ? chat.MessageKind.MEDIA
-      : item.location
-        ? chat.MessageKind.LOCATION
-        : chat.MessageKind.TEXT;
-  const answered = item.replyTo;
-  const message = create(chat.MessageSchema, {
-    id: `pending:${item.clientId}`,
-    conversationId: item.conversationId,
-    seq: BigInt(Number.MAX_SAFE_INTEGER),
-    sender: me,
-    kind,
-    clientId: item.clientId,
-    text: item.text,
-    bigEmojiCount: kind === chat.MessageKind.TEXT ? bigEmojiCount(item.text) : 0,
-    stamp: item.stamp,
-    attachments: item.files.map(localAttachment),
-    location: item.location
-      ? {
-          position: { lat: item.location.lat, lng: item.location.lng },
-          name: item.location.name,
-          address: item.location.address,
-        }
-      : undefined,
-    replyTo: answered
-      ? {
-          messageId: answered.id,
-          seq: answered.seq,
-          sender: answered.sender,
-          kind: answered.kind,
-          text: answered.text.slice(0, 120),
-          thumbnailUrl:
-            answered.stamp?.imageUrl ||
-            answered.attachments[0]?.image?.url ||
-            answered.attachments[0]?.video?.poster?.url ||
-            "",
-        }
-      : undefined,
-    povReply: item.povRequestId ? { requestId: item.povRequestId } : undefined,
-    createdAt: fromDate(new Date(item.createdAt)),
-  });
-  return {
-    message,
-    state: {
-      status: item.status,
-      progress: item.files.length > 0 ? item.progress : undefined,
-      error: item.error,
-    },
-  };
+  return preview(item, item.files.map(localAttachment), me);
 }
 
-const segmenter =
-  typeof Intl !== "undefined" && "Segmenter" in Intl
-    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
-    : undefined;
-const EMOJI = /^(\p{Extended_Pictographic}|\p{Regional_Indicator}{2}|[#*0-9]️?⃣)/u;
-
-/** 1-3 when the text is nothing but that many emoji (drawn large), like the server counts them. */
-export function bigEmojiCount(text: string): number {
-  const trimmed = text.trim();
-  if (!trimmed || trimmed.length > 64 || !segmenter) return 0;
-  let count = 0;
-  for (const { segment } of segmenter.segment(trimmed)) {
-    if (/^\s+$/.test(segment)) continue;
-    if (!EMOJI.test(segment)) return 0;
-    if (++count > 3) return 0;
-  }
-  return count;
-}
-
-/** One conversation's deliveries run one after the other, in the order they were written. */
-const queues = new Map<string, Promise<void>>();
-
-function inOrder(conversationId: string, work: () => Promise<void>): Promise<void> {
-  const next = (queues.get(conversationId) ?? Promise.resolve()).then(work, work);
-  queues.set(conversationId, next);
-  return next;
-}
+const queue = new SendQueue();
 
 async function upload(item: Outgoing): Promise<string[]> {
   const total = item.files.reduce((sum, file) => sum + file.file.size, 0) || 1;
@@ -222,7 +138,7 @@ function deliver(
   conversationId: string,
   clientId: string,
 ): Promise<void> {
-  return inOrder(conversationId, async () => {
+  return queue.run(conversationId, async () => {
     const item = find(conversationId, clientId);
     // Discarded while it was waiting.
     if (!item) return;
@@ -246,13 +162,7 @@ function deliver(
               text: item.text,
               stampId: item.stamp?.id ?? "",
               attachmentAssetIds: assetIds,
-              location: item.location
-                ? {
-                    position: { lat: item.location.lat, lng: item.location.lng },
-                    name: item.location.name,
-                    address: item.location.address,
-                  }
-                : undefined,
+              location: item.location ? placeOf(item.location) : undefined,
               replyToMessageId: item.replyTo?.id ?? "",
             })
           ).message;
@@ -261,13 +171,7 @@ function deliver(
       storeCreated(queryClient, message);
       storeUpdated(queryClient, message, false);
       settle(conversationId, clientId);
-      // Writing in a message request answers it, and a request of one's own counts down: both change the viewer's state.
-      const viewer = before?.viewer;
-      if (
-        !viewer ||
-        viewer.requestState !== chat.RequestState.ACCEPTED ||
-        viewer.requestMessagesLeft >= 0
-      )
+      if (sendChangesViewer(before?.viewer))
         void fetchConversation(queryClient, conversationId).catch(() => {});
     } catch (error) {
       // A message that failed waits for the person; the ones behind it go on.
@@ -315,7 +219,7 @@ export function clearOutbox(): void {
   for (const items of Object.values(useOutbox.getState().items))
     for (const item of items) releaseFiles(item.files);
   useOutbox.setState({ items: {} });
-  queues.clear();
+  queue.clear();
 }
 
 /** Gives up on a message that is not on the server. */
