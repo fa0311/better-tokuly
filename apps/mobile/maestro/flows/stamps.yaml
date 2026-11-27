@@ -1,0 +1,102 @@
+appId: app.tokuly.mobile
+name: Add a free stamp pack from the store, send one of its stamps in a chat and on a note
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/stamp-friends.js
+- clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
+
+# The store, from the hub: the featured free pack is added in a tap.
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env:
+      ENTRY: stamps
+- extendedWaitUntil:
+    visible: { id: "${'pack-' + output.packId}" }
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 01-stamp-store
+- tapOn: { id: "${'pack-' + output.packId}" }
+- extendedWaitUntil:
+    visible: { id: "pack-install" }
+    timeout: 15000
+- takeScreenshot: 02-stamp-pack
+- tapOn: { id: "pack-install" }
+- tapOn: "OK"
+- extendedWaitUntil:
+    visible: { id: "pack-uninstall" }
+    timeout: 15000
+
+# マイスタンプ lists it.
+- runFlow: ../subflows/back.yaml
+- tapOn: { id: "stamp-library" }
+- extendedWaitUntil:
+    visible: { id: "${'pack-uninstall-' + output.packId}" }
+    timeout: 15000
+- runFlow: ../subflows/back.yaml
+- runFlow: ../subflows/back.yaml
+
+# A stamp from the new pack, in the friend's chat.
+- tapOn: { id: "tab-chats" }
+- tapOn: { id: "${'conversation-' + output.friendName}" }
+- extendedWaitUntil:
+    visible: "スタンプちょうだい！"
+    timeout: 15000
+- tapOn: { id: "composer-stamp" }
+- extendedWaitUntil:
+    visible: { id: "${'stamp-shelf-pack:' + output.packId}" }
+    timeout: 15000
+- tapOn: { id: "${'stamp-shelf-pack:' + output.packId}" }
+- extendedWaitUntil:
+    visible: { id: "${'stamp-' + output.stampId}" }
+    timeout: 15000
+- takeScreenshot: 03-stamp-picker
+- tapOn: { id: "${'stamp-' + output.stampId}" }
+- extendedWaitUntil:
+    notVisible: { id: "stamp-picker" }
+    timeout: 10000
+- extendedWaitUntil:
+    notVisible: "(送信中…|Sending…)"
+    timeout: 15000
+- takeScreenshot: 04-stamp-sent
+
+- runFlow: ../subflows/back.yaml
+
+# A note with the stamp just used (it leads 「さいきん使った」).
+- tapOn: { id: "tab-notes" }
+- tapOn: { id: "notes-compose" }
+- runFlow:
+    when:
+      visible: { id: "note-rules" }
+    commands:
+      - tapOn: { id: "note-rules-agree" }
+- extendedWaitUntil:
+    visible: { id: "note-text" }
+    timeout: 15000
+- inputText: ${output.note}
+- hideKeyboard
+- tapOn: { id: "note-add-stamp" }
+- extendedWaitUntil:
+    visible: { id: "${'stamp-' + output.stampId}" }
+    timeout: 15000
+- tapOn: { id: "${'stamp-' + output.stampId}" }
+- extendedWaitUntil:
+    visible: { id: "note-remove-stamp" }
+    timeout: 10000
+- tapOn: { id: "note-post" }
+- extendedWaitUntil:
+    visible: ${output.note}
+    timeout: 15000
+- assertVisible: { id: "note-stamp" }
+- takeScreenshot: 05-stamp-note
