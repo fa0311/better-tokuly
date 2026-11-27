@@ -6,9 +6,9 @@
 //!
 //! Skipped (with a message) when `mediamtx` or `ffmpeg` is not installed.
 //! The binary is looked for in `TOKULY_MEDIAMTX_BIN`, in
-//! `$TOKULY_DEV_HOME/bin` (default `~/tokuly-dev/bin`) and on the PATH; the
-//! ports come from `P_MEDIAMTX_*` (environment, or `ports.env` in the dev
-//! home), falling back to MediaMTX's defaults.
+//! `$TOKULY_DEV_HOME/bin` (default `~/tokuly-dev/bin`) and on the PATH. The
+//! server listens on free ports picked at start, so the test runs next to the
+//! dev infra's MediaMTX and next to itself.
 mod common;
 
 use std::{
@@ -58,13 +58,16 @@ fn mediamtx_binary() -> Option<PathBuf> {
     candidates.into_iter().flatten().find(|candidate| runs(candidate, "--version"))
 }
 
-/// A port of the sandbox layout, or MediaMTX's default.
-fn port(name: &str, default: u16) -> u16 {
-    let from_file = || {
-        let file = std::fs::read_to_string(dev_home().join("ports.env")).ok()?;
-        file.lines().find_map(|line| line.strip_prefix(&format!("{name}=")).map(str::to_owned))
-    };
-    std::env::var(name).ok().or_else(from_file).and_then(|value| value.trim().parse().ok()).unwrap_or(default)
+/// `N` different TCP ports nobody listens on right now, for the media server to take.
+fn free_tcp_ports<const N: usize>() -> [u16; N] {
+    let held: [_; N] = std::array::from_fn(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
+    held.map(|socket| socket.local_addr().unwrap().port())
+}
+
+/// The same for UDP (SRT and WebRTC's ICE).
+fn free_udp_ports<const N: usize>() -> [u16; N] {
+    let held: [_; N] = std::array::from_fn(|_| std::net::UdpSocket::bind("127.0.0.1:0").unwrap());
+    held.map(|socket| socket.local_addr().unwrap().port())
 }
 
 fn encoder(url: &str, seconds: u32) -> Command {
@@ -122,14 +125,8 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
         eprintln!("skipped: ffmpeg is not installed, so nothing can publish a test stream");
         return;
     }
-    let (rtmp, hls, webrtc, api) = (
-        port("P_MEDIAMTX_RTMP", 1935),
-        port("P_MEDIAMTX_HLS", 8888),
-        port("P_MEDIAMTX_WEBRTC", 8889),
-        port("P_MEDIAMTX_API", 9997),
-    );
-    let (srt, ice, playback) =
-        (port("P_MEDIAMTX_SRT", 8890), port("P_MEDIAMTX_ICE", 8189), port("P_MEDIAMTX_PLAYBACK", api - 1));
+    let [rtmp, hls, webrtc, api, playback] = free_tcp_ports();
+    let [srt, ice] = free_udp_ports();
     let recordings = tempfile::tempdir().unwrap();
     let ctx = start_with(LiveConfig {
         mediamtx_api_url: format!("http://127.0.0.1:{api}"),
@@ -153,7 +150,7 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
     let app = axum::Router::new().nest("/hooks/live", ctx.live.http_routes());
     tokio::spawn(async move { axum::serve(listener, app).await });
 
-    // MediaMTX with the configuration the stack ships, moved onto this machine's ports.
+    // MediaMTX with the configuration the stack ships, moved onto the ports picked above.
     let config = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../infra/mediamtx/mediamtx.yml");
     let log = std::fs::File::create(recordings.path().join("mediamtx.log")).unwrap();
     let _server = Process(
@@ -177,7 +174,8 @@ async fn a_stream_goes_from_encoder_to_archive_through_the_real_media_server() {
     // Its control API answers the worker (and, through the hook, nobody else).
     assert!(
         eventually(20, || async { ctx.live.media_paths().await.is_ok() }).await,
-        "MediaMTX did not come up on port {api} (is another one running?)"
+        "MediaMTX did not come up on port {api}; its log:\n{}",
+        std::fs::read_to_string(recordings.path().join("mediamtx.log")).unwrap_or_default()
     );
     let unauthenticated = reqwest::get(format!("http://127.0.0.1:{api}/v3/paths/list")).await.unwrap();
     assert_eq!(unauthenticated.status().as_u16(), 401);
