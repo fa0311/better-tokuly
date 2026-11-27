@@ -30,7 +30,8 @@ const value = (name, fallback) => {
   const index = args.indexOf(`--${name}`);
   return index >= 0 ? args[index + 1] : fallback;
 };
-const values = (name) => args.flatMap((arg, index) => (arg === `--${name}` ? [args[index + 1]] : []));
+const values = (name) =>
+  args.flatMap((arg, index) => (arg === `--${name}` ? [args[index + 1]] : []));
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const base = value("base", process.env.TOKULY_WEB_URL ?? "http://localhost:3000");
@@ -45,7 +46,13 @@ const browser = await chromium.launch({
   channel: "chrome",
   headless: true,
   // --disable-dev-shm-usage: containers often have a tiny /dev/shm, which crashes renderers.
-  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--enable-webgl", "--disable-dev-shm-usage"],
+  args: [
+    "--use-angle=swiftshader",
+    "--enable-unsafe-swiftshader",
+    "--ignore-gpu-blocklist",
+    "--enable-webgl",
+    "--disable-dev-shm-usage",
+  ],
 });
 const stateDir = path.join(repo, ".dev", "browser");
 fs.mkdirSync(stateDir, { recursive: true });
@@ -55,7 +62,11 @@ const context = await browser.newContext({
   viewport: { width: Number(value("width", 1280)), height: Number(value("height", 860)) },
   locale: language === "ja" ? "ja-JP" : "en-US",
   colorScheme: flag("dark") ? "dark" : "light",
-  geolocation: { latitude: Number(value("lat", 35.6595)), longitude: Number(value("lng", 139.7005)), accuracy: 12 },
+  geolocation: {
+    latitude: Number(value("lat", 35.6595)),
+    longitude: Number(value("lng", 139.7005)),
+    accuracy: 12,
+  },
   permissions: ["geolocation", "notifications"],
   storageState: statePath && fs.existsSync(statePath) ? statePath : undefined,
 });
@@ -64,18 +75,25 @@ const page = await context.newPage();
 
 const problems = [];
 page.on("console", (message) => {
-  if (message.type() === "error" && !message.text().includes("Failed to load resource")) problems.push(`[console] ${message.text().slice(0, 300)}`);
+  if (message.type() === "error" && !message.text().includes("Failed to load resource"))
+    problems.push(`[console] ${message.text().slice(0, 300)}`);
 });
 page.on("pageerror", (error) => problems.push(`[pageerror] ${String(error).slice(0, 300)}`));
 const failed = new Map();
 page.on("response", (response) => {
   if (response.status() < 400) return;
-  const key = `${response.status()} ${response.url().replace(/\/\d+\/\d+\/\d+\.mvt/, "/z/x/y.mvt").slice(0, 150)}`;
+  const key = `${response.status()} ${response
+    .url()
+    .replace(/\/\d+\/\d+\/\d+\.mvt/, "/z/x/y.mvt")
+    .slice(0, 150)}`;
   failed.set(key, (failed.get(key) ?? 0) + 1);
 });
 
 async function rpc(procedure, body) {
-  const response = await page.request.post(`${base}/api/${procedure}`, { data: body, headers: { "content-type": "application/json" } });
+  const response = await page.request.post(`${base}/api/${procedure}`, {
+    data: body,
+    headers: { "content-type": "application/json" },
+  });
   return { ok: response.ok(), body: await response.json().catch(() => ({})) };
 }
 
@@ -85,7 +103,9 @@ async function signIn() {
   await page.locator('input[type="password"]').fill(password);
   await page.locator('form button[type="submit"]').click();
   // Signed in once the app remembers the session; do not wait for the (heavy) map to load.
-  await page.waitForFunction(() => localStorage.getItem("tokuly.signedIn") === "1", null, { timeout: 15000 });
+  await page.waitForFunction(() => localStorage.getItem("tokuly.signedIn") === "1", null, {
+    timeout: 15000,
+  });
 }
 
 async function signUp() {
@@ -104,10 +124,13 @@ async function open() {
   await page.goto(url, { waitUntil: "load" });
   // A signed-in route either keeps its session or bounces to /login. Wait until the app has
   // decided (a cold dev server can take seconds), then for the session restore to finish.
-  const decided = () => location.pathname.startsWith("/login") || localStorage.getItem("tokuly.signedIn") === "1";
+  const decided = () =>
+    location.pathname.startsWith("/login") || localStorage.getItem("tokuly.signedIn") === "1";
   await page.waitForFunction(decided, null, { timeout: 10000 }).catch(() => {});
   await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
-  return !new URL(page.url()).pathname.startsWith("/login") || new URL(url).pathname.startsWith("/login");
+  return (
+    !new URL(page.url()).pathname.startsWith("/login") || new URL(url).pathname.startsWith("/login")
+  );
 }
 
 if (flag("dark")) await page.addInitScript(() => localStorage.setItem("tokuly.theme", "dark"));
@@ -132,5 +155,16 @@ for (const text of values("click")) {
 const evaluated = value("eval") ? await page.evaluate(value("eval")) : undefined;
 if (out) await page.screenshot({ path: out, fullPage: flag("full") });
 if (statePath) await context.storageState({ path: statePath });
-console.log(JSON.stringify({ url: page.url(), eval: evaluated, failedRequests: [...failed.entries()].slice(0, 15), problems: problems.slice(0, 15) }, null, 1));
+console.log(
+  JSON.stringify(
+    {
+      url: page.url(),
+      eval: evaluated,
+      failedRequests: [...failed.entries()].slice(0, 15),
+      problems: problems.slice(0, 15),
+    },
+    null,
+    1,
+  ),
+);
 await browser.close();
