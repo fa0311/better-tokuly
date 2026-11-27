@@ -144,12 +144,13 @@ impl Identity {
         if presented.is_empty() {
             return Err(invalid());
         }
-        let hash = core.keys.token_hash(presented);
+        // Under the previous secret too, while it is set: rotating it signs no one out.
+        let hashes = core.keys.token_hashes(presented);
         let row: Option<SessionRow> = sqlx::query_as(
             "SELECT id, user_id, refresh_hash, refresh_sealed, rotated_at, expires_at, revoked_at, parked_at, linked_to
-             FROM sessions WHERE refresh_hash = $1 OR previous_refresh_hash = $1",
+             FROM sessions WHERE refresh_hash = ANY($1) OR previous_refresh_hash = ANY($1)",
         )
-        .bind(&hash)
+        .bind(&hashes)
         .fetch_optional(&core.db)
         .await?;
 
@@ -202,7 +203,7 @@ impl Identity {
             return Err(AppError::denied("ACCOUNT_BANNED", "this account has been suspended"));
         }
 
-        let refresh_token = if row.refresh_hash == hash {
+        let refresh_token = if hashes.contains(&row.refresh_hash) {
             // Normal path: rotate.
             let next = new_refresh_token(row.id);
             let updated = sqlx::query(
@@ -216,7 +217,7 @@ impl Identity {
             .bind(core.keys.seal("refresh", next.as_bytes()))
             .bind(Utc::now() + Duration::days(self.cfg.session_days))
             .bind(&meta.ip)
-            .bind(&hash)
+            .bind(&row.refresh_hash)
             .execute(&core.db)
             .await?;
             if updated.rows_affected() == 1 {

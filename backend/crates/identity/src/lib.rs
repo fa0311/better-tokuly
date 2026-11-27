@@ -49,6 +49,17 @@ pub mod users;
 pub use config::IdentityConfig;
 pub use users::{UserRow, summaries, summaries_ordered, summary};
 
+/// The columns this domain seals with the server secret (`tokuly rekey`).
+pub const SEALED: &[tokuly_core::rekey::Sealed] = {
+    use tokuly_core::rekey::Sealed;
+    &[
+        Sealed::text("users", "totp_secret", "totp"),
+        Sealed::bytes("sessions", "refresh_sealed", "refresh").hashed("refresh_hash"),
+        Sealed::bytes("connections", "access_token", "connection"),
+        Sealed::bytes("connections", "refresh_token", "connection"),
+    ]
+};
+
 /// Lets other domains contribute to profiles and user search results.
 #[async_trait]
 pub trait ProfileExtension: Send + Sync + 'static {

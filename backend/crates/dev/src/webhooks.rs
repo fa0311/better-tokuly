@@ -243,6 +243,11 @@ pub(crate) const WEBHOOK_COLUMNS: &str = "id, account_id, url, description, even
 /// Label under which signing secrets are encrypted at rest.
 const SEAL_LABEL: &str = "dev/webhook-secret";
 
+pub(crate) const SEALED: [tokuly_core::rekey::Sealed; 2] = [
+    tokuly_core::rekey::Sealed::bytes("dev_webhooks", "secret_sealed", SEAL_LABEL),
+    tokuly_core::rekey::Sealed::bytes("dev_webhooks", "previous_secret_sealed", SEAL_LABEL),
+];
+
 impl WebhookRow {
     pub(crate) fn is_active(&self) -> bool {
         self.status == "active"

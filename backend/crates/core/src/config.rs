@@ -27,6 +27,12 @@ pub struct Config {
     #[arg(long, env = "TOKULY_SECRET", hide_env_values = true)]
     pub secret: String,
 
+    /// The master secret being replaced (docs/configuration.md): what was
+    /// signed or sealed under it is still accepted, nothing new is made
+    /// with it. Empty when no replacement is under way.
+    #[arg(long, env = "TOKULY_SECRET_PREVIOUS", default_value = "", hide_env_values = true)]
+    pub secret_previous: String,
+
     /// Deployment environment name: "development" | "production".
     #[arg(long, env = "TOKULY_ENV", default_value = "development")]
     pub env: String,
@@ -306,6 +312,14 @@ impl Config {
         anyhow::ensure!(
             self.secret.len() >= 32,
             "TOKULY_SECRET must be at least 32 characters (generate one with `openssl rand -hex 32`)"
+        );
+        anyhow::ensure!(
+            self.secret_previous.is_empty() || self.secret_previous.len() >= 32,
+            "TOKULY_SECRET_PREVIOUS must be the old TOKULY_SECRET (at least 32 characters) or empty"
+        );
+        anyhow::ensure!(
+            self.secret_previous != self.secret,
+            "TOKULY_SECRET_PREVIOUS is the same as TOKULY_SECRET: set TOKULY_SECRET to the new secret"
         );
         url::Url::parse(self.public_url())
             .map_err(|e| anyhow::anyhow!("TOKULY_PUBLIC_URL is not a valid URL: {e}"))?;

@@ -427,6 +427,9 @@ pub(crate) fn chat_json(settings: &ChatSettings) -> AppResult<serde_json::Value>
 
 const KEY_LABEL: &str = "live/stream-key";
 
+pub(crate) const SEALED: tokuly_core::rekey::Sealed =
+    tokuly_core::rekey::Sealed::bytes("live_streams", "stream_key_sealed", KEY_LABEL).hashed("stream_key_hash");
+
 /// A new stream key: the secret, its sealed form and its hash.
 pub(crate) fn new_stream_key(core: &Core) -> (String, Vec<u8>, String) {
     let key = tokuly_core::keys::random_token(24);
@@ -445,8 +448,13 @@ pub(crate) fn open_stream_key(core: &Core, row: &StreamRow) -> AppResult<String>
 
 /// Whether `candidate` is the stream's key.
 pub fn key_matches(core: &Core, row: &StreamRow, candidate: &str) -> bool {
+    // Under the previous TOKULY_SECRET too (`tokuly rekey` stores it again).
     !candidate.is_empty()
-        && tokuly_core::keys::secure_eq(core.keys.token_hash(candidate).as_bytes(), row.stream_key_hash.as_bytes())
+        && core
+            .keys
+            .token_hashes(candidate)
+            .iter()
+            .any(|hash| tokuly_core::keys::secure_eq(hash.as_bytes(), row.stream_key_hash.as_bytes()))
 }
 
 // ───────────────────────────── create / update / delete ─────────────────────────────

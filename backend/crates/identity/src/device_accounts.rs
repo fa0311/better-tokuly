@@ -127,13 +127,14 @@ impl Identity {
         if tokens.is_empty() {
             return Ok(Vec::new());
         }
-        let hashes: Vec<String> = tokens.iter().map(|t| self.core.keys.token_hash(t)).collect();
+        // Each under the current and the previous secret.
+        let hashes: Vec<Vec<String>> = tokens.iter().map(|t| self.core.keys.token_hashes(t)).collect();
         let rows: Vec<(String, LiveSession)> =
             sqlx::query_as::<_, (String, Uuid, Uuid, Option<DateTime<Utc>>, Option<DateTime<Utc>>, DateTime<Utc>)>(
                 "SELECT refresh_hash, id, user_id, parked_at, mfa_at, last_active_at FROM sessions
              WHERE refresh_hash = ANY($1) AND revoked_at IS NULL AND expires_at > now()",
             )
-            .bind(&hashes)
+            .bind(hashes.concat())
             .fetch_all(&self.core.db)
             .await?
             .into_iter()
@@ -145,8 +146,8 @@ impl Identity {
         Ok(tokens
             .iter()
             .zip(&hashes)
-            .filter_map(|(token, hash)| {
-                let (_, row) = rows.iter().find(|(h, _)| h == hash)?;
+            .filter_map(|(token, hashes)| {
+                let (_, row) = rows.iter().find(|(h, _)| hashes.contains(h))?;
                 seen.insert(row.id).then(|| LiveSession { token: (*token).clone(), ..row.clone() })
             })
             .collect())
@@ -449,11 +450,11 @@ impl Identity {
             return Ok(true);
         }
         let used: Option<Uuid> = sqlx::query_scalar(
-            "UPDATE users SET recovery_code_hashes = array_remove(recovery_code_hashes, $2)
-             WHERE id = $1 AND $2 = ANY(recovery_code_hashes) RETURNING id",
+            "UPDATE users SET recovery_code_hashes = ARRAY(SELECT h FROM unnest(recovery_code_hashes) h WHERE h <> ALL($2))
+             WHERE id = $1 AND recovery_code_hashes && $2 RETURNING id",
         )
         .bind(user.id)
-        .bind(totp::hash_recovery_code(&self.core.keys, code))
+        .bind(totp::recovery_code_hashes(&self.core.keys, code))
         .fetch_optional(&self.core.db)
         .await?;
         if used.is_some() {

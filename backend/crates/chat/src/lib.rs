@@ -76,6 +76,9 @@ pub use server_notices::{
 pub use signals::PRESENCE_TTL_SECONDS;
 pub use subjects::hold_message_media;
 
+/// The columns this domain seals with the server secret (`tokuly rekey`).
+pub const SEALED: &[tokuly_core::rekey::Sealed] = &assist::settings::SEALED;
+
 pub struct ChatInner {
     pub core: Core,
     pub identity: Identity,

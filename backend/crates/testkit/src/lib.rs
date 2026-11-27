@@ -188,11 +188,21 @@ impl TestApp {
         migrations: &[&str],
         register: impl FnOnce(&Core, &Identity, connectrpc::Router) -> connectrpc::Router,
     ) -> Self {
+        Self::start_with(migrations, |_| {}, register).await
+    }
+
+    /// [`Self::start`] with a changed configuration (another `secret`, say).
+    pub async fn start_with(
+        migrations: &[&str],
+        configure: impl FnOnce(&mut tokuly_core::config::Config),
+        register: impl FnOnce(&Core, &Identity, connectrpc::Router) -> connectrpc::Router,
+    ) -> Self {
         let mut cfg = env::get(migrations).cfg.clone();
         cfg.database_max_connections = 5;
         cfg.smtp_url = String::new();
         cfg.otlp_endpoint = String::new();
         cfg.public_url = "http://localhost:8080".to_owned();
+        configure(&mut cfg);
         let core = Core::connect(cfg).await.unwrap_or_else(|e| {
             panic!("testkit: cannot connect to the dev infrastructure ({e}). Run tools/dev/infra.sh up")
         });

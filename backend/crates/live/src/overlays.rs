@@ -55,6 +55,8 @@ pub const KIND_GOAL: i32 = OverlayKind::OVERLAY_KIND_GOAL as i32;
 pub const KIND_POLL: i32 = OverlayKind::OVERLAY_KIND_POLL as i32;
 
 const TOKEN_LABEL: &str = "live/overlay-token";
+
+pub(crate) const SEALED: tokuly_core::rekey::Sealed = tokuly_core::rekey::Sealed::bytes("live_overlays", "token_sealed", TOKEN_LABEL).hashed("token_hash");
 /// How long the widgets of a channel are remembered before they are read again.
 const TOPICS_TTL: Duration = Duration::from_secs(5);
 
@@ -486,9 +488,9 @@ pub async fn find_by_token(core: &Core, token: &str) -> AppResult<Option<Overlay
         return Ok(None);
     }
     Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT {OVERLAY_COLUMNS} FROM live_overlays WHERE token_hash = $1"
+        "SELECT {OVERLAY_COLUMNS} FROM live_overlays WHERE token_hash = ANY($1)"
     )))
-    .bind(core.keys.token_hash(token))
+    .bind(core.keys.token_hashes(token))
     .fetch_optional(&core.db)
     .await?)
 }

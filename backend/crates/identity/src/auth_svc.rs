@@ -186,9 +186,9 @@ impl Identity {
     async fn require_live_email_token(&self, token: &str, purposes: &[&str]) -> AppResult<()> {
         let live: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM email_tokens
-                           WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() AND purpose = ANY($2))",
+                           WHERE token_hash = ANY($1) AND used_at IS NULL AND expires_at > now() AND purpose = ANY($2))",
         )
-        .bind(self.core.keys.token_hash(token))
+        .bind(self.core.keys.token_hashes(token))
         .bind(purposes.iter().map(|p| p.to_string()).collect::<Vec<_>>())
         .fetch_one(&self.core.db)
         .await?;
@@ -200,10 +200,10 @@ impl Identity {
     async fn consume_email_token(&self, token: &str, purposes: &[&str]) -> AppResult<(Uuid, String, String)> {
         let row: Option<(Uuid, String, String)> = sqlx::query_as(
             "UPDATE email_tokens SET used_at = now()
-             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() AND purpose = ANY($2)
+             WHERE token_hash = ANY($1) AND used_at IS NULL AND expires_at > now() AND purpose = ANY($2)
              RETURNING user_id, purpose, email::text",
         )
-        .bind(self.core.keys.token_hash(token))
+        .bind(self.core.keys.token_hashes(token))
         .bind(purposes.iter().map(|p| p.to_string()).collect::<Vec<_>>())
         .fetch_optional(&self.core.db)
         .await?;
@@ -473,8 +473,8 @@ impl AuthService for Identity {
                 .await;
             } else if let Some(token) = cookie_value(&meta.cookies, REFRESH_COOKIE) {
                 let row: Option<(Uuid, Uuid)> =
-                    sqlx::query_as("SELECT id, user_id FROM sessions WHERE refresh_hash = $1 AND revoked_at IS NULL")
-                        .bind(self.core.keys.token_hash(token))
+                    sqlx::query_as("SELECT id, user_id FROM sessions WHERE refresh_hash = ANY($1) AND revoked_at IS NULL")
+                        .bind(self.core.keys.token_hashes(token))
                         .fetch_optional(&self.core.db)
                         .await?;
                 if let Some((session_id, user_id)) = row {
@@ -673,17 +673,18 @@ impl AuthService for Identity {
     ) -> ServiceResult<VerifyEmailResponse> {
         handle(async {
         let meta = ctx.client();
-        let token_hash = self.core.keys.token_hash(request.token);
         // Look before spending the link: a change or undo to an address that
         // cannot be had fails without using it up.
-        let pending: Option<(Uuid, String, String)> = sqlx::query_as(
-            "SELECT user_id, purpose, email::text FROM email_tokens
-             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() AND purpose IN ('verify', 'change', 'revert')",
+        let pending: Option<(Uuid, String, String, String)> = sqlx::query_as(
+            "SELECT user_id, purpose, email::text, token_hash FROM email_tokens
+             WHERE token_hash = ANY($1) AND used_at IS NULL AND expires_at > now() AND purpose IN ('verify', 'change', 'revert')",
         )
-        .bind(&token_hash)
+        .bind(self.core.keys.token_hashes(request.token))
         .fetch_optional(&self.core.db)
         .await?;
-        if let Some((owner, purpose, email)) = &pending
+        // As stored: the link may be from before the secret was replaced.
+        let token_hash = pending.as_ref().map_or_else(|| self.core.keys.token_hash(request.token), |row| row.3.clone());
+        if let Some((owner, purpose, email, _)) = &pending
             && purpose != "verify"
         {
             let unavailable = users::email_unavailable(&self.core, email, Some(*owner)).await?;

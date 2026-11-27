@@ -85,6 +85,18 @@ fn changed_key(token_hash: &str) -> String {
     format!("dev:tok-changed:{token_hash}")
 }
 
+/// A verdict, and whether the token was found under the previous TOKULY_SECRET.
+struct Judged {
+    verdict: Verdict,
+    renewed: bool,
+}
+
+impl Judged {
+    fn current(verdict: Verdict) -> Self {
+        Self { verdict, renewed: false }
+    }
+}
+
 /// How long a changed token is judged against the database on every use.
 /// Longer than any cached answer lives, so one written by a request that
 /// raced the change has expired by the time the cache is believed again.
@@ -93,6 +105,7 @@ const CHANGED_SECONDS: u64 = 120;
 #[derive(sqlx::FromRow)]
 struct TokenLookup {
     id: Uuid,
+    token_hash: String,
     kind: String,
     user_id: Uuid,
     created_by: Uuid,
@@ -114,6 +127,7 @@ struct TokenLookup {
 
 #[derive(sqlx::FromRow)]
 struct AccessLookup {
+    access_hash: String,
     authorization_id: Uuid,
     user_id: Uuid,
     app_id: Uuid,
@@ -131,13 +145,21 @@ impl Dev {
     /// A fingerprint of an account's password hash. A token remembers the
     /// one of its creator; a different one later means the password changed.
     pub(crate) fn password_mark(&self, password_hash: Option<&str>) -> Option<String> {
-        password_hash.map(|hash| hex::encode(&self.core.keys.mac("dev/password-mark", hash.as_bytes())[..16]))
+        self.password_marks(password_hash).into_iter().next()
     }
 
-    /// Judges a personal access token or bot token against the database.
-    async fn judge_token(&self, token_hash: &str) -> AppResult<Verdict> {
+    /// [`Self::password_mark`] under the current and the previous TOKULY_SECRET.
+    fn password_marks(&self, password_hash: Option<&str>) -> Vec<String> {
+        let Some(hash) = password_hash else { return Vec::new() };
+        self.core.keys.macs("dev/password-mark", hash.as_bytes()).iter().map(|mark| hex::encode(&mark[..16])).collect()
+    }
+
+    /// Judges a personal access token or bot token against the database, by
+    /// its hashes under the current and the previous TOKULY_SECRET. A token
+    /// stored under the previous one is stored again under the current one.
+    async fn judge_token(&self, hashes: &[String]) -> AppResult<Judged> {
         let row: Option<TokenLookup> = sqlx::query_as(
-            "SELECT t.id, t.kind, t.user_id, t.created_by, t.scopes, t.rate_tier, t.password_mark, t.expires_at,
+            "SELECT t.id, t.token_hash, t.kind, t.user_id, t.created_by, t.scopes, t.rate_tier, t.password_mark, t.expires_at,
                     t.revoked_at IS NOT NULL AS revoked,
                     (u.banned_at IS NOT NULL OR u.deleted_at IS NOT NULL) AS account_gone,
                     (c.banned_at IS NOT NULL OR c.deleted_at IS NOT NULL) AS creator_gone,
@@ -149,20 +171,44 @@ impl Dev {
              JOIN users u ON u.id = t.user_id
              JOIN users c ON c.id = t.created_by
              LEFT JOIN dev_bots b ON b.user_id = t.user_id
-             WHERE t.token_hash = $1",
+             WHERE t.token_hash = ANY($1)",
         )
-        .bind(token_hash)
+        .bind(hashes)
         .fetch_optional(&self.core.db)
         .await?;
-        let Some(row) = row else { return Ok(Verdict::Invalid) };
+        let Some(row) = row else { return Ok(Judged::current(Verdict::Invalid)) };
+        let renewed = row.token_hash != hashes[0];
+        if renewed {
+            sqlx::query("UPDATE dev_tokens SET token_hash = $2 WHERE id = $1 AND token_hash = $3")
+                .bind(row.id)
+                .bind(&hashes[0])
+                .bind(&row.token_hash)
+                .execute(&self.core.db)
+                .await?;
+        }
+        let verdict = self.token_verdict(row).await?;
+        Ok(Judged { verdict, renewed })
+    }
+
+    async fn token_verdict(&self, row: TokenLookup) -> AppResult<Verdict> {
         if row.revoked || row.account_gone || row.creator_gone || row.bot_disabled || row.creator_not_owner {
             return Ok(Verdict::Revoked);
         }
         if row.expires_at.is_some_and(|at| at <= Utc::now()) {
             return Ok(Verdict::Expired);
         }
-        let current_mark = self.password_mark(row.creator_password_hash.as_deref());
-        if row.password_mark != current_mark {
+        let marks = self.password_marks(row.creator_password_hash.as_deref());
+        let current_mark = marks.first().cloned();
+        if let Some(mark) = row.password_mark.as_ref().filter(|mark| marks.iter().skip(1).any(|previous| previous == *mark)) {
+            // Made under the previous TOKULY_SECRET, with the password of now:
+            // the creator's tokens of that time get the current mark.
+            sqlx::query("UPDATE dev_tokens SET password_mark = $2 WHERE created_by = $1 AND password_mark = $3")
+                .bind(row.created_by)
+                .bind(&current_mark)
+                .bind(mark)
+                .execute(&self.core.db)
+                .await?;
+        } else if row.password_mark != current_mark {
             // The creator's password changed since the token was made:
             // whoever made the token may no longer be who holds the account.
             // The same goes for every other token made under the old password.
@@ -184,10 +230,11 @@ impl Dev {
         }))
     }
 
-    /// Judges an OAuth access token against the database.
-    async fn judge_access_token(&self, access_hash: &str) -> AppResult<Verdict> {
+    /// Judges an OAuth access token against the database (they live an
+    /// hour or so: one made under the previous TOKULY_SECRET is not stored again).
+    async fn judge_access_token(&self, hashes: &[String]) -> AppResult<Judged> {
         let row: Option<AccessLookup> = sqlx::query_as(
-            "SELECT a.id AS authorization_id, a.user_id, a.app_id, o.scopes, o.access_expires_at,
+            "SELECT o.access_hash, a.id AS authorization_id, a.user_id, a.app_id, o.scopes, o.access_expires_at,
                     o.revoked_at IS NOT NULL AS revoked,
                     p.status = 'active' AS app_active, p.rate_tier,
                     (u.banned_at IS NOT NULL OR u.deleted_at IS NOT NULL) AS account_gone,
@@ -197,19 +244,20 @@ impl Dev {
              JOIN dev_apps p ON p.id = a.app_id
              JOIN users u ON u.id = a.user_id
              JOIN users w ON w.id = p.owner_id
-             WHERE o.access_hash = $1",
+             WHERE o.access_hash = ANY($1)",
         )
-        .bind(access_hash)
+        .bind(hashes)
         .fetch_optional(&self.core.db)
         .await?;
-        let Some(row) = row else { return Ok(Verdict::Invalid) };
+        let Some(row) = row else { return Ok(Judged::current(Verdict::Invalid)) };
+        let judged = |verdict| Judged { verdict, renewed: row.access_hash != hashes[0] };
         if row.revoked || !row.app_active || row.account_gone || row.owner_gone {
-            return Ok(Verdict::Revoked);
+            return Ok(judged(Verdict::Revoked));
         }
         if row.access_expires_at <= Utc::now() {
-            return Ok(Verdict::Expired);
+            return Ok(judged(Verdict::Expired));
         }
-        Ok(Verdict::Valid(ApiToken {
+        Ok(judged(Verdict::Valid(ApiToken {
             kind: ApiTokenKind::OAuth,
             id: row.authorization_id,
             user_id: row.user_id,
@@ -217,7 +265,7 @@ impl Dev {
             scopes: Scopes::new(row.scopes),
             expires_at: Some(row.access_expires_at),
             rate: self.cfg.rate_tier(&row.rate_tier),
-        }))
+        })))
     }
 
     async fn verdict(&self, token: &str) -> AppResult<Verdict> {
@@ -226,22 +274,27 @@ impl Dev {
             // client secret...): no need to look anywhere.
             return Ok(Verdict::Invalid);
         };
-        let hash = self.core.keys.token_hash(token);
-        let key = cache_key(&hash);
+        let hashes = self.core.keys.token_hashes(token);
+        let hash = &hashes[0];
+        let key = cache_key(hash);
         // One round trip for the cached answer and the "do not trust it" marker.
         let (cached, changed): (Option<Vec<u8>>, Option<Vec<u8>>) =
-            redis::cmd("MGET").arg(&key).arg(changed_key(&hash)).query_async(&mut self.core.cache.conn()).await?;
+            redis::cmd("MGET").arg(&key).arg(changed_key(hash)).query_async(&mut self.core.cache.conn()).await?;
         if let (Some(verdict), None) =
             (cached.and_then(|bytes| serde_json::from_slice::<Verdict>(&bytes).ok()), changed)
         {
             return Ok(verdict);
         }
-        let verdict = match kind {
-            SecretKind::Access => self.judge_access_token(&hash).await?,
-            _ => self.judge_token(&hash).await?,
+        let judged = match kind {
+            SecretKind::Access => self.judge_access_token(&hashes).await?,
+            _ => self.judge_token(&hashes).await?,
         };
-        self.core.cache.set_json(&key, &verdict, Some(verdict.ttl())).await?;
-        Ok(verdict)
+        // Revoking forgets the answer by the stored hash: one found under
+        // another is not kept.
+        if !judged.renewed {
+            self.core.cache.set_json(&key, &judged.verdict, Some(judged.verdict.ttl())).await?;
+        }
+        Ok(judged.verdict)
     }
 
     /// Makes whatever just changed about these tokens apply to their next

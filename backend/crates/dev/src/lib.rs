@@ -60,6 +60,9 @@ pub use config::DevConfig;
 pub use images::ImageStore;
 pub use notices::ConversationNotices;
 
+/// The columns this domain seals with the server secret (`tokuly rekey`).
+pub const SEALED: &[tokuly_core::rekey::Sealed] = &webhooks::SEALED;
+
 pub struct DevInner {
     pub core: Core,
     pub identity: Identity,

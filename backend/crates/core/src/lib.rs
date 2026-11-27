@@ -36,6 +36,7 @@ pub mod page;
 pub mod presence;
 pub mod proxies;
 pub mod realtime;
+pub mod rekey;
 pub mod request_limits;
 pub mod rpc;
 pub mod settings;
