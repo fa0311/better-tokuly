@@ -450,15 +450,27 @@ impl Tokens {
         .map_err(AppError::from)
     }
 
+    /// [`Self::is_revoked`], asked of Valkey as well: for what a session
+    /// approved earlier and is redeemed only now (a device's sign-in, a
+    /// hand-off, an application's code).
+    pub async fn is_revoked_shared(&self, session_id: Uuid) -> AppResult<bool> {
+        self.sessions_revoked_before().await?;
+        if self.is_revoked(session_id) {
+            return Ok(true);
+        }
+        match &self.revocations {
+            Some(cache) => cache.exists(&format!("{REVOKED_PREFIX}{session_id}")).await,
+            None => Ok(false),
+        }
+    }
+
     /// [`Self::revoke_sessions_made_before`] in this process only (what
     /// its broadcast does); `millis` since the Unix epoch.
     pub fn mark_made_before(&self, millis: i64) {
         self.inner.made_before.fetch_max(millis, std::sync::atomic::Ordering::Relaxed);
     }
 
-    /// The latest [`Self::revoke_sessions_made_before`], asked of Valkey:
-    /// for what a session approved before it and is redeemed only now (a
-    /// device's sign-in, an application's code).
+    /// The latest [`Self::revoke_sessions_made_before`], asked of Valkey.
     pub async fn sessions_revoked_before(&self) -> AppResult<Option<Time>> {
         if let Some(cache) = &self.revocations
             && let Some(millis) = cache.get_string(&self.cut_off_key).await?.and_then(|s| s.parse().ok())

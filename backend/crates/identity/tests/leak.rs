@@ -80,6 +80,16 @@ async fn everyone_signs_in_again_and_every_server_refuses_the_old_tokens_at_once
     // is held while it runs: the walk waits for it there, as on a large database.
     let mallory = serving.user("mallory").await;
     let device = start_device_login(&serving).await;
+    // Approved by a session from before, collected only afterwards.
+    let approved_before = start_device_login(&serving).await;
+    let _: ApproveDeviceLoginResponse = serving
+        .call(
+            "tokuly.identity.v1.AuthService/ApproveDeviceLogin",
+            Some(&alice),
+            &ApproveDeviceLoginRequest { user_code: approved_before.user_code.clone(), approve: true, ..Default::default() },
+        )
+        .await
+        .unwrap();
     let mut held = serving.core.db.begin().await.unwrap();
     sqlx::query("SELECT 1 FROM sessions WHERE id = $1 FOR UPDATE")
         .bind(mallory.session_id)
@@ -136,6 +146,16 @@ async fn everyone_signs_in_again_and_every_server_refuses_the_old_tokens_at_once
         assert!(!accepted(&elsewhere, token).await, "nor one a refresh handed out while it ran");
     }
     assert!(accepted(&elsewhere, &kept.token).await, "who signed in meanwhile stays signed in");
+    let collected: PollDeviceLoginResponse = serving
+        .call(
+            "tokuly.identity.v1.AuthService/PollDeviceLogin",
+            None,
+            &PollDeviceLoginRequest { device_code: approved_before.device_code.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(collected.status, DeviceLoginStatus::DEVICE_LOGIN_STATUS_EXPIRED, "no session for the thief's device");
+    assert!(collected.auth.as_option().is_none());
     // Connections already open (the realtime gateway) hear of it.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while !elsewhere.core.tokens.is_revoked(alice.session_id) {
