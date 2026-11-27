@@ -48,3 +48,8 @@ export function nextCursor(last: { page?: { nextCursor: string } }): string | un
 }
 
 export { type PushesDuringRead, pushesDuringRead, pushesDuringReadByKey } from "./pushes";
+export {
+  afterReconnect,
+  type ReconnectingConnection,
+  rereadListsAfterReconnect,
+} from "./reconnect";

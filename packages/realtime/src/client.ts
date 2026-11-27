@@ -139,6 +139,8 @@ const SUBSCRIBE_RETRY_MAX_MS = 30_000;
 /** The refusals that may go away by themselves, so a held topic is asked for again. */
 const RETRIED_CODES: ReadonlySet<string> = new Set(["unavailable", "resource_exhausted"]);
 const MAX_BACKOFF_MS = 30_000;
+/** Back in front, an open connection that does not answer a ping within this long is made anew. */
+const RESUME_PONG_WAIT_MS = 5_000;
 /** After a WebTransport failure, stay on WebSocket for this long before trying again. */
 const WEBTRANSPORT_RETRY_AFTER_MS = 5 * 60_000;
 
@@ -160,6 +162,8 @@ export class RealtimeClient {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private lastPongAt = 0;
+  /** Pongs heard on any connection: whether one came after a given ping. */
+  private pongs = 0;
   private webTransportBlockedUntil = 0;
   private foreground = true;
   private readonly frameListeners = new Set<FrameListener>();
@@ -375,6 +379,7 @@ export class RealtimeClient {
         break;
       case "pong":
         this.lastPongAt = Date.now();
+        this.pongs++;
         break;
       case "error":
         this.onSubscribeRefused(frame.replyTo, frame.body.value);
@@ -637,11 +642,38 @@ export class RealtimeClient {
     return true;
   }
 
-  /** Tells the server whether the app is visible (drives the online halo). */
+  /**
+   * Tells the server whether the app is visible (drives the online halo).
+   * Back in front, the connection is checked at once rather than at the
+   * next ping: a phone that suspended the app may have dropped it without a
+   * word. A connection waiting to retry tries now; an open one that does
+   * not answer a ping within `RESUME_PONG_WAIT_MS` is closed and made anew.
+   */
   setForeground(foreground: boolean): void {
     if (this.foreground === foreground) return;
     this.foreground = foreground;
     this.sendFrame({ case: "appState", value: create(realtime.AppStateSchema, { foreground }) });
+    if (foreground) this.checkConnection();
+  }
+
+  private checkConnection(): void {
+    if (!this.wanted) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      void this.connect();
+      return;
+    }
+    if (this.status !== "connected") return;
+    const generation = this.generation;
+    const pongs = this.pongs;
+    this.sendFrame(
+      { case: "ping", value: create(realtime.PingSchema, { nonce: BigInt(Date.now()) }) },
+      false,
+    );
+    setTimeout(() => {
+      if (generation === this.generation && this.pongs === pongs) this.transport?.close();
+    }, RESUME_PONG_WAIT_MS);
   }
 
   sendTyping(conversationId: string, typing: boolean): void {

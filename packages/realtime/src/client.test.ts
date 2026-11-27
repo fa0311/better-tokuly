@@ -1,12 +1,14 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { common, realtime } from "@tokuly/api";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** What the client sent, decoded, and a way to answer as the gateway. */
 const wire = vi.hoisted(() => ({
   sent: [] as Uint8Array[],
   deliver: null as ((frame: Uint8Array) => void) | null,
   close: null as ((reason: string) => void) | null,
+  /** How often the client closed a connection itself. */
+  closes: 0,
 }));
 
 vi.mock("./transport.js", () => ({
@@ -22,7 +24,9 @@ vi.mock("./transport.js", () => ({
       kind: "websocket",
       send: (frame: Uint8Array) => wire.sent.push(frame),
       sendUnreliable: (frame: Uint8Array) => wire.sent.push(frame),
-      close: () => {},
+      close: () => {
+        wire.closes++;
+      },
     });
   },
 }));
@@ -459,5 +463,50 @@ describe("refusals that may go away", () => {
     other.release();
     await new Promise((resolve) => setTimeout(resolve, 1_200));
     expect(subscribeFrames("space:10")).toHaveLength(1);
+  });
+});
+
+describe("back in front", () => {
+  beforeEach(() => {
+    wire.sent.length = 0;
+    wire.closes = 0;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const pings = () => sentFrames().filter((frame) => frame.body.case === "ping");
+
+  it("makes a connection anew that does not answer a ping", async () => {
+    const client = await connectedClient();
+    vi.useFakeTimers();
+    client.setForeground(false);
+    client.setForeground(true);
+    expect(pings()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(wire.closes).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(wire.closes).toBe(1);
+  });
+
+  it("keeps a connection that answers", async () => {
+    const client = await connectedClient();
+    vi.useFakeTimers();
+    client.setForeground(false);
+    client.setForeground(true);
+    serverSends({ body: { case: "pong", value: {} } });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(wire.closes).toBe(0);
+  });
+
+  it("does not wait out the backoff of a connection that dropped meanwhile", async () => {
+    const client = await connectedClient();
+    vi.useFakeTimers();
+    client.setForeground(false);
+    wire.close?.("the phone suspended the app");
+    expect(client.connectionStatus).toBe("reconnecting");
+    client.setForeground(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sentFrames().filter((frame) => frame.body.case === "hello")).toHaveLength(1);
   });
 });
