@@ -1,4 +1,4 @@
-import { type live, toMillis } from "@tokuly/api";
+import { live, toMillis } from "@tokuly/api";
 import { formatCoins } from "../wallet/format.js";
 
 /**
@@ -17,6 +17,23 @@ export function tierFor(tiers: live.GiftTier[], coins: bigint | number): live.Gi
     if (tier.minCoins <= amount && (!found || tier.minCoins > found.minCoins)) found = tier;
   }
   return found;
+}
+
+/**
+ * What a stream offers the caller around gifts: `send` (the gift button) for
+ * viewers of a stream on air that takes gifts; `age-restricted` for its owner
+ * while gifts are on but viewers cannot send any, because gifts are for
+ * streamers of 18 and over; `none` otherwise. Viewers are never told why a
+ * stream takes no gifts.
+ */
+export function giftEntry(stream: live.Stream): "send" | "age-restricted" | "none" {
+  const status = stream.summary?.status;
+  if (!stream.giftsEnabled) return "none";
+  if (stream.viewer?.isOwner) {
+    const open = status === live.StreamStatus.UPCOMING || status === live.StreamStatus.LIVE;
+    return open && stream.studio?.giftsAgeRestricted ? "age-restricted" : "none";
+  }
+  return status === live.StreamStatus.LIVE ? "send" : "none";
 }
 
 export function tierByLevel(tiers: live.GiftTier[], level: number): live.GiftTier | undefined {

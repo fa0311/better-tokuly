@@ -332,6 +332,7 @@ export default {
     coinsLabel: "{{coins}} coins",
     highlights: "Highlighted gifts",
     highlightBy: "Show {{name}}'s gift",
+    ageRestricted: "Tips and gifts can be received from age 18!",
   },
   giftHistory: {
     title: "Gift history",

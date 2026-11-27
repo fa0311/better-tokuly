@@ -481,7 +481,7 @@ export default {
   DVR_DISABLED: "Rewinding is off for this stream, so it can't be clipped",
   ENCODER_NOT_CONNECTED: "No picture is arriving yet. Start sending first",
   GAME_INVALID: "The game title is too long",
-  GIFTS_DISABLED: "This stream doesn't accept gifts",
+  GIFTS_DISABLED: "You can't send gifts on this stream",
   GIFT_AMOUNT_INVALID: "That number of coins is out of range",
   GIFT_MESSAGE_INVALID: "The message contains characters that can't be used",
   GIFT_MESSAGE_TOO_LONG: "The message is too long for this amount",

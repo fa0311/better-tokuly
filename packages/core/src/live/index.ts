@@ -27,6 +27,7 @@ export {
   exactCoins,
   type GiftAttempt,
   giftAttempt,
+  giftEntry,
   mentionOf,
   mergePoll,
   newIdempotencyKey,

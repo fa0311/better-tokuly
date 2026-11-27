@@ -17,6 +17,7 @@ import { CircleField, LockedNote } from "#/features/video/audience";
 import { useAccountTimeZone, zonedMoment, zonedTime } from "#/lib/account-time";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useMe } from "#/stores/session";
 import { storeStream, streamClient, useStream } from "../api";
 import { ChatSettingsFields, defaultChatSettings } from "../chat/chat-settings";
 import { CATEGORIES, VISIBILITIES } from "../labels";
@@ -110,6 +111,11 @@ function StreamForm({ stream, channelId }: { stream?: live.Stream; channelId: st
   const editing = stream !== undefined;
   const started = editing && stream.summary?.status !== StreamStatus.UPCOMING;
   const ended = stream?.summary?.status === StreamStatus.ENDED;
+  // Gifts are for streamers of 18 and over: a younger one sees why viewers cannot send any.
+  const me = useMe();
+  const giftsAgeRestricted = stream
+    ? Boolean(stream.studio?.giftsAgeRestricted)
+    : Boolean(me?.minor);
 
   const upload = useMutation({
     mutationFn: (image: File) => uploadAndProcess(image, { purpose: media.AssetPurpose.THUMBNAIL }),
@@ -374,7 +380,7 @@ function StreamForm({ stream, channelId }: { stream?: live.Stream; channelId: st
             />
             <SwitchRow
               label={t("form.gifts")}
-              hint={t("form.giftsHint")}
+              hint={giftsAgeRestricted ? t("gift.ageRestricted") : t("form.giftsHint")}
               checked={draft.giftsEnabled}
               onChange={(giftsEnabled) => set({ giftsEnabled })}
             />

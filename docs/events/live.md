@@ -304,6 +304,16 @@ export and a later refund show the entry with `counterpart_hidden` and no
 counterpart; the memo names the channel and the stream. The streamer sees the
 sender (the chat showed the gift to everyone).
 
+Gifts are for streamers of 18 and over, by their age today
+(`tokuly_identity::age::is_minor` of the stream's owner, who is the
+channel's owner, when the gift is sent; a bot goes by its owner). A younger
+streamer's stream answers viewers as one with gifts turned off:
+`gifts_enabled` false and `GIFTS_DISABLED` before anything is written down
+or paid, with nothing that tells the two apart. The owner sees their setting
+and `StreamStudioInfo.gifts_age_restricted`. It lifts on the 18th birthday
+or when an account without a birthdate gives one of 18 and over; gifts
+received before stay.
+
 Only SETTLED gifts count anywhere: totals, top supporters, goal widgets.
 Gift messages obey the chat's rules like any message: banned words, a ban or
 timeout, and `LINK_POLICY_BLOCK` (`LINKS_NOT_ALLOWED`).

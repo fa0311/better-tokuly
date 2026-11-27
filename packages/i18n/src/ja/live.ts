@@ -331,6 +331,7 @@ export default {
     coinsLabel: "{{coins}}コイン",
     highlights: "ハイライト中のギフト",
     highlightBy: "{{name}} のギフトを見る",
+    ageRestricted: "投げ銭・ギフトは18歳から受け取れるよ！",
   },
   giftHistory: {
     title: "ギフトの履歴",

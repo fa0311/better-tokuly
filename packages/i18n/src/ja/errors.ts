@@ -480,7 +480,7 @@ export default {
   DVR_DISABLED: "この配信はさかのぼり再生がオフなので、切り抜けません",
   ENCODER_NOT_CONNECTED: "まだ映像が届いていません。先に映像を送ってね",
   GAME_INVALID: "ゲーム名が長すぎるよ",
-  GIFTS_DISABLED: "この配信ではギフトを受け付けていません",
+  GIFTS_DISABLED: "この配信ではギフトを送れないよ",
   GIFT_AMOUNT_INVALID: "ギフトのコイン数が範囲の外です",
   GIFT_MESSAGE_INVALID: "メッセージに使えない文字が入っています",
   GIFT_MESSAGE_TOO_LONG: "この金額では、メッセージが長すぎます",
