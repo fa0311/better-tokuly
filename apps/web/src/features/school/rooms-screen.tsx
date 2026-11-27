@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { school } from "@tokuly/api";
-import { refreshSchool, schoolKeys, timerText } from "@tokuly/core/school";
+import { phaseKey, refreshSchool, schoolKeys, timerText } from "@tokuly/core/school";
 import { Globe, Lock, Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -19,7 +19,6 @@ import { Block, FriendPicker, RowsSkeleton, SchoolPage, Segmented, useNow } from
 import { setActiveSession } from "./session-store";
 import { SubjectSelect } from "./subject-select";
 import { syncClock, timerAt } from "./timer";
-import { phaseKey } from "./timer-card";
 
 export function audienceKey(audience: school.RoomAudience): "public" | "friends" | "invited" {
   if (audience === school.RoomAudience.PUBLIC) return "public";

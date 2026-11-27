@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { school, toDate } from "@tokuly/api";
-import { refreshSchool, schoolKeys, studyTime, timerText } from "@tokuly/core/school";
+import { phaseKey, refreshSchool, schoolKeys, studyTime, timerText } from "@tokuly/core/school";
 import { DoorOpen, Pause, Play, RotateCw, SkipForward, Square } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -19,14 +19,6 @@ import { Segmented, SubjectPill, useNow } from "./parts";
 import { loadActiveSession, setActiveSession, useActiveSession } from "./session-store";
 import { SubjectSelect } from "./subject-select";
 import { isBreak, studiedSecondsAt, type TimerView, timerAt } from "./timer";
-
-/** The words for a timer's phase: 集中, 休憩, 長い休憩. */
-export function phaseKey(view: Pick<TimerView, "phase" | "state">): string {
-  if (view.state === school.TimerState.IDLE) return "idle";
-  if (view.state === school.TimerState.PAUSED) return "paused";
-  if (view.phase === school.TimerPhase.LONG_BREAK) return "longBreak";
-  return view.phase === school.TimerPhase.BREAK ? "break" : "work";
-}
 
 /**
  * The face of a timer: the digits (counting up for a stopwatch, down for a
