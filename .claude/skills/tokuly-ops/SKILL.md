@@ -11,6 +11,7 @@ worktrees, logs, the Android SDK, secrets. Read `docs/collaboration.md` first (l
 | Task | Command |
 |---|---|
 | What needs attention: open PRs, new issues and comments **with their authors**, main CI, services | `tools/agent/watchdog.sh` |
+| Quick GitHub inbox check: unread discussion notifications in this repo, without CI or other repositories | `tools/agent/github-inbox.sh` |
 | Merge a PR: ready → mergeable → squash at the reviewed head → delete the branch only after the merge | `tools/agent/merge-pr.sh <pr>` (`--merge` for a fix PR into a feature branch) |
 | A headless Claude task in its own worktree, pushing what it committed even if it stops early | `tools/agent/fable-run.sh <name> origin/main <usd> <task.md>` |
 | Headless Claude on an API key file, with a spending ledger and cap | `tools/agent/claude-api.sh <dir> <model> <usd> <prompt>` |
