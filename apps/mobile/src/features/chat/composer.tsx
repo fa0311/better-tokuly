@@ -148,12 +148,14 @@ export function Composer({
     onDone();
   };
 
-  // A custom emoji goes in where the caret is, as its `:name:`.
+  // A custom emoji goes in where the caret is, as its `:name:`, while the message has room for it.
   const insertEmoji = (code: string) => {
     const at = Math.min(caret.current, text.length);
     const before = text.slice(0, at);
     const spaced = `${before && !/\s$/.test(before) ? " " : ""}${code} `;
-    change(before + spaced + text.slice(at));
+    const next = before + spaced + text.slice(at);
+    if (next.length > maxTextLength) return;
+    change(next);
     caret.current = at + spaced.length;
   };
 
