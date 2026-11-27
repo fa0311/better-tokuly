@@ -32,6 +32,14 @@ export default function SearchBackground() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.repeat) return;
+      // The first opening waits for the palette's code: what is typed meanwhile is its query.
+      const loading =
+        usePalette.getState().open && document.querySelector("[data-quick-search]") === null;
+      if (loading && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        usePalette.setState((state) => ({ query: state.query + event.key }));
+        return;
+      }
       const commandK =
         event.key.toLowerCase() === "k" &&
         (event.metaKey || event.ctrlKey) &&
