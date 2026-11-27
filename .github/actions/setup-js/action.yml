@@ -9,9 +9,28 @@ runs:
     - uses: actions/setup-node@v7
       with:
         node-version: 26
-        cache: pnpm
+        package-manager-cache: false
+    # pnpm's store, saved on main only and read by every branch: a cache per pull request
+    # would fill the repository's 10 GB.
+    - id: store
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      shell: bash
+    - id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: pnpm-store-${{ runner.os }}-${{ runner.arch }}-
     - run: pnpm install --frozen-lockfile
       shell: bash
+    - if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+      run: pnpm store prune
+      shell: bash
+    - if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}
     - name: Generate the API client
       run: pnpm proto:gen
       shell: bash
