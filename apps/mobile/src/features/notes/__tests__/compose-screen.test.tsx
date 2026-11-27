@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { common, create, notes } from "@tokuly/api";
+import { Code, ConnectError, common, create, notes, stamp } from "@tokuly/api";
 import { router } from "expo-router";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { api } from "#/lib/api";
+import { createQueryClient } from "#/lib/query";
 import { ComposeScreen } from "../compose-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -27,6 +28,8 @@ function account(
   options: {
     agreed?: boolean;
     draft?: notes.Draft;
+    /** What GetStamp answers for a draft's stamp: the stamp, or "gone" (deleted). */
+    stamp?: stamp.Stamp | "gone";
     createNote?: (request: Record<string, unknown>) => Promise<unknown>;
   } = {},
 ) {
@@ -63,6 +66,13 @@ function account(
       saveDraft: record("saveDraft", () => ({})),
       getDraft: async () => ({ draft: options.draft }),
     },
+    "tokuly.stamp.v1.StampStoreService": {
+      getStamp: async (request: Record<string, unknown>) => {
+        calls.push({ method: "getStamp", request });
+        if (options.stamp === "gone") throw new ConnectError("stamp not found", Code.NotFound);
+        return { stamp: options.stamp };
+      },
+    },
     "tokuly.identity.v1.AccountService": {
       getSettings: async () => ({
         settings: { privacy: { defaultNoteVisibility: common.Visibility.FRIENDS } },
@@ -87,7 +97,7 @@ async function open(element: React.ReactElement) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>{element}</QueryClientProvider>
+      <QueryClientProvider client={createQueryClient()}>{element}</QueryClientProvider>
     </SafeAreaProvider>,
   );
 }
@@ -219,5 +229,38 @@ describe("ComposeScreen", () => {
         }),
       }),
     );
+  });
+
+  it.each([
+    [
+      "can no longer be used",
+      create(stamp.StampSchema, {
+        stampRef: { id: "s-gone", packId: "p1", name: "にゃー", imageUrl: "/media/s-gone.webp" },
+        usable: false,
+      }),
+    ],
+    ["was deleted", "gone" as const],
+  ])("leaves out a draft's stamp that %s, instead of posting it unseen", async (_case, answer) => {
+    const alice = account({
+      draft: create(notes.DraftSchema, {
+        id: "d-1",
+        content: { text: "これ見て", stampId: "s-gone" },
+      }),
+      stamp: answer,
+    });
+    jest.mocked(api).mockReturnValue(alice.object as never);
+    await open(<ComposeScreen draft="d-1" />);
+    await screen.findByTestId("note-text");
+    await waitFor(() => expect(alice.calls.some((call) => call.method === "getStamp")).toBe(true));
+    await act(async () => {});
+    expect(screen.queryByTestId("note-remove-stamp")).toBeNull();
+    await fireEvent.press(screen.getByTestId("note-post"));
+    await waitFor(() =>
+      expect(alice.calls.some((call) => call.method === "createNote")).toBe(true),
+    );
+    expect(alice.calls.find((call) => call.method === "createNote")!.request).toMatchObject({
+      text: "これ見て",
+      stampId: "",
+    });
   });
 });

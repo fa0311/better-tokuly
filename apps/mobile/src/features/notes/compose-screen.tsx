@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import type { common, notes } from "@tokuly/api";
+import { Code, ConnectError, type common, type notes } from "@tokuly/api";
 import {
   type Audience,
   applyCompletion,
@@ -194,11 +194,16 @@ function Composer({
   );
   const photos = useNotePhotos(photosOfDraft(draft));
   // A draft keeps only its stamp's ID: the picture is looked up until another is picked.
+  // One that can no longer be used (its pack taken out, the stamp deleted) is left out.
   const [stamp, setStamp] = useState<common.StampRef>();
   const [keptStampId, setKeptStampId] = useState(content?.stampId ?? "");
-  const kept = useStamp(stamp ? "" : keptStampId).data?.stamp?.stampRef;
+  const lookup = useStamp(stamp ? "" : keptStampId);
+  const keptGone =
+    (lookup.isSuccess && !lookup.data.stamp?.usable) ||
+    (lookup.error instanceof ConnectError && lookup.error.code === Code.NotFound);
+  const kept = keptGone ? undefined : lookup.data?.stamp?.stampRef;
   const shownStamp = stamp ?? kept;
-  const stampId = stamp?.id ?? keptStampId;
+  const stampId = stamp?.id ?? (keptGone ? "" : keptStampId);
   const [pickingStamp, setPickingStamp] = useState(false);
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState<"post" | "draft">();
