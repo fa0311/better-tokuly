@@ -1,25 +1,28 @@
 import { toBinary } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { create, createApi, identity, type SessionState } from "@tokuly/api";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
  * A school opening the app in the minute after the bell: the first refresh
  * is over the address's limit and told when to try again.
  */
-function busyServer(refusals: number) {
+function busyServer(refusals: number, retryAfter = "1") {
   const refreshes: number[] = [];
-  const fetch: typeof globalThis.fetch = async () => {
+  const busy = () =>
+    new Response(JSON.stringify({ code: "resource_exhausted", message: "busy" }), {
+      status: 429,
+      headers: {
+        "content-type": "application/json",
+        "x-tokuly-error": "RATE_LIMITED",
+        "retry-after": retryAfter,
+      },
+    });
+  const fetch: typeof globalThis.fetch = async (input) => {
+    // Signing out is over the limit as well: the server still holds the session.
+    if (!String(input).endsWith("/RefreshToken")) return busy();
     refreshes.push(Date.now());
-    if (refreshes.length <= refusals)
-      return new Response(JSON.stringify({ code: "resource_exhausted", message: "busy" }), {
-        status: 429,
-        headers: {
-          "content-type": "application/json",
-          "x-tokuly-error": "RATE_LIMITED",
-          "retry-after": "1",
-        },
-      });
+    if (refreshes.length <= refusals) return busy();
     const body = create(identity.AuthResponseSchema, {
       accessToken: "token-of-alice",
       accessTokenExpiresAt: timestampFromMs(Date.now() + 15 * 60_000),
@@ -33,6 +36,17 @@ function busyServer(refusals: number) {
   };
   return { fetch, refreshes };
 }
+
+function restoring(server: ReturnType<typeof busyServer>) {
+  const api = createApi({ baseUrl: "http://api.test", client: "web", fetch: server.fetch });
+  const states: SessionState["status"][] = [];
+  api.session.subscribe((state) => states.push(state.status));
+  return { session: api.session, states };
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("restoring the session while the API is rate-limited", () => {
   it("keeps the session and tries again after Retry-After", async () => {
@@ -48,5 +62,22 @@ describe("restoring the session while the API is rate-limited", () => {
     expect(server.refreshes).toHaveLength(2);
     const [first = 0, second = 0] = server.refreshes;
     expect(second - first).toBeGreaterThanOrEqual(950);
+  });
+
+  it("waits once, however many ask for the session meanwhile", async () => {
+    vi.useFakeTimers();
+    const server = busyServer(1, "10");
+    const { session } = restoring(server);
+
+    const first = session.restore();
+    await vi.advanceTimersByTimeAsync(3_000);
+    const second = session.restore();
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    // The second asker adds nothing to the count while the wait is on.
+    expect(server.refreshes).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(await Promise.all([first, second])).toEqual([true, true]);
+    expect(server.refreshes).toHaveLength(2);
   });
 });

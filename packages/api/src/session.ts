@@ -44,6 +44,7 @@ export class Session {
   private accessTokenValue: string | null = null;
   private expiresAtMs = 0;
   private refreshing: Promise<Refreshed> | null = null;
+  private restoring: Promise<boolean> | null = null;
   private current: SessionState = { status: "unknown" };
   private readonly listeners = new Set<Listener>();
   private readonly accountListeners = new Set<AccountChangeListener>();
@@ -144,9 +145,17 @@ export class Session {
    * Tries to resume a previous session. Resolves to whether it worked. A
    * rate-limited refresh (a school opening the app after the bell) says
    * nothing about the session: the state stays unknown, and the refresh is
-   * tried again after the wait the server named.
+   * tried again after the wait the server named. Concurrent callers share
+   * one attempt, and so one wait.
    */
-  async restore(): Promise<boolean> {
+  restore(): Promise<boolean> {
+    this.restoring ??= this.doRestore().finally(() => {
+      this.restoring = null;
+    });
+    return this.restoring;
+  }
+
+  private async doRestore(): Promise<boolean> {
     let refreshed = await this.refreshOnce();
     while (typeof refreshed === "object") {
       const { retryInMs } = refreshed;
