@@ -169,6 +169,10 @@ export function MessageBubble({
             </Text>
           ) : hasText ? (
             <MessageText message={message} mine={mine} />
+          ) : message.kind === chat.MessageKind.STAMP && !stamp ? (
+            <Text className={`text-sm italic ${mine ? "text-on-brand" : "text-ink-soft"}`}>
+              {t("message.stampGone")}
+            </Text>
           ) : otherContent ? (
             <Text className={`text-base ${mine ? "text-on-brand" : "text-ink"}`}>
               {contentText(message, myId)}

@@ -16,6 +16,7 @@ env:
     env:
       ACCOUNT: ${output.me}
       PASSWORD: ${PASSWORD}
+- waitForAnimationToEnd
 
 # The store, from the hub: the featured free pack is added in a tap.
 - runFlow:
@@ -73,7 +74,7 @@ env:
 
 - runFlow: ../subflows/back.yaml
 
-# A note with the stamp just used (it leads 「さいきん使った」).
+# A note with a stamp of the pack.
 - tapOn: { id: "tab-notes" }
 - tapOn: { id: "notes-compose" }
 - runFlow:
@@ -87,6 +88,7 @@ env:
 - inputText: ${output.note}
 - hideKeyboard
 - tapOn: { id: "note-add-stamp" }
+- tapOn: { id: "${'stamp-shelf-pack:' + output.packId}" }
 - extendedWaitUntil:
     visible: { id: "${'stamp-' + output.stampId}" }
     timeout: 15000
