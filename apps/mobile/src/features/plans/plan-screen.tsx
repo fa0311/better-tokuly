@@ -86,7 +86,8 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
     onSuccess: (response) => {
       if (!response) return;
       forgetPlan(queryClient, plan.id);
-      router.back();
+      if (router.canGoBack()) router.back();
+      else router.replace("/plans");
     },
     onError: showPlanError,
   });

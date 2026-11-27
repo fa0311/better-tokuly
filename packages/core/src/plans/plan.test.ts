@@ -6,7 +6,9 @@ import {
   EMPTY_FORM,
   formFromPlan,
   formProblem,
+  PLAN_MAX_LENGTH_DAYS,
   type PlanFormValue,
+  planStartRange,
   planTimeText,
   toCreateRequest,
   toUpdateRequest,
@@ -31,6 +33,11 @@ const timed = (startIso: string, endIso?: string) =>
   });
 
 describe("the plan form", () => {
+  it("uses the server's accepted start-date range", () => {
+    expect(planStartRange("2026-11-27")).toEqual({ min: "2026-10-27", max: "2029-11-29" });
+    expect(PLAN_MAX_LENGTH_DAYS).toBe(31);
+  });
+
   it("says what is missing before it can be sent", () => {
     expect(formProblem(form({ title: " " }), TOKYO)).toBe("title");
     expect(formProblem(form({ when: "date" }), TOKYO)).toBe("date");
@@ -60,6 +67,47 @@ describe("the plan form", () => {
     expect(at("18:00", "18:05")).toBeNull();
     // 02:00 and 02:30 are skipped in Los Angeles that night: both are 03:00.
     expect(at("02:00", "02:30", "2026-03-08", "America/Los_Angeles")).toBe("end");
+    expect(
+      formProblem(
+        form({
+          when: "time",
+          date: "2026-12-24",
+          time: "00:00",
+          hasEnd: true,
+          endDate: "2027-01-24",
+          endTime: "00:00",
+        }),
+        TOKYO,
+      ),
+    ).toBeNull();
+    expect(
+      formProblem(
+        form({
+          when: "time",
+          date: "2026-12-24",
+          time: "00:00",
+          hasEnd: true,
+          endDate: "2027-01-24",
+          endTime: "00:05",
+        }),
+        TOKYO,
+      ),
+    ).toBe("end");
+  });
+
+  it("limits a day-only plan to the server's 31-day maximum length", () => {
+    expect(
+      formProblem(
+        form({ when: "date", date: "2026-12-24", hasEnd: true, endDate: "2027-01-24" }),
+        TOKYO,
+      ),
+    ).toBeNull();
+    expect(
+      formProblem(
+        form({ when: "date", date: "2026-12-24", hasEnd: true, endDate: "2027-01-25" }),
+        TOKYO,
+      ),
+    ).toBe("end");
   });
 
   it("takes an end time earlier than the start as the next day: a night out past midnight", () => {

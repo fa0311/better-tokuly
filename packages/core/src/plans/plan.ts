@@ -72,6 +72,19 @@ export const EMPTY_FORM: PlanFormValue = {
 /** The reminder lead times offered, in minutes (0 = off). */
 export const REMINDER_MINUTES = [0, 10, 30, 60, 120, 180] as const;
 
+/** The server's accepted range for a plan start. */
+export const PLAN_START_RANGE_DAYS = { past: 31, future: 3 * 366 } as const;
+/** Longest interval the server accepts between a plan's start and end. */
+export const PLAN_MAX_LENGTH_DAYS = 31;
+
+/** Calendar days shown by a plan start picker, relative to the plan's time zone. */
+export function planStartRange(today: string): { min: string; max: string } {
+  return {
+    min: addDays(today, -PLAN_START_RANGE_DAYS.past),
+    max: addDays(today, PLAN_START_RANGE_DAYS.future),
+  };
+}
+
 /** The time part of the form from a plan's (or a draft's) time. */
 function timeFields(
   time: plans.PlanTime | undefined,
@@ -157,14 +170,23 @@ export function formProblem(
   if (value.when !== "tbd" && !value.date) return "date";
   if (value.when === "time" && !combine(value.date, value.time, zone)) return "time";
   if (value.when !== "tbd" && value.hasEnd) {
-    if (value.when === "date" && value.endDate && value.endDate < value.date) return "end";
+    if (value.when === "date" && value.endDate) {
+      const length = daysBetween(value.date, value.endDate);
+      if (length < 0 || length > PLAN_MAX_LENGTH_DAYS) return "end";
+    }
     if (value.when === "time") {
       const [start, end] = [
         combine(value.date, value.time, zone),
         combine(value.endDate || value.date, value.endTime, zone),
       ];
       // The server wants it to end after it starts; a time a daylight-saving jump skips is the jump's moment.
-      if (!end || !start || end <= start) return "end";
+      if (
+        !end ||
+        !start ||
+        end <= start ||
+        end.getTime() - start.getTime() > PLAN_MAX_LENGTH_DAYS * 86_400_000
+      )
+        return "end";
     }
   }
   if (value.capacity && !(Number.isInteger(Number(value.capacity)) && Number(value.capacity) >= 1))

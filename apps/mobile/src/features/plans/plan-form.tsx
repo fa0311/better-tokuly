@@ -1,7 +1,10 @@
 import {
+  addDays,
   formatDay,
   nameOf,
+  PLAN_MAX_LENGTH_DAYS,
   type PlanFormValue,
+  planStartRange,
   REMINDER_MINUTES,
   todayYmd,
   type WhenKind,
@@ -47,6 +50,7 @@ export function PlanForm({
   const { colors } = useTheme();
   const zone = usePlanZone();
   const today = todayYmd(zone);
+  const startRange = planStartRange(today);
   const [picking, setPicking] = useState<Picking>(null);
   const set = (patch: Partial<PlanFormValue>) => onChange({ ...value, ...patch });
   const dayText = (day: string) =>
@@ -280,6 +284,8 @@ export function PlanForm({
         title={t(picking === "endDate" ? "plans:plan.form.endDate" : "plans:plan.form.date")}
         value={picking === "endDate" ? value.endDate || value.date : value.date}
         today={today}
+        minDay={picking === "endDate" ? value.date : startRange.min}
+        maxDay={picking === "endDate" ? addDays(value.date, PLAN_MAX_LENGTH_DAYS) : startRange.max}
         onChange={(day) => set(picking === "endDate" ? { endDate: day } : { date: day })}
         onClose={() => setPicking(null)}
       />

@@ -206,7 +206,7 @@ export default {
         title: "Say what the plan is",
         date: "Choose a day",
         time: "Choose a time",
-        end: "The end must be after the start",
+        end: "The end must be after the start and within 31 days",
         capacity: "Capacity must be 1 or more",
       },
     },

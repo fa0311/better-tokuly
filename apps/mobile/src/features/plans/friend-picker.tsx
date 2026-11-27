@@ -1,7 +1,7 @@
 import type { common } from "@tokuly/api";
 import { nameOf } from "@tokuly/core/plans";
 import { Check } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -44,6 +44,12 @@ export function FriendPicker({
   const [chosen, setChosen] = useState<common.UserSummary[] | null>(null);
   const picked = chosen ?? initial;
   const friends = useFriends(query.trim());
+  useEffect(() => {
+    if (!visible) {
+      setChosen(null);
+      setQuery("");
+    }
+  }, [visible]);
   const people = (friends.data?.friends ?? [])
     .flatMap((friend) => (friend.user ? [friend.user] : []))
     .filter((user) => !taken.includes(user.id));
@@ -118,8 +124,6 @@ export function FriendPicker({
             loading={busy}
             onPress={() => {
               onConfirm(picked);
-              setChosen(null);
-              setQuery("");
             }}
           >
             {confirmLabel}
