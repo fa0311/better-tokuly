@@ -812,6 +812,7 @@ export default {
   EMAIL_ALREADY_VERIFIED: "メールアドレスはもう確認済みです",
   EMAIL_MISSING: "メールアドレスが登録されていません",
   EMAIL_UNCHANGED: "いまと同じメールアドレスです",
+  MAIL_SENDING: "メールを送っているところだよ。ちょっと待ってね",
   LAST_CREDENTIAL: "最後のパスキーです。先にパスワードを設定してから削除してね",
   LOCALE_INVALID: "このことばは使えません",
   PASSKEY_EXISTS: "このデバイスのパスキーは、もう登録されています",
