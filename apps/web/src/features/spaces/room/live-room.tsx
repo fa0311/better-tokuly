@@ -79,10 +79,12 @@ export function LiveRoom({ space }: { space: spaces.Space }) {
   const moderator = isModerator(myRole);
   const staged = inside && onStage(myRole);
   const voices = useVoices("space", spaceId);
+  // The audience is listed to people inside: asked once the server has the person in (the join
+  // and the first read would otherwise race, and the room would stay empty).
   const everyone = useParticipants(
     spaceId,
     spaces.ParticipantFilter.UNSPECIFIED,
-    inside || moderator,
+    (inside && Boolean(viewer?.inside)) || moderator,
   );
   const listeners = (everyone.data ?? []).filter((entry) => !onStage(entry.role));
   const hands = listeners.filter((entry) => entry.handRaisedAt);
