@@ -316,7 +316,11 @@ async fn an_adult_giving_the_birthdate_keeps_the_settings() {
     assert!(!p.share_battery);
     let given: BirthdateGiven = app.events_by("identity.user.birthdate_given", old.id).await[0].data().unwrap();
     assert!(!given.minor);
-    assert!(app.events_by("identity.user.privacy_changed", old.id).await.is_empty(), "nothing changed");
+    assert_eq!(
+        app.events_by("identity.user.privacy_changed", old.id).await.len(),
+        1,
+        "what applies changed (the limits are lifted): search and the others read the settings again"
+    );
 }
 
 #[tokio::test]

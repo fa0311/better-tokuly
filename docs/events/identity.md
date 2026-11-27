@@ -12,7 +12,7 @@ except `identity.export.ready`.
 | Topic | Payload | When |
 |---|---|---|
 | `identity.user.created` | `{ user_id, handle, invite_code, minor }` | A person signed up. Never for bots. `minor`: under 18 that day; start the account with your defaults for minors. |
-| `identity.user.birthdate_given` | `{ user_id, minor }` (`maintenance::BirthdateGiven`) | An account without a birthdate gave one (`SetBirthdate`). Apply what you would have at sign-up, by `minor`. |
+| `identity.user.birthdate_given` | `{ user_id, minor }` (`maintenance::BirthdateGiven`) | An account without a birthdate gave one (`SetBirthdate`). Apply what you would have at sign-up, by `minor`. Emitted with `identity.user.privacy_changed`: the settings that apply changed for either age group. |
 | `identity.user.updated` | `{ user_id }` | The account's public face changed: profile fields, the verified badge, the プロフ帳. Search rebuilds the account's document on it. |
 | `identity.profile.updated` | `{ user_id, changed: [group…] }` | The プロフ帳 changed. `changed` names the groups: `mbti`, `blood_type`, `pronouns`, `long_bio`, `theme`, `visibility`, `oshi`, `tags`, `links`, `qa_cards`, `pinned_song`. Carries no text: a consumer reads what it may show (audiences apply). Emitted with `identity.user.updated`. |
 | `identity.user.status_changed` | `{ user_id }` | |

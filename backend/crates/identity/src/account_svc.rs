@@ -355,9 +355,9 @@ impl AccountService for Identity {
                 .await?;
             events::emit(&mut *tx, "identity.user.birthdate_given", Some(user_id), &BirthdateGiven { user_id, minor })
                 .await?;
-            if privacy.is_some() {
-                events::emit(&mut *tx, "identity.user.privacy_changed", Some(user_id), &UserRef { user_id }).await?;
-            }
+            // What applies changed either way: a minor got the defaults, an
+            // adult is out of the limits an account without a birthdate has.
+            events::emit(&mut *tx, "identity.user.privacy_changed", Some(user_id), &UserRef { user_id }).await?;
             tx.commit().await?;
             let user = users::get(core, user_id).await?;
             let me = self.me(&user).await?;
