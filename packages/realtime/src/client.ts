@@ -1,6 +1,8 @@
 import { create, toBinary } from "@bufbuild/protobuf";
-import { type common, geo, realtime } from "@tokuly/api";
-import { decodeServerFrame, type ServerFrame } from "./events.js";
+import type { common } from "@tokuly/api";
+import * as geo from "@tokuly/api/gen/tokuly/geo/v1/geo_pb.js";
+import * as realtime from "@tokuly/api/gen/tokuly/realtime/v1/realtime_pb.js";
+import { type ServerFrame, ServerFrameReader } from "./events.js";
 import { clientIsOutdated } from "./protocol.js";
 import {
   connectWebSocket,
@@ -286,9 +288,13 @@ export class RealtimeClient {
     try {
       const endpoints = await this.options.getEndpoints();
       if (generation !== this.generation) return;
+      const frames = new ServerFrameReader((frame) => {
+        // Frames still waiting for their schemas when the connection was replaced are dropped.
+        if (generation === this.generation) this.handleFrame(frame);
+      });
       const handlers = {
         onFrame: (bytes: Uint8Array) => {
-          if (generation === this.generation) this.handleFrame(bytes);
+          if (generation === this.generation) frames.read(bytes);
         },
         onClose: () => {
           if (generation === this.generation) this.handleClose();
@@ -369,10 +375,8 @@ export class RealtimeClient {
     this.reconnectTimer = setTimeout(() => void this.connect(), delay);
   }
 
-  private handleFrame(bytes: Uint8Array): void {
-    // Something a newer server sent that this build cannot read is ignored.
-    const frame = decodeServerFrame(bytes);
-    if (!frame) return;
+  /** A frame of the current connection, in order; what this build cannot read never gets here. */
+  private handleFrame(frame: ServerFrame): void {
     switch (frame.body.case) {
       case "welcome":
         this.onWelcome(frame.body.value);

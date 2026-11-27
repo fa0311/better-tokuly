@@ -7,7 +7,7 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./gen/*": "./src/gen/*"
+    "./gen/*.js": "./src/gen/*.ts"
   },
   "scripts": {
     "generate": "buf generate --template buf.gen.yaml ../..",

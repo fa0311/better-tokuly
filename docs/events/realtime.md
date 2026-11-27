@@ -19,7 +19,8 @@ in use are listed at `Event` in the proto file.
   builds a frame; tests read one back with `frame.event::<ChatEvent>()`.
 - `@tokuly/realtime` decodes `Event` by a table from type name to message
   (`packages/realtime/src/events.ts`) and hands listeners
-  `frame.body.case === "chat"` with the `ChatEvent` as `value`.
+  `frame.body.case === "chat"` with the `ChatEvent` as `value`. A domain's
+  schemas load with its first event; the frames behind it wait, in order.
 - Clients skip events whose type they do not know, so a server may start
   sending a new type before every client understands it.
 - Upwards, `ClientFrame.location` carries an encoded

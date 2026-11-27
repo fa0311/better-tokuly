@@ -1,5 +1,7 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { common, realtime } from "@tokuly/api";
+// Not the barrel: it would load every domain's schemas, and this file holds chat's back.
+import * as common from "@tokuly/api/gen/tokuly/common/v1/common_pb.js";
+import * as realtime from "@tokuly/api/gen/tokuly/realtime/v1/realtime_pb.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** What the client sent, decoded, and a way to answer as the gateway. */
@@ -30,6 +32,19 @@ vi.mock("./transport.js", () => ({
     });
   },
 }));
+
+/** Chat's schemas load when the test says so, like a chunk on a slow network. */
+const chatSchemas = vi.hoisted(() => {
+  let arrive = () => {};
+  const arrived = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  return { arrived, arrive };
+});
+vi.mock("@tokuly/api/gen/tokuly/chat/v1/chat_pb.js", async (importOriginal) => {
+  await chatSchemas.arrived;
+  return importOriginal();
+});
 
 const { RealtimeClient, SubscriptionRefused } = await import("./client.js");
 
@@ -508,5 +523,40 @@ describe("back in front", () => {
     client.setForeground(true);
     await vi.advanceTimersByTimeAsync(0);
     expect(sentFrames().filter((frame) => frame.body.case === "hello")).toHaveLength(1);
+  });
+});
+
+describe("the order of frames", () => {
+  beforeEach(() => {
+    wire.sent.length = 0;
+  });
+
+  it("holds the frames behind a domain's first event until its schemas are loaded", async () => {
+    const client = await connectedClient();
+    const seen: string[] = [];
+    client.onFrame((frame) => seen.push(frame.body.case ?? "none"));
+    const chatEvent = () =>
+      serverSends({
+        body: {
+          case: "event",
+          value: { type: "tokuly.chat.v1.ChatEvent", payload: new Uint8Array() },
+        },
+      });
+    const presence = () =>
+      serverSends({ body: { case: "presence", value: { userId: "u1", online: true } } });
+
+    chatEvent();
+    presence();
+    chatEvent();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seen).toEqual([]);
+
+    chatSchemas.arrive();
+    await vi.waitFor(() => expect(seen).toEqual(["chat", "presence", "chat"]));
+    // Loaded once, a domain's events are read as they come.
+    chatEvent();
+    presence();
+    expect(seen).toEqual(["chat", "presence", "chat", "chat", "presence"]);
+    client.stop();
   });
 });
