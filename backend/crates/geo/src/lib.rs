@@ -81,6 +81,9 @@ pub use config::GeoConfig;
 pub use history::CLICKHOUSE_SCHEMA;
 pub use regions::WORLD_ID;
 
+/// The columns this domain seals with the server secret (`tokuly rekey`).
+pub const SEALED: &[tokuly_core::rekey::Sealed] = &[shares::SEALED];
+
 pub struct GeoInner {
     pub core: Core,
     pub identity: Identity,

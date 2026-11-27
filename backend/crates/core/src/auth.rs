@@ -137,7 +137,8 @@ const REVOCATION_LOOKUP_TIMEOUT: Duration = Duration::from_millis(50);
 
 struct TokensInner {
     encoding: EncodingKey,
-    decoding: DecodingKey,
+    /// The current key first, then the previous secret's (while it is set).
+    decoding: Vec<DecodingKey>,
     validation: Validation,
     /// Revoked session IDs → instant after which the entry can be dropped.
     revoked: DashMap<Uuid, Time>,
@@ -160,7 +161,11 @@ impl Tokens {
         Ok(Self {
             inner: Arc::new(TokensInner {
                 encoding: EncodingKey::from_ed_der(pkcs8.as_bytes()),
-                decoding: DecodingKey::from_ed_der(&public_key),
+                decoding: keys
+                    .derive_all("jwt/ed25519")
+                    .iter()
+                    .map(|seed| DecodingKey::from_ed_der(&SigningKey::from_bytes(seed).verifying_key().to_bytes()))
+                    .collect(),
                 validation,
                 revoked: DashMap::new(),
                 public_key,
@@ -209,12 +214,18 @@ impl Tokens {
 
     /// Verifies a token and returns who it belongs to.
     pub fn verify(&self, token: &str) -> Result<AuthContext, &'static str> {
-        let data =
-            jsonwebtoken::decode::<Claims>(token, &self.inner.decoding, &self.inner.validation)
-                .map_err(|e| match e.kind() {
-                    jsonwebtoken::errors::ErrorKind::ExpiredSignature => "TOKEN_EXPIRED",
-                    _ => "TOKEN_INVALID",
-                })?;
+        use jsonwebtoken::errors::ErrorKind;
+        let mut decoded = Err(ErrorKind::InvalidSignature.into());
+        for key in &self.inner.decoding {
+            decoded = jsonwebtoken::decode::<Claims>(token, key, &self.inner.validation);
+            if !matches!(&decoded, Err(e) if *e.kind() == ErrorKind::InvalidSignature) {
+                break;
+            }
+        }
+        let data = decoded.map_err(|e| match e.kind() {
+            ErrorKind::ExpiredSignature => "TOKEN_EXPIRED",
+            _ => "TOKEN_INVALID",
+        })?;
         if self.is_revoked(data.claims.sid) {
             return Err("SESSION_REVOKED");
         }
@@ -593,6 +604,20 @@ mod tests {
         let other = Tokens::new(&Keys::new("ffffffffffffffffffffffffffffffff")).unwrap();
         let (token, _) = other.issue(Uuid::now_v7(), Uuid::now_v7(), &[]).unwrap();
         assert_eq!(tokens().verify(&token).unwrap_err(), "TOKEN_INVALID");
+    }
+
+    #[test]
+    fn tokens_of_the_previous_secret_verify_until_it_is_removed() {
+        const OLD: &str = "0123456789abcdef0123456789abcdef";
+        const NEW: &str = "ffffffffffffffffffffffffffffffff";
+        let (user, session) = (Uuid::now_v7(), Uuid::now_v7());
+        let (old_token, _) = tokens().issue(user, session, &[]).unwrap();
+        let rotated = Tokens::new(&Keys::new(NEW).with_previous(OLD)).unwrap();
+        assert_eq!(rotated.verify(&old_token).unwrap().user_id, user);
+        let (new_token, _) = rotated.issue(user, session, &[]).unwrap();
+        let after = Tokens::new(&Keys::new(NEW)).unwrap();
+        assert_eq!(after.verify(&new_token).unwrap().user_id, user, "new tokens are signed with the new secret");
+        assert_eq!(after.verify(&old_token).unwrap_err(), "TOKEN_INVALID");
     }
 
     #[test]

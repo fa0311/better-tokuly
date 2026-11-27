@@ -85,9 +85,10 @@ impl AppRow {
         if !secrets::is(secret, SecretKind::ClientSecret) {
             return false;
         }
-        let presented = dev.core.keys.token_hash(secret);
+        // Under the previous TOKULY_SECRET too, while it is set.
+        let presented = dev.core.keys.token_hashes(secret);
         let matches = |stored: &Option<String>| {
-            stored.as_ref().is_some_and(|stored| secure_eq(stored.as_bytes(), presented.as_bytes()))
+            stored.as_ref().is_some_and(|stored| presented.iter().any(|hash| secure_eq(stored.as_bytes(), hash.as_bytes())))
         };
         matches(&self.secret_hash)
             || (self.previous_secret_expires_at.is_some_and(|at| at > Utc::now())

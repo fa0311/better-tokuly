@@ -71,6 +71,9 @@ mod stream_svc;
 
 pub use config::LiveConfig;
 
+/// The columns this domain seals with the server secret (`tokuly rekey`).
+pub const SEALED: &[tokuly_core::rekey::Sealed] = &[streams::SEALED, overlays::SEALED];
+
 pub struct LiveInner {
     pub core: Core,
     pub identity: Identity,

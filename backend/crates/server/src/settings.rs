@@ -256,7 +256,8 @@ impl Resolved {
             .connect(&url)
             .await
             .map_err(|e| anyhow::anyhow!("cannot connect to PostgreSQL to read the console settings: {e}"))?;
-        self.console = settings::store::load(&db, &self.registry, &Keys::new(&secret)).await?;
+        let keys = Keys::new(&secret).with_previous(&self.core_value("secret_previous").unwrap_or_default());
+        self.console = settings::store::load(&db, &self.registry, &keys).await?;
         db.close().await;
         Ok(())
     }

@@ -65,6 +65,10 @@ enum Command {
         #[command(subcommand)]
         action: DeadLettersAction,
     },
+    /// Seal again under TOKULY_SECRET what is still sealed under
+    /// TOKULY_SECRET_PREVIOUS (docs/configuration.md, replacing the secret).
+    /// Prints what it did per column; safe to run again, and while the servers run.
+    Rekey,
     /// Settings files: `example` prints every setting with its default (the
     /// source of `tokuly.example.toml`); `show` prints what the command line,
     /// the environment and `tokuly.toml` set (console values not included).
@@ -210,7 +214,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Worker => "tokuly-worker",
         Command::Migrate => "tokuly-migrate",
         Command::All => "tokuly-all",
-        Command::PromoteAdmin { .. } | Command::DeadLetters { .. } => "tokuly-admin",
+        Command::PromoteAdmin { .. } | Command::DeadLetters { .. } | Command::Rekey => "tokuly-admin",
         Command::Healthcheck { .. } | Command::Config { .. } | Command::Demo(_) => unreachable!("handled above"),
     };
     let _telemetry = telemetry::init(&cli.core, service);
@@ -267,6 +271,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Command::DeadLetters { action } => dead_letters(&core, action).await?,
+        Command::Rekey => rekey(&core).await?,
         Command::Api => app::serve_api(core, domains, cli.api).await?,
         Command::Realtime => domains.gateway.run().await?,
         Command::Worker => {
@@ -288,6 +293,31 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Healthcheck { .. } | Command::Config { .. } | Command::Demo(_) => unreachable!("handled above"),
     }
+    Ok(())
+}
+
+/// Every column a domain seals with the server secret.
+const SEALED: &[&[tokuly_core::rekey::Sealed]] = &[
+    tokuly_core::rekey::SEALED,
+    tokuly_identity::SEALED,
+    tokuly_geo::SEALED,
+    tokuly_chat::SEALED,
+    tokuly_live::SEALED,
+    tokuly_wallet::SEALED,
+    tokuly_dev::SEALED,
+];
+
+async fn rekey(core: &Core) -> anyhow::Result<()> {
+    let mut unopened = 0;
+    for column in SEALED.iter().copied().flatten() {
+        let done = tokuly_core::rekey::rekey(&core.db, &core.keys, column).await?;
+        println!("{}.{}: {} sealed again, {} open with neither secret", column.table, column.column, done.resealed, done.unopened);
+        unopened += done.unopened;
+    }
+    if unopened > 0 {
+        println!("values that open with neither secret were sealed under another one; they stay unreadable");
+    }
+    println!("done: TOKULY_SECRET_PREVIOUS can go once the tokens made before the change no longer matter (docs/configuration.md)");
     Ok(())
 }
 

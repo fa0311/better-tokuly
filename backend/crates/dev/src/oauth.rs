@@ -476,10 +476,28 @@ impl Dev {
         };
         let Some(app) = app.filter(AppRow::is_usable) else { return Err(failed()) };
         match (app.confidential, secret) {
-            (true, Some(secret)) if app.secret_matches(self, secret) => Ok(app),
+            (true, Some(secret)) if app.secret_matches(self, secret) => {
+                self.renew_secret_hash(&app, secret).await?;
+                Ok(app)
+            }
             (false, None) => Ok(app),
             _ => Err(failed()),
         }
+    }
+
+    /// A client secret that matched under the previous TOKULY_SECRET is
+    /// stored under the current one, so it outlives the previous one.
+    async fn renew_secret_hash(&self, app: &AppRow, secret: &str) -> AppResult<()> {
+        let hashes = self.core.keys.token_hashes(secret);
+        if app.secret_hash.as_ref().is_some_and(|stored| hashes[1..].contains(stored)) {
+            sqlx::query("UPDATE dev_apps SET secret_hash = $2 WHERE id = $1 AND secret_hash = ANY($3)")
+                .bind(app.id)
+                .bind(&hashes[0])
+                .bind(&hashes[1..])
+                .execute(&self.core.db)
+                .await?;
+        }
+        Ok(())
     }
 
     // ───────────────────────────── tokens ─────────────────────────────
@@ -675,9 +693,9 @@ impl Dev {
                     o.rotated_at IS NOT NULL AS rotated, o.revoked_at IS NOT NULL AS revoked, a.app_id, a.user_id,
                     (u.banned_at IS NOT NULL OR u.deleted_at IS NOT NULL) AS account_gone
              FROM dev_oauth_tokens o JOIN dev_authorizations a ON a.id = o.authorization_id JOIN users u ON u.id = a.user_id
-             WHERE o.refresh_hash = $1",
+             WHERE o.refresh_hash = ANY($1)",
         )
-        .bind(self.core.keys.token_hash(refresh_token))
+        .bind(self.core.keys.token_hashes(refresh_token))
         .fetch_optional(&self.core.db)
         .await?;
         let Some(row) = row.filter(|row| row.app_id == app.id) else { return Err(bad_token()) };
@@ -733,9 +751,9 @@ impl Dev {
             _ => return Ok(()),
         };
         let found: Option<(Uuid, Uuid, Uuid)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT o.id, o.family_id, a.app_id FROM dev_oauth_tokens o JOIN dev_authorizations a ON a.id = o.authorization_id WHERE o.{column} = $1"
+            "SELECT o.id, o.family_id, a.app_id FROM dev_oauth_tokens o JOIN dev_authorizations a ON a.id = o.authorization_id WHERE o.{column} = ANY($1)"
         )))
-        .bind(self.core.keys.token_hash(token))
+        .bind(self.core.keys.token_hashes(token))
         .fetch_optional(&self.core.db)
         .await?;
         let Some((id, family_id, _)) = found.filter(|(_, _, app_id)| *app_id == app.id) else { return Ok(()) };

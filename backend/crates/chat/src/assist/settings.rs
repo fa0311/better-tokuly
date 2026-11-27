@@ -22,6 +22,11 @@ use crate::{Chat, ChatConfig};
 /// Seal labels of operator keys and users' keys.
 const INSTANCE_KEY_SEAL: &str = "chat/ai-key/instance";
 const USER_KEY_SEAL: &str = "chat/ai-key/user";
+
+pub(crate) const SEALED: [tokuly_core::rekey::Sealed; 2] = [
+    tokuly_core::rekey::Sealed::bytes("chat_ai_providers", "api_key_sealed", INSTANCE_KEY_SEAL),
+    tokuly_core::rekey::Sealed::bytes("chat_ai_user_keys", "key_sealed", USER_KEY_SEAL),
+];
 /// The order in which providers are listed and the default is picked.
 pub(crate) const PROVIDERS: [AiProvider; 3] =
     [AiProvider::AI_PROVIDER_ANTHROPIC, AiProvider::AI_PROVIDER_OPENAI, AiProvider::AI_PROVIDER_OPENAI_COMPATIBLE];

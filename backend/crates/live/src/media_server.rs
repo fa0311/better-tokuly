@@ -27,7 +27,7 @@
 use chrono::Duration;
 use serde::Deserialize;
 use tokuly_core::{
-    keys::{b64url, secure_eq},
+    keys::{b64url, b64url_decode},
     prelude::*,
 };
 use tokuly_proto::live::{IngestInfo, Playback};
@@ -43,6 +43,14 @@ pub const API_USER: &str = "tokuly";
 pub const PLAYBACK_TOKEN_TTL_MINUTES: i64 = 15;
 /// Paths asked for per page of the control API.
 const PAGE_SIZE: usize = 500;
+
+/// Label of the key playback tokens are signed with.
+const PLAYBACK_LABEL: &str = "live/playback";
+
+/// What a playback token's signature covers.
+fn playback_text(short_id: &str, viewer: Uuid, expiry: i64) -> String {
+    format!("{short_id}.{}.{expiry}", viewer.simple())
+}
 
 /// A path as the media server reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -250,7 +258,7 @@ impl Live {
     }
 
     fn playback_signature(&self, short_id: &str, viewer: Uuid, expiry: i64) -> String {
-        let mac = self.core.keys.mac("live/playback", format!("{short_id}.{}.{expiry}", viewer.simple()).as_bytes());
+        let mac = self.core.keys.mac(PLAYBACK_LABEL, playback_text(short_id, viewer, expiry).as_bytes());
         b64url(&mac[..16])
     }
 
@@ -260,8 +268,11 @@ impl Live {
         let expiry: i64 = parts.next()?.parse().ok()?;
         let viewer = Uuid::parse_str(parts.next()?).ok()?;
         let signature = parts.next()?;
+        // Under the previous TOKULY_SECRET too: players keep their URLs.
         let valid = expiry > now().timestamp()
-            && secure_eq(self.playback_signature(short_id, viewer, expiry).as_bytes(), signature.as_bytes());
+            && b64url_decode(signature).is_some_and(|tag| {
+                tag.len() == 16 && self.core.keys.verify_mac(PLAYBACK_LABEL, playback_text(short_id, viewer, expiry).as_bytes(), &tag)
+            });
         valid.then_some(viewer)
     }
 

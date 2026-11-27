@@ -11,6 +11,7 @@ mod concurrency;
 mod hardening;
 mod oauth;
 mod reference;
+mod secret_rotation;
 mod tokens;
 mod transfers;
 mod webhooks;

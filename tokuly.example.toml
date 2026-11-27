@@ -32,6 +32,11 @@
 # (TOKULY_SECRET; secret; restart: api, realtime, worker)
 # secret = ""  # not set by default
 
+# The master secret being replaced (docs/configuration.md): what was signed or sealed under it is
+# still accepted, nothing new is made with it. Empty when no replacement is under way.
+# (TOKULY_SECRET_PREVIOUS; secret; restart: api, realtime, worker)
+# secret_previous = ""
+
 # Deployment environment name: "development" | "production".
 # (TOKULY_ENV; restart: api, realtime, worker)
 # env = "development"

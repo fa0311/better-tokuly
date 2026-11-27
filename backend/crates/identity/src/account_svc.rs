@@ -560,9 +560,9 @@ impl AccountService for Identity {
         let recovery_ok = if code_ok {
             false
         } else {
-            let hit: bool = sqlx::query_scalar("SELECT $2 = ANY(recovery_code_hashes) FROM users WHERE id = $1")
+            let hit: bool = sqlx::query_scalar("SELECT recovery_code_hashes && $2 FROM users WHERE id = $1")
                 .bind(user.id)
-                .bind(totp::hash_recovery_code(&self.core.keys, request.code))
+                .bind(totp::recovery_code_hashes(&self.core.keys, request.code))
                 .fetch_one(&self.core.db)
                 .await
                 .map_err(AppError::from)?;

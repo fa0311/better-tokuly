@@ -81,7 +81,7 @@ impl Core {
     /// their layers (the server binary).
     pub async fn connect_with(cfg: Config, settings: Settings) -> anyhow::Result<Self> {
         cfg.validate()?;
-        let keys = Keys::new(&cfg.secret);
+        let keys = Keys::new(&cfg.secret).with_previous(&cfg.secret_previous);
         let db = db::connect(&cfg.database_url, cfg.database_max_connections).await?;
         let cache = Cache::connect(&cfg.valkey_url).await?.with_rate_limits(cfg.rate_limits);
         if !cfg.rate_limits {

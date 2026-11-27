@@ -80,6 +80,12 @@ pub fn hash_recovery_code(keys: &Keys, code: &str) -> String {
     keys.token_hash(&format!("recovery:{}", normalize_recovery_code(code)))
 }
 
+/// What a stored hash of `code` may be: codes made before `TOKULY_SECRET`
+/// was replaced work while the previous one is set.
+pub fn recovery_code_hashes(keys: &Keys, code: &str) -> Vec<String> {
+    keys.token_hashes(&format!("recovery:{}", normalize_recovery_code(code)))
+}
+
 pub fn seal_secret(keys: &Keys, secret_base32: &str) -> String {
     tokuly_core::keys::b64url(&keys.seal("totp", secret_base32.as_bytes()))
 }

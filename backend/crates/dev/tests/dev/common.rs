@@ -52,8 +52,21 @@ pub async fn start() -> Ctx {
 }
 
 pub async fn start_with(cfg: DevConfig) -> Ctx {
+    start_configured(cfg, |_| {}).await
+}
+
+/// A server whose `TOKULY_SECRET` is `secret`, replacing `previous`.
+pub async fn start_with_secret(secret: &str, previous: &str) -> Ctx {
+    start_configured(config(), |core| {
+        core.secret = secret.to_owned();
+        core.secret_previous = previous.to_owned();
+    })
+    .await
+}
+
+async fn start_configured(cfg: DevConfig, configure: impl FnOnce(&mut tokuly_core::config::Config)) -> Ctx {
     let mut holder = None;
-    let app = TestApp::start(MIGRATIONS, |core, identity, router| {
+    let app = TestApp::start_with(MIGRATIONS, configure, |core, identity, router| {
         // The social domain answers identity's "may these two see each other" (blocks).
         let social = tokuly_social::Social::new(core.clone(), identity.clone(), tokuly_social::SocialConfig::default())
             .expect("social starts");

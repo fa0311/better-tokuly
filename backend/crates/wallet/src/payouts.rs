@@ -32,6 +32,8 @@ use crate::{
 
 /// Label under which payout destinations are encrypted (`Keys::seal`).
 const DESTINATION_SEAL: &str = "wallet/payout-destination";
+
+pub(crate) const SEALED: tokuly_core::rekey::Sealed = tokuly_core::rekey::Sealed::bytes("wallet_payout_requests", "destination", DESTINATION_SEAL);
 const MAX_TEXT_CHARS: usize = 500;
 const MAX_REFERENCE_CHARS: usize = 200;
 

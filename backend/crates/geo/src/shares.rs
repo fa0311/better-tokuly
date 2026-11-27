@@ -39,6 +39,8 @@ const TOKEN_CHARS: usize = 32;
 /// Key space under which share tokens are sealed.
 const SEAL_LABEL: &str = "geo/share-token";
 
+pub(crate) const SEALED: tokuly_core::rekey::Sealed = tokuly_core::rekey::Sealed::bytes("geo_live_shares", "token_sealed", SEAL_LABEL).hashed("token_hash");
+
 /// Realtime topic of a share.
 pub(crate) fn topic(token: &str) -> String {
     format!("share:{token}")
@@ -200,9 +202,9 @@ impl Geo {
             return Err(share_not_found());
         }
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT {SHARE_COLUMNS} FROM geo_live_shares WHERE token_hash = $1 AND ended_at IS NULL AND expires_at > now()"
+            "SELECT {SHARE_COLUMNS} FROM geo_live_shares WHERE token_hash = ANY($1) AND ended_at IS NULL AND expires_at > now()"
         )))
-        .bind(self.core.keys.token_hash(token))
+        .bind(self.core.keys.token_hashes(token))
         .fetch_optional(&self.core.db)
         .await?
         .ok_or_else(share_not_found)

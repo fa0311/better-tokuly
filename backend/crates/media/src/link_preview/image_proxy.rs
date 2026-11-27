@@ -114,9 +114,21 @@ impl Kind {
     }
 }
 
+const SIGNATURE_LABEL: &str = "media/link-image";
+
+fn signed_text(kind: Kind, target: &str) -> String {
+    format!("{}\n{target}", kind.segment())
+}
+
 fn signature(core: &Core, kind: Kind, target: &str) -> String {
-    let mac = core.keys.mac("media/link-image", format!("{}\n{target}", kind.segment()).as_bytes());
-    keys::b64url(&mac[..18])
+    keys::b64url(&core.keys.mac(SIGNATURE_LABEL, signed_text(kind, target).as_bytes())[..18])
+}
+
+/// Whether `signed` is the signature of `target`, under the current or the
+/// previous TOKULY_SECRET (clients keep the URLs they were given).
+fn signature_matches(core: &Core, kind: Kind, target: &str, signed: &str) -> bool {
+    keys::b64url_decode(signed)
+        .is_some_and(|tag| tag.len() == 18 && core.keys.verify_mac(SIGNATURE_LABEL, signed_text(kind, target).as_bytes(), &tag))
 }
 
 /// Where a picture lives, seen from this instance.
@@ -238,7 +250,7 @@ impl Previews {
         let kind = Kind::parse(kind).ok_or(Missing::Unknown)?;
         let target =
             keys::b64url_decode(target).and_then(|bytes| String::from_utf8(bytes).ok()).ok_or(Missing::Unknown)?;
-        if !keys::secure_eq(signature(core, kind, &target).as_bytes(), signed.as_bytes()) {
+        if !signature_matches(core, kind, &target, signed) {
             return Err(Missing::Unknown);
         }
         let url = Url::parse(&target).map_err(|_| Missing::Unknown)?;

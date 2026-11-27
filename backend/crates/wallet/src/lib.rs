@@ -45,6 +45,9 @@ mod workers;
 pub use config::WalletConfig;
 pub use providers::{Checkout, DevelopmentProvider, PaymentProvider, PaymentState, PurchaseOrder};
 
+/// The columns this domain seals with the server secret (`tokuly rekey`).
+pub const SEALED: &[tokuly_core::rekey::Sealed] = &[payouts::SEALED];
+
 pub struct WalletInner {
     pub core: Core,
     pub identity: Identity,

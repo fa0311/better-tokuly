@@ -246,10 +246,10 @@ pub(crate) async fn seat_in(
             sqlx::query_as(concat!(
                 "SELECT ",
                 member_columns!(),
-                " FROM watch_party_members m WHERE m.party_id = $1 AND m.guest_token_hash = $2"
+                " FROM watch_party_members m WHERE m.party_id = $1 AND m.guest_token_hash = ANY($2)"
             ))
             .bind(party_id)
-            .bind(core.keys.token_hash(token))
+            .bind(core.keys.token_hashes(token))
             .fetch_optional(&mut **tx)
             .await?
         }
