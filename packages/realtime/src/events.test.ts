@@ -14,12 +14,12 @@ function eventFrame(type: string, payload: Uint8Array, topic = ""): Uint8Array {
   return wire({ topic, body: { case: "event", value: { type, payload } } });
 }
 
-describe("server frames", () => {
-  it("hands a domain's event to listeners under its own case, decoded", () => {
+describe("server frames", async () => {
+  it("hands a domain's event to listeners under its own case, decoded", async () => {
     const event = create(wallet.WalletEventSchema, {
       event: { case: "balanceChanged", value: { balance: { coins: 1200n, revision: 7n } } },
     });
-    const frame = decodeServerFrame(
+    const frame = await decodeServerFrame(
       eventFrame("tokuly.wallet.v1.WalletEvent", toBinary(wallet.WalletEventSchema, event)),
     );
 
@@ -33,18 +33,18 @@ describe("server frames", () => {
     expect(frame.replyTo).toBe(0n);
   });
 
-  it("keeps the topic of a topic-scoped event", () => {
+  it("keeps the topic of a topic-scoped event", async () => {
     const event = create(chat.ChatEventSchema, {
       event: { case: "typing", value: { conversationId: "c1", userId: "u1", typing: true } },
     });
-    const frame = decodeServerFrame(
+    const frame = await decodeServerFrame(
       eventFrame(chat.ChatEventSchema.typeName, toBinary(chat.ChatEventSchema, event), "live:42"),
     );
     expect(frame?.topic).toBe("live:42");
     expect(frame?.body.case === "chat" && frame.body.value.event.case).toBe("typing");
   });
 
-  it("knows exactly the events the protocol lists", () => {
+  it("knows exactly the events the protocol lists", async () => {
     // The source is the list at `Event` in `realtime.proto`: lines of the
     // form `//   tokuly.<package>.v1.<Name>   what it is about`.
     const protoRoot = new URL("../../../proto/tokuly/", import.meta.url);
@@ -63,13 +63,15 @@ describe("server frames", () => {
     }
     expect([...KNOWN_EVENT_TYPES].sort()).toEqual([...listed].sort());
     for (const type of KNOWN_EVENT_TYPES) {
-      const domain = type.split(".")[1];
-      expect(decodeServerFrame(eventFrame(type, new Uint8Array()))?.body.case, type).toBe(domain);
+      const frame = await decodeServerFrame(eventFrame(type, new Uint8Array()));
+      expect(frame?.body.case, type).toBe(type.split(".")[1]);
+      // The schema each line loads is the message it names.
+      expect(frame?.body.value?.$typeName, type).toBe(type);
     }
   });
 
-  it("passes the gateway's own messages through unchanged", () => {
-    const welcome = decodeServerFrame(
+  it("passes the gateway's own messages through unchanged", async () => {
+    const welcome = await decodeServerFrame(
       wire({
         replyTo: 3n,
         body: { case: "welcome", value: { connectionId: "c", pingIntervalSeconds: 25 } },
@@ -78,42 +80,46 @@ describe("server frames", () => {
     expect(welcome?.replyTo).toBe(3n);
     expect(welcome?.body.case === "welcome" && welcome.body.value.pingIntervalSeconds).toBe(25);
 
-    const presence = decodeServerFrame(
+    const presence = await decodeServerFrame(
       wire({ body: { case: "presence", value: { userId: "u1", online: true } } }),
     );
     expect(presence?.body.case === "presence" && presence.body.value.userId).toBe("u1");
 
-    const stats = decodeServerFrame(
+    const stats = await decodeServerFrame(
       wire({ topic: "live:1", body: { case: "topicStats", value: { subscriberCount: 12n } } }),
     );
     expect(stats?.body.case === "topicStats" && stats.body.value.subscriberCount).toBe(12n);
     expect(stats?.topic).toBe("live:1");
   });
 
-  it("skips events of a type it does not know instead of failing", () => {
+  it("skips events of a type it does not know instead of failing", async () => {
     expect(
-      decodeServerFrame(eventFrame("tokuly.future.v1.FutureEvent", new Uint8Array([1, 2, 3]))),
+      await decodeServerFrame(
+        eventFrame("tokuly.future.v1.FutureEvent", new Uint8Array([1, 2, 3])),
+      ),
     ).toBeNull();
-    expect(decodeServerFrame(eventFrame("", new Uint8Array()))).toBeNull();
+    expect(await decodeServerFrame(eventFrame("", new Uint8Array()))).toBeNull();
   });
 
-  it("skips what it cannot read", () => {
+  it("skips what it cannot read", async () => {
     // A known type whose payload is not that message.
     expect(
-      decodeServerFrame(eventFrame("tokuly.geo.v1.GeoEvent", new Uint8Array([0xff, 0xff, 0xff]))),
+      await decodeServerFrame(
+        eventFrame("tokuly.geo.v1.GeoEvent", new Uint8Array([0xff, 0xff, 0xff])),
+      ),
     ).toBeNull();
     // Bytes that are no frame at all.
-    expect(decodeServerFrame(new Uint8Array([0xff, 0xff, 0xff]))).toBeNull();
+    expect(await decodeServerFrame(new Uint8Array([0xff, 0xff, 0xff]))).toBeNull();
   });
 
-  it("delivers a frame with a body it has no case for as an empty one", () => {
+  it("delivers a frame with a body it has no case for as an empty one", async () => {
     // Field 99 of ServerFrame does not exist (yet): a newer server's addition to the envelope.
-    const frame = decodeServerFrame(new Uint8Array([0x9a, 0x06, 0x00]));
+    const frame = await decodeServerFrame(new Uint8Array([0x9a, 0x06, 0x00]));
     expect(frame?.body.case).toBeUndefined();
   });
 });
 
-describe("location samples", () => {
+describe("location samples", async () => {
   it("travel encoded, which on the wire is the sample as a nested message", () => {
     const sample = create(geo.LocationSampleSchema, {
       position: { lat: 35.6595, lng: 139.7005 },
