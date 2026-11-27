@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, toMillis, type wallet } from "@tokuly/api";
+import {
+  collectedSteps,
+  countdown,
+  rememberBalance,
+  walletKeys,
+  walletQueries,
+} from "@tokuly/core/wallet";
 import { Check, Flame, Gift } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,9 +17,8 @@ import { CoinIcon, Coins } from "#/components/ui/coins";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { rememberBalance, walletClient, walletKeys } from "./api";
+import { walletClient } from "./api";
 import { CoinBurst, useCoinBurst } from "./celebration";
-import { collectedSteps, countdown } from "./format";
 
 /** The time now, refreshed every `everyMs` while mounted (for countdowns). */
 function useNow(everyMs: number): number {
@@ -36,10 +42,7 @@ export function DailyBonusCard() {
   /** Coins of the claim made on this screen just now (drives the reward state). */
   const [won, setWon] = useState<bigint | null>(null);
 
-  const { data: bonus, isPending } = useQuery({
-    queryKey: walletKeys.dailyBonus,
-    queryFn: async () => (await walletClient().getDailyBonus({})).bonus ?? null,
-  });
+  const { data: bonus, isPending } = useQuery(walletQueries.dailyBonus(walletClient));
 
   const claim = useMutation({
     mutationFn: () => walletClient().claimDailyBonus({}),

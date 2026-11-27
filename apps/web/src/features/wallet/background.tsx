@@ -1,8 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { applyWalletEvent, walletKeys } from "@tokuly/core/wallet";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
-import { applyWalletEvent, walletKeys } from "./api";
 
 /**
  * Keeps the wallet live on every page: balance changes, purchase results and

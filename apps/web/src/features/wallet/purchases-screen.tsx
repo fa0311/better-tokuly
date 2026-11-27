@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { toDate, wallet } from "@tokuly/api";
+import { formatMoney, uniqueById, walletKeys, walletQueries } from "@tokuly/core/wallet";
 import { ChevronRight, ShoppingBag } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,9 +11,7 @@ import { Coins } from "#/components/ui/coins";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import { PAGE_SIZE, walletClient, walletKeys } from "./api";
-import { formatMoney } from "./format";
-import { uniqueById } from "./ledger";
+import { PAGE_SIZE, walletClient } from "./api";
 import { Fact, LinkButton } from "./parts";
 import {
   DEVELOPMENT_PROVIDER,
@@ -25,13 +24,7 @@ import {
 /** Every attempt to buy coins, newest first. */
 export function PurchasesScreen() {
   const { t, i18n } = useTranslation(["wallet", "common"]);
-  const query = useInfiniteQuery({
-    queryKey: walletKeys.purchases,
-    queryFn: ({ pageParam }) =>
-      walletClient().listPurchases({ page: { limit: PAGE_SIZE, cursor: pageParam } }),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.page?.nextCursor || undefined,
-  });
+  const query = useInfiniteQuery(walletQueries.purchases(walletClient, PAGE_SIZE));
   const purchases = uniqueById(query.data?.pages.flatMap((page) => page.purchases) ?? []);
 
   return (

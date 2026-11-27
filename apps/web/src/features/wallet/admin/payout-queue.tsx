@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toDate, toMillis, wallet } from "@tokuly/api";
+import { uniqueById, walletKeys } from "@tokuly/core/wallet";
 import { BadgeCheck, Ban, Check, Copy, WalletCards } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,8 +15,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
-import { PAGE_SIZE, walletAdminClient, walletKeys } from "../api";
-import { uniqueById } from "../ledger";
+import { PAGE_SIZE, walletAdminClient } from "../api";
 import { Fact } from "../parts";
 import { PayoutAmount, PayoutStatusChip, payoutMethodKey, payoutStatusKey } from "../payouts";
 import { useIsWide } from "./hooks";

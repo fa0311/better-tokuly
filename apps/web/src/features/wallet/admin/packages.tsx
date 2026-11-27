@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fromDate, type Timestamp, toDate, toMillis, wallet } from "@tokuly/api";
+import { formatCoins, formatMoney, walletKeys } from "@tokuly/core/wallet";
 import { Pencil, Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,8 +13,8 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
-import { walletAdminClient, walletKeys } from "../api";
-import { formatCoins, formatMoney, parseCoins } from "../format";
+import { walletAdminClient } from "../api";
+import { parseCoins } from "../format";
 import { StatusChip, type Tone } from "../parts";
 import { Cell, ColumnHeads, Pane, RECORD_ROW } from "./parts";
 

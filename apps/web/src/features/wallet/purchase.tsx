@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toMillis, wallet } from "@tokuly/api";
+import { countdown, rememberBalance, rememberPurchase } from "@tokuly/core/wallet";
 import { CircleCheck, CircleX, Clock3, ExternalLink, FlaskConical, Hourglass } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,9 +9,9 @@ import { Button } from "#/components/ui/button";
 import { Coins } from "#/components/ui/coins";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { rememberBalance, rememberPurchase, walletClient } from "./api";
+import { walletClient } from "./api";
 import { CoinBurst, useCoinBurst } from "./celebration";
-import { type CheckoutStep, checkoutStep, countdown, safeCheckoutUrl } from "./format";
+import { type CheckoutStep, checkoutStep, safeCheckoutUrl } from "./format";
 import { StatusChip, type Tone } from "./parts";
 
 /** Name of the built-in provider that hands out coins without taking money. */

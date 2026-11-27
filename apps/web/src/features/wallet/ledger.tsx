@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { toDate, toMillis, wallet } from "@tokuly/api";
+import { daysAgo, groupByDay, parseMemo } from "@tokuly/core/wallet";
 import {
   ArrowLeftRight,
   CircleDollarSign,
@@ -21,7 +22,6 @@ import { Dialog } from "#/components/ui/dialog";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
-import { daysAgo, groupByDay, parseMemo } from "./format";
 import { Fact, StatusChip } from "./parts";
 
 /** The icon and colour of a movement: by what it was for when we know it, by its kind otherwise. */
@@ -331,14 +331,4 @@ export function LedgerList({
       )}
     </>
   );
-}
-
-/** Rows of an infinite list, without the duplicates that a row pushed live can cause on the next page. */
-export function uniqueById<T extends { id: string }>(items: T[]): T[] {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
 }
