@@ -249,12 +249,34 @@ describe("deleting history", () => {
     queryClient.setQueryData(["geo", "places", "mine"], { places: [] });
     await fireEvent.press(screen.getByTestId("history-delete-scope-all"));
     await fireEvent.press(screen.getByTestId("history-delete-confirm"));
+    await fireEvent.press(screen.getByTestId("history-delete-sure-confirm"));
     await waitFor(() => expect(written).toHaveLength(1));
     expect(written[0]?.request).toEqual({ includeFootprints: false });
     await waitFor(() =>
       expect(queryClient.getQueryData(["geo", "footprints", "stats", ""])).toBeUndefined(),
     );
     expect(queryClient.getQueryData(["geo", "places", "mine"])).toBeUndefined();
+  });
+
+  it("asks a second time before everything goes, and sends nothing until then", async () => {
+    const written = historyOf();
+    await show(<DeleteHistoryScreen />);
+    await fireEvent.press(screen.getByTestId("history-delete-scope-all"));
+    await fireEvent.press(screen.getByTestId("history-delete-confirm"));
+    expect(screen.getByText("ちょっと待って!")).toBeTruthy();
+    expect(screen.getByText("ぜんぶ消すと、もとに戻せないよ。本当に消す？")).toBeTruthy();
+    expect(screen.queryByTestId("history-delete-confirm")).toBeNull();
+
+    // Cancel, or picking days instead, goes back to the first question.
+    await fireEvent.press(screen.getByTestId("history-delete-sure-cancel"));
+    expect(screen.queryByTestId("history-delete-sure")).toBeNull();
+    await fireEvent.press(screen.getByTestId("history-delete-confirm"));
+    await fireEvent.press(screen.getByTestId("history-delete-scope-range"));
+    expect(screen.queryByTestId("history-delete-sure")).toBeNull();
+    await fireEvent.press(screen.getByTestId("history-delete-scope-all"));
+    expect(screen.queryByTestId("history-delete-sure")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(written).toHaveLength(0);
   });
 
   it("answered after an account switch, does nothing to the next account's screens", async () => {
@@ -306,9 +328,10 @@ describe("deleting history", () => {
     await show(<DeleteHistoryScreen />);
     await fireEvent.press(screen.getByTestId("history-delete-scope-all"));
     await fireEvent.press(screen.getByTestId("history-delete-confirm"));
+    await fireEvent.press(screen.getByTestId("history-delete-sure-confirm"));
     await waitFor(() => expect(router.back).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByTestId("history-delete-confirm")).toBeDisabled());
-    await fireEvent.press(screen.getByTestId("history-delete-confirm"));
+    await waitFor(() => expect(screen.getByTestId("history-delete-sure-confirm")).toBeDisabled());
+    await fireEvent.press(screen.getByTestId("history-delete-sure-confirm"));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(written).toHaveLength(1);
     expect(router.back).toHaveBeenCalledTimes(1);
