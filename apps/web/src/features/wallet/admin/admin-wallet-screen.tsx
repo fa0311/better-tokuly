@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { wallet } from "@tokuly/api";
+import { walletKeys } from "@tokuly/core/wallet";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
-import { walletAdminClient, walletKeys } from "../api";
+import { walletAdminClient } from "../api";
 import { AdjustmentsLog } from "./adjustments";
 import { useWalletStaffAccess } from "./hooks";
 import { PackageManager } from "./packages";

@@ -31,6 +31,7 @@ import spaces from "./spaces";
 import stamps from "./stamps";
 import stories from "./stories";
 import video from "./video";
+import wallet from "./wallet";
 
 export default {
   common,
@@ -63,5 +64,6 @@ export default {
   school,
   stamps,
   emoji,
+  wallet,
   mobile,
 };

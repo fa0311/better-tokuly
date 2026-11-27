@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchBalance, walletKeys } from "./api";
+import { walletQueries } from "@tokuly/core/wallet";
+import { walletClient } from "./api";
 
 export interface BalanceState {
   /** Spendable coins; `undefined` until the first answer arrives. */
@@ -19,10 +20,7 @@ export interface BalanceState {
  */
 export function useBalance(): BalanceState {
   const queryClient = useQueryClient();
-  const query = useQuery({
-    queryKey: walletKeys.balance,
-    queryFn: () => fetchBalance(queryClient),
-  });
+  const query = useQuery(walletQueries.balance(walletClient, queryClient));
   return {
     coins: query.data?.coins,
     earnings: query.data?.earnings,

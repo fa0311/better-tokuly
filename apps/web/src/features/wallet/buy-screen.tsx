@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toMillis, wallet } from "@tokuly/api";
+import {
+  formatCoins,
+  formatMoney,
+  rememberBalance,
+  rememberPurchase,
+  walletKeys,
+} from "@tokuly/core/wallet";
 import { ReceiptText } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,9 +19,8 @@ import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactDuration } from "#/lib/format";
-import { rememberBalance, rememberPurchase, walletClient, walletKeys } from "./api";
+import { walletClient } from "./api";
 import { BalancePill } from "./balance-pill";
-import { formatCoins, formatMoney } from "./format";
 import { Fact, LinkButton } from "./parts";
 import { DEVELOPMENT_PROVIDER, DevelopmentNote, PurchaseProgress, providerName } from "./purchase";
 

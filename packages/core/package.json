@@ -32,7 +32,8 @@
     "./spaces": "./src/spaces/index.ts",
     "./stamps": "./src/stamps/index.ts",
     "./stories": "./src/stories/index.ts",
-    "./video": "./src/video/index.ts"
+    "./video": "./src/video/index.ts",
+    "./wallet": "./src/wallet/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

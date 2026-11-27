@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { wallet } from "@tokuly/api";
+import { uniqueById, walletQueries } from "@tokuly/core/wallet";
 import {
   ChevronRight,
   History,
@@ -14,10 +15,10 @@ import { Card } from "#/components/ui/card";
 import { CoinIcon, Coins } from "#/components/ui/coins";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
-import { PAGE_SIZE, walletClient, walletKeys } from "./api";
+import { PAGE_SIZE, walletClient } from "./api";
 import { useCountUp } from "./celebration";
 import { DailyBonusCard } from "./daily-bonus-card";
-import { LedgerList, uniqueById } from "./ledger";
+import { LedgerList } from "./ledger";
 import { LinkButton, SectionTitle } from "./parts";
 import { useBalance } from "./use-balance";
 
@@ -159,13 +160,9 @@ function Shortcuts() {
 /** The latest movements; the full list is one tap away. Shares its data with the history page. */
 function RecentActivity() {
   const { t } = useTranslation("wallet");
-  const query = useInfiniteQuery({
-    queryKey: walletKeys.ledger(wallet.LedgerAccount.UNSPECIFIED),
-    queryFn: ({ pageParam }) =>
-      walletClient().listLedgerEntries({ page: { limit: PAGE_SIZE, cursor: pageParam } }),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.page?.nextCursor || undefined,
-  });
+  const query = useInfiniteQuery(
+    walletQueries.ledger(walletClient, wallet.LedgerAccount.UNSPECIFIED, PAGE_SIZE),
+  );
   const entries = uniqueById(query.data?.pages.flatMap((page) => page.entries) ?? []).slice(
     0,
     RECENT,

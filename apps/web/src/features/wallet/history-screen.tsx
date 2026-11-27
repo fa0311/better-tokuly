@@ -1,5 +1,6 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { wallet } from "@tokuly/api";
+import { uniqueById, walletQueries } from "@tokuly/core/wallet";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
@@ -7,9 +8,9 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { errorMessage } from "#/lib/errors";
-import { PAGE_SIZE, walletClient, walletKeys } from "./api";
+import { PAGE_SIZE, walletClient } from "./api";
 import { BalancePill } from "./balance-pill";
-import { LedgerList, uniqueById } from "./ledger";
+import { LedgerList } from "./ledger";
 import { LinkButton } from "./parts";
 
 type Filter = "all" | "coins" | "earnings";
@@ -25,13 +26,7 @@ export function HistoryScreen() {
   const { t } = useTranslation("wallet");
   const [filter, setFilter] = useState<Filter>("all");
   const account = ACCOUNTS[filter];
-  const query = useInfiniteQuery({
-    queryKey: walletKeys.ledger(account),
-    queryFn: ({ pageParam }) =>
-      walletClient().listLedgerEntries({ account, page: { limit: PAGE_SIZE, cursor: pageParam } }),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.page?.nextCursor || undefined,
-  });
+  const query = useInfiniteQuery(walletQueries.ledger(walletClient, account, PAGE_SIZE));
   const entries = uniqueById(query.data?.pages.flatMap((page) => page.entries) ?? []);
 
   return (

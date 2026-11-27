@@ -1,9 +1,10 @@
 import { toDate, type wallet } from "@tokuly/api";
+import { formatCoins } from "@tokuly/core/wallet";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Card } from "#/components/ui/card";
 import { cn } from "#/lib/cn";
-import { formatCoins, niceCeiling } from "./format";
+import { niceCeiling } from "./format";
 
 /**
  * Net earnings per day (or month) as columns. Hovering, focusing or tapping
