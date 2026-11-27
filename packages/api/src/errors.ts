@@ -44,6 +44,19 @@ export function isStaleToken(error: unknown): boolean {
   return isUnauthenticated(error) && reason !== undefined && STALE_TOKEN_REASONS.has(reason);
 }
 
+/**
+ * The account is under the minimum age (`ACCOUNT_TOO_YOUNG`): it answered
+ * so, perhaps on another device, and reaches only signing in, its own
+ * account and its deletion until that birthday.
+ */
+export function isAccountTooYoung(error: unknown): boolean {
+  return (
+    error instanceof ConnectError &&
+    error.code === Code.PermissionDenied &&
+    errorReason(error) === "ACCOUNT_TOO_YOUNG"
+  );
+}
+
 export function isNotFound(error: unknown): boolean {
   return error instanceof ConnectError && error.code === Code.NotFound;
 }

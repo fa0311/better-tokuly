@@ -1,7 +1,7 @@
 import type { DescService } from "@bufbuild/protobuf";
 import { type Client, createClient, type Interceptor, type Transport } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { isStaleToken } from "./errors.js";
+import { isAccountTooYoung, isStaleToken } from "./errors.js";
 import { type RefreshTokenStore, Session } from "./session.js";
 
 export interface ApiOptions {
@@ -32,7 +32,8 @@ export interface Api {
  *
  * Every call carries the current access token. A call rejected because the
  * token went stale is retried once after a refresh, so callers never see
- * token expiry.
+ * token expiry. One refused because the account is too young
+ * (`Session.noticeTooYoung`) has the session learn so.
  */
 export function createApi(options: ApiOptions): Api {
   const baseFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -60,6 +61,7 @@ export function createApi(options: ApiOptions): Api {
     try {
       return await next(request);
     } catch (error) {
+      if (isAccountTooYoung(error)) session.noticeTooYoung();
       // Streams cannot be replayed; unary calls are retried once.
       if (request.stream || !isStaleToken(error)) throw error;
       // A refresh that came back as another account leaves nothing to resend with.
