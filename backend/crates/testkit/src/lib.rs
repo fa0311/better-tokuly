@@ -56,6 +56,12 @@ use tokuly_proto::{RealtimeEvent, common::SubjectType};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
+/// A private prefix for resources owned by this test binary
+/// (`tokuly_test_<started>_<id>`), suitable for keys in a shared service.
+pub fn test_run_prefix() -> String {
+    env::run().name("tokuly_test_", '_')
+}
+
 /// The Meilisearch index prefix of this test binary
 /// (`tokuly_test_<started>_<id>`), for `SearchConfig::index_prefix`. Every
 /// index whose name starts with it is deleted when the binary exits.
