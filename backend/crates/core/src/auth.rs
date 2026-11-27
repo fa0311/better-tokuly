@@ -220,6 +220,12 @@ impl Tokens {
         self
     }
 
+    /// The Valkey key [`Self::revoke_sessions_made_before`] keeps its
+    /// instant in (tests remove it, as a Valkey restarted empty would).
+    pub fn cut_off_key(&self) -> &str {
+        &self.cut_off_key
+    }
+
     /// Raw Ed25519 public key (for publishing as a JWK).
     pub fn public_key(&self) -> [u8; 32] {
         self.inner.public_key

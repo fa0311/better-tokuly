@@ -128,10 +128,11 @@ async fn revoke_all(core: &Core, domains: &app::Domains) -> anyhow::Result<()> {
     // Without Valkey the servers would not hear of it until the access tokens expire.
     core.cache.ping().await.map_err(|e| anyhow::anyhow!("sessions revoke-all: Valkey does not answer: {e}"))?;
     let failed = |e: tokuly_core::AppError| anyhow::anyhow!("sessions revoke-all: {e}");
-    let started = tokuly_core::time::now();
-    let sessions = domains.identity.sign_everyone_out(started).await.map_err(failed)?;
+    // The database's clock, not this machine's: one behind would let the latest sessions through.
+    let cut_off = core.sessions_cut_off().await.map_err(failed)?;
+    let sessions = domains.identity.sign_everyone_out(cut_off).await.map_err(failed)?;
     println!("sessions: {sessions} revoked (their accounts sign in again)");
-    let tokens = domains.dev.revoke_every_token(started).await.map_err(failed)?;
+    let tokens = domains.dev.revoke_every_token(cut_off).await.map_err(failed)?;
     println!("API tokens: {} revoked; OAuth tokens: {} revoked (applications ask again)", tokens.api_tokens, tokens.oauth_tokens);
     Ok(())
 }
