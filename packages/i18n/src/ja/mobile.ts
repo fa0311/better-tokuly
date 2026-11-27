@@ -340,6 +340,14 @@ export default {
     onWeb: "Webでひらく",
     badgesHint: "{{count}}こゲット!",
   },
+  stamps: {
+    pick: "スタンプ",
+    coins: "{{count}}コイン",
+    buyOnWeb: "購入はコインのページでするよ",
+    moreOnWeb: "お気に入り・じぶんのスタンプ・ならべかえ",
+    moreOnWebHint: "Web の画面でひらくよ",
+    remove: "スタンプをはずす",
+  },
   licenses: {
     title: "オープンソースライセンス",
     lead: "Tokulyは{{count}}こ のオープンソースソフトウェアでできてるよ。ありがとう！",

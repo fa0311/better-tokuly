@@ -38,6 +38,7 @@ describe("the seam registries", () => {
       "search",
       "settings",
       "spaces",
+      "stamps",
       "video",
       "web",
     ]);

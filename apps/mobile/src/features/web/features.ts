@@ -4,7 +4,6 @@ import {
   Settings,
   ShieldCheck,
   SmilePlus,
-  Sticker,
   Wallet,
 } from "lucide-react-native";
 
@@ -25,7 +24,6 @@ export interface WebFeature {
  */
 export const WEB_FEATURES: readonly WebFeature[] = [
   { key: "emoji", path: "/emoji", icon: SmilePlus },
-  { key: "stamps", path: "/stamps", icon: Sticker },
   { key: "wallet", path: "/wallet", icon: Wallet },
   { key: "settings", path: "/settings", icon: Settings },
   { key: "dev", path: "/developers", icon: Code },

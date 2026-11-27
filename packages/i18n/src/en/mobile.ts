@@ -339,6 +339,14 @@ export default {
     onWeb: "Open on the web",
     badgesHint: "{{count}} collected!",
   },
+  stamps: {
+    pick: "Stamp",
+    coins: "{{count}} coins",
+    buyOnWeb: "Buying happens on the coins page",
+    moreOnWeb: "Favorites, your own stamps, reordering",
+    moreOnWebHint: "Opens on the web",
+    remove: "Remove the stamp",
+  },
   licenses: {
     title: "Open-source licences",
     lead: "Tokuly is built with {{count}} open-source packages. Thank you!",
