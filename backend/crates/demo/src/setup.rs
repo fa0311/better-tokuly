@@ -1,8 +1,9 @@
 //! Getting the cast onto the server: operator accounts, their bots, a token
 //! per bot, profiles, and the friendships between the bots.
 //!
-//! Everything here can run again: a second start finds the accounts and the
-//! bots of the first and only fills in what is missing.
+//! Everything here can run again: a second start finds the accounts, the
+//! bots and the tokens of the first ([`Keep`]) and only fills in what is
+//! missing.
 use anyhow::{Context as _, bail};
 use tokuly_proto::{
     dev::{
@@ -23,16 +24,17 @@ use crate::{
     api::{Api, ApiError},
     cast::Persona,
     config::DemoConfig,
+    keep::{Keep, KeptToken},
     media::{self, Upload},
     script::Script,
 };
 
-/// The name of the simulator's tokens. A new start revokes the ones of the last.
+/// The name of the simulator's tokens. A start revokes those it did not keep.
 const TOKEN_NAME: &str = "tokuly demo";
 
 /// What a bot's token may do: what the bots do, and nothing else. (No
 /// wallet scope exists for bots at all.)
-const SCOPES: &[&str] = &[
+pub const SCOPES: &[&str] = &[
     "identity:write",
     "media:write",
     "geo:write",
@@ -57,6 +59,7 @@ pub struct Bot {
 /// cast order.
 pub async fn prepare(api: &Api, config: &DemoConfig, script: &Script) -> anyhow::Result<Vec<Bot>> {
     let cast = script.cast();
+    let mut keep = Keep::open(config.state_dir().as_deref(), &config.password);
     let mut bots = Vec::with_capacity(cast.len());
     for (number, address) in config.operators().into_iter().enumerate() {
         if bots.len() == cast.len() {
@@ -73,7 +76,9 @@ pub async fn prepare(api: &Api, config: &DemoConfig, script: &Script) -> anyhow:
                 Some(existing) => refreshed(api, &session, existing, persona).await,
                 None => create(api, &session, persona).await.with_context(|| format!("bot {}", persona.handle))?,
             };
-            let token = token(api, &session, &account).await.with_context(|| format!("token of {}", persona.handle))?;
+            let token = token(api, &session, &account, &mut keep)
+                .await
+                .with_context(|| format!("token of {}", persona.handle))?;
             bots.push(Bot { id: account, name: persona.display_name.clone(), token });
         }
         // The session was only needed for this.
@@ -199,30 +204,59 @@ fn account_id(bot: Option<&BotAccount>) -> String {
     bot.and_then(|bot| bot.user.as_option()).map(|user| user.id.clone()).unwrap_or_default()
 }
 
-/// A fresh token for the bot, after revoking the simulator's earlier ones.
-async fn token(api: &Api, session: &str, bot_id: &str) -> anyhow::Result<String> {
+/// The bot's token: the one the last start kept while the server still has
+/// it with the scopes of [`SCOPES`], else a new one. The simulator's other
+/// tokens of the bot are revoked.
+async fn token(api: &Api, session: &str, bot_id: &str, keep: &mut Keep) -> anyhow::Result<String> {
     let session = Some(session);
     let request = ListBotTokensRequest { bot_id: bot_id.to_owned(), ..Default::default() };
-    let tokens: ListBotTokensResponse = api.call(session, "tokuly.dev.v1.BotService/ListBotTokens", &request).await?;
-    for old in tokens.tokens.iter().filter(|token| token.name == TOKEN_NAME) {
+    let live: ListBotTokensResponse = api.call(session, "tokuly.dev.v1.BotService/ListBotTokens", &request).await?;
+    let wanted = |scopes: &[String]| {
+        let mut scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
+        scopes.sort_unstable();
+        let mut wanted = SCOPES.to_vec();
+        wanted.sort_unstable();
+        scopes == wanted
+    };
+    let kept = keep
+        .get(bot_id)
+        .filter(|kept| live.tokens.iter().any(|token| token.id == kept.id && !token.expired && wanted(&token.scopes)))
+        .cloned();
+    for old in live
+        .tokens
+        .iter()
+        .filter(|token| token.name == TOKEN_NAME && kept.as_ref().is_none_or(|kept| kept.id != token.id))
+    {
         let request = RevokeBotTokenRequest { token_id: old.id.clone(), ..Default::default() };
         api.call::<_, RevokeBotTokenResponse>(session, "tokuly.dev.v1.BotService/RevokeBotToken", &request).await?;
+    }
+    if let Some(kept) = kept {
+        return Ok(kept.secret);
     }
     let request = CreateBotTokenRequest {
         bot_id: bot_id.to_owned(),
         name: TOKEN_NAME.to_owned(),
         scopes: SCOPES.iter().map(|scope| (*scope).to_owned()).collect(),
-        // Revoked by the next start; the simulator may run for months.
+        // Kept for the next start; the simulator may run for months.
         expiry: TokenExpiry::TOKEN_EXPIRY_NEVER.into(),
         ..Default::default()
     };
-    match api.call::<_, CreateBotTokenResponse>(session, "tokuly.dev.v1.BotService/CreateBotToken", &request).await {
-        Ok(created) => Ok(created.secret),
+    let created = match api
+        .call::<_, CreateBotTokenResponse>(session, "tokuly.dev.v1.BotService/CreateBotToken", &request)
+        .await
+    {
+        Ok(created) => created,
         Err(refused) if refused.is("SCOPE_NOT_FOR_BOTS") => bail!(
             "the server does not let these bots move, chat and post: give the server (api and worker) the same TOKULY_DEV_DEMO_OPERATORS as the simulator and restart it"
         ),
-        Err(refused) => Err(refused.into()),
+        Err(refused) => return Err(refused.into()),
+    };
+    let id = created.token.as_option().map(|token| token.id.clone()).unwrap_or_default();
+    // The bot works without it; only the next start makes a token again.
+    if let Err(error) = keep.put(bot_id, KeptToken { id, secret: created.secret.clone() }) {
+        tracing::warn!(%error, "demo: the bot token is not kept");
     }
+    Ok(created.secret)
 }
 
 /// What a bot does once for itself: a face, and the note rules.

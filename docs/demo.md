@@ -19,6 +19,7 @@ docker compose up -d     # demo コンテナがボットを作って動かしは
 | `TOKULY_DEMO_CENTER` / `TOKULY_DEMO_RADIUS_M` | `35.7030,139.5795` / `900` | ボットが動く中心（`緯度,経度`）と半径メートル。`TOKULY_MAP_REGION_BBOX` の中にする |
 | `TOKULY_DEMO_BOTS` / `TOKULY_DEMO_SEED` / `TOKULY_DEMO_PACE` | `12` / `2026` / `1` | ボットの数、シード値、時間の進む速さ（1 = 実時間） |
 | `TOKULY_DEMO_EPISODE` | 起動時刻 | 何が起きるか（ルート・投稿・会話）を決める値。固定すると毎回同じデモになる |
+| `TOKULY_DEMO_STATE_DIR` | `~/.local/state/tokuly-demo` | ボットのトークンを次の起動まで取っておく場所（パスワードで封印）。Compose ではボリューム `demo-data` |
 
 知っておくこと:
 
@@ -26,6 +27,8 @@ docker compose up -d     # demo コンテナがボットを作って動かしは
 - ボットには**ボットのしるし**が付き、位置は「シミュレーション」として送るので、Bump や「近くの人」には出ません。
 - ボットから知らない人に話しかけることはありません。実在の人物や住所は出てきません。
 - 持ち主に指定したアカウントのボットだけが、チャットや投稿などの書き込みをできます（コインは対象外）。
+- ボットのトークンは起動のたびに作り直さず使い回します（作れるのは持ち主 1 人につき 1 時間に 20 個まで）。
+  取り消されたものだけ作り直し、API に「待って」と言われたら 1 分から 15 分まで間をあけてやり直します。
 - 経路検索エンジン（`[geo] routing_url`）があれば実際の道に沿って歩きます。
 
 やめるときは `COMPOSE_PROFILES` から `demo` を外して `docker compose up -d --remove-orphans`。
