@@ -46,9 +46,8 @@ export interface HubTile {
   /**
    * A card the hub page shows across the section's full width instead of the
    * plain tile (a widget: the class that is on, a balance), as a dynamic
-   * import: `card: () => import("./hub-card")`. The tiles are on every page
-   * (the launcher, the quick search), the card only on the hub, so it loads
-   * there. The launcher and the quick search use the icon and label.
+   * import: `card: () => import("./hub-card")`, so it is not in the app's
+   * entry; keep it small, it is fetched as soon as the tiles are. The launcher and the quick search use the icon and label.
    */
   card?: () => Promise<{ default: ComponentType }>;
 }
@@ -65,7 +64,12 @@ const modules = import.meta.glob<{ default: HubTile[] }>("../features/*/hub.tsx"
 /** Every tile, by section and order. */
 export const HUB_TILES: LoadedHubTile[] = Object.values(modules)
   .flatMap((module) => module.default)
-  .map(({ card, ...tile }) => (card ? { ...tile, Card: lazy(card) } : tile))
+  .map(({ card, ...tile }) => {
+    if (!card) return tile;
+    // Fetched with the tiles (they are small), so the hub rarely waits for one.
+    const loading = card();
+    return { ...tile, Card: lazy(() => loading) };
+  })
   .sort(
     (a, b) =>
       HUB_SECTIONS.indexOf(a.section) - HUB_SECTIONS.indexOf(b.section) ||

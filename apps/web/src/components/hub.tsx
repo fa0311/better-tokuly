@@ -15,14 +15,25 @@ import { useBadge } from "#/stores/badges";
  * - `page`: the hub page — roomy rows, and a feature's own card where it has one;
  * - `launcher`: an app drawer of icons, for a sheet over whatever page is open.
  */
-export function HubSections({
-  variant,
-  onNavigate,
-}: {
+export function HubSections(props: HubSectionsProps) {
+  // The page shows its cards with the tiles, so nothing moves when a card arrives.
+  if (props.variant === "page") {
+    return (
+      <Suspense fallback={null}>
+        <Sections {...props} />
+      </Suspense>
+    );
+  }
+  return <Sections {...props} />;
+}
+
+interface HubSectionsProps {
   variant: "page" | "launcher";
   /** Called when a tile is followed (the launcher closes itself). */
   onNavigate?(): void;
-}) {
+}
+
+function Sections({ variant, onNavigate }: HubSectionsProps) {
   // The section titles follow the language; the tiles' own labels are read while rendering.
   const { t } = useTranslation("common");
   const isStaff = useStaffAccess().staff;
@@ -50,9 +61,7 @@ export function HubSections({
             {section.tiles.map((tile) =>
               variant === "page" && tile.Card ? (
                 <li key={tile.id} className="col-span-full">
-                  <Suspense fallback={<PageTile tile={tile} />}>
-                    <tile.Card />
-                  </Suspense>
+                  <tile.Card />
                 </li>
               ) : (
                 <li key={tile.id}>
