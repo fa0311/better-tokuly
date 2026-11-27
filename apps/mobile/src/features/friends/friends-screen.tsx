@@ -124,7 +124,7 @@ function RequestLists() {
           );
         const user = item.kind === "incoming" ? item.request.from : item.request.to;
         return (
-          <PersonRow user={user} detail={requestDetail(t, item.request)}>
+          <PersonRow user={user} note={requestDetail(t, item.request)}>
             <RequestActions request={item.request} incoming={item.kind === "incoming"} />
           </PersonRow>
         );
