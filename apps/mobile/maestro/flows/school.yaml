@@ -1,0 +1,64 @@
+appId: app.tokuly.mobile
+name: See today's classes and what is due, cheer a studying friend, tick off and add homework
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/school-day.js
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+
+# School is under the own profile.
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-school" }
+- tapOn: { id: "me-school" }
+- extendedWaitUntil:
+    visible: { id: "school-day" }
+    timeout: 15000
+- assertVisible: ".*3-A.*"
+- takeScreenshot: 40-school
+- scrollUntilVisible:
+    element: { id: "school-due" }
+
+# A friend who is studying gets a cheer.
+- scrollUntilVisible:
+    element: { id: "${'cheer-' + output.friend}" }
+- tapOn: { id: "${'cheer-' + output.friend}" }
+- extendedWaitUntil:
+    visible: { id: "${'cheered-' + output.friend}" }
+    timeout: 15000
+
+# The homework is ticked off on the assignments screen, and new homework is added.
+- scrollUntilVisible:
+    element: { id: "school-assignments" }
+    direction: UP
+- tapOn: { id: "school-assignments" }
+- extendedWaitUntil:
+    visible: { id: "${'assignment-' + output.homework}" }
+    timeout: 15000
+- takeScreenshot: 41-school-assignments
+- tapOn: { id: "${'assignment-done-' + output.homework}" }
+- extendedWaitUntil:
+    notVisible: { id: "${'assignment-' + output.homework}" }
+    timeout: 15000
+- tapOn: { id: "assignment-add" }
+- extendedWaitUntil:
+    visible: { id: "new-assignment" }
+    timeout: 15000
+- tapOn: { id: "assignment-title" }
+- inputText: "e2e homework"
+- hideKeyboard
+- tapOn: { id: "assignment-due-dayAfter" }
+- takeScreenshot: 42-school-new-assignment
+- tapOn: { id: "assignment-save" }
+- extendedWaitUntil:
+    visible: "e2e homework"
+    timeout: 15000
