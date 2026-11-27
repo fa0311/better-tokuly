@@ -30,6 +30,9 @@ export function useLedger(account: wallet.LedgerAccount) {
 
 export const useDailyBonus = () => useQuery(walletQueries.dailyBonus(walletClient));
 
+/** The monthly spending limit and this month's spending. */
+export const useSpendingLimit = () => useQuery(walletQueries.spendingLimit(walletClient));
+
 export function usePurchases() {
   const query = useInfiniteQuery(walletQueries.purchases(walletClient, PAGE_SIZE));
   const purchases = uniqueById(query.data?.pages.flatMap((page) => page.purchases) ?? []);

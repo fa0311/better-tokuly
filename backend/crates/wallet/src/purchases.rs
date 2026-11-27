@@ -13,8 +13,12 @@
 //! the idempotency key `purchase:<id>` and happens in the transaction that
 //! marks the purchase completed, so no path can grant twice or complete
 //! without granting.
+//!
+//! The monthly spending limit (`spending.rs`) is checked when a purchase
+//! starts, never when it completes: by then the money was taken.
 use std::sync::Arc;
 
+use sqlx::{PgExecutor, Postgres, Transaction};
 use tokuly_core::{
     analytics::AnalyticsEvent,
     outbound::{self, Localized, NotificationRequest},
@@ -31,7 +35,9 @@ use crate::{
     ledger_tx,
     money::format_coins,
     packages::PackageRow,
+    postings::lock_account,
     providers::{PaymentProvider, PaymentState, PurchaseOrder},
+    spending,
 };
 
 /// How long after `expires_at` an unpaid purchase is expired even though its
@@ -145,49 +151,47 @@ impl Wallet {
     pub(crate) async fn open_purchase(&self, user_id: Uuid, package_id: Uuid, provider_name: &str, idempotency_key: &str) -> AppResult<PurchaseRow> {
         ensure!(idempotency_key.len() <= 200, invalid, "IDEMPOTENCY_KEY_INVALID", "an idempotency key is at most 200 characters");
         let provider = self.resolve_provider(provider_name)?;
-        if !idempotency_key.is_empty()
-            && let Some(existing) = self.purchase_by_key(user_id, idempotency_key).await?
-        {
-            ensure!(
-                existing.package_id == package_id && existing.provider == provider.name(),
-                already_exists,
-                "IDEMPOTENCY_KEY_REUSED",
-                "this idempotency key was used for a different purchase"
-            );
-            // Normally a retry has nothing left to do. Only a start that died
-            // before its checkout existed is picked up where it stopped.
-            if existing.is_pending() && existing.provider_ref.is_empty() {
-                return self.open_checkout(existing, provider).await;
-            }
-            return Ok(existing);
+        if let Some(existing) = purchase_by_key(&self.core.db, user_id, idempotency_key).await? {
+            return self.resume_purchase(existing, package_id, provider).await;
         }
         self.core.cache.rate_limit(&format!("wallet:purchase:{user_id}"), 30, std::time::Duration::from_secs(3600)).await?;
         let package = self.package_on_sale(package_id).await?;
-        match self.insert_purchase(user_id, &package, provider.name(), idempotency_key).await? {
-            Some(purchase) => self.open_checkout(purchase, provider).await,
-            // An identical start with the same key won the race; carry on with its purchase as a retry would
-            // (it may not have its checkout yet).
-            None => {
-                let existing = self.purchase_by_key(user_id, idempotency_key).await?.or_not_found("PURCHASE_NOT_FOUND", "purchase not found")?;
-                ensure!(
-                    existing.package_id == package_id && existing.provider == provider.name(),
-                    already_exists,
-                    "IDEMPOTENCY_KEY_REUSED",
-                    "this idempotency key was used for a different purchase"
-                );
-                if existing.is_pending() && existing.provider_ref.is_empty() {
-                    return self.open_checkout(existing, provider).await;
-                }
-                Ok(existing)
-            }
+        let ceiling = spending::ceiling_for(&self.core, user_id).await?;
+        // Under the account lock every charge of the user takes, so that two
+        // starts at once are counted against the spending limit one after
+        // the other, and an identical start that won the race is found.
+        let mut tx = self.core.db.begin().await?;
+        lock_account(&mut tx, user_id).await?;
+        if let Some(existing) = purchase_by_key(&mut *tx, user_id, idempotency_key).await? {
+            drop(tx);
+            return self.resume_purchase(existing, package_id, provider).await;
         }
+        spending::check(&mut tx, user_id, ceiling, spending::purchase_yen(&package.currency, package.price_minor, package.coins)).await?;
+        let purchase = self.insert_purchase(&mut tx, user_id, &package, provider.name(), idempotency_key).await?;
+        tx.commit().await?;
+        self.open_checkout(purchase, provider).await
     }
 
-    async fn insert_purchase(&self, user_id: Uuid, package: &PackageRow, provider: &str, idempotency_key: &str) -> AppResult<Option<PurchaseRow>> {
+    /// A start repeated with the key of an earlier one. Normally a retry has
+    /// nothing left to do; only a start that died before its checkout
+    /// existed is picked up where it stopped.
+    async fn resume_purchase(&self, existing: PurchaseRow, package_id: Uuid, provider: Arc<dyn PaymentProvider>) -> AppResult<PurchaseRow> {
+        ensure!(
+            existing.package_id == package_id && existing.provider == provider.name(),
+            already_exists,
+            "IDEMPOTENCY_KEY_REUSED",
+            "this idempotency key was used for a different purchase"
+        );
+        if existing.is_pending() && existing.provider_ref.is_empty() {
+            return self.open_checkout(existing, provider).await;
+        }
+        Ok(existing)
+    }
+
+    async fn insert_purchase(&self, tx: &mut Transaction<'_, Postgres>, user_id: Uuid, package: &PackageRow, provider: &str, idempotency_key: &str) -> AppResult<PurchaseRow> {
         Ok(sqlx::query_as(concat!(
             "INSERT INTO wallet_purchases (user_id, package_id, sku, coins, bonus_coins, price_minor, currency, provider, idempotency_key, expires_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now() + make_interval(mins => $10))
-             ON CONFLICT (user_id, idempotency_key) WHERE idempotency_key <> '' DO NOTHING
              RETURNING ",
             purchase_columns!()
         ))
@@ -201,7 +205,7 @@ impl Wallet {
         .bind(provider)
         .bind(idempotency_key)
         .bind(self.cfg.purchase_ttl_minutes.clamp(1, i64::from(i32::MAX)) as i32)
-        .fetch_optional(&self.core.db)
+        .fetch_one(&mut **tx)
         .await?)
     }
 
@@ -336,7 +340,8 @@ impl Wallet {
     }
 
     /// Moves a still-pending purchase to a closed, unpaid status
-    /// (`failed`, `cancelled` or `expired`). `None` when it was not pending.
+    /// (`failed`, `cancelled` or `expired`) and voids its checkout. `None`
+    /// when it was not pending.
     async fn close_unpaid(&self, purchase_id: Uuid, status: &'static str, failure_reason: &str) -> AppResult<Option<PurchaseRow>> {
         let failure_reason: String = failure_reason.chars().take(200).collect();
         let closed: Option<PurchaseRow> = sqlx::query_as(concat!(
@@ -353,7 +358,59 @@ impl Wallet {
         {
             self.push(user_id, Event::PurchaseUpdated(Box::new(purchase.to_proto()))).await;
         }
+        if let Some(purchase) = &closed {
+            self.void_checkout(purchase).await;
+        }
         Ok(closed)
+    }
+
+    /// Has the provider make the checkout of a closed, unpaid purchase
+    /// impossible to pay, and records that it did. Until then the purchase
+    /// may still be paid (a declined card tried again, a payment at the last
+    /// moment), so it counts against the spending limit (`spending.rs`).
+    /// `false` when the provider could not void it; the maintenance run
+    /// tries again ([`Self::void_closed_checkouts`]).
+    async fn void_checkout(&self, purchase: &PurchaseRow) -> bool {
+        if purchase.provider_ref.is_empty() {
+            return true;
+        }
+        let voided = match (self.provider(&purchase.provider), purchase.order(&self.core)) {
+            (Some(provider), Some(order)) => provider.cancel_checkout(&order, &purchase.provider_ref).await,
+            // Nobody can pay into it through this wallet (provider removed, buyer deleted).
+            _ => Ok(()),
+        };
+        if let Err(e) = voided {
+            tracing::warn!(purchase_id = %purchase.id, error = %e, "provider could not void the checkout of an unpaid purchase; will retry");
+            return false;
+        }
+        let recorded = sqlx::query("UPDATE wallet_purchases SET checkout_voided_at = now() WHERE id = $1 AND checkout_voided_at IS NULL")
+            .bind(purchase.id)
+            .execute(&self.core.db)
+            .await;
+        if let Err(e) = recorded {
+            tracing::warn!(purchase_id = %purchase.id, error = %e, "could not record a voided checkout; will retry");
+            return false;
+        }
+        true
+    }
+
+    /// Voids the checkouts that could not be voided when their purchases
+    /// closed. Returns how many it voided.
+    pub(crate) async fn void_closed_checkouts(&self) -> AppResult<u64> {
+        let due: Vec<PurchaseRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            purchase_columns!(),
+            " FROM wallet_purchases
+              WHERE status IN ('failed', 'cancelled', 'expired') AND provider_ref <> '' AND checkout_voided_at IS NULL
+              ORDER BY id LIMIT 200"
+        ))
+        .fetch_all(&self.core.db)
+        .await?;
+        let mut voided = 0;
+        for purchase in due {
+            voided += u64::from(self.void_checkout(&purchase).await);
+        }
+        Ok(voided)
     }
 
     /// The buyer abandons an unpaid purchase. See `WalletService.CancelPurchase`.
@@ -361,15 +418,9 @@ impl Wallet {
         let purchase = self.find_purchase(user_id, purchase_id).await?;
         ensure!(purchase.is_pending(), precondition, "PURCHASE_NOT_PENDING", "only a pending purchase can be cancelled");
         let cancelled = self.close_unpaid(purchase.id, "cancelled", "").await?;
-        let cancelled = cancelled.ok_or_else(|| AppError::precondition("PURCHASE_NOT_PENDING", "only a pending purchase can be cancelled"))?;
-        if let (Some(provider), Some(order)) = (self.provider(&cancelled.provider), cancelled.order(&self.core))
-            && !cancelled.provider_ref.is_empty()
-            && let Err(e) = provider.cancel_checkout(&order, &cancelled.provider_ref).await
-        {
-            // Not fatal: if the checkout is paid anyway, the purchase still completes.
-            tracing::warn!(purchase_id = %cancelled.id, error = %e, "provider could not void a cancelled checkout");
-        }
-        Ok(cancelled)
+        // Its checkout was voided on the way (if the provider could not, it
+        // still completes when paid, and counts as spending until voided).
+        cancelled.ok_or_else(|| AppError::precondition("PURCHASE_NOT_PENDING", "only a pending purchase can be cancelled"))
     }
 
     /// One of `user_id`'s purchases, or `PURCHASE_NOT_FOUND`.
@@ -380,14 +431,6 @@ impl Wallet {
             .fetch_optional(&self.core.db)
             .await?;
         purchase.or_not_found("PURCHASE_NOT_FOUND", "purchase not found")
-    }
-
-    async fn purchase_by_key(&self, user_id: Uuid, idempotency_key: &str) -> AppResult<Option<PurchaseRow>> {
-        Ok(sqlx::query_as(concat!("SELECT ", purchase_columns!(), " FROM wallet_purchases WHERE user_id = $1 AND idempotency_key = $2 AND idempotency_key <> ''"))
-            .bind(user_id)
-            .bind(idempotency_key)
-            .fetch_optional(&self.core.db)
-            .await?)
     }
 
     /// One page of `user_id`'s purchases, newest first.
@@ -446,6 +489,18 @@ impl Wallet {
             Err(e) => Err(e),
         }
     }
+}
+
+/// `user_id`'s purchase started with `idempotency_key`; `None` for an empty key.
+async fn purchase_by_key(db: impl PgExecutor<'_>, user_id: Uuid, idempotency_key: &str) -> AppResult<Option<PurchaseRow>> {
+    if idempotency_key.is_empty() {
+        return Ok(None);
+    }
+    Ok(sqlx::query_as(concat!("SELECT ", purchase_columns!(), " FROM wallet_purchases WHERE user_id = $1 AND idempotency_key = $2"))
+        .bind(user_id)
+        .bind(idempotency_key)
+        .fetch_optional(db)
+        .await?)
 }
 
 #[cfg(test)]

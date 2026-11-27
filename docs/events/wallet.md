@@ -1,6 +1,6 @@
 # wallet — events, jobs and configuration
 
-Crate `tokuly-wallet`, migration `1400_wallet.sql`, API `tokuly.wallet.v1`
+Crate `tokuly-wallet`, migrations `1400_wallet.sql`, `1401_wallet_spending_limits.sql`, `1402_wallet_voided_checkouts.sql`, API `tokuly.wallet.v1`
 (`WalletService`, `EarningsService`, `WalletAdminService`).
 
 ## How coins move
@@ -68,6 +68,34 @@ Conventions for callers of the ledger:
   into wallets for them. Say in `memo` what was paid.
 - Take the platform fee from `Wallet::transfer_with_fee` /
   `Wallet::platform_fee_percent` rather than hard-coding it.
+- A transfer that would take the payer past their monthly spending limit
+  (below) fails with `SPENDING_LIMIT_REACHED` (`failed_precondition`) and
+  moves nothing. Pass it on to the client unchanged: it is the payer's own
+  limit and says nothing about the recipient. A spend is not limited.
+
+## Spending limit
+
+Under 18 (`tokuly_identity::age::is_minor`, on the day of the charge) an
+account spends at most `TOKULY_WALLET_MINOR_MONTHLY_LIMIT_YEN` (¥5,000) a
+calendar month in Japan time. Anyone may choose a limit of their own
+(`wallet_accounts.monthly_limit_yen`; minors only up to the ceiling and
+without clearing it); it stays when they turn 18. The lower one is in force.
+
+Spending is the price of coin purchases paid that month and of those still
+waiting for their payment (whenever they were started: a purchase started
+before the month turned and paid after it counts in the new month; one that
+failed, was cancelled or expired counts until the provider has voided its
+checkout, `wallet_purchases.checkout_voided_at`, since until then it may still
+be paid — the wallet voids it when the purchase closes and the maintenance run
+retries), plus the
+`transfer` entries the account paid that month and that were not refunded. Coins have no exchange rate: one coin counts as ¥1 (and a
+package priced in another currency counts its coins). Grants (the daily bonus,
+rewards), spends and everything received are not spending.
+
+`StartPurchase` and every transfer check the limit under the payer's account
+row lock, so two charges at once are counted one after the other. A purchase
+is checked when it starts, never when it completes: money that was taken
+always becomes coins, even past the limit.
 
 ## Events emitted
 
@@ -144,7 +172,7 @@ No named jobs. `Wallet::spawn_workers` runs, besides the consumer, a timer:
 
 | Every | Work |
 |---|---|
-| 1 min | Purchases past `expires_at`: ask the provider one last time, then complete (paid), fail, or expire them. An unreachable provider is retried for 24 h before the purchase is expired anyway. |
+| 1 min | Purchases past `expires_at`: ask the provider one last time, then complete (paid), fail, or expire them. An unreachable provider is retried for 24 h before the purchase is expired anyway. Then void the checkouts of unpaid purchases the provider could not void when they closed. |
 | 1 h | Erase the encrypted destination of payout requests closed more than 90 days ago; prune `wallet_entry_notices` older than 30 days. |
 
 Analytics events: `wallet.purchase` (value = coins granted), `wallet.daily_bonus`.
@@ -182,6 +210,7 @@ suspension is lifted; staff views flag it (`PayoutRequest.user_suspended`).
 | `TOKULY_WALLET_PAYOUT_CURRENCY` | `JPY` | Currency of payouts (ISO 4217). |
 | `TOKULY_WALLET_PAYOUT_MINOR_PER_100_COINS` | `100` | Money per 100 earned coins, in the currency's minor unit. Fixed on a request when it is made. |
 | `TOKULY_WALLET_PURCHASE_TTL_MINUTES` | `60` | How long a purchase may stay unpaid. |
+| `TOKULY_WALLET_MINOR_MONTHLY_LIMIT_YEN` | `5000` | Most an account under 18 may spend a month, in yen (see "Spending limit"). Not editable from the console. |
 
 Rate limits (per user): `StartPurchase` 30/h, `ConfirmPurchase` 60/min,
-`ClaimDailyBonus` 20/min, `RequestPayout` 10/day.
+`ClaimDailyBonus` 20/min, `SetSpendingLimit` 30/min, `RequestPayout` 10/day.

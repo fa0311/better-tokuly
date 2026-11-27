@@ -40,9 +40,9 @@ pub enum PaymentState {
     /// The money was collected.
     Paid,
     /// The payment was declined or abandoned. `reason` is the provider's
-    /// short code, e.g. `card_declined`. Not necessarily the last word: if
-    /// the provider reports `Paid` later (a retried card), the purchase
-    /// still completes.
+    /// short code, e.g. `card_declined`. The wallet then voids the checkout
+    /// ([`PaymentProvider::cancel_checkout`]); should the provider still
+    /// report `Paid` later, the purchase completes all the same.
     Failed { reason: String },
 }
 
@@ -75,8 +75,12 @@ pub trait PaymentProvider: Send + Sync + 'static {
     /// never trust `client_proof` by itself.
     async fn confirm(&self, order: &PurchaseOrder, reference: &str, client_proof: &str) -> AppResult<PaymentState>;
 
-    /// Tells the provider the buyer abandoned the checkout, so it can no
-    /// longer be paid. Best effort; the default does nothing.
+    /// Makes the checkout `reference` impossible to pay. The wallet asks when
+    /// a purchase is cancelled, fails or expires, and again later while this
+    /// returns an error: until it succeeds the purchase counts against the
+    /// buyer's spending limit, since it may still be paid. The default does
+    /// nothing, which is right only for providers whose checkouts cannot be
+    /// paid once they were not paid at once.
     async fn cancel_checkout(&self, _order: &PurchaseOrder, _reference: &str) -> AppResult<()> {
         Ok(())
     }

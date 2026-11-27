@@ -3,7 +3,9 @@
 //!
 //! What other domains use:
 //! - [`ledger`] — `balance`, `spend`, `transfer`, `refund` (and `grant`): the
-//!   functions that move coins. Every call is idempotent on its key.
+//!   functions that move coins. Every call is idempotent on its key. A
+//!   transfer counts against the payer's monthly spending limit
+//!   (`SPENDING_LIMIT_REACHED`, see `spending.rs`).
 //! - [`Wallet::transfer_with_fee`] — `ledger::transfer` with the platform fee
 //!   from the configuration, for gifts and sales between users.
 //! - [`events`] — the payload of `wallet.balance.changed`.
@@ -39,6 +41,7 @@ mod payouts;
 mod postings;
 pub mod providers;
 mod purchases;
+mod spending;
 mod wallet_svc;
 mod workers;
 

@@ -690,6 +690,11 @@
 # (TOKULY_WALLET_PURCHASE_TTL_MINUTES; console; restart: api, worker)
 # purchase_ttl_minutes = 60
 
+# Most an account under 18 may spend in a calendar month (Japan time), in yen: coin purchases plus
+# coins sent to other people (one coin counts as ¥1). A protection: not changed from the console.
+# (TOKULY_WALLET_MINOR_MONTHLY_LIMIT_YEN; applies at once)
+# minor_monthly_limit_yen = 5000
+
 [notify]
 
 # VAPID private key (raw 32-byte P-256 scalar, base64url) for Web Push. Empty derives one from

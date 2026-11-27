@@ -16,6 +16,7 @@ use tokuly_core::prelude::*;
 use crate::{
     ledger_tx,
     postings::{Account, NewEntry, announce, apply, check_amount, check_key, existing_entry, lock_account, post, system},
+    spending,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,7 +132,8 @@ const TRANSFER_TIME_BOUND: [&str; 2] = ["SET LOCAL lock_timeout = '5s'", "SET LO
 
 /// Moves coins from a payer to a recipient's earnings, withholding
 /// `fee_percent` (0-100) for the platform. Fails with `INSUFFICIENT_COINS`
-/// when the payer cannot afford it.
+/// when the payer cannot afford it, and with `SPENDING_LIMIT_REACHED` when
+/// it would take the payer past their monthly spending limit.
 pub async fn transfer(
     core: &Core,
     from_user: Uuid,
@@ -183,6 +185,8 @@ async fn transfer_inner(
     ensure!(fee_percent <= 100, invalid, "FEE_INVALID", "fee must be 0-100 percent");
     let fee = amount * fee_percent as i64 / 100;
     let net = amount - fee;
+    // Asked before the transaction: identity reads on the pool.
+    let ceiling = spending::ceiling_for(core, from_user).await?;
     let mut tx = core.db.begin().await?;
     // A transfer gives up rather than wait long on a lock or a statement:
     // callers that hand the same payment to a retry (stamp purchases) rely
@@ -201,6 +205,7 @@ async fn transfer_inner(
     }
     let payer = if first == from_user { first_balance } else { second_balance };
     ensure!(payer.coins >= amount, precondition, "INSUFFICIENT_COINS", "not enough coins");
+    spending::check(&mut tx, from_user, ceiling, amount).await?;
     let mut postings = vec![(Account::Coins.of(from_user), -amount), (Account::Earnings.of(to_user), net)];
     if fee > 0 {
         postings.push((system::FEES.to_owned(), fee));

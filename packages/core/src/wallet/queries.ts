@@ -35,6 +35,12 @@ export const walletQueries = {
     queryFn: async () => (await client().getDailyBonus({})).bonus ?? null,
   }),
 
+  /** The monthly spending limit and this month's spending; `null` if the server sent none. */
+  spendingLimit: (client: Wallet) => ({
+    queryKey: walletKeys.spendingLimit,
+    queryFn: async () => (await client().getSpendingLimit({})).limit ?? null,
+  }),
+
   /** The caller's purchases, newest first, page by page. */
   purchases: (client: Wallet, pageSize: number) => ({
     queryKey: walletKeys.purchases,

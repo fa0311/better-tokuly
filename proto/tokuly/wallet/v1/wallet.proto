@@ -37,7 +37,9 @@ service WalletService {
   // the client completes the provider's checkout and calls ConfirmPurchase.
   // Errors: PACKAGE_NOT_FOUND, PURCHASES_UNAVAILABLE (no provider enabled),
   // PROVIDER_UNKNOWN, IDEMPOTENCY_KEY_INVALID, IDEMPOTENCY_KEY_REUSED (same
-  // key, different package or provider), PAYMENT_PROVIDER_ERROR, RATE_LIMITED.
+  // key, different package or provider), PAYMENT_PROVIDER_ERROR, RATE_LIMITED,
+  // SPENDING_LIMIT_REACHED (the price would take the caller past their
+  // monthly limit, see SpendingLimit).
   rpc StartPurchase(StartPurchaseRequest) returns (StartPurchaseResponse);
   // Asks the provider whether a purchase was paid and, if so, grants the
   // coins (exactly once, however often this is called). Returns the purchase
@@ -62,6 +64,13 @@ service WalletService {
   // zone; claiming on consecutive days grows the streak and the reward.
   // Errors: DAILY_BONUS_ALREADY_CLAIMED, DAILY_BONUS_DISABLED, RATE_LIMITED.
   rpc ClaimDailyBonus(ClaimDailyBonusRequest) returns (ClaimDailyBonusResponse);
+
+  // The caller's monthly spending limit and how much of it is used.
+  rpc GetSpendingLimit(GetSpendingLimitRequest) returns (GetSpendingLimitResponse);
+  // Sets or clears the caller's own monthly limit. Under 18 it can be set to
+  // anything up to the ceiling, but not above it and not cleared.
+  // Errors: SPENDING_LIMIT_INVALID, SPENDING_LIMIT_RESTRICTED, RATE_LIMITED.
+  rpc SetSpendingLimit(SetSpendingLimitRequest) returns (SetSpendingLimitResponse);
 }
 
 // A balance snapshot.
@@ -340,6 +349,48 @@ message ClaimDailyBonusResponse {
   // The state after claiming (streak includes today).
   DailyBonus bonus = 2;
   Balance balance = 3;
+}
+
+// ───────────────────────────── Spending limit ─────────────────────────────
+
+// How much a user may still spend this month. Spending is the price of the
+// coin purchases paid this month and of those still waiting for their
+// payment (one that failed, was cancelled or expired stops counting once
+// its checkout can no longer be paid) plus the coins they send to other people (gifts,
+// stamp packs of creators; one coin counts as ¥1), unless refunded. The
+// daily bonus and other coins granted are not spending. A month is a
+// calendar month in Japan time. A purchase or transfer that would go past
+// the limit is refused with SPENDING_LIMIT_REACHED.
+message SpendingLimit {
+  // The limit under 18, in yen. Unset from 18 on.
+  optional int64 ceiling_yen = 1;
+  // The limit the user chose for themselves, in yen. Unset when they chose
+  // none.
+  optional int64 own_limit_yen = 2;
+  // The limit in force: the lower of the two. Unset when there is none.
+  optional int64 limit_yen = 3;
+  // Spent this month, in yen.
+  int64 spent_yen = 4;
+  // What may still be spent this month (never below 0). Unset when there is
+  // no limit.
+  optional int64 remaining_yen = 5;
+  // When the month ends and `spent_yen` starts over from 0.
+  google.protobuf.Timestamp resets_at = 6;
+}
+
+message GetSpendingLimitRequest {}
+
+message GetSpendingLimitResponse {
+  SpendingLimit limit = 1;
+}
+
+message SetSpendingLimitRequest {
+  // The new limit in yen, 0 to 100,000,000. Unset clears it.
+  optional int64 limit_yen = 1;
+}
+
+message SetSpendingLimitResponse {
+  SpendingLimit limit = 1;
 }
 
 // ───────────────────────────── Earnings & payouts ─────────────────────────────

@@ -1,5 +1,5 @@
 import { toMillis, wallet } from "@tokuly/api";
-import { collectedSteps, countdown } from "@tokuly/core/wallet";
+import { collectedSteps, countdown, limitSummary } from "@tokuly/core/wallet";
 import { router } from "expo-router";
 import {
   Check,
@@ -8,6 +8,7 @@ import {
   History,
   PiggyBank,
   ReceiptText,
+  ShieldCheck,
   ShoppingBag,
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
@@ -18,15 +19,16 @@ import { EmptyState, Page, Row, Section, Spinner } from "#/components/page";
 import { webScreenHref } from "#/features/web/handoff";
 import { INK_ON_BRIGHT, sticker, useTheme } from "#/lib/theme";
 import { useClaimBonus } from "./actions";
-import { useBalance, useDailyBonus, useLedger } from "./data";
+import { useBalance, useDailyBonus, useLedger, useSpendingLimit } from "./data";
 import { coinText, EntryRow, EntrySheet } from "./parts";
 
 /** How many of the latest movements the front page shows. */
 const RECENT = 5;
 
 /**
- * `/wallet`: the coins and earnings as the server has them, today's login
- * bonus, the latest movements, and the ways onward — the history and the
+ * `/wallet`: the coins and earnings as the server has them, what is left of
+ * the month's spending limit, today's login bonus, the latest movements, and
+ * the ways onward — the history and the
  * purchases here, buying coins and earnings on the web screens.
  */
 export function WalletScreen() {
@@ -35,6 +37,7 @@ export function WalletScreen() {
   return (
     <Page testID="wallet-screen">
       <BalanceCard />
+      <LimitRow />
       <BonusCard />
       <Recent />
       <Section>
@@ -111,6 +114,26 @@ function BalanceCard() {
         </Pressable>
       )}
     </View>
+  );
+}
+
+/** What is left of the month's spending limit (「今月はあと ¥1,200 まで使えるよ」); the limit is set behind it. */
+function LimitRow() {
+  const { t, i18n } = useTranslation("wallet");
+  const { colors } = useTheme();
+  const { data: limit } = useSpendingLimit();
+  if (!limit) return null;
+  const line = limitSummary(limit, i18n.language);
+  return (
+    <Section>
+      <Row
+        testID="wallet-limit"
+        icon={<ShieldCheck size={20} color={colors.ink} />}
+        label={t(line.key, line.values)}
+        hint={t("limit.change")}
+        onPress={() => router.push("/wallet/limit")}
+      />
+    </Section>
   );
 }
 

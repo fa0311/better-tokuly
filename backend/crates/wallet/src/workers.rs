@@ -76,6 +76,11 @@ impl Wallet {
             Ok(count) => tracing::info!(count, "closed overdue purchases"),
             Err(e) => tracing::error!(error = %e, "closing overdue purchases failed"),
         }
+        match self.void_closed_checkouts().await {
+            Ok(0) => {}
+            Ok(count) => tracing::info!(count, "voided the checkouts of unpaid purchases"),
+            Err(e) => tracing::error!(error = %e, "voiding the checkouts of unpaid purchases failed"),
+        }
         if !housekeeping {
             return;
         }

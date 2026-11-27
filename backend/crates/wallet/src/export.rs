@@ -37,8 +37,9 @@ impl DataExporter for WalletExporter {
     }
 
     async fn export(&self, user_id: Uuid) -> AppResult<serde_json::Value> {
-        let balance: Option<(i64, i64)> = sqlx::query_as("SELECT coins, earnings FROM wallet_accounts WHERE user_id = $1").bind(user_id).fetch_optional(&self.db).await?;
-        let (coins, earnings) = balance.unwrap_or((0, 0));
+        let account: Option<(i64, i64, Option<i64>)> =
+            sqlx::query_as("SELECT coins, earnings, monthly_limit_yen FROM wallet_accounts WHERE user_id = $1").bind(user_id).fetch_optional(&self.db).await?;
+        let (coins, earnings, monthly_limit_yen) = account.unwrap_or((0, 0, None));
 
         let entries = fetch_entries(&self.db, user_id, Scope::ALL, None, MAX_EXPORTED_ENTRIES + 1, None).await?;
         let truncated = entries.len() as i64 > MAX_EXPORTED_ENTRIES;
@@ -119,6 +120,7 @@ impl DataExporter for WalletExporter {
 
         Ok(serde_json::json!({
             "balance": { "coins": coins, "earnings": earnings },
+            "monthly_spending_limit_yen": monthly_limit_yen,
             "ledger": ledger,
             "ledger_truncated": truncated,
             "purchases": purchases,

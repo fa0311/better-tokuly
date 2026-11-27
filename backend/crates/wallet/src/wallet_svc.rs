@@ -1,5 +1,5 @@
 //! `WalletService`: the signed-in user's coins — balance, history, buying
-//! coins and the daily bonus.
+//! coins, the daily bonus and the monthly spending limit.
 use std::time::Duration;
 
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
@@ -96,6 +96,19 @@ impl WalletService for Wallet {
             self.core.cache.rate_limit(&format!("wallet:daily-bonus:{user_id}"), 20, Duration::from_secs(60)).await?;
             let (coins, bonus) = self.claim_bonus(user_id).await?;
             ok(ClaimDailyBonusResponse { coins, bonus: bonus.into(), balance: self.balance_snapshot(user_id).await?.into(), ..Default::default() })
+        })
+        .await
+    }
+
+    async fn get_spending_limit(&self, ctx: RequestContext, _request: ServiceRequest<'_, GetSpendingLimitRequest>) -> ServiceResult<GetSpendingLimitResponse> {
+        handle(async { ok(GetSpendingLimitResponse { limit: self.spending_limit(ctx.user_id()?).await?.into(), ..Default::default() }) }).await
+    }
+
+    async fn set_spending_limit(&self, ctx: RequestContext, request: ServiceRequest<'_, SetSpendingLimitRequest>) -> ServiceResult<SetSpendingLimitResponse> {
+        handle(async {
+            let user_id = ctx.user_id()?;
+            self.core.cache.rate_limit(&format!("wallet:spending-limit:{user_id}"), 30, Duration::from_secs(60)).await?;
+            ok(SetSpendingLimitResponse { limit: self.set_own_limit(user_id, request.limit_yen).await?.into(), ..Default::default() })
         })
         .await
     }

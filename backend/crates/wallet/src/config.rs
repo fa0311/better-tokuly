@@ -39,6 +39,12 @@ pub struct WalletConfig {
     /// Minutes a purchase may stay unpaid before it expires.
     #[arg(id = "wallet_purchase_ttl_minutes", long = "wallet-purchase-ttl-minutes", env = "TOKULY_WALLET_PURCHASE_TTL_MINUTES", default_value_t = 60)]
     pub purchase_ttl_minutes: i64,
+
+    /// Most an account under 18 may spend in a calendar month (Japan time),
+    /// in yen: coin purchases plus coins sent to other people (one coin
+    /// counts as ¥1). A protection: not changed from the console.
+    #[arg(id = "wallet_minor_monthly_limit_yen", long = "wallet-minor-monthly-limit-yen", env = "TOKULY_WALLET_MINOR_MONTHLY_LIMIT_YEN", default_value_t = 5000)]
+    pub minor_monthly_limit_yen: i64,
 }
 
 impl Default for WalletConfig {
@@ -51,6 +57,7 @@ impl Default for WalletConfig {
             payout_currency: "JPY".to_owned(),
             payout_minor_per_100_coins: 100,
             purchase_ttl_minutes: 60,
+            minor_monthly_limit_yen: 5000,
         }
     }
 }
@@ -81,6 +88,7 @@ impl WalletConfig {
         anyhow::ensure!(self.payout_minor_per_100_coins >= 0, "TOKULY_WALLET_PAYOUT_MINOR_PER_100_COINS cannot be negative");
         anyhow::ensure!(is_currency_code(&self.payout_currency), "TOKULY_WALLET_PAYOUT_CURRENCY must be a 3-letter ISO 4217 code");
         anyhow::ensure!(self.purchase_ttl_minutes >= 1, "TOKULY_WALLET_PURCHASE_TTL_MINUTES must be at least 1");
+        anyhow::ensure!(self.minor_monthly_limit_yen >= 0, "TOKULY_WALLET_MINOR_MONTHLY_LIMIT_YEN cannot be negative");
         self.daily_bonus_cycle().map(|_| ())
     }
 }
@@ -133,6 +141,7 @@ mod tests {
         assert_eq!(parsed.payout_currency, default.payout_currency);
         assert_eq!(parsed.payout_minor_per_100_coins, default.payout_minor_per_100_coins);
         assert_eq!(parsed.purchase_ttl_minutes, default.purchase_ttl_minutes);
+        assert_eq!(parsed.minor_monthly_limit_yen, default.minor_monthly_limit_yen);
     }
 
     #[test]
@@ -171,11 +180,12 @@ mod tests {
     #[test]
     fn validate_guards_money_settings() {
         assert!(WalletConfig::default().validate().is_ok());
-        let broken: [fn(&mut WalletConfig); 4] = [
+        let broken: [fn(&mut WalletConfig); 5] = [
             |c| c.platform_fee_percent = 101,
             |c| c.payout_min_coins = 0,
             |c| c.payout_currency = "yen".to_owned(),
             |c| c.purchase_ttl_minutes = 0,
+            |c| c.minor_monthly_limit_yen = -1,
         ];
         for mutate in broken {
             let mut cfg = WalletConfig::default();

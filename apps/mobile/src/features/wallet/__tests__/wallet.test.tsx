@@ -55,6 +55,14 @@ function server() {
     service: () => ({
       getBalance: async () => ({ balance: balance() }),
       getDailyBonus: async () => ({ bonus: bonus() }),
+      getSpendingLimit: async () => ({
+        limit: create(wallet.SpendingLimitSchema, {
+          ceilingYen: 5000n,
+          limitYen: 5000n,
+          spentYen: 3800n,
+          remainingYen: 1200n,
+        }),
+      }),
       listLedgerEntries: async ({ account }: { account: wallet.LedgerAccount }) =>
         create(wallet.ListLedgerEntriesResponseSchema, {
           entries: [
@@ -148,10 +156,11 @@ describe("the wallet screen", () => {
   beforeEach(() => jest.spyOn(Alert, "alert").mockImplementation(() => {}));
   afterEach(() => jest.clearAllMocks());
 
-  it("shows the server's balance, today's bonus and the latest movements", async () => {
+  it("shows the server's balance, the month's limit, today's bonus and the latest movements", async () => {
     server();
     await show(<WalletScreen />);
     await waitFor(() => expect(coinsShown()).toBe("🪙 100"));
+    expect(await screen.findByText("今月はあと ￥1,200 まで使えるよ")).toBeTruthy();
     expect(await screen.findByText("受け取る！ 🪙 +15")).toBeTruthy();
     expect(await screen.findByText("ライブギフトを送りました")).toBeTruthy();
     expect(screen.getByText("🪙 −30")).toBeTruthy();

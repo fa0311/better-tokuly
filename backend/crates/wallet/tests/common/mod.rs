@@ -103,6 +103,10 @@ pub struct FakePay {
     states: Mutex<HashMap<String, PaymentState>>,
     /// Makes `confirm` fail, as an unreachable provider would.
     pub down: Mutex<bool>,
+    /// Checkouts the wallet had voided.
+    pub voided: Mutex<Vec<String>>,
+    /// Makes `cancel_checkout` fail: the checkout stays payable.
+    pub refuse_voids: Mutex<bool>,
 }
 
 impl FakePay {
@@ -130,6 +134,14 @@ impl PaymentProvider for FakePay {
             return Err(AppError::unavailable("FAKEPAY_DOWN", "fakepay is down"));
         }
         Ok(self.states.lock().unwrap().get(reference).cloned().unwrap_or(PaymentState::Pending))
+    }
+
+    async fn cancel_checkout(&self, _order: &PurchaseOrder, reference: &str) -> AppResult<()> {
+        if *self.refuse_voids.lock().unwrap() {
+            return Err(AppError::unavailable("FAKEPAY_DOWN", "fakepay is down"));
+        }
+        self.voided.lock().unwrap().push(reference.to_owned());
+        Ok(())
     }
 }
 
