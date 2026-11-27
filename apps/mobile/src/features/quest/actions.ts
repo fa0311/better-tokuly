@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { quest } from "@tokuly/api";
-import { questKeys, showClaim, showReroll } from "@tokuly/core/quest";
+import { profileKeys } from "@tokuly/core/profile";
+import { badgesChanged, questKeys, showClaim, showReroll } from "@tokuly/core/quest";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert } from "react-native";
@@ -93,6 +94,31 @@ export function useReroll() {
       ]),
     rerolling: reroll.isPending ? reroll.variables?.id : undefined,
   };
+}
+
+/** Putting a badge on the profile (or taking it off) and wearing its title. */
+export function useBadgeChoices() {
+  const queryClient = useQueryClient();
+  const changed = () => {
+    badgesChanged(queryClient);
+    void queryClient.invalidateQueries({ queryKey: profileKeys.profiles });
+  };
+  const onError = (error: unknown) => Alert.alert(errorMessage(error, NS));
+  const showcase = useMutation({
+    mutationFn: (keys: string[]) =>
+      asAccount((account) =>
+        account.api.service(quest.BadgeService).setShowcase({ badgeKeys: keys }),
+      ),
+    onSuccess: changed,
+    onError,
+  });
+  const title = useMutation({
+    mutationFn: (key: string) =>
+      asAccount((account) => account.api.service(quest.BadgeService).setTitle({ badgeKey: key })),
+    onSuccess: changed,
+    onError,
+  });
+  return { showcase, title };
 }
 
 /** The missions with a request on its way: `start` is false for one already sent. */

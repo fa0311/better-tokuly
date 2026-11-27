@@ -12,6 +12,7 @@ import { api } from "#/lib/api";
  */
 export const questClient = () => api().service(quest.QuestService);
 export const missionClient = () => api().service(quest.MissionService);
+export const badgeClient = () => api().service(quest.BadgeService);
 const walletClient = () => api().service(wallet.WalletService);
 
 /** The caller's coins as the wallet has them; read again after every claim (and every reconnect). */
@@ -26,6 +27,11 @@ export function useCoins() {
 
 export const useProgress = () => useQuery(questQueries.progress(questClient));
 export const useMissions = () => useQuery(questQueries.missions(missionClient));
+export const useBadgeCatalog = () => useQuery(questQueries.catalog(badgeClient));
+export const useBadge = (key: string) => useQuery(questQueries.badge(badgeClient, key));
+/** A player's badges, showcase and title (`""` = the caller). */
+export const useUserBadges = (userId: string) =>
+  useQuery(questQueries.userBadges(badgeClient, userId));
 
 /** `localized` bound to the language the app is shown in. */
 export function useLocalized(): (text: common.LocalizedText | undefined) => string {

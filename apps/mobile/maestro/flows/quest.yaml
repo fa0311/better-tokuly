@@ -1,5 +1,5 @@
 appId: app.tokuly.mobile
-name: Collect a finished mission's reward once
+name: Collect a finished mission's reward once, see the badges, and the quest card on the own profile
 env:
   PASSWORD: tokuly-e2e-pass
 ---
@@ -41,3 +41,29 @@ env:
     timeout: 15000
 - assertVisible: { id: "quest-coins" }
 - takeScreenshot: 41-quest-claimed
+
+# The collection, and one badge with the friends who have it.
+- scrollUntilVisible:
+    element: { id: "quest-badges" }
+- tapOn: { id: "quest-badges" }
+- extendedWaitUntil:
+    visible: { id: "quest-badge-count" }
+    timeout: 15000
+- takeScreenshot: 42-quest-badges
+- scrollUntilVisible:
+    element: { id: "badge-chatter_bronze" }
+- tapOn: { id: "badge-chatter_bronze" }
+- extendedWaitUntil:
+    visible: { id: "quest-badge-name" }
+    timeout: 15000
+- takeScreenshot: 43-quest-badge
+- runFlow: ../subflows/back.yaml
+- runFlow: ../subflows/back.yaml
+- runFlow: ../subflows/back.yaml
+
+# The own profile carries the level and invites to show badges.
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "quest-profile" }
+    centerElement: true
+- takeScreenshot: 44-quest-profile
