@@ -21,9 +21,10 @@ type Scope = "range" | "all";
 /**
  * `/history/delete`: deleting history for good, as the API allows — one day
  * (`date`), a range of days, or everything; the footprints first uncovered
- * in it only when asked. Every cached answer about the history, the
- * footprints and the places is reset afterwards, so nothing deleted is
- * shown again from memory.
+ * in it only when asked. Everything asks a second time, on this screen
+ * (Android's alerts cannot mark a button as destructive). Every cached
+ * answer about the history, the footprints and the places is reset
+ * afterwards, so nothing deleted is shown again from memory.
  */
 export function DeleteHistoryScreen({ date }: { date?: string }) {
   const { t, i18n } = useTranslation(NS);
@@ -34,6 +35,7 @@ export function DeleteHistoryScreen({ date }: { date?: string }) {
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [footprints, setFootprints] = useState(false);
+  const [sure, setSure] = useState(false);
   const everything = !date && scope === "all";
   const start = dayRange(date ?? from, zone)?.from;
   const end = dayRange(date ?? to, zone)?.to;
@@ -68,6 +70,10 @@ export function DeleteHistoryScreen({ date }: { date?: string }) {
     onError: (error) => Alert.alert(errorMessage(error, { namespace: NS })),
   });
 
+  // Closing is this screen's own: when the person already left it, the
+  // answer forgets the cache all the same but moves nothing under them.
+  const send = () => remove.mutate(undefined, { onSuccess: (answer) => answer && router.back() });
+
   return (
     <Page testID="history-delete-screen">
       <Stack.Screen options={{ title: date ? t("delete.dayTitle") : t("delete.title") }} />
@@ -82,7 +88,10 @@ export function DeleteHistoryScreen({ date }: { date?: string }) {
               { value: "all", label: t("delete.all") },
             ]}
             value={scope}
-            onChange={setScope}
+            onChange={(next) => {
+              setScope(next);
+              setSure(false);
+            }}
           />
           {scope === "range" && (
             <View className="gap-2">
@@ -120,20 +129,45 @@ export function DeleteHistoryScreen({ date }: { date?: string }) {
       <Text className="rounded-2xl bg-surface-2 px-4 py-3 text-sm font-bold text-ink-soft">
         ⚠️ {t("delete.warning")}
       </Text>
-      <Button
-        testID="history-delete-confirm"
-        variant="danger"
-        block
-        size="lg"
-        // Once it went through there is nothing left to send again.
-        disabled={!range || remove.isSuccess}
-        loading={remove.isPending}
-        // Closing is this screen's own: when the person already left it, the
-        // answer forgets the cache all the same but moves nothing under them.
-        onPress={() => remove.mutate(undefined, { onSuccess: (answer) => answer && router.back() })}
-      >
-        {everything ? t("delete.confirmAll") : t("delete.confirm")}
-      </Button>
+      {everything && sure ? (
+        <View testID="history-delete-sure" className="gap-3 rounded-card bg-danger/10 p-4">
+          <Text className="text-lg font-black text-danger">{t("delete.sureTitle")}</Text>
+          <Text className="font-bold text-ink">{t("delete.sureBody")}</Text>
+          <Button
+            testID="history-delete-sure-confirm"
+            variant="danger"
+            block
+            size="lg"
+            disabled={remove.isSuccess}
+            loading={remove.isPending}
+            onPress={send}
+          >
+            {t("delete.sureConfirm")}
+          </Button>
+          <Button
+            testID="history-delete-sure-cancel"
+            variant="secondary"
+            block
+            disabled={remove.isPending || remove.isSuccess}
+            onPress={() => setSure(false)}
+          >
+            {t("common:actions.cancel")}
+          </Button>
+        </View>
+      ) : (
+        <Button
+          testID="history-delete-confirm"
+          variant="danger"
+          block
+          size="lg"
+          // Once it went through there is nothing left to send again.
+          disabled={!range || remove.isSuccess}
+          loading={remove.isPending}
+          onPress={everything ? () => setSure(true) : send}
+        >
+          {everything ? t("delete.confirmAll") : t("delete.confirm")}
+        </Button>
+      )}
     </Page>
   );
 }

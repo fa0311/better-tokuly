@@ -133,6 +133,9 @@ export default {
     warning: "This cannot be undone",
     confirm: "Delete",
     confirmAll: "Delete everything",
+    sureTitle: "Wait a second!",
+    sureBody: "Once it is all gone, it cannot come back. Delete everything?",
+    sureConfirm: "Delete it all",
     done: "History deleted",
   },
   errors: {
