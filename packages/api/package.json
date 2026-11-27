@@ -11,7 +11,8 @@
   },
   "scripts": {
     "generate": "buf generate --template buf.gen.yaml ../..",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@bufbuild/protobuf": "catalog:",
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@bufbuild/buf": "catalog:",
     "@bufbuild/protoc-gen-es": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
