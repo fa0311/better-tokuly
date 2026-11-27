@@ -844,9 +844,10 @@ message FindCommonFreePeriodsResponse {
 //
 // A user has at most one active session. While it is active the client sends
 // `HeartbeatStudySession` at least every `heartbeat_interval_seconds`; the
-// server counts study time up to the last heartbeat only. A session that
-// stays silent for the idle limit is stopped by the server and keeps the
-// time counted until its last heartbeat.
+// server counts study time up to the last heartbeat only — or, when a
+// pomodoro phase was running then, up to that phase's end (a locked phone
+// sends nothing). A session that stays silent for the idle limit after that
+// is stopped by the server and keeps the time counted until then.
 service StudyService {
   // Starts the timer: a stopwatch or a pomodoro. Joining a study room starts
   // a session too (`StudyRoomService.JoinStudyRoom`).
@@ -1036,7 +1037,8 @@ message StartStudySessionResponse {
   StudySession session = 1;
   // Send a heartbeat at least this often.
   int32 heartbeat_interval_seconds = 2;
-  // Silence after which the server stops the session.
+  // Silence after which the server stops the session; for a running
+  // pomodoro, counted from the end of the phase it was last heard in.
   int32 idle_timeout_seconds = 3;
 }
 

@@ -44,7 +44,7 @@ async fn reminders(ctx: &Ctx, user: uuid::Uuid) -> Vec<(String, String)> {
 }
 
 #[tokio::test]
-async fn sessions_nobody_is_behind_are_ended_at_their_last_heartbeat() {
+async fn sessions_nobody_is_behind_are_ended_where_they_were_last_believed() {
     let _one_at_a_time = SWEEPS.lock().await;
     let ctx = start().await;
     let (me, friend, host, guest) = (
@@ -105,11 +105,19 @@ async fn sessions_nobody_is_behind_are_ended_at_their_last_heartbeat() {
     ctx.control(&host, &room.id, TimerAction::TIMER_ACTION_RESUME).await.unwrap();
     assert_eq!(ctx.room(&host, &room.id).await.unwrap().members[1].studied_seconds, 1320);
 
-    // 18:27: the guest has been silent for 17 minutes. Out of the room, and
-    // back to what was counted when they were last heard from.
+    // 18:27: the guest has been silent for 17 minutes, but was last heard
+    // from inside the work phase that ended at 18:25, and is believed to it:
+    // still in the room...
     let mut topic = ctx.app.listen_topic(&room.topic).await;
     let mut guest_rt = ctx.app.listen_user(guest.id).await;
     ctx.pass(5);
+    ctx.heartbeat(&host).await;
+    ctx.school.end_overdue_sessions(ctx.school.now()).await.unwrap();
+    assert_eq!(ctx.room(&host, &room.id).await.unwrap().member_count, 2, "the phase is believed to its end");
+
+    // ...until 18:41, the idle limit after the phase end. Out of the room,
+    // with the time counted up to the end of that phase and not beyond.
+    ctx.pass(14);
     ctx.heartbeat(&host).await;
     assert!(ctx.school.end_overdue_sessions(ctx.school.now()).await.unwrap() >= 1);
     let heard_in_room = heard(&mut topic).await;
@@ -126,12 +134,11 @@ async fn sessions_nobody_is_behind_are_ended_at_their_last_heartbeat() {
     };
     assert_eq!(
         (left.reason.as_known().unwrap(), left.session.as_option().unwrap().studied_seconds),
-        (RoomLeaveReason::ROOM_LEAVE_REASON_IDLE, 600)
+        (RoomLeaveReason::ROOM_LEAVE_REASON_IDLE, 1500)
     );
-    assert_eq!(
-        ctx.sessions(&guest).await.iter().map(|s| (s.studied_seconds, s.auto_stopped)).collect::<Vec<_>>(),
-        vec![(600, true)]
-    );
+    let logged = ctx.sessions(&guest).await;
+    assert_eq!(logged.iter().map(|s| (s.studied_seconds, s.auto_stopped)).collect::<Vec<_>>(), vec![(1500, true)]);
+    assert_eq!(instant(&logged[0].ended_at), tokyo(2026, 4, 13, 18, 25));
     // The host, heard from all along, is untouched.
     let seen = ctx.room(&host, &room.id).await.unwrap();
     assert_eq!((seen.member_count, seen.host_present), (1, true));

@@ -268,8 +268,8 @@ CREATE INDEX school_room_bans_user ON school_room_bans (user_id);
 -- ───────────────────────────── study sessions ─────────────────────────────
 
 -- A session and its timer. Study time is counted into `school_study_segments`
--- up to `checkpoint_at`. `heartbeat_at` is when the client was last heard
--- from: a session the server has to end itself (the client vanished, the
+-- up to `checkpoint_at`. `believed_until` is how far the server believes the
+-- client: a session the server has to end itself (the client vanished, the
 -- room closed) keeps the time counted up to that moment and nothing after.
 CREATE TABLE school_study_sessions (
     id                 uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -293,8 +293,9 @@ CREATE TABLE school_study_sessions (
     timer_offset_ms    bigint      NOT NULL DEFAULT 0,
     -- Study time is counted up to here.
     checkpoint_at      timestamptz NOT NULL,
-    -- The last sign of life from the client (start, heartbeat, pause, resume...).
-    heartbeat_at       timestamptz NOT NULL,
+    -- The last sign of life from the client (start, heartbeat, pause,
+    -- resume...) or, when a pomodoro phase was running then, that phase's end.
+    believed_until     timestamptz NOT NULL,
     paused_at          timestamptz,
     -- Sum of the session's segments, in whole seconds.
     counted_seconds    integer     NOT NULL DEFAULT 0,
@@ -313,7 +314,7 @@ CREATE TABLE school_study_sessions (
 -- At most one active session per user.
 CREATE UNIQUE INDEX school_study_sessions_active ON school_study_sessions (user_id) WHERE state <> 3;
 CREATE INDEX school_study_sessions_log ON school_study_sessions (user_id, started_at DESC, id DESC);
-CREATE INDEX school_study_sessions_idle ON school_study_sessions (heartbeat_at) WHERE state <> 3;
+CREATE INDEX school_study_sessions_idle ON school_study_sessions (believed_until) WHERE state <> 3;
 CREATE INDEX school_study_sessions_room ON school_study_sessions (room_id) WHERE state <> 3 AND room_id IS NOT NULL;
 CREATE INDEX school_study_sessions_subject ON school_study_sessions (subject_id) WHERE subject_id IS NOT NULL;
 

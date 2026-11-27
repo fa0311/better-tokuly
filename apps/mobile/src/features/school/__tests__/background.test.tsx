@@ -7,7 +7,7 @@ import { type Account, currentAccount, isActive } from "#/features/session/accou
 import { cancelReminder, scheduleReminder } from "#/platform/notifications";
 import { testQueryClient } from "#/testing/query";
 import SchoolBackground from "../background";
-import { takeSession } from "../session";
+import { reminderFor, takeSession } from "../session";
 
 jest.mock("#/features/session/account", () => ({ currentAccount: jest.fn(), isActive: jest.fn() }));
 jest.mock("#/lib/realtime", () => ({
@@ -36,8 +36,38 @@ function session(state: school.SessionState): school.StudySession {
   });
 }
 
-/** The phone with someone signed in whose timer the server has as `kept`; `calls` lists what it was asked. */
-async function open(kept: school.StudySession | undefined) {
+/** A pomodoro (25/5, four rounds) `elapsedMinutes` in, as the server sends it now. */
+function pomodoro(elapsedMinutes: number): school.StudySession {
+  const inBreak = elapsedMinutes % 30 >= 25;
+  const endsInMs = ((inBreak ? 30 : 25) - (elapsedMinutes % 30)) * 60_000;
+  return create(school.StudySessionSchema, {
+    id: "st1",
+    state: RUNNING,
+    timer: create(school.TimerSnapshotSchema, {
+      mode: school.StudyMode.POMODORO,
+      state: school.TimerState.RUNNING,
+      phase: inBreak ? school.TimerPhase.BREAK : school.TimerPhase.WORK,
+      elapsedSeconds: elapsedMinutes * 60,
+      pomodoro: create(school.PomodoroConfigSchema, {
+        workMinutes: 25,
+        breakMinutes: 5,
+        longBreakMinutes: 15,
+        rounds: 4,
+      }),
+      serverTime: timestampFromMs(Date.now()),
+      phaseEndsAt: timestampFromMs(Date.now() + endsInMs),
+    }),
+  });
+}
+
+/**
+ * The phone with someone signed in whose timer the server has as `kept`
+ * (a heartbeat answers with `beat`); `calls` lists what it was asked.
+ */
+async function open(
+  kept: school.StudySession | undefined,
+  beat = () => kept && session(kept.state),
+) {
   const calls: string[] = [];
   const service = {
     getCurrentStudySession: async () => {
@@ -46,7 +76,7 @@ async function open(kept: school.StudySession | undefined) {
     },
     heartbeatStudySession: async () => {
       calls.push("heartbeat");
-      return { session: kept && session(kept.state), heartbeatIntervalSeconds: 60 };
+      return { session: beat(), heartbeatIntervalSeconds: 60 };
     },
   };
   const account: Account = {
@@ -116,6 +146,17 @@ describe("the study timer in the background of the app", () => {
     await phone.view.unmount();
   });
 
+  it("off screen in a pomodoro: the reminder comes when the phase ends, not before the stopwatch's limit", async () => {
+    const phone = await open(pomodoro(10), () => pomodoro(10));
+    await phone.to("background");
+    expect(scheduleReminder).toHaveBeenCalledWith(
+      "school.study.idle",
+      expect.objectContaining({ title: "集中タイムおわり! おつかれさま" }),
+      15 * 60,
+    );
+    await phone.view.unmount();
+  });
+
   it("sends nothing and reminds of nothing without a timer", async () => {
     const phone = await open(undefined);
     await phone.to("background");
@@ -131,5 +172,38 @@ describe("the study timer in the background of the app", () => {
     phone.calls.length = 0;
     await phone.wait(180_000);
     expect(phone.calls).toEqual([]);
+  });
+});
+
+describe("when the reminder comes", () => {
+  it("in a break: at its end", () => {
+    const kept = pomodoro(27);
+    takeSession(kept);
+    expect(reminderFor(kept, 900, Date.now())).toEqual({
+      seconds: 180,
+      key: "mobile:school.phaseReminder.break",
+    });
+  });
+
+  it("never later than shortly before the server's limit, counted from the phase last heard", () => {
+    // Last heard at minute 24 of a 4×25 pomodoro; going off screen at the
+    // fourth round's end (the long break of 15 minutes is longer than what
+    // is left of the limit, counted from minute 25).
+    const kept = pomodoro(24 + 90);
+    takeSession(kept);
+    jest.setSystemTime(Date.now() + 60_000);
+    expect(reminderFor(kept, 900, Date.now())).toEqual({
+      seconds: 13 * 60,
+      key: "mobile:school.idleReminder",
+    });
+  });
+
+  it("a stopwatch: shortly before the limit", () => {
+    const kept = session(RUNNING);
+    takeSession(kept);
+    expect(reminderFor(kept, 900, Date.now())).toEqual({
+      seconds: 780,
+      key: "mobile:school.idleReminder",
+    });
   });
 });

@@ -137,9 +137,9 @@ async fn set_stretch(
     session.started_at = start;
     session.ended_at = Some(end);
     session.checkpoint_at = end;
-    session.heartbeat_at = end;
+    session.believed_until = end;
     session.counted_seconds = (end - start).num_seconds() as i32;
-    sqlx::query("UPDATE school_study_sessions SET started_at = $2, ended_at = $3, checkpoint_at = $3, heartbeat_at = $3, counted_seconds = $4 WHERE id = $1")
+    sqlx::query("UPDATE school_study_sessions SET started_at = $2, ended_at = $3, checkpoint_at = $3, believed_until = $3, counted_seconds = $4 WHERE id = $1")
         .bind(session.id)
         .bind(start)
         .bind(end)
@@ -166,7 +166,7 @@ impl School {
         crate::lock_user(&mut tx, "session", user_id).await?;
         check_free(&mut tx, user_id, start, end, None).await?;
         let mut session: SessionRow = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO school_study_sessions (user_id, subject_id, memo, source, state, started_at, ended_at, checkpoint_at, heartbeat_at)
+            "INSERT INTO school_study_sessions (user_id, subject_id, memo, source, state, started_at, ended_at, checkpoint_at, believed_until)
              VALUES ($1, $2, $3, {SOURCE_MANUAL}, {ENDED}, $4, $5, $5, $5) RETURNING {}",
             sessions::COLUMNS
         )))

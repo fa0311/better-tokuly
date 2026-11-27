@@ -104,7 +104,7 @@ impl School {
         let at = self.now();
         ensure!(reaction != RoomReaction::ROOM_REACTION_UNSPECIFIED, invalid, "REACTION_REQUIRED", "choose a reaction");
         let room_id: Option<Uuid> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT room_id FROM school_study_sessions WHERE user_id = $1 AND state <> {ENDED} AND room_id IS NOT NULL AND heartbeat_at >= $2"
+            "SELECT room_id FROM school_study_sessions WHERE user_id = $1 AND state <> {ENDED} AND room_id IS NOT NULL AND believed_until >= $2"
         )))
         .bind(user_id)
         .bind(at - self.idle_limit())
