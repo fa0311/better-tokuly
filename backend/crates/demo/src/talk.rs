@@ -55,7 +55,7 @@ impl Chatter {
             let mut speakers = self.members.clone();
             self.rng.shuffle(&mut speakers);
             speakers.truncate(2 + self.rng.below(2));
-            Talking { lines: self.rng.pick(DIALOGUES), said: 0, speakers }
+            Talking { lines: self.rng.pick::<&[&str]>(DIALOGUES), said: 0, speakers }
         });
         let line = Line {
             speaker: talking.speakers[talking.said % talking.speakers.len()],
