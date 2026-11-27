@@ -48,8 +48,9 @@ pub struct Config {
     /// RPCs one client address may make per minute without signing in (IPv6
     /// counts per /64). Everyone behind one shared address (a school, a
     /// carrier's NAT) shares it, and every app that opens refreshes its
-    /// session without signing in. 0 = no limit.
-    #[arg(long, env = "TOKULY_RATE_LIMIT_ADDRESS_PER_MINUTE", default_value_t = 600)]
+    /// session without signing in: the default lets a school of a thousand
+    /// open the app in the minute after the bell. 0 = no limit.
+    #[arg(long, env = "TOKULY_RATE_LIMIT_ADDRESS_PER_MINUTE", default_value_t = 1800)]
     pub rate_limit_address_per_minute: u32,
 
     /// Proxies in front of the API whose `X-Forwarded-For` header names the
