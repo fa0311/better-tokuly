@@ -1,6 +1,6 @@
 import { addMonths, formatMonth, monthGrid, monthOf, weekdayLabels } from "@tokuly/core/plans";
 import { ChevronLeft, ChevronRight } from "lucide-react-native";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -47,6 +47,8 @@ export function DaySheet({
   title,
   value,
   today,
+  minDay,
+  maxDay,
   onChange,
   onClose,
 }: {
@@ -54,12 +56,19 @@ export function DaySheet({
   title: string;
   value: string;
   today: string;
+  minDay: string;
+  maxDay: string;
   onChange(day: string): void;
   onClose(): void;
 }) {
   const { t, i18n } = useTranslation("plans");
   const { colors } = useTheme();
   const [month, setMonth] = useState(() => monthOf(value || today));
+  const minMonth = monthOf(minDay);
+  const maxMonth = monthOf(maxDay);
+  useEffect(() => {
+    if (visible) setMonth(monthOf(value || today));
+  }, [visible, value, today]);
   return (
     <Sheet visible={visible} title={title} testID="plan-day-sheet" onClose={onClose}>
       <View className="flex-row items-center">
@@ -68,6 +77,7 @@ export function DaySheet({
           label={t("calendar.prev")}
           icon={<ChevronLeft size={22} color={colors.ink} />}
           onPress={() => setMonth(addMonths(month, -1))}
+          disabled={month <= minMonth}
         />
         <Text testID="plan-day-month" className="flex-1 text-center text-lg font-black text-ink">
           {formatMonth(month, i18n.language)}
@@ -77,6 +87,7 @@ export function DaySheet({
           label={t("calendar.next")}
           icon={<ChevronRight size={22} color={colors.ink} />}
           onPress={() => setMonth(addMonths(month, 1))}
+          disabled={month >= maxMonth}
         />
       </View>
       <View className="flex-row">
@@ -94,17 +105,19 @@ export function DaySheet({
           {week.map((day) => {
             const chosen = day === value;
             const inMonth = monthOf(day) === month;
+            const outOfRange = day < minDay || day > maxDay;
             return (
               <Pressable
                 key={day}
                 testID={`plan-day-${day}`}
                 accessibilityRole="button"
-                accessibilityState={{ selected: chosen }}
+                accessibilityState={{ selected: chosen, disabled: outOfRange }}
+                disabled={outOfRange}
                 onPress={() => {
                   onChange(day);
                   onClose();
                 }}
-                className="h-11 flex-1 items-center justify-center"
+                className={`h-11 flex-1 items-center justify-center ${outOfRange ? "opacity-30" : ""}`}
               >
                 <View
                   className={`size-10 items-center justify-center rounded-full ${chosen ? "bg-brand" : ""} ${day === today && !chosen ? "border-2 border-brand" : ""}`}

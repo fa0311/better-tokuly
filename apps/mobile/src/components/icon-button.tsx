@@ -20,12 +20,14 @@ export function IconButton({
   onPress,
   look = "plain",
   testID,
+  disabled = false,
 }: {
   icon: ReactNode;
   label: string;
   onPress(): void;
   look?: keyof typeof LOOKS;
   testID?: string;
+  disabled?: boolean;
 }) {
   const { colors } = useTheme();
   const { box, outlined } = LOOKS[look];
@@ -34,9 +36,11 @@ export function IconButton({
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={disabled ? { disabled: true } : undefined}
+      disabled={disabled}
       onPress={onPress}
       hitSlop={6}
-      className={`items-center justify-center rounded-full active:opacity-70 ${box}`}
+      className={`items-center justify-center rounded-full active:opacity-70 ${box} ${disabled ? "opacity-40" : ""}`}
       style={outlined ? sticker(colors) : undefined}
     >
       {icon}
