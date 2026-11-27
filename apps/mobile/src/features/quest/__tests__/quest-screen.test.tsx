@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { create, quest } from "@tokuly/api";
+import { create, quest, wallet } from "@tokuly/api";
+import { rememberBalance } from "@tokuly/core/wallet";
 import type { ReactNode } from "react";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -99,7 +100,7 @@ function server(start: quest.MissionState = M.COMPLETED) {
   };
 }
 
-async function show(children: ReactNode) {
+async function show(children: ReactNode, queryClient = new QueryClient()) {
   await render(
     <SafeAreaProvider
       initialMetrics={{
@@ -107,7 +108,7 @@ async function show(children: ReactNode) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </SafeAreaProvider>,
   );
 }
@@ -123,6 +124,16 @@ describe("the quest screen", () => {
     expect(await screen.findByText("スタンプを5こ送る")).toBeTruthy();
     await waitFor(() => expect(screen.getByTestId("quest-coins").props.children).toBe("🪙 100"));
     expect(screen.getByText("受け取り 0 / 3")).toBeTruthy();
+  });
+
+  it("shows the wallet's balance: coins that arrive elsewhere in the app arrive here", async () => {
+    server();
+    const queryClient = new QueryClient();
+    await show(<QuestScreen />, queryClient);
+    await waitFor(() => expect(screen.getByTestId("quest-coins").props.children).toBe("🪙 100"));
+    // A login bonus claimed in the wallet, or a push of the wallet's.
+    rememberBalance(queryClient, create(wallet.BalanceSchema, { coins: 115n, revision: 2n }));
+    await waitFor(() => expect(screen.getByTestId("quest-coins").props.children).toBe("🪙 115"));
   });
 
   it("sends a claim once however often it is tapped, and then shows the server's balance", async () => {

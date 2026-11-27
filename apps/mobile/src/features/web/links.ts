@@ -7,9 +7,9 @@ import { webScreenHref } from "./handoff";
  * instead of the inbox. (Areas the app has — chat, profiles, friends, the
  * map, shorts, stories, videos, notes, live, search, spaces, communities,
  * plans, the question box, school, quests, stamps, emoji, the history,
- * places, footprints — are claimed by their own features; none is listed
- * here.) The first path segments are those the server's hand-off accepts
- * (identity's `handoff::WEB_ROUTES`).
+ * places, footprints, the wallet — are claimed by their own features; none
+ * is listed here.) The first path segments are those the server's hand-off
+ * accepts (identity's `handoff::WEB_ROUTES`).
  */
 const WEB_ONLY = [
   "activity",
@@ -24,7 +24,6 @@ const WEB_ONLY = [
   "recap",
   "settings",
   "studio",
-  "wallet",
 ];
 
 export default [

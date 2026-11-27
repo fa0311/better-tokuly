@@ -1,7 +1,8 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { live, social, type video, wallet } from "@tokuly/api";
 import { liveKeys, liveQueries } from "@tokuly/core/live";
 import { nextCursor } from "@tokuly/core/query";
+import { walletQueries } from "@tokuly/core/wallet";
 import { Share } from "react-native";
 import { api } from "#/lib/api";
 import { webLink } from "#/lib/config";
@@ -87,19 +88,19 @@ export function useTopSupporters(streamId: string) {
   });
 }
 
-/** The wallet's balance as the gift sheet shows it (the wallet itself is on the web). */
-const coinsKey = [...liveKeys.all, "coins"] as const;
-
-/** The viewer's spendable coins; read again after every gift. */
+/**
+ * The viewer's spendable coins: the wallet's own balance in the cache
+ * (`walletKeys.balance`), so a bonus claimed in the wallet or a push shows
+ * here too. Read again after every gift.
+ */
 export function useCoins() {
+  const queryClient = useQueryClient();
   return useQuery({
-    queryKey: coinsKey,
-    queryFn: async () => (await walletClient().getBalance({})).balance?.coins ?? 0n,
+    ...walletQueries.balance(walletClient, queryClient),
+    select: (balance) => balance.coins,
     staleTime: 10_000,
   });
 }
-
-export { coinsKey };
 
 /** Opens the system share sheet with the stream's link. */
 export async function shareStream(summary: live.StreamSummary): Promise<void> {

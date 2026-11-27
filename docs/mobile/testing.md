@@ -34,6 +34,7 @@ release APK for the emulator and runs them against the Compose stack.
 | `quest` | collects a finished mission's reward with a double tap (one claim), opens the badges and one badge, sees the quest card on the own profile |
 | `stamps` | adds a free pack from the store, sees it in マイスタンプ, sends one of its stamps in a chat and puts it on a note |
 | `emoji` | opens the emoji picker in a chat and in the note composer, the catalogue and the deck |
+| `wallet` | sees the balance, claims the login bonus with a double tap (one claim, the balance goes up once), opens the history and a movement, the purchases |
 | `web-screens` | opens a web-only feature from 「もっと見る」 and sees it signed in |
 
 The flows screenshot each main screen into the run's `--test-output-dir`
