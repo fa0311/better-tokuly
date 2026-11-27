@@ -154,7 +154,7 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
     if (focused) root.current?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [focused]);
 
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "comments" }));
   const liked = viewer?.reaction?.kind === ReactionKind.LIKE;
   const disliked = viewer?.reaction?.kind === ReactionKind.DISLIKE;
 
@@ -681,7 +681,7 @@ function EditForm({ comment, onDone }: { comment: Comment; onDone(): void }) {
       void queryClient.invalidateQueries({ queryKey: commentKeys.mine });
       onDone();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "comments" })),
   });
   const unchanged = text.trim() === comment.text.trim();
   const canSave = !unchanged && text.length <= 1000 && (text.trim().length > 0 || hasAttachment);

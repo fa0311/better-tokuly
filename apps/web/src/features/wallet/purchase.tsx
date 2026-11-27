@@ -69,7 +69,7 @@ export function usePurchaseActions(purchaseId: string) {
       rememberPurchase(queryClient, response.purchase);
       rememberBalance(queryClient, response.balance);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "wallet" })),
   });
   const cancel = useMutation({
     mutationFn: () => walletClient().cancelPurchase({ purchaseId }),
@@ -77,7 +77,7 @@ export function usePurchaseActions(purchaseId: string) {
       rememberPurchase(queryClient, response.purchase);
       toast(t("purchase.toast.cancelled"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "wallet" })),
   });
   /** Asks the provider on the user's request and says so when the money has not arrived. */
   const check = (providerProof = "") =>

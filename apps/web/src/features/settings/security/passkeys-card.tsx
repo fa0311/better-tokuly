@@ -70,7 +70,7 @@ export function PasskeysCard({ me }: { me: identity.Me }) {
     },
     onError: (error) => {
       setRemoving((current) => ({ ...current, open: false }));
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "settings" }));
     },
   });
 
@@ -202,7 +202,7 @@ function AddPasskeyDialog({
       // The authenticator already holds a passkey for this account.
       else if (error instanceof Error && error.name === "InvalidStateError")
         toast.error(t("errors:PASSKEY_EXISTS"));
-      else toast.error(errorMessage(error));
+      else toast.error(errorMessage(error, { namespace: "settings" }));
     },
   });
 

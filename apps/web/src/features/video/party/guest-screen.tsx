@@ -59,7 +59,7 @@ export function PartyGuestScreen({ code }: { code: string }) {
     },
     onError: (error, input) => {
       // A remembered seat that is gone is no reason to complain: the form is still there.
-      if (input.guestName) toast.error(errorMessage(error));
+      if (input.guestName) toast.error(errorMessage(error, { namespace: "video" }));
       try {
         window.sessionStorage.removeItem(tokenKey(code));
       } catch {
@@ -126,7 +126,7 @@ export function PartyGuestScreen({ code }: { code: string }) {
           <PaneSpinner />
         ) : preview.isError || !party ? (
           preview.isError && !isNotFound(preview.error) ? (
-            <EmptyState emoji="😵‍💫" title={errorMessage(preview.error)} />
+            <EmptyState emoji="😵‍💫" title={errorMessage(preview.error, { namespace: "video" })} />
           ) : (
             <PartyGone ended={false} />
           )

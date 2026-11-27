@@ -63,7 +63,7 @@ export function DetailScreen({ name }: { name: string }) {
           body={
             missing
               ? t("detail.notFoundBody", { code: shortcode(name.replace(/:/g, "")) })
-              : errorMessage(detail.error)
+              : errorMessage(detail.error, { namespace: "emoji" })
           }
           action={
             <Link

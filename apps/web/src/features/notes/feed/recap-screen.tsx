@@ -139,7 +139,11 @@ export function RecapScreen({
       ) : recap.isError || !recap.data ? (
         <EmptyState
           emoji="🌧️"
-          title={isApiError(recap.error) ? errorMessage(recap.error) : t("recap.failed")}
+          title={
+            isApiError(recap.error)
+              ? errorMessage(recap.error, { namespace: "notes" })
+              : t("recap.failed")
+          }
           action={<Button onClick={() => void recap.refetch()}>{t("timeline.retry")}</Button>}
         />
       ) : recap.data.activityCount === 0 ? (
@@ -456,7 +460,7 @@ function ShareSlide({ recap }: { recap: feed.Recap }) {
         toast.success(t("recap.saved"));
       }
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     } finally {
       setRendering(false);
     }

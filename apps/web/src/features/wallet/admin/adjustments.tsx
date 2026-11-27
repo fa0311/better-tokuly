@@ -30,7 +30,7 @@ export function AdjustmentsLog({ onOpenUser }: { onOpenUser(userId: string): voi
           ))}
         </div>
       ) : query.isError ? (
-        <EmptyState emoji="😵‍💫" title={errorMessage(query.error)} />
+        <EmptyState emoji="😵‍💫" title={errorMessage(query.error, { namespace: "wallet" })} />
       ) : adjustments.length > 0 ? (
         <>
           <AdjustmentRows adjustments={adjustments} showUser onOpenUser={onOpenUser} />

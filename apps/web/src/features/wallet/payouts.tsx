@@ -115,7 +115,7 @@ export function PayoutRequestDialog({
       toast.success(t("payout.toast.requested"));
       onOpenChange(false);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "wallet" })),
   });
 
   const submit = () => {
@@ -221,7 +221,7 @@ export function useCancelPayout() {
       toast.success(t("payout.toast.cancelled"));
     },
     onError: (error) => {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "wallet" }));
       // Most likely reviewed a moment ago: show what it became.
       void queryClient.invalidateQueries({ queryKey: walletKeys.payouts });
     },

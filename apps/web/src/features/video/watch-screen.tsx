@@ -427,7 +427,7 @@ function Actions({
     onSuccess: () =>
       void queryClient.invalidateQueries({ queryKey: videoKeys.playlistItems("LL") }),
     onError: (error) => {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "video" }));
     },
   });
   const inWatchLater = item.viewer?.inWatchLater ?? false;
@@ -458,7 +458,7 @@ function Actions({
         ...current,
         viewer: current.viewer && { ...current.viewer, inWatchLater: !add },
       }));
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "video" }));
     },
   });
 

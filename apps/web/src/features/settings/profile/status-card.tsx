@@ -136,7 +136,7 @@ function StatusDialog({
       );
       onClose();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
   });
 
   const trimmed = text.trim();

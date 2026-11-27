@@ -52,7 +52,7 @@ export function StartPartyDialog({
       onOpenChange(false);
       void navigate({ to: "/party/$partyId", params: { partyId: code } });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 
   return (

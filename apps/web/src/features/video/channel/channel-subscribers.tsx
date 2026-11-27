@@ -23,7 +23,8 @@ export function ChannelSubscribers({ channel }: { channel: video.Channel }) {
   const subscribers = query.data?.pages.flatMap((page) => page.subscribers) ?? [];
 
   if (query.isPending) return <Skeleton className="h-40 rounded-card" />;
-  if (query.isError) return <EmptyState emoji="😵‍💫" title={errorMessage(query.error)} />;
+  if (query.isError)
+    return <EmptyState emoji="😵‍💫" title={errorMessage(query.error, { namespace: "video" })} />;
   if (subscribers.length === 0)
     return (
       <EmptyState

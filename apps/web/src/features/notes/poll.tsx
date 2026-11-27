@@ -45,7 +45,7 @@ export function NotePoll({
       if (updated) patchNote(queryClient, note.id, (current) => ({ ...current, poll: updated }));
       toast.success(t("poll.voted"));
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     } finally {
       setSending(false);
     }

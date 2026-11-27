@@ -26,7 +26,7 @@ interface DialogProps {
   onDone(account?: admin.AdminUser): void;
 }
 
-const onError = (error: unknown) => toast.error(errorMessage(error));
+const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "admin" }));
 const handleOf = (account: admin.AdminUser) => account.user?.handle ?? "";
 
 export function WarnDialog({ account, open, onOpenChange, onDone }: DialogProps) {

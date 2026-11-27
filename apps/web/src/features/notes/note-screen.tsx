@@ -70,7 +70,9 @@ export function NoteScreen({ noteId }: { noteId: string }) {
       <NotesPage title={t("thread.title")} back="/notes" scrollId={`note-${noteId}`}>
         <EmptyState
           emoji={missing ? "🫥" : "🌧️"}
-          title={missing ? t("thread.notFound") : errorMessage(thread.error)}
+          title={
+            missing ? t("thread.notFound") : errorMessage(thread.error, { namespace: "notes" })
+          }
           body={missing ? t("thread.notFoundBody") : undefined}
           action={
             <Link
@@ -226,7 +228,7 @@ function ReplyBox({ note }: { note: notes.Note }) {
     onError: (error) => {
       if (errorReason(error) === "RULES_NOT_ACCEPTED")
         void queryClient.invalidateQueries({ queryKey: notesKeys.rules });
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     },
   });
   const canSend = text.trim() !== "" && !over && !send.isPending;

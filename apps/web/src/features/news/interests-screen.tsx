@@ -32,7 +32,7 @@ export function InterestsScreen() {
       toast.success(t("interests.resetDone"));
       return queryClient.invalidateQueries({ queryKey: newsKeys.all });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "news" })),
     onSettled: () => setConfirming(false),
   });
   const interests = tags.data?.interests ?? [];
@@ -48,7 +48,7 @@ export function InterestsScreen() {
           <Skeleton className="h-28" />
         </div>
       ) : tags.isError ? (
-        <EmptyState emoji="🌀" title={errorMessage(tags.error)} />
+        <EmptyState emoji="🌀" title={errorMessage(tags.error, { namespace: "news" })} />
       ) : (
         <div className="flex flex-col gap-6">
           <Group

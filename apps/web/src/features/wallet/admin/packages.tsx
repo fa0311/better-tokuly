@@ -70,7 +70,7 @@ export function PackageManager() {
       );
       setToggling((current) => current && { ...current, open: false });
     },
-    onError: (failure) => toast.error(errorMessage(failure)),
+    onError: (failure) => toast.error(errorMessage(failure, { namespace: "wallet" })),
   });
 
   const open = (pkg: wallet.CoinPackage | null) =>
@@ -98,7 +98,7 @@ export function PackageManager() {
           ))}
         </div>
       ) : isError ? (
-        <EmptyState emoji="😵‍💫" title={errorMessage(error)} />
+        <EmptyState emoji="😵‍💫" title={errorMessage(error, { namespace: "wallet" })} />
       ) : data.packages.length > 0 ? (
         <div>
           <ColumnHeads columns={COLUMNS} heads={[...heads, ""]} />
@@ -294,7 +294,7 @@ function PackageEditor({
       toast.success(t(pkg ? "staff.packages.toast.saved" : "staff.packages.toast.created"));
       onOpenChange(false);
     },
-    onError: (failure) => toast.error(errorMessage(failure)),
+    onError: (failure) => toast.error(errorMessage(failure, { namespace: "wallet" })),
   });
 
   const submit = () => {

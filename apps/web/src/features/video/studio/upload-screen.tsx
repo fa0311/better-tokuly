@@ -92,7 +92,9 @@ export function UploadScreen() {
     } catch (error) {
       if (controller.signal.aborted) return;
       setUpload((current) =>
-        current?.file === file ? { ...current, failed: errorMessage(error) } : current,
+        current?.file === file
+          ? { ...current, failed: errorMessage(error, { namespace: "video" }) }
+          : current,
       );
     }
   };
@@ -118,7 +120,7 @@ export function UploadScreen() {
       void queryClient.invalidateQueries({ queryKey: videoKeys.studio });
       void navigate({ to: "/studio/videos/$videoId", params: { videoId: summary.shortId } });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 
   const onDrop = (event: DragEvent) => {

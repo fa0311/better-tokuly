@@ -39,8 +39,8 @@ export function PasswordCard({ me }: { me: identity.Me }) {
       if (reason === "INVALID_CREDENTIALS")
         setError({ field: "current", message: t("account.password.wrongCurrent") });
       else if (reason?.startsWith("PASSWORD_"))
-        setError({ field: "next", message: errorMessage(failure) });
-      else toast.error(errorMessage(failure));
+        setError({ field: "next", message: errorMessage(failure, { namespace: "settings" }) });
+      else toast.error(errorMessage(failure, { namespace: "settings" }));
     },
   });
 

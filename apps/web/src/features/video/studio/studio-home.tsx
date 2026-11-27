@@ -68,7 +68,7 @@ export function StudioHome() {
   if (query.isError) {
     return (
       <Page title={t("studio.title")} back="/watch" wide>
-        <EmptyState emoji="😵‍💫" title={errorMessage(query.error)} />
+        <EmptyState emoji="😵‍💫" title={errorMessage(query.error, { namespace: "video" })} />
       </Page>
     );
   }
@@ -252,7 +252,7 @@ function VideoList({ channelId }: { channelId: string }) {
     getNextPageParam: nextCursor,
   });
   const videos = list.data?.pages.flatMap((page) => page.videos) ?? [];
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "video" }));
   /** A state change moves the video between the filtered lists: read them again. */
   const refresh = () => void queryClient.invalidateQueries({ queryKey: videoKeys.studio });
 
@@ -370,7 +370,7 @@ function VideoList({ channelId }: { channelId: string }) {
             ))}
           </div>
         ) : list.isError ? (
-          <EmptyState emoji="😵‍💫" title={errorMessage(list.error)} />
+          <EmptyState emoji="😵‍💫" title={errorMessage(list.error, { namespace: "video" })} />
         ) : videos.length === 0 ? (
           filter === "all" ? (
             <EmptyState
@@ -475,6 +475,6 @@ export function useSetDefaultChannel() {
       void queryClient.invalidateQueries({ queryKey: videoKeys.myChannels });
       toast.success(t("studio.toast.defaultSet"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 }

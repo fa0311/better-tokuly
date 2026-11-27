@@ -352,7 +352,7 @@ export function useBookmark(subject: Subject): {
     } catch (error) {
       queryClient.setQueryData(key, before);
       void queryClient.invalidateQueries({ queryKey: key, exact: true });
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "engagement" }));
       return undefined;
     }
   };

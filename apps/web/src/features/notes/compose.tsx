@@ -265,7 +265,7 @@ export function Composer({ context, user }: { context: ComposeContext; user: com
         },
       });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "notes" })),
   });
 
   const post = useMutation({
@@ -306,7 +306,7 @@ export function Composer({ context, user }: { context: ComposeContext; user: com
       // The rules changed since they were agreed to: the agreement comes up again.
       if (errorReason(error) === "RULES_NOT_ACCEPTED")
         void queryClient.invalidateQueries({ queryKey: notesKeys.rules });
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     },
   });
   const canPost =

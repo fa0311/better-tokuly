@@ -247,7 +247,7 @@ export function AppsScreen() {
       {apps.isPending ? (
         <Skeleton className="h-48" />
       ) : apps.isError ? (
-        <Notice tone="danger">{errorMessage(apps.error)}</Notice>
+        <Notice tone="danger">{errorMessage(apps.error, { namespace: "dev" })}</Notice>
       ) : rows.length === 0 ? (
         <EmptyState
           emoji="🧩"
@@ -569,7 +569,8 @@ function AppUsers({ appId }: { appId: string }) {
     getNextPageParam: nextCursorOf,
   });
   if (users.isPending) return <Skeleton className="h-24" />;
-  if (users.isError) return <Notice tone="danger">{errorMessage(users.error)}</Notice>;
+  if (users.isError)
+    return <Notice tone="danger">{errorMessage(users.error, { namespace: "dev" })}</Notice>;
   const rows = users.data.pages.flatMap((page) => page.users);
   if (rows.length === 0) return <Notice>{t("apps.noUsers")}</Notice>;
   return (

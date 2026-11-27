@@ -84,7 +84,7 @@ function PlaylistForm({
       toast.success(playlist ? t("playlist.toast.saved") : t("playlist.toast.created"));
       if (saved) onSaved(saved);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
   const owned =
     channels.data?.channels.flatMap((channel) => (channel.summary ? [channel.summary] : [])) ?? [];

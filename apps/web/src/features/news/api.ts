@@ -141,7 +141,7 @@ export function useFeedback() {
         ...current,
         feedback: context?.before ?? feed.NewsFeedback.UNSPECIFIED,
       }));
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "news" }));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: newsKeys.tags }),
   });

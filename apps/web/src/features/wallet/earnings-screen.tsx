@@ -77,7 +77,7 @@ export function EarningsScreen() {
       <Page title={t("earnings.title")} back="/wallet">
         <EmptyState
           emoji="😵‍💫"
-          title={errorMessage(summary.error)}
+          title={errorMessage(summary.error, { namespace: "wallet" })}
           action={
             <Button variant="secondary" onClick={() => void summary.refetch()}>
               {t("common:actions.retry")}

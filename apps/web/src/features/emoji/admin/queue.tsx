@@ -38,7 +38,13 @@ export function ReviewQueue() {
     );
   }
   if (queue.isError)
-    return <EmptyState emoji="😵‍💫" title={t("browse.error")} body={errorMessage(queue.error)} />;
+    return (
+      <EmptyState
+        emoji="😵‍💫"
+        title={t("browse.error")}
+        body={errorMessage(queue.error, { namespace: "emoji" })}
+      />
+    );
   const items = queue.data.pages.flatMap((page) => page.emojis);
   if (items.length === 0)
     return <EmptyState emoji="🍵" title={t("admin.queueEmpty")} body={t("admin.queueEmptyBody")} />;

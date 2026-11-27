@@ -28,7 +28,7 @@ export function DeletionCard({ me }: { me: identity.Me }) {
       adoptMe({ ...me, deletionScheduledAt: undefined });
       toast.success(t("data.deletion.cancelled"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
   });
 
   if (scheduled) {
@@ -96,7 +96,7 @@ function DeletionDialog({ me, onClose }: { me: identity.Me; onClose(): void }) {
     onError: (error) => {
       if (errorReason(error) === "INVALID_CREDENTIALS")
         setPasswordError(t("settings:account.password.wrongCurrent"));
-      else toast.error(errorMessage(error));
+      else toast.error(errorMessage(error, { namespace: "settings" }));
     },
   });
 

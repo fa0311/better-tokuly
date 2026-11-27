@@ -144,7 +144,7 @@ function Editor({
       store(updated);
       setSaved(next);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 
   /** Publishing can change the audience: the form follows, so a later save does not undo it. */
@@ -345,7 +345,7 @@ function StatusCard({
   };
   const [deleting, setDeleting] = useState(false);
   const failed = summary.processing === ProcessingState.FAILED;
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "video" }));
 
   const unpublish = useMutation({
     mutationFn: () => videoClient().unpublishVideo({ videoId: summary.id }),
@@ -531,7 +531,7 @@ function PublishDialog({
             : t("studio.toast.publishWhenReady"),
       );
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 
   return (

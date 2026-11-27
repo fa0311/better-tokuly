@@ -46,7 +46,7 @@ export function TakedownDialog({
       onOpenChange(false);
       return queryClient.invalidateQueries({ queryKey: ["admin"] });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "admin" })),
   });
 
   return (

@@ -28,7 +28,7 @@ export function PartyMembers({ room }: { room: PartyRoom }) {
   const isCohost = self.role === PartyRole.COHOST;
   const onError = (error: unknown) => {
     setConfirming(null);
-    toast.error(errorMessage(error));
+    toast.error(errorMessage(error, { namespace: "video" }));
   };
 
   const setRole = useMutation({

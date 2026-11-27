@@ -93,7 +93,11 @@ export function DeckScreen() {
         {deck.isPending ? (
           <Skeleton className="h-40" />
         ) : deck.isError ? (
-          <EmptyState emoji="😵‍💫" title={t("browse.error")} body={errorMessage(deck.error)} />
+          <EmptyState
+            emoji="😵‍💫"
+            title={t("browse.error")}
+            body={errorMessage(deck.error, { namespace: "emoji" })}
+          />
         ) : choices.length === 0 ? (
           <EmptyState emoji="📌" title={t("deck.empty")} body={t("deck.emptyBody")} />
         ) : (

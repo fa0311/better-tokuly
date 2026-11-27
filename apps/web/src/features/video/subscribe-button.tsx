@@ -57,7 +57,7 @@ export function SubscribeButton({
   };
   const onError = (error: unknown) => {
     setLocal(null);
-    toast.error(errorMessage(error));
+    toast.error(errorMessage(error, { namespace: "video" }));
   };
 
   const subscribe = useMutation({

@@ -91,7 +91,7 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
     },
     onError: (error, _input, context) => {
       queryClient.setQueryData(listKey, context?.previous);
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "admin" }));
     },
     onSuccess: (_response, input) =>
       toast.success(
@@ -107,7 +107,7 @@ export function FlagsScreen({ search }: { search: FlagsSearch }) {
       setDeleting(null);
       return queryClient.invalidateQueries({ queryKey: ["admin"] });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "admin" })),
   });
 
   const columns: Column<admin.FeatureFlag>[] = [

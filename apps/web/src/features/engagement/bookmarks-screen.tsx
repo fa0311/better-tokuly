@@ -168,7 +168,7 @@ function CollectionHeader({
       await refreshBookmarks(queryClient);
       toast(t("bookmarks.collectionDeleted"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "engagement" })),
   });
 
   return (
@@ -235,7 +235,7 @@ function CollectionNameDialog({
       if (saved) onSaved?.(saved);
       onClose();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "engagement" })),
   });
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -297,7 +297,7 @@ function BookmarkList({ collectionId }: { collectionId: string }) {
     return (
       <EmptyState
         emoji="🌧️"
-        title={errorMessage(query.error)}
+        title={errorMessage(query.error, { namespace: "engagement" })}
         action={<Button onClick={() => void query.refetch()}>{t("bookmarks.retry")}</Button>}
       />
     );

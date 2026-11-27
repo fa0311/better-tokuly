@@ -159,7 +159,7 @@ function ChannelForm({ channel }: { channel?: video.Channel }) {
       }
       void navigate({ to: "/studio" });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 
   const busy = icon.uploading || banner.uploading;
@@ -392,7 +392,7 @@ function ArtField({
       onChange({ url, assetId: asset.id, uploading: false });
     } catch (error) {
       onChange(previous);
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "video" }));
     }
   };
 
@@ -480,7 +480,7 @@ function DeleteChannelDialog({
       onOpenChange(false);
       void navigate({ to: "/studio" });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
   const matches = typed.trim().replace(/^@/, "").toLowerCase() === handle;
   return (

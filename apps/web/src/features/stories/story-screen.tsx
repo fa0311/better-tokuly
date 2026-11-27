@@ -53,7 +53,7 @@ export function StoryScreen({ storyId }: { storyId: string }) {
     <Page title={t("page.title")} back="/notes">
       <EmptyState
         emoji={gone ? "🫧" : "🌧️"}
-        title={gone ? t("page.gone") : errorMessage(story.error)}
+        title={gone ? t("page.gone") : errorMessage(story.error, { namespace: "stories" })}
         body={gone ? t("page.goneBody") : undefined}
         action={
           <Link

@@ -69,7 +69,7 @@ export function ThumbnailField({
       setPicking(false);
       toast.success(image ? t("studio.thumbnail.saved") : t("studio.thumbnail.reset"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 
   const captureCurrent = async () => {

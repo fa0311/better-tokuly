@@ -21,7 +21,7 @@ export function SourcesScreen() {
           <Skeleton className="h-16" />
         </div>
       ) : sources.isError ? (
-        <EmptyState emoji="🌀" title={errorMessage(sources.error)} />
+        <EmptyState emoji="🌀" title={errorMessage(sources.error, { namespace: "news" })} />
       ) : list.length === 0 ? (
         <EmptyState emoji="📡" title={t("sources.empty")} body={t("sources.emptyBody")} />
       ) : (

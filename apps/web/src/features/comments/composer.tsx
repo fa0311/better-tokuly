@@ -132,7 +132,7 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
       setActive(false);
       onPosted?.(comment);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "comments" })),
   });
 
   const attachImage = async (file: File) => {
@@ -154,7 +154,7 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
       );
     } catch (error) {
       setImage((current) => (current?.previewUrl === draft.previewUrl ? null : current));
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "comments" }));
     }
   };
 

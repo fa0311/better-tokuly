@@ -103,7 +103,7 @@ function TotpSetupDialog({ me, onClose }: { me: identity.Me; onClose(): void }) 
     onError: (error) => {
       if (errorReason(error) === "INVALID_CREDENTIALS")
         setPasswordError(t("settings:account.password.wrongCurrent"));
-      else setCodeError(errorMessage(error));
+      else setCodeError(errorMessage(error, { namespace: "settings" }));
     },
   });
 
@@ -130,7 +130,9 @@ function TotpSetupDialog({ me, onClose }: { me: identity.Me; onClose(): void }) 
     >
       {setup.isError ? (
         <div className="flex flex-col items-center gap-3 py-6 text-center">
-          <p className="text-sm font-bold text-danger">{errorMessage(setup.error)}</p>
+          <p className="text-sm font-bold text-danger">
+            {errorMessage(setup.error, { namespace: "settings" })}
+          </p>
           <Button variant="secondary" size="sm" onClick={() => setup.refetch()}>
             {t("common:actions.retry")}
           </Button>
@@ -282,7 +284,7 @@ function TotpDisableDialog({ onClose }: { onClose(): void }) {
       await refreshMe().catch(() => {});
       onClose();
     },
-    onError: (error) => setCodeError(errorMessage(error)),
+    onError: (error) => setCodeError(errorMessage(error, { namespace: "settings" })),
   });
 
   const submit = (event: FormEvent) => {

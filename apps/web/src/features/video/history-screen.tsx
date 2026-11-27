@@ -59,7 +59,7 @@ export function HistoryScreen() {
       data ? { ...data, pages: data.pages.map(change) } : data,
     );
   const onError = (error: unknown) => {
-    toast.error(errorMessage(error));
+    toast.error(errorMessage(error, { namespace: "video" }));
     void queryClient.invalidateQueries({ queryKey: videoKeys.history });
   };
 
@@ -146,7 +146,7 @@ export function HistoryScreen() {
             ))}
           </div>
         ) : history.isError ? (
-          <EmptyState emoji="😵‍💫" title={errorMessage(history.error)} />
+          <EmptyState emoji="😵‍💫" title={errorMessage(history.error, { namespace: "video" })} />
         ) : items.length === 0 ? (
           <EmptyState
             emoji="🍿"

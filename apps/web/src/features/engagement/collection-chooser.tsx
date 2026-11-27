@@ -64,7 +64,7 @@ export function CollectionChooser({ subject, onClose }: { subject: Subject; onCl
       setName("");
       await Promise.all([reread(), refreshBookmarks(queryClient)]);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "engagement" })),
   });
 
   const stopSaving = async () => {

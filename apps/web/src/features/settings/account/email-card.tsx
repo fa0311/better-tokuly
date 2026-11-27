@@ -23,7 +23,7 @@ export function EmailCard({ me }: { me: identity.Me }) {
   const resend = useMutation({
     mutationFn: () => authClient().requestEmailVerification({}),
     onSuccess: () => toast.success(t("account.email.verificationSent", { email: me.email })),
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
   });
 
   return (
@@ -113,8 +113,8 @@ function ChangeEmailDialog({
       if (reason === "INVALID_CREDENTIALS")
         setError({ field: "password", message: t("settings:account.password.wrongCurrent") });
       else if (reason?.startsWith("EMAIL_"))
-        setError({ field: "email", message: errorMessage(failure) });
-      else toast.error(errorMessage(failure));
+        setError({ field: "email", message: errorMessage(failure, { namespace: "settings" }) });
+      else toast.error(errorMessage(failure, { namespace: "settings" }));
     },
   });
 

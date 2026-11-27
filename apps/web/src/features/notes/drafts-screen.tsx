@@ -43,7 +43,7 @@ export function DraftsScreen() {
         },
       });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "notes" })),
   });
   const remove = useMutation({
     mutationFn: (draft: notes.Draft) => draftClient().deleteDraft({ draftId: draft.id }),
@@ -51,7 +51,7 @@ export function DraftsScreen() {
       void refresh();
       toast.success(t("drafts.deleted"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "notes" })),
   });
 
   return (
