@@ -1,6 +1,7 @@
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { create, fromDate, school } from "@tokuly/api";
+import { create, fromDate, school, toDate } from "@tokuly/api";
 import { router } from "expo-router";
 import type { ReactNode } from "react";
 import { Alert } from "react-native";
@@ -13,7 +14,8 @@ import { SchoolScreen } from "../today-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
 jest.mock("#/features/session/account", () => ({ currentAccount: jest.fn(), isActive: jest.fn() }));
-jest.mock("#/features/session/store", () => ({ useMe: () => ({ timeZone: "Asia/Tokyo" }) }));
+let mockTimeZone = "Asia/Tokyo";
+jest.mock("#/features/session/store", () => ({ useMe: () => ({ timeZone: mockTimeZone }) }));
 jest.mock("expo-router", () => ({
   router: { push: jest.fn(), back: jest.fn() },
   Stack: { Screen: () => null },
@@ -34,6 +36,9 @@ const homework = create(school.AssignmentSchema, {
   urgency: school.AssignmentUrgency.TOMORROW,
 });
 
+/** The assignments created, as sent. */
+const created: { dueAt?: Timestamp }[] = [];
+
 /**
  * One account's school services. `switchOnWrite` answers every write only
  * after the person switched to another account; `unreadable` refuses every
@@ -42,6 +47,7 @@ const homework = create(school.AssignmentSchema, {
 function schoolOf({ switchOnWrite = false, unreadable = false } = {}) {
   let switched = false;
   const written: string[] = [];
+  created.length = 0;
   const write = <T,>(name: string, answer: T) => {
     written.push(name);
     if (switchOnWrite) switched = true;
@@ -99,7 +105,10 @@ function schoolOf({ switchOnWrite = false, unreadable = false } = {}) {
         ],
       })),
       updateAssignment: () => write("done", { assignment: homework }),
-      createAssignment: () => write("create", { assignment: homework }),
+      createAssignment: (request: { dueAt?: Timestamp }) => {
+        created.push(request);
+        return write("create", { assignment: homework });
+      },
       cheerStudy: () => write("cheer", {}),
     }),
   };
@@ -129,7 +138,11 @@ async function show(children: ReactNode) {
 }
 
 beforeEach(() => jest.spyOn(Alert, "alert").mockImplementation(() => {}));
-afterEach(() => jest.clearAllMocks());
+afterEach(() => {
+  jest.clearAllMocks();
+  jest.restoreAllMocks();
+  mockTimeZone = "Asia/Tokyo";
+});
 
 describe("the school screen", () => {
   it("shows the day's classes, what is due and who is studying", async () => {
@@ -177,6 +190,20 @@ describe("assignments", () => {
     await fireEvent.press(screen.getByTestId("assignment-save"));
     await waitFor(() => expect(written).toEqual(["create"]));
     expect(router.back).toHaveBeenCalled();
+  });
+
+  it("is due at 23:59 on the account's calendar, across the change of the clocks", async () => {
+    // Friday 30 October 2026, 20:00 in Los Angeles (summer time); a week on is winter time.
+    mockTimeZone = "America/Los_Angeles";
+    jest.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-31T03:00:00Z"));
+    schoolOf();
+    await show(<NewAssignmentScreen />);
+    await fireEvent.changeText(screen.getByTestId("assignment-title"), "レポート");
+    await fireEvent.press(screen.getByTestId("assignment-due-nextWeek"));
+    await fireEvent.press(screen.getByTestId("assignment-save"));
+    await waitFor(() => expect(created).toHaveLength(1));
+    const dueAt = created[0]?.dueAt;
+    expect(toDate(dueAt)?.toISOString()).toBe("2026-11-07T07:59:00.000Z");
   });
 });
 
