@@ -4,7 +4,7 @@ import { friendKeys, friendQueries } from "@tokuly/core/friends";
 import { useEffect } from "react";
 import { api } from "#/lib/api";
 import { realtime } from "#/lib/realtime";
-import type { BadgeSources } from "#/seams/badges";
+import type { BadgeSource } from "#/seams/badges";
 
 const friendClient = () => api().service(social.FriendService);
 
@@ -43,5 +43,4 @@ function useFriendRequestsBadge(): number {
   return (requests.data?.incomingCount ?? 0) + followRequests;
 }
 
-/** `friends`: incoming friend requests and follow requests. */
-export default { friends: useFriendRequestsBadge } satisfies BadgeSources;
+export default useFriendRequestsBadge satisfies BadgeSource;

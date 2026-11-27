@@ -195,20 +195,6 @@ export function claimable(missions: quest.ListMissionsResponse | undefined): que
 }
 
 /**
- * How loud a celebration is, from the ドパガキ度 factor (0 with motion off):
- * - `toast`: words only;
- * - `card`: a card pops in over the page, with a little confetti;
- * - `full`: the whole screen lights up.
- */
-export type Loudness = "toast" | "card" | "full";
-
-export function loudness(factor: number): Loudness {
-  if (factor >= 1.3) return "full";
-  if (factor >= 0.75) return "card";
-  return "toast";
-}
-
-/**
  * Whether restoring a lost streak can be confirmed right now:
  * - `ready`: confirm;
  * - `checking`: the balance is not known yet;
@@ -242,14 +228,3 @@ export function restoreState({
 /** What a failed restore leads to: buying coins when there were too few, otherwise just the reason. */
 export const restoreFailure = (reason: string | undefined): "buy" | "explain" =>
   reason === "INSUFFICIENT_COINS" ? "buy" : "explain";
-
-/**
- * Adds a reveal at the end. The first one is on screen and always stays;
- * past the limit the oldest of those still waiting make room.
- */
-export function enqueue<T>(queue: T[], item: T, limit: number): T[] {
-  const next = [...queue, item];
-  if (next.length <= limit) return next;
-  const [shown, ...waiting] = next;
-  return shown === undefined ? next : [shown, ...waiting.slice(-(limit - 1))];
-}

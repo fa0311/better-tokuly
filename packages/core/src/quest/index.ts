@@ -11,14 +11,11 @@ export {
   badgeLines,
   claimable,
   difficultyKey,
-  enqueue,
   formatDay,
   formatShare,
   fraction,
   isHiddenSecret,
-  type Loudness,
   levelFraction,
-  loudness,
   missionPath,
   nextInLine,
   type RarityKey,
@@ -34,6 +31,7 @@ export {
   tierKey,
   xpToNextLevel,
 } from "./model";
+export { enqueue, type Loudness, loudness } from "./moments";
 export { type ProfileQuest, profileQuest } from "./profile";
 export { questQueries, STREAK_PAGE_SIZE } from "./queries";
 export { localized } from "./text";

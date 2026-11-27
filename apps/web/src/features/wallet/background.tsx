@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { applyWalletEvent, walletKeys } from "@tokuly/core/wallet";
+import { walletKeys } from "@tokuly/core/wallet/keys";
 import { useEffect } from "react";
-import { realtime } from "#/lib/realtime";
+import { onFramesLoading, realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
 
 /**
@@ -15,10 +15,15 @@ export default function WalletBackground() {
   useEffect(() => {
     const client = realtime();
     let connectedBefore = client.connectionStatus === "connected";
-    const offFrame = client.onFrame((frame) => {
-      if (frame.body.case === "wallet") {
-        applyWalletEvent(queryClient, frame.body.value);
-      } else if (frame.body.case === "welcome") {
+    const offEvents = onFramesLoading("wallet", () =>
+      import("./frames").then(
+        ({ applyWalletEvent }) =>
+          (event) =>
+            applyWalletEvent(queryClient, event),
+      ),
+    );
+    const offWelcome = client.onFrame((frame) => {
+      if (frame.body.case === "welcome") {
         // Pushes sent while there was no connection are lost: ask again. The
         // balance is cheap and matters most, so it is checked on every
         // connection; the lists only after a reconnect.
@@ -42,7 +47,8 @@ export default function WalletBackground() {
     });
 
     return () => {
-      offFrame();
+      offEvents();
+      offWelcome();
       offSession();
     };
   }, [queryClient]);

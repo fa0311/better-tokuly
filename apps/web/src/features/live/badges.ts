@@ -1,5 +1,5 @@
 import { live } from "@tokuly/api";
-import type { BadgeSources } from "#/seams/badges";
+import type { BadgeSource } from "#/seams/badges";
 import { useFriendStreams } from "./api";
 
 /** How many friends are on air right now. */
@@ -8,5 +8,4 @@ function useLiveBadge(): number {
   return friends.data?.filter((stream) => stream.status === live.StreamStatus.LIVE).length ?? 0;
 }
 
-/** `live`: friends' streams that are on air. */
-export default { live: useLiveBadge } satisfies BadgeSources;
+export default useLiveBadge satisfies BadgeSource;

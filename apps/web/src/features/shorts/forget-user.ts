@@ -1,5 +1,5 @@
+import { shortKeys } from "@tokuly/core/shorts/keys";
 import type { ForgetUser } from "#/seams/forget-user";
-import { shortKeys } from "./api";
 
 /**
  * After an unfriend or a block. A short names its channel, not the person

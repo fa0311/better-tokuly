@@ -1,8 +1,8 @@
 import { plans } from "@tokuly/api";
-import type { BadgeSources } from "#/seams/badges";
+import type { BadgeSource } from "#/seams/badges";
 import { usePlanList, usePolls } from "./api";
 
-/** Invitations nobody answered yet, plus open date polls still waiting for the person's vote. */
+/** What waits for an answer in "あそぶ": invitations nobody answered yet, plus open date polls still waiting for the person's vote. */
 function usePlansBadge(): number {
   const invited = usePlanList(plans.PlanListFilter.INVITED);
   const polls = usePolls();
@@ -12,5 +12,4 @@ function usePlansBadge(): number {
   return (invited.data?.length ?? 0) + waiting;
 }
 
-/** `plans`: what waits for an answer in "あそぶ". */
-export default { plans: usePlansBadge } satisfies BadgeSources;
+export default usePlansBadge satisfies BadgeSource;

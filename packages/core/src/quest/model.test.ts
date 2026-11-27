@@ -3,11 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   badgeLines,
   claimable,
-  enqueue,
   formatDay,
   formatShare,
   fraction,
-  loudness,
   nextInLine,
   remaining,
   restoreFailure,
@@ -15,6 +13,7 @@ import {
   streakRuns,
   streakStatus,
 } from "./model";
+import { enqueue, loudness } from "./moments";
 
 const stamp = (iso: string) => {
   const ms = Date.parse(iso);

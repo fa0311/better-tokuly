@@ -1,5 +1,5 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import { type AnyRouter, useRouter } from "@tanstack/react-router";
 import type { notify } from "@tokuly/api";
 import { withRead, withReceived, withRemoved } from "@tokuly/core/notifications";
 import { X } from "lucide-react";
@@ -10,7 +10,6 @@ import { realtime } from "#/lib/realtime";
 import { setBadge } from "#/stores/badges";
 import { useSessionStore } from "#/stores/session";
 import { applyInboxChange, applyUnread, notifyKeys, rereadInbox, useUnread } from "./api";
-import { openNotification } from "./inbox-actions";
 import { NotificationFace } from "./notification-face";
 import { closeShownNotifications, refreshPushRegistration, serviceWorker } from "./push";
 
@@ -142,6 +141,17 @@ export default function NotificationsBackground() {
   }, [userId, sessionId]);
 
   return null;
+}
+
+/** Opens what a notification is about; what knows every kind of target loads with the first. */
+function openNotification(
+  queryClient: QueryClient,
+  router: AnyRouter,
+  entry: { id: string; kind?: string; path: string },
+): void {
+  void import("./inbox-actions").then((actions) =>
+    actions.openNotification(queryClient, router, entry),
+  );
 }
 
 /**

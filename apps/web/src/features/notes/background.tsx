@@ -1,10 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
-import { forgetUserNotes } from "@tokuly/core/notes";
+import type { ServerFrame } from "@tokuly/realtime";
 import { lazy, useEffect } from "react";
-import { realtime } from "#/lib/realtime";
+import { onFramesLoading, realtime } from "#/lib/realtime";
 import { ComposeHost } from "./compose-host";
-import { applyNotesFrame, hintTimelines } from "./live";
+import { hintTimelines } from "./timeline-hints";
 
 const NoteSubjectCard = lazy(() =>
   import("./subject-card").then((module) => ({ default: module.NoteSubjectCard })),
@@ -30,25 +30,38 @@ export default function NotesBackground() {
   useEffect(() => {
     const client = realtime();
     let connectedBefore = false;
-    const off = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Whatever was posted while the connection was down was not announced.
-        if (connectedBefore) hintTimelines();
-        connectedBefore = true;
-        return;
-      }
-      // A friendship ended, or the other side put up a block.
-      if (frame.body.case === "social" && frame.body.value.event.case === "friendRemovedUserId")
-        forgetUserNotes(queryClient, frame.body.value.event.value);
-      applyNotesFrame(queryClient, frame);
+    const offWelcome = client.onFrame((frame) => {
+      if (frame.body.case !== "welcome") return;
+      // Whatever was posted while the connection was down was not announced.
+      if (connectedBefore) hintTimelines();
+      connectedBefore = true;
     });
+    const applyFrame = () =>
+      import("./live").then(
+        ({ applyNotesFrame }) =>
+          (_: unknown, frame: ServerFrame) =>
+            applyNotesFrame(queryClient, frame),
+      );
+    const offNotes = onFramesLoading("notes", applyFrame);
+    const offNotify = onFramesLoading("notify", applyFrame);
+    // A friendship ended, or the other side put up a block.
+    const offSocial = onFramesLoading("social", () =>
+      import("./live").then(
+        ({ applySocialEvent }) =>
+          ({ event }) =>
+            applySocialEvent(queryClient, event),
+      ),
+    );
     client.start();
     const onVisible = () => {
       if (document.visibilityState === "visible") hintTimelines();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      off();
+      offWelcome();
+      offNotes();
+      offNotify();
+      offSocial();
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [queryClient]);
