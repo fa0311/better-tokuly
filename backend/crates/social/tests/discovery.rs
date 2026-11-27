@@ -456,8 +456,10 @@ async fn minors_and_adults_do_not_find_each_other_nearby() {
     assert!(everyone(&kid_saw).contains(&other_kid.id), "minors find each other");
 }
 
+/// Legacy accounts that keep answering 「あとで」 may be adults: they are in
+/// neither age group, and meet no stranger nearby until they give a birthdate.
 #[tokio::test]
-async fn an_account_without_a_birthdate_meets_minors_nearby_until_it_gives_one() {
+async fn an_account_without_a_birthdate_meets_nobody_nearby() {
     let ctx = start().await;
     let (adult, kid, unknown) = (ctx.app.user("adult").await, ctx.app.user("kid").await, ctx.app.user("unknown").await);
     ctx.make_minor(&kid).await;
@@ -471,10 +473,11 @@ async fn an_account_without_a_birthdate_meets_minors_nearby_until_it_gives_one()
             app.stream::<_, DiscoverNearbyResponse>(NEARBY, Some(&user), &nearby_at(north_of(spot, 5.0)), 10, Duration::from_secs(5)).await.unwrap()
         }
     };
-    let (adult_saw, unknown_saw, _) = tokio::join!(open(&adult, 0), open(&unknown, 500), open(&kid, 0));
+    let (adult_saw, unknown_saw, kid_saw) = tokio::join!(open(&adult, 500), open(&unknown, 500), open(&kid, 500));
     let everyone = |snapshots: &[DiscoverNearbyResponse]| snapshots.iter().flat_map(seen).map(|(id, _)| id).collect::<Vec<Uuid>>();
-    assert!(everyone(&adult_saw).is_empty(), "an adult meets neither");
-    assert!(everyone(&unknown_saw).contains(&kid.id) && !everyone(&unknown_saw).contains(&adult.id), "counted as a minor");
+    assert!(everyone(&unknown_saw).is_empty(), "neither the minor nor the adult");
+    assert!(!everyone(&kid_saw).contains(&unknown.id), "a minor is not shown it");
+    assert!(!everyone(&adult_saw).contains(&unknown.id), "an adult is not shown it");
 }
 
 #[tokio::test]
@@ -586,6 +589,22 @@ async fn a_shared_school_suggests_only_within_an_age_group() {
 
     let for_adult = suggestions_for(&ctx, &adult, 0).await;
     assert_eq!(suggested(&for_adult), vec![(known_adult.id, "SAME_SCHOOL")], "an adult sees no pupils by naming their school");
+}
+
+/// Naming a school introduces people of one age group: an account without a
+/// birthdate is in none.
+#[tokio::test]
+async fn a_shared_school_suggests_nobody_without_a_birthdate() {
+    let ctx = start().await;
+    let school = format!("桜ヶ丘高校 {}", Uuid::now_v7().simple());
+    let (unknown, adult, colleague) = (ctx.app.user("unknown").await, ctx.app.user("adult").await, ctx.app.user("colleague").await);
+    for user in [&unknown, &adult, &colleague] {
+        sqlx::query("UPDATE users SET school_name = $2 WHERE id = $1").bind(user.id).bind(&school).execute(&ctx.app.core.db).await.unwrap();
+    }
+    sqlx::query("UPDATE users SET birthdate = NULL WHERE id = $1").bind(unknown.id).execute(&ctx.app.core.db).await.unwrap();
+
+    assert!(suggested(&suggestions_for(&ctx, &unknown, 0).await).is_empty());
+    assert_eq!(suggested(&suggestions_for(&ctx, &adult, 0).await), vec![(colleague.id, "SAME_SCHOOL")]);
 }
 
 /// The age group is part of finding schoolmates, not a filter on a first

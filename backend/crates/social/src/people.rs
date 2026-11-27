@@ -4,7 +4,10 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use tokuly_core::{prelude::*, presence};
-use tokuly_identity::{settings, users};
+use tokuly_identity::{
+    age::{self, AgeGroup},
+    settings, users,
+};
 use tokuly_proto::{common::UserSummary, identity::Audience};
 
 /// The name to use for a user in notifications and activity entries.
@@ -37,20 +40,26 @@ pub(crate) async fn visible_by_handle(core: &Core, viewer: Uuid, handle: &str) -
     Ok(user.id)
 }
 
-/// The members of `user_ids` the limits for minors apply to
-/// (`tokuly_identity::age`: by the birthdate today; no birthdate yet counts
-/// as a minor).
+/// The age group of each of `user_ids` (`tokuly_identity::age`: by the
+/// birthdate today; an account without a birthdate is in neither).
 ///
 /// Strangers only meet within their own age group where the server puts
-/// them in touch by position (nearby discovery, bumps): an adult is never
-/// shown a minor they do not know, nor the other way round.
-pub(crate) async fn minors_among(core: &Core, user_ids: &[Uuid]) -> AppResult<HashSet<Uuid>> {
-    tokuly_identity::age::minors_among(core, user_ids).await
+/// them in touch by position or school (nearby discovery, bumps,
+/// schoolmates, follow suggestions): an adult is never shown a minor they do
+/// not know, nor the other way round, and an account without a birthdate
+/// meets no stranger this way until it gives one.
+pub(crate) async fn age_groups_among(core: &Core, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, AgeGroup>> {
+    age::age_groups_among(core, user_ids).await
+}
+
+/// `a` and `b` are in the same age group of `groups`; never when either has
+/// no birthdate.
+pub(crate) fn same_age_group(groups: &HashMap<Uuid, AgeGroup>, a: Uuid, b: Uuid) -> bool {
+    groups.get(&a).is_some_and(|group| groups.get(&b) == Some(group))
 }
 
 /// Up to `limit` people who name the same school as `user_id` and are in
-/// the same age group (minors with minors, adults with adults; no birthdate
-/// counts as a minor, as in [`minors_among`]), newest accounts first.
+/// its age group (see [`age_groups_among`]), newest accounts first.
 ///
 /// A school is whatever an account types: on its own it must not show an
 /// adult a school's pupils, nor the other way round. The age group is part
@@ -58,16 +67,19 @@ pub(crate) async fn minors_among(core: &Core, user_ids: &[Uuid]) -> AppResult<Ha
 /// school still finds the adults there instead of a first page of pupils
 /// that is then thrown away.
 pub(crate) async fn schoolmates_of_age_group(core: &Core, user_id: Uuid, limit: i64) -> AppResult<Vec<Uuid>> {
+    let Some(group) = age::age_group(core, user_id).await? else {
+        return Ok(Vec::new());
+    };
     Ok(sqlx::query_scalar(
         "SELECT mate.id FROM users me JOIN users mate ON mate.school_name = me.school_name AND mate.id <> me.id
          WHERE me.id = $1 AND me.school_name <> '' AND mate.deleted_at IS NULL AND mate.banned_at IS NULL AND NOT mate.bot
-           AND coalesce(mate.birthdate > current_date - make_interval(years => $3), true)
-             = coalesce(me.birthdate > current_date - make_interval(years => $3), true)
+           AND mate.birthdate IS NOT NULL AND (mate.birthdate <= $3) = $4
          ORDER BY mate.id DESC LIMIT $2",
     )
     .bind(user_id)
     .bind(limit)
-    .bind(tokuly_identity::age::ADULT_AGE as i32)
+    .bind(age::adult_if_born_by(Utc::now().date_naive()))
+    .bind(group == AgeGroup::Adults)
     .fetch_all(&core.db)
     .await?)
 }

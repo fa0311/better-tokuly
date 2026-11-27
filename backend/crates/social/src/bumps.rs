@@ -313,8 +313,9 @@ impl Social {
 
     /// Who among `candidates` `user_id` may bump: friends always; strangers
     /// only when both of them have nearby discovery on and both are minors
-    /// or both adults. A bump with a stranger tells each who the other is
-    /// and sends a friend request, so it is a way of being found nearby.
+    /// or both adults (an account without a birthdate is neither). A bump
+    /// with a stranger tells each who the other is and sends a friend
+    /// request, so it is a way of being found nearby.
     /// Returns `(friends, strangers)` among the candidates who may.
     async fn may_bump(&self, user_id: Uuid, candidates: &[Uuid]) -> AppResult<(HashSet<Uuid>, HashSet<Uuid>)> {
         let core = &self.core;
@@ -334,9 +335,9 @@ impl Social {
         }
         let involved = [strangers.as_slice(), &[user_id]].concat();
         let privacy = settings::privacy_of_many(core, &involved).await?;
-        let minors = people::minors_among(core, &involved).await?;
+        let groups = people::age_groups_among(core, &involved).await?;
         let discoverable = |id: &Uuid| privacy.get(id).is_some_and(|p| p.nearby_discoverable);
-        let same_age_group = |id: &Uuid| minors.contains(id) == minors.contains(&user_id);
+        let same_age_group = |id: &Uuid| people::same_age_group(&groups, *id, user_id);
         let allowed = if discoverable(&user_id) { strangers.into_iter().filter(|id| discoverable(id) && same_age_group(id)).collect() } else { HashSet::new() };
         Ok((friends, allowed))
     }

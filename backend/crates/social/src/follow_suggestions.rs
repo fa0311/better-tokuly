@@ -311,12 +311,11 @@ impl Social {
         let privacy = settings::privacy_of_many(core, &active).await?;
         let mut everyone = active.clone();
         everyone.push(user_id);
-        let minors = people::minors_among(core, &everyone).await?;
-        let user_is_minor = minors.contains(&user_id);
+        let groups = people::age_groups_among(core, &everyone).await?;
         Ok(active
             .into_iter()
             .filter(|id| {
-                privacy.get(id).is_some_and(settings::findable_by_anyone) && minors.contains(id) == user_is_minor
+                privacy.get(id).is_some_and(settings::findable_by_anyone) && people::same_age_group(&groups, *id, user_id)
             })
             .collect())
     }
