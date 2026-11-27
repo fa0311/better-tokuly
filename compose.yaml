@@ -37,6 +37,9 @@
 #                         mounted read-only at /etc/tokuly
 #   the staff console     「サーバー設定」 for what neither of the two sets
 # Any TOKULY_* variable put in .env still reaches the backend and wins over both.
+#
+# Memory: every service has a limit and is restarted when it goes over it. The
+# defaults fit a 4 GB machine; docs/memory.md has the lines for 8 GB.
 
 name: tokuly
 
@@ -118,6 +121,7 @@ services:
     logging: *logging
     image: caddy:2.11.9-alpine
     restart: unless-stopped
+    mem_limit: 128m
     environment:
       # `:80` serves plain HTTP on every name (fine for http://localhost).
       # Set a domain (`tokuly.example.com`) for automatic HTTPS and HTTP/3.
@@ -145,6 +149,7 @@ services:
       dockerfile: infra/docker/web.Dockerfile
     pull_policy: ${TOKULY_PULL_POLICY:-missing}
     restart: unless-stopped
+    mem_limit: 256m
     environment:
       <<: *browser-addresses
       TOKULY_ENV: production
@@ -163,6 +168,7 @@ services:
   migrate:
     <<: *backend
     command: ["migrate"]
+    mem_limit: 256m
     restart: "no"
     depends_on:
       postgres: { condition: service_healthy }
@@ -175,6 +181,7 @@ services:
   api:
     <<: *backend
     command: ["api"]
+    mem_limit: 384m
     healthcheck:
       test: ["CMD", "tokuly", "healthcheck", "http://127.0.0.1:8081/readyz"]
       interval: 10s
@@ -184,6 +191,7 @@ services:
   realtime:
     <<: *backend
     command: ["realtime"]
+    mem_limit: 256m
     # WebTransport (QUIC) goes straight to this container, which brings its own
     # short-lived certificate; the WebSocket fallback goes through the edge.
     ports:
@@ -197,6 +205,8 @@ services:
   worker:
     <<: *backend
     command: ["worker"]
+    # FFmpeg runs in here: videos and live clips take the most.
+    mem_limit: ${WORKER_MEM_LIMIT:-768m}
     # What the media server records: the worker cuts clips and archives from
     # it and deletes it afterwards.
     volumes:
@@ -215,7 +225,24 @@ services:
       POSTGRES_USER: tokuly
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run tools/init-env.sh first}
       POSTGRES_DB: tokuly
-    command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}"]
+    # 100 connections: api, realtime and worker keep 20 each (TOKULY_DATABASE_MAX_CONNECTIONS),
+    # the rest is for `docker compose run` and backups.
+    command:
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
+      - -c
+      - work_mem=${POSTGRES_WORK_MEM:-4MB}
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-1GB}
+    mem_limit: ${POSTGRES_MEM_LIMIT:-768m}
+    mem_reservation: ${POSTGRES_MEM_RESERVATION:-512m}
+    # When the whole machine runs out, the kernel kills something else first.
+    oom_score_adj: -500
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
@@ -229,7 +256,9 @@ services:
     image: valkey/valkey:9.2-alpine
     restart: unless-stopped
     # Presence, rate limits and caches. Never evict: sessions being revoked live here too.
-    command: ["valkey-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    # When full, writes are refused (and logged by the backend) instead of the container being killed.
+    command: ["valkey-server", "--appendonly", "yes", "--maxmemory", "${VALKEY_MAXMEMORY:-128mb}", "--maxmemory-policy", "noeviction"]
+    mem_limit: ${VALKEY_MEM_LIMIT:-256m}
     volumes:
       - valkey-data:/data
     healthcheck:
@@ -243,6 +272,7 @@ services:
     image: nats:2.15.3-alpine
     restart: unless-stopped
     command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]
+    mem_limit: 256m
     volumes:
       - nats-data:/data
     healthcheck:
@@ -261,6 +291,7 @@ services:
       RUSTFS_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-tokuly}
       RUSTFS_SECRET_KEY: ${STORAGE_SECRET_KEY:?run tools/init-env.sh first}
       RUSTFS_CONSOLE_ENABLE: "false"
+    mem_limit: 384m
     ports:
       - "${TOKULY_STORAGE_PORT:-9000}:9000"
     volumes:
@@ -282,8 +313,12 @@ services:
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "0"
     ulimits:
       nofile: { soft: 262144, hard: 262144 }
+    # ClickHouse keeps itself to 3/4 of this (infra/clickhouse/memory.xml).
+    mem_limit: ${CLICKHOUSE_MEM_LIMIT:-768m}
     volumes:
       - clickhouse-data:/var/lib/clickhouse
+      - ./infra/clickhouse/memory.xml:/etc/clickhouse-server/config.d/memory.xml:ro
+      - ./infra/clickhouse/users.xml:/etc/clickhouse-server/users.d/memory.xml:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8123/ping"]
       interval: 5s
@@ -298,6 +333,10 @@ services:
       MEILI_ENV: production
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?run tools/init-env.sh first}
       MEILI_NO_ANALYTICS: "true"
+      # Meilisearch would otherwise take 2/3 of the machine's RAM for indexing.
+      MEILI_MAX_INDEXING_MEMORY: ${MEILI_MAX_INDEXING_MEMORY:-128MiB}
+      MEILI_MAX_INDEXING_THREADS: ${MEILI_MAX_INDEXING_THREADS:-1}
+    mem_limit: ${SEARCH_MEM_LIMIT:-384m}
     volumes:
       - search-data:/meili_data
     healthcheck:
@@ -321,6 +360,7 @@ services:
       TOKULY_MAP_REGION_BBOX: ${TOKULY_MAP_REGION_BBOX:-139.2,35.2,140.3,36.0}
       TOKULY_MAP_REGION_MAXZOOM: ${TOKULY_MAP_REGION_MAXZOOM:-15}
       TOKULY_MAP_SOURCE: ${TOKULY_MAP_SOURCE:-}
+    mem_limit: 128m
     volumes:
       - tiles-data:/data
       - map-assets:/assets
@@ -331,6 +371,7 @@ services:
     image: livekit/livekit-server:v1.13.11
     restart: unless-stopped
     command: ["--config", "/etc/livekit.yaml"]
+    mem_limit: 256m
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-tokuly}: ${LIVEKIT_API_SECRET:?run tools/init-env.sh first}"
       # Signs the webhook declared in infra/livekit/livekit.yaml (the API's
@@ -353,6 +394,7 @@ services:
     restart: unless-stopped
     # The backend's user, so the worker can delete what this writes.
     user: "10001:10001"
+    mem_limit: 256m
     environment:
       MTX_AUTHHTTPADDRESS: http://mediamtx:${TOKULY_LIVE_HOOK_SECRET:?run tools/init-env.sh first}@api:8081/hooks/live/auth
       # The name or address viewers reach this machine under (WebRTC).
@@ -386,6 +428,7 @@ services:
     restart: unless-stopped
     environment:
       MP_MAX_MESSAGES: "5000"
+    mem_limit: 128m
     ports:
       - "127.0.0.1:${TOKULY_MAILPIT_PORT:-8025}:8025"
 
@@ -398,6 +441,7 @@ services:
     <<: *backend
     profiles: ["demo"]
     command: ["demo"]
+    mem_limit: 128m
     # Stays stopped when it is not configured (exit 0), comes back after a failure.
     restart: on-failure
     environment:
@@ -415,6 +459,8 @@ services:
     profiles: ["observability"]
     image: grafana/otel-lgtm:0.41.1
     restart: unless-stopped
+    # Not in the 4 GB budget: turn it on with 8 GB or more.
+    mem_limit: 1g
     ports:
       - "127.0.0.1:${TOKULY_GRAFANA_PORT:-3001}:3000"
     volumes:

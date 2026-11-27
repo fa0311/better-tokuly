@@ -39,7 +39,7 @@ tools/init-env.sh        # .env に秘密鍵を生成
 docker compose up -d     # http://localhost
 ```
 
-設定は [`docs/configuration.md`](docs/configuration.md)、ボットが動き回るデモは [`docs/demo.md`](docs/demo.md)、アップデートの前には [`docs/backup.md`](docs/backup.md) でバックアップ。
+設定は [`docs/configuration.md`](docs/configuration.md)、4 GB と 8 GB のマシンでのメモリは [`docs/memory.md`](docs/memory.md)、ボットが動き回るデモは [`docs/demo.md`](docs/demo.md)、アップデートの前には [`docs/backup.md`](docs/backup.md) でバックアップ。
 
 開発（インフラだけ起動して、サーバーと Web を手元で動かす）:
 
