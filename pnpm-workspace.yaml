@@ -23,6 +23,12 @@ publicHoistPattern:
 # that widens a type breaks the mobile typecheck.
 overrides:
   "@maplibre/maplibre-react-native>@maplibre/maplibre-gl-style-spec": "catalog:"
+  # Security fixes that exist only in new majors (#174): Jest 30, test-exclude 7 and
+  # @expo/fingerprint still ask for glob 10/13 and minimatch 9/10. Their callers use
+  # only glob()/globSync() and minimatch()/Minimatch#match, unchanged in the new
+  # majors. Drop each line once its parents depend on the patched major.
+  "glob@>=9 <14.0.2": "^14.0.6"
+  "minimatch@>=7 <11.0.1": "^11.0.9"
 
 # Single source of truth for dependency versions shared across the monorepo.
 # Reference with `"<pkg>": "catalog:"` in a package.json.
