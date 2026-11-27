@@ -132,6 +132,10 @@ struct CodeGrant {
     /// The redirect URI the code was sent to.
     redirect_uri: String,
     code_challenge: String,
+    /// The session that approved: the code buys nothing once that one is
+    /// revoked (`tokuly sessions revoke-all` on its way to it, say).
+    #[serde(default)]
+    approved_by: Option<Uuid>,
 }
 
 /// A device waiting for its user (RFC 8628). Written once; the user's
@@ -148,23 +152,29 @@ struct DeviceGrant {
 /// The user's answer to a waiting device, as stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DeviceAnswer {
-    Approved { user_id: Uuid },
+    /// `by`: the session that approved, as for [`CodeGrant::approved_by`].
+    Approved { user_id: Uuid, by: Option<Uuid> },
     Denied,
 }
 
 impl DeviceAnswer {
     fn encode(self) -> String {
         match self {
-            Self::Approved { user_id } => format!("approved:{user_id}"),
+            Self::Approved { user_id, by: Some(by) } => format!("approved:{user_id}:{by}"),
+            Self::Approved { user_id, by: None } => format!("approved:{user_id}"),
             Self::Denied => "denied".to_owned(),
         }
     }
 
     fn decode(stored: &str) -> Option<Self> {
-        match stored.strip_prefix("approved:") {
-            Some(user_id) => Uuid::parse_str(user_id).ok().map(|user_id| Self::Approved { user_id }),
-            None => (stored == "denied").then_some(Self::Denied),
-        }
+        let Some(approved) = stored.strip_prefix("approved:") else {
+            return (stored == "denied").then_some(Self::Denied);
+        };
+        let (user_id, by) = match approved.split_once(':') {
+            Some((user_id, by)) => (user_id, Some(Uuid::parse_str(by).ok()?)),
+            None => (approved, None),
+        };
+        Some(Self::Approved { user_id: Uuid::parse_str(user_id).ok()?, by })
     }
 }
 
@@ -428,7 +438,12 @@ impl Dev {
 
     /// The user approved: records the grant and returns the redirect that
     /// carries the code.
-    pub(crate) async fn approve_authorization(&self, user_id: Uuid, checked: &CheckedRequest) -> AppResult<String> {
+    pub(crate) async fn approve_authorization(
+        &self,
+        user_id: Uuid,
+        session_id: Uuid,
+        checked: &CheckedRequest,
+    ) -> AppResult<String> {
         let (scopes, code_challenge) = match &checked.outcome {
             Ok(granted) => granted.clone(),
             Err(e) => bail!(invalid, "AUTHORIZATION_REQUEST_INVALID", "{}: {}", e.error, e.description),
@@ -443,6 +458,7 @@ impl Dev {
             scopes: scopes.into_vec(),
             redirect_uri: checked.redirect_uri.clone(),
             code_challenge,
+            approved_by: Some(session_id),
         };
         let ttl = Duration::from_secs(self.cfg.auth_code_seconds);
         self.core.cache.set_json(&code_key(&self.core.keys.token_hash(&code)), &grant, Some(ttl)).await?;
@@ -536,6 +552,35 @@ impl Dev {
             refresh_token: refresh,
             scope: scopes.to_string(),
         })
+    }
+
+    /// Revokes every token pair whose refresh token still lives and whose
+    /// family began by `made_before`, a few hundred per statement (`tokuly
+    /// sessions revoke-all`); returns how many. A pair renewed meanwhile is
+    /// made later but from one made before: the family goes. The
+    /// applications ask again.
+    pub(crate) async fn revoke_every_oauth_token(&self, made_before: Time) -> AppResult<u64> {
+        let (mut after, mut revoked) = (Uuid::nil(), 0);
+        loop {
+            let batch: Vec<(Uuid, String)> = sqlx::query_as(
+                "WITH batch AS (
+                     SELECT id FROM dev_oauth_tokens o
+                     WHERE id > $1 AND revoked_at IS NULL AND refresh_expires_at > now()
+                       AND EXISTS (SELECT 1 FROM dev_oauth_tokens f WHERE f.family_id = o.family_id AND f.created_at <= $2)
+                     ORDER BY id LIMIT 500 FOR UPDATE
+                 )
+                 UPDATE dev_oauth_tokens o SET revoked_at = now() FROM batch WHERE o.id = batch.id
+                 RETURNING o.id, o.access_hash",
+            )
+            .bind(after)
+            .bind(made_before)
+            .fetch_all(&self.core.db)
+            .await?;
+            let Some(last) = batch.iter().map(|(id, _)| *id).max() else { return Ok(revoked) };
+            (after, revoked) = (last, revoked + batch.len() as u64);
+            let hashes: Vec<String> = batch.into_iter().map(|(_, hash)| hash).collect();
+            self.forget_tokens(&hashes).await?;
+        }
     }
 
     /// Revokes every token pair of a family, at once.
@@ -663,6 +708,11 @@ impl Dev {
         }
         if !pkce_matches(verifier, &grant.code_challenge) {
             return Err(OAuthError::invalid_grant("code_verifier does not match the code challenge"));
+        }
+        if let Some(approver) = grant.approved_by
+            && self.core.tokens.is_revoked_shared(approver).await?
+        {
+            return Err(bad_code());
         }
         let mut tx = self.core.db.begin().await?;
         // The user may have withdrawn the authorization in the meantime.
@@ -850,13 +900,22 @@ impl Dev {
         self.consent(&app, &Scopes::new(grant.scopes), user_id, None).await
     }
 
-    /// The user's answer to a waiting device. The first answer stands: a
-    /// second one — a double click, another tab — is told the code is spent.
-    /// Nothing is granted here; the authorization is recorded together with
-    /// the tokens when the device collects them.
-    pub(crate) async fn answer_device(&self, user_id: Uuid, user_code: &str, approve: bool) -> AppResult<()> {
+    /// The user's answer to a waiting device: approved by the session
+    /// `approved_by`, or denied. The first answer stands: a second one — a
+    /// double click, another tab — is told the code is spent. Nothing is
+    /// granted here; the authorization is recorded together with the tokens
+    /// when the device collects them.
+    pub(crate) async fn answer_device(
+        &self,
+        user_id: Uuid,
+        approved_by: Option<Uuid>,
+        user_code: &str,
+    ) -> AppResult<()> {
         let (hash, grant, _) = self.pending_device(user_id, user_code).await?;
-        let answer = if approve { DeviceAnswer::Approved { user_id } } else { DeviceAnswer::Denied };
+        let answer = match approved_by {
+            Some(by) => DeviceAnswer::Approved { user_id, by: Some(by) },
+            None => DeviceAnswer::Denied,
+        };
         let ttl = Duration::from_secs(self.cfg.device_code_seconds);
         let first = self.core.cache.set_nx(&device_answer_key(&hash), &answer.encode(), ttl).await?;
         ensure!(first, not_found, "DEVICE_CODE_INVALID", "this code is invalid, expired or already answered");
@@ -932,9 +991,14 @@ impl Dev {
         if taken.is_none() {
             return Err(gone());
         }
-        let DeviceAnswer::Approved { user_id } = answer else {
+        let DeviceAnswer::Approved { user_id, by } = answer else {
             return Err(OAuthError::new("access_denied", "the user denied the request"));
         };
+        if let Some(approver) = by
+            && self.core.tokens.is_revoked_shared(approver).await?
+        {
+            return Err(gone());
+        }
         let scopes = Scopes::new(grant.scopes);
         let mut tx = self.core.db.begin().await?;
         let authorization_id = self.grant(&mut tx, app, user_id, &scopes).await?;
@@ -996,10 +1060,13 @@ mod tests {
     #[test]
     fn a_device_answer_survives_storage() {
         let user_id = Uuid::now_v7();
-        for answer in [DeviceAnswer::Approved { user_id }, DeviceAnswer::Denied] {
+        let by = Some(Uuid::now_v7());
+        let answers = [DeviceAnswer::Approved { user_id, by }, DeviceAnswer::Approved { user_id, by: None }, DeviceAnswer::Denied];
+        for answer in answers {
             assert_eq!(DeviceAnswer::decode(&answer.encode()), Some(answer));
         }
         assert_eq!(DeviceAnswer::decode("approved:not-a-user"), None);
+        assert_eq!(DeviceAnswer::decode(&format!("approved:{user_id}:not-a-session")), None);
         assert_eq!(DeviceAnswer::decode("pending"), None);
     }
 

@@ -1,10 +1,14 @@
 //! TOTP two-factor authentication helpers.
 use std::time::Duration;
 
-use tokuly_core::{keys::Keys, prelude::*};
+use tokuly_core::{events::Event, keys::Keys, prelude::*};
 use totp_rs::{Builder, Secret, Totp};
 
-use crate::Identity;
+use crate::{Identity, maintenance::UserRef};
+
+/// The topic of [`Identity::forget_recovery_codes`]: `{ user_id }` of an
+/// account whose recovery codes stopped working.
+pub const RECOVERY_CODES_REVOKED: &str = "identity.user.recovery_codes_revoked";
 
 /// How long a spent time step is remembered: a code is accepted from one
 /// step before its own until one step after, so 90 s at most.
@@ -159,8 +163,10 @@ impl Identity {
 
     /// `tokuly rekey --forget-recovery-codes`, for a secret that leaked:
     /// with it, a copy of the database opens every recovery code. All of
-    /// them stop working, each account with a note in its security log;
-    /// returns how many accounts had some.
+    /// them stop working, each account with a note in its security log and
+    /// [`RECOVERY_CODES_REVOKED`] on the outbox (the mail of
+    /// [`Identity::tell_recovery_codes_revoked`]); returns how many accounts
+    /// had some.
     pub async fn forget_recovery_codes(&self) -> anyhow::Result<u64> {
         let forgotten: i64 = sqlx::query_scalar(
             "WITH forgotten AS (
@@ -168,12 +174,26 @@ impl Identity {
                  WHERE recovery_codes IS NOT NULL OR cardinality(recovery_code_hashes) > 0 RETURNING id
              ), logged AS (
                  INSERT INTO security_events (user_id, type) SELECT id, 'RECOVERY_CODES_REVOKED' FROM forgotten
+             ), told AS (
+                 INSERT INTO outbox (topic, data) SELECT $1, jsonb_build_object('user_id', id) FROM forgotten
              )
              SELECT count(*) FROM forgotten",
         )
+        .bind(RECOVERY_CODES_REVOKED)
         .fetch_one(&self.core.db)
         .await?;
         Ok(forgotten as u64)
+    }
+
+    /// [`RECOVERY_CODES_REVOKED`]: mails the account that its recovery
+    /// codes stopped working and how to get new ones (it may be locked out,
+    /// and then cannot read its security log). Once per event, however
+    /// often it arrives ([`Identity::mail_once`]); `Ok(false)` when nothing
+    /// was sent: sent before, or the account has no address any more.
+    pub async fn tell_recovery_codes_revoked(&self, event: &Event) -> AppResult<bool> {
+        let user = crate::users::find_by_id(&self.core, event.data::<UserRef>()?.user_id).await?;
+        let Some((email, locale)) = user.and_then(|user| Some((user.email?, user.locale))) else { return Ok(false) };
+        self.mail_once(&event.id.to_string(), self.send_recovery_codes_revoked_mail(&email, &locale)).await
     }
 }
 

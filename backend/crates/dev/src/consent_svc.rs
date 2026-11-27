@@ -74,12 +74,12 @@ impl AuthorizationService for Dev {
         request: ServiceRequest<'_, ApproveAuthorizationRequest>,
     ) -> ServiceResult<ApproveAuthorizationResponse> {
         handle(async {
-            let user_id = ctx.require_session()?.user_id;
+            let (user_id, session_id) = ctx.require_session().map(|auth| (auth.user_id, auth.session_id))?;
             self.limit_consent(user_id, "approve", 30).await?;
             let checked = self
                 .check_authorization_request(&authorization_request(request.to_owned_message().request.as_option())?)
                 .await?;
-            let redirect_url = self.approve_authorization(user_id, &checked).await?;
+            let redirect_url = self.approve_authorization(user_id, session_id, &checked).await?;
             let attrs = serde_json::json!({ "app_id": checked.app.id, "name": checked.app.name });
             self.identity.log_security_event(user_id, "APP_AUTHORIZED", &ctx.client(), "", attrs).await;
             ok(ApproveAuthorizationResponse { redirect_url, ..Default::default() })
@@ -124,8 +124,8 @@ impl AuthorizationService for Dev {
         request: ServiceRequest<'_, ApproveDeviceRequest>,
     ) -> ServiceResult<ApproveDeviceResponse> {
         handle(async {
-            let user_id = ctx.require_session()?.user_id;
-            self.answer_device(user_id, request.user_code, true).await?;
+            let (user_id, session_id) = ctx.require_session().map(|auth| (auth.user_id, auth.session_id))?;
+            self.answer_device(user_id, Some(session_id), request.user_code).await?;
             self.identity
                 .log_security_event(
                     user_id,
@@ -147,7 +147,7 @@ impl AuthorizationService for Dev {
     ) -> ServiceResult<DenyDeviceResponse> {
         handle(async {
             let user_id = ctx.require_session()?.user_id;
-            self.answer_device(user_id, request.user_code, false).await?;
+            self.answer_device(user_id, None, request.user_code).await?;
             ok(DenyDeviceResponse::default())
         })
         .await

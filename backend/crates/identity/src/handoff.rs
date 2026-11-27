@@ -328,8 +328,11 @@ impl Identity {
         if !secure_eq(pending.verifier_hash.as_bytes(), presented.as_bytes()) {
             return Ok(Redeemed::Refused);
         }
-        // Still the app's active account, and an account that may sign in.
-        if !self.app_session_in_use(pending.session_id).await? {
+        // Still the app's active account (not one of those `tokuly sessions
+        // revoke-all` is on its way to), and an account that may sign in.
+        if core.tokens.is_revoked_shared(pending.session_id).await?
+            || !self.app_session_in_use(pending.session_id).await?
+        {
             return Ok(Redeemed::Refused);
         }
         let user = match users::get(core, pending.user_id).await {

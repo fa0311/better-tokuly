@@ -6,7 +6,8 @@
 //! - `identity.profile.updated` — [`crate::extras::ProfileUpdated`]
 //! - `identity.user.updated`, `identity.user.status_changed`,
 //!   `identity.user.privacy_changed`, `identity.user.deletion_requested`,
-//!   `identity.user.email_verified`, `identity.user.deleted` — [`UserRef`]
+//!   `identity.user.email_verified`, `identity.user.deleted`,
+//!   `identity.user.recovery_codes_revoked` — [`UserRef`]
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ use tokuly_core::{
     storage::Bucket,
 };
 
+pub use crate::totp::RECOVERY_CODES_REVOKED;
 use crate::Identity;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +59,9 @@ pub struct ExportJob {
 /// Topics identity's own consumer follows.
 pub const ACCOUNT_TOPICS: &[&str] = &["identity.user.banned", "identity.user.deleted"];
 
+/// Topics identity mails people about.
+pub const MAIL_TOPICS: &[&str] = &[RECOVERY_CODES_REVOKED];
+
 /// How long after an erasure the hourly sweep still looks for dead letters
 /// about the account: a message in flight at the erasure is retried for up
 /// to a couple of hours before it is buried.
@@ -81,7 +86,8 @@ impl Identity {
 
     /// Starts the identity workers: the data-export job, the consumer that
     /// signs banned accounts out and removes erased accounts' dead letters
-    /// ([`Identity::on_account_event`]), the profile link check (job and
+    /// ([`Identity::on_account_event`]), the one that mails people
+    /// ([`MAIL_TOPICS`]), the profile link check (job and
     /// six-hourly sweep) and the hourly purge of accounts whose deletion
     /// grace period ran out ([`Identity::erase_late_dead_letters`] with it).
     pub fn spawn_workers(&self) {
@@ -99,6 +105,21 @@ impl Identity {
                     async move { identity.on_account_event(&event).await }
                 },
             )
+            .await;
+        });
+
+        let identity = self.clone();
+        let (bus, cancel) = (self.core.bus.clone(), self.core.shutdown.clone());
+        tokio::spawn(async move {
+            events::consume(bus, "identity-mail", MAIL_TOPICS, ConsumeOptions::default(), cancel, move |event| {
+                let identity = identity.clone();
+                async move {
+                    match event.topic.as_str() {
+                        RECOVERY_CODES_REVOKED => identity.tell_recovery_codes_revoked(&event).await.map(|_| ()),
+                        _ => Ok(()),
+                    }
+                }
+            })
             .await;
         });
 

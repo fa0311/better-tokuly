@@ -1,7 +1,16 @@
 //! Transactional emails sent by the identity domain.
+use std::{future::Future, time::Duration};
+
 use tokuly_core::prelude::*;
 
 use crate::Identity;
+
+/// How long [`Identity::mail_once`] holds a mail being sent: longer than a
+/// send takes, much shorter than an event consumer retries.
+const SENDING: Duration = Duration::from_secs(5 * 60);
+/// How long a sent mail is remembered: longer than an event is retried or
+/// redriven for (`tokuly_core::dead_letters` keeps them 30 days).
+const SENT: Duration = Duration::from_secs(31 * 24 * 3600);
 
 struct Mail {
     subject: String,
@@ -45,6 +54,28 @@ impl Identity {
     async fn deliver(&self, to: &str, mail: Mail) -> AppResult<()> {
         let (text, html) = render(&mail);
         self.core.mail.send(to, &mail.subject, &text, &html).await
+    }
+
+    /// Sends a mail for `key` (an event's ID) once, however often and
+    /// however many at once ask: `Ok(false)` when it was sent before. Asked
+    /// while it is being sent, it fails, for the event to come back later.
+    /// A send that failed is sent by the next attempt; one cut short (the
+    /// process died) by an attempt after [`SENDING`]. Only a crash after the
+    /// mail server took the mail and before it is noted sends it twice.
+    pub(crate) async fn mail_once(&self, key: &str, send: impl Future<Output = AppResult<()>>) -> AppResult<bool> {
+        let key = format!("identity:mailed:{key}");
+        if !self.core.cache.set_nx(&key, "sending", SENDING).await? {
+            return match self.core.cache.get_string(&key).await?.as_deref() {
+                Some("sent") => Ok(false),
+                _ => Err(AppError::unavailable("MAIL_SENDING", "this mail is being sent")),
+            };
+        }
+        if let Err(e) = send.await {
+            self.core.cache.del(&key).await?;
+            return Err(e);
+        }
+        self.core.cache.set_string(&key, "sent", Some(SENT)).await?;
+        Ok(true)
     }
 
     pub(crate) async fn send_verification_mail(
@@ -129,6 +160,35 @@ impl Identity {
             }
         };
         self.deliver(to, mail).await
+    }
+
+    /// The recovery codes of the account stopped working
+    /// ([`Identity::forget_recovery_codes`]); the button leads to the
+    /// two-step settings, where turning it off and on gives new ones.
+    pub(crate) async fn send_recovery_codes_revoked_mail(&self, to: &str, locale: &str) -> AppResult<()> {
+        self.deliver(to, recovery_codes_revoked_mail(japanese(locale), self.core.web_url("settings/security"))).await
+    }
+}
+
+fn recovery_codes_revoked_mail(japanese: bool, url: String) -> Mail {
+    if japanese {
+        Mail {
+            subject: "【Tokuly】2段階認証のリカバリーコードが使えなくなりました".into(),
+            heading: "リカバリーコードが使えなくなったよ".into(),
+            body: "みんなのアカウントを守るために、Tokulyが発行した2段階認証のリカバリーコードをぜんぶ無効にしました。あなたが何かしたわけじゃないので安心してね！認証アプリのコードではこれまでどおりログインできます。2段階認証をいったんオフにしてオンにし直すと、新しいリカバリーコードがもらえるよ。".into(),
+            button: "2段階認証を設定し直す".into(),
+            url,
+            footer: "前のリカバリーコードはもう使えないので、メモや保存したファイルは捨ててOKです。".into(),
+        }
+    } else {
+        Mail {
+            subject: "Your Tokuly recovery codes no longer work".into(),
+            heading: "Your recovery codes were invalidated".into(),
+            body: "To keep accounts safe, Tokuly invalidated every two-step verification recovery code it had issued. You did nothing wrong! Codes from your authenticator app still sign you in. Turn two-step verification off and on again to get new recovery codes.".into(),
+            button: "Set up two-step verification again".into(),
+            url,
+            footer: "The old recovery codes no longer work, so you can throw away any copy you kept.".into(),
+        }
     }
 }
 
@@ -273,6 +333,15 @@ mod tests {
             assert!(ja.0.starts_with("【Tokuly】") && !ja.2.is_empty(), "{notice:?}");
             assert!(en.0.is_ascii() && en.0.contains("Tokuly") && !en.2.is_empty(), "{notice:?}");
         }
+    }
+
+    #[test]
+    fn the_recovery_codes_mail_has_both_languages_and_leads_to_the_two_step_settings() {
+        let url = "https://tokuly.test/settings/security".to_owned();
+        let (ja, en) = (recovery_codes_revoked_mail(true, url.clone()), recovery_codes_revoked_mail(false, url.clone()));
+        assert!(ja.subject.starts_with("【Tokuly】") && ja.body.contains("リカバリーコード"));
+        assert!(en.subject.is_ascii() && en.body.contains("recovery codes"));
+        assert!(ja.url == url && en.url == url);
     }
 
     #[test]

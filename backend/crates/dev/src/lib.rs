@@ -171,6 +171,25 @@ impl Dev {
         ensure!(done.rows_affected() == 1, not_found, "APP_NOT_FOUND", "application not found");
         self.forget_app_tokens(app_id).await
     }
+
+    /// `tokuly sessions revoke-all`, for a leaked secret: every API token
+    /// and OAuth token that existed at `made_before` stops working at once,
+    /// on every server. Developers make new tokens, applications ask their
+    /// users again; what is made meanwhile is left alone.
+    pub async fn revoke_every_token(&self, made_before: Time) -> AppResult<RevokedTokens> {
+        Ok(RevokedTokens {
+            api_tokens: self.revoke_every_api_token(made_before).await?,
+            oauth_tokens: self.revoke_every_oauth_token(made_before).await?,
+        })
+    }
+}
+
+/// What [`Dev::revoke_every_token`] revoked.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct RevokedTokens {
+    pub api_tokens: u64,
+    /// Token pairs (an access and a refresh token).
+    pub oauth_tokens: u64,
 }
 
 /// Makes "count, then insert" safe against two requests at once: a

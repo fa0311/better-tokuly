@@ -9,7 +9,8 @@
 //! - `tokuly all`       everything in one process (development)
 //!
 //! `tokuly healthcheck <url>` is the container health probe for these roles.
-//! `tokuly promote-admin` and `tokuly dead-letters` are the operator's tools.
+//! `tokuly promote-admin`, `tokuly dead-letters`, `tokuly rekey` and
+//! `tokuly sessions` are the operator's tools.
 //!
 //! `tokuly demo` is not a role of the server but a client of it: the demo
 //! simulator (`tokuly-demo`), which needs the API's address and nothing of
@@ -74,6 +75,13 @@ enum Command {
         #[arg(long)]
         forget_recovery_codes: bool,
     },
+    /// Everyone's sign-ins: `revoke-all` signs every account out on every
+    /// device and revokes every API and OAuth token (docs/configuration.md,
+    /// a leaked secret).
+    Sessions {
+        #[command(subcommand)]
+        action: SessionsAction,
+    },
     /// Settings files: `example` prints every setting with its default (the
     /// source of `tokuly.example.toml`); `show` prints what the command line,
     /// the environment and `tokuly.toml` set (console values not included).
@@ -105,6 +113,27 @@ enum DeadLettersAction {
         /// Only what failed in consumers whose name starts with this.
         consumer: Option<String>,
     },
+}
+
+#[derive(Subcommand, Clone, Copy)]
+enum SessionsAction {
+    /// Revoke every session, API token and OAuth token there is: everyone
+    /// signs in again, every running server refuses the old tokens at once.
+    /// Safe while the servers run; who signs in meanwhile stays signed in.
+    RevokeAll,
+}
+
+/// Signs everyone out ([`SessionsAction::RevokeAll`]).
+async fn revoke_all(core: &Core, domains: &app::Domains) -> anyhow::Result<()> {
+    // Without Valkey the servers would not hear of it until the access tokens expire.
+    core.cache.ping().await.map_err(|e| anyhow::anyhow!("sessions revoke-all: Valkey does not answer: {e}"))?;
+    let failed = |e: tokuly_core::AppError| anyhow::anyhow!("sessions revoke-all: {e}");
+    let started = tokuly_core::time::now();
+    let sessions = domains.identity.sign_everyone_out(started).await.map_err(failed)?;
+    println!("sessions: {sessions} revoked (their accounts sign in again)");
+    let tokens = domains.dev.revoke_every_token(started).await.map_err(failed)?;
+    println!("API tokens: {} revoked; OAuth tokens: {} revoked (applications ask again)", tokens.api_tokens, tokens.oauth_tokens);
+    Ok(())
 }
 
 /// The most dead letters one command reads.
@@ -219,7 +248,9 @@ async fn main() -> anyhow::Result<()> {
         Command::Worker => "tokuly-worker",
         Command::Migrate => "tokuly-migrate",
         Command::All => "tokuly-all",
-        Command::PromoteAdmin { .. } | Command::DeadLetters { .. } | Command::Rekey { .. } => "tokuly-admin",
+        Command::PromoteAdmin { .. } | Command::DeadLetters { .. } | Command::Rekey { .. } | Command::Sessions { .. } => {
+            "tokuly-admin"
+        }
         Command::Healthcheck { .. } | Command::Config { .. } | Command::Demo(_) => unreachable!("handled above"),
     };
     let _telemetry = telemetry::init(&cli.core, service);
@@ -280,11 +311,12 @@ async fn main() -> anyhow::Result<()> {
             if forget_recovery_codes {
                 let accounts = domains.identity.forget_recovery_codes().await?;
                 println!(
-                    "recovery codes: {accounts} accounts lost theirs (turning two-step sign-in off and on gives new ones)"
+                    "recovery codes: {accounts} accounts lost theirs, each told by mail once a worker runs (turning two-step sign-in off and on gives new ones)"
                 );
             }
             rekey(&core).await?
         }
+        Command::Sessions { action: SessionsAction::RevokeAll } => revoke_all(&core, &domains).await?,
         Command::Api => app::serve_api(core, domains, cli.api).await?,
         Command::Realtime => domains.gateway.run().await?,
         Command::Worker => {

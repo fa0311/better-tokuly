@@ -21,6 +21,7 @@ except `identity.export.ready`.
 | `identity.user.email_verified` | `{ user_id }` | The account's address was confirmed (verification, change or undo of a change). |
 | `identity.user.deleted` | `{ user_id }` | The account was erased: every domain removes that user's data. |
 | `identity.user.banned` / `identity.user.unbanned` | `{ user_id }` | |
+| `identity.user.recovery_codes_revoked` | `{ user_id }` | The account's two-step recovery codes stopped working (`rekey --forget-recovery-codes`, a leaked secret). |
 | `identity.export.ready` | `{ user_id, export_id }` | |
 
 **No activity entries for profile edits**: an activity entry goes to friends
@@ -36,6 +37,12 @@ Durable `identity-sessions`:
 |---|---|
 | `identity.user.banned` | Its own event: every session the account had when it was banned is revoked and its access tokens refused at once (`Identity::sign_out_banned`), parked sessions on other devices included. Whoever banned does this right after the commit too; the event makes it at least once. Sessions made after the ban are left alone. |
 | `identity.user.deleted` | Its own event: the dead letters that mention the account are removed (`tokuly_core::dead_letters::erase_users`, `docs/events.md`). |
+
+Durable `identity-mail`:
+
+| Topic | Effect |
+|---|---|
+| `identity.user.recovery_codes_revoked` | Its own event: the account's address is told, with a link to the two-step settings (`Identity::tell_recovery_codes_revoked`). Once per event: a send is noted in Valkey; one cut short is sent again after five minutes. |
 
 ## Jobs and timers
 

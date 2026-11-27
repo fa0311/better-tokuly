@@ -70,7 +70,7 @@ Payload structs: `tokuly_dev::events`.
 | Topic | Payload | When |
 |---|---|---|
 | `dev.token.created` | `TokenEvent { token_id, user_id, kind, reason }` | A personal (`kind: "pat"`) or bot (`"bot"`) token was created. `user_id` is the account it acts as. Actor: the creator. |
-| `dev.token.revoked` | `TokenEvent` | A token was revoked. `reason`: `owner`, `password_changed`, `banned`, `bot_deleted`, `bot_transferred`. Actor: the owner, or none. |
+| `dev.token.revoked` | `TokenEvent` | A token was revoked. `reason`: `owner`, `password_changed`, `banned`, `bot_deleted`, `bot_transferred`, `operator` (`tokuly sessions revoke-all`). Actor: the owner, or none. |
 | `dev.app.created` / `.updated` / `.deleted` | `AppEvent { app_id, owner_id }` | An OAuth application was registered, edited or deleted (deletion also when its owner's account is deleted; then without actor). |
 | `dev.app.disabled` | `AppEvent` | Moderation took an application down. |
 | `dev.authorization.granted` | `AuthorizationEvent { app_id, user_id, scopes, reason }` | A user approved an application (consent screen or device page). `scopes` are the ones just approved. Actor: the user. |

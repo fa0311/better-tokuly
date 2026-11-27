@@ -32,6 +32,10 @@ struct DeviceLogin {
     /// "pending" | "approved" | "denied"
     status: String,
     user_id: Option<Uuid>,
+    /// The session that approved it: the sign-in is not given out once
+    /// that one is revoked.
+    #[serde(default)]
+    approved_by: Option<Uuid>,
     expires_at: DateTime<Utc>,
 }
 
@@ -868,6 +872,7 @@ impl AuthService for Identity {
                 device_id: client.device_id.chars().take(128).collect(),
                 status: "pending".to_owned(),
                 user_id: None,
+                approved_by: None,
                 expires_at: Utc::now() + chrono::Duration::from_std(DEVICE_LOGIN_TTL).unwrap(),
             };
             self.core.cache.set_json(&format!("id:devlogin:{key}"), &login, Some(DEVICE_LOGIN_TTL)).await?;
@@ -913,6 +918,15 @@ impl AuthService for Identity {
             };
             self.core.cache.del(&format!("id:devcode:{}", login.user_code)).await?;
             let user_id = login.user_id.or_not_found("DEVICE_CODE_INVALID", "this code is invalid or has expired")?;
+            // Approved by a session signed out since (`tokuly sessions revoke-all` too).
+            if let Some(approver) = login.approved_by
+                && self.core.tokens.is_revoked_shared(approver).await?
+            {
+                return ok(PollDeviceLoginResponse {
+                    status: DeviceLoginStatus::DEVICE_LOGIN_STATUS_EXPIRED.into(),
+                    ..Default::default()
+                });
+            }
             let user = users::get(&self.core, user_id).await?;
             ensure!(user.is_active(), denied, "ACCOUNT_BANNED", "this account cannot sign in");
             let client = login.client();
@@ -972,6 +986,7 @@ impl AuthService for Identity {
             ensure!(login.status == "pending", precondition, "DEVICE_CODE_USED", "this code was already answered");
             login.status = if request.approve { "approved".to_owned() } else { "denied".to_owned() };
             login.user_id = request.approve.then_some(user_id);
+            login.approved_by = request.approve.then_some(ctx.auth()?.session_id);
             let remaining = (login.expires_at - Utc::now()).to_std().unwrap_or(Duration::from_secs(1));
             self.core.cache.set_json(&format!("id:devlogin:{key}"), &login, Some(remaining)).await?;
             let kind = if request.approve { "DEVICE_LOGIN_APPROVED" } else { "DEVICE_LOGIN_DENIED" };
