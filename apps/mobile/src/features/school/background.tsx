@@ -108,9 +108,10 @@ export default function SchoolBackground() {
     return release;
   }, [roomId]);
 
-  // "Still here" while the app is open. Off screen the phone runs no timers:
-  // a last heartbeat on the way out, a reminder before the server's limit,
-  // and a heartbeat the moment the app is back (which counts the time between).
+  // "Still here" while the app is open, from the moment the timer is known.
+  // Off screen the phone runs no timers: a last heartbeat on the way out, a
+  // reminder before the server's limit, and a heartbeat the moment the app is
+  // back (which counts the time between).
   useEffect(() => {
     if (!sessionId) return;
     const beat = () => {
@@ -122,7 +123,12 @@ export default function SchoolBackground() {
       clearInterval(interval);
       interval = setInterval(beat, Math.max(10, heartbeatSeconds) * 1000);
     };
-    if (AppState.currentState === "active") onScreen();
+    // A timer found running (the app was closed, or opened from the reminder)
+    // is spoken for at once: the next interval may be past the server's limit.
+    if (AppState.currentState === "active") {
+      beat();
+      onScreen();
+    }
     const appState = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void forgetReminder();
