@@ -40,20 +40,23 @@ pub fn default_privacy() -> PrivacySettings {
 }
 
 /// `privacy` with the defaults of an account under 18 in place: found and
-/// asked to be friends by friends of friends only (no search, no address
-/// books), notes for followers, not discoverable by strangers nearby until
-/// they turn it on; the year of the birthday not shown to everyone.
+/// asked to be friends by friends of friends at most (no search, no address
+/// books), notes for followers at most, not discoverable by strangers nearby
+/// until they turn it on; the year of the birthday not shown to everyone.
+/// The defaults only narrow: what `privacy` already keeps tighter stays.
 pub fn minor_defaults(privacy: PrivacySettings) -> PrivacySettings {
     let birthday_show_year =
         privacy.birthday_show_year && crate::birthdays::audience_of(&privacy) != Audience::AUDIENCE_EVERYONE;
-    PrivacySettings {
+    let default_note_visibility = match privacy.default_note_visibility.as_known() {
+        Some(Visibility::VISIBILITY_FRIENDS | Visibility::VISIBILITY_PRIVATE) => privacy.default_note_visibility,
+        _ => Visibility::VISIBILITY_FOLLOWERS.into(),
+    };
+    within_minor_limits(PrivacySettings {
         birthday_show_year,
-        discoverable_to: Audience::AUDIENCE_FRIENDS_OF_FRIENDS.into(),
-        friend_requests_from: Audience::AUDIENCE_FRIENDS_OF_FRIENDS.into(),
-        default_note_visibility: Visibility::VISIBILITY_FOLLOWERS.into(),
+        default_note_visibility,
         nearby_discoverable: false,
         ..privacy
-    }
+    })
 }
 
 /// The privacy settings an account signs up with: the defaults, or for a

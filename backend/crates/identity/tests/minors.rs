@@ -275,6 +275,26 @@ async fn a_minor_giving_the_birthdate_gets_the_defaults_for_minors_then() {
     assert_eq!(me_birthdate(&app, &old).await, birthdate.to_string(), "it cannot be changed");
 }
 
+/// The defaults for minors only narrow: what the account already keeps
+/// tighter than them stays.
+#[tokio::test]
+async fn a_minor_giving_the_birthdate_keeps_what_was_narrower_than_the_defaults() {
+    let app = app().await;
+    let old = without_birthdate(&app).await;
+    let mut chosen = privacy(&app, &old).await;
+    chosen.discoverable_to = Audience::AUDIENCE_NOBODY.into();
+    chosen.friend_requests_from = Audience::AUDIENCE_NOBODY.into();
+    chosen.default_note_visibility = Visibility::VISIBILITY_FRIENDS.into();
+    update_privacy(&app, &old, chosen).await.unwrap();
+
+    let response = set_birthdate(&app, &old, &born(14).to_string()).await.unwrap();
+    let p = response.settings.as_option().unwrap().privacy.as_option().unwrap().clone();
+    assert_eq!(p.discoverable_to, Audience::AUDIENCE_NOBODY, "found by nobody stays");
+    assert_eq!(p.friend_requests_from, Audience::AUDIENCE_NOBODY, "requests from nobody stay");
+    assert_eq!(p.default_note_visibility, Visibility::VISIBILITY_FRIENDS, "notes for friends stay");
+    assert!(!p.nearby_discoverable);
+}
+
 async fn me_birthdate(app: &TestApp, user: &TestUser) -> String {
     me(app, user).await.birthdate
 }
