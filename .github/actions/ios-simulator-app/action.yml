@@ -2,8 +2,8 @@
 # and an xcodebuild for the runner's own architecture (Apple silicon). No
 # certificates and no secrets: signed "to run locally" (ad hoc), which is
 # what gives the app its entitlements on the simulator (without them the
-# keychain, where the sessions are kept, refuses it). The step's output is the errors and
-# warnings; the whole log is kept as an artifact when the build fails.
+# keychain, where the sessions are kept, refuses it). The step prints errors,
+# the build result and project warnings; the full log is kept on failure.
 # Expects the JavaScript workspace (setup-js) to be set up.
 name: iOS simulator app
 description: Generate, install the pods and build the app for the simulator.
@@ -77,7 +77,14 @@ runs:
           CODE_SIGN_IDENTITY=- \
           COMPILER_INDEX_STORE_ENABLE=NO \
           | tee "$RUNNER_TEMP/xcodebuild.log" \
-          | grep -E '(: (error|warning):|\*\* BUILD)' || true
+          | awk '
+              index($0, ": error:") || index($0, "** BUILD") { print; next }
+              index($0, ": warning:") {
+                if (index($0, "/node_modules/") || index($0, "/Pods/") || index($0, "XCFrameworkIntermediates/") || index($0, "/Build/Products/")) next
+                if (index($0, "libtool: warning: ") && index($0, " has no symbols")) next
+                print
+              }
+            ' || true
         grep -q 'BUILD SUCCEEDED' "$RUNNER_TEMP/xcodebuild.log"
         echo "app=$PWD/build/Build/Products/$CONFIGURATION-iphonesimulator/Tokuly.app" >> "$GITHUB_OUTPUT"
 
