@@ -15,6 +15,7 @@ import { api } from "#/lib/api";
  * starts over with every account switch, so nothing of one account's school
  * is ever shown to the next.
  */
+export const settingsClient = () => api().service(school.SchoolService);
 export const timetableClient = () => api().service(school.TimetableService);
 export const studyClient = () => api().service(school.StudyService);
 export const examClient = () => api().service(school.ExamService);
@@ -87,6 +88,10 @@ export function useExams() {
 export function useAssignments(filter: school.AssignmentFilter) {
   const query = useInfiniteQuery(schoolQueries.assignments(assignmentClient, filter));
   return { ...query, data: loadedAssignments(query.data?.pages), paging: query };
+}
+
+export function useProgress() {
+  return useQuery(schoolQueries.progress(studyClient));
 }
 
 export function useStudyingFriends() {

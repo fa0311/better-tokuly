@@ -22,6 +22,7 @@ describe("the seam registries", () => {
       "map",
       "media",
       "notifications",
+      "school",
       "spaces",
       "video",
       "web",

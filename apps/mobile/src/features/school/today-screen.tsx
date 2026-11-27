@@ -16,10 +16,10 @@ import { NS, useAccountNow, useDay, useWeek } from "./data";
 import { DueList } from "./due";
 import { Block, ClassNowCard, DayClasses, SeeAll } from "./parts";
 import { StudyingFriends } from "./studying-friends";
+import { TimerEntry } from "./timer-card";
 
-/** What stays on the web for now: the timer, rooms, exams, making the timetable, friends' timetables, settings. */
+/** What stays on the web for now: rooms, exams, making the timetable, friends' timetables, settings. */
 const ON_WEB = [
-  { key: "timer", path: "/school/study" },
   { key: "rooms", path: "/school/rooms" },
   { key: "exams", path: "/school/exams" },
   { key: "timetable", path: "/school/timetable" },
@@ -28,9 +28,9 @@ const ON_WEB = [
 ] as const;
 
 /**
- * `/school`: the class that is on and the next one, the classes of any day
- * of any week (with that day's changes), what is due, and the friends who
- * are studying now.
+ * `/school`: the study timer, the class that is on and the next one, the
+ * classes of any day of any week (with that day's changes), what is due, and
+ * the friends who are studying now.
  */
 export function SchoolScreen() {
   const { t } = useTranslation(NS);
@@ -48,6 +48,7 @@ export function SchoolScreen() {
         contentContainerClassName="gap-6 px-4 pt-4 pb-12"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
       >
+        <TimerEntry />
         <ClassNowCard />
         <Classes />
         <Block

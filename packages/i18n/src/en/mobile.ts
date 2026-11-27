@@ -320,8 +320,17 @@ export default {
     },
   },
   school: {
+    timerStart: "Start it and track your study time!",
+    subject: "Subject",
+    noSubject: "None",
+    timerNote:
+      "The timer runs while the app is open. Left closed, it stops by itself after about {{minutes}} minutes, so you'll get a heads-up first",
+    idleReminder: {
+      title: "Your timer is about to stop!",
+      body: "Still studying? Open the app to keep it going",
+    },
+    logOnWeb: "Log and charts (web)",
     onWeb: "Opens on the web",
-    timer: "Study timer (web)",
     rooms: "Study rooms (web)",
     exams: "Exams (web)",
     timetable: "Make or change the timetable (web)",

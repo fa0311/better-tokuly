@@ -124,6 +124,7 @@ describe("the features on the seams", () => {
       "school/assignments",
       "school/index",
       "school/new-assignment",
+      "school/study",
       "search",
       "settings/index",
       "settings/notifications",
