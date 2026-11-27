@@ -140,14 +140,27 @@ const REMINDER_ID = "school.study.idle";
 const REMINDER_LEAD_SECONDS = 120;
 
 /**
+ * Asking for the reminder and taking it back happen in the order they were
+ * asked for: scheduling first reads the permission, so without the queue a
+ * reminder asked for on the way out could land after the return took it back.
+ */
+let reminderQueue: Promise<void> = Promise.resolve();
+
+function inTurn(work: () => Promise<void>): Promise<void> {
+  // A failure is fine: without the reminder the server still keeps the time counted until the last heartbeat.
+  reminderQueue = reminderQueue.then(work).catch(() => {});
+  return reminderQueue;
+}
+
+/**
  * The app goes off screen with the timer running: it cannot speak for the
  * timer from there, so the person hears about it before the server stops it.
  */
-export async function remindBeforeIdle(): Promise<void> {
-  const { session, idleSeconds } = useStudyTimer.getState();
-  // A paused timer waits for its own, longer limit; it needs no heartbeat.
-  if (!session || session.state !== school.SessionState.RUNNING) return;
-  try {
+export function remindBeforeIdle(): Promise<void> {
+  return inTurn(async () => {
+    const { session, idleSeconds } = useStudyTimer.getState();
+    // A paused timer waits for its own, longer limit; it needs no heartbeat.
+    if (!session || session.state !== school.SessionState.RUNNING) return;
     await scheduleReminder(
       REMINDER_ID,
       {
@@ -158,17 +171,11 @@ export async function remindBeforeIdle(): Promise<void> {
       },
       Math.max(60, idleSeconds - REMINDER_LEAD_SECONDS),
     );
-  } catch {
-    // Without the reminder the server still keeps the time counted until the last heartbeat.
-  }
+  });
 }
 
-export async function forgetReminder(): Promise<void> {
-  try {
-    await cancelReminder(REMINDER_ID);
-  } catch {
-    // Nothing was scheduled.
-  }
+export function forgetReminder(): Promise<void> {
+  return inTurn(() => cancelReminder(REMINDER_ID));
 }
 
 /**

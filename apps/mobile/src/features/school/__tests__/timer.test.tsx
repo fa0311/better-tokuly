@@ -16,6 +16,7 @@ import { writeSecure } from "#/platform/secure-storage";
 import { testQueryClient } from "#/testing/query";
 import {
   followAccount,
+  forgetReminder,
   heartbeat,
   remindBeforeIdle,
   stopAs,
@@ -168,6 +169,22 @@ describe("the timer's session", () => {
       expect.objectContaining({ path: "/school/study", channel: "school" }),
       780,
     );
+  });
+
+  it("takes back a reminder asked for a moment before the app came back", async () => {
+    const done: string[] = [];
+    jest.mocked(scheduleReminder).mockImplementationOnce(async () => {
+      // The OS is asked for the permission first: the reminder lands a moment later.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      done.push("scheduled");
+    });
+    jest.mocked(cancelReminder).mockImplementation(async () => void done.push("taken back"));
+    signIn(accountOf("s1").account);
+    takeSession(session(RUNNING));
+    done.length = 0;
+    const leaving = remindBeforeIdle();
+    await Promise.all([leaving, forgetReminder()]);
+    expect(done).toEqual(["scheduled", "taken back"]);
   });
 });
 
