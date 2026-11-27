@@ -250,6 +250,38 @@ async fn revoking_a_session_ends_its_connections() {
     assert!(matches!(unaffected.request(ping_body(1)).await.body, Some(Body::Pong(_))));
 }
 
+/// An answer under the minimum age (`Core::hold_too_young`) closes the
+/// connections the account already has, on every device; a too-young token
+/// cannot open one.
+#[tokio::test]
+async fn an_account_that_becomes_too_young_loses_its_connections() {
+    let harness = Harness::start().await;
+    let alice = harness.app.user("alice").await;
+    let other_device = harness.app.sign_in(alice.id).await;
+    let bob = harness.app.user("bob").await;
+    let mut phone = harness.ws_as(Some(&alice), true).await;
+    let mut tablet = harness.ws_as(Some(&other_device), true).await;
+    let mut unaffected = harness.ws_as(Some(&bob), true).await;
+
+    harness.app.core.hold_too_young(alice.id).await;
+    for client in [&mut phone, &mut tablet] {
+        let frame = client.next().await;
+        let error = error_of(&frame);
+        assert_eq!(
+            (error.code.as_str(), error.message.as_str(), error.fatal),
+            ("permission_denied", "ACCOUNT_TOO_YOUNG", true)
+        );
+        client.closed().await;
+    }
+    assert!(matches!(unaffected.request(ping_body(1)).await.body, Some(Body::Pong(_))));
+
+    let (young, _) = harness.app.core.tokens.issue_too_young(alice.id, alice.session_id).unwrap();
+    let mut client = harness.ws().await;
+    let reply = client.request(hello_body(&young, true, &[])).await;
+    let error = error_of(&reply);
+    assert_eq!((error.message.as_str(), error.fatal), ("ACCOUNT_TOO_YOUNG", true));
+}
+
 // ───────────────────────────── Delivery ─────────────────────────────
 
 #[tokio::test]
