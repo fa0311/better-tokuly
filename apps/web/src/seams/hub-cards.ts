@@ -13,17 +13,29 @@ import { type ComponentType, createElement, lazy } from "react";
  */
 const modules = import.meta.glob<{ default: ComponentType }>("../features/*/hub-card.tsx");
 
+const loads = Object.entries(modules).map(([path, load]) => {
+  const loading = load();
+  return { id: path.split("/").at(-2) ?? path, loading };
+});
+
 /**
- * A card fetched as soon as the hub page's code is there, next to the page's
- * own requests. Once it has arrived it renders at once: `lazy` alone would
- * still suspend on its first render, and React then holds the hub back for
- * up to 300 ms after the page's heading has shown (the tiles moved in under it).
+ * Settles once every card has arrived. The hub page's route waits for it, so
+ * the page shows whole: rendered before, the sections would come in under
+ * the heading a moment later, pushing what is below them down.
  */
-function preloaded(load: () => Promise<{ default: ComponentType }>): ComponentType {
+export const hubCardsLoaded: Promise<unknown> = Promise.allSettled(
+  loads.map(({ loading }) => loading),
+);
+
+/**
+ * A card that renders at once when it has arrived: `lazy` alone would still
+ * suspend on its first render, and React then holds the hub back for up to
+ * 300 ms. `lazy` only covers a card whose load failed or is still on its way.
+ */
+function preloaded(loading: Promise<{ default: ComponentType }>): ComponentType {
   let Loaded: ComponentType | undefined;
-  const loading = load().then((module) => {
+  void loading.then((module) => {
     Loaded = module.default;
-    return module;
   });
   const Waiting = lazy(() => loading);
   return function Card() {
@@ -33,5 +45,5 @@ function preloaded(load: () => Promise<{ default: ComponentType }>): ComponentTy
 
 /** Every area's card, by the id of the tile it replaces. */
 export const HUB_CARDS: Record<string, ComponentType> = Object.fromEntries(
-  Object.entries(modules).map(([path, load]) => [path.split("/").at(-2) ?? path, preloaded(load)]),
+  loads.map(({ id, loading }) => [id, preloaded(loading)]),
 );
