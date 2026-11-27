@@ -198,7 +198,7 @@ impl ChatService for Chat {
   it is the TCP peer, or the client named in `X-Forwarded-For` when the peer
   is one of our proxies (`TOKULY_TRUSTED_PROXIES`, see `tokuly_core::proxies`).
   Under all of them the auth middleware counts every RPC per account and, without
-  one, per address (`TOKULY_RATE_LIMIT_{ACCOUNT,ADDRESS}_PER_MINUTE`, see
+  one, per address and IPv6 /48 (`TOKULY_RATE_LIMIT_{ACCOUNT,ADDRESS,NETWORK}_PER_MINUTE`, see
   `tokuly_core::request_limits`): a floor, not a replacement for your own limit.
 
 ### Database
