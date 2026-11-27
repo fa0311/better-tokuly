@@ -144,6 +144,28 @@ async fn callers_without_an_account_are_counted_per_address_and_ipv6_per_64() {
     assert_eq!(call(&app, GET_NOTE, &caller).await.0, 200, "another client behind the same proxy");
 }
 
+/// A proxy may add its `X-Forwarded-For` as a field of its own after the
+/// one the client sent (HAProxy does): the client is still the one our proxy
+/// names, not the one the client claims in the first field.
+#[tokio::test]
+async fn a_forwarded_for_field_of_the_client_does_not_pick_the_address() {
+    let app = app(tokens(), RequestLimits { per_account: 0, per_address: 2 }, valkey().await);
+    let client = fresh_v4().to_string();
+    let call = |claimed: String| {
+        let request = http::Request::post(GET_NOTE)
+            .extension(axum::extract::ConnectInfo(SocketAddr::new("10.0.0.2".parse().unwrap(), 40_000)))
+            .header("x-forwarded-for", claimed)
+            .header("x-forwarded-for", &client)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        app.clone().oneshot(request)
+    };
+    for _ in 0..2 {
+        assert_eq!(call(fresh_v4().to_string()).await.unwrap().status(), 200);
+    }
+    assert_eq!(call(fresh_v4().to_string()).await.unwrap().status(), 429, "a new claimed address does not start a new count");
+}
+
 /// The overall limit is the floor under every RPC: whatever a handler
 /// forgot, a caller without an account is limited per address on each RPC
 /// of the API, listed or not.
