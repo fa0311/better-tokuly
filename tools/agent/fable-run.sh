@@ -19,8 +19,12 @@ if [ ! -d "$wt" ]; then
 fi
 cat "$notes/common.md" "$task" > "$notes/$name.prompt"
 "$(dirname "$(readlink -f "$0")")/claude-api.sh" "$wt" claude-fable-5-2 "$budget" "$notes/$name.prompt" > "$notes/$name.report" 2>&1 || true
-# The run may end before pushing (budget, crash): push whatever it committed.
-if [ -n "$(git -C "$wt" log --oneline "origin/$branch..HEAD" 2>/dev/null || git -C "$wt" log --oneline "$base..HEAD")" ]; then
+# The run may end before pushing (budget, crash): push whatever it committed — unless it switched to
+# another branch (a stacked PR): then HEAD is that branch's work and must not land on this one.
+switched=$(git -C "$wt" reflog --format=%gs | grep -c '^checkout: moving' || true)
+if [ "$switched" -gt 0 ]; then
+  echo "NOTE: the run switched branches; nothing pushed by the runner (the task pushes its own branches)"
+elif [ -n "$(git -C "$wt" log --oneline "origin/$branch..HEAD" 2>/dev/null || git -C "$wt" log --oneline "$base..HEAD")" ]; then
   git -C "$wt" push -q origin "HEAD:refs/heads/$branch" 2>&1 | grep -v '^remote:' || true
 fi
 [ -n "$(git -C "$wt" status --porcelain | grep -v '^??')" ] && echo "NOTE: $wt has uncommitted changes"
