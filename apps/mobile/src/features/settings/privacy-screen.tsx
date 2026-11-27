@@ -4,6 +4,7 @@ import { Ban } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { ChoiceRow, SwitchRow } from "#/components/form-rows";
 import { Page, Row, Section, Spinner } from "#/components/page";
+import { useMe } from "#/features/session/store";
 import { webScreenHref } from "#/features/web/handoff";
 import { useTheme } from "#/lib/theme";
 import { useChangePrivacy, useSettings } from "./data";
@@ -11,12 +12,12 @@ import { useChangePrivacy, useSettings } from "./data";
 type AudienceName = "EVERYONE" | "FRIENDS_OF_FRIENDS" | "FRIENDS" | "NOBODY";
 type AudienceField =
   | "friendRequestsFrom"
+  | "discoverableTo"
   | "friendListVisibleTo"
   | "footprintsVisibleTo"
   | "directMessagesFrom"
   | "callsFrom";
 type SwitchField =
-  | "discoverable"
   | "nearbyDiscoverable"
   | "shareBattery"
   | "shareActivity"
@@ -29,11 +30,15 @@ type SwitchField =
 const EVERY_AUDIENCE: AudienceName[] = ["EVERYONE", "FRIENDS_OF_FRIENDS", "FRIENDS", "NOBODY"];
 /** A friend request from someone who already is a friend makes no sense, so "friends" is not offered there. */
 const REQUEST_AUDIENCES: AudienceName[] = ["EVERYONE", "FRIENDS_OF_FRIENDS", "NOBODY"];
+/** Being found has no "friends only": friends have found you already. */
+const DISCOVERY_AUDIENCES = REQUEST_AUDIENCES;
+/** Under 18, discovery and friend requests reach friends of friends at most. */
+const forMinors = (audiences: AudienceName[]) => audiences.filter((name) => name !== "EVERYONE");
 /** Who may see the birthday: friends of friends is not offered for it. */
 const BIRTHDAY_AUDIENCES: AudienceName[] = ["EVERYONE", "FRIENDS", "NOBODY"];
 
-type VisibilityName = "PUBLIC" | "FRIENDS" | "PRIVATE";
-const NOTE_VISIBILITIES: VisibilityName[] = ["PUBLIC", "FRIENDS", "PRIVATE"];
+type VisibilityName = "PUBLIC" | "FOLLOWERS" | "FRIENDS" | "PRIVATE";
+const NOTE_VISIBILITIES: VisibilityName[] = ["PUBLIC", "FOLLOWERS", "FRIENDS", "PRIVATE"];
 
 /** How long raw location history is kept, in days; 0 keeps it forever. */
 const HISTORY_DAYS = [0, 7, 30, 90, 365];
@@ -47,6 +52,7 @@ export function PrivacyScreen() {
   const { colors } = useTheme();
   const { data } = useSettings();
   const change = useChangePrivacy();
+  const minor = useMe()?.minor ?? false;
   const privacy = data?.privacy;
   if (!privacy) return <Spinner />;
 
@@ -91,9 +97,12 @@ export function PrivacyScreen() {
 
   return (
     <Page testID="privacy-screen">
-      <Section title={t("privacy.groups.connect.title")} lead={t("privacy.groups.connect.lead")}>
-        {audience("friendRequestsFrom", REQUEST_AUDIENCES)}
-        {toggle("discoverable")}
+      <Section
+        title={t("privacy.groups.connect.title")}
+        lead={minor ? t("privacy.minorLimit") : t("privacy.groups.connect.lead")}
+      >
+        {audience("friendRequestsFrom", minor ? forMinors(REQUEST_AUDIENCES) : REQUEST_AUDIENCES)}
+        {audience("discoverableTo", minor ? forMinors(DISCOVERY_AUDIENCES) : DISCOVERY_AUDIENCES)}
         {toggle("nearbyDiscoverable")}
         {audience("friendListVisibleTo")}
       </Section>

@@ -4,6 +4,7 @@ import { Suspense, useEffect } from "react";
 import { AppShell } from "#/components/app-shell";
 import { BackgroundFeatures } from "#/components/background-features";
 import { LogoMark } from "#/components/ui/logo";
+import { BirthdateGate } from "#/features/settings";
 import { BadgeSourceRunner } from "#/seams/badges";
 import { useSessionStatus } from "#/stores/session";
 
@@ -36,13 +37,15 @@ function AppLayout() {
   if (status !== "signedIn") return <Splash />;
   // The page shows once the background features listen: nothing they handle is missed.
   return (
-    <Suspense fallback={<Splash />}>
-      <AppShell>
-        <Outlet />
-        <BackgroundFeatures />
-        <BadgeSourceRunner />
-      </AppShell>
-    </Suspense>
+    <BirthdateGate>
+      <Suspense fallback={<Splash />}>
+        <AppShell>
+          <Outlet />
+          <BackgroundFeatures />
+          <BadgeSourceRunner />
+        </AppShell>
+      </Suspense>
+    </BirthdateGate>
   );
 }
 

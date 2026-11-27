@@ -382,10 +382,16 @@ export default {
         NOBODY: "通話を受け取りません",
       },
     },
-    discoverable: {
-      label: "「もしかして、友達!?」に出る",
-      hint: "知り合いかも、や連絡先からの検索にあなたが表示されます",
+    discoverableTo: {
+      label: "あなたを見つけられる人",
+      hint: "「もしかして、友達!?」やユーザー検索、連絡先からの検索に出るかどうか",
+      options: {
+        EVERYONE: "検索や連絡先からも、だれでも見つけられます",
+        FRIENDS_OF_FRIENDS: "共通のともだちがいる人の「もしかして、友達!?」にだけ出ます",
+        NOBODY: "どこにも出ません",
+      },
     },
+    minorLimit: "18歳になるまでは、見つけてもらう範囲とリクエストは「ともだちのともだちまで」だよ",
     nearbyDiscoverable: {
       label: "近くの人に見つけてもらう",
       hint: "ともだち追加の画面をひらいている間、50m以内の人に表示されます",
@@ -424,6 +430,7 @@ export default {
     },
     visibility: {
       PUBLIC: { label: "みんなに公開", hint: "だれでも見られて、フィードや検索にも出ます" },
+      FOLLOWERS: { label: "フォロワーだけ", hint: "フォロワーとともだちに表示されます" },
       FRIENDS: { label: "ともだちだけ", hint: "ともだちにだけ表示されます" },
       PRIVATE: { label: "じぶんだけ", hint: "あなた以外には見えません" },
     },
@@ -594,6 +601,16 @@ export default {
       everywhereBody: "このデバイスをふくむ、すべてのデバイスでログインしなおす必要があります。",
       everywhereConfirm: "すべてログアウト",
     },
+  },
+
+  birthdate: {
+    title: "誕生日をおしえて!",
+    lead: "年齢に合わせて、あなたを守る設定にするよ。一度決めたら変えられないから、正しく入れてね",
+    label: "生年月日",
+    hint: "ほかの人には見えません（誕生日を見せるかどうかは、プライバシー設定で決められるよ）",
+    submit: "これで決定!",
+    later: "あとで",
+    laterHint: "答えるまでは、18歳未満と同じ設定で使えるよ",
   },
 
   errors: {

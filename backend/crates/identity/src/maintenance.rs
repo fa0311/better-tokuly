@@ -2,6 +2,7 @@
 //!
 //! Events emitted (see `docs/events.md`):
 //! - `identity.user.created` — [`UserCreated`]
+//! - `identity.user.birthdate_given` — [`BirthdateGiven`]
 //! - `identity.profile.updated` — [`crate::extras::ProfileUpdated`]
 //! - `identity.user.updated`, `identity.user.status_changed`,
 //!   `identity.user.privacy_changed`, `identity.user.deletion_requested`,
@@ -25,6 +26,19 @@ pub struct UserCreated {
     pub handle: String,
     /// Invite code entered at sign-up; empty when none.
     pub invite_code: String,
+    /// Under 18 on the day of sign-up: start the account with the defaults
+    /// for minors (`crate::age`). Absent in events from before the field.
+    #[serde(default)]
+    pub minor: bool,
+}
+
+/// An account made before sign-up asked for a birthdate has given one. A
+/// domain that starts new minors with defaults of its own applies them now,
+/// by `minor` (the age on that day), as it would have at sign-up.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BirthdateGiven {
+    pub user_id: Uuid,
+    pub minor: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,7 +257,7 @@ impl Identity {
             let user = crate::users::get(core, job.user_id).await?;
             let me = self.me(&user).await?;
             let sessions = self.list_sessions(job.user_id, Uuid::nil()).await?;
-            let settings = crate::settings::settings_from_json(&user.privacy, &user.appearance);
+            let settings = crate::settings::settings_from_json(&user.privacy, &user.appearance, me.minor);
             let mut sections = serde_json::Map::new();
             let to_json =
                 |v: &dyn Fn() -> Result<serde_json::Value, serde_json::Error>| v().unwrap_or(serde_json::Value::Null);

@@ -228,7 +228,7 @@ impl Social {
         .await?;
         let active = users::filter_active(core, &unrelated).await?;
         let privacy = settings::privacy_of_many(core, &active).await?;
-        Ok(active.into_iter().filter(|id| privacy.get(id).is_some_and(|p| p.discoverable)).collect())
+        Ok(active.into_iter().filter(|id| privacy.get(id).is_some_and(settings::findable_by_anyone)).collect())
     }
 
     /// The friends `user_id` shares with each of `others` (users without
@@ -299,7 +299,7 @@ impl Social {
         let privacy = settings::privacy_of_many(core, &found_ids).await?;
         let hidden: HashSet<Uuid> = graph::blocked_ids_either(core, user_id).await?.into_iter().collect();
         let matches: Vec<(Uuid, String)> =
-            found.into_iter().filter(|(id, _)| !hidden.contains(id) && privacy.get(id).is_some_and(|p| p.discoverable)).collect();
+            found.into_iter().filter(|(id, _)| !hidden.contains(id) && privacy.get(id).is_some_and(settings::findable_by_anyone)).collect();
 
         let matched_ids: Vec<Uuid> = matches.iter().map(|(id, _)| *id).collect();
         sqlx::query("INSERT INTO friend_suggestions (user_id, suggested_id, reason) SELECT $1, id, $3 FROM unnest($2::uuid[]) AS m(id) ON CONFLICT DO NOTHING")

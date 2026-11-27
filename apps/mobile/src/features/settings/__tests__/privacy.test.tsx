@@ -1,8 +1,10 @@
+import type { MessageInitShape } from "@bufbuild/protobuf";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, identity } from "@tokuly/api";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
+import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
 import { testQueryClient } from "#/testing/query";
 import { PrivacyScreen } from "../privacy-screen";
@@ -15,11 +17,12 @@ jest.mock("#/features/session/account", () => ({
 jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
 
 /** One account's API: the settings it holds, and every save it was sent. */
-function account() {
+function account(stored: MessageInitShape<typeof identity.PrivacySettingsSchema> = {}) {
   let privacy = create(identity.PrivacySettingsSchema, {
     shareBattery: true,
     friendRequestsFrom: identity.Audience.EVERYONE,
     locationHistoryDays: 30,
+    ...stored,
   });
   const saves: identity.PrivacySettings[] = [];
   const service = {
@@ -90,5 +93,33 @@ describe("privacy settings", () => {
 
     await waitFor(() => expect(main.saves).toHaveLength(1));
     expect(other.saves).toHaveLength(0);
+  });
+
+  it("offer a minor no wider than friends of friends for being found and friend requests", async () => {
+    // What the server shows a minor: within the limits.
+    const main = account({
+      friendRequestsFrom: identity.Audience.FRIENDS_OF_FRIENDS,
+      discoverableTo: identity.Audience.FRIENDS_OF_FRIENDS,
+    });
+    jest.mocked(api).mockReturnValue(main.object as never);
+    jest
+      .mocked(currentAccount)
+      .mockReturnValue({ sessionId: "s1", userId: "u1", api: main.object as never });
+    useSessionStore.setState({
+      state: { status: "signedIn", me: create(identity.MeSchema, { minor: true }) } as never,
+    });
+    await open();
+
+    expect(
+      screen.getByText(
+        "18歳になるまでは、見つけてもらう範囲とリクエストは「ともだちのともだちまで」だよ",
+      ),
+    ).toBeTruthy();
+    for (const field of ["friendRequestsFrom", "discoverableTo"]) {
+      await fireEvent.press(screen.getByTestId(`privacy-${field}`));
+      expect(screen.queryByTestId(`privacy-${field}-EVERYONE`)).toBeNull();
+      expect(screen.getByTestId(`privacy-${field}-FRIENDS_OF_FRIENDS`)).toBeTruthy();
+    }
+    useSessionStore.setState({ state: { status: "unknown" } });
   });
 });

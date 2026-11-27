@@ -315,7 +315,9 @@ impl Social {
         let user_is_minor = minors.contains(&user_id);
         Ok(active
             .into_iter()
-            .filter(|id| privacy.get(id).is_some_and(|p| p.discoverable) && minors.contains(id) == user_is_minor)
+            .filter(|id| {
+                privacy.get(id).is_some_and(settings::findable_by_anyone) && minors.contains(id) == user_is_minor
+            })
             .collect())
     }
 

@@ -312,6 +312,7 @@ impl AuthService for Identity {
         let handle = users::handle_error(users::claimable_handle(&req.handle))?;
         let display_name = users::validate_display_name(&req.display_name)?;
         let birthdate = users::validate_birthdate(&req.birthdate, self.cfg.min_age)?;
+        let minor = crate::age::minor_on(Some(birthdate), Utc::now().date_naive());
         let client = req.client.as_option();
         let locale = client
             .map(|c| c.locale.as_str())
@@ -349,7 +350,7 @@ impl AuthService for Identity {
         .bind(&locale)
         .bind(&time_zone)
         .bind(serde_json::json!({ "invite_code": invite_code }))
-        .bind(crate::settings::sign_up_privacy(birthdate, Utc::now().date_naive()))
+        .bind(crate::settings::sign_up_privacy(minor))
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
@@ -360,7 +361,7 @@ impl AuthService for Identity {
             &mut *tx,
             "identity.user.created",
             Some(user.id),
-            &crate::maintenance::UserCreated { user_id: user.id, handle: handle.clone(), invite_code },
+            &crate::maintenance::UserCreated { user_id: user.id, handle: handle.clone(), invite_code, minor },
         )
         .await?;
         tx.commit().await?;

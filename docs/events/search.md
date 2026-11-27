@@ -117,7 +117,7 @@ read is logged and acknowledged.
 | Topic | Payload | Effect |
 |---|---|---|
 | `search.changed` | `tokuly_core::outbound::SearchChange` | the document is stored in, or removed from, the registry |
-| `identity.user.created`, `identity.user.updated`, `identity.user.privacy_changed` | `{ user_id }` | the user's own document is rebuilt from identity's `users` row (read-only): display name, handle, bio, avatar URL; searchable only while the account is active and `privacy.discoverable` is true |
+| `identity.user.created`, `identity.user.updated`, `identity.user.privacy_changed` | `{ user_id }` | the user's own document is rebuilt from identity's `users` row (read-only): display name, handle, bio, avatar URL; searchable only while the account is active and anyone may find it (`tokuly_identity::settings::findable_by_anyone`: `discoverable_to` everyone, never a minor) |
 | `identity.user.banned` | `{ user_id }` | the user's document is removed and every document they own leaves the indexes (it stays in the registry) |
 | `identity.user.unbanned` | `{ user_id }` | their document and everything they own return |
 | `identity.user.deleted` | `{ user_id }` | every document they own is removed for good; their recent searches and history setting are deleted; blocked terms and synonym groups they entered lose the reference to them |

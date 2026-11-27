@@ -6,18 +6,19 @@ import { Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { AiMessageConsentSwitch } from "#/features/chat";
+import { useMe } from "#/stores/session";
 import { useChangeSettings, useSettings } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";
 
 type AudienceName = "EVERYONE" | "FRIENDS_OF_FRIENDS" | "FRIENDS" | "NOBODY";
 type AudienceField =
   | "friendRequestsFrom"
+  | "discoverableTo"
   | "friendListVisibleTo"
   | "footprintsVisibleTo"
   | "directMessagesFrom"
   | "callsFrom";
 type SwitchField =
-  | "discoverable"
   | "nearbyDiscoverable"
   | "shareBattery"
   | "shareActivity"
@@ -30,9 +31,13 @@ type SwitchField =
 const EVERY_AUDIENCE: AudienceName[] = ["EVERYONE", "FRIENDS_OF_FRIENDS", "FRIENDS", "NOBODY"];
 /** A friend request from someone who already is a friend makes no sense, so "friends" is not offered there. */
 const REQUEST_AUDIENCES: AudienceName[] = ["EVERYONE", "FRIENDS_OF_FRIENDS", "NOBODY"];
+/** Being found has no "friends only": friends have found you already. */
+const DISCOVERY_AUDIENCES = REQUEST_AUDIENCES;
+/** Under 18, discovery and friend requests reach friends of friends at most. */
+const forMinors = (audiences: AudienceName[]) => audiences.filter((name) => name !== "EVERYONE");
 
-type VisibilityName = "PUBLIC" | "FRIENDS" | "PRIVATE";
-const NOTE_VISIBILITIES: VisibilityName[] = ["PUBLIC", "FRIENDS", "PRIVATE"];
+type VisibilityName = "PUBLIC" | "FOLLOWERS" | "FRIENDS" | "PRIVATE";
+const NOTE_VISIBILITIES: VisibilityName[] = ["PUBLIC", "FOLLOWERS", "FRIENDS", "PRIVATE"];
 
 /** Who may see the birthday: friends of friends is not offered for it. */
 const BIRTHDAY_AUDIENCES: AudienceName[] = ["EVERYONE", "FRIENDS", "NOBODY"];
@@ -48,6 +53,7 @@ export function PrivacySection() {
   const { t } = useTranslation("settings");
   const { data } = useSettings();
   const change = useChangeSettings();
+  const minor = useMe()?.minor ?? false;
   const privacy = data?.privacy;
 
   if (!privacy) {
@@ -110,8 +116,11 @@ export function PrivacySection() {
         lead={t("privacy.groups.connect.lead")}
         flush
       >
-        {audience("friendRequestsFrom", REQUEST_AUDIENCES)}
-        {toggle("discoverable")}
+        {minor && (
+          <p className="px-3 pt-3 text-sm font-bold text-ink-soft">{t("privacy.minorLimit")}</p>
+        )}
+        {audience("friendRequestsFrom", minor ? forMinors(REQUEST_AUDIENCES) : REQUEST_AUDIENCES)}
+        {audience("discoverableTo", minor ? forMinors(DISCOVERY_AUDIENCES) : DISCOVERY_AUDIENCES)}
         {toggle("nearbyDiscoverable")}
         {audience("friendListVisibleTo")}
       </Group>

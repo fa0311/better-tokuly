@@ -6,7 +6,9 @@
 //! ([`Search::reindex_users`], job `search.reindex.users`).
 //!
 //! An account is searchable when it is active (not suspended, not deleted)
-//! and its privacy settings say `discoverable`. Besides the name and bio,
+//! and its privacy settings let anyone find it (`discoverable_to` everyone,
+//! never for a minor: `tokuly_identity::settings::findable_by_anyone`).
+//! Besides the name and bio,
 //! the public parts of its プロフ帳 are found: the long bio as text, its
 //! favourite things and 推し as tags (`tokuly_identity::extras::search_terms`),
 //! none of it for a locked account (its public parts reach followers and
@@ -14,7 +16,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokuly_core::{outbound::SearchDoc, prelude::*};
-use tokuly_identity::{extras::ProfileSearchTerms, settings::privacy_from_json};
+use tokuly_identity::{
+    extras::ProfileSearchTerms,
+    settings::{findable_by_anyone, privacy_as_applied},
+};
 
 use crate::{Search, document::IndexDoc, kinds};
 
@@ -64,13 +69,16 @@ macro_rules! user_doc_columns {
 }
 
 impl UserDocRow {
-    fn searchable(&self) -> bool {
-        self.deleted_at.is_none() && self.banned_at.is_none() && privacy_from_json(&self.privacy).discoverable
+    /// `minor`: the limits for minors apply to the account.
+    fn searchable(&self, minor: bool) -> bool {
+        self.deleted_at.is_none()
+            && self.banned_at.is_none()
+            && findable_by_anyone(&privacy_as_applied(&self.privacy, minor))
     }
 
     /// The account's search document; `None` when it must not be found.
-    fn document(&self, terms: Option<&ProfileSearchTerms>) -> Option<IndexDoc> {
-        if !self.searchable() {
+    fn document(&self, terms: Option<&ProfileSearchTerms>, minor: bool) -> Option<IndexDoc> {
+        if !self.searchable(minor) {
             return None;
         }
         // `avatar` is a `tokuly.common.v1.Image` as proto JSON.
@@ -107,7 +115,8 @@ impl Search {
                 .await?;
         let locked = tokuly_social::graph::locked_among(&self.core, &[user_id]).await?;
         let terms = tokuly_identity::extras::search_terms(&self.core, &[user_id], &locked).await?;
-        match row.as_ref().and_then(|row| row.document(terms.get(&user_id))) {
+        let minor = tokuly_identity::age::is_minor(&self.core, user_id).await?;
+        match row.as_ref().and_then(|row| row.document(terms.get(&user_id), minor)) {
             Some(doc) => self.store_document(version, doc).await?,
             None => self.remove_document(version, kinds::USER, user_id).await?,
         };
@@ -140,10 +149,11 @@ impl Search {
             let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
             let locked = tokuly_social::graph::locked_among(&self.core, &ids).await?;
             let terms = tokuly_identity::extras::search_terms(&self.core, &ids, &locked).await?;
+            let minors = tokuly_identity::age::minors_among(&self.core, &ids).await?;
             let mut docs = Vec::new();
             let mut gone = Vec::new();
             for row in &rows {
-                match row.document(terms.get(&row.id)) {
+                match row.document(terms.get(&row.id), minors.contains(&row.id)) {
                     Some(doc) => docs.push(doc),
                     None => gone.push(row.id),
                 }
@@ -193,7 +203,7 @@ mod tests {
     #[test]
     fn an_active_discoverable_account_becomes_a_document() {
         let user = row();
-        let doc = user.document(None).expect("searchable");
+        let doc = user.document(None, false).expect("searchable");
         assert_eq!(doc.kind, "user");
         assert_eq!(doc.id, user.id);
         assert_eq!(doc.owner_id, Some(user.id), "blocking the user hides their own document");
@@ -213,31 +223,38 @@ mod tests {
             text: "ヨルシカが好き".into(),
             tags: vec!["ヨルシカ".into(), "ラーメン".into()],
         };
-        let doc = row().document(Some(&terms)).unwrap();
+        let doc = row().document(Some(&terms), false).unwrap();
         assert_eq!(doc.text, "渋谷によくいます ヨルシカが好き");
         assert_eq!(doc.tags, ["ヨルシカ", "ラーメン"]);
-        assert_eq!(row().document(Some(&ProfileSearchTerms::default())).unwrap().text, "渋谷によくいます");
+        assert_eq!(row().document(Some(&ProfileSearchTerms::default()), false).unwrap().text, "渋谷によくいます");
     }
 
     #[test]
     fn suspended_deleted_and_hidden_accounts_are_not_searchable() {
         let banned = UserDocRow { banned_at: Some(Utc::now()), ..row() };
-        assert!(banned.document(None).is_none());
+        assert!(banned.document(None, false).is_none());
         let deleted = UserDocRow { deleted_at: Some(Utc::now()), ..row() };
-        assert!(deleted.document(None).is_none());
+        assert!(deleted.document(None, false).is_none());
         let hidden =
             UserDocRow { privacy: serde_json::json!({ "discoverable": false, "shareBattery": true }), ..row() };
-        assert!(hidden.document(None).is_none());
+        assert!(hidden.document(None, false).is_none());
         let explicit = UserDocRow { privacy: serde_json::json!({ "discoverable": true }), ..row() };
-        assert!(explicit.document(None).is_some());
+        assert!(explicit.document(None, false).is_some());
+        let friends_of_friends =
+            UserDocRow { privacy: serde_json::json!({ "discoverableTo": "AUDIENCE_FRIENDS_OF_FRIENDS" }), ..row() };
+        assert!(
+            friends_of_friends.document(None, false).is_none(),
+            "friends of friends find the account among suggestions only"
+        );
+        assert!(row().document(None, true).is_none(), "a minor is never found by strangers");
     }
 
     #[test]
     fn a_verified_account_outranks_its_namesakes_and_a_nameless_one_uses_its_handle() {
         let verified = UserDocRow { verified: true, ..row() };
-        assert_eq!(verified.document(None).unwrap().score, 40.0 + VERIFIED_BONUS);
+        assert_eq!(verified.document(None, false).unwrap().score, 40.0 + VERIFIED_BONUS);
         let nameless = UserDocRow { display_name: "  ".into(), avatar: None, ..row() };
-        let doc = nameless.document(None).unwrap();
+        let doc = nameless.document(None, false).unwrap();
         assert_eq!(doc.title, "toku_zou");
         assert_eq!(doc.image_url, None);
     }

@@ -534,6 +534,8 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("SetStatus", Write),
         ("GetSettings", Read),
         ("UpdateSettings", Write),
+        // Decides once and for good which protections for minors apply.
+        ("SetBirthdate", Session),
         ("ChangePassword", Session),
         ("ChangeEmail", Session),
         ("ListSessions", Session),

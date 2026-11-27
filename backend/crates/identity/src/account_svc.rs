@@ -11,7 +11,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 use crate::{
     Identity,
     mailer::SecurityNotice,
-    maintenance::{ExportJob, UserRef},
+    maintenance::{BirthdateGiven, ExportJob, UserRef},
     settings, totp,
     users::{self, UserRow},
 };
@@ -252,8 +252,9 @@ impl AccountService for Identity {
     ) -> ServiceResult<GetSettingsResponse> {
         handle(async {
             let user = users::get(&self.core, ctx.user_id()?).await?;
+            let minor = crate::age::is_minor(&self.core, user.id).await?;
             ok(GetSettingsResponse {
-                settings: settings::settings_from_json(&user.privacy, &user.appearance).into(),
+                settings: settings::settings_from_json(&user.privacy, &user.appearance, minor).into(),
                 ..Default::default()
             })
         })
@@ -268,18 +269,23 @@ impl AccountService for Identity {
         handle(async {
         let user_id = ctx.user_id()?;
         let req = request.to_owned_message();
+        let minor = crate::age::is_minor(&self.core, user_id).await?;
         let encode = |v: &dyn Fn() -> Result<serde_json::Value, serde_json::Error>| v().map_err(|e| AppError::internal(anyhow::anyhow!("settings encode: {e}")));
         let privacy = match req.privacy.as_option() {
             Some(p) => {
                 settings::validate_privacy(p)?;
                 let user = users::get(&self.core, user_id).await?;
                 let mut p = p.clone();
-                // A client that does not know the birthday setting yet keeps it.
+                // A client that does not know a setting yet keeps what is stored.
+                let stored = settings::privacy_as_applied(&user.privacy, minor);
                 if p.birthday_visible_to.as_known() == Some(Audience::AUDIENCE_UNSPECIFIED) {
-                    let stored = settings::privacy_from_json(&user.privacy);
                     p.birthday_visible_to = stored.birthday_visible_to;
                     p.birthday_show_year = stored.birthday_show_year;
                 }
+                if p.discoverable_to.as_known() == Some(Audience::AUDIENCE_UNSPECIFIED) {
+                    p.discoverable_to = stored.discoverable_to;
+                }
+                settings::check_minor_limits(&p, minor)?;
                 crate::birthdays::check_year_rule(&p, user.birthdate, Utc::now().date_naive())?;
                 Some(encode(&|| serde_json::to_value(&p))?)
             }
@@ -307,7 +313,59 @@ impl AccountService for Identity {
             events::emit(&mut *tx, "identity.user.privacy_changed", Some(user_id), &UserRef { user_id }).await?;
         }
         tx.commit().await.map_err(AppError::from)?;
-        ok(UpdateSettingsResponse { settings: settings::settings_from_json(&privacy, &appearance).into(), ..Default::default() })
+        ok(UpdateSettingsResponse { settings: settings::settings_from_json(&privacy, &appearance, minor).into(), ..Default::default() })
+        })
+        .await
+    }
+
+    async fn set_birthdate(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SetBirthdateRequest>,
+    ) -> ServiceResult<SetBirthdateResponse> {
+        handle(async {
+            let user_id = ctx.user_id()?;
+            let core = &self.core;
+            core.cache.rate_limit(&format!("set-birthdate:{user_id}"), 10, Duration::from_secs(3600)).await?;
+            let birthdate = users::validate_birthdate(request.birthdate, self.cfg.min_age)?;
+            let minor = crate::age::minor_on(Some(birthdate), Utc::now().date_naive());
+            let mut tx = core.db.begin().await?;
+            let stored: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT privacy FROM users WHERE id = $1 AND birthdate IS NULL FOR UPDATE")
+                    .bind(user_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            let Some(stored) = stored else {
+                bail!(precondition, "BIRTHDATE_ALREADY_SET", "the birthdate is already set");
+            };
+            // The defaults of the age group, as at sign-up. A minor's settings so
+            // far were chosen with the defaults for adults in place.
+            let privacy = match minor {
+                true => Some(
+                    serde_json::to_value(settings::minor_defaults(settings::privacy_from_json(&stored)))
+                        .map_err(|e| AppError::internal(anyhow::anyhow!("settings encode: {e}")))?,
+                ),
+                false => None,
+            };
+            sqlx::query("UPDATE users SET birthdate = $2, privacy = COALESCE($3, privacy) WHERE id = $1")
+                .bind(user_id)
+                .bind(birthdate)
+                .bind(&privacy)
+                .execute(&mut *tx)
+                .await?;
+            events::emit(&mut *tx, "identity.user.birthdate_given", Some(user_id), &BirthdateGiven { user_id, minor })
+                .await?;
+            // What applies changed either way: a minor got the defaults, an
+            // adult is out of the limits an account without a birthdate has.
+            events::emit(&mut *tx, "identity.user.privacy_changed", Some(user_id), &UserRef { user_id }).await?;
+            tx.commit().await?;
+            let user = users::get(core, user_id).await?;
+            let me = self.me(&user).await?;
+            ok(SetBirthdateResponse {
+                settings: settings::settings_from_json(&user.privacy, &user.appearance, me.minor).into(),
+                me: me.into(),
+                ..Default::default()
+            })
         })
         .await
     }

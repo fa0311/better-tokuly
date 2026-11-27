@@ -13,7 +13,8 @@
 //!   threat model); [`handoff`] — opening the web signed in from an app;
 //! - [`extras`] — the プロフ帳 (profile extras, their audiences, prompts,
 //!   search terms) and [`link_check`] — verifying profile links by a link back;
-//! - [`birthdays`] — who sees a birthday, for every domain;
+//! - [`age`] — who counts as a minor, for every domain; [`birthdays`] — who
+//!   sees a birthday;
 //! - [`bots`] — which accounts are bots and whose, and [`bots::humans_only`];
 //! - [`settings`], `passkeys`, `totp`, `connections` (Spotify), [`moderation`],
 //!   [`maintenance`] (workers, purge, export, event payloads).
@@ -26,6 +27,7 @@ use tokuly_proto::identity::{Me, Profile, Relationship};
 use webauthn_rs::{Webauthn, WebauthnBuilder};
 
 mod account_svc;
+pub mod age;
 mod auth_svc;
 pub mod birthdays;
 pub mod bots;
@@ -219,6 +221,7 @@ impl Identity {
             .await?;
         let features = self.core.flags.for_user(user.id).await;
         let mut me = user.to_me(passkeys as i32, features);
+        me.minor = age::is_minor(&self.core, user.id).await?;
         me.extras = self.own_extras(user.id, user.birthdate).await?.into();
         if let Some(owner) = user.bot_owner_id {
             me.bot_owner = users::summary(&self.core, owner).await?.into();

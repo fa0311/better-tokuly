@@ -389,10 +389,17 @@ export default {
         NOBODY: "You receive no calls",
       },
     },
-    discoverable: {
-      label: "Appear in “People you may know”",
-      hint: "You show up in suggestions and when someone searches their contacts",
+    discoverableTo: {
+      label: "Who can find you",
+      hint: "In “People you may know”, user search and contact search",
+      options: {
+        EVERYONE: "Anyone, through search and contacts too",
+        FRIENDS_OF_FRIENDS: "Only in the suggestions of people you share a friend with",
+        NOBODY: "Nowhere",
+      },
     },
+    minorLimit:
+      "Until you turn 18, finding you and friend requests reach friends of friends at most",
     nearbyDiscoverable: {
       label: "Let people nearby find you",
       hint: "While the add-friend screen is open, people within 50 m see you",
@@ -437,6 +444,7 @@ export default {
     },
     visibility: {
       PUBLIC: { label: "Public", hint: "Anyone can see it, and it appears in feeds and search" },
+      FOLLOWERS: { label: "Followers", hint: "Your followers and friends see it" },
       FRIENDS: { label: "Friends only", hint: "Only your friends see it" },
       PRIVATE: { label: "Only me", hint: "Nobody but you sees it" },
     },
@@ -607,6 +615,16 @@ export default {
       everywhereBody: "Every device, this one included, has to sign in again.",
       everywhereConfirm: "Sign out everywhere",
     },
+  },
+
+  birthdate: {
+    title: "When is your birthday?",
+    lead: "We set up protections that fit your age. It cannot be changed later, so enter it correctly",
+    label: "Date of birth",
+    hint: "Nobody else sees it (whether your birthday shows is up to your privacy settings)",
+    submit: "That's it!",
+    later: "Later",
+    laterHint: "Until you answer, you use Tokuly with the settings for under-18s",
   },
 
   errors: {

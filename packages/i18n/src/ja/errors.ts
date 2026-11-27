@@ -804,7 +804,9 @@ export default {
   SEARCH_UNAVAILABLE: "いま検索がおやすみ中みたい。少し待ってからためしてね",
   SORT_UNKNOWN: "その並び順はえらべません",
   // settings
+  BIRTHDATE_ALREADY_SET: "生年月日はもう登録されています",
   BIRTHDAY_YEAR_RESTRICTED: "18歳未満は、生まれた年を「だれでも」には見せられません",
+  SETTING_RESTRICTED: "18歳になるまでは「ともだちのともだちまで」までしか広げられないよ",
   CONNECTION_EXPIRED: "時間切れです。もう一度つないでみてね",
   EMAIL_ALREADY_VERIFIED: "メールアドレスはもう確認済みです",
   EMAIL_MISSING: "メールアドレスが登録されていません",
