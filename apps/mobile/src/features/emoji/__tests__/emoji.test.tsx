@@ -3,13 +3,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 import { create, emoji, type MessageInitShape } from "@tokuly/api";
 import { EMPTY_CATALOG } from "@tokuly/core/emoji";
 import type { ReactNode } from "react";
-import { Alert } from "react-native";
+import { Alert, Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
 import { screenFor } from "#/seams/links";
 import { syncCatalog, useCatalogStore } from "../catalog";
 import { DetailScreen } from "../detail-screen";
+import { useEmojiText } from "../emoji-text";
 import { EmojiPicker } from "../picker";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -39,7 +40,21 @@ function server({ switchOnSave = false } = {}) {
       calls.push("catalog");
       return {
         version: 2n,
-        emojis: [custom("neko", { aliases: ["ねこ"], category: "どうぶつ" }), custom("inu")],
+        emojis: [
+          custom("neko", {
+            aliases: ["ねこ"],
+            category: "どうぶつ",
+            image: {
+              url: "/media/neko.webp",
+              variants: [
+                { size: 32, url: "/media/neko-32.webp" },
+                { size: 128, url: "/media/neko-128.webp" },
+              ],
+            },
+          }),
+          custom("inu"),
+          custom("ecchi", { sensitive: true }),
+        ],
         categories: [{ name: "どうぶつ", emojiCount: 1 }],
       };
     },
@@ -97,18 +112,35 @@ describe("the catalogue copy", () => {
     const calls = server();
     await syncCatalog();
     expect(useCatalogStore.getState().catalog.emojis.map((entry) => entry.name)).toEqual([
+      "ecchi",
       "inu",
       "neko",
     ]);
     await syncCatalog(3n);
     expect(calls).toEqual(["catalog", "changes:2"]);
     expect(useCatalogStore.getState().catalog.emojis.map((entry) => entry.name)).toEqual([
+      "ecchi",
       "neko",
       "tori",
     ]);
     // An announcement of a version the copy has asks nothing.
     await syncCatalog(3n);
     expect(calls).toHaveLength(2);
+  });
+});
+
+function Line({ text, size }: { text: string; size: number }) {
+  const withEmoji = useEmojiText();
+  return <Text testID="line">{withEmoji(text, size)}</Text>;
+}
+
+describe("text with custom emoji", () => {
+  it("keeps a sensitive emoji as its code: the phone has no way to blur it inline", async () => {
+    server();
+    await syncCatalog();
+    await show(<Line text="これ :ecchi:" size={20} />);
+    expect(screen.queryByLabelText(":ecchi:")).toBeNull();
+    expect(screen.getByTestId("line")).toHaveTextContent("これ :ecchi:");
   });
 });
 
