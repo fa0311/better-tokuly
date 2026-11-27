@@ -260,7 +260,8 @@ export default {
         TOTP_ENABLED: "2段階認証をオンにしました",
         TOTP_DISABLED: "2段階認証をオフにしました",
         RECOVERY_CODE_USED: "リカバリーコードでログインしました",
-        RECOVERY_CODES_REVOKED: "安全のためリカバリーコードが無効になりました。2段階認証をオフにしてオンにし直すと新しいコードがもらえます",
+        RECOVERY_CODES_REVOKED:
+          "安全のためリカバリーコードが無効になりました。2段階認証をオフにしてオンにし直すと新しいコードがもらえます",
         SESSION_REVOKED: "デバイスをログアウトさせました",
         DEVICE_LOGIN_APPROVED: "デバイスのログインを承認しました",
         DEVICE_LOGIN_DENIED: "デバイスのログインを拒否しました",
