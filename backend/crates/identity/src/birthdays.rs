@@ -59,7 +59,10 @@ pub fn share(
     if !visible {
         return None;
     }
-    let year = (closeness == Closeness::Owner || privacy.birthday_show_year).then(|| birthdate.year());
+    // The rule of `check_year_rule` again, for what is stored regardless.
+    let year_allowed = check_year_rule(privacy, Some(birthdate), Utc::now().date_naive()).is_ok();
+    let year =
+        (closeness == Closeness::Owner || (privacy.birthday_show_year && year_allowed)).then(|| birthdate.year());
     Some(SharedBirthday { user_id, month: birthdate.month(), day: birthdate.day(), year })
 }
 
@@ -204,6 +207,24 @@ mod tests {
         assert_eq!(share(id, date, &unset, Closeness::Friend), None);
         let fof = privacy(Audience::AUDIENCE_FRIENDS_OF_FRIENDS, false);
         assert_eq!(share(id, date, &fof, Closeness::Friend), None);
+    }
+
+    /// Whatever is stored (a save that raced `SetBirthdate`, settings from
+    /// before the rule), nobody but the owner reads a minor's year off a
+    /// birthday shown to everyone.
+    #[test]
+    fn a_stored_year_of_a_minor_is_not_shown_to_everyone() {
+        let id = Uuid::now_v7();
+        let today = Utc::now().date_naive();
+        let fifteen = today.checked_sub_months(chrono::Months::new(12 * 15)).unwrap();
+        let open = privacy(Audience::AUDIENCE_EVERYONE, true);
+        for closeness in [Closeness::Other, Closeness::Friend] {
+            let seen = share(id, fifteen, &open, closeness).unwrap();
+            assert_eq!((seen.month, seen.day, seen.year), (fifteen.month(), fifteen.day(), None));
+        }
+        assert_eq!(share(id, fifteen, &open, Closeness::Owner).unwrap().year, Some(fifteen.year()));
+        let friends = privacy(Audience::AUDIENCE_FRIENDS, true);
+        assert_eq!(share(id, fifteen, &friends, Closeness::Friend).unwrap().year, Some(fifteen.year()));
     }
 
     #[test]
