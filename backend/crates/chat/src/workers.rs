@@ -22,7 +22,7 @@ use tokuly_core::{
 use crate::{
     Chat,
     events::{
-        ASSET_DELETED, ASSET_FAILED, ASSET_READY, CONTENT_REMOVED, FRIEND_ACCEPTED, USER_BLOCKED, USER_CREATED,
+        ASSET_DELETED, ASSET_FAILED, ASSET_READY, BIRTHDATE_GIVEN, CONTENT_REMOVED, FRIEND_ACCEPTED, USER_BLOCKED, USER_CREATED,
         USER_DELETED, USER_UNBLOCKED,
     },
     send::{JOB_LINK_PREVIEW, LinkPreviewJob},
@@ -47,6 +47,7 @@ impl Chat {
                 "chat",
                 &[
                     USER_CREATED,
+                    BIRTHDATE_GIVEN,
                     USER_DELETED,
                     USER_BLOCKED,
                     USER_UNBLOCKED,

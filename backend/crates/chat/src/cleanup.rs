@@ -3,7 +3,7 @@
 //! moderation takes a message down. Every reaction is idempotent (events
 //! are delivered at least once).
 use tokuly_core::{events::Event, prelude::*};
-use tokuly_identity::maintenance::UserRef;
+use tokuly_identity::maintenance::{BirthdateGiven, UserRef};
 use tokuly_media::assets;
 use tokuly_proto::{chat as pb, common::SubjectType, media::Attachment};
 use tokuly_social::{
@@ -16,7 +16,7 @@ use crate::{
     conversations::delete_conversation,
     events::{
         ASSET_DELETED, ASSET_FAILED, ASSET_READY, AssetRef, CONTENT_REMOVED, ContentRemoved, FRIEND_ACCEPTED,
-        USER_BLOCKED, USER_CREATED, USER_DELETED, USER_UNBLOCKED,
+        BIRTHDATE_GIVEN, USER_BLOCKED, USER_CREATED, USER_DELETED, USER_UNBLOCKED,
     },
     model::{MSG, MessageRow, kind, msg},
 };
@@ -28,6 +28,11 @@ impl Chat {
         match event.topic.as_str() {
             // The consent default is fixed when the account is created.
             USER_CREATED => self.store_message_use_default(&[event.data::<UserRef>()?.user_id]).await.map(drop),
+            // ...or when a minor gives the birthdate later.
+            BIRTHDATE_GIVEN => match event.data::<BirthdateGiven>()? {
+                BirthdateGiven { user_id, minor: true } => self.apply_minor_message_use(user_id).await,
+                BirthdateGiven { minor: false, .. } => Ok(()),
+            },
             USER_DELETED => self.on_user_deleted(event.data::<UserRef>()?.user_id).await,
             USER_BLOCKED | USER_UNBLOCKED => {
                 let change: BlockChanged = event.data()?;

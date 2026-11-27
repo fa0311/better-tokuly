@@ -996,6 +996,38 @@ async fn the_consent_default_is_fixed_when_the_account_is_created_and_never_move
     assert_eq!(stub.count(), 1);
 }
 
+/// A minor who gives the birthdate later gets the minors' default then,
+/// unless they chose; a redelivery changes nothing.
+#[tokio::test]
+async fn a_minor_giving_the_birthdate_later_keeps_their_messages_from_the_ai_unless_they_chose() {
+    let (ctx, _stub) = start_with_stub(|_| {}).await;
+    let (teen, chose, adult) = (ctx.app.user("teen").await, ctx.app.user("chose").await, ctx.app.user("adult").await);
+    // Stored on by the rule of their day (an adult's default), or chosen.
+    for user in [&teen, &adult] {
+        assert!(settings_of(&ctx, user).await.allow_message_use);
+    }
+    consent(&ctx, &chose, true).await;
+
+    let given = |user: &TestUser, minor: bool| tokuly_core::events::Event {
+        id: Uuid::now_v7(),
+        topic: "identity.user.birthdate_given".into(),
+        actor_id: Some(user.id),
+        occurred_at: chrono::Utc::now(),
+        data: serde_json::json!({ "user_id": user.id, "minor": minor }),
+    };
+    for _ in 0..2 {
+        for user in [&teen, &chose] {
+            ctx.chat.handle_event(&given(user, true)).await.unwrap();
+        }
+        ctx.chat.handle_event(&given(&adult, false)).await.unwrap();
+    }
+    let settings = settings_of(&ctx, &teen).await;
+    assert!(!settings.allow_message_use && settings.allow_message_use_is_default);
+    let settings = settings_of(&ctx, &chose).await;
+    assert!(settings.allow_message_use && !settings.allow_message_use_is_default, "their own choice stays");
+    assert!(settings_of(&ctx, &adult).await.allow_message_use);
+}
+
 #[tokio::test]
 async fn a_translation_is_no_longer_than_a_message() {
     let (ctx, stub) = start_with_stub(|_| {}).await;
