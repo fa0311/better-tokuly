@@ -22,7 +22,7 @@ listed in its `package.json`), each with its own tests:
 | `@tokuly/core/notifications` | notify keys, unread counts, inbox cache edits, inbox times, push targets                                                                    |
 | `@tokuly/core/plans`         | plan keys and options, days and times of plans in the account's zone, plan rules and the plan form, plan cache edits, pushed plans events   |
 | `@tokuly/core/quest`         | quest keys and options, level, mission, badge and streak rules, claim and reroll cache edits, pushed quest events, profile quest cards      |
-| `@tokuly/core/school`        | school keys and options, the API's dates and times of day, which classes take place, class and exam countdowns, what is due                 |
+| `@tokuly/core/school`        | school keys and options, the API's dates and times of day, which classes take place, class and exam countdowns, what is due, the study timer |
 | `@tokuly/core/places`        | place keys and options, how each kind of place looks, who it is shown to, "not now" to a suggestion as fingerprints                         |
 | `@tokuly/core/history`       | history keys and options, the history's days on the account's calendar, the day's timeline, the encoded path, visits and ways of travelling |
 | `@tokuly/core/footprints`    | footprint keys and options, region names, explorer and region levels, readable percentages, new level-ups                                   |

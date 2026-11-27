@@ -1,4 +1,5 @@
 import { school, toMillis } from "@tokuly/api";
+import { replacesSession } from "@tokuly/core/school";
 import { create } from "zustand";
 import { syncClock } from "./timer";
 
@@ -35,24 +36,16 @@ const serverTime = (session: school.StudySession | undefined) =>
  * Takes a session the server returned or pushed: an ended one clears the
  * timer, `undefined` means the server has none.
  *
- * Copies of a session arrive by several roads (an answer to a tap, a
- * heartbeat, a realtime push) and not always in the order they were made.
- * Each carries the server's clock, so an older copy never replaces a newer
- * one, and the end of an earlier session never clears the one that followed
- * it. Returns whether the session was taken.
+ * An older copy never replaces a newer one, and the end of an earlier
+ * session never clears the one that followed it (`replacesSession`).
+ * Returns whether the session was taken.
  */
 export function setActiveSession(
   session: school.StudySession | undefined,
   heartbeatSeconds?: number,
 ): boolean {
   const state = useActiveSession.getState();
-  const stored = state.session;
-  if (session && stored) {
-    const ended = session.state === school.SessionState.ENDED;
-    if (ended && session.id !== stored.id) return false;
-    const at = serverTime(session);
-    if (!ended && at > 0 && at < serverTime(stored)) return false;
-  }
+  if (!replacesSession(session, state.session)) return false;
   syncClock(session?.timer);
   const active = session && session.state !== school.SessionState.ENDED ? session : undefined;
   useActiveSession.setState({

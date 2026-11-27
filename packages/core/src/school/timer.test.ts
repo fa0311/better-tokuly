@@ -1,7 +1,7 @@
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { create, type MessageInitShape, school } from "@tokuly/api";
-import { beforeEach, describe, expect, it } from "vitest";
-import { studiedSecondsAt, syncClock, timerAt } from "./timer";
+import { describe, expect, it } from "vitest";
+import { clockOffset, replacesSession, studiedSecondsAt, timerAt } from "./timer";
 
 const T0 = Date.UTC(2026, 10, 22, 9, 0, 0);
 
@@ -15,9 +15,6 @@ function snapshot(
 const pomodoro = { workMinutes: 25, breakMinutes: 5, longBreakMinutes: 15, rounds: 2 };
 
 describe("timerAt", () => {
-  // The client's clock and the server's agree unless a test says otherwise.
-  beforeEach(() => syncClock(snapshot({}), T0));
-
   it("counts a running stopwatch from the snapshot's server time", () => {
     const timer = snapshot({
       mode: school.StudyMode.STOPWATCH,
@@ -47,8 +44,9 @@ describe("timerAt", () => {
       elapsedSeconds: 0,
     });
     // The snapshot arrives when the client's clock says ten minutes later than the server's.
-    syncClock(timer, T0 + 600_000);
-    expect(timerAt(timer, T0 + 600_000 + 5_000).elapsedMs).toBe(5_000);
+    const offset = clockOffset(timer, T0 + 600_000);
+    expect(offset).toBe(-600_000);
+    expect(timerAt(timer, T0 + 600_000 + 5_000, offset).elapsedMs).toBe(5_000);
   });
 
   it("moves a running pomodoro through work, break, work and the long break by itself", () => {
@@ -145,5 +143,26 @@ describe("timerAt", () => {
       round: 1,
       remainingMs: 25 * 60_000,
     });
+  });
+});
+
+describe("replacesSession", () => {
+  const session = (id: string, state: school.SessionState, serverMs: number) =>
+    create(school.StudySessionSchema, { id, state, timer: snapshot({}, serverMs) });
+  const { RUNNING, ENDED } = school.SessionState;
+
+  it("takes a newer copy and leaves an older one", () => {
+    expect(replacesSession(session("a", RUNNING, T0 + 1), session("a", RUNNING, T0))).toBe(true);
+    expect(replacesSession(session("a", RUNNING, T0), session("a", RUNNING, T0 + 1))).toBe(false);
+  });
+
+  it("lets only the end of the same session clear it", () => {
+    expect(replacesSession(session("a", ENDED, T0), session("b", RUNNING, T0 + 1))).toBe(false);
+    expect(replacesSession(session("b", ENDED, T0), session("b", RUNNING, T0 + 1))).toBe(true);
+  });
+
+  it("takes anything when nothing is kept, and a known none", () => {
+    expect(replacesSession(session("a", RUNNING, T0), undefined)).toBe(true);
+    expect(replacesSession(undefined, session("a", RUNNING, T0))).toBe(true);
   });
 });

@@ -2,8 +2,8 @@
  * School logic every app shares: query keys and options, calendar dates and
  * times of day as the API writes them (`YYYY-MM-DD`, minutes after
  * midnight), which classes take place and what changed, the countdowns of
- * classes and exams, and "what is due". The timer, the screens and their
- * hooks stay in each app.
+ * classes and exams, "what is due", and the study timer as the server keeps
+ * it. The screens, their hooks and the clock offset stay in each app.
  */
 export {
   addDays,
@@ -42,3 +42,12 @@ export {
   urgencyKey,
 } from "./model";
 export { type AssignmentPage, loadedAssignments, schoolQueries } from "./queries";
+export {
+  clockOffset,
+  isBreak,
+  phaseKey,
+  replacesSession,
+  studiedSecondsAt,
+  type TimerView,
+  timerAt,
+} from "./timer";
