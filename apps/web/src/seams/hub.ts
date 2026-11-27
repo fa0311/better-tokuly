@@ -1,5 +1,5 @@
 import type { LinkProps } from "@tanstack/react-router";
-import { type ComponentType, lazy } from "react";
+import { type ComponentType, createElement, lazy } from "react";
 import { namespacesOf } from "#/lib/i18n";
 
 /**
@@ -61,15 +61,28 @@ export type HubSectionId = (typeof HUB_SECTIONS)[number];
 
 const modules = import.meta.glob<{ default: HubTile[] }>("../features/*/hub.tsx", { eager: true });
 
+/**
+ * A card fetched with the tiles (they are small), so the hub rarely waits for
+ * one. Once it is there it renders at once: `lazy` alone would still suspend
+ * on its first render, and React then holds the hub back for up to 300 ms
+ * after the page's heading has shown (the tiles moved in under it).
+ */
+function preloaded(load: NonNullable<HubTile["card"]>): ComponentType {
+  let Loaded: ComponentType | undefined;
+  const loading = load().then((module) => {
+    Loaded = module.default;
+    return module;
+  });
+  const Waiting = lazy(() => loading);
+  return function Card() {
+    return createElement(Loaded ?? Waiting);
+  };
+}
+
 /** Every tile, by section and order. */
 export const HUB_TILES: LoadedHubTile[] = Object.values(modules)
   .flatMap((module) => module.default)
-  .map(({ card, ...tile }) => {
-    if (!card) return tile;
-    // Fetched with the tiles (they are small), so the hub rarely waits for one.
-    const loading = card();
-    return { ...tile, Card: lazy(() => loading) };
-  })
+  .map(({ card, ...tile }) => (card ? { ...tile, Card: preloaded(card) } : tile))
   .sort(
     (a, b) =>
       HUB_SECTIONS.indexOf(a.section) - HUB_SECTIONS.indexOf(b.section) ||
