@@ -1,3 +1,4 @@
+import { positionAt, type TrackPoint } from "@tokuly/core/history";
 import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,7 +10,6 @@ import { accountTimeZone } from "#/lib/account-time";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
-import { positionAt, type TrackPoint } from "./timeline";
 
 /** How long a whole day takes to replay at normal speed. */
 const REPLAY_MS = 12_000;

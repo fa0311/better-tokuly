@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { geo } from "@tokuly/api";
+import { footprintQueries, formatPercent } from "@tokuly/core/footprints";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmptyState, Skeleton } from "#/components/ui/page";
@@ -9,8 +10,7 @@ import { Tabs } from "#/components/ui/tabs";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { useMe } from "#/stores/session";
-import { footprintClient, footprintKeys, regionName } from "./api";
-import { formatPercent } from "./levels";
+import { footprintClient, regionName } from "./api";
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 type Scope = "friends" | "global";
@@ -34,15 +34,9 @@ export function Leaderboard({
   const me = useMe();
   const scopeValue =
     scope === "friends" ? geo.LeaderboardScope.FRIENDS : geo.LeaderboardScope.GLOBAL;
-  const { data, isPending, isError } = useQuery({
-    queryKey: footprintKeys.leaderboard(regionId, scopeValue),
-    queryFn: () =>
-      footprintClient().getLeaderboard({
-        regionId: regionId === "world" ? "" : regionId,
-        scope: scopeValue,
-        limit: 50,
-      }),
-  });
+  const { data, isPending, isError } = useQuery(
+    footprintQueries.leaderboard(footprintClient, regionId, scopeValue),
+  );
 
   const entries = data?.entries ?? [];
   const mine = data?.me;

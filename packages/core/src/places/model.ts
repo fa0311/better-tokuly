@@ -1,5 +1,16 @@
 import { common, geo } from "@tokuly/api";
 
+export interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+/** Shibuya crossing: where maps open before the device says where it is. */
+export const DEFAULT_CENTER: LatLng = { lat: 35.6595, lng: 139.7005 };
+
+export const toLatLng = (point: common.LatLng | undefined): LatLng | null =>
+  point ? { lat: point.lat, lng: point.lng } : null;
+
 /** How each kind of place looks: its default emoji, the colour of its bubble and its name in the strings (`labels.<key>`). */
 export const LABELS = {
   [geo.PlaceLabel.HOME]: { key: "home", emoji: "🏠", tint: "bg-sun" },

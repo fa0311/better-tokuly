@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, geo, toDate, toMillis } from "@tokuly/api";
+import { labelMeta, placeQueries, visibilityKey } from "@tokuly/core/places";
 import {
   Bookmark,
   BookmarkCheck,
@@ -45,7 +46,6 @@ import {
 } from "./api";
 import { CheckInDialog } from "./check-in-dialog";
 import { GazetteerCredit } from "./credit";
-import { labelMeta, visibilityKey } from "./labels";
 import { PlaceBubble } from "./place-row";
 
 /** A friend counts as "here now" while their pin is this fresh. */
@@ -61,11 +61,7 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const { data, isPending, isError } = useQuery({
-    queryKey: placeKeys.place(placeId),
-    queryFn: () => placeClient().getPlace({ placeId }),
-    retry: false,
-  });
+  const { data, isPending, isError } = useQuery(placeQueries.place(placeClient, placeId));
   const place = data?.place;
   const center = toLatLng(place?.center);
   const mine = Boolean(place && place.ownerId === me?.user?.id);

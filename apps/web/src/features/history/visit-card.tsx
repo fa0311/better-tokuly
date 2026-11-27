@@ -1,47 +1,15 @@
 import { Link } from "@tanstack/react-router";
-import { type geo, toDate } from "@tokuly/api";
+import type { geo } from "@tokuly/api";
+import { visitEmoji, visitName, visitTimes } from "@tokuly/core/history";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
-import { placeEmoji } from "#/features/places";
-import { accountTimeZone, zonedDate } from "#/lib/account-time";
-import { compactDuration } from "#/lib/format";
+import { accountTimeZone } from "#/lib/account-time";
 
-/** The emoji a visit is drawn with: its place's, a tick for a check-in, footprints otherwise. */
-export const visitEmoji = (visit: geo.Visit): string =>
-  visit.place ? placeEmoji(visit.place) : visit.checkIn ? "✅" : "👣";
-
-/** What to call a visit: the place, else the name the server gave the spot. */
-export const visitName = (visit: geo.Visit): string =>
-  visit.place?.name || visit.name || visit.locality;
-
-const clock = (date: Date | undefined, language: string) =>
-  date?.toLocaleTimeString(language, {
-    timeZone: accountTimeZone(),
-    hour: "2-digit",
-    minute: "2-digit",
-  }) ?? "";
-
-/** "17:16–17:25・9分", "17:33〜 いまここ" or just the time of a check-in. */
+/** "17:16–17:25・9分", "17:33〜 いまここ" or just the time of a check-in, on the account's clock. */
 export function useVisitTimes(): (visit: geo.Visit) => string {
-  const { t, i18n } = useTranslation("history");
-  return (visit) => {
-    const arrivedAt = toDate(visit.arrivedAt);
-    const departed = toDate(visit.departedAt);
-    // A stay that began on an earlier day (a night at home) says which day.
-    const overnight =
-      arrivedAt &&
-      departed &&
-      zonedDate(arrivedAt.getTime(), accountTimeZone()) !==
-        zonedDate(departed.getTime(), accountTimeZone());
-    const arrived = `${overnight ? `${arrivedAt.toLocaleDateString(i18n.language, { timeZone: accountTimeZone(), month: "numeric", day: "numeric" })} ` : ""}${clock(arrivedAt, i18n.language)}`;
-    const seconds = Number(visit.durationSeconds);
-    if (departed)
-      return seconds >= 60
-        ? `${arrived}–${clock(departed, i18n.language)}・${compactDuration(seconds * 1000)}`
-        : arrived;
-    return visit.checkIn && seconds < 60 ? arrived : t("visit.ongoing", { time: arrived });
-  };
+  const { i18n } = useTranslation("history");
+  return (visit) => visitTimes(i18n, visit, accountTimeZone());
 }
 
 /** The body of a visit wherever one is listed: emoji, name, when, where, with whom, the check-in message. */

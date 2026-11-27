@@ -1,5 +1,5 @@
 import { geo, toMillis } from "@tokuly/api";
-import { distanceMeters } from "#/lib/format";
+import { distanceMeters } from "../format";
 
 /** A point of the day's route, flattened for drawing and replay. */
 export interface TrackPoint {

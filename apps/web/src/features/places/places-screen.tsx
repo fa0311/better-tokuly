@@ -1,6 +1,13 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, geo } from "@tokuly/api";
+import {
+  LABELS,
+  labelMeta,
+  placeQueries,
+  shownSuggestions,
+  suggestionMark,
+} from "@tokuly/core/places";
 import { MapPinCheck, Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,8 +24,7 @@ import { useMe } from "#/stores/session";
 import { currentPosition, type LatLng, placeClient, placeKeys, toLatLng } from "./api";
 import { CheckInDialog, type CheckInTarget } from "./check-in-dialog";
 import { GazetteerCredit } from "./credit";
-import { dismissSuggestion, readDismissed, suggestionMark } from "./dismissed";
-import { LABELS, labelMeta } from "./labels";
+import { dismissSuggestion, readDismissed } from "./dismissed";
 import { PlaceRow } from "./place-row";
 
 export type PlacesTab = "mine" | "saved" | "search";
@@ -85,10 +91,7 @@ export function PlacesScreen({ tab, query }: { tab: PlacesTab; query: string }) 
 
 function MyPlaces() {
   const { t } = useTranslation("places");
-  const { data, isPending } = useQuery({
-    queryKey: placeKeys.mine,
-    queryFn: () => placeClient().listMyPlaces({}),
-  });
+  const { data, isPending } = useQuery(placeQueries.mine(placeClient));
   if (isPending) {
     return (
       <div className="flex flex-col gap-3">
@@ -166,10 +169,7 @@ function Suggestions() {
   const queryClient = useQueryClient();
   const userId = useMe()?.user?.id ?? "";
   const [dismissed, setDismissed] = useState(() => readDismissed(userId));
-  const { data } = useQuery({
-    queryKey: placeKeys.suggestions,
-    queryFn: () => placeClient().listPlaceSuggestions({}),
-  });
+  const { data } = useQuery(placeQueries.suggestions(placeClient));
 
   const accept = useMutation({
     mutationFn: (suggestion: geo.PlaceSuggestion) =>
@@ -189,9 +189,7 @@ function Suggestions() {
   const dismiss = (suggestion: geo.PlaceSuggestion) =>
     setDismissed(dismissSuggestion(userId, suggestion, data?.suggestions ?? []));
 
-  const shown = (data?.suggestions ?? []).filter(
-    (suggestion) => suggestion.center && !dismissed.includes(suggestionMark(userId, suggestion)),
-  );
+  const shown = shownSuggestions(userId, data?.suggestions ?? [], dismissed);
   if (shown.length === 0) return null;
   return (
     <section aria-label={t("suggestions.title")}>
@@ -247,13 +245,7 @@ function Suggestions() {
 
 function SavedPlaces() {
   const { t } = useTranslation("places");
-  const query = useInfiniteQuery({
-    queryKey: placeKeys.saved,
-    queryFn: ({ pageParam }) =>
-      placeClient().listSavedPlaces({ page: { limit: 30, cursor: pageParam } }),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.page?.nextCursor || undefined,
-  });
+  const query = useInfiniteQuery(placeQueries.saved(placeClient));
   if (query.isPending) return <Skeleton className="h-20" />;
   const places = query.data?.pages.flatMap((page) => page.places) ?? [];
   if (places.length === 0)

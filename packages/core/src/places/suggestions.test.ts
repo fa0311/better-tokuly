@@ -1,7 +1,6 @@
 import { create, geo } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { opaqueHash } from "./device-memory";
-import { suggestionMark } from "./dismissed";
+import { opaqueHash, shownSuggestions, suggestionMark, withDismissed } from "./suggestions";
 
 describe("opaqueHash", () => {
   it("is stable, short and free of the text it came from", () => {
@@ -27,5 +26,22 @@ describe("suggestionMark", () => {
     expect(suggestionMark("a", suggestion(35.66, 139.7))).not.toBe(
       suggestionMark("a", suggestion(35.67, 139.7)),
     );
+  });
+});
+
+describe("withDismissed and shownSuggestions", () => {
+  const spot = (lat: number) => create(geo.PlaceSuggestionSchema, { center: { lat, lng: 139.7 } });
+
+  it("hides a spot put off, and forgets it once it is no longer suggested", () => {
+    const [a, b] = [spot(35.66), spot(35.7)];
+    const marks = withDismissed("u", [], a, [a, b]);
+    expect(shownSuggestions("u", [a, b], marks)).toEqual([b]);
+    // Another account on the device still sees it.
+    expect(shownSuggestions("v", [a, b], marks)).toEqual([a, b]);
+    expect(withDismissed("u", marks, b, [b])).toEqual([suggestionMark("u", b)]);
+  });
+
+  it("never shows a suggestion without a spot", () => {
+    expect(shownSuggestions("u", [create(geo.PlaceSuggestionSchema, {})], [])).toEqual([]);
   });
 });

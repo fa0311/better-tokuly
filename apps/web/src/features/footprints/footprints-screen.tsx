@@ -1,6 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Code, errorReason, geo, isApiError } from "@tokuly/api";
+import {
+  explorerLevel,
+  footprintQueries,
+  formatPercent,
+  levelUps,
+  regionLevel,
+} from "@tokuly/core/footprints";
 import { profileKeys } from "@tokuly/core/profile";
 import { Gift } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
@@ -23,7 +30,6 @@ import { footprintClient, footprintKeys, regionName } from "./api";
 import { celebrate } from "./celebrate";
 import { FootprintMap } from "./footprint-map";
 import { Leaderboard } from "./leaderboard";
-import { explorerLevel, formatPercent, levelUps, regionLevel } from "./levels";
 import { Meter } from "./meter";
 import { RecapDialog, RecapTeaser, useRecap } from "./recap";
 import { RegionList } from "./region-list";
@@ -46,10 +52,7 @@ function MyFootprints() {
   const [levelUp, setLevelUp] = useState<string | null>(null);
   const userId = useMe()?.user?.id ?? "";
 
-  const stats = useQuery({
-    queryKey: footprintKeys.stats(""),
-    queryFn: () => footprintClient().getStats({}),
-  });
+  const stats = useQuery(footprintQueries.stats(footprintClient));
   const recap = useRecap();
   // Where the map opens: where the person last was, else the area they know best.
   const location = useQuery({
@@ -268,11 +271,7 @@ function FriendFootprints({ userId }: { userId: string }) {
     queryFn: () => profileClient().getProfile({ by: { case: "userId", value: userId } }),
     retry: false,
   });
-  const stats = useQuery({
-    queryKey: footprintKeys.stats(userId),
-    queryFn: () => footprintClient().getStats({ userId }),
-    retry: false,
-  });
+  const stats = useQuery(footprintQueries.stats(footprintClient, userId));
   // Cells are for friends; whether we may have them is the server's call.
   const probe = useQuery({
     queryKey: [...footprintKeys.all, "visible", userId],

@@ -5,6 +5,7 @@
  *   formatPercent(0.0244)              // "0.024%": explored shares, readable however small
  *   <FootprintMap userId={id} center={{ lat, lng }} zoom={12} />   // the scratch map of a person (empty id = me)
  */
+
+export { formatPercent } from "@tokuly/core/footprints";
 export { celebrate } from "./celebrate";
 export { FootprintMap } from "./footprint-map";
-export { formatPercent } from "./levels";

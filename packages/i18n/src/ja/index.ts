@@ -9,13 +9,16 @@ import common from "./common";
 import community from "./community";
 import errors from "./errors";
 import follows from "./follows";
+import footprints from "./footprints";
 import friends from "./friends";
+import history from "./history";
 import live from "./live";
 import map from "./map";
 import mobile from "./mobile";
 import notelists from "./notelists";
 import notes from "./notes";
 import notifications from "./notifications";
+import places from "./places";
 import plans from "./plans";
 import profile from "./profile";
 import quest from "./quest";
@@ -50,6 +53,9 @@ export default {
   spaces,
   community,
   plans,
+  places,
+  history,
+  footprints,
   ask,
   quest,
   school,
