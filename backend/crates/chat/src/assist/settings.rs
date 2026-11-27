@@ -568,7 +568,9 @@ impl Chat {
     /// today's date, so a minor turning 18 does not start sharing (and
     /// nothing visible moves with a hidden birthday). A stored value, chosen
     /// or default, always wins. Idempotent: used for `identity.user.created`
-    /// and for values a lost event left unstored.
+    /// and for values a lost event left unstored. Today's birthdate stands
+    /// for the creation day's: sign-up asks for it, and the accounts from
+    /// before the question have the minors' value stored (migration 0601).
     pub(crate) async fn store_message_use_default(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, bool>> {
         let accounts: Vec<(Uuid, Option<chrono::NaiveDate>, DateTime<Utc>)> =
             sqlx::query_as("SELECT id, birthdate, created_at FROM users WHERE id = ANY($1)")
