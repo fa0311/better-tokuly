@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { notes, social, stamp } from "@tokuly/api";
+import { friendKeys } from "@tokuly/core/friends";
 import { Check, ChevronRight, Hash, Smile, UserPlus, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -108,7 +109,7 @@ function TrendingHashtags() {
 function PeopleYouMayKnow() {
   const { t } = useTranslation("search");
   const suggestions = useQuery({
-    queryKey: ["social", "suggestions", "explore"],
+    queryKey: friendKeys.suggestionList(8),
     queryFn: () => friendClient().listSuggestions({ limit: 8 }),
     retry: false,
   });
@@ -153,7 +154,7 @@ function PersonCard({ suggestion }: { suggestion: social.Suggestion }) {
       }),
     onSuccess: () => {
       toast.success(t("explore.requested"));
-      void queryClient.invalidateQueries({ queryKey: ["social", "requests"] });
+      void queryClient.invalidateQueries({ queryKey: friendKeys.requests });
     },
     onError: (error) => toast.error(errorMessage(error)),
   });

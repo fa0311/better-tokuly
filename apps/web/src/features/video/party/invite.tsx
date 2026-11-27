@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { social } from "@tokuly/api";
+import { friendKeys } from "@tokuly/core/friends";
 import { Check, Copy, Send } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
@@ -69,7 +70,7 @@ export function InviteDialog({
   }, [open, link]);
 
   const friends = useQuery({
-    queryKey: ["social", "friends", "list", ""],
+    queryKey: friendKeys.list(""),
     queryFn: () =>
       api()
         .service(social.FriendService)
