@@ -4,10 +4,11 @@
  * production build (`vite build` first): the scripts and styles the server
  * puts in the page (TanStack Start's route manifest: the root's, then those
  * of every route down to the one opened), compressed with gzip. On top of
- * that, a signed-in page waits for the background features and badge
- * sources (`background.tsx`, `badges.ts`: the chunks the layout's globs point to,
- * with what they import), counted on their own line. The hub page (`/me`)
- * also counts its cards (`features/<area>/hub-card.tsx`, fetched with it). Chunks
+ * that, a signed-in page waits for the background features (`background.tsx`:
+ * the chunks the layout's glob points to, with what they import), counted on
+ * their own line. The hub page (`/me`) also counts its cards and the sources of
+ * the badges its tiles show (`features/<area>/hub-card.tsx`, `badges.ts`,
+ * fetched with it). Chunks
  * a page imports while it runs (strings, a dialog) never hold up the first
  * render and are not counted.
  *
@@ -82,7 +83,7 @@ function closure(files) {
 }
 
 // The chunks behind the `import.meta.glob` maps over `features/*/<file>`, as built: the
-// signed-in layout's (`background.tsx`, `badges.ts`) and the hub page's (`hub-card.tsx`).
+// signed-in layout's (`background.tsx`) and the hub page's (`hub-card.tsx`, `badges.ts`).
 const assets = readdirSync(join(web, ".output/public/assets"))
   .filter((name) => name.endsWith(".js"))
   .map((name) => readFileSync(join(web, ".output/public/assets", name), "utf8"));
@@ -112,7 +113,7 @@ function globTargets(files) {
   }
   return targets;
 }
-const backgroundTargets = globTargets(["background.tsx", "badges.ts"]);
+const backgroundTargets = globTargets(["background.tsx"]);
 const shell = new Set([...own("__root__").js, ...own("/_app").js]);
 const backgroundFiles = [...closure(backgroundTargets)].filter((file) => !shell.has(file));
 const background = {
@@ -121,13 +122,13 @@ const background = {
   css: 0,
 };
 
-// The hub page fetches its cards with its own code: they count in its row.
+// The hub page fetches its cards and its tiles' badge sources with its own code: they count in its row.
 const HUB = "/_app/me";
 if (!routes[HUB]) throw new Error(`No route ${HUB} in the build: where did the hub go?`);
 function withCards(id, row) {
   if (id !== HUB) return row;
   const page = new Set(chain(id).flatMap((at) => own(at).js));
-  const cards = [...closure(globTargets(["hub-card.tsx"]))].filter(
+  const cards = [...closure(globTargets(["hub-card.tsx", "badges.ts"]))].filter(
     (file) => !page.has(file) && !backgroundFiles.includes(file),
   );
   return {

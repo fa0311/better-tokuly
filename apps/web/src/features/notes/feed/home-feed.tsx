@@ -5,8 +5,8 @@ import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import { onTimelineHint } from "../live";
 import { type TimelineHandle, TimelineSkeleton } from "../timeline";
+import { onTimelineHint } from "../timeline-hints";
 import { ActivityCardView } from "./activity-card";
 import { useHomeFeed } from "./api";
 

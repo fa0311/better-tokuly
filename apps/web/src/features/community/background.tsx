@@ -1,10 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
-import { applyCommunityEvent, communityKeys } from "@tokuly/core/community";
+import { communityKeys } from "@tokuly/core/community/keys";
 import { rereadListsAfterReconnect } from "@tokuly/core/query";
 import { lazy, useEffect } from "react";
-import { realtime } from "#/lib/realtime";
-import { boardClient } from "./api";
+import { onFramesLoading, realtime } from "#/lib/realtime";
 
 const CommunitySubjectCard = lazy(() =>
   import("./subject-card").then((module) => ({ default: module.CommunitySubjectCard })),
@@ -33,10 +32,13 @@ export default function CommunityBackground() {
 
   useEffect(() => {
     const client = realtime();
-    const off = client.onFrame((frame) => {
-      if (frame.body.case === "community")
-        applyCommunityEvent(queryClient, frame.body.value.event, boardClient);
-    });
+    const off = onFramesLoading("community", () =>
+      import("./frames").then(
+        ({ applyCommunityFrame }) =>
+          ({ event }) =>
+            applyCommunityFrame(queryClient, event),
+      ),
+    );
     // What changed while the connection was down was not announced: the lists on screen (my
     // communities, invitations, queues) are read again. An open community's boards read
     // themselves again when its topic is back (`CommunityLayout`).

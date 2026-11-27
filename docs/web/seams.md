@@ -32,7 +32,7 @@ export default [
 ] satisfies ProfileSection[];
 
 // src/features/ask/badges.ts — `useBadge("ask")` is then this hook's result everywhere.
-export default { ask: () => useAskBadge() } satisfies BadgeSources;
+export default (() => useAskBadge()) satisfies BadgeSource;
 ```
 
 ## Forgetting a person
@@ -48,7 +48,8 @@ an item is drops its lists and lets them load again.
 Badges are counts by key (`#/stores/badges`). A feature that already listens
 for the events that change its count calls `setBadge("chat", n)` from its
 `background.tsx`; one whose count simply follows its queries exports a hook
-from `badges.ts`. Tiles and navigation items name the key they show.
+from `badges.ts`, which counts the badge named after the area and starts the first
+time a screen shows it. Tiles and navigation items name the key they show.
 
 ## Navigation
 

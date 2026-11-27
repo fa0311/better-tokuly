@@ -1,4 +1,4 @@
-import type { BadgeSources } from "#/seams/badges";
+import type { BadgeSource } from "#/seams/badges";
 import { useSessionStatus } from "#/stores/session";
 import { useMyCommunities } from "./api";
 
@@ -20,4 +20,4 @@ function useCommunityBadge(): number {
   );
 }
 
-export default { community: useCommunityBadge } satisfies BadgeSources;
+export default useCommunityBadge satisfies BadgeSource;

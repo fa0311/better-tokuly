@@ -28,9 +28,9 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
 import { fetchTimeline, useDeletedNotes, useTimeline } from "./api";
-import { onTimelineHint } from "./live";
 import { NoteCard } from "./note-card";
 import { useScroller } from "./shell";
+import { onTimelineHint } from "./timeline-hints";
 
 /** What a page holding a timeline can ask of it. */
 export interface TimelineHandle {

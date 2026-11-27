@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { realtime } from "#/lib/realtime";
-import { patchVideoEverywhere, videoKeys } from "./api";
+import { onFramesLoading, realtime } from "#/lib/realtime";
 import { useSaveTarget } from "./save-target";
 
 const SaveDialogHost = lazy(() =>
@@ -19,17 +18,15 @@ export default function VideoBackground() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const client = realtime();
-    const offFrame = client.onFrame((frame) => {
-      if (frame.body.case !== "video" || frame.body.value.event.case !== "videoUpdated") return;
-      const summary = frame.body.value.event.value;
-      patchVideoEverywhere(queryClient, summary.id, () => summary);
-      // The full video (playback, studio details) and the filtered studio lists are read again.
-      void queryClient.invalidateQueries({ queryKey: videoKeys.videos });
-      void queryClient.invalidateQueries({ queryKey: videoKeys.studio });
-    });
-    client.start();
-    return offFrame;
+    const off = onFramesLoading("video", () =>
+      import("./frames").then(
+        ({ applyVideoEvent }) =>
+          ({ event }) =>
+            applyVideoEvent(queryClient, event),
+      ),
+    );
+    realtime().start();
+    return off;
   }, [queryClient]);
 
   // The dialog loads the first time a video is saved, and stays mounted so it can animate out.

@@ -1,9 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { toMillis } from "@tokuly/api";
-import { applyAskEvent, askKeys } from "@tokuly/core/ask";
+import { askKeys } from "@tokuly/core/ask/keys";
 import { useEffect } from "react";
-import { realtime } from "#/lib/realtime";
+import { onFramesLoading, realtime } from "#/lib/realtime";
 import { offerDraft, takePendingAsk } from "./guest-return";
 import { noteServerTime } from "./server-clock";
 
@@ -20,16 +20,25 @@ export default function AskBackground() {
 
   useEffect(() => {
     const client = realtime();
+    const offEvents = onFramesLoading("ask", () =>
+      import("./frames").then(
+        ({ applyAskEvent }) =>
+          ({ event }) =>
+            applyAskEvent(queryClient, event),
+      ),
+    );
     const offFrame = client.onFrame((frame) => {
-      if (frame.body.case === "ask") applyAskEvent(queryClient, frame.body.value.event);
-      else if (frame.body.case === "welcome") {
+      if (frame.body.case === "welcome") {
         noteServerTime(toMillis(frame.body.value.serverTime));
         // Pushes sent while there was no connection (or before this one was up) are lost: read again what is on screen.
         void queryClient.invalidateQueries({ queryKey: askKeys.all });
       } else if (frame.body.case === "pong") noteServerTime(toMillis(frame.body.value.serverTime));
     });
     client.start();
-    return offFrame;
+    return () => {
+      offEvents();
+      offFrame();
+    };
   }, [queryClient]);
 
   // Someone who wrote a question on `/q/<handle>` and then signed up (or in) goes back to that box.
