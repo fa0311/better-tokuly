@@ -1,0 +1,25 @@
+appId: app.tokuly.mobile
+name: Launch the app afresh, onto the welcome screen
+---
+# Every flow starts here: no data, no keychain, every permission allowed but the ones
+# the flow passes (LOCATION, MICROPHONE, BLUETOOTH, NOTIFICATIONS: allow, deny or unset).
+#
+# Clearing the data kills the app, and about a second later Android gives up waiting for
+# its old screen and kills the app's process again, whichever one it is by then. When the
+# new launch is quicker than that (one flow in twenty on CI's emulator), the fresh app dies
+# at start and the screen stays blank: then it is launched again.
+- clearKeychain
+- retry:
+    maxRetries: 2
+    commands:
+      - launchApp:
+          clearState: true
+          permissions:
+            all: allow
+            location: ${LOCATION || 'allow'}
+            microphone: ${MICROPHONE || 'allow'}
+            bluetooth: ${BLUETOOTH || 'allow'}
+            notifications: ${NOTIFICATIONS || 'allow'}
+      - extendedWaitUntil:
+          visible: { id: "welcome-screen" }
+          timeout: 60000

@@ -7,12 +7,7 @@ env:
 # The emulator has no camera: the story is a picture put in the library.
 - addMedia:
     - "../fixtures/story.jpg"
-- clearKeychain
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible: { id: "welcome-screen" }
-    timeout: 60000
+- runFlow: ../subflows/launch.yaml
 - tapOn: { id: "welcome-sign-in" }
 - runFlow:
     file: ../subflows/sign-in.yaml

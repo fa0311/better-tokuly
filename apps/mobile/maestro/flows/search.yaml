@@ -4,11 +4,7 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/search-people.js
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible: { id: "welcome-screen" }
-    timeout: 60000
+- runFlow: ../subflows/launch.yaml
 - tapOn: { id: "welcome-sign-in" }
 - tapOn: { id: "sign-in-identifier" }
 - inputText: ${output.me}

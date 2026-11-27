@@ -41,7 +41,9 @@ release APK for the emulator and runs them against the Compose stack.
 | `web-screens` | opens a web-only feature from 「もっと見る」 and sees it signed in |
 
 Each flow makes its own accounts and data through the API (`maestro/scripts`), and waits
-for the server's state, not for time. What a flow taps it first scrolls into view
+for the server's state, not for time. Each starts the app afresh through `subflows/launch.yaml`,
+which launches it again when it dies at start (Android's clean-up after clearing its data
+can kill a quick new launch). What a flow taps it first scrolls into view
 (`subflows/tap-in-view.yaml`): screens grow, and a tap does not scroll. CI's emulator is the
 same Pixel 6 as the local one (`tools/agent/android.sh`); a change to a
 layout also runs its flows on the smallest phone the app is laid out for,

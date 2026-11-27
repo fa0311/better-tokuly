@@ -5,11 +5,7 @@ env:
 ---
 # A café, a walk and a park in the last half hour: new cells to see.
 - runScript: ../scripts/history-day.js
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible: { id: "welcome-screen" }
-    timeout: 60000
+- runFlow: ../subflows/launch.yaml
 - tapOn: { id: "welcome-sign-in" }
 - runFlow:
     file: ../subflows/sign-in.yaml
