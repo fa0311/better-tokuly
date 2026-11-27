@@ -27,9 +27,8 @@ use crate::{
     delivery::PushJob,
     edits::{self, COMMENT_EDITED_TOPIC},
     events::{
-        FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC, USER_CREATED_TOPIC, USER_DELETED_TOPIC,
-        USER_UNBLOCKED_TOPIC,
-        UserCreated, UserDeleted,
+        BIRTHDATE_GIVEN_TOPIC, BirthdateGiven, FRIEND_PREFS_CHANGED_TOPIC, FriendPrefsChanged, USER_BLOCKED_TOPIC,
+        USER_CREATED_TOPIC, USER_DELETED_TOPIC, USER_UNBLOCKED_TOPIC, UserCreated, UserDeleted,
     },
     inbox::{self, NewNotification, NotificationRow},
     locks,
@@ -46,6 +45,7 @@ pub const TOPICS: &[&str] = &[
     NOTIFY_TOPIC,
     FRIEND_PREFS_CHANGED_TOPIC,
     USER_CREATED_TOPIC,
+    BIRTHDATE_GIVEN_TOPIC,
     USER_DELETED_TOPIC,
     USER_BLOCKED_TOPIC,
     USER_UNBLOCKED_TOPIC,
@@ -236,7 +236,15 @@ impl Notify {
             // What a new account's pushes show starts out by its age.
             USER_CREATED_TOPIC => {
                 let created: UserCreated = event.data()?;
-                preferences::set_initial_push_preview(&self.core, created.user_id).await
+                preferences::set_initial_push_preview(&self.core, created.user_id, created.minor).await
+            }
+            // ...or by the age on the day it gave its birthdate, if later.
+            BIRTHDATE_GIVEN_TOPIC => {
+                let given: BirthdateGiven = event.data()?;
+                match given.minor {
+                    true => preferences::apply_minor_push_preview(&self.core, given.user_id).await,
+                    false => Ok(()),
+                }
             }
             USER_DELETED_TOPIC => {
                 let deleted: UserDeleted = event.data()?;
