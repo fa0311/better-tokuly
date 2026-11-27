@@ -1,8 +1,6 @@
 import { FlashList } from "@shopify/flash-list";
-import type { social } from "@tokuly/api";
-import { mutualFriendsOf } from "@tokuly/core/friends";
+import { requestNote } from "@tokuly/core/friends";
 import { Link } from "expo-router";
-import type { TFunction } from "i18next";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, TextInput, View } from "react-native";
@@ -86,7 +84,7 @@ function FriendList() {
 }
 
 function RequestLists() {
-  const { t } = useTranslation("friends");
+  const { t, i18n } = useTranslation("friends");
   const incoming = useIncomingRequests();
   const outgoing = useOutgoingRequests();
   if (incoming.isPending || outgoing.isPending) return <Spinner />;
@@ -124,25 +122,11 @@ function RequestLists() {
           );
         const user = item.kind === "incoming" ? item.request.from : item.request.to;
         return (
-          <PersonRow user={user} note={requestDetail(t, item.request)}>
+          <PersonRow user={user} note={requestNote(i18n, item.request)}>
             <RequestActions request={item.request} incoming={item.kind === "incoming"} />
           </PersonRow>
         );
       }}
     />
   );
-}
-
-/** Under a friend request: its message, and whom both know (shown with names when the server sent them). */
-function requestDetail(t: TFunction<"friends">, request: social.FriendRequest): string | undefined {
-  const mutual = mutualFriendsOf(request);
-  const names = mutual?.names.join(t("requests.nameSeparator"));
-  const line = !mutual
-    ? undefined
-    : !names
-      ? t("requests.mutual", { count: request.mutualFriendCount })
-      : mutual.more > 0
-        ? t("requests.mutualNamedMore", { names, count: mutual.more })
-        : t("requests.mutualNamed", { names });
-  return [request.message, line].filter(Boolean).join(" · ") || undefined;
 }
