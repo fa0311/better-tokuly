@@ -143,3 +143,13 @@ export function rememberFlame(queryClient: QueryClient, flame: ask.Flame): void 
       : data,
   );
 }
+
+/**
+ * What waits in the question box and the flames inbox, for a badge on the
+ * way in. With `enabled` off nothing is asked and the count is 0.
+ */
+export function useAskBadge(enabled = true): number {
+  const counts = useInboxCounts(enabled).data;
+  const flames = useFlameSummary(enabled).data;
+  return (counts?.unread ?? 0) + (flames?.unseen ?? 0);
+}

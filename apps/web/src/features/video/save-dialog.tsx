@@ -5,7 +5,6 @@ import { Check, Clock3, ListVideo, Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { create } from "zustand";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
@@ -15,16 +14,9 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { playlistClient, videoKeys } from "./api";
 import { PLAYLIST_VISIBILITIES } from "./labels";
+import { useSaveTarget } from "./save-target";
 
 const { PlaylistKind } = video;
-
-/** The video being saved; the dialog is open while one is set. */
-const useSaveTarget = create<{ video: video.VideoSummary | null }>(() => ({ video: null }));
-
-/** Opens "save to…" for a video, from anywhere in the app. */
-export function openSaveDialog(summary: video.VideoSummary): void {
-  useSaveTarget.setState({ video: summary });
-}
 
 /**
  * The one "save to…" dialog of the app: the viewer's playlists with a tick

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LibraryScreen, validateLibrarySearch } from "#/features/stamps/library-screen";
+import { LibraryScreen } from "#/features/stamps/library-screen";
+import { validateLibrarySearch } from "#/features/stamps/library-search";
 
 export const Route = createFileRoute("/_app/stamps/library")({
   // `/stamps/library?tab=log` opens a tab directly.

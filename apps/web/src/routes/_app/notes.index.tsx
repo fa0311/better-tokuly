@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { NotesScreen, parseNotesSearch } from "#/features/notes/notes-screen";
+import { NotesScreen } from "#/features/notes/notes-screen";
+import { parseNotesSearch } from "#/features/notes/notes-search";
 import { StoryTray } from "#/features/stories";
 
 /** The notes home. `?tab=home|global|mentions|feed` selects a timeline, so going back returns to it. */

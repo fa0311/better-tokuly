@@ -1,11 +1,5 @@
 import { search } from "@tokuly/api";
-
-/** Result orders the API offers besides relevance, by their name in an address. */
-export const SORTS = ["newest", "popular"] as const;
-export type Sort = (typeof SORTS)[number];
-
-/** Longest query the API accepts. */
-export const MAX_QUERY_LENGTH = 100;
+import type { Sort } from "./params";
 
 export function sortValue(sort: Sort | undefined): search.SearchSort {
   if (sort === "newest") return search.SearchSort.NEWEST;

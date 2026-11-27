@@ -21,6 +21,6 @@
  * `useFriendStreams()` is the streams of the signed-in person's friends
  * (friends-only ones included), on air first.
  */
-export { useFriendStreams } from "./browse-screen";
+export { useFriendStreams } from "./api";
 export { ClipCard, ClipStrip } from "./clips/clip-list";
 export { LiveMark, StreamCard, StreamCardSkeleton, StreamGrid } from "./parts";

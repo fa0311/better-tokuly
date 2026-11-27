@@ -29,9 +29,6 @@ export const methodPath = (service: string, method: string) => `/${service}/${me
 /** Where a method is called: the web origin, the API prefix, the method's path. */
 export const methodUrl = (path: string) => `${window.location.origin}${API_PATH}${path}`;
 
-/** `tokuly.notes.v1.NoteService` → `NoteService`. */
-export const serviceShortName = (service: string) => service.slice(service.lastIndexOf(".") + 1);
-
 export interface DomainGroup {
   domain: string;
   services: dev.ApiService[];

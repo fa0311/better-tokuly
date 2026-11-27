@@ -20,7 +20,6 @@ import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import { flagClient } from "../api";
 import { formatDateTime } from "../format";
-import { parseText } from "../params";
 import { ConsolePage } from "../ui/console-page";
 import { type Column, DataTable } from "../ui/data-table";
 import { SearchBox } from "../ui/filters";
@@ -29,16 +28,7 @@ import { ErrorState, RowsSkeleton } from "../ui/states";
 import { Toggle } from "../ui/toggle";
 import { EvaluatePanel } from "./evaluate-panel";
 import { FlagDialog } from "./flag-dialog";
-
-export interface FlagsSearch {
-  q?: string;
-  /** The account the "evaluate for a user" panel is showing. */
-  evaluate?: string;
-}
-
-export function parseFlagsSearch(search: Record<string, unknown>): FlagsSearch {
-  return { q: parseText(search.q), evaluate: parseText(search.evaluate) };
-}
+import type { FlagsSearch } from "./flags-search";
 
 type FlagPages = InfiniteData<admin.ListFlagsResponse>;
 

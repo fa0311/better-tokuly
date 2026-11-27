@@ -35,3 +35,12 @@ const friendClient = () => api().service(social.FriendService);
 export function useBlockedIds(enabled: boolean) {
   return useQuery({ ...liveQueries.blocked(friendClient), enabled });
 }
+
+/** Friends' streams (friends-only ones included): on air first, then the scheduled ones. */
+export function useFriendStreams() {
+  return useQuery({
+    queryKey: liveKeys.friends,
+    queryFn: async () => (await streamClient().listFriendStreams({ page: { limit: 20 } })).streams,
+    staleTime: 30_000,
+  });
+}

@@ -1,5 +1,6 @@
 import type { LinkProps } from "@tanstack/react-router";
 import type { ComponentType } from "react";
+import { namespacesOf } from "#/lib/i18n";
 
 /**
  * Staff console sections: the entries of the console's navigation (`/admin`)
@@ -14,7 +15,7 @@ import type { ComponentType } from "react";
  *     to: "/admin/emoji",
  *     icon: SmilePlus,
  *     needs: "moderator",
- *     label: () => i18n.t("admin:nav.emoji"),
+ *     label: "admin:nav.emoji",
  *   } satisfies AdminSection;
  */
 export interface AdminSection {
@@ -25,7 +26,8 @@ export interface AdminSection {
   icon: ComponentType<{ className?: string }>;
   /** The access the section's API asks for. */
   needs: "staff" | "moderator" | "admin";
-  label(): string;
+  /** The key of the entry's name, with its namespace: `"admin:nav.emoji"`. */
+  label: string;
 }
 
 const modules = import.meta.glob<{ default: AdminSection | AdminSection[] }>(
@@ -37,3 +39,6 @@ const modules = import.meta.glob<{ default: AdminSection | AdminSection[] }>(
 export const ADMIN_SECTIONS: AdminSection[] = Object.values(modules)
   .flatMap((module) => module.default)
   .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+
+/** What `useTranslation` loads before the entries' names show. */
+export const ADMIN_NAMESPACES = namespacesOf(ADMIN_SECTIONS.map((section) => section.label));

@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { AdminWalletScreen } from "#/features/wallet/admin/admin-wallet-screen";
 import {
-  AdminWalletScreen,
   STAFF_TABS,
   type StaffTab,
   type StaffWalletSearch,
-} from "#/features/wallet/admin/admin-wallet-screen";
+} from "#/features/wallet/admin/admin-wallet-search";
 
 export const Route = createFileRoute("/_app/admin/wallet")({
   // The open tab, account and payout request live in the address:

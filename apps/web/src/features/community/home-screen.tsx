@@ -6,24 +6,13 @@ import { Tabs } from "#/components/ui/tabs";
 import { EmojiText } from "#/features/emoji";
 import { Facts, Rules } from "./about";
 import { NS, useAnnouncements } from "./api";
-import { type BoardSearch, Boards, parseBoardSearch } from "./boards";
+import { Boards } from "./boards";
 import { useCurrentCommunity } from "./context";
 import { EventsTab } from "./events";
 import { CommunityHeader } from "./header";
+import { HOME_TABS, type HomeSearch } from "./home-search";
 import { MembersTab } from "./members";
 import { ThreadCard } from "./thread-card";
-
-const TABS = ["boards", "events", "news", "members", "about"] as const;
-export type HomeTab = (typeof TABS)[number];
-
-export interface HomeSearch extends BoardSearch {
-  tab?: HomeTab;
-}
-
-export function parseHomeSearch(search: Record<string, unknown>): HomeSearch {
-  const tab = TABS.find((each) => each === search.tab);
-  return { ...parseBoardSearch(search), tab: tab === "boards" ? undefined : tab };
-}
 
 /** A community's front page: the header, then its boards, events, announcements, members and rules. */
 export function HomeScreen({
@@ -37,7 +26,7 @@ export function HomeScreen({
   const c = useCurrentCommunity();
   const tab = search.tab ?? "boards";
   // The directory is for members; everything else follows the community.
-  const tabs = TABS.filter((each) => each !== "members" || isMember(c));
+  const tabs = HOME_TABS.filter((each) => each !== "members" || isMember(c));
   return (
     <Page title={<EmojiText text={c.name} />} back="/communities" wide>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">

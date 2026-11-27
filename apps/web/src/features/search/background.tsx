@@ -1,6 +1,9 @@
-import { useEffect } from "react";
-import { QuickSearch, toggleQuickSearch } from "./quick-search";
-import { SEARCH_BOX_ATTRIBUTE } from "./search-box";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { SEARCH_BOX_ATTRIBUTE, toggleQuickSearch, usePalette } from "./palette";
+
+const QuickSearch = lazy(() =>
+  import("./quick-search").then((module) => ({ default: module.QuickSearch })),
+);
 
 /** Whether a key press belongs to something that is being typed into. */
 function isTyping(target: EventTarget | null): boolean {
@@ -22,9 +25,21 @@ function dialogOpen(): boolean {
  * the shortcuts put the cursor there instead.
  */
 export default function SearchBackground() {
+  // The palette loads the first time it opens, and stays mounted so it can animate out.
+  const open = usePalette((state) => state.open);
+  const [opened, setOpened] = useState(false);
+  if (open && !opened) setOpened(true);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.repeat) return;
+      // The first opening waits for the palette's code: what is typed meanwhile is its query.
+      const loading =
+        usePalette.getState().open && document.querySelector("[data-quick-search]") === null;
+      if (loading && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        usePalette.setState((state) => ({ query: state.query + event.key }));
+        return;
+      }
       const commandK =
         event.key.toLowerCase() === "k" &&
         (event.metaKey || event.ctrlKey) &&
@@ -52,5 +67,11 @@ export default function SearchBackground() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-  return <QuickSearch />;
+  return (
+    opened && (
+      <Suspense fallback={null}>
+        <QuickSearch />
+      </Suspense>
+    )
+  );
 }

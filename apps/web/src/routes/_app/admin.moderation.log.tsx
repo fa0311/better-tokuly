@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "#/features/admin/console-layout";
-import { ModerationLogScreen, parseLogSearch } from "#/features/admin/moderation/log-screen";
+import { ModerationLogScreen } from "#/features/admin/moderation/log-screen";
+import { parseLogSearch } from "#/features/admin/moderation/log-search";
 
 export const Route = createFileRoute("/_app/admin/moderation/log")({
   validateSearch: parseLogSearch,

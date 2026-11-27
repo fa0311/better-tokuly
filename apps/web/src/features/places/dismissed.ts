@@ -1,6 +1,6 @@
 import type { geo } from "@tokuly/api";
 import { withDismissed } from "@tokuly/core/places";
-import { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "./device-memory";
+import { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "#/lib/device-memory";
 
 /**
  * Suggestions the person answered "not now". The server keeps suggesting a

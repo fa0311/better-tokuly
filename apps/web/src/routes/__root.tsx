@@ -11,7 +11,13 @@ import { I18nextProvider } from "react-i18next";
 import { Toaster } from "sonner";
 import { PWA_LINKS, PWA_META } from "#/features/pwa/head";
 import { BOOT_SCRIPT } from "#/lib/appearance";
-import i18n, { createI18n, type Language, normalizeLanguage } from "#/lib/i18n";
+import i18n, {
+  createI18n,
+  type Language,
+  loadAllStrings,
+  normalizeLanguage,
+  stopSuspendingForStrings,
+} from "#/lib/i18n";
 import { getRequestLanguage } from "#/lib/request-language";
 import { startSession } from "#/stores/session";
 import appCss from "../styles.css?url";
@@ -19,7 +25,11 @@ import appCss from "../styles.css?url";
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   // Decided once per page load on the server and handed to the client, so
   // both render the same language.
-  loader: async () => ({ language: await getRequestLanguage() }),
+  loader: async () => {
+    // The server holds every string before it renders; the browser loads what it shows.
+    if (import.meta.env.SSR) await loadAllStrings();
+    return { language: await getRequestLanguage() };
+  },
   staleTime: Number.POSITIVE_INFINITY,
   head: () => ({
     meta: [
@@ -136,6 +146,7 @@ function useIsPhone(): boolean {
 function RootComponent() {
   const phone = useIsPhone();
   useEffect(() => {
+    stopSuspendingForStrings();
     startSession();
   }, []);
   return (

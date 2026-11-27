@@ -22,20 +22,10 @@ import { errorMessage } from "#/lib/errors";
 import { useHideTabBar } from "#/stores/shell";
 import { useShort } from "../api";
 import { type FeedEntry, listQuery } from "../lists";
+import { FEED_TABS, type FeedSearch, type FeedTab } from "./feed-search";
 import { ShortPager } from "./pager";
 import { setFeedMuted, useFeedSound } from "./use-short-video";
 import { type FeedWindow, moveWindow, type PageInWindow } from "./window";
-
-export const FEED_TABS = ["forYou", "following", "friends"] as const;
-export type FeedTab = (typeof FEED_TABS)[number];
-
-export interface FeedSearch {
-  tab?: Exclude<FeedTab, "forYou">;
-}
-
-export function validateFeedSearch(search: Record<string, unknown>): FeedSearch {
-  return search.tab === "following" || search.tab === "friends" ? { tab: search.tab } : {};
-}
 
 /** Where the viewer was in each feed, so coming back from a hashtag page lands on the same short. */
 const positions = new Map<string, number>();

@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router";
+import { Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { CountBadge } from "#/components/ui/badge";
 import { useStaffAccess } from "#/features/admin";
 import { cn } from "#/lib/cn";
-import { type HubTile, hubSections } from "#/seams/hub";
+import { HUB_NAMESPACES, type HubTile, hubSections } from "#/seams/hub";
 import { useBadge } from "#/stores/badges";
 
 /**
@@ -14,14 +15,25 @@ import { useBadge } from "#/stores/badges";
  * - `page`: the hub page — roomy rows, and a feature's own card where it has one;
  * - `launcher`: an app drawer of icons, for a sheet over whatever page is open.
  */
-export function HubSections({
-  variant,
-  onNavigate,
-}: {
+export function HubSections(props: HubSectionsProps) {
+  // The page shows its cards with the tiles, so nothing moves when a card arrives.
+  if (props.variant === "page") {
+    return (
+      <Suspense fallback={null}>
+        <Sections {...props} />
+      </Suspense>
+    );
+  }
+  return <Sections {...props} />;
+}
+
+interface HubSectionsProps {
   variant: "page" | "launcher";
   /** Called when a tile is followed (the launcher closes itself). */
   onNavigate?(): void;
-}) {
+}
+
+function Sections({ variant, onNavigate }: HubSectionsProps) {
   // The section titles follow the language; the tiles' own labels are read while rendering.
   const { t } = useTranslation("common");
   const isStaff = useStaffAccess().staff;
@@ -83,8 +95,15 @@ function IconBubble({ tile, className }: { tile: HubTile; className?: string }) 
   );
 }
 
+/** The tile's name; empty for the moment its namespace takes to load. */
+function useTileName(tile: HubTile): string {
+  const { t } = useTranslation(HUB_NAMESPACES, { useSuspense: false });
+  return t(tile.label);
+}
+
 function PageTile({ tile }: { tile: HubTile }) {
   const count = useBadge(tile.badge);
+  const name = useTileName(tile);
   return (
     <Link
       to={tile.to}
@@ -95,7 +114,7 @@ function PageTile({ tile }: { tile: HubTile }) {
         <CountBadge count={count} className="absolute -top-1.5 -right-1.5" />
       </span>
       <span className="line-clamp-2 min-w-0 flex-1 text-[15px] leading-tight font-black">
-        {tile.label()}
+        {name}
       </span>
     </Link>
   );
@@ -103,6 +122,7 @@ function PageTile({ tile }: { tile: HubTile }) {
 
 function LauncherTile({ tile, onNavigate }: { tile: HubTile; onNavigate?(): void }) {
   const count = useBadge(tile.badge);
+  const name = useTileName(tile);
   return (
     <Link
       to={tile.to}
@@ -114,7 +134,7 @@ function LauncherTile({ tile, onNavigate }: { tile: HubTile; onNavigate?(): void
         <CountBadge count={count} className="absolute -top-1.5 -right-1.5" />
       </span>
       <span className="line-clamp-2 w-full text-[11px] leading-tight font-bold [overflow-wrap:anywhere]">
-        {tile.label()}
+        {name}
       </span>
     </Link>
   );

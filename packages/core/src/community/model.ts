@@ -1,4 +1,5 @@
 import { type common, community } from "@tokuly/api";
+import type { CategoryKey } from "./categories";
 
 /**
  * Pure rules of the community screens: what a viewer may do (always read
@@ -127,16 +128,17 @@ export function inviteCodeOf(input: string): string {
 const C = community.CommunityCategory;
 
 /** The categories people choose from, in display order, with the emoji that stands for each. */
-export const CATEGORIES: { value: community.CommunityCategory; key: string; emoji: string }[] = [
-  { value: C.SCHOOL, key: "school", emoji: "🏫" },
-  { value: C.CLUB, key: "club", emoji: "🎽" },
-  { value: C.GAME, key: "game", emoji: "🎮" },
-  { value: C.OSHI, key: "oshi", emoji: "💖" },
-  { value: C.LOCAL, key: "local", emoji: "🏘️" },
-  { value: C.STUDY, key: "study", emoji: "📚" },
-  { value: C.TECH, key: "tech", emoji: "💻" },
-  { value: C.OTHER, key: "other", emoji: "✨" },
-];
+export const CATEGORIES: { value: community.CommunityCategory; key: CategoryKey; emoji: string }[] =
+  [
+    { value: C.SCHOOL, key: "school", emoji: "🏫" },
+    { value: C.CLUB, key: "club", emoji: "🎽" },
+    { value: C.GAME, key: "game", emoji: "🎮" },
+    { value: C.OSHI, key: "oshi", emoji: "💖" },
+    { value: C.LOCAL, key: "local", emoji: "🏘️" },
+    { value: C.STUDY, key: "study", emoji: "📚" },
+    { value: C.TECH, key: "tech", emoji: "💻" },
+    { value: C.OTHER, key: "other", emoji: "✨" },
+  ];
 
 export function categoryOf(value: community.CommunityCategory) {
   return CATEGORIES.find((category) => category.value === value) ?? CATEGORIES[7]!;

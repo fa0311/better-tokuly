@@ -1,9 +1,6 @@
 // What the update log shares with other features (the admin console previews announcements with these).
-export {
-  ANNOUNCEMENT_CATEGORIES,
-  type AnnouncementCategory,
-  categoryKey as announcementCategoryKey,
-} from "./api";
+export { categoryKey as announcementCategoryKey } from "./api";
+export { ANNOUNCEMENT_CATEGORIES, type AnnouncementCategory } from "./categories";
 export { markdownExcerpt } from "./markdown";
 export { Markdown } from "./markdown-view";
 export {

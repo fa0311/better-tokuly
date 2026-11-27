@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, useEffect } from "react";
 import { setBadge } from "#/stores/badges";
 
 /**
@@ -12,15 +12,23 @@ import { setBadge } from "#/stores/badges";
  *   export default { ask: useAskBadge } satisfies BadgeSources;
  *
  * A hook must be cheap on every page: one query that realtime events keep
- * current, never polling.
+ * current, never polling. Each file is its own chunk, loaded with the
+ * background features.
  */
 export type BadgeSources = Record<string, () => number>;
 
-const modules = import.meta.glob<{ default: BadgeSources }>("../features/*/badges.ts", {
-  eager: true,
-});
+const RUNNERS = Object.entries(
+  import.meta.glob<{ default: BadgeSources }>("../features/*/badges.ts"),
+).map(([path, load]) => ({
+  path,
+  Runner: lazy(() => load().then((module) => ({ default: () => <Sources of={module.default} /> }))),
+}));
 
-const SOURCES = Object.values(modules).flatMap((module) => Object.entries(module.default));
+function Sources({ of }: { of: BadgeSources }) {
+  return Object.entries(of).map(([badge, useCount]) => (
+    <Source key={badge} badge={badge} useCount={useCount} />
+  ));
+}
 
 function Source({ badge, useCount }: { badge: string; useCount: () => number }) {
   const count = useCount();
@@ -30,9 +38,7 @@ function Source({ badge, useCount }: { badge: string; useCount: () => number }) 
   return null;
 }
 
-/** Runs every badge source; mounted once inside the signed-in layout. */
+/** Runs every badge source; mounted once inside the signed-in layout (suspends until loaded). */
 export function BadgeSourceRunner() {
-  return SOURCES.map(([badge, useCount]) => (
-    <Source key={badge} badge={badge} useCount={useCount} />
-  ));
+  return RUNNERS.map(({ path, Runner }) => <Runner key={path} />);
 }

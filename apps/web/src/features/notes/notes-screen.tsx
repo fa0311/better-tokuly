@@ -17,18 +17,10 @@ import { Tabs } from "#/components/ui/tabs";
 import { openCompose } from "./compose-store";
 import { useHomeFeed } from "./feed/api";
 import { HomeFeed, hasMoreThanNotes } from "./feed/home-feed";
+import type { NotesTab } from "./notes-search";
 import { ComposeButton, NotesPage, useScroller } from "./shell";
 import { Timeline, type TimelineHandle, TimelineSkeleton } from "./timeline";
 import { TrendingHashtags, TrendingNotes } from "./trending";
-
-export const NOTES_TABS = ["feed", "home", "following", "global", "mentions"] as const;
-export type NotesTab = (typeof NOTES_TABS)[number];
-
-/** Reads `/notes?tab=…`; anything else means "the default tab". */
-export function parseNotesSearch(search: Record<string, unknown>): { tab?: NotesTab } {
-  const tab = NOTES_TABS.find((value) => value === search.tab);
-  return tab ? { tab } : {};
-}
 
 /**
  * The notes home: the mixed feed of what friends posted and did (when there

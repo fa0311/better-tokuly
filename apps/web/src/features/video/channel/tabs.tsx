@@ -1,6 +1,5 @@
 import type { video } from "@tokuly/api";
 import type { ComponentType } from "react";
-import i18n from "#/lib/i18n";
 import { ChannelAbout } from "./channel-about";
 import { ChannelPlaylists } from "./channel-playlists";
 import { ChannelSubscribers } from "./channel-subscribers";
@@ -17,7 +16,7 @@ import { ChannelVideos } from "./channel-videos";
  *   export default {
  *     id: "shorts",
  *     order: 20,
- *     label: () => i18n.t("shorts:channelTab"),
+ *     label: "shorts:channelTab",
  *     Component: ({ channel }) => <ChannelShorts channelId={channel.summary?.id ?? ""} />,
  *   } satisfies ChannelTab;
  */
@@ -25,14 +24,14 @@ export interface ChannelTab {
   /** The path segment after the handle; letters, digits and dashes. */
   id: string;
   order: number;
-  /** The tab's name in the current language. */
-  label(): string;
+  /** The key of the tab's name, with its namespace: `"shorts:channelTab"`. */
+  label: string;
   /** Only the channel's owner sees the tab. */
   ownerOnly?: boolean;
   Component: ComponentType<{ channel: video.Channel }>;
 }
 
-const label = (key: string) => () => i18n.t(`channel.tabs.${key}`, { ns: "video" });
+const label = (key: string) => `video:channel.tabs.${key}`;
 
 const OWN: ChannelTab[] = [
   { id: "videos", order: 10, label: label("videos"), Component: ChannelVideos },

@@ -7,6 +7,8 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
+    "./language": "./src/language.ts",
+    "./load": "./src/load.ts",
     "./ja/*": "./src/ja/*.ts",
     "./en/*": "./src/en/*.ts"
   },

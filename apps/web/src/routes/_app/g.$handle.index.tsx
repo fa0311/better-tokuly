@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { HomeScreen, parseHomeSearch } from "#/features/community/home-screen";
+import { HomeScreen } from "#/features/community/home-screen";
+import { parseHomeSearch } from "#/features/community/home-search";
 
 /** `/g/<handle>`: the community's front page: boards, events, announcements, members, about. */
 export const Route = createFileRoute("/_app/g/$handle/")({

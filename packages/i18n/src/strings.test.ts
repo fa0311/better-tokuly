@@ -20,6 +20,11 @@ function at(strings: unknown, path: string): string {
     .reduce<unknown>((node, key) => (node as Record<string, unknown>)[key], strings) as string;
 }
 
+it("lists every namespace for loading one at a time", () => {
+  expect([...NAMESPACES].sort()).toEqual(Object.keys(ja).sort());
+  expect(Object.keys(en).sort()).toEqual(Object.keys(ja).sort());
+});
+
 describe.each(NAMESPACES)("%s strings", (namespace) => {
   it("has the same keys in Japanese and English", () => {
     expect(paths(en[namespace]).sort()).toEqual(paths(ja[namespace]).sort());

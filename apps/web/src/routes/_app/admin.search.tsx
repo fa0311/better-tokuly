@@ -1,9 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  AdminSearchScreen,
-  STAFF_TABS,
-  type StaffTab,
-} from "#/features/search/admin/admin-search-screen";
+import { AdminSearchScreen } from "#/features/search/admin/admin-search-screen";
+import { STAFF_TABS, type StaffTab } from "#/features/search/admin/admin-search-search";
 
 export const Route = createFileRoute("/_app/admin/search")({
   // The open tab lives in the address: `/admin/search?tab=blocked`.

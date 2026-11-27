@@ -1,9 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  CommentModerationScreen,
-  MODERATION_TABS,
-  type ModerationTab,
-} from "#/features/comments/moderation-screen";
+import { CommentModerationScreen } from "#/features/comments/moderation-screen";
+import { MODERATION_TABS, type ModerationTab } from "#/features/comments/moderation-search";
 
 /** The comment manager. `?tab=` keeps the open tab in the address, so going back returns to it. */
 export const Route = createFileRoute("/_app/settings/comments")({

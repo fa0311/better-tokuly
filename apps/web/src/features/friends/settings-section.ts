@@ -1,5 +1,5 @@
 import { Lock } from "lucide-react";
-import i18n from "#/lib/i18n";
+import { useTranslation } from "react-i18next";
 import type { SettingsSection } from "#/seams/settings";
 import { useFollowRequestCount } from "./follow-data";
 
@@ -10,10 +10,11 @@ export default {
   to: "/settings/follows",
   icon: Lock,
   tint: "bg-mint text-[#17122b]",
-  title: () => i18n.t("follows:settingsRow.title"),
-  hint: () => i18n.t("follows:settingsRow.hint"),
+  title: "follows:settingsRow.title",
+  hint: "follows:settingsRow.hint",
   useAttention: () => {
+    const { t } = useTranslation("follows");
     const waiting = useFollowRequestCount();
-    return waiting > 0 ? i18n.t("follows:settingsRow.waiting", { count: waiting }) : undefined;
+    return waiting > 0 ? t("settingsRow.waiting", { count: waiting }) : undefined;
   },
 } satisfies SettingsSection;

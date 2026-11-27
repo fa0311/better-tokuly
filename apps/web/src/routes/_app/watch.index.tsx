@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { FeedsScreen, validateFeedSearch } from "#/features/video/feeds-screen";
+import { validateFeedSearch } from "@tokuly/core/video/search";
+import { FeedsScreen } from "#/features/video/feeds-screen";
 
 /** The video feeds. The open feed and genre live in the address: `/watch?feed=trending&category=1`. */
 export const Route = createFileRoute("/_app/watch/")({

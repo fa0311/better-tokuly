@@ -25,30 +25,11 @@ import {
   useMyReactions,
   useUnreact,
 } from "./api";
-import {
-  COLLECTION_NAME_MAX,
-  openCollectionChooser,
-  useCollectionName,
-} from "./collection-chooser";
+import type { BookmarksSearch, BookmarksTab } from "./bookmarks-search";
+import { COLLECTION_NAME_MAX, useCollectionName } from "./collection-chooser";
+import { openCollectionChooser } from "./collection-chooser-host";
 import { ReactionEmoji } from "./reaction-emoji";
 import { SubjectCard } from "./subject-card";
-
-export type BookmarksTab = "saved" | "reactions";
-
-export interface BookmarksSearch {
-  tab?: BookmarksTab;
-  /** A collection's ID; absent = everything saved. */
-  collection?: string;
-}
-
-/** Reads `/bookmarks?tab=…&collection=…`. */
-export function parseBookmarksSearch(search: Record<string, unknown>): BookmarksSearch {
-  return {
-    tab: search.tab === "reactions" ? "reactions" : undefined,
-    collection:
-      typeof search.collection === "string" && search.collection ? search.collection : undefined,
-  };
-}
 
 /**
  * Everything the viewer kept: what they saved, filed into collections they

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SavedScreen, validateSavedSearch } from "#/features/shorts/saved-screen";
+import { SavedScreen } from "#/features/shorts/saved-screen";
+import { validateSavedSearch } from "#/features/shorts/saved-search";
 
 export const Route = createFileRoute("/_app/shorts/saved")({
   validateSearch: validateSavedSearch,

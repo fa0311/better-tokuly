@@ -10,7 +10,7 @@ import { Tabs } from "#/components/ui/tabs";
 import { BalancePill } from "#/features/wallet";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
-import { liveKeys, nextCursor, streamClient } from "./api";
+import { liveKeys, nextCursor, streamClient, useFriendStreams } from "./api";
 import { CATEGORIES } from "./labels";
 import { StreamCard, StreamCardSkeleton, StreamGrid } from "./parts";
 
@@ -18,15 +18,6 @@ const { StreamStatus } = live;
 const { VideoCategory } = video;
 
 export type BrowseTab = "now" | "upcoming";
-
-/** Friends' streams (friends-only ones included): on air first, then the scheduled ones. */
-export function useFriendStreams() {
-  return useQuery({
-    queryKey: liveKeys.friends,
-    queryFn: async () => (await streamClient().listFriendStreams({ page: { limit: 20 } })).streams,
-    staleTime: 30_000,
-  });
-}
 
 function Shelf({
   title,

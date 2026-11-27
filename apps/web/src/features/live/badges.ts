@@ -1,6 +1,6 @@
 import { live } from "@tokuly/api";
 import type { BadgeSources } from "#/seams/badges";
-import { useFriendStreams } from "./browse-screen";
+import { useFriendStreams } from "./api";
 
 /** How many friends are on air right now. */
 function useLiveBadge(): number {

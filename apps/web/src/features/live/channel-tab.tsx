@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import type { ChannelTab } from "#/features/video";
-import i18n from "#/lib/i18n";
 import { liveKeys, nextCursor, streamClient } from "./api";
 import { ClipStrip } from "./clips/clip-list";
 import { StreamCard, StreamCardSkeleton, StreamGrid } from "./parts";
@@ -53,6 +52,6 @@ function ChannelLive({ channel }: { channel: video.Channel }) {
 export default {
   id: "live",
   order: 30,
-  label: () => i18n.t("live:channel.tab"),
+  label: "live:channel.tab",
   Component: ChannelLive,
 } satisfies ChannelTab;

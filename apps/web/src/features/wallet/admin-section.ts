@@ -1,5 +1,4 @@
 import { Wallet } from "lucide-react";
-import i18n from "#/lib/i18n";
 import type { AdminSection } from "#/seams/admin";
 
 /** The entry of this area's review page in the staff console. */
@@ -9,5 +8,5 @@ export default {
   to: "/admin/wallet",
   icon: Wallet,
   needs: "staff",
-  label: () => i18n.t("admin:nav.wallet"),
+  label: "admin:nav.wallet",
 } satisfies AdminSection;

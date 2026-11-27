@@ -1,12 +1,10 @@
-import { defaultStringifySearch } from "@tanstack/react-router";
 import {
-  type Kind,
-  kindFromSlug,
-  kindSlug,
+  KIND_SLUGS,
+  type KindSlug,
   MAX_QUERY_LENGTH,
   SORTS,
   type Sort,
-} from "@tokuly/core/search";
+} from "@tokuly/core/search/params";
 
 /**
  * What `/search` shows, as kept in the address: the address is the only
@@ -17,7 +15,7 @@ export interface SearchParams {
   /** The query; absent on the explore page. */
   q?: string;
   /** The open tab; absent for "all". */
-  kind?: string;
+  kind?: KindSlug;
   sort?: Sort;
   /** Only documents of this account ("search this profile"). */
   owner?: string;
@@ -36,30 +34,11 @@ function text(value: unknown): string {
  */
 export function parseSearchParams(input: Record<string, unknown>): SearchParams {
   const q = text(input.q).trim().slice(0, MAX_QUERY_LENGTH);
-  const kind = kindFromSlug(input.kind);
   const owner = text(input.owner);
   return {
     q: q || undefined,
-    kind: kind === undefined ? undefined : kindSlug(kind),
+    kind: KIND_SLUGS.find((slug) => slug === input.kind),
     sort: SORTS.find((sort) => sort === input.sort),
     owner: owner || undefined,
   };
-}
-
-/**
- * The address of a result page: `/search?q=…&kind=…`. Written with the
- * router's own search serialisation, so the router reads back exactly what
- * was put in: a quoted phrase, a number or `{…}` stay the text they are.
- */
-export function searchHref(
-  query: string,
-  options: { kind?: Kind; sort?: Sort; owner?: string } = {},
-): string {
-  const params: SearchParams = {
-    q: query.trim(),
-    kind: options.kind === undefined ? undefined : kindSlug(options.kind),
-    sort: options.sort,
-    owner: options.owner || undefined,
-  };
-  return `/search${defaultStringifySearch(params)}`;
 }

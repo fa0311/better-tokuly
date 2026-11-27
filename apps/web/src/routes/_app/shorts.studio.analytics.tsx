@@ -1,8 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  AnalyticsScreen,
-  validateAnalyticsSearch,
-} from "#/features/shorts/studio/analytics-screen";
+import { AnalyticsScreen } from "#/features/shorts/studio/analytics-screen";
+import { validateAnalyticsSearch } from "#/features/shorts/studio/analytics-search";
 
 /** Creator numbers: the channel's shorts, or one short with `?short=<id>`; `?days=7|90` for the range. */
 export const Route = createFileRoute("/_app/shorts/studio/analytics")({

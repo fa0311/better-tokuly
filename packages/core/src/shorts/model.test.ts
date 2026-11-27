@@ -4,13 +4,11 @@ import {
   captionParts,
   clock,
   completeToken,
-  contextOfSearch,
   playbackSource,
-  searchOfContext,
   slideLoad,
   tokenAtCaret,
-  validateShortSearch,
 } from "./model";
+import { contextOfSearch, searchOfContext, validateShortSearch } from "./search";
 
 describe("captionParts", () => {
   it("links the hashtags and mentions the server read out", () => {

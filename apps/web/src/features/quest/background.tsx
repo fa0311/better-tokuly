@@ -5,7 +5,6 @@ import { applyQuestEvent, localized, loudness, questKeys } from "@tokuly/core/qu
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { openDirectChat } from "#/features/chat";
 import { celebrate as rainGlyphs } from "#/features/footprints";
 import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
@@ -134,7 +133,8 @@ export default function QuestBackground() {
                 duration: 10_000,
                 action: {
                   label: t("live.sendMessage"),
-                  onClick: () => void openDirectChat(friend.id),
+                  onClick: () =>
+                    void import("#/features/chat").then((chat) => chat.openDirectChat(friend.id)),
                 },
               });
               return;

@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "vite dev --port 3000 --host",
     "build": "vite build",
+    "size": "node scripts/startup-size.mjs",
     "start": "node .output/server/index.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

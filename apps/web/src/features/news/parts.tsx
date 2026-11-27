@@ -7,7 +7,7 @@ import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
 import { linkPreviewImage } from "#/lib/link-preview-image";
 import { useFeedback } from "./api";
-import { toggledFeedback } from "./params";
+import { toggledFeedback } from "./requests";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 

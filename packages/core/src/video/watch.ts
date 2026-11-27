@@ -3,34 +3,6 @@ import { parseClock, parseTimeParam } from "./format";
 
 const { PlaybackBlock, ProcessingState, Rating, PlaylistKind } = video;
 
-/** What a watch link carries: `/watch/<id>?t=90&list=<playlist>&comment=<id>`. */
-export interface WatchSearch {
-  /** Where to start: seconds, `1:30` or `1m30s`. */
-  t?: string;
-  /** The playlist being played through. */
-  list?: string;
-  /** A comment to open the thread at. */
-  comment?: string;
-}
-
-/** Reads a watch link's search; anything that is not a non-empty value is left out. */
-export function validateWatchSearch(search: Record<string, unknown>): WatchSearch {
-  const text = (value: unknown) =>
-    typeof value === "string" && value
-      ? value
-      : typeof value === "number"
-        ? String(value)
-        : undefined;
-  const result: WatchSearch = {};
-  const t = text(search.t);
-  const list = text(search.list);
-  const comment = text(search.comment);
-  if (t) result.t = t;
-  if (list) result.list = list;
-  if (comment) result.comment = comment;
-  return result;
-}
-
 /** Where playback begins: the link's `?t=`, else where the viewer left off (unless that is the very end). */
 export function startPosition(
   param: string | undefined,

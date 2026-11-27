@@ -1,13 +1,9 @@
 import { video } from "@tokuly/api";
 import type { ClientSource } from "../query";
 import { videoKeys } from "./keys";
-import { CATEGORIES } from "./labels";
+import type { Feed } from "./search";
 
 const { VideoCategory, TrafficSource } = video;
-
-/** The three video feeds: recommendations, the channels the viewer subscribes to, what is trending. */
-export const FEEDS = ["home", "subscriptions", "trending"] as const;
-export type Feed = (typeof FEEDS)[number];
 
 /** What a visit from each feed reports as where the viewer came from. */
 export const FEED_SOURCES: Record<Feed, video.TrafficSource> = {
@@ -15,18 +11,6 @@ export const FEED_SOURCES: Record<Feed, video.TrafficSource> = {
   subscriptions: TrafficSource.SUBSCRIPTIONS,
   trending: TrafficSource.TRENDING,
 };
-
-export interface FeedSearch {
-  feed?: Feed;
-  category?: video.VideoCategory;
-}
-
-/** Reads `?feed=` and `?category=`; unknown values fall back to the home feed without a genre. */
-export function validateFeedSearch(search: Record<string, unknown>): FeedSearch {
-  const feed = FEEDS.find((candidate) => candidate === search.feed);
-  const category = CATEGORIES.find((entry) => entry.value === Number(search.category))?.value;
-  return { ...(feed && feed !== "home" ? { feed } : {}), ...(category ? { category } : {}) };
-}
 
 /** Trending is filtered by the server; the other two feeds are filtered by the app, from what is loaded. */
 export function feedKey(feed: Feed, category: video.VideoCategory) {

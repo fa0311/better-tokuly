@@ -20,7 +20,7 @@ import {
 import { toast } from "sonner";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
-import { noteOwnReaction } from "./pops";
+import { noteOwnReaction } from "./pop-events";
 
 export const reactionClient = () => api().service(engagement.ReactionService);
 export const bookmarkClient = () => api().service(engagement.BookmarkService);

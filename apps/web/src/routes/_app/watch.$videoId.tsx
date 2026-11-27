@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { validateWatchSearch, WatchScreen } from "#/features/video/watch-screen";
+import { validateWatchSearch } from "@tokuly/core/video/search";
+import { WatchScreen } from "#/features/video/watch-screen";
 
 /** `/watch/<short id>?t=90&list=<playlist>&comment=<id>`: the address the server uses for videos everywhere. */
 export const Route = createFileRoute("/_app/watch/$videoId")({

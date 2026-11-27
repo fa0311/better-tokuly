@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Platform-neutral app logic shared by web and mobile: query keys and options, domain rules, cache updates, formatting, error texts. No UI, no DOM.",
   "license": "MIT",
+  "sideEffects": false,
   "exports": {
     "./format": "./src/format/index.ts",
     "./errors": "./src/errors/index.ts",
@@ -13,6 +14,7 @@
     "./ask": "./src/ask/index.ts",
     "./chat": "./src/chat/index.ts",
     "./community": "./src/community/index.ts",
+    "./community/categories": "./src/community/categories.ts",
     "./emoji": "./src/emoji/index.ts",
     "./footprints": "./src/footprints/index.ts",
     "./friends": "./src/friends/index.ts",
@@ -26,13 +28,16 @@
     "./quest": "./src/quest/index.ts",
     "./school": "./src/school/index.ts",
     "./search": "./src/search/index.ts",
+    "./search/params": "./src/search/params.ts",
     "./session": "./src/session/index.ts",
     "./shorts": "./src/shorts/index.ts",
+    "./shorts/search": "./src/shorts/search.ts",
     "./live": "./src/live/index.ts",
     "./spaces": "./src/spaces/index.ts",
     "./stamps": "./src/stamps/index.ts",
     "./stories": "./src/stories/index.ts",
     "./video": "./src/video/index.ts",
+    "./video/search": "./src/video/search.ts",
     "./wallet": "./src/wallet/index.ts"
   },
   "scripts": {

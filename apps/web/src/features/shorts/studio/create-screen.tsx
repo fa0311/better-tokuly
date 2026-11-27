@@ -24,37 +24,13 @@ import { shortClient, shortKeys, useShort } from "../api";
 import { useSound } from "../sound-screen";
 import { CaptionField } from "./caption-field";
 import { type CoverChoice, CoverPicker } from "./cover-picker";
+import type { CreateSearch } from "./create-search";
 import { FormSection } from "./form-section";
 import { circleOf, DEFAULT_SETTINGS, SettingsFields, type ShortSettings } from "./settings-fields";
 import { type SoundChoice, SoundField, soundInput } from "./sound-field";
 import { canTrim, probeVideo, trimVideo } from "./video-tools";
 
 const clipClient = () => api().service(live.ClipService);
-
-export interface CreateSearch {
-  /** Start with this sound ("use this sound"). */
-  sound?: string;
-  /** Make a remix or a duet of this short. */
-  remix?: string;
-  kind?: "remix" | "duet";
-  /** Start from this clip instead of a file. */
-  clip?: string;
-  /** Start the caption with this hashtag. */
-  tag?: string;
-}
-
-export function validateCreateSearch(search: Record<string, unknown>): CreateSearch {
-  const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
-  const remix = text(search.remix);
-  return {
-    ...(text(search.sound) ? { sound: text(search.sound) } : {}),
-    ...(remix
-      ? { remix, kind: search.kind === "duet" ? ("duet" as const) : ("remix" as const) }
-      : {}),
-    ...(text(search.clip) ? { clip: text(search.clip) } : {}),
-    ...(text(search.tag) ? { tag: text(search.tag) } : {}),
-  };
-}
 
 /** The video a short is made from: a file of the creator's, or a clip they cut. */
 type Source =

@@ -11,17 +11,8 @@ import { Moments } from "./countdown/moments";
 import { FreeFriendsStrip } from "./free/free-strip";
 import { ChoiceChips } from "./parts";
 import { PlanCard } from "./plan/plan-card";
+import type { PlansTab } from "./plans-search";
 import { PollCard } from "./poll/poll-card";
-
-export const PLANS_TABS = ["plans", "polls", "moments"] as const;
-export type PlansTab = (typeof PLANS_TABS)[number];
-
-/** `?tab=plans|polls|moments`; anything else is the plans tab. */
-export function parsePlansSearch(search: Record<string, unknown>): { tab?: PlansTab } {
-  return PLANS_TABS.includes(search.tab as PlansTab) && search.tab !== "plans"
-    ? { tab: search.tab as PlansTab }
-    : {};
-}
 
 const linkButton =
   "pressable sticker inline-flex h-11 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-bold";

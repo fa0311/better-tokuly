@@ -1,5 +1,4 @@
 import { Code } from "lucide-react";
-import i18n from "#/lib/i18n";
 import type { HubTile } from "#/seams/hub";
 
 /** The way in to the developer platform from the hub. */
@@ -9,7 +8,7 @@ export default [
     section: "me",
     order: 60,
     to: "/developers",
-    label: () => i18n.t("dev:tile"),
+    label: "dev:tile",
     icon: Code,
     tint: "bg-sky",
     keywords: [

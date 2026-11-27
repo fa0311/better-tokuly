@@ -1,5 +1,5 @@
 import type { search } from "@tokuly/api";
-import type { Sort } from "./query";
+import type { Sort } from "./params";
 
 /** Query keys of the search domain. Everything starts with `"search"`. */
 export const searchKeys = {

@@ -5,10 +5,6 @@ import { ShortList } from "./short-tile";
 
 export type SavedTab = "saved" | "liked";
 
-export function validateSavedSearch(search: Record<string, unknown>): { tab?: "liked" } {
-  return search.tab === "liked" ? { tab: "liked" } : {};
-}
-
 /** `/shorts/saved`: the shorts the viewer saved, and the ones they liked. Both lists are theirs alone. */
 export function SavedScreen({
   tab,

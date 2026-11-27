@@ -1,5 +1,5 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type common, feed, geo, social, toMillis } from "@tokuly/api";
+import { type common, geo, social, toMillis } from "@tokuly/api";
 import { mapKeys } from "@tokuly/core/map";
 import { useEffect } from "react";
 import { toast } from "sonner";
@@ -18,7 +18,6 @@ export const tripClient = () => api().service(geo.TripService);
 export const safetyClient = () => api().service(geo.SafetyService);
 export const placeClient = () => api().service(geo.PlaceService);
 export const interactionClient = () => api().service(social.InteractionService);
-export const mapStoryClient = () => api().service(feed.MapStoryService);
 
 // The map's keys live in `@tokuly/core/map`; the folder reads them from here.
 export { mapKeys };
@@ -107,13 +106,6 @@ export const useMapViews = () =>
   useQuery({
     queryKey: mapKeys.mapViews,
     queryFn: () => interactionClient().getMapViews({}),
-    staleTime: 60_000,
-  });
-
-export const useStoryTray = () =>
-  useQuery({
-    queryKey: mapKeys.storyTray,
-    queryFn: () => mapStoryClient().getMapStoryTray({}),
     staleTime: 60_000,
   });
 

@@ -9,8 +9,9 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { newsClient, newsKeys, useNewsSources, useNewsTags } from "./api";
 import { ArticleCard, ArticleSkeleton } from "./article-card";
-import { listRequest, type NewsParams } from "./params";
+import type { NewsParams } from "./params";
 import { SourceIcon } from "./parts";
+import { listRequest } from "./requests";
 
 const PAGE_SIZE = 20;
 

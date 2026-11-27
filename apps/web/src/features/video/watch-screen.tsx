@@ -1,13 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, toMillis, video } from "@tokuly/api";
-import {
-  blockKind,
-  rateVideo,
-  startPosition,
-  validateWatchSearch,
-  type WatchSearch,
-} from "@tokuly/core/video";
+import { blockKind, rateVideo, startPosition, type WatchSearch } from "@tokuly/core/video";
 import {
   BarChart3,
   Clock3,
@@ -34,13 +28,11 @@ import { StartPartyDialog } from "./party/start-party";
 import { takeTrafficSource, usePlaybackSession } from "./playback-session";
 import { type PlayerHandle, VideoPlayer } from "./player/player";
 import { PlaylistQueue, usePlaylistQueue } from "./playlists/queue";
-import { openSaveDialog } from "./save-dialog";
+import { openSaveDialog } from "./save-target";
 import { SubscribeButton } from "./subscribe-button";
 import { ChannelAvatar, ChannelName, imageUrl, VideoCard, VideoCardSkeleton } from "./video-card";
 
 const { Rating, VideoStatus, TrafficSource } = video;
-
-export { validateWatchSearch, type WatchSearch };
 
 const THEATRE_KEY = "tokuly.player.theatre";
 

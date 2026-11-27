@@ -1,5 +1,4 @@
 import { UsersRound } from "lucide-react";
-import i18n from "#/lib/i18n";
 import type { HubTile } from "#/seams/hub";
 
 /** The way in to communities from the hub, the launcher and the quick search. */
@@ -9,7 +8,7 @@ export default [
     section: "play",
     order: 30,
     to: "/communities",
-    label: () => i18n.t("community:title"),
+    label: "community:title",
     icon: UsersRound,
     tint: "bg-mint",
     badge: "community",

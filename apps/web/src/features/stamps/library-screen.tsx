@@ -24,25 +24,11 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { libraryClient, useInstallPack, useUninstallPack } from "./api";
 import { PersonalStampMaker } from "./editor/stamp-maker";
+import { LIBRARY_TABS, type LibraryTab } from "./library-search";
 import { PackRow, SearchField, StampGrid, StampTile } from "./parts";
 import { StampPicker } from "./picker";
 import { StampImage } from "./stamp-image";
 import { StampSheet } from "./stamp-sheet";
-
-export const LIBRARY_TABS = [
-  "packs",
-  "personal",
-  "favorites",
-  "recents",
-  "purchased",
-  "log",
-] as const;
-export type LibraryTab = (typeof LIBRARY_TABS)[number];
-
-/** Reads the library page's address parameters. */
-export function validateLibrarySearch(search: Record<string, unknown>): { tab?: LibraryTab } {
-  return { tab: LIBRARY_TABS.find((tab) => tab === search.tab) };
-}
 
 type OpenStamp = (stampId: string | undefined) => void;
 

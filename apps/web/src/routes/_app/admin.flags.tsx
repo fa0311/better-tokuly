@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "#/features/admin/console-layout";
-import { FlagsScreen, parseFlagsSearch } from "#/features/admin/flags/flags-screen";
+import { FlagsScreen } from "#/features/admin/flags/flags-screen";
+import { parseFlagsSearch } from "#/features/admin/flags/flags-search";
 
 export const Route = createFileRoute("/_app/admin/flags")({
   validateSearch: parseFlagsSearch,

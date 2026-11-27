@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { DiscoverScreen, parseDiscoverSearch } from "#/features/community/discover-screen";
+import { DiscoverScreen } from "#/features/community/discover-screen";
+import { parseDiscoverSearch } from "#/features/community/discover-search";
 
 /**
  * `/communities`: my communities and the directory. The tab, the search

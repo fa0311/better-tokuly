@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
-import { ADMIN_SECTIONS } from "#/seams/admin";
+import { ADMIN_NAMESPACES, ADMIN_SECTIONS } from "#/seams/admin";
 import { type StaffAccess, type StaffLevel, useStaffAccess } from "./roles";
 import { ConsolePage } from "./ui/console-page";
 
@@ -28,6 +28,7 @@ export function ConsoleLayout() {
 
 function ConsoleNav({ access }: { access: StaffAccess }) {
   const { t } = useTranslation("admin");
+  const { t: name } = useTranslation(ADMIN_NAMESPACES, { useSuspense: false });
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const current = useRef<HTMLAnchorElement>(null);
   const isActive = (to: string) =>
@@ -80,7 +81,7 @@ function ConsoleNav({ access }: { access: StaffAccess }) {
                 )}
               >
                 <Icon className="size-[18px] shrink-0" />
-                {item.label()}
+                {name(item.label)}
               </Link>
             </li>
           );

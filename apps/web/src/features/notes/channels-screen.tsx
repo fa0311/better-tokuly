@@ -15,17 +15,6 @@ import { ChannelDot } from "./channels-chip";
 import { ChannelForm } from "./channels-form";
 import { imageUrl } from "./media";
 
-export function parseChannelsSearch(search: Record<string, unknown>): {
-  tab?: ChannelTab;
-  q?: string;
-} {
-  const tab = search.tab;
-  return {
-    tab: tab === "followed" || tab === "managed" ? tab : undefined,
-    q: typeof search.q === "string" && search.q ? search.q : undefined,
-  };
-}
-
 /** The channel directory: featured, followed and managed channels, searchable by name. */
 export function ChannelsScreen({
   tab = "featured",

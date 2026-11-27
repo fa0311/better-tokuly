@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { parseRecapSearch, RecapScreen } from "#/features/notes/feed/recap-screen";
+import { RecapScreen } from "#/features/notes/feed/recap-screen";
+import { parseRecapSearch } from "#/features/notes/feed/recap-search";
 
 /** The recap of a month or a year: `?p=2026-10`, `?p=2026`; without it, this month so far. */
 export const Route = createFileRoute("/_app/recap")({

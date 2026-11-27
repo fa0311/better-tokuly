@@ -1,4 +1,5 @@
 import { search } from "@tokuly/api";
+import type { KindSlug } from "./params";
 
 const K = search.SearchKind;
 
@@ -25,7 +26,7 @@ export const KINDS = [
 export type Kind = (typeof KINDS)[number];
 
 /** A kind's name in an address (`/search?kind=people`) and in the `search:kinds.*` strings. */
-const SLUGS: Record<Kind, string> = {
+const SLUGS: Record<Kind, KindSlug> = {
   [K.USER]: "people",
   [K.CHANNEL]: "channels",
   [K.NOTE]: "notes",
@@ -49,7 +50,7 @@ export function isKind(value: search.SearchKind): value is Kind {
   return (KINDS as readonly search.SearchKind[]).includes(value);
 }
 
-export function kindSlug(kind: Kind): string {
+export function kindSlug(kind: Kind): KindSlug {
   return SLUGS[kind];
 }
 

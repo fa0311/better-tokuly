@@ -10,14 +10,10 @@ export { patchVideoEverywhere, rateVideo, removeVideoEverywhere } from "./cache"
 export {
   type Dismissal,
   FEED_SOURCES,
-  FEEDS,
-  type Feed,
   type FeedPage,
-  type FeedSearch,
   feedKey,
   feedVideos,
   loadFeedPage,
-  validateFeedSearch,
 } from "./feeds";
 export {
   formatAge,
@@ -31,6 +27,14 @@ export { videoKeys } from "./keys";
 export { CATEGORIES, categoryKey } from "./labels";
 export { PlaybackReporter, type PlaybackReporterDeps } from "./playback";
 export {
+  FEEDS,
+  type Feed,
+  type FeedSearch,
+  validateFeedSearch,
+  validateWatchSearch,
+  type WatchSearch,
+} from "./search";
+export {
   audienceKey,
   type BlockKind,
   blockKind,
@@ -41,7 +45,5 @@ export {
   nextInQueue,
   playlistTitle,
   startPosition,
-  validateWatchSearch,
-  type WatchSearch,
   withRating,
 } from "./watch";

@@ -1,9 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  EDITOR_TABS,
-  type EditorTab,
-  VideoEditorScreen,
-} from "#/features/video/studio/video-editor";
+import { VideoEditorScreen } from "#/features/video/studio/video-editor";
+import { EDITOR_TABS, type EditorTab } from "#/features/video/studio/video-editor-search";
 
 /** `/studio/videos/<short id>?tab=subtitles|analytics`: where "processing finished" notifications lead. */
 export const Route = createFileRoute("/_app/studio/videos/$videoId")({

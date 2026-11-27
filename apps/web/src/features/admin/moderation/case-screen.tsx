@@ -32,7 +32,8 @@ import {
   SubjectTypeChip,
   useCaseTitle,
 } from "./parts";
-import { type QueueSearch, useCaseQueue } from "./queue";
+import { useCaseQueue } from "./queue";
+import type { QueueSearch } from "./queue-search";
 import { ReportedProfile } from "./reported-profile";
 import { type Resolution, ResolvePanel } from "./resolve-panel";
 

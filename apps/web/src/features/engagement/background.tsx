@@ -3,8 +3,8 @@ import { readReaction } from "@tokuly/core/engagement";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { applyCounters, engagementKeys } from "./api";
-import { CollectionChooserHost } from "./collection-chooser";
-import { emitPop } from "./pops";
+import { CollectionChooserHost } from "./collection-chooser-host";
+import { emitPop } from "./pop-events";
 
 /**
  * Runs while someone is signed in: applies the counters the realtime

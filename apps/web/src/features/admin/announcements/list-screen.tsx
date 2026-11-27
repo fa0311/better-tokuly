@@ -10,29 +10,18 @@ import { CategoryBadge } from "#/features/announcements";
 import { announcementAdminClient } from "../api";
 import { formatDateTime } from "../format";
 import { announcementStatusKey } from "../labels";
-import { parseChoice } from "../params";
 import { ConsolePage } from "../ui/console-page";
 import { type Column, DataTable } from "../ui/data-table";
 import { ErrorState, RowsSkeleton } from "../ui/states";
 import { type Tone, ToneChip } from "../ui/tone";
 import { UserCell } from "../ui/user";
+import type { ManagedAnnouncementsSearch, StatusFilter } from "./list-search";
 
-const STATUSES = {
+const STATUSES: Record<StatusFilter, admin.AnnouncementStatus> = {
   draft: admin.AnnouncementStatus.DRAFT,
   scheduled: admin.AnnouncementStatus.SCHEDULED,
   published: admin.AnnouncementStatus.PUBLISHED,
-} as const;
-type StatusFilter = keyof typeof STATUSES;
-
-export interface ManagedAnnouncementsSearch {
-  status?: StatusFilter;
-}
-
-export function parseManagedAnnouncementsSearch(
-  search: Record<string, unknown>,
-): ManagedAnnouncementsSearch {
-  return { status: parseChoice(search.status, ["draft", "scheduled", "published"]) };
-}
+};
 
 const STATUS_TONES: Partial<Record<admin.AnnouncementStatus, Tone>> = {
   [admin.AnnouncementStatus.SCHEDULED]: "info",

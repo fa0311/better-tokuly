@@ -6,6 +6,7 @@ import { type KeyboardEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { cn } from "#/lib/cn";
+import { HUB_NAMESPACES } from "#/seams/hub";
 import { useHistoryActions } from "./api";
 import { hitHref } from "./hit-href";
 import { useHasKeyboard } from "./hooks";
@@ -165,6 +166,7 @@ const iconTile = "grid size-9 shrink-0 place-items-center rounded-xl bg-surface-
 
 function SuggestionFace({ suggestion, selected }: { suggestion: Suggestion; selected: boolean }) {
   const { t } = useTranslation("search");
+  const { t: tileName } = useTranslation(HUB_NAMESPACES, { useSuspense: false });
   const keyboard = useHasKeyboard();
   if (suggestion.type === "search") {
     return (
@@ -193,7 +195,7 @@ function SuggestionFace({ suggestion, selected }: { suggestion: Suggestion; sele
         >
           <Icon className="size-[18px]" />
         </span>
-        <span className="min-w-0 flex-1 truncate font-bold">{suggestion.tile.label()}</span>
+        <span className="min-w-0 flex-1 truncate font-bold">{tileName(suggestion.tile.label)}</span>
       </>
     );
   }

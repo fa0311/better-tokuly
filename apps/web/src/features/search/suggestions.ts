@@ -15,15 +15,19 @@ const MAX_DESTINATIONS = 4;
 
 /**
  * The hub tiles a text points at: by the tile's name in the current language
- * or one of its keywords, ignoring case. The quick search lists them first,
+ * (`name`) or one of its keywords, ignoring case. The quick search lists them first,
  * so it doubles as the app's launcher.
  */
-export function destinationSuggestions(text: string, tiles: readonly HubTile[]): Suggestion[] {
+export function destinationSuggestions(
+  text: string,
+  tiles: readonly HubTile[],
+  name: (tile: HubTile) => string,
+): Suggestion[] {
   const query = text.trim().toLowerCase();
   if (!query) return [];
   const matches = (value: string) => value.toLowerCase().includes(query);
   return tiles
-    .filter((tile) => matches(tile.label()) || (tile.keywords ?? []).some(matches))
+    .filter((tile) => matches(name(tile)) || (tile.keywords ?? []).some(matches))
     .slice(0, MAX_DESTINATIONS)
     .map((tile) => ({
       type: "destination",

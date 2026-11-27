@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { common } from "@tokuly/api";
 import { useTranslation } from "react-i18next";
-import { useAnswers, useBox, useFlameSummary, useInboxCounts } from "./api";
+import { useAnswers, useBox } from "./api";
 import { SectionTitle } from "./parts";
 import { QaCard } from "./qa-card";
 
@@ -70,14 +70,4 @@ export function ProfileAnswers({ user }: { user: Pick<common.UserSummary, "id" |
       </div>
     </section>
   );
-}
-
-/**
- * What waits in the question box and the flames inbox, for a badge on the
- * way in. With `enabled` off nothing is asked and the count is 0.
- */
-export function useAskBadge(enabled = true): number {
-  const counts = useInboxCounts(enabled).data;
-  const flames = useFlameSummary(enabled).data;
-  return (counts?.unread ?? 0) + (flames?.unseen ?? 0);
 }

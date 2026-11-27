@@ -1,6 +1,6 @@
 import type { common, shorts } from "@tokuly/api";
 import type { ClientSource } from "../query";
-import type { FeedContext } from "./model";
+import type { FeedContext } from "./search";
 
 /** One entry of a swipe feed: the short, and what the feed says about it. */
 export interface FeedEntry {

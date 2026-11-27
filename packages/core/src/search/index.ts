@@ -18,14 +18,12 @@ export {
   kindFromSlug,
   kindSlug,
 } from "./kinds";
+export { KIND_SLUGS, type KindSlug, MAX_QUERY_LENGTH, SORTS, type Sort } from "./params";
 export { hitPath, isAppPath } from "./paths";
 export { searchQueries } from "./queries";
 export {
   fromTagQuery,
   isTagQuery,
-  MAX_QUERY_LENGTH,
-  SORTS,
-  type Sort,
   sortValue,
   toTagQuery,
 } from "./query";
