@@ -119,6 +119,9 @@ function createBrowserI18n(language: Language): I18n {
     .use(initReactI18next)
     .init({
       ...OPTIONS,
+      // i18next fetches every fallback language's chunk next to the shown one; English has
+      // every Japanese key (`src/i18n/strings.test.ts`), so the browser needs only its own.
+      fallbackLng: false,
       lng: language,
       ns: ALWAYS,
       partialBundledLanguages: true,
