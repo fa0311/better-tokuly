@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { emoji as emojiApi } from "@tokuly/api";
+import { emojiKeys, emojiPageParam, shortcode } from "@tokuly/core/emoji";
 import { BadgeCheck, Send } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,7 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import { emojiKeys, emojiPageParam, shortcode, submissionClient, useEmojiDetail } from "./api";
+import { submissionClient, useEmojiDetail } from "./api";
 import { syncCatalog } from "./catalog";
 import { draftReady, EMPTY_DRAFT, type EmojiDraft, EmojiForm } from "./emoji-form";
 

@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { emojiKeys } from "@tokuly/core/emoji";
 import { useEffect, useState } from "react";
-import { emojiClient, emojiKeys } from "./api";
+import { emojiClient } from "./api";
 import type { UnicodeEmoji, UnicodeGroup } from "./unicode-data";
 
 // ───────────────────────────── Reporting use ─────────────────────────────

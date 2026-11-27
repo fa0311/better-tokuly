@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, emoji as emojiApi, errorReason, toDate } from "@tokuly/api";
+import { DECK_MAX, emojiKeys, shortcode, toCatalogEmoji } from "@tokuly/core/emoji";
 import {
   Check,
   Copy,
@@ -25,9 +26,8 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { useStaffAccess } from "#/features/admin";
 import { copyText, ReportButton } from "#/features/engagement";
 import { errorMessage } from "#/lib/errors";
-import { emojiKeys, shortcode, submissionClient, useDeck, useEmojiDetail } from "./api";
-import { toCatalogEmoji } from "./catalog";
-import { DECK_MAX, useSaveDeck } from "./deck";
+import { submissionClient, useDeck, useEmojiDetail } from "./api";
+import { useSaveDeck } from "./deck";
 import { EmojiImage } from "./emoji";
 import { EmojiText } from "./emoji-text";
 import { StateChip, ThemePreview, ThemeSwatch } from "./parts";

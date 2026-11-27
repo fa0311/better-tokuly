@@ -7,6 +7,7 @@ import chat from "./chat";
 import clips from "./clips";
 import common from "./common";
 import community from "./community";
+import emoji from "./emoji";
 import errors from "./errors";
 import follows from "./follows";
 import footprints from "./footprints";
@@ -27,6 +28,7 @@ import search from "./search";
 import settings from "./settings";
 import shorts from "./shorts";
 import spaces from "./spaces";
+import stamps from "./stamps";
 import stories from "./stories";
 import video from "./video";
 
@@ -59,5 +61,7 @@ export default {
   ask,
   quest,
   school,
+  stamps,
+  emoji,
   mobile,
 };

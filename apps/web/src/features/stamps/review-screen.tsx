@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type common, stamp, toDate } from "@tokuly/api";
+import { patchPack, stampKeys } from "@tokuly/core/stamps";
 import {
   BadgeCheck,
   Check,
@@ -28,7 +29,7 @@ import { Tabs } from "#/components/ui/tabs";
 import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
-import { patchPack, reviewClient, stampKeys, storeClient } from "./api";
+import { reviewClient, storeClient } from "./api";
 import { PackCover, PackRow, SearchField, StampTile } from "./parts";
 import { StampImage } from "./stamp-image";
 

@@ -1,5 +1,11 @@
 import type { CatalogEmoji } from "./catalog";
-import type { UnicodeEmoji } from "./unicode-data";
+
+/** A Unicode emoji with the words it is found by; the first English word is its name. */
+export interface UnicodeEmoji {
+  emoji: string;
+  en: string[];
+  ja: string[];
+}
 
 /**
  * Makes two spellings of a word equal: case, width (ｎｅｋｏ → neko, ﾈｺ → ネコ)

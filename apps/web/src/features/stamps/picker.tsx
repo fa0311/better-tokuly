@@ -3,6 +3,7 @@ import { Popover } from "@base-ui/react/popover";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { common, stamp } from "@tokuly/api";
+import { stampKeys } from "@tokuly/core/stamps";
 import { Clock, Heart, Plus, Scissors, Store } from "lucide-react";
 import {
   type ReactElement,
@@ -15,7 +16,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
-import { libraryClient, stampKeys, useLibrary, usePack } from "./api";
+import { libraryClient, useLibrary, usePack } from "./api";
 import { PersonalStampMaker } from "./editor/stamp-maker";
 import { PackCover, SearchField } from "./parts";
 import { StampImage } from "./stamp-image";

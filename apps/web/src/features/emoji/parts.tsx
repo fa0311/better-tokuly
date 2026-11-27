@@ -1,12 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { emoji as emojiApi } from "@tokuly/api";
+import { type CatalogEmoji, emojiPageParam } from "@tokuly/core/emoji";
 import { Search, X } from "lucide-react";
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { cn } from "#/lib/cn";
-import { emojiPageParam } from "./api";
-import type { CatalogEmoji } from "./catalog";
 import { EmojiImage } from "./emoji";
 
 /** A custom emoji in a grid: its picture over its shortcode, linking to its page. */

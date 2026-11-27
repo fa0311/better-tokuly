@@ -26,25 +26,28 @@
  * live; `lookupEmoji(name)` reads it synchronously outside React and
  * `useCatalog()` inside. Nothing needs to be loaded or mounted first.
  */
-export { emojiPageParam, shortcode, shortcodeName } from "./api";
 export {
   type Catalog,
   type CatalogCategory,
   type CatalogEmoji,
-  lookupEmoji,
-  useCatalog,
-} from "./catalog";
+  type EmojiChoice,
+  emojiPageParam,
+  shortcode,
+  shortcodeName,
+  shortcodePrefixAt,
+  splitEmojiText,
+  type TextSegment,
+} from "@tokuly/core/emoji";
+export { lookupEmoji, useCatalog } from "./catalog";
 export { Emoji, EmojiImage, type EmojiImageProps, type EmojiProps } from "./emoji";
 export { EmojiText, type EmojiTextProps } from "./emoji-text";
 export { EmojiPicker, EmojiPickerPanel, type EmojiPickerProps } from "./picker";
-export type { EmojiChoice } from "./search";
 export { useEmojiSuggest } from "./suggest";
 export { completeShortcode, EmojiSuggestBar, type EmojiSuggestBarProps } from "./suggest-bar";
-export { shortcodePrefixAt, splitEmojiText, type TextSegment } from "./text";
 export { recordEmojiUse } from "./use";
 
+import { shortcodesIn as shortcodesInText } from "@tokuly/core/emoji";
 import { getCatalog } from "./catalog";
-import { shortcodesIn as shortcodesInText } from "./text";
 
 /** The custom emoji written in a text (`:name:` each, once), for `recordEmojiUse` after sending it. */
 export function shortcodesIn(text: string): string[] {

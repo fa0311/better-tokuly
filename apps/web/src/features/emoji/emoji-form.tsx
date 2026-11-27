@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { media } from "@tokuly/api";
+import { emojiKeys } from "@tokuly/core/emoji";
 import { Check, ImagePlus, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,7 +13,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
-import { emojiKeys, submissionClient } from "./api";
+import { submissionClient } from "./api";
 import { useCatalog } from "./catalog";
 import { ThemePreview, useDebounced } from "./parts";
 

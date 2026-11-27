@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { emoji as emojiApi, toDate } from "@tokuly/api";
+import { emojiKeys, emojiPageParam, shortcode, toCatalogEmoji } from "@tokuly/core/emoji";
 import { BadgeCheck, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,8 +12,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { errorMessage } from "#/lib/errors";
-import { emojiKeys, emojiPageParam, shortcode, submissionClient } from "./api";
-import { toCatalogEmoji } from "./catalog";
+import { submissionClient } from "./api";
 import { EmojiImage } from "./emoji";
 import { StateChip } from "./parts";
 import { useSubmitterProfile } from "./submit-screen";

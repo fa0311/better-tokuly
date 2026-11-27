@@ -1,5 +1,5 @@
+import { type EmojiChoice, searchEmoji } from "@tokuly/core/emoji";
 import { useCatalog } from "./catalog";
-import { type EmojiChoice, searchEmoji } from "./search";
 import { useUnicodeTable } from "./use";
 
 /**

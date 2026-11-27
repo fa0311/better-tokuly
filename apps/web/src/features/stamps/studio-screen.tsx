@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { stamp } from "@tokuly/api";
+import { stampKeys } from "@tokuly/core/stamps";
 import { BadgeCheck, ChevronRight, Plus, ShieldCheck } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,7 +13,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
-import { formatCount, stampKeys, studioClient } from "./api";
+import { formatCount, studioClient } from "./api";
 import { PackFormDialog, type PackListing } from "./pack-form";
 import { PackCover, StatusChip } from "./parts";
 

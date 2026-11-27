@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import { emoji as emojiApi, toDate } from "@tokuly/api";
+import { emojiKeys, shortcode, toCatalogEmoji } from "@tokuly/core/emoji";
 import { BadgeCheck, Check, Pencil, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,8 +10,6 @@ import { Chip } from "#/components/ui/card";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import { emojiKeys, shortcode } from "../api";
-import { toCatalogEmoji } from "../catalog";
 import { EmojiImage } from "../emoji";
 import { ThemePreview } from "../parts";
 import { EmojiEditDialog, ReasonDialog } from "./dialogs";

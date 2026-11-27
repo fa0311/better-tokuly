@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { media } from "@tokuly/api";
+import { refreshHoldings } from "@tokuly/core/stamps";
 import { ImagePlus } from "lucide-react";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +9,7 @@ import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { cn } from "#/lib/cn";
 import { uploadAndProcess } from "#/lib/upload";
-import { libraryClient, refreshHoldings, uploadErrorMessage } from "../api";
+import { libraryClient, uploadErrorMessage } from "../api";
 import {
   EMPTY_META,
   nameFromFile,

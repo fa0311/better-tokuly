@@ -1,12 +1,13 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { stampKeys } from "@tokuly/core/stamps";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
-import { stampKeys, storeClient } from "./api";
+import { storeClient } from "./api";
 import { PackCard, PackGridSkeleton } from "./parts";
 
 /** Every published pack of one creator. */
