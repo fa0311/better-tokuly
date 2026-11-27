@@ -314,7 +314,11 @@ down() {
 }
 
 status() {
-  "$PG_BIN/pg_isready" -q -h 127.0.0.1 -p "$P_POSTGRES" && echo "postgres    up   :$P_POSTGRES" || echo "postgres    down"
+  if [ -x "$PG_BIN/pg_isready" ] && "$PG_BIN/pg_isready" -q -h 127.0.0.1 -p "$P_POSTGRES"; then
+    echo "postgres    up   :$P_POSTGRES"
+  else
+    echo "postgres    down"
+  fi
   for s in valkey nats rustfs clickhouse meili mailpit mediamtx livekit edge; do
     if running "$s"; then printf "%-11s up   pid %s\n" "$s" "$(cat "$RUN/$s.pid")"; else printf "%-11s down\n" "$s"; fi
   done
