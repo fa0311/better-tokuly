@@ -813,6 +813,7 @@ export default {
   EMAIL_ALREADY_VERIFIED: "Your email is already verified",
   EMAIL_MISSING: "There is no email address on this account",
   EMAIL_UNCHANGED: "That is already your email address",
+  MAIL_SENDING: "That mail is being sent. Give it a moment",
   LAST_CREDENTIAL: "This is your only passkey. Set a password before removing it",
   LOCALE_INVALID: "That language cannot be used",
   PASSKEY_EXISTS: "This device already has a passkey for your account",
