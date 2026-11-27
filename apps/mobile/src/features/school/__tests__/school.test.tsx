@@ -38,6 +38,13 @@ const homework = create(school.AssignmentSchema, {
   urgency: school.AssignmentUrgency.TOMORROW,
 });
 
+const report = create(school.AssignmentSchema, {
+  id: "a2",
+  title: "英語のレポート",
+  dueAt: fromDate(new Date(Date.now() + 7 * 86_400_000)),
+  urgency: school.AssignmentUrgency.LATER,
+});
+
 /** The assignments created, as sent. */
 const created: { dueAt?: Timestamp }[] = [];
 
@@ -104,7 +111,20 @@ function schoolOf({
           }),
         ],
       })),
-      listAssignments: read(() => ({ assignments: [homework] })),
+      // A second page behind `c2` for the list of every assignment.
+      listAssignments: async ({
+        filter,
+        page,
+      }: {
+        filter: school.AssignmentFilter;
+        page: { cursor: string };
+      }) => {
+        if (unreadable) throw new Error("offline");
+        if (filter !== school.AssignmentFilter.ALL) return { assignments: [homework] };
+        return page.cursor === "c2"
+          ? { assignments: [report] }
+          : { assignments: [homework], page: { nextCursor: "c2", hasMore: true } };
+      },
       listStudyingFriends: read(() => ({
         friends: [
           create(school.StudyingFriendSchema, {
@@ -215,6 +235,16 @@ describe("assignments", () => {
     await show(<AssignmentsScreen />);
     await fireEvent.press(await screen.findByTestId("assignment-done-a1"));
     await waitFor(() => expect(written).toEqual(["done"]));
+  });
+
+  it("reads on past the first page at the end of the list", async () => {
+    schoolOf();
+    await show(<AssignmentsScreen />);
+    await fireEvent.press(await screen.findByText("ぜんぶ"));
+    expect(await screen.findByTestId("assignment-done-a1")).toBeTruthy();
+    expect(screen.queryByTestId("assignment-done-a2")).toBeNull();
+    await fireEvent(screen.getByTestId("assignments"), "onEndReached");
+    expect(await screen.findByTestId("assignment-done-a2")).toBeTruthy();
   });
 
   it("adds one and goes back", async () => {

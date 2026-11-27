@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { school, social } from "@tokuly/api";
 import { friendKeys } from "@tokuly/core/friends";
-import { schoolKeys, schoolQueries } from "@tokuly/core/school";
+import { loadedAssignments, schoolKeys, schoolQueries } from "@tokuly/core/school";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
@@ -63,8 +63,10 @@ export function useExams() {
   return useQuery(schoolQueries.exams(examClient));
 }
 
+/** The caller's assignments as far as they are loaded, with the open counts; `paging` reads on. */
 export function useAssignments(filter: school.AssignmentFilter) {
-  return useQuery(schoolQueries.assignments(assignmentClient, filter));
+  const query = useInfiniteQuery(schoolQueries.assignments(assignmentClient, filter));
+  return { ...query, data: loadedAssignments(query.data?.pages), paging: query };
 }
 
 /** The viewer's friends (the cache entry the friends screen and chat use too). */

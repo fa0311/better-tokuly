@@ -7,6 +7,28 @@ type Study = ClientSource<typeof school.StudyService>;
 type Exams = ClientSource<typeof school.ExamService>;
 type Assignments = ClientSource<typeof school.AssignmentService>;
 
+/** How many assignments a list asks for at a time. */
+const ASSIGNMENT_PAGE_SIZE = 100;
+
+/** One page of the caller's assignments, as it is cached. The counts are of all their open ones. */
+export interface AssignmentPage {
+  assignments: school.Assignment[];
+  nextCursor: string;
+  openCount: number;
+  overdueCount: number;
+}
+
+/** The assignments loaded so far, with the counts of the first page; `undefined` until it is there. */
+export function loadedAssignments(pages: readonly AssignmentPage[] | undefined) {
+  const [first] = pages ?? [];
+  if (!first) return undefined;
+  return {
+    assignments: (pages ?? []).flatMap((page) => page.assignments),
+    openCount: first.openCount,
+    overdueCount: first.overdueCount,
+  };
+}
+
 /**
  * Query options of what the school screens read on every app. `userId`
  * empty is the caller; another user's timetable is only what they share
@@ -42,8 +64,22 @@ export const schoolQueries = {
     queryKey: keys.exams,
     queryFn: async () => (await client().listExams({})).exams,
   }),
+  /** The caller's assignments by urgency, in pages. */
   assignments: (client: Assignments, filter: school.AssignmentFilter) => ({
     queryKey: keys.assignments(filter),
-    queryFn: () => client().listAssignments({ filter, page: { limit: 100 } }),
+    queryFn: async ({ pageParam }: { pageParam: string }): Promise<AssignmentPage> => {
+      const response = await client().listAssignments({
+        filter,
+        page: { limit: ASSIGNMENT_PAGE_SIZE, cursor: pageParam },
+      });
+      return {
+        assignments: response.assignments,
+        nextCursor: response.page?.nextCursor ?? "",
+        openCount: response.openCount,
+        overdueCount: response.overdueCount,
+      };
+    },
+    initialPageParam: "",
+    getNextPageParam: (page: AssignmentPage) => page.nextCursor || undefined,
   }),
 };

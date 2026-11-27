@@ -62,6 +62,10 @@ export function AssignmentsScreen() {
           data={assignments}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <AssignmentRow assignment={item} />}
+          onEndReached={() => {
+            if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
+          }}
+          ListFooterComponent={list.isFetchingNextPage ? <Spinner /> : undefined}
           contentContainerClassName="gap-1.5 px-4 pb-12"
           refreshControl={
             <RefreshControl refreshing={list.isRefetching} onRefresh={() => void list.refetch()} />

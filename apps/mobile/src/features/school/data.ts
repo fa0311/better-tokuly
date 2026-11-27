@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { school } from "@tokuly/api";
 import { DEFAULT_TIME_ZONE, zonedTime } from "@tokuly/core/format";
-import { schoolQueries } from "@tokuly/core/school";
+import { loadedAssignments, schoolQueries } from "@tokuly/core/school";
 import { useEffect, useState } from "react";
 import { AppState } from "react-native";
 import { currentAccount, isActive } from "#/features/session/account";
@@ -83,8 +83,10 @@ export function useExams() {
   return useQuery(schoolQueries.exams(examClient));
 }
 
+/** The caller's assignments as far as they are loaded, with the open counts; `paging` reads on. */
 export function useAssignments(filter: school.AssignmentFilter) {
-  return useQuery(schoolQueries.assignments(assignmentClient, filter));
+  const query = useInfiniteQuery(schoolQueries.assignments(assignmentClient, filter));
+  return { ...query, data: loadedAssignments(query.data?.pages), paging: query };
 }
 
 export function useStudyingFriends() {
