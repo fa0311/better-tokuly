@@ -3,11 +3,12 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-
 import { create, wallet } from "@tokuly/api";
 import { walletKeys } from "@tokuly/core/wallet";
 import type { ReactNode } from "react";
-import { Alert } from "react-native";
+import { Alert, Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
 import { testQueryClient } from "#/testing/query";
+import badges, { RECHECK_MS } from "../badges";
 import { HistoryScreen } from "../history-screen";
 import links from "../links";
 import { WalletScreen } from "../wallet-screen";
@@ -245,6 +246,46 @@ describe("the wallet screen", () => {
     expect(screen.queryByText(/ゲット/)).toBeNull();
     expect(coinsShown()).toBe("🪙 100");
     expect(Alert.alert).not.toHaveBeenCalled();
+  });
+});
+
+/** The wallet's count on the hub. */
+function Badge() {
+  return <Text testID="badge">{badges.wallet()}</Text>;
+}
+
+describe("the hub's bonus badge", () => {
+  const badgeShown = () => screen.getByTestId("badge").props.children;
+
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.clearAllMocks();
+  });
+
+  it("comes back at the account's midnight without anything else asking", async () => {
+    const api = server();
+    api.claimElsewhere();
+    await show(<Badge />);
+    await waitFor(() => expect(badgeShown()).toBe(0));
+    api.nextDay();
+    await act(() => jest.advanceTimersByTimeAsync(3 * 3_600_000 - 1_000));
+    expect(badgeShown()).toBe(0);
+    await act(() => jest.advanceTimersByTimeAsync(2_000));
+    await waitFor(() => expect(badgeShown()).toBe(1));
+  });
+
+  it("keeps asking while the phone's clock is ahead of the server's", async () => {
+    const api = server();
+    api.claimElsewhere();
+    api.clockAhead();
+    await show(<Badge />);
+    await waitFor(() => expect(badgeShown()).toBe(0));
+    await act(() => jest.advanceTimersByTimeAsync(RECHECK_MS + 1_000));
+    expect(badgeShown()).toBe(0);
+    api.nextDay();
+    await act(() => jest.advanceTimersByTimeAsync(RECHECK_MS + 1_000));
+    await waitFor(() => expect(badgeShown()).toBe(1));
   });
 });
 
