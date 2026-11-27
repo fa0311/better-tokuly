@@ -300,3 +300,55 @@ async fn a_purchase_started_before_the_month_turned_counts_in_the_month_it_is_pa
     assert_eq!(limit(&app, &fan).await.spent_yen, 5000, "paid this month");
     assert_eq!(start(&app, &fan, "coins_100", "").await.unwrap_err().reason, "SPENDING_LIMIT_REACHED");
 }
+
+async fn decline(app: &TestApp, fakepay: &FakePay, buyer: &TestUser, purchase: &Purchase) -> Purchase {
+    fakepay.set(&provider_ref(app, &purchase.id).await, PaymentState::Failed { reason: "card_declined".into() });
+    let request = ConfirmPurchaseRequest { purchase_id: purchase.id.clone(), ..Default::default() };
+    let response: ConfirmPurchaseResponse = app.call(&format!("{WALLET}/ConfirmPurchase"), Some(buyer), &request).await.unwrap();
+    response.purchase.into_option().unwrap()
+}
+
+async fn cancel(app: &TestApp, buyer: &TestUser, purchase: &Purchase) -> Purchase {
+    let request = CancelPurchaseRequest { purchase_id: purchase.id.clone(), ..Default::default() };
+    let response: CancelPurchaseResponse = app.call(&format!("{WALLET}/CancelPurchase"), Some(buyer), &request).await.unwrap();
+    response.purchase.into_option().unwrap()
+}
+
+/// A purchase that failed, was cancelled or expired frees its room only
+/// once its checkout can no longer be paid: the wallet voids it at the
+/// provider. Otherwise a minor could have a card declined on ¥5,000, spend
+/// the ¥5,000 elsewhere and then try the card again on the first checkout.
+#[tokio::test]
+async fn an_unpaid_purchase_frees_its_room_once_its_checkout_is_voided() {
+    let (app, wallet) = app().await;
+    let fakepay = with_fakepay(&wallet);
+    let fan = minor(&app, "fan").await;
+    let declined = start(&app, &fan, "coins_5000", FakePay::NAME).await.unwrap();
+    assert_eq!(decline(&app, &fakepay, &fan, &declined).await.status.as_known(), Some(PurchaseStatus::PURCHASE_STATUS_FAILED));
+    let abandoned = start(&app, &fan, "coins_5000", FakePay::NAME).await.unwrap();
+    cancel(&app, &fan, &abandoned).await;
+    let voided = fakepay.voided.lock().unwrap().clone();
+    for purchase in [&declined, &abandoned] {
+        assert!(voided.contains(&provider_ref(&app, &purchase.id).await), "{} is voided", purchase.id);
+    }
+    assert_eq!(limit(&app, &fan).await.spent_yen, 0);
+}
+
+#[tokio::test]
+async fn a_checkout_that_could_still_be_paid_keeps_counting() {
+    let (app, wallet) = app().await;
+    let fakepay = with_fakepay(&wallet);
+    let (fan, creator) = (minor(&app, "fan").await, app.user("creator").await);
+    fund(&app, &fan, 5000).await;
+    *fakepay.refuse_voids.lock().unwrap() = true;
+    let declined = start(&app, &fan, "coins_5000", FakePay::NAME).await.unwrap();
+    assert_eq!(decline(&app, &fakepay, &fan, &declined).await.status.as_known(), Some(PurchaseStatus::PURCHASE_STATUS_FAILED));
+    assert_eq!(limit(&app, &fan).await.spent_yen, 5000, "the card may still be tried again");
+    assert_eq!(gift(&app, &fan, &creator, 1).await.unwrap_err().reason, "SPENDING_LIMIT_REACHED");
+
+    // The wallet keeps trying, and the room is free once the void takes.
+    *fakepay.refuse_voids.lock().unwrap() = false;
+    wallet.run_maintenance(false).await;
+    assert_eq!(limit(&app, &fan).await.spent_yen, 0);
+    gift(&app, &fan, &creator, 5000).await.unwrap();
+}

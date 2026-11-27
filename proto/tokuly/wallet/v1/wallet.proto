@@ -355,8 +355,8 @@ message ClaimDailyBonusResponse {
 
 // How much a user may still spend this month. Spending is the price of the
 // coin purchases paid this month and of those still waiting for their
-// payment (a purchase stops counting when it fails, is cancelled or
-// expires) plus the coins they send to other people (gifts,
+// payment (one that failed, was cancelled or expired stops counting once
+// its checkout can no longer be paid) plus the coins they send to other people (gifts,
 // stamp packs of creators; one coin counts as ¥1), unless refunded. The
 // daily bonus and other coins granted are not spending. A month is a
 // calendar month in Japan time. A purchase or transfer that would go past

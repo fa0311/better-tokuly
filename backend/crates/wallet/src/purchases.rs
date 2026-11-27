@@ -340,7 +340,8 @@ impl Wallet {
     }
 
     /// Moves a still-pending purchase to a closed, unpaid status
-    /// (`failed`, `cancelled` or `expired`). `None` when it was not pending.
+    /// (`failed`, `cancelled` or `expired`) and voids its checkout. `None`
+    /// when it was not pending.
     async fn close_unpaid(&self, purchase_id: Uuid, status: &'static str, failure_reason: &str) -> AppResult<Option<PurchaseRow>> {
         let failure_reason: String = failure_reason.chars().take(200).collect();
         let closed: Option<PurchaseRow> = sqlx::query_as(concat!(
@@ -357,7 +358,59 @@ impl Wallet {
         {
             self.push(user_id, Event::PurchaseUpdated(Box::new(purchase.to_proto()))).await;
         }
+        if let Some(purchase) = &closed {
+            self.void_checkout(purchase).await;
+        }
         Ok(closed)
+    }
+
+    /// Has the provider make the checkout of a closed, unpaid purchase
+    /// impossible to pay, and records that it did. Until then the purchase
+    /// may still be paid (a declined card tried again, a payment at the last
+    /// moment), so it counts against the spending limit (`spending.rs`).
+    /// `false` when the provider could not void it; the maintenance run
+    /// tries again ([`Self::void_closed_checkouts`]).
+    async fn void_checkout(&self, purchase: &PurchaseRow) -> bool {
+        if purchase.provider_ref.is_empty() {
+            return true;
+        }
+        let voided = match (self.provider(&purchase.provider), purchase.order(&self.core)) {
+            (Some(provider), Some(order)) => provider.cancel_checkout(&order, &purchase.provider_ref).await,
+            // Nobody can pay into it through this wallet (provider removed, buyer deleted).
+            _ => Ok(()),
+        };
+        if let Err(e) = voided {
+            tracing::warn!(purchase_id = %purchase.id, error = %e, "provider could not void the checkout of an unpaid purchase; will retry");
+            return false;
+        }
+        let recorded = sqlx::query("UPDATE wallet_purchases SET checkout_voided_at = now() WHERE id = $1 AND checkout_voided_at IS NULL")
+            .bind(purchase.id)
+            .execute(&self.core.db)
+            .await;
+        if let Err(e) = recorded {
+            tracing::warn!(purchase_id = %purchase.id, error = %e, "could not record a voided checkout; will retry");
+            return false;
+        }
+        true
+    }
+
+    /// Voids the checkouts that could not be voided when their purchases
+    /// closed. Returns how many it voided.
+    pub(crate) async fn void_closed_checkouts(&self) -> AppResult<u64> {
+        let due: Vec<PurchaseRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            purchase_columns!(),
+            " FROM wallet_purchases
+              WHERE status IN ('failed', 'cancelled', 'expired') AND provider_ref <> '' AND checkout_voided_at IS NULL
+              ORDER BY id LIMIT 200"
+        ))
+        .fetch_all(&self.core.db)
+        .await?;
+        let mut voided = 0;
+        for purchase in due {
+            voided += u64::from(self.void_checkout(&purchase).await);
+        }
+        Ok(voided)
     }
 
     /// The buyer abandons an unpaid purchase. See `WalletService.CancelPurchase`.
@@ -365,15 +418,9 @@ impl Wallet {
         let purchase = self.find_purchase(user_id, purchase_id).await?;
         ensure!(purchase.is_pending(), precondition, "PURCHASE_NOT_PENDING", "only a pending purchase can be cancelled");
         let cancelled = self.close_unpaid(purchase.id, "cancelled", "").await?;
-        let cancelled = cancelled.ok_or_else(|| AppError::precondition("PURCHASE_NOT_PENDING", "only a pending purchase can be cancelled"))?;
-        if let (Some(provider), Some(order)) = (self.provider(&cancelled.provider), cancelled.order(&self.core))
-            && !cancelled.provider_ref.is_empty()
-            && let Err(e) = provider.cancel_checkout(&order, &cancelled.provider_ref).await
-        {
-            // Not fatal: if the checkout is paid anyway, the purchase still completes.
-            tracing::warn!(purchase_id = %cancelled.id, error = %e, "provider could not void a cancelled checkout");
-        }
-        Ok(cancelled)
+        // Its checkout was voided on the way (if the provider could not, it
+        // still completes when paid, and counts as spending until voided).
+        cancelled.ok_or_else(|| AppError::precondition("PURCHASE_NOT_PENDING", "only a pending purchase can be cancelled"))
     }
 
     /// One of `user_id`'s purchases, or `PURCHASE_NOT_FOUND`.

@@ -1,6 +1,6 @@
 # wallet — events, jobs and configuration
 
-Crate `tokuly-wallet`, migrations `1400_wallet.sql`, `1401_wallet_spending_limits.sql`, API `tokuly.wallet.v1`
+Crate `tokuly-wallet`, migrations `1400_wallet.sql`, `1401_wallet_spending_limits.sql`, `1402_wallet_voided_checkouts.sql`, API `tokuly.wallet.v1`
 (`WalletService`, `EarningsService`, `WalletAdminService`).
 
 ## How coins move
@@ -83,7 +83,11 @@ without clearing it); it stays when they turn 18. The lower one is in force.
 
 Spending is the price of coin purchases paid that month and of those still
 waiting for their payment (whenever they were started: a purchase started
-before the month turned and paid after it counts in the new month), plus the
+before the month turned and paid after it counts in the new month; one that
+failed, was cancelled or expired counts until the provider has voided its
+checkout, `wallet_purchases.checkout_voided_at`, since until then it may still
+be paid — the wallet voids it when the purchase closes and the maintenance run
+retries), plus the
 `transfer` entries the account paid that month and that were not refunded. Coins have no exchange rate: one coin counts as ¥1 (and a
 package priced in another currency counts its coins). Grants (the daily bonus,
 rewards), spends and everything received are not spending.
@@ -168,7 +172,7 @@ No named jobs. `Wallet::spawn_workers` runs, besides the consumer, a timer:
 
 | Every | Work |
 |---|---|
-| 1 min | Purchases past `expires_at`: ask the provider one last time, then complete (paid), fail, or expire them. An unreachable provider is retried for 24 h before the purchase is expired anyway. |
+| 1 min | Purchases past `expires_at`: ask the provider one last time, then complete (paid), fail, or expire them. An unreachable provider is retried for 24 h before the purchase is expired anyway. Then void the checkouts of unpaid purchases the provider could not void when they closed. |
 | 1 h | Erase the encrypted destination of payout requests closed more than 90 days ago; prune `wallet_entry_notices` older than 30 days. |
 
 Analytics events: `wallet.purchase` (value = coins granted), `wallet.daily_bonus`.

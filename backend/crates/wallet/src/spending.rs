@@ -10,7 +10,9 @@
 //! - coin purchases at their price ([`purchase_yen`]): in the month they
 //!   were paid, and while they wait for the payment whenever they were
 //!   started, so a purchase started before the month turned and paid after
-//!   it uses the new month's room;
+//!   it uses the new month's room. One that failed, was cancelled or
+//!   expired still counts until its checkout is voided at the provider
+//!   (`checkout_voided_at`): until then it may still be paid;
 //! - `transfer` entries the account paid (gifts, stamp packs of creators),
 //!   unless refunded. There is no exchange rate for coins: one coin is ¥1.
 //!
@@ -60,14 +62,16 @@ fn first_id_at(at: Time) -> Uuid {
     Uuid::from_u128((at.timestamp_millis().max(0) as u128) << 80)
 }
 
-/// Yen `user_id` has spent from `since` on, counting the purchases still
-/// waiting for their payment.
+/// Yen `user_id` has spent from `since` on, counting the purchases that may
+/// still be paid.
 pub(crate) async fn spent_since(db: impl PgExecutor<'_>, user_id: Uuid, since: Time) -> AppResult<i64> {
     // Purchases are not bounded by ID: one paid now may have started long
     // before (a payment the provider reported late).
     Ok(sqlx::query_scalar(
         "SELECT ((SELECT COALESCE(sum(CASE WHEN currency = 'JPY' THEN price_minor ELSE coins END), 0) FROM wallet_purchases
-                  WHERE user_id = $1 AND (status = 'pending' OR (status = 'completed' AND completed_at >= $2)))
+                  WHERE user_id = $1
+                    AND (status = 'pending' OR (status = 'completed' AND completed_at >= $2)
+                         OR (status IN ('failed', 'cancelled', 'expired') AND provider_ref <> '' AND checkout_voided_at IS NULL)))
                + (SELECT COALESCE(sum(amount), 0) FROM wallet_entries
                   WHERE from_user_id = $1 AND id >= $3 AND created_at >= $2 AND kind = 'transfer' AND refunded_at IS NULL))::bigint",
     )
