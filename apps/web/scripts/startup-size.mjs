@@ -5,7 +5,7 @@
  * puts in the page (TanStack Start's route manifest: the root's, then those
  * of every route down to the one opened), compressed with gzip. On top of
  * that, a signed-in page waits for the background features and badge
- * sources (`background.tsx`, `badges.ts`: chunks named after those files,
+ * sources (`background.tsx`, `badges.ts`: the chunks the layout's globs point to,
  * with what they import), counted on their own line. Chunks a page imports
  * while it runs (strings, a hub card) never hold up the first render and
  * are not counted.
@@ -17,7 +17,7 @@
  * page adds for the background features, and the heaviest single route. Raise it on purpose, in the PR that needs it, never to make
  * CI pass.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
@@ -80,15 +80,31 @@ function closure(files) {
   return seen;
 }
 
-const assets = readdirSync(join(web, ".output/public/assets"));
+// The chunks the signed-in layout fetches: the targets of the `import.meta.glob`
+// maps over `features/*/background.tsx` and `features/*/badges.ts`, as built.
+const sources = (file) =>
+  readdirSync(join(web, "src/features")).filter((area) =>
+    existsSync(join(web, "src/features", area, file)),
+  ).length;
+const backgroundTargets = new Set();
+for (const name of readdirSync(join(web, ".output/public/assets"))) {
+  if (!name.endsWith(".js")) continue;
+  const code = readFileSync(join(web, ".output/public/assets", name), "utf8");
+  for (const [, target] of code.matchAll(
+    /"\.\.\/features\/[^"/]+\/(?:background\.tsx|badges\.ts)":[^`"']*[`"']\.\/([^`"']+\.js)[`"']/g,
+  )) {
+    backgroundTargets.add(`/assets/${target}`);
+  }
+}
+const expected = sources("background.tsx") + sources("badges.ts");
+if (backgroundTargets.size !== expected) {
+  throw new Error(
+    `Found ${backgroundTargets.size} background and badge chunks in the build, expected ${expected} ` +
+      "(one per features/*/background.tsx and badges.ts): this script no longer reads the build right.",
+  );
+}
 const shell = new Set([...own("__root__").js, ...own("/_app").js]);
-const backgroundFiles = [
-  ...closure(
-    assets
-      .filter((name) => /^(background|badges)-.*\.js$/.test(name))
-      .map((name) => `/assets/${name}`),
-  ),
-].filter((file) => !shell.has(file));
+const backgroundFiles = [...closure(backgroundTargets)].filter((file) => !shell.has(file));
 const background = {
   files: backgroundFiles.length,
   js: backgroundFiles.reduce((total, file) => total + gzipped(file), 0),
