@@ -22,7 +22,6 @@ const WEB_ONLY = [
   "footprints",
   "news",
   "party",
-  "places",
   "recap",
   "settings",
   "studio",

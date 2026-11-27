@@ -340,6 +340,10 @@ export default {
     openPrivacy: "Open privacy settings",
     memoPhotos: "Its photos ({{count}}) stay as they are: add or remove them on the web",
   },
+  places: {
+    editOnWeb: "Edit the place (web)",
+    talkOnWeb: "Reactions and comments (web)",
+  },
   quest: {
     coins: "Your coins",
     onWeb: "Open on the web",

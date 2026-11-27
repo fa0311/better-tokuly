@@ -1,0 +1,73 @@
+appId: app.tokuly.mobile
+name: Find an own place, check in there with a few words, find it by name, delete it
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/places-own.js
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+
+# Places are under the own profile.
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-places" }
+- tapOn: { id: "me-places" }
+- extendedWaitUntil:
+    visible: { id: "${'place-' + output.place}" }
+    timeout: 15000
+- takeScreenshot: 48-places
+- tapOn: { id: "${'place-' + output.place}" }
+
+# The place: checking in with a few words.
+- extendedWaitUntil:
+    visible: { id: "place-map" }
+    timeout: 15000
+- takeScreenshot: 49-place
+- tapOn: { id: "place-check-in" }
+- extendedWaitUntil:
+    visible: { id: "check-in" }
+    timeout: 15000
+- tapOn: { id: "check-in-message" }
+- inputText: "e2e check-in"
+- hideKeyboard
+- tapOn: { id: "check-in-submit" }
+- runFlow:
+    when:
+      visible: "OK"
+    commands:
+      - tapOn: "OK"
+- extendedWaitUntil:
+    visible: { id: "place-my-visits" }
+    timeout: 15000
+- back
+
+# Found by its name.
+- tapOn: { id: "places-tab-search" }
+- tapOn: { id: "places-search" }
+- inputText: ${output.name}
+- hideKeyboard
+- extendedWaitUntil:
+    visible: { id: "${'place-' + output.place}" }
+    timeout: 15000
+- tapOn: { id: "${'place-' + output.place}" }
+
+# Deleted, after asking.
+- scrollUntilVisible:
+    element: { id: "place-delete" }
+- tapOn: { id: "place-delete" }
+- tapOn: "DELETE|Delete|削除する"
+- extendedWaitUntil:
+    visible: { id: "places" }
+    timeout: 15000
+- tapOn: { id: "places-tab-mine" }
+- extendedWaitUntil:
+    notVisible: { id: "${'place-' + output.place}" }
+    timeout: 15000
