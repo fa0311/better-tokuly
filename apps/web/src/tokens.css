@@ -1,0 +1,76 @@
+/* Generated from @tokuly/core/tokens by `pnpm --filter @tokuly/web tokens`: do not edit. */
+
+:root {
+  --bg: #f4f1ff;
+  --surface: #ffffff;
+  --surface-2: #f0ecfb;
+  --surface-3: #e4def5;
+  --ink: #17122b;
+  --ink-soft: #5d5778;
+  --ink-faint: #9993ad;
+  --line: #ddd6ee;
+  --shadow: #17122b;
+  --brand: #7c5cff;
+  --brand-strong: #5f3df0;
+  --brand-soft: #e9e3ff;
+  --on-brand: #ffffff;
+  --lime: #c6f24e;
+  --pink: #ff5c9d;
+  --sky: #4fc3ff;
+  --sun: #ffd23f;
+  --coral: #ff7a59;
+  --mint: #3ddc97;
+  --danger: #f0425f;
+  --success: #1fb57a;
+  --live: #ff2d55;
+  --overlay: rgb(23 18 43 / 0.45);
+}
+
+:root[data-theme="dark"] {
+  --bg: #0d0b14;
+  --surface: #17132a;
+  --surface-2: #211c3a;
+  --surface-3: #2d274c;
+  --ink: #f6f3ff;
+  --ink-soft: #b4adcf;
+  --ink-faint: #7a7397;
+  --line: #322b52;
+  --shadow: #000000;
+  --brand: #9a82ff;
+  --brand-strong: #b7a5ff;
+  --brand-soft: #2a2152;
+  --on-brand: #120c2b;
+  --overlay: rgb(0 0 0 / 0.6);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-on-brand: var(--on-brand);
+  --color-lime: var(--lime);
+  --color-pink: var(--pink);
+  --color-sky: var(--sky);
+  --color-sun: var(--sun);
+  --color-coral: var(--coral);
+  --color-mint: var(--mint);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-live: var(--live);
+  --color-overlay: var(--overlay);
+
+  --radius-card: 1.5rem;
+  --radius-control: 1rem;
+
+  --shadow-pop-sm: 0 2px 0 0 var(--shadow);
+  --shadow-pop: 0 4px 0 0 var(--shadow);
+  --shadow-pop-lg: 0 6px 0 0 var(--shadow);
+}
