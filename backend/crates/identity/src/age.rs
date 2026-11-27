@@ -23,7 +23,7 @@
 //! (`tokuly_core::auth::reachable_while_too_young`).
 use std::collections::{HashMap, HashSet};
 
-use chrono::{Months, NaiveDate, Utc};
+use chrono::{Datelike, Months, NaiveDate, Utc};
 use tokuly_core::prelude::*;
 
 /// The age from which the limits for minors no longer apply.
@@ -40,12 +40,26 @@ pub fn too_young_on(birthdate: Option<NaiveDate>, today: NaiveDate, min_age: u32
     birthdate.is_some_and(|born| today.years_since(born).is_none_or(|age| age < min_age))
 }
 
+/// The first day someone born on `born` is no longer [`too_young_on`]: the
+/// birthday of `min_age`, the 1st of March for the 29th of February.
+pub fn old_enough_on(born: NaiveDate, min_age: u32) -> NaiveDate {
+    let birthday = born.checked_add_months(Months::new(12 * min_age)).unwrap_or(NaiveDate::MAX);
+    if birthday.day() == born.day() { birthday } else { birthday.succ_opt().unwrap_or(NaiveDate::MAX) }
+}
+
 impl crate::Identity {
     /// [`too_young_on`] today, by the minimum age of this deployment. Other
     /// domains ask it for what acts for an account without a session of its
     /// own (API tokens, bots, webhooks).
     pub fn too_young(&self, birthdate: Option<NaiveDate>) -> bool {
         too_young_on(birthdate, Utc::now().date_naive(), self.cfg.min_age)
+    }
+
+    /// When a [`Self::too_young`] account is let in (`Me.too_young_until`):
+    /// the start of [`old_enough_on`], UTC, as [`too_young_on`] counts days.
+    pub fn too_young_until(&self, birthdate: Option<NaiveDate>) -> Option<Time> {
+        let born = birthdate.filter(|_| self.too_young(birthdate))?;
+        Some(old_enough_on(born, self.cfg.min_age).and_time(chrono::NaiveTime::MIN).and_utc())
     }
 }
 
@@ -156,5 +170,15 @@ mod tests {
         assert!(too_young_on(Some(born), day(2026, 11, 27), 13));
         assert!(!too_young_on(Some(born), day(2026, 11, 28), 13));
         assert!(!too_young_on(None, day(2026, 11, 27), 13), "no birthdate counts as a minor, not as too young");
+    }
+
+    #[test]
+    fn old_enough_on_the_first_day_that_is_not_too_young() {
+        for born in [day(2013, 11, 28), day(2012, 2, 29), day(2013, 12, 31)] {
+            let on = old_enough_on(born, 13);
+            assert!(too_young_on(Some(born), on.pred_opt().unwrap(), 13), "{born}");
+            assert!(!too_young_on(Some(born), on, 13), "{born}");
+        }
+        assert_eq!(old_enough_on(day(2012, 2, 29), 13), day(2025, 3, 1));
     }
 }

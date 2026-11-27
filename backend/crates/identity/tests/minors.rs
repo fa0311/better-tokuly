@@ -413,12 +413,17 @@ async fn a_too_young_account_is_let_in_on_its_birthday() {
     };
     set_born(12).await.unwrap();
     let young = app.sign_in(child.id).await;
-    assert!(me(&app, &young).await.too_young);
+    let held = me(&app, &young).await;
+    assert!(held.too_young);
+    let until = held.too_young_until.as_option().expect("the client is told when to look again");
+    let birthday = born(12).checked_add_months(Months::new(12 * 13)).unwrap();
+    assert_eq!(until.seconds, birthday.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp(), "the 13th birthday");
 
     set_born(13).await.unwrap();
     assert!(me(&app, &young).await.too_young == false, "by the date, whatever the token");
     let teen = app.sign_in(child.id).await;
-    assert!(!me(&app, &teen).await.too_young);
+    let let_in = me(&app, &teen).await;
+    assert!(!let_in.too_young && let_in.too_young_until.as_option().is_none());
     assert_eq!(privacy(&app, &teen).await.discoverable_to, FOF);
 }
 

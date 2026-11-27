@@ -30,14 +30,25 @@ function account() {
   const service = {
     setBirthdate: async ({ birthdate }: { birthdate: string }) => {
       calls.push(`birthdate ${birthdate}`);
-      return { me: create(identity.MeSchema, { user: { id: "u1" }, birthdate, minor: true, tooYoung: true }) };
+      return {
+        me: create(identity.MeSchema, {
+          user: { id: "u1" },
+          birthdate,
+          minor: true,
+          tooYoung: true,
+        }),
+      };
     },
     requestAccountDeletion: async ({ currentPassword }: { currentPassword: string }) => {
       calls.push(`delete ${currentPassword}`);
-      return { deletionScheduledAt: timestampFromDate(new Date(Date.now() + 30 * 24 * 3600 * 1000)) };
+      return {
+        deletionScheduledAt: timestampFromDate(new Date(Date.now() + 30 * 24 * 3600 * 1000)),
+      };
     },
   };
-  jest.mocked(api).mockReturnValue({ service: () => service, session: { updateMe, refresh } } as never);
+  jest
+    .mocked(api)
+    .mockReturnValue({ service: () => service, session: { updateMe, refresh } } as never);
   return { calls };
 }
 
@@ -78,6 +89,24 @@ describe("the too-young gate", () => {
     expect(screen.getByText("ごめんね、Tokulyは13歳からなんだ")).toBeTruthy();
     expect(screen.queryByText("アプリ")).toBeNull();
     await waitFor(() => expect(calls).toEqual(["birthdate 2016-05-05", "refresh"]));
+  });
+
+  it("lets the account in on its birthday, without a reload", async () => {
+    const refresh = jest.fn(async () => {
+      signIn({ birthdate: "2013-11-28" });
+      return true;
+    });
+    jest.mocked(api).mockReturnValue({ service: () => ({}), session: { refresh } } as never);
+    // The birthday came while the app stood open (or the phone slept).
+    signIn({
+      birthdate: "2013-11-28",
+      tooYoung: true,
+      tooYoungUntil: timestampFromDate(new Date(Date.now() - 1000)),
+    });
+    await open();
+    await waitFor(() => expect(screen.getByText("アプリ")).toBeTruthy());
+    expect(screen.queryByTestId("too-young-screen")).toBeNull();
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("deletes the account with the password", async () => {

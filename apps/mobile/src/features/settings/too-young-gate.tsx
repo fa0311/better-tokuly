@@ -1,8 +1,8 @@
 import { errorReason, identity, toDate } from "@tokuly/api";
-import { isTooYoung } from "@tokuly/core/session";
-import { type ReactNode, useState } from "react";
+import { isTooYoung, tooYoungUntil, watchTooYoung } from "@tokuly/core/session";
+import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Text, View } from "react-native";
+import { AppState, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "#/components/button";
 import { ErrorNote, Page } from "#/components/page";
@@ -16,9 +16,26 @@ import { errorMessage } from "#/lib/errors";
  * An account under 13 by the birthdate it gave sees only why it cannot use
  * Tokuly, and the way to delete itself, in place of the app (`children`,
  * background work included). The server lets such a session do nothing else.
+ * On that birthday the app asks again by itself, and also when it comes back
+ * to the front after it.
  */
 export function TooYoungGate({ children }: { children: ReactNode }) {
   const me = useMe();
+  const until = tooYoungUntil(me);
+  useEffect(
+    () =>
+      watchTooYoung(
+        until,
+        () => api().session.refresh(),
+        (wake) => {
+          const subscription = AppState.addEventListener("change", (state) => {
+            if (state === "active") wake();
+          });
+          return () => subscription.remove();
+        },
+      ),
+    [until],
+  );
   if (!me || !isTooYoung(me)) return children;
   return <TooYoung me={me} />;
 }
