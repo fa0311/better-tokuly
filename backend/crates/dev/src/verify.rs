@@ -199,7 +199,7 @@ impl Dev {
         }
         let marks = self.password_marks(row.creator_password_hash.as_deref());
         let current_mark = marks.first().cloned();
-        if let Some(mark) = row.password_mark.as_ref().filter(|mark| marks[1..].contains(mark)) {
+        if let Some(mark) = row.password_mark.as_ref().filter(|mark| marks.iter().skip(1).any(|previous| previous == *mark)) {
             // Made under the previous TOKULY_SECRET, with the password of now:
             // the creator's tokens of that time get the current mark.
             sqlx::query("UPDATE dev_tokens SET password_mark = $2 WHERE created_by = $1 AND password_mark = $3")
