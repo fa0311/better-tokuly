@@ -570,8 +570,8 @@ async fn one_address_may_only_hold_so_many_connections() {
 
     // The test connects from loopback, where the gateway expects its edge
     // proxy: clients the proxy names are counted on their own...
-    let via_proxy = |forwarded_for: &'static str| {
-        WsClient::connect_with(addr, WsOptions { forwarded_for: Some(forwarded_for), ..Default::default() })
+    let via_proxy = async |forwarded_for: &'static str| {
+        WsClient::connect_with(addr, WsOptions { forwarded_for: &[forwarded_for], ..Default::default() }).await
     };
     let _third = via_proxy("203.0.113.7").await.expect("another client address");
     // ...by the address the proxy saw, not by what the client claims to the left of it.
@@ -591,14 +591,30 @@ async fn forwarded_addresses_from_untrusted_peers_are_ignored() {
     // Exposed directly, no proxy in front: nobody may name their own address.
     let cfg = RealtimeConfig { max_connections_per_ip: 1, trusted_proxies: Vec::new(), ..test_config() };
     let harness = Harness::start_with(cfg).await;
-    let claiming = |forwarded_for: &'static str| {
+    let claiming = async |forwarded_for: &'static str| {
         WsClient::connect_with(
             harness.addrs.websocket,
-            WsOptions { forwarded_for: Some(forwarded_for), ..Default::default() },
+            WsOptions { forwarded_for: &[forwarded_for], ..Default::default() },
         )
+        .await
     };
     let _held = claiming("203.0.113.7").await.expect("the first connection");
     let refused = claiming("203.0.113.8").await.err().expect("posing as someone else does not get around the limit");
+    assert!(refused.contains("429"), "{refused}");
+}
+
+#[tokio::test]
+async fn the_clients_own_forwarded_field_does_not_pick_its_address() {
+    // A proxy that adds its entry as a field of its own (HAProxy) leaves the
+    // field the client sent first: the whole chain is read, not that field.
+    let harness = Harness::start_with(RealtimeConfig { max_connections_per_ip: 1, ..test_config() }).await;
+    let claiming = async |claim: &'static str| {
+        let fields = [claim, "203.0.113.7"];
+        WsClient::connect_with(harness.addrs.websocket, WsOptions { forwarded_for: &fields, ..Default::default() })
+            .await
+    };
+    let _held = claiming("198.51.100.1").await.expect("the first connection");
+    let refused = claiming("198.51.100.2").await.err().expect("a new claim does not get around the limit");
     assert!(refused.contains("429"), "{refused}");
 }
 

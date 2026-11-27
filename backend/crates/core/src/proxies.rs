@@ -91,6 +91,19 @@ impl TrustedProxies {
         }
         client
     }
+
+    /// [`Self::client_ip`] of a request from `peer` with these headers.
+    pub fn client_of(&self, peer: IpAddr, headers: &http::HeaderMap) -> IpAddr {
+        self.client_ip(peer, forwarded_for(headers).as_deref())
+    }
+}
+
+/// The `X-Forwarded-For` chain of a request: every field of that name, in
+/// order. A proxy may add its entry as a field of its own after the one the
+/// client sent; read alone, the first field would be the client's word.
+fn forwarded_for(headers: &http::HeaderMap) -> Option<String> {
+    let fields: Vec<&str> = headers.get_all("x-forwarded-for").iter().map(|value| value.to_str().unwrap_or_default()).collect();
+    (!fields.is_empty()).then(|| fields.join(","))
 }
 
 #[cfg(test)]

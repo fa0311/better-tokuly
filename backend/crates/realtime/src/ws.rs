@@ -63,7 +63,7 @@ async fn upgrade(State(gateway): State<Gateway>, ConnectInfo(peer): ConnectInfo<
         return refuse(StatusCode::SERVICE_UNAVAILABLE, "too many connections");
     }
     // Behind the edge proxy the TCP peer is the proxy; the client is in the header.
-    let client_ip = gateway.trusted_proxies.client_ip(peer.ip(), header(header::HeaderName::from_static("x-forwarded-for")));
+    let client_ip = gateway.trusted_proxies.client_of(peer.ip(), &headers);
     let Some(permit) = gateway.ip_limiter.admit(client_ip) else {
         tracing::debug!(%client_ip, "WebSocket connection over the per-address limit refused");
         return refuse(StatusCode::TOO_MANY_REQUESTS, "too many connections from this address");
