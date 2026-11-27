@@ -5,6 +5,7 @@ import * as WebBrowser from "expo-web-browser";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
+import { useEmojiText } from "#/features/emoji/emoji-text";
 import { StampImage } from "#/features/stamps/stamp-image";
 import { SERVER_URL } from "#/lib/config";
 import { clock, contentText, displayName, replyText, systemText } from "./text";
@@ -13,7 +14,7 @@ const STAMP_SIZE = 140;
 
 const absolute = (url: string) => (url.startsWith("/") ? `${SERVER_URL}${url}` : url);
 
-/** The text of a message: links open in the in-app browser, mentions stand out. */
+/** The text of a message: links open in the in-app browser, mentions stand out, custom emoji are drawn. */
 function MessageText({ message, mine }: { message: chat.Message; mine: boolean }) {
   const tokens = tokenize(
     message.text,
@@ -21,6 +22,7 @@ function MessageText({ message, mine }: { message: chat.Message; mine: boolean }
     message.mentionsEveryone,
   );
   const big = message.bigEmojiCount > 0;
+  const withEmoji = useEmojiText();
   return (
     <Text
       selectable
@@ -36,7 +38,7 @@ function MessageText({ message, mine }: { message: chat.Message; mine: boolean }
             {token.text}
           </Text>
         ) : token.type === "text" ? (
-          token.text
+          withEmoji(token.text, big ? 44 : 20)
         ) : (
           <Text key={index} className="font-black">
             {token.text}

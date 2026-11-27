@@ -1,0 +1,58 @@
+appId: app.tokuly.mobile
+name: Open the emoji picker in a chat and a note, the emoji catalogue and the deck
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/stamp-friends.js
+- clearKeychain
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+      PASSWORD: ${PASSWORD}
+- waitForAnimationToEnd
+
+# The picker in a chat and in the note composer (the catalogue of a fresh stack may be empty).
+- tapOn: { id: "tab-chats" }
+- tapOn: { id: "${'conversation-' + output.friendName}" }
+- tapOn: { id: "composer-emoji" }
+- extendedWaitUntil:
+    visible: { id: "emoji-picker" }
+    timeout: 10000
+- takeScreenshot: 01-emoji-picker
+- tapOn: { id: "emoji-picker-done" }
+- runFlow: ../subflows/back.yaml
+- tapOn: { id: "tab-notes" }
+- tapOn: { id: "notes-compose" }
+- runFlow:
+    when:
+      visible: { id: "note-rules" }
+    commands:
+      - tapOn: { id: "note-rules-agree" }
+- tapOn: { id: "note-add-emoji" }
+- extendedWaitUntil:
+    visible: { id: "emoji-picker" }
+    timeout: 10000
+- tapOn: { id: "emoji-picker-done" }
+- hideKeyboard
+- runFlow: ../subflows/back.yaml
+
+# The emoji catalogue and the deck, from the hub.
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env:
+      ENTRY: emoji
+- extendedWaitUntil:
+    visible: { id: "emoji-browse" }
+    timeout: 15000
+- takeScreenshot: 02-emoji
+- tapOn: { id: "emoji-tab-deck" }
+- extendedWaitUntil:
+    visible: { id: "emoji-submit-web" }
+    timeout: 15000

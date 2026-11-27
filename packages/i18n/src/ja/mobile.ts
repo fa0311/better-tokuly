@@ -348,6 +348,13 @@ export default {
     moreOnWebHint: "Web の画面でひらくよ",
     remove: "スタンプをはずす",
   },
+  emoji: {
+    pick: "絵文字",
+    deckEmptyBody: "絵文字をひらいて「デッキにピンどめ」しよう！",
+    submit: "絵文字を申請する",
+    submissions: "じぶんの申請",
+    onWeb: "Web の画面でひらくよ",
+  },
   licenses: {
     title: "オープンソースライセンス",
     lead: "Tokulyは{{count}}こ のオープンソースソフトウェアでできてるよ。ありがとう！",
