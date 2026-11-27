@@ -22,7 +22,8 @@ interface ExportRequest {
  * way to ask how an export is doing. So this browser remembers the request
  * it made, to keep saying "on its way" after a reload.
  */
-const requestKey = (userId: string) => `tokuly.exportRequest.${userId}`;
+export const REQUEST_PREFIX = "tokuly.exportRequest.";
+const requestKey = (userId: string) => `${REQUEST_PREFIX}${userId}`;
 
 function readRequest(userId: string): ExportRequest | null {
   try {

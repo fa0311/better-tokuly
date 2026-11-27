@@ -5,7 +5,12 @@ import { api, resetApi } from "#/lib/api";
 import { enterAccount, signOut } from "../session";
 import { useSessionStore } from "../store";
 
-jest.mock("#/generated/seams/lifecycle", () => ({ __esModule: true, default: [] }));
+/** A feature that holds something of the account in memory. */
+const mockForget = jest.fn();
+jest.mock("#/generated/seams/lifecycle", () => ({
+  __esModule: true,
+  default: [{ forget: () => mockForget() }],
+}));
 
 const answer = (user: string, refreshToken: string) =>
   create(identity.AuthResponseSchema, {
@@ -74,6 +79,20 @@ describe("starting over as another account", () => {
 
     // While `alt` is adopted, `api()` is already its API: nothing shows `main` with it.
     expect(seen).toEqual(["unknown (0)", "signedIn as alt (1)"]);
+  });
+
+  it("has the features forget the account that left before the next one shows", async () => {
+    await signedInAs("main");
+    mockForget.mockClear();
+    let shownAfterForget = false;
+    useSessionStore.subscribe(({ state }) => {
+      if (state.status === "signedIn") shownAfterForget = mockForget.mock.calls.length === 1;
+    });
+
+    await enterAccount(answer("alt", "rt-alt"));
+    expect(shownAfterForget).toBe(true);
+    await signOut();
+    expect(mockForget).toHaveBeenCalledTimes(2);
   });
 
   it("signs out in one update", async () => {

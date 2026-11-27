@@ -10,12 +10,17 @@ import { ChannelAvatar } from "../video-card";
 
 const { ProcessingState, VideoStatus } = video;
 
-const CHANNEL_KEY = "tokuly.studio.channel";
+export const CHANNEL_KEY = "tokuly.studio.channel";
 
 /** The channel the studio is showing; remembered between visits. */
 const useSelection = create<{ channelId: string }>(() => ({
   channelId: typeof window === "undefined" ? "" : (window.localStorage.getItem(CHANNEL_KEY) ?? ""),
 }));
+
+/** The studio shows the default channel again (the account that chose one left). */
+export function forgetStudioChannel(): void {
+  useSelection.setState({ channelId: "" });
+}
 
 export function selectStudioChannel(channelId: string): void {
   useSelection.setState({ channelId });

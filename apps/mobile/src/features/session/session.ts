@@ -3,7 +3,7 @@ import { api, apiWith, authClient, resetApi, settleApi } from "#/lib/api";
 import { prepareRealtime, resetRealtime } from "#/lib/realtime";
 import { DEVICE_ID_KEY } from "#/platform/device";
 import { forgetPreviousInstall } from "#/platform/install";
-import { FEATURE_SECURE_KEYS, runBeforeEnd, runBeforeLeave } from "#/seams/lifecycle";
+import { FEATURE_SECURE_KEYS, runBeforeEnd, runBeforeLeave, runForget } from "#/seams/lifecycle";
 import { currentAccount } from "./account";
 import { withParkedTokens } from "./parked";
 import { useSessionStore } from "./store";
@@ -78,6 +78,7 @@ async function leave(): Promise<void> {
 async function startOver(response: identity.AuthResponse | null): Promise<void> {
   resetRealtime();
   resetApi();
+  runForget();
   unbind?.();
   unbind = null;
   const session = api().session;

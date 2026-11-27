@@ -23,7 +23,7 @@ import { completeMention, mentionAtCaret } from "./text";
 import { useThread } from "./thread-context";
 
 const MAX_LENGTH = 1000;
-const IDENTITY_KEY = "tokuly.comments.identity";
+export const IDENTITY_KEY = "tokuly.comments.identity";
 
 /** The channel the person last commented as in this browser ("" = as themselves). */
 function storedIdentity(): string {

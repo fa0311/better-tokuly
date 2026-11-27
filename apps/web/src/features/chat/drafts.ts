@@ -4,9 +4,10 @@
  * They belong to the account that typed them: the key names it, and signing
  * out removes them.
  */
-const PREFIX = "tokuly.chat.draft.";
+export const DRAFTS_PREFIX = "tokuly.chat.draft.";
 
-const keyOf = (userId: string, conversationId: string) => `${PREFIX}${userId}.${conversationId}`;
+const keyOf = (userId: string, conversationId: string) =>
+  `${DRAFTS_PREFIX}${userId}.${conversationId}`;
 
 export function loadDraft(userId: string, conversationId: string): string {
   try {
@@ -22,18 +23,5 @@ export function saveDraft(userId: string, conversationId: string, text: string):
     else window.localStorage.removeItem(keyOf(userId, conversationId));
   } catch {
     // Storage is full or blocked: the draft simply does not survive a reload.
-  }
-}
-
-/** Removes every draft kept in this browser (on sign-out). */
-export function clearDrafts(): void {
-  try {
-    const storage = window.localStorage;
-    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
-      (key): key is string => Boolean(key?.startsWith(PREFIX)),
-    );
-    for (const key of keys) storage.removeItem(key);
-  } catch {
-    // Nothing to remove where storage is blocked.
   }
 }

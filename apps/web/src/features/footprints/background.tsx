@@ -4,10 +4,8 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
-import { useSessionStore } from "#/stores/session";
 import { footprintKeys, regionName } from "./api";
 import { CelebrationLayer, celebrate } from "./celebrate";
-import { forgetSeenLevels } from "./seen-levels";
 
 /** New cells are announced at most this often: a walk uncovers one every minute or so. */
 const CELL_TOAST_EVERY_MS = 5 * 60_000;
@@ -69,15 +67,6 @@ export default function FootprintsBackground() {
       clearTimeout(refreshTimer);
     };
   }, [queryClient, router, t]);
-
-  // What this device remembered about the account's levels goes when it signs out.
-  useEffect(
-    () =>
-      useSessionStore.subscribe((session) => {
-        if (session.state.status === "signedOut") forgetSeenLevels();
-      }),
-    [],
-  );
 
   return <CelebrationLayer />;
 }

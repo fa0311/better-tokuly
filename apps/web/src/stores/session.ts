@@ -1,6 +1,7 @@
 import type { identity, SessionState } from "@tokuly/api";
 import { create } from "zustand";
 import { api } from "#/lib/api";
+import { forgetSignedOutAccount } from "#/seams/sign-out";
 
 interface SessionStore {
   state: SessionState;
@@ -99,9 +100,14 @@ export function startSession(): void {
   session.onAccountChange(() => reloadAsActiveAccount());
   listenForAccountChanges();
   session.subscribe((state) => {
+    const previous = useSessionStore.getState().state;
     useSessionStore.setState({ state });
     if (state.status === "signedIn") window.localStorage.setItem(SESSION_HINT_KEY, "1");
     else if (state.status === "signedOut") window.localStorage.removeItem(SESSION_HINT_KEY);
+    // Only an account that was signed in leaves: an offline start, signed out with its session
+    // kept, keeps its drafts.
+    if (previous.status === "signedIn" && state.status === "signedOut")
+      void forgetSignedOutAccount();
   });
   const handedOff = takeHandoffHint();
   if (handedOff || window.localStorage.getItem(SESSION_HINT_KEY)) void session.restore();

@@ -9,7 +9,7 @@
  *   <GazetteerCredit />                  // the credit line required next to area names from the server
  */
 
-export { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "#/lib/device-memory";
+export { readDeviceMemory, writeDeviceMemory } from "#/lib/device-memory";
 export {
   currentPosition,
   DEFAULT_CENTER,

@@ -6,11 +6,9 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
-import { useSessionStore } from "#/stores/session";
 import { studyClient } from "./api";
 import {
   loadActiveSession,
-  resetActiveSession,
   setActiveSession,
   setActiveTimer,
   useActiveSession,
@@ -149,15 +147,6 @@ export default function SchoolBackground() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [sessionId, heartbeatSeconds, queryClient, t]);
-
-  // The timer belongs to the account: it does not outlive the session.
-  useEffect(
-    () =>
-      useSessionStore.subscribe((session) => {
-        if (session.state.status === "signedOut") resetActiveSession();
-      }),
-    [],
-  );
 
   return null;
 }

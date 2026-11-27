@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearDrafts, loadDraft, saveDraft } from "./drafts";
+import { loadDraft, saveDraft } from "./drafts";
 
 /** A browser's storage, as far as drafts use it. */
 function storage(): Storage {
@@ -31,15 +31,5 @@ describe("drafts", () => {
     saveDraft("aoi", "group", "  ");
     expect(loadDraft("aoi", "group")).toBe("");
     expect(window.localStorage.length).toBe(0);
-  });
-
-  it("are all removed on sign-out, and nothing else is", () => {
-    saveDraft("aoi", "group", "one");
-    saveDraft("aoi", "direct", "two");
-    window.localStorage.setItem("tokuly.theme", "dark");
-    clearDrafts();
-    expect(loadDraft("aoi", "group")).toBe("");
-    expect(loadDraft("aoi", "direct")).toBe("");
-    expect(window.localStorage.getItem("tokuly.theme")).toBe("dark");
   });
 });

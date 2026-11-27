@@ -4,8 +4,7 @@ import { toMillis } from "@tokuly/api";
 import { applyAskEvent, askKeys } from "@tokuly/core/ask";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
-import { useSessionStore } from "#/stores/session";
-import { forgetPendingAsk, offerDraft, takePendingAsk } from "./guest-return";
+import { offerDraft, takePendingAsk } from "./guest-return";
 import { noteServerTime } from "./server-clock";
 
 /**
@@ -32,15 +31,6 @@ export default function AskBackground() {
     client.start();
     return offFrame;
   }, [queryClient]);
-
-  // A question a visitor wrote in this tab is theirs alone: when the account in use signs out, it goes.
-  useEffect(
-    () =>
-      useSessionStore.subscribe((session) => {
-        if (session.state.status === "signedOut") forgetPendingAsk();
-      }),
-    [],
-  );
 
   // Someone who wrote a question on `/q/<handle>` and then signed up (or in) goes back to that box.
   useEffect(() => {

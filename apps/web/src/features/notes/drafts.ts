@@ -15,7 +15,8 @@ export interface Draft {
 
 /** Drafts kept per account: the new-note draft plus one per note being answered or quoted. */
 const MAX_DRAFTS = 20;
-const storageKey = (userId: string) => `tokuly.notes.drafts.${userId}`;
+export const DRAFTS_PREFIX = "tokuly.notes.drafts.";
+const storageKey = (userId: string) => `${DRAFTS_PREFIX}${userId}`;
 
 /** Which draft a composer context writes to: one for new notes, one per note answered or quoted. */
 export function draftKey(context: ComposeContext): string {
@@ -39,17 +40,6 @@ function writeAll(userId: string, drafts: Record<string, Draft>): void {
     else window.localStorage.setItem(storageKey(userId), JSON.stringify(drafts));
   } catch {
     // Private mode or a full store: drafts are a convenience, not a promise.
-  }
-}
-
-/** Throws away every draft kept in this browser: the next person to sign in must not find them. */
-export function discardAllDrafts(): void {
-  try {
-    const prefix = storageKey("");
-    for (const key of Object.keys(window.localStorage))
-      if (key.startsWith(prefix)) window.localStorage.removeItem(key);
-  } catch {
-    // Storage that cannot be read holds nothing to clear.
   }
 }
 

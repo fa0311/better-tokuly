@@ -4,7 +4,7 @@ import { realtime } from "#/lib/realtime";
 import { useSessionStore } from "#/stores/session";
 import { addStory, forgetUserStories, patchStory, removeStory, storyKeys } from "./api";
 import { StoryViewerHost } from "./viewer-host";
-import { closeStoryViewer, dropFromStoryViewer, useStoryViewer } from "./viewer-store";
+import { dropFromStoryViewer } from "./viewer-store";
 
 /**
  * Runs while someone is signed in: keeps the story tray current from the
@@ -62,16 +62,6 @@ export default function StoriesBackground() {
     client.start();
     return off;
   }, [queryClient]);
-
-  // Nothing of the account keeps playing once its session is over.
-  useEffect(
-    () =>
-      useSessionStore.subscribe((session) => {
-        if (session.state.status === "signedOut" && useStoryViewer.getState().reels)
-          closeStoryViewer();
-      }),
-    [],
-  );
 
   return <StoryViewerHost />;
 }
