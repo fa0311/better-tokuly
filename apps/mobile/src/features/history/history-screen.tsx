@@ -2,14 +2,13 @@ import { router } from "expo-router";
 import { Trash2 } from "lucide-react-native";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, Text, View } from "react-native";
 import { Page, Row, Section } from "#/components/page";
 import { Tabs } from "#/components/tabs";
-import { useSettings } from "#/features/settings/data";
 import { useTheme } from "#/lib/theme";
 import { HistoryCalendar } from "./calendar";
 import { NS } from "./data";
 import { NightsList, VisitsList } from "./lists";
+import { RecordingOff } from "./recording-off";
 import { StatsPanel } from "./stats";
 
 type Tab = "calendar" | "visits" | "nights" | "stats";
@@ -47,23 +46,5 @@ export function HistoryScreen() {
         />
       </Section>
     </Page>
-  );
-}
-
-/**
- * Said on top while the account keeps no history (its privacy setting): the
- * screens are empty because nothing is recorded, not because nothing happened.
- */
-function RecordingOff() {
-  const { t } = useTranslation("mobile");
-  const { data } = useSettings();
-  if (data?.privacy?.recordHistory !== false) return null;
-  return (
-    <View testID="history-recording-off" className="gap-1 rounded-card bg-surface-2 p-4">
-      <Text className="text-sm font-bold text-ink">{t("history.recordingOff")}</Text>
-      <Pressable accessibilityRole="link" onPress={() => router.push("/settings/privacy")}>
-        <Text className="text-sm font-black text-brand">{t("history.openPrivacy")}</Text>
-      </Pressable>
-    </View>
   );
 }

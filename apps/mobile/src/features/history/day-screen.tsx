@@ -26,6 +26,7 @@ import { sticker, useTheme } from "#/lib/theme";
 import { asAccount, historyClient, NS, useAccountToday, useDay, useRoute } from "./data";
 import { DayMap, type DayStop } from "./day-map";
 import { dayTitle, Faces, Fact, GazetteerCredit, VisitCard, VisitEmoji } from "./parts";
+import { RecordingOff, useRecordingOff } from "./recording-off";
 
 /** `/history/<YYYY-MM-DD>`: one day as a diary — where the person was, how they got around, what they want to remember. */
 export function DayScreen({ date }: { date: string }) {
@@ -34,6 +35,7 @@ export function DayScreen({ date }: { date: string }) {
   const today = useAccountToday();
   const day = useDay(date);
   const route = useRoute(date);
+  const recordingOff = useRecordingOff();
   const valid = parseDay(date) !== null;
   const title = valid ? dayTitle(date, i18n.language) : t("title");
 
@@ -111,11 +113,15 @@ export function DayScreen({ date }: { date: string }) {
   return (
     <Page testID="history-day">
       {header}
+      {date === today && <RecordingOff />}
       {empty ? (
         <EmptyState
           emoji="🛋️"
           title={t("day.emptyTitle")}
-          body={date === today ? t("day.emptyToday") : t("day.emptyBody")}
+          // "Head out and it lands here" is only true while history is kept.
+          body={
+            date !== today ? t("day.emptyBody") : recordingOff ? undefined : t("day.emptyToday")
+          }
         />
       ) : (
         <>

@@ -14,7 +14,8 @@ import { HistoryScreen } from "../history-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
 jest.mock("#/features/session/account", () => ({ currentAccount: jest.fn(), isActive: jest.fn() }));
-jest.mock("#/features/session/store", () => ({ useMe: () => ({ timeZone: "Asia/Tokyo" }) }));
+let mockTimeZone = "Asia/Tokyo";
+jest.mock("#/features/session/store", () => ({ useMe: () => ({ timeZone: mockTimeZone }) }));
 let mockRecordHistory = true;
 jest.mock("#/features/settings/data", () => ({
   useSettings: () => ({
@@ -64,14 +65,16 @@ interface Deletion {
  * One account's history service. `switchOnWrite` answers every write only
  * after the person switched to another account. What was written is listed.
  */
-function historyOf({ switchOnWrite = false } = {}) {
+function historyOf({ switchOnWrite = false, emptyDays = false, holdWrites = false } = {}) {
   let switched = false;
-  const written: { name: string; request: unknown }[] = [];
-  const write = <T,>(name: string, request: unknown, answer: T) => {
-    written.push({ name, request });
-    if (switchOnWrite) switched = true;
-    return Promise.resolve(answer);
-  };
+  const written: { name: string; request: unknown; answer(): void }[] = [];
+  const write = <T,>(name: string, request: unknown, answer: T) =>
+    new Promise<T>((resolve) => {
+      written.push({ name, request, answer: () => resolve(answer) });
+      if (switchOnWrite) switched = true;
+      if (!holdWrites) resolve(answer);
+    });
+  const routes: { from?: Timestamp; to?: Timestamp }[] = [];
   const client = {
     service: () => ({
       listActiveDays: async () => ({
@@ -80,14 +83,22 @@ function historyOf({ switchOnWrite = false } = {}) {
         ],
       }),
       getDay: async ({ date }: { date: string }) =>
-        create(geo.GetDayResponseSchema, {
-          summary: { date, distanceMeters: 3200, visitCount: 2, newCellCount: 4 },
-          visits: [cafe, school],
-          friendsMet: [{ id: "u2", handle: "mio", displayName: "みお" }],
-          memo: { text: "たのしかった", photos: [{ assetId: "p1" }] },
-          pathPolyline: "_p~iF~ps|U_ulLnnqC",
-        }),
-      getRoute: async () => ({ points: [] }),
+        create(
+          geo.GetDayResponseSchema,
+          emptyDays
+            ? {}
+            : {
+                summary: { date, distanceMeters: 3200, visitCount: 2, newCellCount: 4 },
+                visits: [cafe, school],
+                friendsMet: [{ id: "u2", handle: "mio", displayName: "みお" }],
+                memo: { text: "たのしかった", photos: [{ assetId: "p1" }] },
+                pathPolyline: "_p~iF~ps|U_ulLnnqC",
+              },
+        ),
+      getRoute: async (request: { from?: Timestamp; to?: Timestamp }) => {
+        routes.push(request);
+        return { points: [] };
+      },
       listVisits: async () => ({ visits: [cafe], page: { nextCursor: "" } }),
       listNights: async () => ({ nights: [], page: { nextCursor: "" } }),
       getStats: async () => create(geo.GetStatsResponseSchema, {}),
@@ -102,7 +113,7 @@ function historyOf({ switchOnWrite = false } = {}) {
     .mocked(currentAccount)
     .mockReturnValue({ sessionId: "s1", userId: "u1", api: client as never });
   jest.mocked(isActive).mockImplementation(() => !switched);
-  return written;
+  return Object.assign(written, { routes });
 }
 
 let queryClient: QueryClient;
@@ -114,16 +125,21 @@ async function show(children: ReactNode) {
       mutations: { gcTime: Infinity },
     },
   });
-  await render(
+  const tree = (content: ReactNode) => (
     <SafeAreaProvider
       initialMetrics={{
         frame: { x: 0, y: 0, width: 320, height: 640 },
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    </SafeAreaProvider>,
+      <QueryClientProvider client={queryClient}>{content}</QueryClientProvider>
+    </SafeAreaProvider>
   );
+  const shown = await render(tree(children));
+  return {
+    close: () => shown.unmount(),
+    again: (content: ReactNode) => shown.rerender(tree(content)),
+  };
 }
 
 beforeEach(() => {
@@ -134,6 +150,7 @@ afterEach(() => {
   jest.clearAllMocks();
   jest.restoreAllMocks();
   mockRecordHistory = true;
+  mockTimeZone = "Asia/Tokyo";
 });
 
 describe("the history screen", () => {
@@ -185,6 +202,16 @@ describe("a day", () => {
       text: "あめだった",
       photoAssetIds: ["p1"],
     });
+  });
+});
+
+describe("a day, when the account's settings change", () => {
+  it("does not promise that today will be kept while the account keeps no history", async () => {
+    mockRecordHistory = false;
+    historyOf({ emptyDays: true });
+    await show(<DayScreen date="2026-11-22" />);
+    expect(await screen.findByTestId("history-recording-off")).toBeTruthy();
+    expect(screen.queryByText(/ここに残るよ/)).toBeNull();
   });
 });
 
