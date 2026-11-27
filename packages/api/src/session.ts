@@ -34,6 +34,9 @@ const REFRESH_MARGIN_MS = 60_000;
  */
 const RATE_LIMIT_WAIT_MS = { unnamed: 5_000, shortest: 1_000, longest: 60_000, inAll: 120_000 };
 
+/** How often an answer `ACCOUNT_TOO_YOUNG` may have the session ask again (`noticeTooYoung`). */
+const TOO_YOUNG_RECHECK_MS = 60_000;
+
 /** What a refresh came to: adopted or not, or rate-limited and to be tried again in so long. */
 type Refreshed = boolean | { retryInMs: number };
 
@@ -59,6 +62,7 @@ export class Session {
    * new one. The app starts over (a web page reloads).
    */
   private stale = false;
+  private tooYoungAskedAtMs = 0;
   private readonly auth: Client<typeof AuthService>;
 
   /**
@@ -130,6 +134,19 @@ export class Session {
   /** The session went stale: another account became the active one. */
   get isStale(): boolean {
     return this.stale;
+  }
+
+  /**
+   * A call was refused with `ACCOUNT_TOO_YOUNG` while the account held here
+   * does not say so: it answered under the minimum age on another device.
+   * A refresh brings the `Me` that says so, and the app shows why. Asked at
+   * most once a minute, so a screen full of refused calls asks once.
+   */
+  noticeTooYoung(): void {
+    if (this.current.status !== "signedIn" || this.current.me.tooYoung) return;
+    if (Date.now() - this.tooYoungAskedAtMs < TOO_YOUNG_RECHECK_MS) return;
+    this.tooYoungAskedAtMs = Date.now();
+    void this.refresh();
   }
 
   /** Replaces the cached account (after a profile update). */
