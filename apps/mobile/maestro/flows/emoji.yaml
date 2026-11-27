@@ -16,6 +16,7 @@ env:
     env:
       ACCOUNT: ${output.me}
       PASSWORD: ${PASSWORD}
+- waitForAnimationToEnd
 
 # The picker in a chat and in the note composer (the catalogue of a fresh stack may be empty).
 - tapOn: { id: "tab-chats" }
@@ -39,6 +40,7 @@ env:
     visible: { id: "emoji-picker" }
     timeout: 10000
 - tapOn: { id: "emoji-picker-done" }
+- hideKeyboard
 - runFlow: ../subflows/back.yaml
 
 # The emoji catalogue and the deck, from the hub.
