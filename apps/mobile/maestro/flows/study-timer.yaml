@@ -4,14 +4,11 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/study-timer.js
-- launchApp:
-    clearState: true
-    # Maestro allows every permission by default: the timer asks for this one itself.
-    permissions:
-      notifications: unset
-- extendedWaitUntil:
-    visible: { id: "welcome-screen" }
-    timeout: 60000
+# The timer asks for this permission itself.
+- runFlow:
+    file: ../subflows/launch.yaml
+    env:
+      NOTIFICATIONS: unset
 - tapOn: { id: "welcome-sign-in" }
 - runFlow:
     file: ../subflows/sign-in.yaml

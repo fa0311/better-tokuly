@@ -4,24 +4,11 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/friend-request.js
-- clearKeychain
+# iOS asks for always, for sharing in the background.
 - runFlow:
-    when: { platform: Android }
-    commands:
-      - launchApp:
-          clearState: true
-          permissions:
-            location: allow
-- runFlow:
-    when: { platform: iOS }
-    commands:
-      - launchApp:
-          clearState: true
-          permissions:
-            location: always
-- extendedWaitUntil:
-    visible: { id: "welcome-screen" }
-    timeout: 60000
+    file: ../subflows/launch.yaml
+    env:
+      LOCATION: "${maestro.platform == 'ios' ? 'always' : 'allow'}"
 - setLocation:
     latitude: 35.6580
     longitude: 139.7016

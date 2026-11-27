@@ -3,12 +3,7 @@ name: Sign up, sign out, sign in again
 env:
   PASSWORD: tokuly-e2e-pass
 ---
-- clearKeychain
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible: { id: "welcome-screen" }
-    timeout: 60000
+- runFlow: ../subflows/launch.yaml
 - evalScript: ${output.handle = 'm' + Date.now().toString(36)}
 - tapOn: { id: "welcome-sign-up" }
 - tapOn: { id: "sign-up-display-name" }

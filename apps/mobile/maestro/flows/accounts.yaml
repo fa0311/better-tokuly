@@ -4,12 +4,7 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/two-accounts.js
-- clearKeychain
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible: { id: "welcome-screen" }
-    timeout: 60000
+- runFlow: ../subflows/launch.yaml
 - tapOn: { id: "welcome-sign-in" }
 - runFlow:
     file: ../subflows/sign-in.yaml

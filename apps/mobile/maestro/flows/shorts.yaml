@@ -7,12 +7,7 @@ env:
 # The emulator has no camera: the short is a video put in the library.
 - addMedia:
     - "../fixtures/short.mp4"
-- clearKeychain
-- launchApp:
-    clearState: true
-- extendedWaitUntil:
-    visible: { id: "welcome-screen" }
-    timeout: 60000
+- runFlow: ../subflows/launch.yaml
 - tapOn: { id: "welcome-sign-in" }
 - runFlow:
     file: ../subflows/sign-in.yaml

@@ -4,15 +4,10 @@ env:
   PASSWORD: tokuly-e2e-pass
 ---
 - runScript: ../scripts/space-friends.js
-- clearKeychain
-- launchApp:
-    clearState: true
-    permissions:
-      microphone: allow
-      bluetooth: deny
-- extendedWaitUntil:
-    visible: { id: "welcome-screen" }
-    timeout: 60000
+- runFlow:
+    file: ../subflows/launch.yaml
+    env:
+      BLUETOOTH: deny
 - tapOn: { id: "welcome-sign-in" }
 - runFlow:
     file: ../subflows/sign-in.yaml
