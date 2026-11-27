@@ -174,7 +174,9 @@ pub async fn set_initial_push_preview(core: &Core, user_id: Uuid, minor: Option<
 
 /// Under 18 on the day `user_id` signed up (`tokuly_identity::age::minor_on`:
 /// no birthdate counts as a minor; a bot goes by its owner). An unknown
-/// account counts as a minor.
+/// account counts as a minor. Today's birthdate stands for the sign-up day's:
+/// sign-up asks for it, and the accounts from before the question have the
+/// minors' value stored (migration 1202).
 async fn minor_at_sign_up(core: &Core, user_id: Uuid) -> AppResult<bool> {
     let row: Option<(Option<NaiveDate>, NaiveDate)> = sqlx::query_as(
         "SELECT CASE WHEN u.bot THEN owner.birthdate ELSE u.birthdate END, (u.created_at AT TIME ZONE 'UTC')::date

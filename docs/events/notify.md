@@ -219,7 +219,9 @@ nothing. A minor who gives the birthdate later (`identity.user.birthdate_given`)
 gets `SENDER_ONLY` then, unless they chose; a `FULL` stored before choices were
 told apart (migration 1201) counts as not chosen. A push that finds nothing
 stored yet decides the same way, by the sign-up day, so a minor's first push
-never shows everything.
+never shows everything; accounts from before the birthdate question have
+`SENDER_ONLY` stored (migration 1202), so a birthdate they give later does not
+count as one from sign-up.
 
 **Unnamed actors.** Producers leave the actor out of anonymous
 notifications, and mark one whose text does not name its actor on purpose
