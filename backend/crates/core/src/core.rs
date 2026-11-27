@@ -23,6 +23,7 @@ use crate::{
 
 const SESSION_REVOKED_SUBJECT: &str = "sys.session.revoked";
 const ACCOUNT_TOO_YOUNG_SUBJECT: &str = "sys.account.too_young";
+const SESSIONS_CUT_OFF_SUBJECT: &str = "sys.sessions.cut_off";
 /// Broadcast after a console settings change: every process reloads the console layer.
 const SETTINGS_CHANGED_SUBJECT: &str = "sys.settings.changed";
 /// How often every process looks at the console layer without being told.
@@ -90,7 +91,7 @@ impl Core {
         }
         let bus = Bus::connect(&cfg.nats_url, &cfg.nats_prefix).await?.with_dead_letter_retention(cfg.dead_letter_retention());
         bus.ensure_streams().await?;
-        let tokens = Tokens::new(&keys)?.with_revocations(cache.clone());
+        let tokens = Tokens::new(&keys)?.with_revocations(cache.clone()).in_namespace(&cfg.nats_prefix);
         let api_tokens = ApiTokens::default();
         let auth_layer = AuthLayer::new(tokens.clone(), cfg.trusted_proxies()?)
             .with_api_tokens(api_tokens.clone(), Some(cache.clone()))
@@ -174,6 +175,11 @@ impl Core {
             .subscribe(ACCOUNT_TOO_YOUNG_SUBJECT)
             .await
             .map_err(|e| anyhow::anyhow!("cannot subscribe to system subjects: {e}"))?;
+        let mut cut_off = self
+            .bus
+            .subscribe(SESSIONS_CUT_OFF_SUBJECT)
+            .await
+            .map_err(|e| anyhow::anyhow!("cannot subscribe to system subjects: {e}"))?;
         let core = self.clone();
         tokio::spawn(async move {
             let id = |payload: &[u8]| std::str::from_utf8(payload).ok().and_then(|s| Uuid::parse_str(s).ok());
@@ -190,6 +196,12 @@ impl Core {
                         let Some(message) = message else { break };
                         if let Some(id) = id(&message.payload) {
                             core.tokens.mark_too_young(id);
+                        }
+                    }
+                    message = cut_off.next() => {
+                        let Some(message) = message else { break };
+                        if let Some(millis) = std::str::from_utf8(&message.payload).ok().and_then(|s| s.parse().ok()) {
+                            core.tokens.mark_made_before(millis);
                         }
                     }
                 }
@@ -210,6 +222,16 @@ impl Core {
         {
             tracing::warn!(error = %e, "session revocation broadcast failed");
         }
+    }
+
+    /// Revokes every session made at or before `cut_off` on every service
+    /// instance at once ([`auth::Tokens::revoke_sessions_made_before`]):
+    /// stored in Valkey and broadcast to the running ones (the realtime
+    /// gateway and open streams); fails when either did not take it.
+    pub async fn revoke_sessions_made_before(&self, cut_off: crate::time::Time) -> AppResult<()> {
+        self.tokens.revoke_sessions_made_before(cut_off).await?;
+        // The realtime gateway learns it only from the broadcast.
+        self.bus.publish(SESSIONS_CUT_OFF_SUBJECT, cut_off.timestamp_millis().to_string()).await
     }
 
     /// Holds the access tokens an account has already to what one under the

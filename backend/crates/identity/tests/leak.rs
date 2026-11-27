@@ -11,6 +11,7 @@ use tokuly_core::{
     events::Event,
 };
 use tokuly_identity::{maintenance::RECOVERY_CODES_REVOKED, sessions::Issued, users};
+use tokuly_proto::identity::*;
 use tokuly_testkit::{TestApp, TestUser};
 use uuid::Uuid;
 
@@ -39,6 +40,10 @@ async fn accepted(server: &TestApp, access_token: &str) -> bool {
         AuthState::Invalid("SESSION_REVOKED") => false,
         state => panic!("{state:?}"),
     }
+}
+
+async fn start_device_login(app: &TestApp) -> StartDeviceLoginResponse {
+    app.call("tokuly.identity.v1.AuthService/StartDeviceLogin", None, &StartDeviceLoginRequest::default()).await.unwrap()
 }
 
 // One test: signing everyone out reaches every session of the database.
@@ -71,6 +76,16 @@ async fn everyone_signs_in_again_and_every_server_refuses_the_old_tokens_at_once
         sessions
     };
     assert!(accepted(&elsewhere, &alice.token).await);
+    // The thief's session, the newest, so the last batch reaches it. Its row
+    // is held while it runs: the walk waits for it there, as on a large database.
+    let mallory = serving.user("mallory").await;
+    let device = start_device_login(&serving).await;
+    let mut held = serving.core.db.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM sessions WHERE id = $1 FOR UPDATE")
+        .bind(mallory.session_id)
+        .execute(&mut *held)
+        .await
+        .unwrap();
 
     let started = Utc::now();
     let kept = serving.user("signed-in-meanwhile").await;
@@ -89,8 +104,24 @@ async fn everyone_signs_in_again_and_every_server_refuses_the_old_tokens_at_once
             tokens
         }
     });
-    let (revoked, issued) =
-        tokio::join!(serving.identity.sign_everyone_out(started), futures::future::join_all(refreshes));
+    // Until the walk reaches it, the session could make the thief new ones
+    // (a device's sign-in, an API token, an application's consent): those
+    // would be made after the start, and kept.
+    let thief = async {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!accepted(&elsewhere, &mallory.token).await, "refused from the start, not from its batch");
+        let approved = serving
+            .call::<_, ApproveDeviceLoginResponse>(
+                "tokuly.identity.v1.AuthService/ApproveDeviceLogin",
+                Some(&mallory),
+                &ApproveDeviceLoginRequest { user_code: device.user_code.clone(), approve: true, ..Default::default() },
+            )
+            .await;
+        assert_eq!(approved.unwrap_err().reason, "SESSION_REVOKED");
+        held.commit().await.unwrap();
+    };
+    let (revoked, issued, ()) =
+        tokio::join!(serving.identity.sign_everyone_out(started), futures::future::join_all(refreshes), thief);
     assert!(revoked.unwrap() >= 1200 + 2 + 4);
 
     let left: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions WHERE revoked_at IS NULL AND created_at <= $1")

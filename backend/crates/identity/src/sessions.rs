@@ -381,6 +381,10 @@ impl Identity {
     /// Returns how many were revoked.
     pub async fn sign_everyone_out(&self, made_before: DateTime<Utc>) -> AppResult<u64> {
         use futures::StreamExt as _;
+        // First, for all of them at once: until the walk below reaches a
+        // session, its tokens could still ask for new credentials, made
+        // after `made_before` and so kept.
+        self.core.revoke_sessions_made_before(made_before).await?;
         // A session's access tokens are issued when it is made or
         // refreshed, which marks it active, or in the minute after a
         // refresh (a rotation's grace): one idle for longer than that and

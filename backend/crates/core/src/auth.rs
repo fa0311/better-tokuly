@@ -14,6 +14,10 @@
 //! known to be revoked, and is what the synchronous [`Tokens::verify`] (the
 //! realtime gateway) consults.
 //!
+//! `tokuly sessions revoke-all` revokes every session made before an instant
+//! in one step ([`Tokens::revoke_sessions_made_before`]): session IDs are
+//! UUIDv7, so the instant a session was made is in every token of it.
+//!
 //! The other kind of bearer credential is an API token (`tkl_…`): opaque,
 //! long-lived, limited to its scopes. [`auth_middleware`] hands those to
 //! [`crate::api_tokens`], which verifies them and enforces scopes and rate
@@ -133,6 +137,9 @@ pub struct Tokens {
     /// Where revocations are shared between processes; `None` keeps them in
     /// this process only (unit tests).
     revocations: Option<Cache>,
+    /// Where [`Tokens::revoke_sessions_made_before`] keeps its instant: one
+    /// key per deployment ([`Tokens::in_namespace`]).
+    cut_off_key: String,
 }
 
 /// How long a revocation must be remembered: until every access token of
@@ -140,6 +147,11 @@ pub struct Tokens {
 const REVOCATION_TTL: Duration = Duration::from_secs(ACCESS_TOKEN_TTL.as_secs() + 30);
 const REVOKED_PREFIX: &str = "auth:revoked:";
 const TOO_YOUNG_PREFIX: &str = "auth:young:";
+const CUT_OFF_KEY: &str = "auth:made-before";
+/// How long [`Tokens::revoke_sessions_made_before`] is remembered: longer
+/// than walking every session of the database takes, so that none of them
+/// is accepted again before the database has it revoked.
+const CUT_OFF_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
 /// How long a request waits for Valkey's answer about its session before it
 /// goes on with what this process knows.
 const REVOCATION_LOOKUP_TIMEOUT: Duration = Duration::from_millis(50);
@@ -154,6 +166,9 @@ struct TokensInner {
     /// Accounts held as too young ([`Tokens::hold_too_young`]) → instant
     /// after which the entry can be dropped.
     too_young: DashMap<Uuid, Time>,
+    /// Sessions made at or before this instant (Unix milliseconds; 0:
+    /// none) are revoked ([`Tokens::revoke_sessions_made_before`]).
+    made_before: std::sync::atomic::AtomicI64,
     public_key: [u8; 32],
     /// When "revocations unreadable" was last logged (Unix seconds).
     unreadable_warned_at: std::sync::atomic::AtomicI64,
@@ -181,16 +196,27 @@ impl Tokens {
                 validation,
                 revoked: DashMap::new(),
                 too_young: DashMap::new(),
+                made_before: std::sync::atomic::AtomicI64::new(0),
                 public_key,
                 unreadable_warned_at: std::sync::atomic::AtomicI64::new(0),
             }),
             revocations: None,
+            cut_off_key: CUT_OFF_KEY.to_owned(),
         })
     }
 
     /// Shares revocations with every other process through `cache`.
     pub fn with_revocations(mut self, cache: Cache) -> Self {
         self.revocations = Some(cache);
+        self
+    }
+
+    /// The deployment's processes, of those sharing the Valkey database:
+    /// its NATS prefix (tests make their own).
+    pub fn in_namespace(mut self, namespace: &str) -> Self {
+        if !namespace.is_empty() {
+            self.cut_off_key = format!("{CUT_OFF_KEY}:{namespace}");
+        }
         self
     }
 
@@ -315,15 +341,20 @@ impl Tokens {
         let Some(cache) = &self.revocations else { return Revocation::Absent };
         let mut conn = cache.conn();
         let mut mget = redis::cmd("MGET");
-        mget.arg(format!("{REVOKED_PREFIX}{session_id}")).arg(format!("{TOO_YOUNG_PREFIX}{user_id}"));
-        let lookup = mget.query_async::<(Option<String>, Option<String>)>(&mut conn);
+        mget.arg(format!("{REVOKED_PREFIX}{session_id}"))
+            .arg(format!("{TOO_YOUNG_PREFIX}{user_id}"))
+            .arg(&self.cut_off_key);
+        let lookup = mget.query_async::<(Option<String>, Option<String>, Option<i64>)>(&mut conn);
         match tokio::time::timeout(REVOCATION_LOOKUP_TIMEOUT, lookup).await {
-            Ok(Ok((revoked, too_young))) => {
+            Ok(Ok((revoked, too_young, made_before))) => {
                 if too_young.is_some() {
                     self.mark_too_young(user_id);
                 }
+                if let Some(millis) = made_before {
+                    self.mark_made_before(millis);
+                }
                 if revoked.is_none() {
-                    return Revocation::Absent;
+                    return if self.is_revoked(session_id) { Revocation::Revoked } else { Revocation::Absent };
                 }
                 self.revoke_session(session_id);
                 Revocation::Revoked
@@ -369,6 +400,7 @@ impl Tokens {
         for id in &ids {
             self.revoke_session(*id);
         }
+        self.sessions_revoked_before().await.map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(ids.len())
     }
 
@@ -383,10 +415,58 @@ impl Tokens {
     }
 
     pub fn is_revoked(&self, session_id: Uuid) -> bool {
+        let made_before = self.inner.made_before.load(std::sync::atomic::Ordering::Relaxed);
+        if made_before > 0 && made_at(session_id).is_some_and(|made| made <= made_before) {
+            return true;
+        }
         match self.inner.revoked.get(&session_id) {
             Some(until) => *until > Utc::now(),
             None => false,
         }
+    }
+
+    /// `tokuly sessions revoke-all`: every session made at or before
+    /// `cut_off` is revoked at once, in this process and (through Valkey)
+    /// in every other one, for their next request; whatever its tokens
+    /// would ask for (a device's sign-in, an API token, an application's
+    /// consent) is refused from this moment, not from when the database
+    /// gets to it. Sessions made later are left alone. Fails when Valkey
+    /// does not keep it. [`crate::Core::revoke_sessions_made_before`] also
+    /// tells running processes over the bus.
+    pub async fn revoke_sessions_made_before(&self, cut_off: Time) -> AppResult<()> {
+        let millis = cut_off.timestamp_millis();
+        self.mark_made_before(millis);
+        let Some(cache) = &self.revocations else { return Ok(()) };
+        // Never moves back: a second run is later than the first.
+        redis::Script::new(
+            "local now = tonumber(redis.call('GET', KEYS[1]) or '0')
+             if tonumber(ARGV[1]) > now then redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2]) end",
+        )
+        .key(&self.cut_off_key)
+        .arg(millis)
+        .arg(CUT_OFF_TTL.as_secs())
+        .invoke_async::<()>(&mut cache.conn())
+        .await
+        .map_err(AppError::from)
+    }
+
+    /// [`Self::revoke_sessions_made_before`] in this process only (what
+    /// its broadcast does); `millis` since the Unix epoch.
+    pub fn mark_made_before(&self, millis: i64) {
+        self.inner.made_before.fetch_max(millis, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The latest [`Self::revoke_sessions_made_before`], asked of Valkey:
+    /// for what a session approved before it and is redeemed only now (a
+    /// device's sign-in, an application's code).
+    pub async fn sessions_revoked_before(&self) -> AppResult<Option<Time>> {
+        if let Some(cache) = &self.revocations
+            && let Some(millis) = cache.get_string(&self.cut_off_key).await?.and_then(|s| s.parse().ok())
+        {
+            self.mark_made_before(millis);
+        }
+        let millis = self.inner.made_before.load(std::sync::atomic::Ordering::Relaxed);
+        Ok((millis > 0).then(|| chrono::DateTime::from_timestamp_millis(millis)).flatten())
     }
 
     /// Extracts and verifies a session's bearer token from an `Authorization`
@@ -422,6 +502,12 @@ impl Tokens {
             state => state,
         }
     }
+}
+
+/// When a session was made (Unix milliseconds), from its UUIDv7 ID.
+fn made_at(session_id: Uuid) -> Option<i64> {
+    let (seconds, nanos) = session_id.get_timestamp()?.to_unix();
+    Some(seconds as i64 * 1000 + i64::from(nanos / 1_000_000))
 }
 
 /// Why a staff session is refused while Valkey does not answer
@@ -702,6 +788,22 @@ mod tests {
 
     fn tokens() -> Tokens {
         Tokens::new(&Keys::new("0123456789abcdef0123456789abcdef")).unwrap()
+    }
+
+    #[tokio::test]
+    async fn sessions_made_before_the_cut_off_are_refused_and_later_ones_not() {
+        let t = tokens();
+        let (user, old) = (Uuid::now_v7(), Uuid::now_v7());
+        let (token, _) = t.issue(user, old, &[]).unwrap();
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        t.revoke_sessions_made_before(Utc::now()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        let new = Uuid::now_v7();
+        assert_eq!(t.verify(&token).unwrap_err(), "SESSION_REVOKED");
+        assert_eq!(t.verify(&t.issue(user, old, &[]).unwrap().0).unwrap_err(), "SESSION_REVOKED", "nor a refreshed one");
+        assert!(t.verify(&t.issue(user, new, &[]).unwrap().0).is_ok());
+        // An ID that carries no instant is the database's to revoke.
+        assert!(t.verify(&t.issue(user, Uuid::new_v4(), &[]).unwrap().0).is_ok());
     }
 
     #[test]
@@ -1201,7 +1303,7 @@ mod tests {
                                 let asks = |name: &[u8]| command.windows(name.len()).any(|w| w.eq_ignore_ascii_case(name));
                                 answers.extend_from_slice(match () {
                                     () if asks(b"EXISTS") => b":0\r\n",
-                                    () if asks(b"MGET") => b"*2\r\n$-1\r\n$-1\r\n",
+                                    () if asks(b"MGET") => b"*3\r\n$-1\r\n$-1\r\n$-1\r\n",
                                     () => b"+OK\r\n",
                                 });
                             }
