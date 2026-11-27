@@ -1,8 +1,17 @@
 appId: app.tokuly.mobile
 name: Tap an element, scrolled into view first
 ---
-# ID is the element's test ID. A tap does not scroll.
+# ID is the element's test ID. iOS centers partly clipped targets; Android
+# keeps the left-margin swipe because fields and maps consume other gestures.
 - runFlow:
+    when: { platform: iOS }
+    commands:
+      - scrollUntilVisible:
+          element: { id: "${ID}" }
+          centerElement: true
+          timeout: 20000
+- runFlow:
+    when: { platform: Android }
     file: scroll-to.yaml
     env: { ID: "${ID}" }
 - tapOn: { id: "${ID}" }
