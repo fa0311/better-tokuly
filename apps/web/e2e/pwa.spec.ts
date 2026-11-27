@@ -427,7 +427,17 @@ test("'later' leaves the running version alone, and the app page keeps offering 
   await openApp(page, "/me");
   await controlled(page);
   await page.evaluate(() => navigator.serviceWorker.register("/sw.js?version=next"));
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        navigator.serviceWorker
+          .getRegistration()
+          .then((registration) => registration?.waiting?.state),
+      ),
+    )
+    .toBe("installed");
   const offer = toast(page, "新しいバージョンがあるよ！");
+  await expect(offer).toBeVisible();
   await offer.getByRole("button", { name: "あとで" }).click();
   await expect(offer).toHaveCount(0);
 
