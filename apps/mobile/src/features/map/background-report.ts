@@ -33,10 +33,11 @@ async function reportInBackground(positions: OwnPosition[]): Promise<void> {
     return;
   }
   const session = api().session;
-  if (session.state.status !== "signedIn") await session.restore();
+  // One refresh, not a restore: that would wait out a rate limit, longer than the OS lets this run.
+  if (session.state.status !== "signedIn") await session.refresh();
   const state = session.state;
   if (state.status !== "signedIn" || state.me.user?.id !== owner) {
-    // Signed out, or another account is active: not ours to send. (A network failure leaves it be.)
+    // Signed out, or another account is active: not ours to send. (A network failure or a rate limit leaves it be.)
     if (state.status === "signedOut" || state.status === "signedIn") await stopBackgroundUpdates();
     return;
   }

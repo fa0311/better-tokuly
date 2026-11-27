@@ -1,5 +1,5 @@
 import { type Client, Code, ConnectError, createClient, type Transport } from "@connectrpc/connect";
-import { isUnauthenticated } from "./errors.js";
+import { isRateLimited, isUnauthenticated, retryAfterMs } from "./errors.js";
 import { type AuthResponse, AuthService, type Me } from "./gen/tokuly/identity/v1/identity_pb.js";
 import { toMillis } from "./time.js";
 
@@ -28,6 +28,16 @@ type AccountChangeListener = (next: { userId: string; sessionId: string }) => vo
 const REFRESH_MARGIN_MS = 60_000;
 
 /**
+ * How `restore()` waits on a rate limit: `unnamed` when the server names no
+ * wait, never less than `shortest` or more than `longest` at a time, and
+ * `inAll` at most (two of the server's one-minute windows) before it gives up.
+ */
+const RATE_LIMIT_WAIT_MS = { unnamed: 5_000, shortest: 1_000, longest: 60_000, inAll: 120_000 };
+
+/** What a refresh came to: adopted or not, or rate-limited and to be tried again in so long. */
+type Refreshed = boolean | { retryInMs: number };
+
+/**
  * Holds the signed-in state and the short-lived access token.
  *
  * The access token only ever lives in memory. `accessToken()` hands out a
@@ -37,7 +47,8 @@ const REFRESH_MARGIN_MS = 60_000;
 export class Session {
   private accessTokenValue: string | null = null;
   private expiresAtMs = 0;
-  private refreshing: Promise<boolean> | null = null;
+  private refreshing: Promise<Refreshed> | null = null;
+  private restoring: Promise<boolean> | null = null;
   private current: SessionState = { status: "unknown" };
   private readonly listeners = new Set<Listener>();
   private readonly accountListeners = new Set<AccountChangeListener>();
@@ -134,18 +145,52 @@ export class Session {
     if (this.current.status === "unknown") this.setState({ status: "signedOut" });
   }
 
-  /** Tries to resume a previous session. Resolves to whether it worked. */
-  async restore(): Promise<boolean> {
-    const ok = await this.refresh();
-    if (!ok && this.current.status === "unknown") this.setState({ status: "signedOut" });
-    return ok;
+  /**
+   * Tries to resume a previous session. Resolves to whether it worked. A
+   * rate-limited refresh (a school opening the app after the bell) says
+   * nothing about the session: the state stays unknown, and the refresh is
+   * tried again after the wait the server named. Concurrent callers share
+   * one attempt, and so one wait. A server that keeps limiting is given up
+   * on like one that cannot be reached: signed out here, the refresh token
+   * kept, so the person gets a screen and the next start resumes.
+   */
+  restore(): Promise<boolean> {
+    this.restoring ??= this.doRestore().finally(() => {
+      this.restoring = null;
+    });
+    return this.restoring;
+  }
+
+  private async doRestore(): Promise<boolean> {
+    let refreshed = await this.refreshOnce();
+    let waitedMs = 0;
+    while (
+      typeof refreshed === "object" &&
+      waitedMs + refreshed.retryInMs <= RATE_LIMIT_WAIT_MS.inAll
+    ) {
+      const { retryInMs } = refreshed;
+      const before = this.current;
+      await new Promise((resolve) => setTimeout(resolve, retryInMs));
+      waitedMs += retryInMs;
+      // Signed out or signed in during the wait: the person decided, and that stands.
+      if (this.current !== before) return this.current.status === "signedIn";
+      refreshed = await this.refreshOnce();
+    }
+    const resumed = refreshed === true;
+    if (!resumed && this.current.status === "unknown") this.setState({ status: "signedOut" });
+    return resumed;
   }
 
   /**
    * Exchanges the refresh token for a new access token. Concurrent callers
-   * share one request. Resolves to false when the session is gone.
+   * share one request. Resolves to false when the session is gone, or the
+   * refresh did not go through this time.
    */
-  refresh(): Promise<boolean> {
+  async refresh(): Promise<boolean> {
+    return (await this.refreshOnce()) === true;
+  }
+
+  private refreshOnce(): Promise<Refreshed> {
     if (this.stale) return Promise.resolve(false);
     this.refreshing ??= this.doRefresh().finally(() => {
       this.refreshing = null;
@@ -153,7 +198,7 @@ export class Session {
     return this.refreshing;
   }
 
-  private async doRefresh(): Promise<boolean> {
+  private async doRefresh(): Promise<Refreshed> {
     try {
       const refreshToken = this.store ? ((await this.store.get()) ?? "") : "";
       if (this.store && !refreshToken) {
@@ -168,6 +213,11 @@ export class Session {
       if (isUnauthenticated(error)) {
         await this.store?.clear();
         this.forget();
+      }
+      if (isRateLimited(error)) {
+        const wait = retryAfterMs(error) ?? RATE_LIMIT_WAIT_MS.unnamed;
+        const { shortest, longest } = RATE_LIMIT_WAIT_MS;
+        return { retryInMs: Math.min(Math.max(wait, shortest), longest) };
       }
       return false;
     }
