@@ -45,7 +45,7 @@ pub mod subject;
 pub mod telemetry;
 pub mod time;
 
-pub use crate::core::{Core, CoreInner};
+pub use crate::core::{Core, CoreInner, SESSIONS_CUT_OFF_MARGIN};
 pub use crate::error::{AppError, AppResult};
 
 /// The handful of names nearly every domain module needs.

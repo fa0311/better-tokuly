@@ -24,6 +24,8 @@ use crate::{
 const SESSION_REVOKED_SUBJECT: &str = "sys.session.revoked";
 const ACCOUNT_TOO_YOUNG_SUBJECT: &str = "sys.account.too_young";
 const SESSIONS_CUT_OFF_SUBJECT: &str = "sys.sessions.cut_off";
+/// How far ahead of the database's clock [`Core::sessions_cut_off`] cuts.
+pub const SESSIONS_CUT_OFF_MARGIN: chrono::TimeDelta = chrono::TimeDelta::seconds(2);
 /// Broadcast after a console settings change: every process reloads the console layer.
 const SETTINGS_CHANGED_SUBJECT: &str = "sys.settings.changed";
 /// How often every process looks at the console layer without being told.
@@ -222,6 +224,15 @@ impl Core {
         {
             tracing::warn!(error = %e, "session revocation broadcast failed");
         }
+    }
+
+    /// Where `tokuly sessions revoke-all` cuts: the database's clock (that of
+    /// every `created_at`), not the operator's machine's, plus
+    /// [`SESSIONS_CUT_OFF_MARGIN`] for the servers that make session IDs
+    /// with a clock ahead of it. Who signs in within the margin signs in again.
+    pub async fn sessions_cut_off(&self) -> AppResult<crate::time::Time> {
+        let now: crate::time::Time = sqlx::query_scalar("SELECT now()").fetch_one(&self.db).await?;
+        Ok(now + SESSIONS_CUT_OFF_MARGIN)
     }
 
     /// Revokes every session made at or before `cut_off` on every service

@@ -407,7 +407,14 @@ impl Identity {
             .bind(window)
             .fetch_all(&self.core.db)
             .await?;
-            let Some(last) = batch.iter().max() else { return Ok(revoked) };
+            // Again after every batch: a Valkey restarted without its data
+            // meanwhile would let restarted servers take the sessions not
+            // yet walked. It never moves back, so later runs are safe.
+            let kept = self.core.tokens.revoke_sessions_made_before(made_before).await;
+            let Some(last) = batch.iter().max() else { return kept.map(|()| revoked) };
+            if let Err(e) = kept {
+                tracing::warn!(error = %e, "sessions revoke-all: Valkey did not keep the cut-off, again after the next batch");
+            }
             (after, revoked) = (*last, revoked + batch.len() as u64);
             // The web sessions linked to these were revoked with them.
             let live: Vec<Uuid> = sqlx::query_scalar(
