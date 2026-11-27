@@ -243,8 +243,28 @@ test("everything can be deleted at once, footprints included", async ({ page, re
   const confirm = page.getByRole("dialog", { name: "履歴を削除する?" });
   await confirm.getByRole("tab", { name: "ぜんぶ" }).click();
   await confirm.getByRole("switch", { name: /あしあとも消す/ }).click();
-  await confirm.getByRole("button", { name: "ぜんぶ削除する" }).click();
+  const first = confirm.getByRole("button", { name: "ぜんぶ削除する" });
+  await first.click();
+
+  // Everything asks once more. Escape steps back to the first question, nothing sent.
+  const sure = page.getByRole("dialog", { name: "ちょっと待って!" });
+  await expect(sure.getByText("ぜんぶ消すと、もとに戻せないよ。本当に消す？")).toBeVisible();
+  await expect(sure.getByRole("button", { name: "ぜんぶ消す" })).not.toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(sure).toHaveCount(0);
+  await expect(first).toBeFocused();
+  expect((await listVisits(request, me)).visits ?? []).toHaveLength(2);
+
+  const deletions: string[] = [];
+  page.on("request", (sent) => {
+    if (sent.url().endsWith("/DeleteHistory")) deletions.push(sent.url());
+  });
+  await first.click();
+  await sure.getByRole("button", { name: "ぜんぶ消す" }).click();
   await expect(page.getByText("履歴を削除しました")).toBeVisible();
+  await expect(confirm).toHaveCount(0);
+  await expect(sure).toHaveCount(0);
+  expect(deletions).toHaveLength(1);
 
   // Back to a blank diary, and the fog is back too.
   await expect(page.getByText("ここが、きみの日記になるよ")).toBeVisible();

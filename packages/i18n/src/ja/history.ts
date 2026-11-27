@@ -132,6 +132,9 @@ export default {
     warning: "削除すると元にもどせません",
     confirm: "削除する",
     confirmAll: "ぜんぶ削除する",
+    sureTitle: "ちょっと待って!",
+    sureBody: "ぜんぶ消すと、もとに戻せないよ。本当に消す？",
+    sureConfirm: "ぜんぶ消す",
     done: "履歴を削除しました",
   },
   errors: {
