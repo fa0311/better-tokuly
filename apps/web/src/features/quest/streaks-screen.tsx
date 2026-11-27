@@ -74,7 +74,7 @@ export function StreaksScreen() {
       setRestoring(null);
       void queryClient.invalidateQueries({ queryKey: questKeys.streaks });
       if (restoreFailure(errorReason(error)) === "buy")
-        toast.error(t("errors.INSUFFICIENT_COINS"), {
+        toast.error(t("errors:INSUFFICIENT_COINS"), {
           action: {
             label: t("streaks.buyCoins"),
             onClick: () => void navigate({ to: "/wallet/buy" }),
@@ -217,7 +217,7 @@ export function StreaksScreen() {
         )}
         {(confirm === "used" || confirm === "over") && (
           <p className="mt-3 text-sm font-bold text-danger">
-            {t(confirm === "used" ? "errors.RESTORE_ALREADY_USED" : "errors.RESTORE_WINDOW_OVER")}
+            {t(confirm === "used" ? "errors:RESTORE_ALREADY_USED" : "errors:RESTORE_WINDOW_OVER")}
           </p>
         )}
       </ConfirmDialog>

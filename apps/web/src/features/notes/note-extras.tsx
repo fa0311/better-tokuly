@@ -39,7 +39,7 @@ export function EditDialog({ note, onClose }: { note: notes.Note; onClose(): voi
       toast.success(t("edit.saved"));
       onClose();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "notes" })),
   });
   const over = charCount(text.trim()) > NOTE_MAX_CHARS;
   return (
@@ -133,7 +133,7 @@ export function useRedraft(): (note: notes.Note) => Promise<void> {
         },
       });
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     }
   };
 }
@@ -154,7 +154,7 @@ export function useMuteThread(): (note: notes.Note, muted: boolean) => Promise<v
       void queryClient.invalidateQueries({ queryKey: notesKeys.mutes });
       toast.success(t(muted ? "mutes.threadMuted" : "mutes.threadUnmuted"));
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     }
   };
 }
@@ -209,7 +209,7 @@ export function useHideRenotes(): (userId: string) => Promise<void> {
       void queryClient.invalidateQueries({ queryKey: notesKeys.mutes });
       toast.success(t("mutes.renotesHidden"));
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     }
   };
 }

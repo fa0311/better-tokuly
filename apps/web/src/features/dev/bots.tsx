@@ -86,7 +86,7 @@ export function BotsScreen() {
       {bots.isPending ? (
         <Skeleton className="h-40" />
       ) : bots.isError ? (
-        <Notice tone="danger">{errorMessage(bots.error)}</Notice>
+        <Notice tone="danger">{errorMessage(bots.error, { namespace: "dev" })}</Notice>
       ) : rows.length === 0 ? (
         <EmptyState
           emoji="🤖"
@@ -430,7 +430,7 @@ function BotTokens({ botId }: { botId: string }) {
       {tokens.isPending ? (
         <Skeleton className="h-24" />
       ) : tokens.isError ? (
-        <Notice tone="danger">{errorMessage(tokens.error)}</Notice>
+        <Notice tone="danger">{errorMessage(tokens.error, { namespace: "dev" })}</Notice>
       ) : tokens.data.length === 0 ? (
         <Notice>{t("bots.noTokens")}</Notice>
       ) : (

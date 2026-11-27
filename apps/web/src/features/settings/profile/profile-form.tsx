@@ -139,8 +139,8 @@ export function ProfileForm({ me }: { me: identity.Me }) {
     },
     onError: (error) => {
       const field = FIELD_OF_REASON[errorReason(error) ?? ""];
-      if (field) setFieldError({ field, message: errorMessage(error) });
-      else toast.error(errorMessage(error));
+      if (field) setFieldError({ field, message: errorMessage(error, { namespace: "settings" }) });
+      else toast.error(errorMessage(error, { namespace: "settings" }));
     },
   });
 

@@ -75,7 +75,7 @@ export function ChangeVideoDialog({
       onOpenChange(false);
       onChanged();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 
   const active =

@@ -182,21 +182,4 @@ export default {
     },
   },
   settings: { title: "通知設定" },
-  errors: {
-    PUSH_PREVIEW_INVALID: "その表示方法は選べないよ",
-    CATEGORY_UNKNOWN: "この種類のお知らせは見つからなかったよ",
-    CATEGORY_LOCKED: "この種類のお知らせはオフにできないよ",
-    QUIET_HOURS_INVALID: "おやすみ時間のはじまりとおわりを確認してね",
-    PAUSE_DURATION_INVALID: "一時停止できるのは30日までだよ",
-    CANNOT_MUTE_SELF: "自分はミュートできないよ",
-    NOTIFICATION_NOT_FOUND: "このお知らせはもう削除されているよ",
-    PUSH_CHANNEL_UNAVAILABLE: "このサーバーではプッシュ通知が使えないよ",
-    ENDPOINT_INVALID: "このブラウザのプッシュ通知サービスには対応していないよ",
-    ENDPOINT_NOT_ALLOWED: "このブラウザのプッシュ通知サービスには対応していないよ",
-    SUBSCRIPTION_KEYS_INVALID:
-      "プッシュ通知の登録がうまくいかなかったよ。オフにしてから、もう一度オンにしてね",
-    SESSION_REVOKED: "ログインし直してから、もう一度ためしてね",
-    DEVICE_NOT_FOUND: "このデバイスはもう登録されていないよ",
-    NO_PUSH_DEVICES: "プッシュ通知をオンにしたデバイスがまだないよ",
-  },
 } as const;

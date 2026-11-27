@@ -42,7 +42,7 @@ export function useDeleteHighlight(): (highlight: notes.Highlight) => Promise<bo
       toast(t("highlights.deleted"));
       return true;
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stories" }));
       return false;
     }
   };
@@ -94,7 +94,7 @@ export function ProfileHighlights({ user, isSelf }: { user: common.UserSummary; 
         { storyId: response.stories[0]?.id },
       );
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stories" }));
     } finally {
       setOpening(undefined);
     }
@@ -194,7 +194,7 @@ export function HighlightEditor({
       onSaved?.();
       onClose();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "stories" })),
   });
 
   const toggle = (storyId: string) => {
@@ -329,7 +329,7 @@ export function HighlightPicker({ storyId, onClose }: { storyId: string; onClose
       toast.success(added ? t("highlights.added") : t("highlights.alreadyIn"));
       onClose();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "stories" })),
   });
 
   if (creating) return <HighlightEditor initialStoryIds={[storyId]} onClose={onClose} />;
@@ -398,7 +398,7 @@ function ManageHighlights({ userId, onClose }: { userId: string; onClose(): void
     },
     onError: (error) => {
       void queryClient.invalidateQueries({ queryKey: storyKeys.highlights(userId) });
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stories" }));
     },
   });
 

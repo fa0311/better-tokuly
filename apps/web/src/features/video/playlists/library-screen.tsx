@@ -39,7 +39,7 @@ export function PlaylistLibraryScreen() {
           ))}
         </div>
       ) : lists.isError ? (
-        <EmptyState emoji="😵‍💫" title={errorMessage(lists.error)} />
+        <EmptyState emoji="😵‍💫" title={errorMessage(lists.error, { namespace: "video" })} />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-x-4 gap-y-6 md:grid-cols-3 lg:grid-cols-4">

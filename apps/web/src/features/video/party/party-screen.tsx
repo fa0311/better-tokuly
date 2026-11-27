@@ -130,7 +130,7 @@ export function PartyScreen({ code }: { code: string }) {
       setSession(joined);
       setSeat((count) => count + 1);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 
   const current = session ?? existing.data ?? undefined;
@@ -155,7 +155,7 @@ export function PartyScreen({ code }: { code: string }) {
     return (
       <div className="grid h-full place-items-center">
         {preview.isError && !isNotFound(preview.error) ? (
-          <EmptyState emoji="😵‍💫" title={errorMessage(preview.error)} />
+          <EmptyState emoji="😵‍💫" title={errorMessage(preview.error, { namespace: "video" })} />
         ) : (
           <PartyGone ended={false} />
         )}

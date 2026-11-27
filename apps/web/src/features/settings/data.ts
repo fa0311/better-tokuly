@@ -93,7 +93,7 @@ export function changeSettings<G extends Group>(
         queryClient.setQueryData(keys.settings, response.settings);
     } catch (error) {
       unsaved -= 1;
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "settings" }));
       await queryClient.invalidateQueries({ queryKey: keys.settings });
     }
   });

@@ -63,7 +63,7 @@ export function DetailScreen({ name }: { name: string }) {
           body={
             missing
               ? t("detail.notFoundBody", { code: shortcode(name.replace(/:/g, "")) })
-              : errorMessage(detail.error)
+              : errorMessage(detail.error, { namespace: "emoji" })
           }
           action={
             <Link
@@ -267,7 +267,7 @@ function DeckButton({ code }: { code: string }) {
   const items = deck.data?.items.map((item) => item.emoji) ?? [];
   const pinned = items.includes(code);
   const toggle = () => {
-    if (!pinned && items.length >= DECK_MAX) return void toast.error(t("errors.DECK_TOO_LONG"));
+    if (!pinned && items.length >= DECK_MAX) return void toast.error(t("errors:DECK_TOO_LONG"));
     save.mutate(pinned ? items.filter((item) => item !== code) : [...items, code], {
       onSuccess: () => toast.success(t(pinned ? "deck.unpinned" : "deck.pinned")),
     });

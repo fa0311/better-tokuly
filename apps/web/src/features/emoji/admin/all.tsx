@@ -183,7 +183,11 @@ export function AllEmoji({ initialQuery }: { initialQuery: string }) {
             <Skeleton className="h-14" />
           </div>
         ) : list.isError ? (
-          <EmptyState emoji="😵‍💫" title={t("browse.error")} body={errorMessage(list.error)} />
+          <EmptyState
+            emoji="😵‍💫"
+            title={t("browse.error")}
+            body={errorMessage(list.error, { namespace: "emoji" })}
+          />
         ) : items.length === 0 ? (
           <EmptyState emoji="🫥" title={t("admin.listEmpty")} />
         ) : (

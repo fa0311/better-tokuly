@@ -35,7 +35,8 @@ export function ScopePicker({
   const { t } = useTranslation("dev");
   const catalogue = useQuery(scopesQuery);
   if (catalogue.isPending) return <Skeleton className="h-64" />;
-  if (catalogue.isError) return <Notice tone="danger">{errorMessage(catalogue.error)}</Notice>;
+  if (catalogue.isError)
+    return <Notice tone="danger">{errorMessage(catalogue.error, { namespace: "dev" })}</Notice>;
 
   const groups = groupScopes(catalogue.data.filter((scope) => offered?.(scope) ?? true));
   const location = groups.find((group) => group.domain === LOCATION_DOMAIN);

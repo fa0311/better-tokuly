@@ -28,7 +28,10 @@ export function SubscriptionsScreen() {
           ))}
         </div>
       ) : subscriptions.isError ? (
-        <EmptyState emoji="😵‍💫" title={errorMessage(subscriptions.error)} />
+        <EmptyState
+          emoji="😵‍💫"
+          title={errorMessage(subscriptions.error, { namespace: "video" })}
+        />
       ) : rows.length === 0 ? (
         <EmptyState
           emoji="📺"

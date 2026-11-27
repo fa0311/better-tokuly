@@ -59,7 +59,7 @@ export function BlockedUsersScreen() {
     },
     onError: (error) => {
       close();
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "settings" }));
     },
   });
 

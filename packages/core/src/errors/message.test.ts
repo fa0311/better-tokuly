@@ -1,7 +1,9 @@
 import { Code, ConnectError } from "@tokuly/api";
+import { ja } from "@tokuly/i18n";
+import { createInstance } from "i18next";
 import { describe, expect, it } from "vitest";
 import { testI18n } from "../testing/i18n";
-import { AssetFailedError, durationLimit, errorMessage } from "./index";
+import { AssetFailedError, durationLimit, errorMessage, reasonText } from "./index";
 
 /** An API error carrying a reason, as the server sends it. */
 const failure = (reason: string, code = Code.FailedPrecondition) =>
@@ -20,19 +22,36 @@ describe("errorMessage", () => {
     expect(errorMessage(i18n, failure("ASSET_NOT_READY"), { namespace: "alpha" })).toBe(
       "alpha の準備中",
     );
-    expect(errorMessage(i18n, failure("ASSET_NOT_READY"), { namespace: "chat" })).toBe(
-      i18n.t("errors.ASSET_NOT_READY", { ns: "chat" }),
+    expect(errorMessage(i18n, failure("ASSET_NOT_READY"), { namespace: "stamps" })).toBe(
+      i18n.t("errors.ASSET_NOT_READY", { ns: "stamps" }),
     );
   });
 
-  it("falls back to the shared texts, then to any feature's in namespace order", () => {
+  it("falls back to the shared text, which has every reason", () => {
     expect(errorMessage(i18n, failure("HANDLE_TAKEN"), { namespace: "chat" })).toBe(
       i18n.t("HANDLE_TAKEN", { ns: "errors" }),
     );
-    expect(errorMessage(i18n, failure("POV_ALREADY_OPEN"))).toBe(
-      i18n.t("errors.POV_ALREADY_OPEN", { ns: "chat" }),
+    expect(errorMessage(i18n, failure("SHARED_ONLY_HERE"), { namespace: "alpha" })).toBe(
+      "alpha の文",
     );
-    expect(errorMessage(i18n, failure("SHARED_ONLY_HERE"))).toBe("alpha の文");
+    // Another feature's wording is never borrowed: what a screen says does not depend on what else is loaded.
+    expect(errorMessage(i18n, failure("SHARED_ONLY_HERE"))).toBe(
+      i18n.t("generic", { ns: "errors" }),
+    );
+  });
+
+  it("needs no feature's strings loaded", () => {
+    // The web loads a feature's strings when one of its screens opens; `errors` is always there.
+    const onlyErrors = createInstance();
+    void onlyErrors.init({
+      resources: { ja: { errors: ja.errors } },
+      lng: "ja",
+      initAsync: false,
+    });
+    expect(errorMessage(onlyErrors, failure("POV_ALREADY_OPEN"))).toBe(ja.errors.POV_ALREADY_OPEN);
+    expect(errorMessage(onlyErrors, failure("TOO_MANY_PINNED"), { namespace: "notes" })).toBe(
+      ja.errors.TOO_MANY_PINNED,
+    );
   });
 
   it("says something useful without a known reason", () => {
@@ -52,6 +71,14 @@ describe("errorMessage", () => {
     expect(errorMessage(i18n, new AssetFailedError("MEDIA_TOO_LONG"))).toBe(
       i18n.t("MEDIA_TOO_LONG", { ns: "errors" }),
     );
+  });
+});
+
+describe("reasonText", () => {
+  it("words a reason that came without an error, or says it does not know it", () => {
+    expect(reasonText(i18n, "ASSET_NOT_READY", { namespace: "alpha" })).toBe("alpha の準備中");
+    expect(reasonText(i18n, "HANDLE_TAKEN")).toBe(i18n.t("HANDLE_TAKEN", { ns: "errors" }));
+    expect(reasonText(i18n, "SOMETHING_NEW")).toBeUndefined();
   });
 });
 

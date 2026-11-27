@@ -50,9 +50,6 @@ export default {
   stat: "Clips",
   profileLink: "Clips",
   errors: {
-    CLIP_NOT_FOUND: "Clip not found",
-    TOO_MANY_CLIPS: "You can create up to 100 clips",
-    TOO_MANY_CLIPPED_NOTES: "A clip holds up to 1000 notes",
     INVALID_NAME: "Names are 1–50 characters",
     DESCRIPTION_TOO_LONG: "Descriptions are up to 500 characters",
   },

@@ -136,7 +136,7 @@ export function PartyRoomView({
         positionSeconds: Math.min(mine.positionSeconds, Math.max(0, duration - 0.1)),
         rate: mine.rate,
       })
-      .catch((error) => toast.error(errorMessage(error)))
+      .catch((error) => toast.error(errorMessage(error, { namespace: "video" })))
       .finally(() => {
         pending.current -= 1;
       });
@@ -147,7 +147,7 @@ export function PartyRoomView({
     onSuccess: () => setEnding(false),
     onError: (error) => {
       setEnding(false);
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "video" }));
     },
   });
   const guests = useMutation({
@@ -157,7 +157,7 @@ export function PartyRoomView({
       toast.success(allowGuests ? t("party.guestsOn") : t("party.guestsOff"));
       void room.reload();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
   const leave = async () => {
     await room.leave();

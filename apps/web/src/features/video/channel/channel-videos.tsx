@@ -72,7 +72,7 @@ export function ChannelVideos({ channel }: { channel: video.Channel }) {
           ))}
         </VideoGrid>
       ) : query.isError ? (
-        <EmptyState emoji="😵‍💫" title={errorMessage(query.error)} />
+        <EmptyState emoji="😵‍💫" title={errorMessage(query.error, { namespace: "video" })} />
       ) : videos.length === 0 ? (
         <EmptyState emoji="🌱" title={t("channel.noVideos")} />
       ) : (

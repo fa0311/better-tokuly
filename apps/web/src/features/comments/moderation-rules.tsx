@@ -47,13 +47,13 @@ export function Rules() {
     },
     onError: (error, _settings, context) => {
       queryClient.setQueryData(commentKeys.rules, context?.previous);
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "comments" }));
     },
   });
 
   if (rules.isPending) return <Skeleton className="h-64 rounded-card" />;
   if (rules.isError || !rules.data)
-    return <EmptyState emoji="😵‍💫" title={errorMessage(rules.error)} />;
+    return <EmptyState emoji="😵‍💫" title={errorMessage(rules.error, { namespace: "comments" })} />;
   const settings = rules.data;
   const change = (patch: Partial<engagement.ModerationSettings>) =>
     save.mutate({ ...settings, ...patch });
@@ -187,7 +187,7 @@ export function BlockedCommenters() {
       );
       toast.success(t("toast.unblocked", { name: authorName(blocked.commenter) }));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "comments" })),
   });
   const commenters = list.data?.pages.flatMap((page) => page.commenters) ?? [];
 
@@ -197,7 +197,7 @@ export function BlockedCommenters() {
       {list.isPending ? (
         <Skeleton className="h-16" />
       ) : list.isError ? (
-        <EmptyState emoji="😵‍💫" title={errorMessage(list.error)} />
+        <EmptyState emoji="😵‍💫" title={errorMessage(list.error, { namespace: "comments" })} />
       ) : commenters.length === 0 ? (
         <EmptyState emoji="🕊️" title={t("blocked.empty")} body={t("blocked.emptyBody")} />
       ) : (

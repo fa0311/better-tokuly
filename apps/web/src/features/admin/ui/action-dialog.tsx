@@ -92,7 +92,7 @@ export function ActionDialog({
           <TextArea
             label={t("common.reason")}
             hint={t("common.reasonHint")}
-            error={missing ? t("errors.REASON_REQUIRED") : undefined}
+            error={missing ? t("errors:REASON_REQUIRED") : undefined}
             value={reasonText}
             maxLength={REASON_MAX}
             onChange={(event) => {

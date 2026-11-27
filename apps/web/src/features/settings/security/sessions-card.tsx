@@ -52,7 +52,7 @@ export function SessionsCard() {
           ? t("security.sessions.revoked")
           : t("security.sessions.revokedOthers"),
       ),
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
     onSettled: () => {
       close();
       return Promise.all([

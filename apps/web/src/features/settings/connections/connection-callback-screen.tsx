@@ -79,7 +79,7 @@ export function ConnectionCallbackScreen({
         <EmptyState
           emoji="😢"
           title={t("connections.callback.failed")}
-          body={errorMessage(finish.error)}
+          body={errorMessage(finish.error, { namespace: "settings" })}
           action={back}
         />
       ) : (

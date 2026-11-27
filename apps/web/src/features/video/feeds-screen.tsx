@@ -63,7 +63,7 @@ export function FeedsScreen({
       if (undo) await feedClient().undoNotInterested({ target });
       else await feedClient().markNotInterested({ target });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
   const dismiss = (summary: video.VideoSummary, kind: Dismissal["kind"]) => {
     const channelId = summary.channel?.id ?? "";
@@ -174,7 +174,7 @@ export function FeedsScreen({
         ) : query.isError ? (
           <EmptyState
             emoji="😵‍💫"
-            title={errorMessage(query.error)}
+            title={errorMessage(query.error, { namespace: "video" })}
             action={<Button onClick={() => void query.refetch()}>{t("actions.retry")}</Button>}
           />
         ) : videos.length === 0 && !query.hasNextPage ? (

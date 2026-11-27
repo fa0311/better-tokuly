@@ -170,7 +170,7 @@ function Received({ queue }: { queue?: boolean }) {
     // Threads on screen elsewhere show the change the next time they are read.
     void queryClient.invalidateQueries({ queryKey: [...commentKeys.all, "thread"] });
   };
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "comments" }));
 
   const approve = useMutation({
     mutationFn: (comment: engagement.Comment) =>
@@ -294,7 +294,7 @@ function Received({ queue }: { queue?: boolean }) {
       {list.isPending ? (
         <RowsSkeleton />
       ) : list.isError ? (
-        <EmptyState emoji="😵‍💫" title={errorMessage(list.error)} />
+        <EmptyState emoji="😵‍💫" title={errorMessage(list.error, { namespace: "comments" })} />
       ) : entries.length === 0 ? (
         filtered ? (
           <EmptyState emoji="🔍" title={t("moderation.emptyFiltered")} />
@@ -461,7 +461,7 @@ function MyComments() {
     },
     onError: (error) => {
       setDeleting(null);
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "comments" }));
     },
   });
   const entries = list.data?.pages.flatMap((page) => page.comments) ?? [];
@@ -472,7 +472,7 @@ function MyComments() {
       {list.isPending ? (
         <RowsSkeleton />
       ) : list.isError ? (
-        <EmptyState emoji="😵‍💫" title={errorMessage(list.error)} />
+        <EmptyState emoji="😵‍💫" title={errorMessage(list.error, { namespace: "comments" })} />
       ) : entries.length === 0 ? (
         <EmptyState
           emoji="✍️"

@@ -80,7 +80,7 @@ export function PayoutQueue({
               ))}
             </div>
           ) : query.isError ? (
-            <EmptyState emoji="😵‍💫" title={errorMessage(query.error)} />
+            <EmptyState emoji="😵‍💫" title={errorMessage(query.error, { namespace: "wallet" })} />
           ) : payouts.length > 0 ? (
             <>
               <ul className="divide-y-2 divide-line">
@@ -204,7 +204,7 @@ function PayoutReview({
       setConfirming(false);
     },
     onError: (failure) => {
-      toast.error(errorMessage(failure));
+      toast.error(errorMessage(failure, { namespace: "wallet" }));
       // Someone else may have decided meanwhile: show what the request is now.
       void queryClient.invalidateQueries({ queryKey: walletKeys.admin.payout(payoutId) });
       void queryClient.invalidateQueries({ queryKey: walletKeys.admin.queues });
@@ -227,7 +227,12 @@ function PayoutReview({
 
   if (isPending) return <Skeleton className="h-72" />;
   if (!payout)
-    return <EmptyState emoji="🔍" title={error ? errorMessage(error) : t("payout.notFound")} />;
+    return (
+      <EmptyState
+        emoji="🔍"
+        title={error ? errorMessage(error, { namespace: "wallet" }) : t("payout.notFound")}
+      />
+    );
 
   const format = (value: Date | undefined) =>
     value?.toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" });

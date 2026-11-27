@@ -45,7 +45,7 @@ export function AuthorizedAppsScreen() {
       {apps.isPending ? (
         <Skeleton className="h-48" />
       ) : apps.isError ? (
-        <Notice tone="danger">{errorMessage(apps.error)}</Notice>
+        <Notice tone="danger">{errorMessage(apps.error, { namespace: "dev" })}</Notice>
       ) : rows.length === 0 ? (
         <EmptyState emoji="🔐" title={t("authorized.empty")} body={t("authorized.emptyBody")} />
       ) : (

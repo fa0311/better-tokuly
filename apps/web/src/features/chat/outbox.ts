@@ -271,7 +271,10 @@ function deliver(
         void fetchConversation(queryClient, conversationId).catch(() => {});
     } catch (error) {
       // A message that failed waits for the person; the ones behind it go on.
-      patch(conversationId, clientId, { status: "failed", error: errorMessage(error) });
+      patch(conversationId, clientId, {
+        status: "failed",
+        error: errorMessage(error),
+      });
     }
   });
 }

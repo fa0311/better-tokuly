@@ -127,7 +127,7 @@ function DeviceRequest({ code, onOtherCode }: { code: string; onOtherCode(): voi
     return (
       <EmptyState
         emoji="🤔"
-        title={errorMessage(request.error)}
+        title={errorMessage(request.error, { namespace: "settings" })}
         body={t("security.device.invalidBody")}
         action={another}
       />
@@ -200,7 +200,7 @@ function DeviceRequest({ code, onOtherCode }: { code: string; onOtherCode(): voi
           role="alert"
           className="mt-4 rounded-2xl bg-danger/10 px-4 py-3 text-sm font-bold text-danger"
         >
-          {errorMessage(respond.error)}
+          {errorMessage(respond.error, { namespace: "settings" })}
         </p>
       )}
       <div className="mt-6 grid grid-cols-2 gap-3">

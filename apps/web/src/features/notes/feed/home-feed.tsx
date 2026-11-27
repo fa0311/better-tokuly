@@ -50,7 +50,7 @@ export function HomeFeed({ empty, ref }: { empty: ReactNode; ref?: Ref<TimelineH
     return (
       <EmptyState
         emoji="🌧️"
-        title={errorMessage(query.error)}
+        title={errorMessage(query.error, { namespace: "notes" })}
         action={<Button onClick={() => void query.refetch()}>{t("timeline.retry")}</Button>}
       />
     );

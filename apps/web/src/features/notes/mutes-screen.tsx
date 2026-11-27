@@ -34,12 +34,12 @@ export function MutesScreen() {
       refresh();
       toast.success(t("mutes.saved"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "notes" })),
   });
   const show = useMutation({
     mutationFn: (userId: string) => muteClient().showRenotesFrom({ userId }),
     onSuccess: refresh,
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "notes" })),
   });
   const plain = words.map(({ text, regex }) => ({ text, regex }));
 

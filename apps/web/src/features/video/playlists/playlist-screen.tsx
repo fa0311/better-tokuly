@@ -81,7 +81,7 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
         afterVideoId: moved.afterId,
       }),
     onError: (error) => {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "video" }));
       void queryClient.invalidateQueries({ queryKey: itemsKey });
     },
   });
@@ -102,7 +102,7 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
       refresh();
     },
     onError: (error) => {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "video" }));
       void queryClient.invalidateQueries({ queryKey: itemsKey });
     },
   });
@@ -116,7 +116,7 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
     },
     onError: (error) => {
       setDeleting(false);
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "video" }));
     },
   });
 
@@ -265,7 +265,7 @@ export function PlaylistScreen({ playlistId }: { playlistId: string }) {
             ))}
           </div>
         ) : items.isError ? (
-          <EmptyState emoji="😵‍💫" title={errorMessage(items.error)} />
+          <EmptyState emoji="😵‍💫" title={errorMessage(items.error, { namespace: "video" })} />
         ) : rows.length === 0 ? (
           <EmptyState
             emoji="📼"

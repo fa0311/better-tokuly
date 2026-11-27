@@ -67,16 +67,9 @@ export default {
   },
   errors: {
     CIRCLE_NOT_FOUND: "このリストは見つからないよ",
-    NAME_REQUIRED: "名前を入れてね",
-    NAME_TOO_LONG: "名前は30文字までだよ",
     INVALID_EMOJI: "絵文字はひとつだけえらんでね",
-    TOO_MANY_CIRCLES: "これ以上リストはつくれないよ",
-    CLOSE_FRIENDS_FIXED: "親しい友達は名前を変えたり削除したりできないよ",
-    INVALID_ORDER: "並べ替えられなかったよ。もう一度ためしてね",
-    NOT_CONNECTED: "ともだちかフォロワーの人だけ追加できるよ",
     TOO_MANY_MEMBERS: "このリストはもういっぱいだよ",
     TOO_MANY_IDS: "一度に追加できる人数をこえているよ",
     INVALID_ID: "えらんだ人が見つからないよ",
-    QUERY_TOO_LONG: "検索ワードが長すぎるよ",
   },
 } as const;

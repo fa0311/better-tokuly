@@ -270,7 +270,7 @@ export function TokensScreen() {
           <Skeleton className="h-40" />
         </div>
       ) : tokens.isError ? (
-        <Notice tone="danger">{errorMessage(tokens.error)}</Notice>
+        <Notice tone="danger">{errorMessage(tokens.error, { namespace: "dev" })}</Notice>
       ) : rows.length === 0 ? (
         <EmptyState
           emoji="🔑"

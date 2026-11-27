@@ -98,7 +98,11 @@ export function SubmissionsScreen() {
             <Skeleton className="h-24" />
           </>
         ) : list.isError ? (
-          <EmptyState emoji="😵‍💫" title={t("browse.error")} body={errorMessage(list.error)} />
+          <EmptyState
+            emoji="😵‍💫"
+            title={t("browse.error")}
+            body={errorMessage(list.error, { namespace: "emoji" })}
+          />
         ) : items.length === 0 ? (
           <EmptyState
             emoji="🎨"

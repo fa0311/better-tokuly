@@ -56,7 +56,7 @@ export function RulesAgreement({
     onError: (error) => {
       // The rules changed while they were being read: show the new ones.
       void queryClient.invalidateQueries({ queryKey: notesKeys.rules });
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     },
   });
 
@@ -64,7 +64,7 @@ export function RulesAgreement({
     return (
       <EmptyState
         emoji="🌧️"
-        title={errorMessage(error)}
+        title={errorMessage(error, { namespace: "notes" })}
         action={<Button onClick={onRetry}>{t("timeline.retry")}</Button>}
       />
     );

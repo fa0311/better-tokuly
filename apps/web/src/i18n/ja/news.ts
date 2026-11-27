@@ -170,9 +170,6 @@ export default {
     },
   },
   errors: {
-    NEWS_ARTICLE_NOT_FOUND: "このニュースはもう読めないみたい",
-    INVALID_TAG: "そのタグでは絞り込めないよ",
     INVALID_LANGUAGE: "その言語では絞り込めないよ",
-    INVALID_FEEDBACK: "その評価は送れませんでした",
   },
 } as const;

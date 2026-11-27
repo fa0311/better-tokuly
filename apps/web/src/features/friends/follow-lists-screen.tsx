@@ -61,7 +61,7 @@ export function FollowListsScreen({ handle, tab }: { handle: string; tab: Follow
         items={tabs.map((value) => ({ value, label: t(`tabs.${value}`) }))}
       />
       {profile.isError ? (
-        <EmptyState emoji="🫥" title={errorMessage(profile.error)} />
+        <EmptyState emoji="🫥" title={errorMessage(profile.error, { namespace: "follows" })} />
       ) : !user ? (
         <RowsSkeleton />
       ) : (

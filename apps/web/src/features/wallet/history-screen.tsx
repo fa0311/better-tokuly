@@ -49,7 +49,7 @@ export function HistoryScreen() {
       ) : query.isError ? (
         <EmptyState
           emoji="😵‍💫"
-          title={errorMessage(query.error)}
+          title={errorMessage(query.error, { namespace: "wallet" })}
           action={
             <Button variant="secondary" onClick={() => void query.refetch()}>
               {t("common:actions.retry")}

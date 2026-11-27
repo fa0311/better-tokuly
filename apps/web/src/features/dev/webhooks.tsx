@@ -91,7 +91,7 @@ function WebhookFields({
         {catalogue.isPending ? (
           <Skeleton className="h-48" />
         ) : catalogue.isError ? (
-          <Notice tone="danger">{errorMessage(catalogue.error)}</Notice>
+          <Notice tone="danger">{errorMessage(catalogue.error, { namespace: "dev" })}</Notice>
         ) : (
           <ul className="divide-y-2 divide-line rounded-2xl border-2 border-line">
             {catalogue.data

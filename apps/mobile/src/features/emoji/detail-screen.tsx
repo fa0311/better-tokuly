@@ -103,7 +103,7 @@ function PinButton({ code }: { code: string }) {
   const codes = deck.data.items.map((item) => item.emoji);
   const pinned = codes.includes(code);
   const change = async () => {
-    if (!pinned && codes.length >= DECK_MAX) return Alert.alert(t("errors.DECK_TOO_LONG"));
+    if (!pinned && codes.length >= DECK_MAX) return Alert.alert(t("errors:DECK_TOO_LONG"));
     setBusy(true);
     try {
       const next = pinned ? codes.filter((item) => item !== code) : [code, ...codes];

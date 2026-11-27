@@ -146,20 +146,8 @@ export default {
     antennaDeleted: "アンテナを削除したよ",
   },
   errors: {
-    LIST_NOT_FOUND: "リストが見つからないよ",
-    ANTENNA_NOT_FOUND: "アンテナが見つからないよ",
-    INVALID_NAME: "名前の長さを確認してね",
     DESCRIPTION_TOO_LONG: "説明は200文字までだよ",
-    TOO_MANY_LISTS: "リストは50個までだよ",
     TOO_MANY_MEMBERS: "1つのリストに入れられるのは500人までだよ",
-    MEMBER_NOT_ALLOWED:
-      "鍵アカウントの人は、フォローを許可してもらってからじゃないと公開リストに入れられないよ",
-    CANNOT_FOLLOW_OWN_LIST: "自分のリストはフォローできないよ",
-    TOO_MANY_FOLLOWED_LISTS: "フォローできるリストは200個までだよ",
-    INVALID_KEYWORDS: "キーワードを確認してね(10グループ×5ワード、除外10個、1ワード50文字まで)",
-    INVALID_USERS: "1〜50人えらんでね",
-    INVALID_SOURCE: "集める場所をえらび直してね",
-    TOO_MANY_ANTENNAS: "アンテナは5個までだよ",
     USER_NOT_FOUND: "ユーザーが見つからないよ",
   },
 };

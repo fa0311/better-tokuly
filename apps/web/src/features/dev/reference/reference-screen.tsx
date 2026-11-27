@@ -106,7 +106,7 @@ function ServiceBrowser({ className }: { className?: string }) {
             <Skeleton className="h-8" />
           </div>
         ) : services.isError ? (
-          <Notice tone="danger">{errorMessage(services.error)}</Notice>
+          <Notice tone="danger">{errorMessage(services.error, { namespace: "dev" })}</Notice>
         ) : query.trim() ? (
           <SearchResults services={services.data} query={query} />
         ) : (
@@ -277,7 +277,7 @@ export function ReferenceHome() {
       {scopes.isPending ? (
         <Skeleton className="h-64" />
       ) : scopes.isError ? (
-        <Notice tone="danger">{errorMessage(scopes.error)}</Notice>
+        <Notice tone="danger">{errorMessage(scopes.error, { namespace: "dev" })}</Notice>
       ) : (
         <ul className="divide-y-2 divide-line rounded-2xl border-2 border-line">
           {scopes.data.map((scope) => (
@@ -321,7 +321,7 @@ export function ReferenceHome() {
       {eventTypes.isPending ? (
         <Skeleton className="h-48" />
       ) : eventTypes.isError ? (
-        <Notice tone="danger">{errorMessage(eventTypes.error)}</Notice>
+        <Notice tone="danger">{errorMessage(eventTypes.error, { namespace: "dev" })}</Notice>
       ) : (
         <ul className="divide-y-2 divide-line rounded-2xl border-2 border-line">
           {eventTypes.data.map((event) => (
@@ -361,7 +361,11 @@ export function ReferenceService({ service: name }: { service: string }) {
       <Article>
         <EmptyState
           emoji="🧭"
-          title={services.isError ? errorMessage(services.error) : t("reference.notFound")}
+          title={
+            services.isError
+              ? errorMessage(services.error, { namespace: "dev" })
+              : t("reference.notFound")
+          }
           action={<BackToStart />}
         />
       </Article>

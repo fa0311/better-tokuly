@@ -93,9 +93,4 @@ export default {
     retry: "もう一度",
   },
   profile: { explored: "あしあと: {{percent}} 開拓", countries: "あしあと: {{count}}か国に行った" },
-  errors: {
-    FOOTPRINTS_PRIVATE: "このあしあとは公開されていません",
-    REGION_NOT_FOUND: "このエリアは見つかりませんでした",
-    INVALID_BOUNDS: "マップの範囲が正しくありません",
-  },
 } as const;

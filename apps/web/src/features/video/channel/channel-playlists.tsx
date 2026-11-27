@@ -33,7 +33,8 @@ export function ChannelPlaylists({ channel }: { channel: video.Channel }) {
       </div>
     );
   }
-  if (query.isError) return <EmptyState emoji="😵‍💫" title={errorMessage(query.error)} />;
+  if (query.isError)
+    return <EmptyState emoji="😵‍💫" title={errorMessage(query.error, { namespace: "video" })} />;
   if (playlists.length === 0)
     return (
       <EmptyState

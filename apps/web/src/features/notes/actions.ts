@@ -39,7 +39,7 @@ export function useLike(): (note: notes.Note) => Promise<void> {
       patchNote(queryClient, note.id, (current) =>
         current.viewer?.liked === liked ? withToggle(current, "like", !liked) : current,
       );
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     }
   };
 }
@@ -62,7 +62,7 @@ export function useRenote(): (note: notes.Note) => Promise<void> {
       patchNote(queryClient, note.id, (current) =>
         current.viewer?.renoted === renoted ? withToggle(current, "renote", !renoted) : current,
       );
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     }
   };
 }
@@ -78,7 +78,7 @@ export function useDeleteNote(): (note: notes.Note) => Promise<boolean> {
     try {
       await noteClient().deleteNote({ noteId: note.id });
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
       return false;
     }
     markNoteDeleted(note.id);
@@ -97,7 +97,7 @@ export function usePin(): (note: notes.Note, pinned: boolean) => Promise<void> {
       if (pinned) await noteClient().pinNote({ noteId: note.id });
       else await noteClient().unpinNote({ noteId: note.id });
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
       return;
     }
     patchNote(queryClient, note.id, (current) => ({ ...current, pinned }));
@@ -133,7 +133,7 @@ export function useSetVisibility(): (note: notes.Note, audience: Audience) => Pr
       toast.success(say("toast.visibilityChanged"));
       return true;
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
       return false;
     }
   };

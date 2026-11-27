@@ -280,7 +280,7 @@ export function StoryViewer({
       }));
     } catch (error) {
       setReacted({ ...reacted, [story.id]: myReaction });
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stories" }));
     }
   };
 
@@ -614,7 +614,7 @@ export function StoryViewer({
                 setRemoved(new Set(removed).add(story.id));
                 toast(t("viewer.deleted"));
               } catch (error) {
-                toast.error(errorMessage(error));
+                toast.error(errorMessage(error, { namespace: "stories" }));
               }
               setSheet(undefined);
             }}

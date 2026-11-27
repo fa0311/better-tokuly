@@ -50,9 +50,6 @@ export default {
   stat: "クリップ",
   profileLink: "クリップ",
   errors: {
-    CLIP_NOT_FOUND: "クリップが見つからないよ",
-    TOO_MANY_CLIPS: "クリップは100個までつくれるよ",
-    TOO_MANY_CLIPPED_NOTES: "1つのクリップに入れられるノートは1000個までだよ",
     INVALID_NAME: "名前は1〜50文字で入れてね",
     DESCRIPTION_TOO_LONG: "説明は500文字までだよ",
   },

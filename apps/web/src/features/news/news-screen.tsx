@@ -82,7 +82,7 @@ export function NewsScreen({ params }: { params: NewsParams }) {
       ) : list.isError ? (
         <EmptyState
           emoji="🌀"
-          title={errorMessage(list.error)}
+          title={errorMessage(list.error, { namespace: "news" })}
           action={
             <Button
               size="sm"

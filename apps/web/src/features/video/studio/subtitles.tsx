@@ -49,7 +49,7 @@ export function SubtitlesTab({ videoId }: { videoId: string }) {
     // The watch page and the editor's preview carry the tracks too.
     void queryClient.invalidateQueries({ queryKey: videoKeys.videos });
   };
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "video" }));
 
   const setDefault = useMutation({
     mutationFn: ({ track, isDefault }: { track: video.SubtitleTrack; isDefault: boolean }) =>
@@ -91,7 +91,7 @@ export function SubtitlesTab({ videoId }: { videoId: string }) {
       {tracks.isPending ? (
         <Skeleton className="h-20 rounded-card" />
       ) : tracks.isError ? (
-        <EmptyState emoji="😵‍💫" title={errorMessage(tracks.error)} />
+        <EmptyState emoji="😵‍💫" title={errorMessage(tracks.error, { namespace: "video" })} />
       ) : tracks.data.length === 0 ? (
         <EmptyState
           emoji="💬"
@@ -254,7 +254,7 @@ function SubtitleForm({
       toast.success(track ? t("studio.subtitles.saved") : t("studio.subtitles.added"));
       onDone();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
   const options = LANGUAGES.filter(
     (entry) => entry.tag === language || !usedLanguages.has(entry.tag),
@@ -311,7 +311,7 @@ function SubtitleForm({
             event.target.value = "";
             if (!file) return;
             if (file.size > 1024 * 1024) {
-              toast.error(t("errors.SUBTITLE_TOO_LARGE"));
+              toast.error(t("errors:SUBTITLE_TOO_LARGE"));
               return;
             }
             setContent(await file.text());

@@ -134,7 +134,7 @@ function MyLog() {
       await queryClient.invalidateQueries({ queryKey: feedKeys.all });
       toast(t("activity.deleted"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "notes" })),
   });
 
   return (
@@ -303,7 +303,7 @@ function ClearDialog({ onClose }: { onClose(): void }) {
       toast(t("activity.clear.done", { count: response.deletedCount }));
       onClose();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "notes" })),
   });
 
   return (
@@ -385,7 +385,7 @@ function PreferencesDialog({ onClose }: { onClose(): void }) {
     },
     onError: (error) => {
       void queryClient.invalidateQueries({ queryKey: feedKeys.preferences });
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "notes" }));
     },
   });
 

@@ -84,7 +84,7 @@ export function useUploads(rules: UploadRules) {
       toast.error(
         error instanceof AssetFailedError && error.reason === "PROCESSING_FAILED"
           ? say("uploads.failed")
-          : errorMessage(error),
+          : errorMessage(error, { namespace: "notes" }),
       );
     } finally {
       controllers.current.delete(upload.key);

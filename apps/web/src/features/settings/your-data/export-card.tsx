@@ -53,7 +53,7 @@ export function ExportCard({ me }: { me: identity.Me }) {
       setRequest(made);
       toast.success(t("data.export.requestedToast"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
   });
 
   return (

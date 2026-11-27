@@ -76,7 +76,7 @@ export function UserWallets({
             ))}
           </div>
         ) : search.isError ? (
-          <EmptyState emoji="😵‍💫" title={errorMessage(search.error)} />
+          <EmptyState emoji="😵‍💫" title={errorMessage(search.error, { namespace: "wallet" })} />
         ) : users.length > 0 ? (
           <ul className="divide-y-2 divide-line">
             {users.map((found) => (
@@ -201,7 +201,7 @@ function UserWallet({ userId }: { userId: string }) {
   if (summary.isError) {
     return (
       <Pane>
-        <EmptyState emoji="🔍" title={errorMessage(summary.error)} />
+        <EmptyState emoji="🔍" title={errorMessage(summary.error, { namespace: "wallet" })} />
       </Pane>
     );
   }
@@ -358,7 +358,7 @@ function AdjustDialog({
       onOpenChange(false);
     },
     onError: (error) => {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "wallet" }));
       setStep("form");
       // The balance may have moved under us: show the current one.
       void queryClient.invalidateQueries({ queryKey: walletKeys.admin.userWallet(user.id) });

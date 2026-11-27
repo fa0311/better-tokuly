@@ -219,11 +219,4 @@ export default {
       TOO_MANY_SYNONYM_GROUPS: "同義語グループは500個までだよ",
     },
   },
-  errors: {
-    QUERY_REQUIRED: "さがしたいことばを入力してね",
-    KIND_UNKNOWN: "その種類では検索できません",
-    SORT_UNKNOWN: "その並び順はえらべません",
-    SEARCH_UNAVAILABLE: "いま検索がおやすみ中みたい。少し待ってからためしてね",
-    RECENT_SEARCH_NOT_FOUND: "その履歴はもう消えているみたい",
-  },
 } as const;

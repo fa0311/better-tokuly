@@ -113,7 +113,7 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
       if (count === 0 || force || atTop) apply(page);
       else setFresh({ page, count });
     } catch (error) {
-      if (force) toast.error(errorMessage(error));
+      if (force) toast.error(errorMessage(error, { namespace: "notes" }));
     } finally {
       checking.current = false;
     }
@@ -170,7 +170,7 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
     return (
       <EmptyState
         emoji="🌧️"
-        title={errorMessage(query.error)}
+        title={errorMessage(query.error, { namespace: "notes" })}
         action={<Button onClick={() => void query.refetch()}>{t("timeline.retry")}</Button>}
       />
     );

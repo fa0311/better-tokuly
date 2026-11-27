@@ -53,7 +53,7 @@ export function DailyBonusCard() {
       fire();
     },
     onError: (error) => {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "wallet" }));
       // Claimed elsewhere a moment ago, or switched off: show the real state.
       if (errorReason(error))
         void queryClient.invalidateQueries({ queryKey: walletKeys.dailyBonus });

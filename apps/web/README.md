@@ -122,9 +122,11 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
   zustand store; never poll.
 - Timestamps: `toDate` / `toMillis` from `@tokuly/api`. IDs are strings.
 - Errors shown to people go through `errorMessage(error)` (`#/lib/errors`),
-  which maps the API's reason code to text: reasons any screen can hit live in
-  `src/i18n/*/errors.ts`, reasons specific to a feature under an `errors` key
-  in that feature's namespace (`stamps.ts` → `errors: { PACK_NOT_FOUND: … }`).
+  which maps the API's reason code to text. Every reason has a text in the
+  always-loaded `errors` namespace (`packages/i18n`; a test checks it against
+  the protos and the backend). A feature that words one its own way puts it
+  under `errors` in its namespace and names itself:
+  `errorMessage(error, { namespace: "stamps" })`.
 - Infinite lists: `useInfiniteQuery` + `<LoadMore query={query} />` after the
   last row.
 - Uploads: `uploadAndProcess(file, { purpose })` from `#/lib/upload`.

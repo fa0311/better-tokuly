@@ -110,5 +110,5 @@ export function staffErrorMessage(error: unknown): string {
   const reason = errorReason(error);
   if (reason && i18n.exists(`staff.errors.${reason}`, { ns: "news" }))
     return i18n.t(`staff.errors.${reason}`, { ns: "news" });
-  return errorMessage(error);
+  return errorMessage(error, { namespace: "news" });
 }

@@ -27,7 +27,7 @@ import { EmojiText } from "#/features/emoji";
 import { compactCount } from "#/features/engagement";
 import { useMyChannels } from "#/features/video";
 import { cn } from "#/lib/cn";
-import { errorMessage } from "#/lib/errors";
+import { errorMessage, reasonText } from "#/lib/errors";
 import { waitForAsset } from "#/lib/upload";
 import {
   nextCursor,
@@ -278,9 +278,8 @@ function MyShortRow({ short }: { short: shorts.Short }) {
         </div>
         {short.status === ShortStatus.FAILED && (
           <p className="text-sm text-danger">
-            {t(`errors.${short.studio?.processingError || "PROCESSING_FAILED"}`, {
-              defaultValue: t("errors.PROCESSING_FAILED"),
-            })}
+            {reasonText(short.studio?.processingError ?? "", { namespace: "shorts" }) ??
+              t("errors:PROCESSING_FAILED")}
           </p>
         )}
         {published && (

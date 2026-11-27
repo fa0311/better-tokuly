@@ -76,7 +76,7 @@ export function ReportDialog({ subject, open, onOpenChange, label }: ReportDialo
       });
       close();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "engagement" })),
   });
 
   return (

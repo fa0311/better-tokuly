@@ -92,7 +92,7 @@ export function useCopySubjectLink(subject: Subject, path?: string): () => Promi
       if (await copyText(path ? appLink(path) : url)) toast.success(t("share.copied"));
       else toast.error(t("share.copyFailed"));
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "engagement" }));
     }
   };
 }
@@ -117,7 +117,7 @@ export function ShareButton({ subject, title, showCount, className }: ShareButto
     } catch (error) {
       // Closing the share sheet is not an error worth a toast.
       if (!(error instanceof DOMException && error.name === "AbortError"))
-        toast.error(errorMessage(error));
+        toast.error(errorMessage(error, { namespace: "engagement" }));
     }
   };
 

@@ -84,7 +84,7 @@ export function ArticleScreen({ articleId }: { articleId: string }) {
       <Page title={t("article.title")} back="/news">
         <EmptyState
           emoji={gone ? "🫥" : "🌀"}
-          title={gone ? t("article.goneTitle") : errorMessage(detail.error)}
+          title={gone ? t("article.goneTitle") : errorMessage(detail.error, { namespace: "news" })}
           body={gone ? t("article.goneBody") : undefined}
           action={
             <Link
@@ -288,7 +288,7 @@ function StaffMenu({ article }: { article: feed.NewsArticle }) {
       toast.success(t("staff.articleRemoved"));
       void navigate({ to: "/news" });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "news" })),
     onSettled: () => setConfirming(false),
   });
   if (!roles.includes("admin") && !roles.includes("moderator")) return null;

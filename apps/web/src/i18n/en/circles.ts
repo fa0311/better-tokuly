@@ -67,16 +67,9 @@ export default {
   },
   errors: {
     CIRCLE_NOT_FOUND: "This list doesn't exist",
-    NAME_REQUIRED: "Give it a name",
-    NAME_TOO_LONG: "Names can be up to 30 characters",
     INVALID_EMOJI: "Pick just one emoji",
-    TOO_MANY_CIRCLES: "You can't make any more lists",
-    CLOSE_FRIENDS_FIXED: "Close friends can't be renamed or deleted",
-    INVALID_ORDER: "Couldn't reorder. Try again",
-    NOT_CONNECTED: "You can only add friends and followers",
     TOO_MANY_MEMBERS: "This list is full",
     TOO_MANY_IDS: "That's too many people at once",
     INVALID_ID: "Couldn't find that person",
-    QUERY_TOO_LONG: "That search is too long",
   },
 } as const;

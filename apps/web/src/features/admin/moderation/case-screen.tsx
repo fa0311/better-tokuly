@@ -118,7 +118,7 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
       );
     return queryClient.invalidateQueries({ queryKey: ["admin"] });
   };
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "admin" }));
 
   const resolve = useMutation({
     mutationFn: (resolution: Resolution) =>
@@ -152,7 +152,7 @@ function CaseDetail({ caseId, search }: { caseId: string; search: QueueSearch })
         {detail.isError ? (
           <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
         ) : (
-          <EmptyState emoji="🧭" title={t("errors.CASE_NOT_FOUND")} />
+          <EmptyState emoji="🧭" title={t("errors:CASE_NOT_FOUND")} />
         )}
       </ConsolePage>
     );
@@ -356,7 +356,7 @@ function Assignment({
       );
       return onChanged(response.moderationCase);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "admin" })),
   });
   const isOpen = moderationCase.status === admin.CaseStatus.OPEN;
   const mine = moderationCase.assignee?.id === me?.user?.id;
@@ -436,7 +436,7 @@ function ResolutionCard({
       toast.success(t("moderation.toast.reopened"));
       return onChanged(response.moderationCase);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "admin" })),
   });
   return (
     <Section title={t("moderation.resolution.title")}>
@@ -573,7 +573,7 @@ function Notes({
       toast.success(t("moderation.toast.noteAdded"));
       return onAdded();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "admin" })),
   });
   return (
     <Section

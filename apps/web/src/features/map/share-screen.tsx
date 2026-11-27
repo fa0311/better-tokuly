@@ -112,7 +112,9 @@ export function ShareScreen({ token }: { token: string }) {
             📡
           </span>
           <h1 className="text-2xl font-black">{t("public.errorTitle")}</h1>
-          <p className="text-sm leading-relaxed text-ink-soft">{errorMessage(share.error)}</p>
+          <p className="text-sm leading-relaxed text-ink-soft">
+            {errorMessage(share.error, { namespace: "map" })}
+          </p>
           <Button onClick={() => void share.refetch()} loading={share.isFetching}>
             {t("public.retry")}
           </Button>

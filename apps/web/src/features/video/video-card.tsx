@@ -240,7 +240,7 @@ export function VideoCard({
       toast.success(t("save.addedWatchLater"));
       void queryClient.invalidateQueries({ queryKey: videoKeys.playlists });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
   // One's own video cannot be reported (the server refuses with CANNOT_REPORT_OWN).
   const myChannels = useMyChannels().data?.channels ?? [];

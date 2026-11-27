@@ -64,7 +64,7 @@ export function BuyScreen() {
       ) : isError ? (
         <EmptyState
           emoji="😵‍💫"
-          title={errorMessage(error)}
+          title={errorMessage(error, { namespace: "wallet" })}
           action={
             <Button variant="secondary" onClick={() => void refetch()}>
               {t("common:actions.retry")}
@@ -224,7 +224,7 @@ function PurchaseDialog({
       rememberPurchase(queryClient, response.purchase);
       if (response.purchase) setPurchaseId(response.purchase.id);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "wallet" })),
   });
 
   const development = provider === DEVELOPMENT_PROVIDER;

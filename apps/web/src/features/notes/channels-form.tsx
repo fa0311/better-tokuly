@@ -69,7 +69,7 @@ export function ChannelForm({
       const asset = await uploadAndProcess(file, { purpose: media.AssetPurpose.NOTE_IMAGE });
       setBanner(asset.image ? { ...asset.image, assetId: asset.id } : undefined);
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "channels" }));
     } finally {
       setUploading(false);
     }

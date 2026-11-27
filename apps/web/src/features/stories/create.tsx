@@ -64,7 +64,7 @@ export function CreateStoryDialog({ onClose }: { onClose(): void }) {
       toast.success(t("create.posted"));
       onClose();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "stories" })),
   });
 
   const titleLength = charCount(title.trim());

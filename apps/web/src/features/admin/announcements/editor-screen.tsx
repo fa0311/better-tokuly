@@ -141,7 +141,7 @@ function Editor({ announcement }: { announcement?: admin.ManagedAnnouncement }) 
       );
     return queryClient.invalidateQueries({ queryKey: ["admin"] });
   };
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "admin" }));
 
   const save = useMutation({
     mutationFn: async () => {
@@ -299,7 +299,7 @@ function Editor({ announcement }: { announcement?: admin.ManagedAnnouncement }) 
                       rows={14}
                       error={
                         language === "ja" && showErrors && missingBody
-                          ? t("errors.BODY_INVALID")
+                          ? t("errors:BODY_INVALID")
                           : undefined
                       }
                       onChange={(event) =>
@@ -375,7 +375,11 @@ function HeaderImage({
       if (!asset.image?.url) throw new Error("the upload is not an image");
       onChange(asset.image);
     } catch (error) {
-      toast.error(isApiError(error) ? errorMessage(error) : t("announcements.image.failed"));
+      toast.error(
+        isApiError(error)
+          ? errorMessage(error, { namespace: "admin" })
+          : t("announcements.image.failed"),
+      );
     } finally {
       setProgress(null);
     }
@@ -449,7 +453,7 @@ function PublishPanel({
   const [when, setWhen] = useState("");
   const [notify, setNotify] = useState(announcement.notifyUsers);
   const [confirming, setConfirming] = useState<"publish" | "unpublish" | "delete" | null>(null);
-  const onError = (error: unknown) => toast.error(errorMessage(error));
+  const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "admin" }));
 
   const scheduledFor = fromLocalInput(when);
   const later = scheduledFor !== undefined && scheduledFor.getTime() > Date.now();

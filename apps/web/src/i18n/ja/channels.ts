@@ -92,16 +92,9 @@ export default {
     removedDone: "チャンネルから外したよ",
   },
   errors: {
-    CHANNEL_NOT_FOUND: "チャンネルが見つからないよ",
-    NOT_CHANNEL_MODERATOR: "オーナーとモデレーターだけができるよ",
-    NOT_CHANNEL_OWNER: "オーナーだけができるよ",
-    CHANNEL_ARCHIVED: "このチャンネルはアーカイブされているよ",
     TOO_MANY_CHANNELS: "チャンネルは10個までつくれるよ",
-    TOO_MANY_FOLLOWED_CHANNELS: "フォローできるチャンネルは500個までだよ",
-    TOO_MANY_MODERATORS: "モデレーターは20人までだよ",
     TOO_MANY_PINNED: "ピン留めは5つまでだよ",
     INVALID_NAME: "名前は1〜50文字で入れてね",
     DESCRIPTION_TOO_LONG: "説明は500文字までだよ",
-    INVALID_COLOR: "色をえらびなおしてね",
   },
 };

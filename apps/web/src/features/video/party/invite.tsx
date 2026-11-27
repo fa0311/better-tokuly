@@ -83,7 +83,7 @@ export function InviteDialog({
       toast.success(t("party.invite.sent", { count: picked.length }));
       setPicked([]);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 
   const copy = async () => {

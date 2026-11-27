@@ -176,7 +176,7 @@ export function CommentThread({
             role="alert"
             className="rounded-2xl bg-surface-2 px-4 py-6 text-center text-sm font-bold text-ink-soft"
           >
-            {errorMessage(query.error)}
+            {errorMessage(query.error, { namespace: "comments" })}
           </p>
         ) : ordered.length === 0 ? (
           commentsEnabled && (

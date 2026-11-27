@@ -72,7 +72,7 @@ function SaveBody({ video: summary }: { video: video.VideoSummary }) {
     },
     onError: (error, { playlist, add }) => {
       setContains(playlist.id, !add);
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "video" }));
     },
   });
 
@@ -99,7 +99,7 @@ function SaveBody({ video: summary }: { video: video.VideoSummary }) {
         [0, 1, 2].map((row) => <Skeleton key={row} className="h-12" />)
       ) : lists.isError ? (
         <p className="py-6 text-center text-sm font-bold text-ink-soft">
-          {errorMessage(lists.error)}
+          {errorMessage(lists.error, { namespace: "video" })}
         </p>
       ) : (
         playlists.map((playlist) => (
@@ -163,7 +163,7 @@ function NewPlaylistForm({ videoId, onDone }: { videoId: string; onDone(): void 
       void queryClient.invalidateQueries({ queryKey: videoKeys.playlists });
       onDone();
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "video" })),
   });
 
   return (

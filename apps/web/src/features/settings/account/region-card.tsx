@@ -38,7 +38,7 @@ export function RegionCard({ me }: { me: identity.Me }) {
       adoptMe(response.me);
       if (patch.timeZone) toast.success(t("account.region.timeZoneSaved"));
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
   });
 
   const changeLanguage = (next: Language) => {

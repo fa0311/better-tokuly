@@ -72,7 +72,7 @@ function ProviderCard({
       accountClient().beginConnection({ provider, redirectUri: callbackUrl(provider) }),
     // Leaves the app; the provider sends the person back to the callback route.
     onSuccess: (response) => window.location.assign(response.authorizationUrl),
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
   });
   const disconnect = useMutation({
     mutationFn: () => accountClient().deleteConnection({ provider }),
@@ -82,7 +82,7 @@ function ProviderCard({
       );
       return queryClient.invalidateQueries({ queryKey: keys.connections });
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(errorMessage(error, { namespace: "settings" })),
     onSettled: () => setConfirming(false),
   });
 

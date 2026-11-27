@@ -84,7 +84,7 @@ export function PartyChat({
       if (message.text) setText("");
       pinned.current = true;
     } catch (error) {
-      toast.error(errorMessage(error));
+      toast.error(errorMessage(error, { namespace: "video" }));
     } finally {
       setSending(false);
     }

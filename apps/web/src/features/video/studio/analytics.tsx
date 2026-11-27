@@ -72,7 +72,7 @@ function AnalyticsUnavailable({ error }: { error: unknown }) {
       body={t("studio.analytics.unavailableBody")}
     />
   ) : (
-    <EmptyState emoji="😵‍💫" title={errorMessage(error)} />
+    <EmptyState emoji="😵‍💫" title={errorMessage(error, { namespace: "video" })} />
   );
 }
 
