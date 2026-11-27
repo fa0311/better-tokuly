@@ -547,11 +547,11 @@ pub fn validate_password(password: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// Parses a birthdate and enforces the minimum age.
-pub fn validate_birthdate(input: &str, min_age: u32) -> AppResult<NaiveDate> {
+/// Parses a birthdate and enforces the minimum age on `today` (the date in
+/// the account's time zone, `age::date_in`).
+pub fn validate_birthdate(input: &str, min_age: u32, today: NaiveDate) -> AppResult<NaiveDate> {
     let date = NaiveDate::parse_from_str(input.trim(), "%Y-%m-%d")
         .map_err(|_| AppError::invalid("BIRTHDATE_INVALID", "birthdate must be YYYY-MM-DD"))?;
-    let today = Utc::now().date_naive();
     ensure!(
         date <= today && date.years_since(NaiveDate::from_ymd_opt(1900, 1, 1).unwrap()).is_some(),
         invalid,
@@ -645,10 +645,14 @@ mod tests {
         let today = Utc::now().date_naive();
         let twelve = today.with_year(today.year() - 12).unwrap();
         let twenty = today.with_year(today.year() - 20).unwrap();
-        assert_eq!(validate_birthdate(&twelve.to_string(), 13).unwrap_err().reason, "AGE_RESTRICTED");
-        assert!(validate_birthdate(&twenty.to_string(), 13).is_ok());
-        assert!(validate_birthdate("not-a-date", 13).is_err());
-        assert!(validate_birthdate("2999-01-01", 13).is_err());
+        assert_eq!(validate_birthdate(&twelve.to_string(), 13, today).unwrap_err().reason, "AGE_RESTRICTED");
+        assert!(validate_birthdate(&twenty.to_string(), 13, today).is_ok());
+        assert!(validate_birthdate("not-a-date", 13, today).is_err());
+        assert!(validate_birthdate("2999-01-01", 13, today).is_err());
+        // Thirteen today where the account is, though not yet in UTC.
+        let thirteen = today.with_year(today.year() - 13).unwrap();
+        assert!(validate_birthdate(&thirteen.to_string(), 13, today.pred_opt().unwrap()).is_err());
+        assert!(validate_birthdate(&thirteen.to_string(), 13, today).is_ok());
     }
 
     use chrono::Datelike as _;

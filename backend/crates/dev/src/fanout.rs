@@ -189,8 +189,9 @@ impl Dev {
             // Suspended and deleted accounts, and bots that are switched off
             // or whose owner is suspended, stay silent; so do accounts under
             // the minimum age and their bots.
-            let webhooks: Vec<(Uuid, String, Uuid, Option<chrono::NaiveDate>)> = sqlx::query_as(
-                "SELECT w.id, w.url, COALESCE(b.owner_id, w.account_id), COALESCE(o.birthdate, u.birthdate) FROM dev_webhooks w
+            let webhooks: Vec<(Uuid, String, Uuid, Option<chrono::NaiveDate>, String)> = sqlx::query_as(
+                "SELECT w.id, w.url, COALESCE(b.owner_id, w.account_id), COALESCE(o.birthdate, u.birthdate), COALESCE(o.time_zone, u.time_zone)
+                 FROM dev_webhooks w
                  JOIN users u ON u.id = w.account_id
                  LEFT JOIN dev_bots b ON b.user_id = w.account_id
                  LEFT JOIN users o ON o.id = b.owner_id
@@ -202,8 +203,8 @@ impl Dev {
             .fetch_all(&self.core.db)
             .await?;
             let payload = envelope(event.id, event_type.name, event.occurred_at, data);
-            for (webhook_id, url, owner, birthdate) in webhooks {
-                if self.identity.too_young(birthdate) {
+            for (webhook_id, url, owner, birthdate, time_zone) in webhooks {
+                if self.identity.too_young(birthdate, &time_zone) {
                     continue;
                 }
                 if !self.within_delivery_budget(owner, &url).await? {

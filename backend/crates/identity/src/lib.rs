@@ -222,8 +222,8 @@ impl Identity {
         let features = self.core.flags.for_user(user.id).await;
         let mut me = user.to_me(passkeys as i32, features);
         me.minor = age::is_minor(&self.core, user.id).await?;
-        me.too_young = self.too_young(user.birthdate);
-        me.too_young_until = opt_ts(self.too_young_until(user.birthdate));
+        me.too_young = self.too_young(user.birthdate, &user.time_zone);
+        me.too_young_until = opt_ts(self.too_young_until(user.birthdate, &user.time_zone));
         me.extras = self.own_extras(user.id, user.birthdate).await?.into();
         if let Some(owner) = user.bot_owner_id {
             me.bot_owner = users::summary(&self.core, owner).await?.into();

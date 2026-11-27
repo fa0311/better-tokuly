@@ -520,9 +520,9 @@ message Me {
   // RequestAccountDeletion and CancelAccountDeletion only; everything else
   // answers PERMISSION_DENIED with ACCOUNT_TOO_YOUNG.
   bool too_young = 22;
-  // When a too-young account is let in (the start of that birthday, UTC):
-  // the client refreshes its access token then, and the new one is a
-  // normal one. Unset when the account is not too young.
+  // When a too-young account is let in (midnight of that birthday in the
+  // account's time zone): the client refreshes its access token then, and
+  // the new one is a normal one. Unset when the account is not too young.
   google.protobuf.Timestamp too_young_until = 23;
 }
 

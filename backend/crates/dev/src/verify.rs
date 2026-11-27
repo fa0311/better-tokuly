@@ -124,6 +124,7 @@ struct TokenLookup {
     creator_password_hash: Option<String>,
     /// A bot has no birthdate of its own: its owner made the token.
     creator_birthdate: Option<chrono::NaiveDate>,
+    creator_time_zone: String,
     /// For a bot token the owner's address (a token of a handed-over bot is
     /// revoked): what makes a bot a demo bot.
     creator_email: Option<String>,
@@ -145,6 +146,7 @@ struct AccessLookup {
     rate_tier: String,
     account_gone: bool,
     account_birthdate: Option<chrono::NaiveDate>,
+    account_time_zone: String,
     /// The application's owner is suspended or deleted.
     owner_gone: bool,
 }
@@ -172,7 +174,7 @@ impl Dev {
                     (u.banned_at IS NOT NULL OR u.deleted_at IS NOT NULL) AS account_gone,
                     (c.banned_at IS NOT NULL OR c.deleted_at IS NOT NULL) AS creator_gone,
                     c.password_hash AS creator_password_hash,
-                    c.birthdate AS creator_birthdate,
+                    c.birthdate AS creator_birthdate, c.time_zone AS creator_time_zone,
                     c.email::text AS creator_email,
                     COALESCE(b.disabled_at IS NOT NULL, false) AS bot_disabled,
                     COALESCE(t.kind = 'bot' AND b.owner_id <> t.created_by, false) AS creator_not_owner
@@ -206,7 +208,7 @@ impl Dev {
         if row.expires_at.is_some_and(|at| at <= Utc::now()) {
             return Ok(Verdict::Expired);
         }
-        if self.identity.too_young(row.creator_birthdate) {
+        if self.identity.too_young(row.creator_birthdate, &row.creator_time_zone) {
             return Ok(Verdict::TooYoung);
         }
         let marks = self.password_marks(row.creator_password_hash.as_deref());
@@ -250,7 +252,7 @@ impl Dev {
                     o.revoked_at IS NOT NULL AS revoked,
                     p.status = 'active' AS app_active, p.rate_tier,
                     (u.banned_at IS NOT NULL OR u.deleted_at IS NOT NULL) AS account_gone,
-                    u.birthdate AS account_birthdate,
+                    u.birthdate AS account_birthdate, u.time_zone AS account_time_zone,
                     (w.banned_at IS NOT NULL OR w.deleted_at IS NOT NULL) AS owner_gone
              FROM dev_oauth_tokens o
              JOIN dev_authorizations a ON a.id = o.authorization_id
@@ -270,7 +272,7 @@ impl Dev {
         if row.access_expires_at <= Utc::now() {
             return Ok(judged(Verdict::Expired));
         }
-        if self.identity.too_young(row.account_birthdate) {
+        if self.identity.too_young(row.account_birthdate, &row.account_time_zone) {
             return Ok(judged(Verdict::TooYoung));
         }
         Ok(judged(Verdict::Valid(ApiToken {

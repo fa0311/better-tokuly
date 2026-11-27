@@ -311,8 +311,6 @@ impl AuthService for Identity {
         users::validate_password(&req.password)?;
         let handle = users::handle_error(users::claimable_handle(&req.handle))?;
         let display_name = users::validate_display_name(&req.display_name)?;
-        let birthdate = users::validate_birthdate(&req.birthdate, self.cfg.min_age)?;
-        let minor = crate::age::minor_on(Some(birthdate), Utc::now().date_naive());
         let client = req.client.as_option();
         let locale = client
             .map(|c| c.locale.as_str())
@@ -323,6 +321,10 @@ impl AuthService for Identity {
         let time_zone = client
             .and_then(|c| users::validate_time_zone(&c.time_zone).ok())
             .unwrap_or_else(|| "Asia/Tokyo".to_owned());
+        // Old enough by the date where the account is, as `Identity::too_young` counts.
+        let today = crate::age::date_in(&time_zone, Utc::now());
+        let birthdate = users::validate_birthdate(&req.birthdate, self.cfg.min_age, today)?;
+        let minor = crate::age::minor_on(Some(birthdate), Utc::now().date_naive());
 
         let handle_taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE handle = $1::citext)")
             .bind(&handle)
