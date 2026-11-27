@@ -28,6 +28,7 @@ env:
 
 # A link to a channel opens its page in the app; subscribing shows at once.
 - openLink: "tokuly://c/${output.channelHandle}"
+- runFlow: ../subflows/confirm-open-link.yaml
 - extendedWaitUntil:
     visible: { id: "channel-name" }
     timeout: 15000
