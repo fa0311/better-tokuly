@@ -16,10 +16,9 @@ env:
       ACCOUNT: ${output.me}
 
 # Places are under the own profile.
-- tapOn: { id: "tab-me" }
-- scrollUntilVisible:
-    element: { id: "me-places" }
-- tapOn: { id: "me-places" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: places }
 - extendedWaitUntil:
     visible: { id: "${'place-' + output.place}" }
     timeout: 15000
@@ -60,9 +59,9 @@ env:
 - tapOn: { id: "${'place-' + output.place}" }
 
 # Deleted, after asking.
-- scrollUntilVisible:
-    element: { id: "place-delete" }
-- tapOn: { id: "place-delete" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: place-delete }
 - tapOn: "DELETE|Delete|削除する"
 - extendedWaitUntil:
     visible: { id: "places" }

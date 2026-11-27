@@ -66,5 +66,18 @@ for (let attempt = 0; attempt < 6 && !mission; attempt++) {
 }
 if (!mission) throw new Error("no new player drew a mission this script can finish");
 RECIPES[mission.key](me);
+
+// Progress is counted from the events the recipe caused, a moment later (later still on a
+// slow machine): the flow starts once the server has the mission done.
+const done = () =>
+  call(`${MISSIONS}/ListMissions`, {}, me.token).daily.some(
+    (drawn) => drawn.key === mission.key && drawn.state === "MISSION_STATE_COMPLETED",
+  );
+const deadline = Date.now() + 60000;
+while (!done()) {
+  if (Date.now() > deadline) throw new Error(`${mission.key} was not counted as done`);
+  // Maestro's scripts have no timers: a short pause between asks.
+  for (const until = Date.now() + 300; Date.now() < until; );
+}
 output.me = me.handle;
 output.mission = mission.key;

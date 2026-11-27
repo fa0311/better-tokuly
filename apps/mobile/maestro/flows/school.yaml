@@ -16,10 +16,9 @@ env:
       ACCOUNT: ${output.me}
 
 # School is under the own profile.
-- tapOn: { id: "tab-me" }
-- scrollUntilVisible:
-    element: { id: "me-school" }
-- tapOn: { id: "me-school" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: school }
 - extendedWaitUntil:
     visible: { id: "school-day" }
     timeout: 15000

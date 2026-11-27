@@ -39,6 +39,11 @@ release APK for the emulator and runs them against the Compose stack.
 | `wallet` | sees the balance, claims the login bonus with a double tap (one claim, the balance goes up once), opens the history and a movement, the purchases |
 | `web-screens` | opens a web-only feature from 「もっと見る」 and sees it signed in |
 
+Each flow makes its own accounts and data through the API (`maestro/scripts`), and waits
+for the server's state, not for time. What a flow taps it first scrolls into view
+(`subflows/tap-in-view.yaml`): screens grow, and a tap does not scroll. CI's emulator is the
+same Pixel 6 as the local one (`tools/agent/android.sh`).
+
 The flows screenshot each main screen into the run's `--test-output-dir`
 (`<run>/<flow>/takeScreenshot/<name>.png`): `apps/mobile/maestro/screenshots`
 with `pnpm e2e`, the `mobile-screenshots` artifact in CI.

@@ -1,0 +1,17 @@
+appId: app.tokuly.mobile
+name: Scroll an element into view
+---
+# ID is the element's test ID. Screens grow with the app and are short on a small
+# phone. The page is swiped in its left margin, outside every field and map: a
+# swipe that starts on a text field does not scroll the page on Android, and one
+# on a map pans the map. It stays above the keyboard.
+- repeat:
+    while:
+      notVisible: { id: "${ID}" }
+    times: 12
+    commands:
+      - swipe:
+          start: 2%, 55%
+          end: 2%, 20%
+          duration: 500
+- assertVisible: { id: "${ID}" }

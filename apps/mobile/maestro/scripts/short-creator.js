@@ -35,6 +35,30 @@ call(
   },
   creator.token,
 );
+// The for-you feed shows the short again once nothing unseen is left: `me` has seen every
+// short already on the stack (other flows' and earlier runs'), so the new one is all that is
+// left to show.
+const SHORTS = "tokuly.shorts.v1.ShortFeedService";
+let cursor = "";
+for (let page = 0; page < 100; page++) {
+  const feed = call(`${SHORTS}/GetForYouFeed`, { page: { limit: 30, cursor } }, me.token);
+  const items = feed.items ?? [];
+  const unseen = items.filter((item) => !item.repeat);
+  if (unseen.length > 0)
+    call(
+      `${SHORTS}/ReportPlayback`,
+      {
+        reports: unseen.map((item) => ({
+          shortId: item.short.id,
+          source: "PLAYBACK_SOURCE_FOR_YOU",
+          watchedMs: 2000,
+        })),
+      },
+      me.token,
+    );
+  cursor = feed.page?.nextCursor || "";
+  if (unseen.length < items.length || !cursor) break;
+}
 output.me = me.handle;
 output.creator = creator.handle;
 output.caption = `maestro ${creator.handle.slice(-4)}`;

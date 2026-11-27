@@ -1,0 +1,8 @@
+appId: app.tokuly.mobile
+name: Tap an element, scrolled into view first
+---
+# ID is the element's test ID. A tap does not scroll.
+- runFlow:
+    file: scroll-to.yaml
+    env: { ID: "${ID}" }
+- tapOn: { id: "${ID}" }

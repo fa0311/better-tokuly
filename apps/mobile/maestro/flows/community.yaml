@@ -16,10 +16,9 @@ env:
       ACCOUNT: ${output.me}
 
 # Communities are under the own profile.
-- tapOn: { id: "tab-me" }
-- scrollUntilVisible:
-    element: { id: "me-community" }
-- tapOn: { id: "me-community" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: community }
 - extendedWaitUntil:
     visible: { id: "communities" }
     timeout: 15000
@@ -44,6 +43,10 @@ env:
     visible: { id: "community-joined" }
     timeout: 15000
 - takeScreenshot: 32-community
+# The thread may be under the floating button: it is brought to the middle first.
+- scrollUntilVisible:
+    element: { id: "${'thread-' + output.thread}" }
+    centerElement: true
 - tapOn: { id: "${'thread-' + output.thread}" }
 - extendedWaitUntil:
     visible: { id: "thread-screen" }
@@ -51,10 +54,10 @@ env:
 - tapOn: { id: "reply-input" }
 - inputText: "e2e reply"
 - tapOn: { id: "reply-send" }
+- hideKeyboard
 - extendedWaitUntil:
     visible: "e2e reply"
     timeout: 15000
-- hideKeyboard
 - tapOn: { id: "thread-like" }
 - takeScreenshot: 33-community-thread
 - runFlow: ../subflows/back.yaml

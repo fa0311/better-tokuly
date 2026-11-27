@@ -17,10 +17,9 @@ env:
       ACCOUNT: ${output.me}
 
 # Footprints are under the own profile.
-- tapOn: { id: "tab-me" }
-- scrollUntilVisible:
-    element: { id: "me-footprints" }
-- tapOn: { id: "me-footprints" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: footprints }
 - extendedWaitUntil:
     visible: { id: "footprints-hero" }
     timeout: 15000

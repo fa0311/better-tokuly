@@ -31,12 +31,12 @@ env:
 - tapOn: { id: "short-caption-input" }
 - inputText: ${output.caption}
 - hideKeyboard
-- scrollUntilVisible:
-    element: { id: "short-visibility-public" }
-- tapOn: { id: "short-visibility-public" }
-- scrollUntilVisible:
-    element: { id: "short-post" }
-- tapOn: { id: "short-post" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: short-visibility-public }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: short-post }
 # My shorts: it goes up, then is processed, then is live.
 - extendedWaitUntil:
     visible: { id: "my-shorts" }
