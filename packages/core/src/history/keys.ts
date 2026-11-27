@@ -6,7 +6,7 @@ export const historyKeys = {
   month: (month: Month, timeZone: string) =>
     ["geo", "history", "month", month.year, month.month, timeZone] as const,
   day: (date: string, timeZone: string) => ["geo", "history", "day", date, timeZone] as const,
-  route: (date: string) => ["geo", "history", "route", date] as const,
+  route: (date: string, timeZone: string) => ["geo", "history", "route", date, timeZone] as const,
   visits: (from: number | null, to: number | null, placeId: string) =>
     ["geo", "history", "visits", from, to, placeId] as const,
   nights: ["geo", "history", "nights"] as const,

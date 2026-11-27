@@ -47,10 +47,7 @@ export function DayScreen({ date }: { date: string }) {
   });
   // The points of the day with their times, for the replay. When the store
   // that keeps them cannot be reached, the day is shown without it.
-  const route = useQuery({
-    ...historyQueries.route(historyClient, date, range ?? { from: new Date(0), to: new Date(0) }),
-    enabled: Boolean(range),
-  });
+  const route = useQuery(historyQueries.route(historyClient, date, timeZone));
 
   if (!range) {
     return (

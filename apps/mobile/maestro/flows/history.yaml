@@ -1,0 +1,68 @@
+appId: app.tokuly.mobile
+name: See a day of the history on the map and in order, write its memo, delete the day
+env:
+  PASSWORD: tokuly-e2e-pass
+---
+- runScript: ../scripts/history-day.js
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: { id: "welcome-screen" }
+    timeout: 60000
+- tapOn: { id: "welcome-sign-in" }
+- runFlow:
+    file: ../subflows/sign-in.yaml
+    env:
+      ACCOUNT: ${output.me}
+
+# The history is under the own profile; today is marked on the account's calendar.
+- tapOn: { id: "tab-me" }
+- scrollUntilVisible:
+    element: { id: "me-history" }
+- tapOn: { id: "me-history" }
+- extendedWaitUntil:
+    visible: { id: "history-month-totals" }
+    timeout: 15000
+- takeScreenshot: 45-history
+- tapOn: { id: "${'history-day-' + output.today}" }
+
+# The day: the café, the walk, the park, on the map and in order.
+- extendedWaitUntil:
+    visible: { id: "history-day-map" }
+    timeout: 15000
+- assertVisible: "あさのカフェ"
+- assertVisible: "ひるの公園"
+- takeScreenshot: 46-history-day
+- scrollUntilVisible:
+    element: { id: "history-memo" }
+- tapOn: { id: "history-memo" }
+- inputText: "e2e memo"
+- hideKeyboard
+- tapOn: { id: "history-memo-save" }
+- extendedWaitUntil:
+    notVisible: { id: "history-memo-save" }
+    timeout: 15000
+- runFlow:
+    when:
+      visible: "OK"
+    commands:
+      - tapOn: "OK"
+
+# Deleting the day leaves only the memo.
+- scrollUntilVisible:
+    element: { id: "history-day-delete" }
+- tapOn: { id: "history-day-delete" }
+- extendedWaitUntil:
+    visible: { id: "history-delete-screen" }
+    timeout: 15000
+- takeScreenshot: 47-history-delete
+- tapOn: { id: "history-delete-confirm" }
+- runFlow:
+    when:
+      visible: "OK"
+    commands:
+      - tapOn: "OK"
+- extendedWaitUntil:
+    notVisible: "あさのカフェ"
+    timeout: 15000
+- assertNotVisible: { id: "history-day-map" }
