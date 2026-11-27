@@ -24,9 +24,11 @@ worse than 10 km, recorded more than 2 minutes in the future or longer ago
 than `TOKULY_GEO_MAX_SAMPLE_AGE_HOURS`), duplicates and samples older than the
 newest one already processed are skipped. So are samples recorded at or
 before the latest `StopSharing` (`stopped_at`, the device's own clock; the
-server's receive time when missing): an upload still on its way when the
-device stopped is dropped instead of turning sharing back on, and the first
-fix taken after the stop resumes it. A stop is a device's: it pauses nothing
+server's receive time when missing), and samples of the stopping device
+(session) numbered at or below the stop's `sequence`, the device's running
+count, which a clock set back does not undo: an upload still on its way when
+the device stopped is dropped instead of turning sharing back on, and the
+first fix taken after the stop resumes it. A stop is a device's: it pauses nothing
 when the newest fix already processed came from another device of the
 account (another session) and was taken after it. The stop of the device
 that reported the newest fix, and one without `stopped_at`, always pause.

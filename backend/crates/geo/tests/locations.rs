@@ -398,6 +398,57 @@ async fn a_sample_still_on_its_way_when_sharing_stopped_does_not_resume_it() {
 }
 
 #[tokio::test]
+async fn a_sample_on_its_way_at_a_stop_does_not_resume_sharing_when_the_clock_went_back() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let home = somewhere();
+    let numbered = |point, at, sequence| LocationSample { sequence, ..sample(point, at) };
+    assert_eq!(ctx.report(&aoi, vec![numbered(home, next_fix_time(aoi.id), 1)]).await.accepted_count, 1);
+    let mut rens = ctx.app.listen_user(ren.id).await;
+
+    // The device takes a fix, its clock is set an hour back, the user stops
+    // sharing, and only then does the fix reach the server: by the clock it
+    // came after the stop, by the device's own count before it.
+    let in_flight = numbered(offset(home, 0.0, 60.0), next_fix_time(aoi.id), 2);
+    let set_back = Utc::now() - Duration::hours(1);
+    let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(set_back), sequence: 3, ..Default::default() };
+    let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
+    assert!(next_pin(&mut rens).await.unwrap().sharing_paused);
+    assert_eq!(ctx.report(&aoi, vec![in_flight]).await.accepted_count, 0, "dropped");
+    assert!(pins(&mut rens, QUIET).await.is_empty(), "friends keep seeing the paused pin");
+    let seen = ctx.seen_by(&ren, &aoi).await.unwrap();
+    assert!(seen.sharing_paused);
+    assert_at!(pin_point(&seen), home);
+    assert!(!ctx.my_location(&aoi).await.sharing);
+    assert!(geoindex::get(&ctx.app.core.cache, aoi.id).await.unwrap().is_none());
+
+    // The device's next fix is sharing again.
+    assert_eq!(ctx.report(&aoi, vec![numbered(home, next_fix_time(aoi.id), 4)]).await.accepted_count, 1);
+    assert!(!next_pin(&mut rens).await.unwrap().sharing_paused);
+    assert!(ctx.my_location(&aoi).await.sharing);
+}
+
+#[tokio::test]
+async fn a_stop_counts_only_for_the_samples_of_its_own_device() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let tablet = ctx.app.sign_in(aoi.id).await;
+    let home = somewhere();
+    ctx.at(&aoi, home).await;
+
+    // The phone stops at its number 50; the tablet counts on its own, from 1.
+    let stopped_at = Utc::now() - Duration::seconds(1);
+    let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(stopped_at), sequence: 50, ..Default::default() };
+    let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
+    let mut rens = ctx.app.listen_user(ren.id).await;
+    let fix = LocationSample { sequence: 1, ..sample(home, next_fix_time(aoi.id)) };
+    assert_eq!(ctx.report(&tablet, vec![fix]).await.accepted_count, 1, "the tablet shares");
+    assert!(!next_pin(&mut rens).await.unwrap().sharing_paused);
+}
+
+#[tokio::test]
 async fn a_stop_overtaken_by_another_devices_fix_does_not_pause_sharing() {
     let ctx = start().await;
     let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);

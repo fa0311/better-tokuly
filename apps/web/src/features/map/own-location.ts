@@ -3,6 +3,7 @@ import {
   finiteOrUndefined,
   type LastReport,
   locationSample,
+  nextSequence,
   type OwnPosition,
   reportDecision,
 } from "@tokuly/core/map";
@@ -50,6 +51,8 @@ export type SharingChoice = "on" | "off" | null;
 
 const choiceKey = (userId: string) => `tokuly.map.sharing.${userId}`;
 const stopOwedKey = (userId: string) => `tokuly.map.stopOwed.${userId}`;
+/** This browser's running count (`nextSequence`), shared by its tabs. */
+const SEQUENCE_KEY = "tokuly.map.sequence";
 
 /** What could not be written to storage (private windows, full or blocked storage): kept for this page. */
 const memory = new Map<string, string>();
@@ -74,6 +77,21 @@ function writeStored(key: string, value: string | null): boolean {
     else memory.set(key, value);
     return false;
   }
+}
+
+let lastSequence = 0;
+
+/**
+ * The browser's next running number, for a sample or a stop. Taken right
+ * where the last check that sharing is on was made, with no wait in
+ * between: a stop then gets a number above every sample sent before it,
+ * from any tab, whatever the clock does.
+ */
+function takeSequence(): bigint {
+  const stored = Number(readStored(SEQUENCE_KEY)) || 0;
+  lastSequence = nextSequence(Math.max(lastSequence, stored), Date.now());
+  writeStored(SEQUENCE_KEY, String(lastSequence));
+  return BigInt(lastSequence);
 }
 
 function readChoice(userId: string | null): SharingChoice {
@@ -136,8 +154,11 @@ function setStopOwed(userId: string | null, owed: boolean): void {
 async function tellServerStopped(quiet = false): Promise<boolean> {
   const userId = useSharing.getState().userId;
   try {
-    // The device's clock, as in its samples: what it sent before this moment never resumes sharing.
-    await locationClient().stopSharing({ stoppedAt: fromDate(new Date()) });
+    // The device's clock and count, as in its samples: what it sent before this moment never resumes sharing.
+    await locationClient().stopSharing({
+      stoppedAt: fromDate(new Date()),
+      sequence: takeSequence(),
+    });
     setStopOwed(userId, false);
     return true;
   } catch (error) {
@@ -290,6 +311,7 @@ async function sampleOf(
     batteryPercent: battery ? battery.level * 100 : undefined,
     charging: battery?.charging,
     foreground: document.visibilityState === "visible",
+    sequence: takeSequence(),
   });
 }
 

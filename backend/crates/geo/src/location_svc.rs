@@ -71,7 +71,7 @@ impl LocationService for Geo {
             let req = request.to_owned_message();
             let stop = crate::pipeline::stop_time(req.stopped_at.as_option(), Utc::now());
             let auth = ctx.auth()?;
-            Geo::stop_sharing(self, auth.user_id, auth.session_id, stop).await?;
+            Geo::stop_sharing(self, auth.user_id, auth.session_id, stop, req.sequence).await?;
             ok(StopSharingResponse::default())
         })
         .await

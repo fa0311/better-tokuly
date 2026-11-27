@@ -97,6 +97,8 @@ pub struct Sample {
     pub activity: Activity,
     pub mocked: bool,
     pub foreground: bool,
+    /// The device's running number (`LocationSample.sequence`), 0 if none.
+    pub sequence: u64,
 }
 
 /// Why a sample is unusable.
@@ -146,6 +148,7 @@ pub fn validate(sample: &LocationSample, received_at: DateTime<Utc>, max_age: Du
         activity: sample.activity.as_known().unwrap_or(Activity::ACTIVITY_UNSPECIFIED),
         mocked: sample.mocked,
         foreground: sample.foreground,
+        sequence: sample.sequence,
     })
 }
 
@@ -268,8 +271,8 @@ impl Geo {
             if state.located() && sample.recorded_ms < state.pin.recorded_ms + MIN_SPACING_MS {
                 continue;
             }
-            // Recorded before the device stopped, and only now arriving: it must not resume sharing.
-            if sample.recorded_ms <= state.stopped_ms {
+            // Taken before the device stopped, and only now arriving: it must not resume sharing.
+            if state.stopped_before(session, sample.recorded_ms, sample.sequence) {
                 continue;
             }
             self.apply(user_id, &ctx, &mut state, sample, &mut effects).await?;
@@ -633,7 +636,8 @@ impl Geo {
     /// The device signed in with `session` stopped sharing: the pin stays
     /// where it is and is marked paused, the stay and gathering end, and the
     /// true-position index forgets the user. Samples recorded until the stop
-    /// are dropped from now on.
+    /// are dropped from now on, and so are this device's samples numbered up
+    /// to `sequence`, the device's own count at the stop (0: none).
     ///
     /// The account goes on sharing only when another device is known to: the
     /// newest fix came in on another session and was taken after the stop.
@@ -641,11 +645,12 @@ impl Geo {
     /// newest fix always pauses, whatever the two times say: a fix carries
     /// the positioning clock's time and a stop the system clock's, and
     /// someone who pressed stop on their only device must disappear.
-    pub(crate) async fn stop_sharing(&self, user_id: Uuid, session: Uuid, stop: Stop) -> AppResult<()> {
+    pub(crate) async fn stop_sharing(&self, user_id: Uuid, session: Uuid, stop: Stop, sequence: u64) -> AppResult<()> {
         let ctx = self.ctx_of(user_id).await?;
         let paused = self
             .with_state(user_id, async |state| {
                 state.stopped_ms = state.stopped_ms.max(stop.ms());
+                state.remember_stop(session, sequence);
                 // Never shared, or already paused: nothing else changes and nobody needs telling again.
                 if !state.located() || !state.pin.sharing {
                     return Ok(Some((None, None)));
@@ -754,6 +759,15 @@ mod tests {
         assert_eq!(stop_time(Some(&stamp(now + Duration::days(400))), now), cap);
         let absurd = Timestamp { seconds: i64::MAX, ..Default::default() };
         assert_eq!(stop_time(Some(&absurd), now), cap);
+    }
+
+    #[test]
+    fn a_samples_number_survives_the_location_stream() {
+        let sample = LocationSample { sequence: u64::MAX, ..reading(35.0, 139.0) };
+        let report = LocationReport { user_id: Uuid::nil(), session_id: None, received_at: Utc::now(), sample };
+        let carried: LocationReport<LocationSample> =
+            serde_json::from_slice(&serde_json::to_vec(&report).unwrap()).unwrap();
+        assert_eq!(validate(&carried.sample, Utc::now(), week()).unwrap().sequence, u64::MAX);
     }
 
     #[test]

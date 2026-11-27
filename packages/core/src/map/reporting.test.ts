@@ -1,6 +1,12 @@
 import { toMillis } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { type LastReport, locationSample, type OwnPosition, reportDecision } from "./reporting";
+import {
+  type LastReport,
+  locationSample,
+  nextSequence,
+  type OwnPosition,
+  reportDecision,
+} from "./reporting";
 
 const NOW = Date.UTC(2026, 10, 25, 9, 0, 0);
 const CADENCE = { movingSeconds: 5, stationarySeconds: 60 };
@@ -58,11 +64,25 @@ describe("locationSample", () => {
       batteryPercent: 41.6,
       charging: false,
       foreground: false,
+      sequence: 7n,
     });
     expect(toMillis(sample.recordedAt)).toBe(NOW);
+    expect(sample.sequence).toBe(7n);
     expect(sample.speedMps).toBeUndefined();
     expect(sample.headingDegrees).toBeUndefined();
     expect(sample.batteryPercent).toBe(42);
     expect(sample.foreground).toBe(false);
+  });
+});
+
+describe("nextSequence", () => {
+  it("follows the clock while it moves on", () => {
+    expect(nextSequence(0, NOW)).toBe(NOW);
+    expect(nextSequence(NOW, NOW + 5_000)).toBe(NOW + 5_000);
+  });
+
+  it("goes on counting up when the clock goes back or stands still", () => {
+    expect(nextSequence(NOW, NOW - 3_600_000)).toBe(NOW + 1);
+    expect(nextSequence(NOW + 1, NOW + 1)).toBe(NOW + 2);
   });
 });
