@@ -127,8 +127,8 @@ impl Chat {
         Ok(())
     }
 
-    /// `identity.user.deleted`: the user's memberships, reactions, AI
-    /// settings and keys, and co-presence go. Their messages stay and show a deleted user; direct
+    /// `identity.user.deleted`: the user's memberships, reactions, call
+    /// participations, AI settings and keys, and co-presence go. Their messages stay and show a deleted user; direct
     /// conversations become read-only for the other side, and go once that
     /// side was erased too; groups lose a member (and get a new owner when
     /// they owned one).
@@ -184,11 +184,51 @@ impl Chat {
             }
         }
         sqlx::query("DELETE FROM chat_reactions WHERE user_id = $1").bind(user_id).execute(&core.db).await?;
+        // Where they were in calls (after the loop above took them out of
+        // live ones); the calls themselves stay for the others.
+        sqlx::query("DELETE FROM chat_call_participants WHERE user_id = $1").bind(user_id).execute(&core.db).await?;
         // Their AI keys and settings; their messages then follow the
         // default for an unknown age: not offered to the AI.
         sqlx::query("DELETE FROM chat_ai_user_keys WHERE user_id = $1").bind(user_id).execute(&core.db).await?;
         sqlx::query("DELETE FROM chat_ai_user_settings WHERE user_id = $1").bind(user_id).execute(&core.db).await?;
         Ok(())
+    }
+
+    /// Deletes the direct conversations whose two accounts are both erased,
+    /// as the second erasure does ([`Chat::on_user_deleted`]). Erasures
+    /// handled before it did left them behind with nobody in them; run once
+    /// at every worker start, it finds nothing after the first. Returns how
+    /// many it deleted.
+    pub async fn sweep_erased_directs(&self) -> AppResult<usize> {
+        let core = &self.core;
+        let mut deleted = 0;
+        let mut after = Uuid::nil();
+        loop {
+            let batch: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT c.id FROM chat_conversations c
+                 JOIN users lo ON lo.id = c.user_lo JOIN users hi ON hi.id = c.user_hi
+                 WHERE c.kind = $1 AND c.id > $2 AND lo.deleted_at IS NOT NULL AND hi.deleted_at IS NOT NULL
+                 ORDER BY c.id LIMIT 100",
+            )
+            .bind(kind::DIRECT)
+            .bind(after)
+            .fetch_all(&core.db)
+            .await?;
+            for &conversation_id in &batch {
+                // One transaction each: a long history makes a big one.
+                let mut tx = core.db.begin().await?;
+                // Gone already: an erasure or another worker took it.
+                if access::lock_conversation_if_present(&mut tx, conversation_id).await?.is_some() {
+                    delete_conversation(&mut tx, conversation_id).await?;
+                    tx.commit().await?;
+                    deleted += 1;
+                }
+            }
+            match batch.last() {
+                Some(&last) if batch.len() == 100 => after = last,
+                _ => return Ok(deleted),
+            }
+        }
     }
 
     /// Messages showing an upload.

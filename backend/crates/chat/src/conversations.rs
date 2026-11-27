@@ -673,15 +673,27 @@ pub(crate) async fn delete_conversation(tx: &mut Transaction<'_, Postgres>, conv
             _ => break,
         }
     }
-    let message_ids: Vec<Uuid> =
-        sqlx::query_scalar("SELECT DISTINCT message_id FROM chat_message_assets WHERE conversation_id = $1")
-            .bind(conversation_id)
-            .fetch_all(&mut **tx)
-            .await?;
-    for message_id in message_ids {
-        assets::detach_holder(&mut **tx, &crate::send::message_holder(message_id)).await?;
+    // Every hold is released on its own, in upload ID order: a forward holds
+    // the original upload under its own message, so two conversations deleted
+    // at once can hold the same uploads, and they must lock them in the same order.
+    let mut holds: Vec<(Uuid, String)> = sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT asset_id, message_id FROM chat_message_assets WHERE conversation_id = $1",
+    )
+    .bind(conversation_id)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|(asset_id, message_id)| (asset_id, crate::send::message_holder(message_id)))
+    .collect();
+    let icon: Option<Uuid> = sqlx::query_scalar("SELECT icon_asset_id FROM chat_conversations WHERE id = $1")
+        .bind(conversation_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    holds.extend(icon.map(|asset_id| (asset_id, icon_holder(conversation_id))));
+    holds.sort();
+    for (asset_id, holder) in &holds {
+        assets::detach(&mut **tx, *asset_id, holder).await?;
     }
-    assets::detach_holder(&mut **tx, &icon_holder(conversation_id)).await?;
     sqlx::query("DELETE FROM chat_conversations WHERE id = $1").bind(conversation_id).execute(&mut **tx).await?;
     Ok(())
 }
