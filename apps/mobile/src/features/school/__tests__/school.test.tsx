@@ -52,16 +52,21 @@ const created: { dueAt?: Timestamp }[] = [];
  * One account's school services. `switchOnWrite` answers every write only
  * after the person switched to another account; `unreadable` refuses every
  * read (the network is down); `cheerRefusal` refuses a cheer with that
- * reason. What was written is listed.
+ * reason. `examCount` exams after `assignmentCount` assignments (all due
+ * tomorrow) are due. What was written is listed.
  */
 function schoolOf({
   switchOnWrite = false,
   unreadable = false,
   cheerRefusal,
+  examCount = 1,
+  assignmentCount = 1,
 }: {
   switchOnWrite?: boolean;
   unreadable?: boolean;
   cheerRefusal?: string;
+  examCount?: number;
+  assignmentCount?: number;
 } = {}) {
   let switched = false;
   const written: string[] = [];
@@ -100,16 +105,16 @@ function schoolOf({
       },
       listDays: read(() => ({ days: [] })),
       listExams: read(() => ({
-        exams: [
+        exams: Array.from({ length: examCount }, (_, i) =>
           create(school.ExamSchema, {
-            id: "x1",
+            id: `x${i + 1}`,
             name: "期末テスト",
             startDate: "2099-12-01",
             endDate: "2099-12-03",
             status: school.ExamStatus.UPCOMING,
             daysUntilStart: 5,
           }),
-        ],
+        ),
       })),
       // A second page behind `c2` for the list of every assignment.
       listAssignments: async ({
@@ -120,7 +125,15 @@ function schoolOf({
         page: { cursor: string };
       }) => {
         if (unreadable) throw new Error("offline");
-        if (filter !== school.AssignmentFilter.ALL) return { assignments: [homework] };
+        if (filter !== school.AssignmentFilter.ALL) {
+          return {
+            assignments: Array.from({ length: assignmentCount }, (_, i) =>
+              i === 0
+                ? homework
+                : create(school.AssignmentSchema, { ...homework, id: `a${i + 1}` }),
+            ),
+          };
+        }
         return page.cursor === "c2"
           ? { assignments: [report] }
           : { assignments: [homework], page: { nextCursor: "c2", hasMore: true } };
@@ -199,6 +212,20 @@ describe("the school screen", () => {
     expect(screen.queryByTestId("school-due-empty")).toBeNull();
     expect(screen.queryByTestId("school-studying-empty")).toBeNull();
     expect(screen.queryByText("授業の予定はないよ")).toBeNull();
+  });
+
+  it("opens the exams for 「ほかN件」 when exams are among the ones left out", async () => {
+    schoolOf({ examCount: 6 });
+    await show(<SchoolScreen />);
+    await fireEvent.press(await screen.findByText("ほか2件"));
+    expect(router.push).toHaveBeenCalledWith(`/web?path=${encodeURIComponent("/school/exams")}`);
+  });
+
+  it("opens the assignments for 「ほかN件」 when only assignments are left out", async () => {
+    schoolOf({ examCount: 0, assignmentCount: 7 });
+    await show(<SchoolScreen />);
+    await fireEvent.press(await screen.findByText("ほか2件"));
+    expect(router.push).toHaveBeenCalledWith("/school/assignments");
   });
 
   it("cheers a friend who is studying", async () => {

@@ -33,6 +33,7 @@ export {
   currentClass,
   type DueItem,
   dueItems,
+  dueLeftOut,
   examCountdown,
   inkOn,
   lastCheerStillCounts,
