@@ -1,9 +1,17 @@
 import type { QueryClient } from "@tanstack/query-core";
 import type { chat } from "@tokuly/api";
+import type { ClientSource } from "../query";
 import { patchConversation } from "./conversation-cache";
 import { chatKeys } from "./keys";
 import { laterSeq } from "./model";
-import { leavesGap, type Timeline, withCreated, withReaction, withUpdated } from "./timeline";
+import {
+  leavesGap,
+  reactionsAfter,
+  type Timeline,
+  withCreated,
+  withReaction,
+  withUpdated,
+} from "./timeline";
 
 /**
  * Messages in the query cache: the window of a conversation's messages
@@ -117,4 +125,40 @@ export function storeOwnRead(
       },
     };
   });
+}
+
+/** Adds or removes the viewer's reaction, showing it at once and settling on the server's answer. */
+export async function toggleReaction(
+  queryClient: QueryClient,
+  client: ClientSource<typeof chat.MessageService>,
+  message: chat.Message,
+  emoji: string,
+): Promise<void> {
+  const held = message.reactions.find((reaction) => reaction.emoji === emoji);
+  const adding = !held?.reactedByMe;
+  const before = message.reactions;
+  const set = (reactions: chat.ReactionCount[]) =>
+    writeTimeline(queryClient, message.conversationId, (current) => ({
+      ...current,
+      messages: current.messages.map((candidate) =>
+        candidate.id === message.id ? { ...candidate, reactions } : candidate,
+      ),
+    }));
+  set(
+    reactionsAfter(before, {
+      emoji,
+      added: adding,
+      count: (held?.count ?? 0) + (adding ? 1 : -1),
+      byMe: true,
+    }),
+  );
+  try {
+    const response = adding
+      ? await client().addReaction({ messageId: message.id, emoji })
+      : await client().removeReaction({ messageId: message.id, emoji });
+    set(response.reactions);
+  } catch (error) {
+    set(before);
+    throw error;
+  }
 }

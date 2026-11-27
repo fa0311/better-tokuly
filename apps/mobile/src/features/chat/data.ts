@@ -19,13 +19,12 @@ import {
   NO_UNREAD,
   putConversation,
   putInLists,
-  reactionsAfter,
   readConversation,
+  toggleReaction as sharedToggleReaction,
   storeOwnRead,
   storeUpdated,
   type Unread,
   UnreadTotals,
-  writeTimeline,
 } from "@tokuly/core/chat";
 import { api } from "#/lib/api";
 import { useLive } from "./live";
@@ -141,39 +140,9 @@ export async function markRead(
   unreadTotals.apply(queryClient, response.unread, askedAt);
 }
 
-/** Adds or removes the viewer's reaction: shown at once, settled on the server's answer. */
-export async function toggleReaction(
-  queryClient: QueryClient,
-  message: chat.Message,
-  emoji: string,
-): Promise<void> {
-  const held = message.reactions.find((reaction) => reaction.emoji === emoji);
-  const adding = !held?.reactedByMe;
-  const set = (reactions: chat.ReactionCount[]) =>
-    writeTimeline(queryClient, message.conversationId, (current) => ({
-      ...current,
-      messages: current.messages.map((candidate) =>
-        candidate.id === message.id ? { ...candidate, reactions } : candidate,
-      ),
-    }));
-  set(
-    reactionsAfter(message.reactions, {
-      emoji,
-      added: adding,
-      count: (held?.count ?? 0) + (adding ? 1 : -1),
-      byMe: true,
-    }),
-  );
-  try {
-    const response = adding
-      ? await messageClient().addReaction({ messageId: message.id, emoji })
-      : await messageClient().removeReaction({ messageId: message.id, emoji });
-    set(response.reactions);
-  } catch (error) {
-    set(message.reactions);
-    throw error;
-  }
-}
+/** Adds or removes the viewer's reaction, showing it at once and settling on the server's answer. */
+export const toggleReaction = (queryClient: QueryClient, message: chat.Message, emoji: string) =>
+  sharedToggleReaction(queryClient, messageClient, message, emoji);
 
 export async function editMessage(
   queryClient: QueryClient,

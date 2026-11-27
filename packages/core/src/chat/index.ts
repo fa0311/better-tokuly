@@ -2,8 +2,9 @@
  * Chat logic every app shares: query keys, the server's limits, reading
  * conversations and messages (who, which list, what may be done), the
  * message window, its rows and its paging, realtime events applied to the
- * cache, the unread totals, text tokens and times, preview sentences.
- * Live state (typing, read cursors, calls) and outgoing messages stay in each app.
+ * cache, the unread totals, text tokens and times, preview sentences, how
+ * a message on its way is drawn and queued. Live state (typing, read
+ * cursors, calls) and the uploads of outgoing messages stay in each app.
  */
 export {
   type Capabilities,
@@ -32,6 +33,7 @@ export {
   storeOwnRead,
   storeReaction,
   storeUpdated,
+  toggleReaction,
   writeTimeline,
 } from "./message-cache";
 export {
@@ -52,6 +54,15 @@ export {
   peerOf,
   ringsFor,
 } from "./model";
+export {
+  bigEmojiCount,
+  type OutgoingMessage,
+  type OutgoingPlace,
+  placeOf,
+  previewMessage,
+  SendQueue,
+  sendChangesViewer,
+} from "./outgoing";
 export { type FetchPage, MessagePager, type Position } from "./pager";
 export { chatSentences } from "./preview";
 export { chatTimes, fileSize, mentionAt, playTime, type Token, tokenize } from "./text";

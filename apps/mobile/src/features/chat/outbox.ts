@@ -1,7 +1,15 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { chat, type common, create, fromDate, media } from "@tokuly/api";
-import type { PendingState } from "@tokuly/core/chat";
-import { readConversation, storeCreated, storeUpdated } from "@tokuly/core/chat";
+import { type chat, type common, create, media } from "@tokuly/api";
+import {
+  type OutgoingMessage,
+  type PendingState,
+  previewMessage as preview,
+  readConversation,
+  SendQueue,
+  sendChangesViewer,
+  storeCreated,
+  storeUpdated,
+} from "@tokuly/core/chat";
 import { randomUUID } from "expo-crypto";
 import { create as createStore } from "zustand";
 import { errorMessage } from "#/lib/errors";
@@ -22,19 +30,8 @@ export interface OutgoingPhoto extends LocalFile {
  * moment it is sent and lives here until the server has it (or refused it:
  * then it waits with "retry" until the person decides).
  */
-export interface Outgoing {
-  /** The idempotency key: a retry with it can never send twice. */
-  clientId: string;
-  conversationId: string;
-  createdAt: number;
-  text: string;
+export interface Outgoing extends OutgoingMessage {
   photos: OutgoingPhoto[];
-  /** A stamp goes alone: no text, no photos. */
-  stamp?: common.StampRef;
-  replyTo?: chat.Message;
-  status: "sending" | "failed";
-  progress: number;
-  error?: string;
 }
 
 export const useOutbox = createStore<{ items: Record<string, Outgoing[]> }>(() => ({ items: {} }));
@@ -71,52 +68,16 @@ export function previewMessage(
   item: Outgoing,
   me: common.UserSummary,
 ): { message: chat.Message; state: PendingState } {
-  const message = create(chat.MessageSchema, {
-    id: `pending:${item.clientId}`,
-    conversationId: item.conversationId,
-    seq: BigInt(Number.MAX_SAFE_INTEGER),
-    sender: me,
-    kind: item.stamp
-      ? chat.MessageKind.STAMP
-      : item.photos.length > 0
-        ? chat.MessageKind.MEDIA
-        : chat.MessageKind.TEXT,
-    clientId: item.clientId,
-    text: item.text,
-    stamp: item.stamp,
-    attachments: item.photos.map((photo) => ({
+  const attachments = item.photos.map((photo) =>
+    create(media.AttachmentSchema, {
       kind: media.AssetKind.IMAGE,
       image: { url: photo.uri, width: photo.width ?? 0, height: photo.height ?? 0 },
-    })),
-    replyTo: item.replyTo
-      ? {
-          messageId: item.replyTo.id,
-          seq: item.replyTo.seq,
-          sender: item.replyTo.sender,
-          kind: item.replyTo.kind,
-          text: item.replyTo.text.slice(0, 120),
-        }
-      : undefined,
-    createdAt: fromDate(new Date(item.createdAt)),
-  });
-  return {
-    message,
-    state: {
-      status: item.status,
-      progress: item.photos.length > 0 ? item.progress : undefined,
-      error: item.error,
-    },
-  };
+    }),
+  );
+  return preview(item, attachments, me);
 }
 
-/** A conversation's messages go out one after the other, in the order they were written. */
-const queues = new Map<string, Promise<void>>();
-
-function inOrder(conversationId: string, work: () => Promise<void>): Promise<void> {
-  const next = (queues.get(conversationId) ?? Promise.resolve()).then(work, work);
-  queues.set(conversationId, next);
-  return next;
-}
+const queue = new SendQueue();
 
 async function upload(item: Outgoing): Promise<string[]> {
   const loaded = new Array<number>(item.photos.length).fill(0);
@@ -151,7 +112,7 @@ function deliver(
   conversationId: string,
   clientId: string,
 ): Promise<void> {
-  return inOrder(conversationId, async () => {
+  return queue.run(conversationId, async () => {
     const item = find(conversationId, clientId);
     if (!item) return; // Discarded while it waited.
     try {
@@ -171,12 +132,7 @@ function deliver(
       if (stored.missed) void chatSync.pager.catchUp(queryClient, conversationId).catch(() => {});
       storeUpdated(queryClient, message, false);
       settle(conversationId, clientId);
-      // Writing answers a request, and a request of one's own counts down: the viewer's state changed.
-      if (
-        !viewer ||
-        viewer.requestState !== chat.RequestState.ACCEPTED ||
-        viewer.requestMessagesLeft >= 0
-      )
+      if (sendChangesViewer(viewer))
         void fetchConversation(queryClient, conversationId).catch(() => {});
     } catch (error) {
       // A message that failed waits for the person; the ones behind it go on.
@@ -228,5 +184,5 @@ export function discard(item: Outgoing): void {
 /** Forgets everything on its way: the account left, and none of it may be sent, or seen, by the next one. */
 export function clearOutbox(): void {
   useOutbox.setState({ items: {} });
-  queues.clear();
+  queue.clear();
 }
