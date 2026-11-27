@@ -178,8 +178,8 @@ jobs:
           done
           [ -z "$libs" ] || cargo test --locked --doc $libs
 
-  # Keep the declared MSRV working on every backend change. The demo's picker
-  # inference differs between this toolchain and current stable.
+  # Keep the declared MSRV working on every backend change. Use the normal dev
+  # profile so a cold MSRV build fits the standard runner's time budget.
   backend-msrv-build:
     name: "Backend: MSRV build (Rust 1.95)"
     needs: changes
@@ -188,6 +188,7 @@ jobs:
     timeout-minutes: 90
     env:
       CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v7
       - uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
@@ -201,7 +202,7 @@ jobs:
           cache-on-failure: true
       - name: Build server
         working-directory: backend
-        run: cargo build --profile ci --locked -p tokuly-server
+        run: cargo build --locked -p tokuly-server
 
   backend-test:
     name: "Backend: tests ${{ matrix.part }}/${{ strategy.job-total }}"
