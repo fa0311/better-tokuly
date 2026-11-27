@@ -39,4 +39,4 @@ export {
   untilText,
   urgencyKey,
 } from "./model";
-export { schoolQueries } from "./queries";
+export { type AssignmentPage, loadedAssignments, schoolQueries } from "./queries";

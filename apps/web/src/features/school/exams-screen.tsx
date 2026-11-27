@@ -11,6 +11,7 @@ import { Chip } from "#/components/ui/card";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea, TextField } from "#/components/ui/field";
+import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
@@ -683,6 +684,7 @@ export function AssignmentsScreen() {
           ))}
         </ul>
       )}
+      <LoadMore query={assignments.paging} />
       {opened && (
         <AssignmentDialog
           assignment={opened === "new" ? undefined : opened}

@@ -19,6 +19,7 @@ import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea, TextField } from "#/components/ui/field";
+import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { useAccountTimeZone, useAccountToday, zonedMoment } from "#/lib/account-time";
@@ -148,48 +149,51 @@ export function DueList({ limit }: { limit?: number }) {
   const shown = limit ? items.slice(0, limit) : items;
 
   return (
-    <ul className="flex flex-col gap-1.5" aria-label={t("due.title")}>
-      {shown.map((item) =>
-        item.assignment ? (
-          <AssignmentRow key={item.assignment.id} assignment={item.assignment} />
-        ) : (
-          <li key={item.exam.id}>
-            <Link
-              to="/school/exams/$examId"
-              params={{ examId: item.exam.id }}
-              className="flex items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2.5 transition-colors hover:bg-surface-3"
-            >
-              <span className="grid size-8 shrink-0 place-items-center rounded-full border-2 border-ink bg-sun text-base">
-                📝
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-bold">{item.exam.name}</span>
-                <span className="block text-xs font-bold text-ink-soft">
-                  {i18n.language.startsWith("ja")
-                    ? `${item.exam.startDate.slice(5).replace("-", "/")} 〜`
-                    : item.exam.startDate}
-                </span>
-              </span>
-              <span
-                className={cn(
-                  "shrink-0 rounded-full px-2.5 py-1 text-xs font-black",
-                  item.exam.status === school.ExamStatus.ONGOING
-                    ? "bg-live text-white"
-                    : "bg-ink text-surface",
-                )}
+    <>
+      <ul className="flex flex-col gap-1.5" aria-label={t("due.title")}>
+        {shown.map((item) =>
+          item.assignment ? (
+            <AssignmentRow key={item.assignment.id} assignment={item.assignment} />
+          ) : (
+            <li key={item.exam.id}>
+              <Link
+                to="/school/exams/$examId"
+                params={{ examId: item.exam.id }}
+                className="flex items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2.5 transition-colors hover:bg-surface-3"
               >
-                {countdown(item.exam)}
-              </span>
-            </Link>
+                <span className="grid size-8 shrink-0 place-items-center rounded-full border-2 border-ink bg-sun text-base">
+                  📝
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-bold">{item.exam.name}</span>
+                  <span className="block text-xs font-bold text-ink-soft">
+                    {i18n.language.startsWith("ja")
+                      ? `${item.exam.startDate.slice(5).replace("-", "/")} 〜`
+                      : item.exam.startDate}
+                  </span>
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2.5 py-1 text-xs font-black",
+                    item.exam.status === school.ExamStatus.ONGOING
+                      ? "bg-live text-white"
+                      : "bg-ink text-surface",
+                  )}
+                >
+                  {countdown(item.exam)}
+                </span>
+              </Link>
+            </li>
+          ),
+        )}
+        {limit !== undefined && items.length > limit && (
+          <li className="px-1 text-right text-sm font-bold text-brand">
+            <Link to="/school/exams">{t("due.more", { count: items.length - limit })}</Link>
           </li>
-        ),
-      )}
-      {limit !== undefined && items.length > limit && (
-        <li className="px-1 text-right text-sm font-bold text-brand">
-          <Link to="/school/exams">{t("due.more", { count: items.length - limit })}</Link>
-        </li>
-      )}
-    </ul>
+        )}
+      </ul>
+      {limit === undefined && <LoadMore query={assignments.paging} />}
+    </>
   );
 }
 
