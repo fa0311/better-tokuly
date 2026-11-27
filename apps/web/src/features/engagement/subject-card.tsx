@@ -2,6 +2,7 @@ import { common, type engagement } from "@tokuly/api";
 import { ChevronRight } from "lucide-react";
 import type { ComponentType } from "react";
 import { useTranslation } from "react-i18next";
+import { create } from "zustand";
 import { useOpenPath } from "./open-path";
 
 export interface SubjectCardProps {
@@ -9,7 +10,10 @@ export interface SubjectCardProps {
   preview: engagement.SubjectPreview;
 }
 
-const registry = new Map<common.SubjectType, ComponentType<SubjectCardProps>>();
+/** The cards registered so far; a list drawn before a feature registered draws again when it does. */
+const useRegistry = create<Partial<Record<common.SubjectType, ComponentType<SubjectCardProps>>>>(
+  () => ({}),
+);
 
 /**
  * Tells the lists of saved and reacted-to subjects how to draw one type of
@@ -25,7 +29,7 @@ export function registerSubjectCard(
   type: common.SubjectType,
   component: ComponentType<SubjectCardProps>,
 ): void {
-  registry.set(type, component);
+  useRegistry.setState({ [type]: component });
 }
 
 /** Name of a subject type in the `engagement` strings (`subjects.<key>`), with a catch-all. */
@@ -74,6 +78,9 @@ const TYPE_EMOJI: Record<string, string> = {
  */
 export function SubjectCard({ preview }: SubjectCardProps) {
   const { t } = useTranslation("engagement");
+  const registered = useRegistry((cards) =>
+    preview.subject ? cards[preview.subject.type] : undefined,
+  );
   if (!preview.available) {
     return (
       <div className="flex items-center gap-3 rounded-card border-2 border-dashed border-line px-4 py-5 text-ink-soft">
@@ -89,7 +96,7 @@ export function SubjectCard({ preview }: SubjectCardProps) {
       </div>
     );
   }
-  const Card = (preview.subject && registry.get(preview.subject.type)) ?? GenericSubjectCard;
+  const Card = registered ?? GenericSubjectCard;
   return <Card preview={preview} />;
 }
 

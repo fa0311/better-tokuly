@@ -99,10 +99,12 @@ function createServerI18n(language: Language, resources: Resource): I18n {
 /**
  * The browser's instance. It starts in the language the server rendered
  * (`<html lang>`), so hydration always matches. A component's namespaces
- * load when `useTranslation(namespace)` first asks (it suspends until then).
- * A lookup into a namespace nobody has loaded yet (`t("chat:…")` from
- * another feature, `i18n.t` outside a component) shows nothing, starts
- * loading it, and every `useTranslation` renders again once it is there.
+ * load when `useTranslation(namespace)` first asks; until the page has
+ * hydrated it suspends for them, so the first render says what the server
+ * said (`stopSuspendingForStrings`). A lookup into a namespace nobody has
+ * loaded yet (`t("chat:…")` from another feature, `i18n.t` outside a
+ * component) shows nothing, starts loading it, and every `useTranslation`
+ * renders again once it is there.
  */
 function createBrowserI18n(language: Language): I18n {
   const instance = createInstance();
@@ -144,6 +146,16 @@ const i18n =
  */
 export function namespacesOf(keys: readonly string[]): string[] {
   return [...new Set(keys.map((key) => key.slice(0, key.indexOf(":"))))];
+}
+
+/**
+ * After hydration a namespace that is still loading shows nothing for the
+ * moment it takes instead of suspending: a suspended update would take the
+ * screen away under someone's hands (a composer that just opened its stamp
+ * button lost what was being typed).
+ */
+export function stopSuspendingForStrings(): void {
+  i18n.options.react = { ...i18n.options.react, useSuspense: false };
 }
 
 export function setLanguage(language: Language): void {
