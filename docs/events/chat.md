@@ -73,7 +73,8 @@ Durable consumer `chat`. Every handler is idempotent.
 | Topic | Reaction |
 |---|---|
 | `identity.user.deleted` `{ user_id }` | The user's memberships, reactions and co-presence go. Their messages stay (the sender renders as a deleted user). Direct conversations become read-only for the other side (a live call fails, an open POV request is cancelled); once that side is erased too, the conversation is deleted like an empty group. The account row stays as identity's tombstone, so nothing goes by `ON DELETE CASCADE`. Groups lose a member, with the usual system message; a group they owned passes to the longest standing admin, else member; a group nobody is left in is deleted with its uploads released. |
-| `identity.user.created` `{ user_id }` | Stores the account's default for 「AI に自分のメッセージを使ってもいい」 (off for a minor, on for an adult, by the age at creation), unless a value is stored already. Idempotent. |
+| `identity.user.created` `{ user_id }` | Stores the account's default for 「AI に自分のメッセージを使ってもいい」 (off for a minor, on for an adult, by the age at creation; no birthdate counts as a minor), unless a value is stored already. Idempotent. |
+| `identity.user.birthdate_given` `{ user_id, minor }` | For a minor: the consent off, unless the owner chose. Idempotent. |
 | `social.user.blocked` / `social.user.unblocked` `{ user_id, blocked_id }` | The direct conversation of the two becomes read-only for both (live call ends as `FAILED`, open POV request is cancelled), or writable again. Sending already checks blocks live, so the event only maintains the flag lists show. Groups are not touched. |
 | `social.friend.accepted` `{ user_id, friend_id, … }` | A message request waiting between the two is accepted (friends need none). |
 | `media.asset.ready` / `media.asset.failed` `{ asset_id, … }` | Messages showing the upload (a video sent while transcoding) get the final attachment and are pushed again (`MESSAGE_UPDATE_REASON_ATTACHMENT`). |

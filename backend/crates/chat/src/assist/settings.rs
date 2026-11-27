@@ -15,6 +15,7 @@ use tokuly_core::{
     prelude::*,
 };
 use tokuly_proto::chat::{self as pb, AiProvider};
+use tokuly_identity::age;
 use url::Url;
 
 use crate::{Chat, ChatConfig};
@@ -562,24 +563,51 @@ impl Chat {
     }
 
     /// Stores the consent default of new accounts: on for an adult, off
-    /// for a minor or an unknown age, judged by the age **when the account
-    /// was created** — never by today's date, so a minor turning 18 does not
-    /// start sharing (and nothing visible moves with a hidden birthday). A
-    /// stored value, chosen or default, always wins. Idempotent: used for
-    /// `identity.user.created` and for values a lost event left unstored.
+    /// for a minor (`tokuly_identity::age::minor_on`: no birthdate counts as
+    /// one), judged by the age **when the account was created** — never by
+    /// today's date, so a minor turning 18 does not start sharing (and
+    /// nothing visible moves with a hidden birthday). A stored value, chosen
+    /// or default, always wins. Idempotent: used for `identity.user.created`
+    /// and for values a lost event left unstored.
     pub(crate) async fn store_message_use_default(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, bool>> {
+        let accounts: Vec<(Uuid, Option<chrono::NaiveDate>, DateTime<Utc>)> =
+            sqlx::query_as("SELECT id, birthdate, created_at FROM users WHERE id = ANY($1)")
+                .bind(user_ids)
+                .fetch_all(&self.core.db)
+                .await?;
+        let (ids, allow): (Vec<Uuid>, Vec<bool>) = accounts
+            .into_iter()
+            .map(|(id, birthdate, created_at)| (id, !age::minor_on(birthdate, created_at.date_naive())))
+            .unzip();
         let rows: Vec<(Uuid, Option<bool>)> = sqlx::query_as(
             "INSERT INTO chat_ai_user_settings (user_id, allow_message_use)
-             SELECT u.id, u.birthdate IS NOT NULL AND u.birthdate <= (u.created_at - interval '18 years')::date
-             FROM users u WHERE u.id = ANY($1)
+             SELECT * FROM UNNEST($1::uuid[], $2::boolean[])
              ON CONFLICT (user_id) DO UPDATE
                 SET allow_message_use = COALESCE(chat_ai_user_settings.allow_message_use, EXCLUDED.allow_message_use)
              RETURNING user_id, allow_message_use",
         )
-        .bind(user_ids)
+        .bind(&ids)
+        .bind(&allow)
         .fetch_all(&self.core.db)
         .await?;
         Ok(rows.into_iter().map(|(id, allow)| (id, allow.unwrap_or(false))).collect())
+    }
+
+    /// A minor gave the birthdate after the account was made
+    /// (`identity.user.birthdate_given`): other people's AI requests leave
+    /// their messages out from now, as they would have from sign-up, unless
+    /// the owner chose themselves. Idempotent.
+    pub(crate) async fn apply_minor_message_use(&self, user_id: Uuid) -> AppResult<()> {
+        sqlx::query(
+            "INSERT INTO chat_ai_user_settings (user_id, allow_message_use)
+             SELECT id, false FROM users WHERE id = $1 AND deleted_at IS NULL
+             ON CONFLICT (user_id) DO UPDATE SET allow_message_use = false, updated_at = now()
+             WHERE NOT chat_ai_user_settings.message_use_chosen AND chat_ai_user_settings.allow_message_use IS DISTINCT FROM false",
+        )
+        .bind(user_id)
+        .execute(&self.core.db)
+        .await?;
+        Ok(())
     }
 
     /// Whether each of `user_ids` lets other people's AI requests use their
