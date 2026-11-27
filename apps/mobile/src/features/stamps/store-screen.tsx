@@ -13,14 +13,21 @@ import { PackCard, PackRow } from "./parts";
 /**
  * The stamp store: the team's picks, the ranking and what is new, the most
  * used tags, and a search over every published pack. A pack opens its page,
- * where a free one is added in a tap.
+ * where a free one is added in a tap. A link may open it on a search or a
+ * tag (the web's `/stamps/browse?q=…&tag=…`).
  */
-export function StoreScreen() {
+export function StoreScreen({
+  query: linked = "",
+  tag: linkedTag = "",
+}: {
+  query?: string;
+  tag?: string;
+}) {
   const { t } = useTranslation(NS);
   const { colors } = useTheme();
-  const [text, setText] = useState("");
-  const [query, setQuery] = useState("");
-  const [tag, setTag] = useState("");
+  const [text, setText] = useState(linked.trim().slice(0, 64));
+  const [query, setQuery] = useState(text);
+  const [tag, setTag] = useState(linkedTag.trim().replace(/^#+/, "").toLowerCase().slice(0, 64));
   // The search follows typing a moment later.
   useEffect(() => {
     const timer = setTimeout(() => setQuery(text.trim()), 300);

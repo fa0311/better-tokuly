@@ -9,6 +9,7 @@ import { api } from "#/lib/api";
 import { screenFor } from "#/seams/links";
 import { PackScreen } from "../pack-screen";
 import { StampPicker } from "../picker";
+import { StoreScreen } from "../store-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
 jest.mock("#/features/session/account", () => ({ currentAccount: jest.fn(), isActive: jest.fn() }));
@@ -55,6 +56,14 @@ function server({ switchOnInstall = false } = {}) {
           recents: [item("s1", "にゃー")],
           installed: [freePack(true).summary!],
         }),
+      searchPacks: async (request: { query: string }) => {
+        calls.push(`search ${request.query}`);
+        return { packs: [freePack(false).summary!] };
+      },
+      listStorePacks: async (request: { tag: string }) => {
+        calls.push(`tag ${request.tag}`);
+        return { packs: [freePack(false).summary!] };
+      },
       installPack: async () => {
         calls.push("install");
         if (switchOnInstall) switched = true;
@@ -104,6 +113,17 @@ describe("PackScreen", () => {
     await waitFor(() => expect(calls).toEqual(["install"]));
     expect(screen.getByTestId("pack-install")).toBeOnTheScreen();
     expect(Alert.alert).not.toHaveBeenCalled();
+  });
+});
+
+describe("StoreScreen", () => {
+  it("opens on the search or the tag a link carries", async () => {
+    const calls = server();
+    await show(<StoreScreen query="neko" />);
+    expect(await screen.findByDisplayValue("neko")).toBeOnTheScreen();
+    await waitFor(() => expect(calls).toContain("search neko"));
+    await show(<StoreScreen tag="cat" />);
+    await waitFor(() => expect(calls).toContain("tag cat"));
   });
 });
 
