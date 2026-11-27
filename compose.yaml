@@ -449,6 +449,12 @@ services:
       # Uploads are signed for the store's public address, which this
       # container does not reach; it sends them to the store directly.
       TOKULY_DEMO_STORAGE_URL: http://storage:9000
+      # The bots' tokens, kept between starts (an operator may make 20 an hour).
+      TOKULY_DEMO_STATE_DIR: /var/lib/tokuly
+    volumes:
+      - ./config:/etc/tokuly:ro
+      # The image's home of the tokuly user: a new volume here is owned by it.
+      - demo-data:/var/lib/tokuly
     depends_on:
       api:
         condition: service_healthy
@@ -479,3 +485,4 @@ volumes:
   edge-data:
   edge-config:
   observability-data:
+  demo-data:

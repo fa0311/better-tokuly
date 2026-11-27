@@ -29,6 +29,7 @@
 pub mod api;
 pub mod cast;
 pub mod config;
+pub mod keep;
 pub mod lines;
 pub mod media;
 pub mod posts;
@@ -76,21 +77,51 @@ pub async fn run(config: DemoConfig, stop: impl Future<Output = ()>) -> anyhow::
     Ok(tally)
 }
 
-/// Sets the cast up, waiting for a server that is still starting.
+/// Sets the cast up, waiting for a server that is still starting and
+/// waiting out a refusal for too many requests: exiting would only restart
+/// the container into the same refusal.
 async fn prepare(api: &Api, config: &DemoConfig, script: &Script) -> anyhow::Result<Vec<setup::Bot>> {
     let mut waited = Duration::ZERO;
+    let mut refusals = 0;
     loop {
         match setup::prepare(api, config, script).await {
-            Err(error) if waited < Duration::from_secs(180) && unreachable(&error) => {
+            Err(error) if waited < Duration::from_secs(180) && refused(&error, "UNREACHABLE") => {
                 tracing::info!(api = %config.api_url, "demo: waiting for the API");
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 waited += Duration::from_secs(5);
+            }
+            Err(error) if refused(&error, "RATE_LIMITED") => {
+                let pause = backoff(refusals);
+                refusals += 1;
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    retry_in_s = pause.as_secs(),
+                    "demo: the API asks to slow down"
+                );
+                tokio::time::sleep(pause).await;
             }
             done => return done,
         }
     }
 }
 
-fn unreachable(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| cause.downcast_ref::<api::ApiError>().is_some_and(|refused| refused.is("UNREACHABLE")))
+/// How long to wait after the `refusals`-th refusal in a row: a minute,
+/// doubling up to a quarter of an hour.
+fn backoff(refusals: u32) -> Duration {
+    Duration::from_secs(60 << refusals.min(4)).min(Duration::from_secs(15 * 60))
+}
+
+fn refused(error: &anyhow::Error, reason: &str) -> bool {
+    error.chain().any(|cause| cause.downcast_ref::<api::ApiError>().is_some_and(|refused| refused.is(reason)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refusals_are_waited_out_longer_and_longer() {
+        let minutes: Vec<u64> = (0..7).map(|n| backoff(n).as_secs() / 60).collect();
+        assert_eq!(minutes, [1, 2, 4, 8, 15, 15, 15]);
+    }
 }

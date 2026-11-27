@@ -1,5 +1,5 @@
 //! Settings of the simulator (`tokuly demo`): flags or `TOKULY_DEMO_*`.
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 use clap::Args;
 
@@ -70,6 +70,13 @@ pub struct DemoConfig {
     #[arg(long, env = "TOKULY_DEMO_STORAGE_URL")]
     pub storage_url: Option<String>,
 
+    /// Where the bots' API tokens are kept between starts, sealed with the
+    /// password: an operator may make only a few tokens an hour. Unset, it is
+    /// `tokuly-demo` in the user's state directory (`$XDG_STATE_HOME`,
+    /// `~/.local/state`).
+    #[arg(long, env = "TOKULY_DEMO_STATE_DIR")]
+    pub state_dir: Option<PathBuf>,
+
     /// Stop after this many seconds (0 = run until stopped). For trying it out.
     #[arg(long, env = "TOKULY_DEMO_RUN_SECONDS", default_value_t = 0)]
     pub run_seconds: u64,
@@ -102,6 +109,11 @@ impl DemoConfig {
         let seconds =
             || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs());
         self.episode.unwrap_or_else(seconds)
+    }
+
+    /// Where the bots' tokens are kept, if anywhere.
+    pub fn state_dir(&self) -> Option<PathBuf> {
+        self.state_dir.clone().filter(|dir| !dir.as_os_str().is_empty()).or_else(crate::keep::default_dir)
     }
 
     pub fn region(&self) -> Region {
