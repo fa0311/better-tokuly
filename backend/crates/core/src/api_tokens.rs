@@ -48,7 +48,8 @@ use uuid::Uuid;
 use crate::{
     auth::ClientMeta,
     cache::Cache,
-    error::{AppError, AppResult, REASON_HEADER},
+    error::{AppError, REASON_HEADER},
+    request_limits::{RateStatus, count_per_minute},
     time::Time,
 };
 
@@ -242,42 +243,6 @@ impl ApiTokens {
 
 // ───────────────────────────── the gate ─────────────────────────────
 
-/// Where a token stands against its rate limit in the current minute.
-#[derive(Debug, Clone, Copy)]
-struct RateStatus {
-    limit: u32,
-    remaining: u32,
-    /// Seconds until the window ends.
-    reset_seconds: u32,
-    exceeded: bool,
-}
-
-impl RateStatus {
-    fn write_headers(&self, headers: &mut http::HeaderMap) {
-        headers.insert("x-ratelimit-limit", self.limit.into());
-        headers.insert("x-ratelimit-remaining", self.remaining.into());
-        headers.insert("x-ratelimit-reset", self.reset_seconds.into());
-        if self.exceeded {
-            headers.insert(http::header::RETRY_AFTER, self.reset_seconds.into());
-        }
-    }
-}
-
-/// Counts one request against the token's limit (fixed one-minute windows).
-async fn count_request(cache: &Cache, token: &ApiToken) -> AppResult<RateStatus> {
-    let now = Utc::now().timestamp();
-    let key = format!("rl:api:{}:{}", token.id.simple(), now / 60);
-    let (count,): (i64,) =
-        redis::pipe().atomic().incr(&key, 1).expire(&key, 120).ignore().query_async(&mut cache.conn()).await?;
-    let limit = token.rate.per_minute;
-    Ok(RateStatus {
-        limit,
-        remaining: (limit as i64 - count).clamp(0, limit as i64) as u32,
-        reset_seconds: (60 - now.rem_euclid(60)) as u32,
-        exceeded: count > limit as i64,
-    })
-}
-
 /// How often a token is verified again while its response is still streaming.
 const STREAM_RECHECK: Duration = Duration::from_secs(30);
 
@@ -356,7 +321,7 @@ impl ApiGate {
             recheck: self.recheck,
         };
         if let Some(cache) = self.limiter.as_ref().filter(|c| c.enforces_rate_limits() && admitted.token.rate.per_minute > 0) {
-            match count_request(cache, &admitted.token).await {
+            match count_per_minute(cache, &format!("api:{}", admitted.token.id.simple()), admitted.token.rate.per_minute).await {
                 Ok(status) => admitted.rate = Some(status),
                 // A counter that cannot be reached must not take the API down with it.
                 Err(e) => tracing::warn!(error = %e, "API token rate limit could not be counted; request allowed"),
@@ -512,7 +477,7 @@ fn error_reason(response: &axum::response::Response) -> Option<String> {
 /// Renders `error` as the response a handler returning it would have
 /// produced, in the wire format of the request (Connect unary, Connect
 /// streaming, gRPC or gRPC-Web).
-fn render(error: AppError, request_headers: &http::HeaderMap) -> axum::response::Response {
+pub(crate) fn render(error: AppError, request_headers: &http::HeaderMap) -> axum::response::Response {
     ConnectError::from(error).into_http_response(request_headers).map(axum::body::Body::new)
 }
 

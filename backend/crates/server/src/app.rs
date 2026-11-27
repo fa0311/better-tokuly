@@ -425,6 +425,41 @@ mod tests {
         "1400", "1500", "1600", "1700", "1800", "1900", "2000", "2100", "2200", "2300", "2400",
     ];
 
+    /// The API's router holds callers to the overall limits of the settings:
+    /// past the default for one address, any RPC is refused before it runs.
+    #[tokio::test]
+    async fn the_api_holds_callers_to_the_overall_limits() {
+        let app = tokuly_testkit::TestApp::start(MIGRATIONS, |_, _, router| router).await;
+        let core = app.core.clone();
+        let domains = Domains::new(core.clone(), Settings::parse_from(["tokuly"]).domains).expect("domains");
+        let router = api_router(core.clone(), &domains, &ApiConfig::default());
+        let random = uuid::Uuid::now_v7().as_u128();
+        let peer = std::net::IpAddr::from(std::net::Ipv6Addr::new(0x2001, 0xdb8, random as u16, (random >> 16) as u16, 0, 0, 0, 1));
+        let call = || {
+            // An RPC nobody serves: the limit comes before any handler.
+            let request = axum::http::Request::post("/tokuly.nothing.v1.NothingService/Call")
+                .header("content-type", "application/json")
+                .extension(axum::extract::ConnectInfo(SocketAddr::new(peer, 4000)))
+                .body(axum::body::Body::from("{}"))
+                .unwrap();
+            router.clone().oneshot(request)
+        };
+        let limit = core.cfg.rate_limit_address_per_minute;
+        assert!(limit > 0, "on by default");
+        // The calls must fall into one window of a minute.
+        let into_minute = chrono::Utc::now().timestamp().rem_euclid(60);
+        if into_minute > 50 {
+            tokio::time::sleep(Duration::from_secs((61 - into_minute) as u64)).await;
+        }
+        for _ in 0..limit {
+            assert_ne!(call().await.unwrap().status(), StatusCode::TOO_MANY_REQUESTS);
+        }
+        let refused = call().await.unwrap();
+        assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(refused.headers()["x-tokuly-error"], "RATE_LIMITED");
+        assert!(refused.headers().contains_key(header::RETRY_AFTER));
+    }
+
     /// The pictures of link previews are served by the API's router, behind
     /// the auth layer: it is what tells the route the client's address.
     #[tokio::test]

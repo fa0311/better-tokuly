@@ -32,6 +32,7 @@ use crate::{
     cache::Cache,
     error::{AppError, AppResult},
     keys::Keys,
+    request_limits::{RequestGate, RequestLimits},
     time::Time,
 };
 
@@ -244,22 +245,26 @@ impl Tokens {
     /// in-memory set still apply, and signing everyone out while Valkey is
     /// down would be worse.
     async fn revoked_elsewhere(&self, session_id: Uuid) -> bool {
-        let Some(cache) = &self.revocations else { return false };
+        self.revocation(session_id).await == Revocation::Revoked
+    }
+
+    /// What Valkey says about a revocation of the session.
+    async fn revocation(&self, session_id: Uuid) -> Revocation {
+        let Some(cache) = &self.revocations else { return Revocation::Absent };
         let key = format!("{REVOKED_PREFIX}{session_id}");
         match tokio::time::timeout(REVOCATION_LOOKUP_TIMEOUT, cache.exists(&key)).await {
-            Ok(Ok(revoked)) => {
-                if revoked {
-                    self.revoke_session(session_id);
-                }
-                revoked
+            Ok(Ok(true)) => {
+                self.revoke_session(session_id);
+                Revocation::Revoked
             }
+            Ok(Ok(false)) => Revocation::Absent,
             Ok(Err(e)) => {
                 self.warn_unreadable(&e.to_string());
-                false
+                Revocation::Unknown
             }
             Err(_) => {
                 self.warn_unreadable("no answer in time");
-                false
+                Revocation::Unknown
             }
         }
     }
@@ -333,13 +338,33 @@ impl Tokens {
     }
 
     /// [`Self::authenticate`], and the session's revocation is also looked up
-    /// in Valkey: what every request goes through.
+    /// in Valkey: what every request goes through. A session with staff
+    /// roles is not taken on trust while Valkey does not answer: it is
+    /// [`SESSION_UNVERIFIABLE`] until it does (a revoked moderator must not
+    /// keep moderating through an outage).
     pub async fn authenticate_shared(&self, token: &str) -> AuthState {
         match self.authenticate(token) {
-            AuthState::Authenticated(ctx) if self.revoked_elsewhere(ctx.session_id).await => AuthState::Invalid("SESSION_REVOKED"),
+            AuthState::Authenticated(ctx) => match self.revocation(ctx.session_id).await {
+                Revocation::Revoked => AuthState::Invalid("SESSION_REVOKED"),
+                Revocation::Unknown if !ctx.roles.is_empty() => AuthState::Invalid(SESSION_UNVERIFIABLE),
+                _ => AuthState::Authenticated(ctx),
+            },
             state => state,
         }
     }
+}
+
+/// Why a staff session is refused while Valkey does not answer
+/// ([`Tokens::authenticate_shared`]).
+pub const SESSION_UNVERIFIABLE: &str = "SESSION_UNVERIFIABLE";
+
+/// What Valkey says about a session's revocation.
+#[derive(Debug, PartialEq, Eq)]
+enum Revocation {
+    Revoked,
+    Absent,
+    /// Valkey did not answer.
+    Unknown,
 }
 
 /// What an `Authorization` header holds.
@@ -382,13 +407,21 @@ pub struct AuthLayer {
     tokens: Tokens,
     trusted_proxies: std::sync::Arc<crate::proxies::TrustedProxies>,
     api: ApiGate,
+    requests: RequestGate,
 }
 
 impl AuthLayer {
     /// A layer that knows sessions only; every API token is invalid until
     /// [`Self::with_api_tokens`] names their registry.
     pub fn new(tokens: Tokens, trusted_proxies: crate::proxies::TrustedProxies) -> Self {
-        Self { tokens, trusted_proxies: std::sync::Arc::new(trusted_proxies), api: ApiGate::default() }
+        Self { tokens, trusted_proxies: std::sync::Arc::new(trusted_proxies), api: ApiGate::default(), requests: RequestGate::default() }
+    }
+
+    /// Holds sessions and callers without one to the overall `limits`,
+    /// counted in `limiter` (see [`crate::request_limits`]).
+    pub fn with_request_limits(mut self, limits: RequestLimits, limiter: Cache) -> Self {
+        self.requests = RequestGate { limiter: Some(limiter), limits };
+        self
     }
 
     /// Accepts the API tokens of the verifier registered in `api_tokens`.
@@ -423,13 +456,23 @@ pub fn cookie_header(headers: &http::HeaderMap) -> String {
         .join("; ")
 }
 
+/// The `X-Forwarded-For` chain of a request: every field of that name, in
+/// order. A proxy may add its entry as a field of its own after the one the
+/// client sent; read alone, the first field would be the client's word.
+fn forwarded_for(headers: &http::HeaderMap) -> Option<String> {
+    let fields: Vec<&str> = headers.get_all("x-forwarded-for").iter().map(|value| value.to_str().unwrap_or_default()).collect();
+    (!fields.is_empty()).then(|| fields.join(","))
+}
+
 /// Axum middleware: authenticates the request and records [`AuthState`] and
 /// [`ClientMeta`] for handlers.
 ///
-/// A request with a session token, a bad token or none is never rejected
-/// here: handlers decide what an anonymous caller may do. A request with an
-/// API token is held to the token's rate limit and scopes first, and may end
-/// here (see [`crate::api_tokens`]).
+/// A request with a session token, a bad token or none is only rejected
+/// here over the overall limits ([`crate::request_limits`]), or for a staff
+/// session that cannot be checked ([`SESSION_UNVERIFIABLE`]): handlers decide
+/// what an anonymous caller may do. A request with an API token is held to
+/// the token's rate limit and scopes first, and may end here (see
+/// [`crate::api_tokens`]).
 ///
 /// The client address is the TCP peer, or — when the peer is one of our
 /// proxies — the client that proxy names in `X-Forwarded-For`. Serve the
@@ -443,13 +486,12 @@ pub async fn auth_middleware(
     let headers = req.headers();
     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
     let text = |name: &str| header(name).unwrap_or_default().to_owned();
-    let ip = req
+    let address = req
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|peer| layer.trusted_proxies.client_ip(peer.0.ip(), header("x-forwarded-for")).to_string())
-        .unwrap_or_default();
+        .map(|peer| layer.trusted_proxies.client_ip(peer.0.ip(), forwarded_for(headers).as_deref()));
     let meta = ClientMeta {
-        ip,
+        ip: address.map(|address| address.to_string()).unwrap_or_default(),
         user_agent: text("user-agent"),
         is_web: text("x-tokuly-client").eq_ignore_ascii_case("web"),
         cookies: cookie_header(headers),
@@ -473,6 +515,19 @@ pub async fn auth_middleware(
         },
         Bearer::Token(token) => (layer.tokens.authenticate_shared(token).await, None),
     };
+    if let AuthState::Invalid(SESSION_UNVERIFIABLE) = &state {
+        // Unavailable rather than unauthenticated: the app keeps the session and tries again.
+        let error = AppError::unavailable(SESSION_UNVERIFIABLE, "the session could not be checked right now, try again");
+        return api_tokens::render(error, headers);
+    }
+    // API tokens were held to their own limit above.
+    if admitted.is_none()
+        && let Some(refused) = layer.requests.refusal(req.uri().path(), &state, address).await
+    {
+        let mut response = api_tokens::render(refused.error, headers);
+        refused.status.write_headers(response.headers_mut());
+        return response;
+    }
     // A stream opened with a session must not outlive it either.
     let session = match &state {
         AuthState::Authenticated(ctx) if ctx.is_session() => Some((ctx.session_id, ctx.expires_at)),
