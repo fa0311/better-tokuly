@@ -1,8 +1,9 @@
 appId: app.tokuly.mobile
 name: Launch the app afresh, onto the welcome screen
 ---
-# Every flow starts here: no data, no keychain, every permission allowed but the ones
-# the flow passes (LOCATION, MICROPHONE, BLUETOOTH, NOTIFICATIONS: allow, deny or unset).
+# Every flow starts here: no data or keychain, with permissions allowed where supported.
+# Location defaults to in-use on iOS or allow on Android; flows needing background
+# location pass always. Other permission overrides use allow, deny, or unset.
 #
 # Clearing the data kills the app, and about a second later Android gives up waiting for
 # its old screen and kills the app's process again, whichever one it is by then. When the
@@ -16,7 +17,7 @@ name: Launch the app afresh, onto the welcome screen
           clearState: true
           permissions:
             all: allow
-            location: ${LOCATION || 'allow'}
+            location: "${LOCATION || (maestro.platform == 'ios' ? 'inuse' : 'allow')}"
             microphone: ${MICROPHONE || 'allow'}
             bluetooth: ${BLUETOOTH || 'allow'}
             notifications: ${NOTIFICATIONS || 'allow'}
