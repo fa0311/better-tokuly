@@ -3,6 +3,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, type MessageInitShape, school } from "@tokuly/api";
+import * as SecureStore from "expo-secure-store";
 import { Alert, type AlertButton } from "react-native";
 import { type Account, currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
@@ -343,6 +344,19 @@ describe("the reminder's permission", () => {
 
   it("is asked for again by a new install: what was asked goes with the old one", () => {
     expect(lifecycle.secureKeys).toContain("school.reminders.asked");
+  });
+
+  it("starts the timer without asking when the phone cannot note that it asked", async () => {
+    const { account, calls } = accountOf("s1");
+    signIn(account);
+    takeSession(undefined);
+    jest.mocked(readPushPermission).mockResolvedValue("undetermined");
+    jest.spyOn(SecureStore, "getItemAsync").mockRejectedValue(new Error("keychain locked"));
+    await show();
+    await fireEvent.press(await screen.findByTestId("timer-start"));
+    expect(await screen.findByTestId("timer-clock")).toBeTruthy();
+    expect(calls).toEqual([`start:${school.StudyMode.STOPWATCH}`]);
+    expect(Alert.alert).not.toHaveBeenCalled();
   });
 
   it("declined, the running timer says to keep the app open and offers to turn them on", async () => {

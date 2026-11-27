@@ -21,12 +21,18 @@ export const ASKED_KEY = "school.reminders.asked";
 /**
  * Before the first start on this device: says why, then shows the OS
  * prompt. Asks once, and only while the OS can still ask; resolves with the
- * answer (declining still starts the timer).
+ * answer and never rejects (declining, or failing to ask, still starts the timer).
  */
 export async function askForReminders(idleSeconds: number): Promise<PushPermission> {
   const permission = await readPushPermission().catch((): PushPermission => "denied");
-  if (permission !== "undetermined" || (await readSecure(ASKED_KEY))) return permission;
-  await writeSecure(ASKED_KEY, "1");
+  if (permission !== "undetermined") return permission;
+  try {
+    if (await readSecure(ASKED_KEY)) return permission;
+    await writeSecure(ASKED_KEY, "1");
+  } catch {
+    // A phone that cannot note the answer would be asked at every start: the timer starts without asking.
+    return permission;
+  }
   return new Promise((resolve) => {
     Alert.alert(
       i18n.t("mobile:school.reminderAsk.title"),
