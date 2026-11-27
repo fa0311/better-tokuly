@@ -198,6 +198,10 @@ impl Dev {
                 .bind(&row.token_hash)
                 .execute(&self.core.db)
                 .await?;
+            // A revocation forgets the answer under the hash it finds stored,
+            // the new one from now on; but a server not yet given the new
+            // secret may have cached one under the old.
+            self.forget_tokens(std::slice::from_ref(&row.token_hash)).await?;
         }
         let verdict = self.token_verdict(row).await?;
         Ok(Judged { verdict, renewed })

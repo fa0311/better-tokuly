@@ -76,15 +76,109 @@ pub fn normalize_recovery_code(code: &str) -> String {
     code.trim().to_ascii_lowercase()
 }
 
-pub fn hash_recovery_code(keys: &Keys, code: &str) -> String {
-    keys.token_hash(&format!("recovery:{}", normalize_recovery_code(code)))
+/// The label `users.recovery_codes` is sealed with.
+pub const RECOVERY_CODES_LABEL: &str = "totp/recovery";
+
+/// An account's unused recovery codes, sealed together for
+/// `users.recovery_codes` (`None` once none is left). Sealed rather than
+/// hashed so that `tokuly rekey` carries them to a new `TOKULY_SECRET`.
+pub fn seal_recovery_codes(keys: &Keys, codes: &[String]) -> Option<String> {
+    (!codes.is_empty())
+        .then(|| tokuly_core::keys::b64url(&keys.seal(RECOVERY_CODES_LABEL, codes.join("\n").as_bytes())))
 }
 
-/// What a stored hash of `code` may be: codes made before `TOKULY_SECRET`
-/// was replaced work while the previous one is set.
+pub fn open_recovery_codes(keys: &Keys, stored: &str) -> Option<Vec<String>> {
+    let sealed = tokuly_core::keys::b64url_decode(stored)?;
+    let plain = String::from_utf8(keys.open(RECOVERY_CODES_LABEL, &sealed)?).ok()?;
+    Some(plain.split('\n').map(str::to_owned).collect())
+}
+
+/// The codes left once `code` is spent, or `None` when it is not one of
+/// them. Every code is compared, in constant time, whatever matches.
+fn spend_recovery_code(codes: &[String], code: &str) -> Option<Vec<String>> {
+    use subtle::ConstantTimeEq as _;
+    let code = normalize_recovery_code(code);
+    let hits: Vec<bool> = codes.iter().map(|known| bool::from(known.as_bytes().ct_eq(code.as_bytes()))).collect();
+    hits.contains(&true)
+        .then(|| codes.iter().zip(hits).filter(|(_, hit)| !hit).map(|(known, _)| known.clone()).collect())
+}
+
+/// What a stored hash of `code` may be, for codes made before they were
+/// sealed (`users.recovery_code_hashes`): they work while the secret they
+/// were made under is set.
 pub fn recovery_code_hashes(keys: &Keys, code: &str) -> Vec<String> {
     keys.token_hashes(&format!("recovery:{}", normalize_recovery_code(code)))
 }
+
+impl Identity {
+    /// Spends `code` if it is one of `user_id`'s unused recovery codes.
+    pub(crate) async fn spend_recovery_code(&self, user_id: Uuid, code: &str) -> AppResult<bool> {
+        if self.spend_sealed_recovery_code(user_id, code).await? {
+            return Ok(true);
+        }
+        let spent: Option<Uuid> = sqlx::query_scalar(
+            "UPDATE users SET recovery_code_hashes = ARRAY(SELECT h FROM unnest(recovery_code_hashes) h WHERE h <> ALL($2))
+             WHERE id = $1 AND recovery_code_hashes && $2 RETURNING id",
+        )
+        .bind(user_id)
+        .bind(recovery_code_hashes(&self.core.keys, code))
+        .fetch_optional(&self.core.db)
+        .await?;
+        Ok(spent.is_some())
+    }
+
+    /// The column is written back only if it still holds what was read: a
+    /// code spent at the same moment, or `tokuly rekey` sealing them again,
+    /// makes it read them once more.
+    async fn spend_sealed_recovery_code(&self, user_id: Uuid, code: &str) -> AppResult<bool> {
+        for _ in 0..SPEND_ATTEMPTS {
+            let stored: Option<String> = sqlx::query_scalar("SELECT recovery_codes FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.core.db)
+                .await?
+                .flatten();
+            let Some(left) = stored
+                .as_deref()
+                .and_then(|stored| open_recovery_codes(&self.core.keys, stored))
+                .and_then(|codes| spend_recovery_code(&codes, code))
+            else {
+                return Ok(false);
+            };
+            let written = sqlx::query("UPDATE users SET recovery_codes = $2 WHERE id = $1 AND recovery_codes = $3")
+                .bind(user_id)
+                .bind(seal_recovery_codes(&self.core.keys, &left))
+                .bind(&stored)
+                .execute(&self.core.db)
+                .await?;
+            if written.rows_affected() == 1 {
+                return Ok(true);
+            }
+        }
+        Err(AppError::internal(anyhow::anyhow!("recovery codes of {user_id} kept changing")))
+    }
+
+    /// `tokuly rekey --forget-recovery-codes`, for a secret that leaked:
+    /// with it, a copy of the database opens every recovery code. All of
+    /// them stop working, each account with a note in its security log;
+    /// returns how many accounts had some.
+    pub async fn forget_recovery_codes(&self) -> anyhow::Result<u64> {
+        let forgotten: i64 = sqlx::query_scalar(
+            "WITH forgotten AS (
+                 UPDATE users SET recovery_codes = NULL, recovery_code_hashes = '{}'
+                 WHERE recovery_codes IS NOT NULL OR cardinality(recovery_code_hashes) > 0 RETURNING id
+             ), logged AS (
+                 INSERT INTO security_events (user_id, type) SELECT id, 'RECOVERY_CODES_REVOKED' FROM forgotten
+             )
+             SELECT count(*) FROM forgotten",
+        )
+        .fetch_one(&self.core.db)
+        .await?;
+        Ok(forgotten as u64)
+    }
+}
+
+/// Reads of `users.recovery_codes` before a spend gives up (each lost to a write at the same moment).
+const SPEND_ATTEMPTS: usize = 5;
 
 pub fn seal_secret(keys: &Keys, secret_base32: &str) -> String {
     tokuly_core::keys::b64url(&keys.seal("totp", secret_base32.as_bytes()))
@@ -120,7 +214,24 @@ mod tests {
         assert!(codes.iter().all(|c| c.len() == 9 && c.as_bytes()[4] == b'-'));
         let unique: std::collections::HashSet<_> = codes.iter().collect();
         assert_eq!(unique.len(), 10);
-        assert_eq!(hash_recovery_code(&keys, "AbCd-1234"), hash_recovery_code(&keys, " abcd-1234 "));
+        assert_eq!(recovery_code_hashes(&keys, "AbCd-1234"), recovery_code_hashes(&keys, " abcd-1234 "));
+    }
+
+    #[test]
+    fn sealed_recovery_codes_are_spent_once_whatever_the_case() {
+        let keys = Keys::new("0123456789abcdef0123456789abcdef");
+        let codes = generate_recovery_codes();
+        let sealed = seal_recovery_codes(&keys, &codes).unwrap();
+        assert!(codes.iter().all(|code| !sealed.contains(code.as_str())));
+        let opened = open_recovery_codes(&keys, &sealed).unwrap();
+        assert_eq!(opened, codes);
+        let left = spend_recovery_code(&opened, &format!(" {} ", codes[3].to_uppercase())).unwrap();
+        assert_eq!(left.len(), 9);
+        assert!(!left.contains(&codes[3]));
+        assert!(spend_recovery_code(&left, &codes[3]).is_none(), "spent");
+        assert!(spend_recovery_code(&left, "").is_none());
+        assert_eq!(seal_recovery_codes(&keys, &[]), None, "none left");
+        assert!(open_recovery_codes(&Keys::new("another-secret-another-secret-another"), &sealed).is_none());
     }
 
     #[test]

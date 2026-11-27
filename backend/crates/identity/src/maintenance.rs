@@ -197,7 +197,7 @@ impl Identity {
                     email = NULL, email_verified_at = NULL, password_hash = NULL, bio = '', avatar = NULL,
                     avatar_video_url = NULL, banner = NULL, birthdate = NULL, roles = '{}', verified = false, school_name = '',
                     status_emoji = '', status_text = '', status_set_at = NULL, status_expires_at = NULL,
-                    totp_secret = NULL, totp_enabled_at = NULL, recovery_code_hashes = '{}',
+                    totp_secret = NULL, totp_enabled_at = NULL, recovery_codes = NULL, recovery_code_hashes = '{}',
                     privacy = '{}', appearance = '{}', invited_by = NULL, attrs = '{}'
                  WHERE id = $1 AND deleted_at IS NULL AND deletion_scheduled_at <= now()",
             )

@@ -24,6 +24,7 @@ const EVENT_EMOJI: Record<string, string> = {
   TOTP_ENABLED: "🛡️",
   TOTP_DISABLED: "🛡️",
   RECOVERY_CODE_USED: "🧯",
+  RECOVERY_CODES_REVOKED: "🧯",
   SESSION_REVOKED: "📴",
   DEVICE_LOGIN_APPROVED: "📲",
   DEVICE_LOGIN_DENIED: "🚫",

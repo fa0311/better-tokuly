@@ -68,7 +68,12 @@ enum Command {
     /// Seal again under TOKULY_SECRET what is still sealed under
     /// TOKULY_SECRET_PREVIOUS (docs/configuration.md, replacing the secret).
     /// Prints what it did per column; safe to run again, and while the servers run.
-    Rekey,
+    Rekey {
+        /// For a secret that leaked: also make every two-step recovery code
+        /// stop working (with the secret, a copy of the database opens them).
+        #[arg(long)]
+        forget_recovery_codes: bool,
+    },
     /// Settings files: `example` prints every setting with its default (the
     /// source of `tokuly.example.toml`); `show` prints what the command line,
     /// the environment and `tokuly.toml` set (console values not included).
@@ -214,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Worker => "tokuly-worker",
         Command::Migrate => "tokuly-migrate",
         Command::All => "tokuly-all",
-        Command::PromoteAdmin { .. } | Command::DeadLetters { .. } | Command::Rekey => "tokuly-admin",
+        Command::PromoteAdmin { .. } | Command::DeadLetters { .. } | Command::Rekey { .. } => "tokuly-admin",
         Command::Healthcheck { .. } | Command::Config { .. } | Command::Demo(_) => unreachable!("handled above"),
     };
     let _telemetry = telemetry::init(&cli.core, service);
@@ -271,7 +276,15 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Command::DeadLetters { action } => dead_letters(&core, action).await?,
-        Command::Rekey => rekey(&core).await?,
+        Command::Rekey { forget_recovery_codes } => {
+            if forget_recovery_codes {
+                let accounts = domains.identity.forget_recovery_codes().await?;
+                println!(
+                    "recovery codes: {accounts} accounts lost theirs (turning two-step sign-in off and on gives new ones)"
+                );
+            }
+            rekey(&core).await?
+        }
         Command::Api => app::serve_api(core, domains, cli.api).await?,
         Command::Realtime => domains.gateway.run().await?,
         Command::Worker => {

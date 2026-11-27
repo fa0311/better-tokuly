@@ -612,6 +612,44 @@ async fn totp_setup_then_sign_in_requires_code_and_recovery_code_works_once() {
     assert_eq!(sign_in(recovery).await.unwrap_err().reason, "INVALID_TOTP", "a recovery code works only once");
 }
 
+#[tokio::test]
+async fn a_recovery_code_used_twice_at_once_works_once_and_two_codes_at_once_both_work() {
+    let app = app().await;
+    let tag = unique("mfa2");
+    let auth: AuthResponse =
+        app.call("tokuly.identity.v1.AuthService/SignUp", None, &sign_up_request(&tag)).await.unwrap();
+    let user_id: uuid::Uuid = auth.me.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
+    let user = app.sign_in(user_id).await;
+    let setup: BeginTotpSetupResponse = app
+        .call("tokuly.identity.v1.AccountService/BeginTotpSetup", Some(&user), &BeginTotpSetupRequest::default())
+        .await
+        .unwrap();
+    let code = totp_now(&setup.secret);
+    let enabled: EnableTotpResponse = app
+        .call(
+            "tokuly.identity.v1.AccountService/EnableTotp",
+            Some(&user),
+            &EnableTotpRequest { code, current_password: "correct horse battery".into(), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let sign_in = |totp_code: &str| {
+        let request = SignInRequest {
+            identifier: tag.clone(),
+            password: "correct horse battery".into(),
+            totp_code: totp_code.to_owned(),
+            ..Default::default()
+        };
+        let app = &app;
+        async move { app.call::<_, AuthResponse>("tokuly.identity.v1.AuthService/SignIn", None, &request).await.is_ok() }
+    };
+    let codes = &enabled.recovery_codes;
+    let (first, second) = tokio::join!(sign_in(&codes[0]), sign_in(&codes[0]));
+    assert!(first ^ second, "one of the two gets in");
+    let (first, second) = tokio::join!(sign_in(&codes[1]), sign_in(&codes[2]));
+    assert!(first && second, "a code spent at the same moment does not make another one fail");
+}
+
 /// Current TOTP code for a base32 secret (RFC 6238, SHA-1, 30 s, 6 digits).
 fn totp_now(secret_base32: &str) -> String {
     totp_at(secret_base32, 0)
