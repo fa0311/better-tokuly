@@ -219,14 +219,14 @@ async fn drafts_are_saved_listed_scheduled_and_posted_once() {
     assert_eq!(all.drafts[0].id, scheduled.draft.id, "most recently changed first");
 
     // Its time comes: posted once, however often the scheduler runs.
+    ctx.post(&alice, "posted before the schedule came").await;
     sqlx::query("UPDATE note_drafts SET scheduled_at = now() - interval '1 second' WHERE id = $1")
         .bind(id(&scheduled.draft.id))
         .execute(&ctx.app.core.db)
         .await
         .unwrap();
-    ctx.post(&alice, "posted before the schedule came").await;
-    // (Scheduler passes of other tests in this binary may take it too: what
-    // counts is that it is posted, once.)
+    // (Scheduler passes of other tests in this binary may take it from the
+    // moment it is due: what counts is that it is posted, once.)
     let (first, second) = tokio::join!(ctx.notes.publish_due_drafts(), ctx.notes.publish_due_drafts());
     first.unwrap();
     second.unwrap();
@@ -283,8 +283,9 @@ async fn drafts_are_saved_listed_scheduled_and_posted_once() {
         .await
         .unwrap();
     ctx.notes.publish_due_drafts().await.unwrap();
-    // Other tests run the scheduler on the same database: a pass of theirs may have claimed this
-    // draft (it reads INTERRUPTED meanwhile) and finish it a moment later.
+    // Other tests run the scheduler on the same database: a pass of theirs may be claiming this
+    // draft (ours skips it then, and it still reads unclaimed), or have claimed it (it reads
+    // INTERRUPTED), and finish it a moment later.
     let mut kept: GetDraftResponse;
     let mut tries = 0;
     loop {
@@ -296,7 +297,7 @@ async fn drafts_are_saved_listed_scheduled_and_posted_once() {
         )
         .await
         .unwrap();
-        if kept.draft.failure_reason != "INTERRUPTED" || tries >= 50 {
+        if !["", "INTERRUPTED"].contains(&kept.draft.failure_reason.as_str()) || tries >= 50 {
             break;
         }
         tries += 1;
