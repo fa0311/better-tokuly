@@ -18,12 +18,13 @@
 //! account without a birthdate is in neither ([`age_groups_among`]).
 //!
 //! An account under the minimum age ([`too_young_on`]) cannot use the app
-//! until that birthday: its sessions reach signing in and out, `GetMe` and
-//! the deletion of the account only
-//! (`tokuly_core::auth::reachable_while_too_young`).
+//! until that birthday, from midnight in the account's time zone: its
+//! sessions reach signing in and out, `GetMe` and the deletion of the
+//! account only (`tokuly_core::auth::reachable_while_too_young`).
 use std::collections::{HashMap, HashSet};
 
-use chrono::{Datelike, Months, NaiveDate, Utc};
+use chrono::{Datelike, Months, NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use tokuly_core::prelude::*;
 
 /// The age from which the limits for minors no longer apply.
@@ -47,19 +48,40 @@ pub fn old_enough_on(born: NaiveDate, min_age: u32) -> NaiveDate {
     if birthday.day() == born.day() { birthday } else { birthday.succ_opt().unwrap_or(NaiveDate::MAX) }
 }
 
+/// The date at `now` in `time_zone`, an account's (`users.time_zone`); UTC
+/// for a name that is not a time zone.
+pub fn date_in(time_zone: &str, now: Time) -> NaiveDate {
+    match time_zone.parse::<Tz>() {
+        Ok(tz) => now.with_timezone(&tz).date_naive(),
+        Err(_) => now.date_naive(),
+    }
+}
+
+/// When `day` begins in `time_zone` ([`date_in`]). Where the clocks skip
+/// midnight, it begins when they land.
+pub fn start_of_day(day: NaiveDate, time_zone: &str) -> Time {
+    let midnight = day.and_time(NaiveTime::MIN);
+    let Ok(tz) = time_zone.parse::<Tz>() else { return midnight.and_utc() };
+    (0..=120)
+        .step_by(5)
+        .find_map(|minutes| tz.from_local_datetime(&(midnight + chrono::Duration::minutes(minutes))).earliest())
+        .map_or_else(|| midnight.and_utc(), |start| start.with_timezone(&Utc))
+}
+
 impl crate::Identity {
-    /// [`too_young_on`] today, by the minimum age of this deployment. Other
-    /// domains ask it for what acts for an account without a session of its
-    /// own (API tokens, bots, webhooks).
-    pub fn too_young(&self, birthdate: Option<NaiveDate>) -> bool {
-        too_young_on(birthdate, Utc::now().date_naive(), self.cfg.min_age)
+    /// [`too_young_on`] today in the account's time zone, by the minimum age
+    /// of this deployment. Other domains ask it for what acts for an account
+    /// without a session of its own (API tokens, bots, webhooks, the
+    /// applications it owns).
+    pub fn too_young(&self, birthdate: Option<NaiveDate>, time_zone: &str) -> bool {
+        too_young_on(birthdate, date_in(time_zone, Utc::now()), self.cfg.min_age)
     }
 
     /// When a [`Self::too_young`] account is let in (`Me.too_young_until`):
-    /// the start of [`old_enough_on`], UTC, as [`too_young_on`] counts days.
-    pub fn too_young_until(&self, birthdate: Option<NaiveDate>) -> Option<Time> {
-        let born = birthdate.filter(|_| self.too_young(birthdate))?;
-        Some(old_enough_on(born, self.cfg.min_age).and_time(chrono::NaiveTime::MIN).and_utc())
+    /// the start of [`old_enough_on`] in its time zone.
+    pub fn too_young_until(&self, birthdate: Option<NaiveDate>, time_zone: &str) -> Option<Time> {
+        let born = birthdate.filter(|_| self.too_young(birthdate, time_zone))?;
+        Some(start_of_day(old_enough_on(born, self.cfg.min_age), time_zone))
     }
 }
 
@@ -180,5 +202,26 @@ mod tests {
             assert!(!too_young_on(Some(born), on, 13), "{born}");
         }
         assert_eq!(old_enough_on(day(2012, 2, 29), 13), day(2025, 3, 1));
+    }
+
+    fn at(rfc3339: &str) -> Time {
+        chrono::DateTime::parse_from_rfc3339(rfc3339).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn the_date_is_the_one_of_the_account_s_time_zone() {
+        // 09:00 in Tokyo is midnight UTC: before it, Tokyo is a day ahead.
+        assert_eq!(date_in("Asia/Tokyo", at("2026-11-27T20:00:00Z")), day(2026, 11, 28));
+        assert_eq!(date_in("America/Los_Angeles", at("2026-11-28T05:00:00Z")), day(2026, 11, 27));
+        assert_eq!(date_in("not a zone", at("2026-11-27T20:00:00Z")), day(2026, 11, 27));
+    }
+
+    #[test]
+    fn a_day_starts_at_midnight_in_the_time_zone() {
+        assert_eq!(start_of_day(day(2026, 11, 28), "Asia/Tokyo"), at("2026-11-27T15:00:00Z"));
+        assert_eq!(start_of_day(day(2026, 11, 28), "UTC"), at("2026-11-28T00:00:00Z"));
+        // Santiago skips from midnight to 01:00 when summer time begins.
+        assert_eq!(start_of_day(day(2026, 9, 6), "America/Santiago"), at("2026-09-06T04:00:00Z"));
+        assert_eq!(start_of_day(day(2026, 11, 28), "not a zone"), at("2026-11-28T00:00:00Z"));
     }
 }

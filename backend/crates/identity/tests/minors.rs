@@ -1,7 +1,10 @@
 //! Accounts under 18: the defaults they start with, the limits while they are
 //! minors, and accounts that give their birthdate after sign-up.
 use chrono::{Months, NaiveDate, Utc};
-use tokuly_identity::maintenance::BirthdateGiven;
+use tokuly_identity::{
+    age::{date_in, start_of_day},
+    maintenance::BirthdateGiven,
+};
 use tokuly_proto::{common::Visibility, identity::*};
 use tokuly_testkit::{RpcError, TestApp, TestUser};
 
@@ -417,7 +420,8 @@ async fn a_too_young_account_is_let_in_on_its_birthday() {
     assert!(held.too_young);
     let until = held.too_young_until.as_option().expect("the client is told when to look again");
     let birthday = born(12).checked_add_months(Months::new(12 * 13)).unwrap();
-    assert_eq!(until.seconds, birthday.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp(), "the 13th birthday");
+    let tokyo_midnight = birthday.and_hms_opt(0, 0, 0).unwrap().and_utc() - chrono::Duration::hours(9);
+    assert_eq!(until.seconds, tokyo_midnight.timestamp(), "the 13th birthday, where the account is");
 
     set_born(13).await.unwrap();
     assert!(me(&app, &young).await.too_young == false, "by the date, whatever the token");
@@ -425,6 +429,42 @@ async fn a_too_young_account_is_let_in_on_its_birthday() {
     let let_in = me(&app, &teen).await;
     assert!(!let_in.too_young && let_in.too_young_until.as_option().is_none());
     assert_eq!(privacy(&app, &teen).await.discoverable_to, FOF);
+}
+
+/// The birthday begins at midnight where the account is, not in UTC.
+#[tokio::test]
+async fn the_birthday_is_the_one_in_the_account_s_time_zone() {
+    let app = app().await;
+    let child = sign_up(&app, born(15)).await;
+    let now = Utc::now();
+    let utc_today = now.date_naive();
+    // Somewhere it is already tomorrow or still yesterday, whatever the hour.
+    let (zone, there) = ["Pacific/Kiritimati", "Pacific/Pago_Pago"]
+        .into_iter()
+        .map(|zone| (zone, date_in(zone, now)))
+        .find(|&(zone, there)| there != utc_today && date_in(zone, now + chrono::Duration::minutes(10)) == there)
+        .unwrap();
+    // The 13th birthday is today in the later of the two: there it has begun,
+    // in the other it has not.
+    let birthday = there.max(utc_today);
+    let birthdate = birthday.checked_sub_months(Months::new(12 * 13)).unwrap();
+    let place = |time_zone: &'static str| {
+        sqlx::query("UPDATE users SET birthdate = $2, time_zone = $3 WHERE id = $1")
+            .bind(child.id)
+            .bind(birthdate)
+            .bind(time_zone)
+            .execute(&app.core.db)
+    };
+    for time_zone in [zone, "UTC"] {
+        place(time_zone).await.unwrap();
+        let today = date_in(time_zone, now);
+        let held = me(&app, &child).await;
+        assert_eq!(held.too_young, today < birthday, "{time_zone}");
+        if held.too_young {
+            let until = held.too_young_until.as_option().unwrap();
+            assert_eq!(until.seconds, start_of_day(birthday, time_zone).timestamp(), "{time_zone}");
+        }
+    }
 }
 
 /// The answer is the same at sign-up: there is no account yet to keep.

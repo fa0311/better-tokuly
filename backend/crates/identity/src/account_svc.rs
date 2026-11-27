@@ -329,15 +329,15 @@ impl AccountService for Identity {
             core.cache.rate_limit(&format!("set-birthdate:{user_id}"), 10, Duration::from_secs(3600)).await?;
             // An answer under the minimum age is stored as well: the account
             // is then too young, and cannot answer again.
-            let birthdate = users::validate_birthdate(request.birthdate, 0)?;
+            let birthdate = users::validate_birthdate(request.birthdate, 0, Utc::now().date_naive())?;
             let minor = crate::age::minor_on(Some(birthdate), Utc::now().date_naive());
             let mut tx = core.db.begin().await?;
-            let stored: Option<serde_json::Value> =
-                sqlx::query_scalar("SELECT privacy FROM users WHERE id = $1 AND birthdate IS NULL FOR UPDATE")
+            let stored: Option<(serde_json::Value, String)> =
+                sqlx::query_as("SELECT privacy, time_zone FROM users WHERE id = $1 AND birthdate IS NULL FOR UPDATE")
                     .bind(user_id)
                     .fetch_optional(&mut *tx)
                     .await?;
-            let Some(stored) = stored else {
+            let Some((stored, time_zone)) = stored else {
                 bail!(precondition, "BIRTHDATE_ALREADY_SET", "the birthdate is already set");
             };
             // The defaults of the age group, as at sign-up. A minor's settings so
@@ -361,7 +361,7 @@ impl AccountService for Identity {
             // adult is out of the limits an account without a birthdate has.
             events::emit(&mut *tx, "identity.user.privacy_changed", Some(user_id), &UserRef { user_id }).await?;
             tx.commit().await?;
-            if self.too_young(Some(birthdate)) {
+            if self.too_young(Some(birthdate), &time_zone) {
                 // Not only from the next token on: the ones that are out
                 // (this device's and the others') reach no more either.
                 core.hold_too_young(user_id).await;
