@@ -236,7 +236,7 @@ impl Notify {
             // What a new account's pushes show starts out by its age.
             USER_CREATED_TOPIC => {
                 let created: UserCreated = event.data()?;
-                preferences::set_initial_push_preview(&self.core, created.user_id).await
+                preferences::set_initial_push_preview(&self.core, created.user_id, created.minor).await
             }
             // ...or by the age on the day it gave its birthdate, if later.
             BIRTHDATE_GIVEN_TOPIC => {

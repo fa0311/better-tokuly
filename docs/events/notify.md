@@ -105,7 +105,7 @@ account's) for push.
 | `video.video.unpublished` | `VideoEvent` | hides `video_id` from everyone but `owner_id` |
 | `notes.note.visibility_changed` | `{ note_id, author_id, visibility, visible_to, changed_at }` | withdraws `note_id` (and what refers to it as its subject: likes, renotes, comments and mentions in comments on the note; likes on those comments name only the comment and stay) from everyone but `author_id` and `visible_to`, as far as the entries are not newer than `changed_at`; `visible_to = null` (public) withdraws nothing but is remembered, so an older narrowing handled after it does nothing. An event without `visible_to` withdraws only for `visibility` = 5 (private) |
 | `video.video.visibility_changed`, `shorts.short.visibility_changed`, `live.stream.visibility_changed` | `{ video_id \| id \| stream_id, owner_id, visibility, visible_to, changed_at, … }` | the same for the video, short or stream: withdrawn from everyone but `owner_id` and `visible_to` up to `changed_at`; `visible_to = null` (open to everyone again) is remembered. Emitted when the owner shares it with another audience and, once per open item, when the owner locks or unlocks their account |
-| `identity.user.created` | `{ user_id, … }` (`tokuly_notify::events::UserCreated`) | stores what the new account's pushes show: `PUSH_PREVIEW_SENDER_ONLY` for minors (`tokuly_identity::age`, read this once; no birthdate counts as a minor), `PUSH_PREVIEW_FULL` for adults; never overrides a stored value, so a redelivery changes nothing |
+| `identity.user.created` | `{ user_id, minor, … }` (`tokuly_notify::events::UserCreated`) | stores what the new account's pushes show: `PUSH_PREVIEW_SENDER_ONLY` for minors (`minor`, the sign-up day's age group, however late the event is handled; without it the age on that day by `tokuly_identity::age`, no birthdate counting as a minor), `PUSH_PREVIEW_FULL` for adults; never overrides a stored value, so a redelivery changes nothing |
 | `identity.user.birthdate_given` | `{ user_id, minor }` (`tokuly_notify::events::BirthdateGiven`) | for a minor: `PUSH_PREVIEW_SENDER_ONLY` where full (or nothing) is stored and the owner has not chosen (`notify_settings.push_preview_chosen`); idempotent |
 | `identity.user.deleted` | `{ user_id }` | deletes the user's inbox, preferences, mutes, mirrored blocks and push registrations, inbox entries they caused for others, mutes on them, the remembered edits of their comments and audience changes of their content, and their name in the remembered mentions and audiences of others' |
 
@@ -212,12 +212,14 @@ a change also applies to pushes still queued. `SENDER_ONLY` keeps `kind`,
 sends kind `notification`, category `general`, the collapse key
 `notification` and no inbox entry ID — only the badge and the priority stay.
 
-Default: `SENDER_ONLY` for accounts under 18 (and without a birthdate) and
-`FULL` for the others, decided once when the account is created
-(`identity.user.created`) and stored; an 18th birthday changes nothing. A
-minor who gives the birthdate later (`identity.user.birthdate_given`) gets
-`SENDER_ONLY` then, unless they chose. A push that finds nothing stored
-yet decides the same way, so a minor's first push never shows everything.
+Default: `SENDER_ONLY` for accounts under 18 on the day of sign-up (and
+without a birthdate) and `FULL` for the others, decided once when the account
+is created (`identity.user.created`) and stored; an 18th birthday changes
+nothing. A minor who gives the birthdate later (`identity.user.birthdate_given`)
+gets `SENDER_ONLY` then, unless they chose; a `FULL` stored before choices were
+told apart (migration 1201) counts as not chosen. A push that finds nothing
+stored yet decides the same way, by the sign-up day, so a minor's first push
+never shows everything.
 
 **Unnamed actors.** Producers leave the actor out of anonymous
 notifications, and mark one whose text does not name its actor on purpose

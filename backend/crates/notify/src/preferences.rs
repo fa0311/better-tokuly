@@ -5,7 +5,7 @@
 //! means "everything on". The one exception is what pushes show
 //! ([`PushPreview`]), which is decided when the account is created
 //! ([`set_initial_push_preview`]).
-use chrono::Timelike as _;
+use chrono::{NaiveDate, Timelike as _};
 use tokuly_core::prelude::*;
 use tokuly_proto::notify::{CategoryPreference, Preferences, PushPause, PushPreview, QuietHours};
 
@@ -135,7 +135,7 @@ pub async fn push_preview_of(core: &Core, user_id: Uuid) -> AppResult<PushPrevie
     if let Some(stored) = stored_push_preview(core, user_id).await? {
         return Ok(push_preview_from(Some(stored)));
     }
-    set_initial_push_preview(core, user_id).await?;
+    set_initial_push_preview(core, user_id, None).await?;
     Ok(push_preview_from(stored_push_preview(core, user_id).await?))
 }
 
@@ -148,16 +148,18 @@ async fn stored_push_preview(core: &Core, user_id: Uuid) -> AppResult<Option<i16
 }
 
 /// Stores the preview setting a new account starts with: sender only for
-/// minors (`tokuly_identity::age`: no birthdate counts as one), full for
-/// adults. The age is read once, here, when the account is created
-/// (`identity.user.created`), and the result is stored: computing it on every
-/// read would change the setting on the 18th birthday and tell anyone
-/// watching when that is. Idempotent, and never overrides a stored value.
-pub async fn set_initial_push_preview(core: &Core, user_id: Uuid) -> AppResult<()> {
-    let preview = match tokuly_identity::age::is_minor(core, user_id).await? {
-        true => PushPreview::PUSH_PREVIEW_SENDER_ONLY,
-        false => PushPreview::PUSH_PREVIEW_FULL,
+/// minors, full for adults, by the age on the day of sign-up — `minor` from
+/// `identity.user.created`, or [`minor_at_sign_up`] without it. It is
+/// decided once and stored: computing it on every read would change the
+/// setting on the 18th birthday and tell anyone watching when that is; an
+/// event handled late keeps the sign-up day's answer. Idempotent, and never
+/// overrides a stored value.
+pub async fn set_initial_push_preview(core: &Core, user_id: Uuid, minor: Option<bool>) -> AppResult<()> {
+    let minor = match minor {
+        Some(minor) => minor,
+        None => minor_at_sign_up(core, user_id).await?,
     };
+    let preview = if minor { PushPreview::PUSH_PREVIEW_SENDER_ONLY } else { PushPreview::PUSH_PREVIEW_FULL };
     sqlx::query(
         "INSERT INTO notify_settings (user_id, push_preview)
          SELECT id, $2 FROM users WHERE id = $1 AND deleted_at IS NULL
@@ -168,6 +170,20 @@ pub async fn set_initial_push_preview(core: &Core, user_id: Uuid) -> AppResult<(
     .execute(&core.db)
     .await?;
     Ok(())
+}
+
+/// Under 18 on the day `user_id` signed up (`tokuly_identity::age::minor_on`:
+/// no birthdate counts as a minor; a bot goes by its owner). An unknown
+/// account counts as a minor.
+async fn minor_at_sign_up(core: &Core, user_id: Uuid) -> AppResult<bool> {
+    let row: Option<(Option<NaiveDate>, NaiveDate)> = sqlx::query_as(
+        "SELECT CASE WHEN u.bot THEN owner.birthdate ELSE u.birthdate END, (u.created_at AT TIME ZONE 'UTC')::date
+         FROM users u LEFT JOIN users owner ON owner.id = u.bot_owner_id WHERE u.id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&core.db)
+    .await?;
+    Ok(row.is_none_or(|(born, signed_up)| tokuly_identity::age::minor_on(born, signed_up)))
 }
 
 /// A minor gave the birthdate after the account was made

@@ -22,9 +22,26 @@ async fn choose(ctx: &Ctx, user: &TestUser, preview: PushPreview) {
     update_preferences(ctx, user, UpdatePreferencesRequest { push_preview: preview.into(), ..Default::default() }).await;
 }
 
+/// `identity.user.created` as sent before it carried `minor`.
 async fn created(ctx: &Ctx, user: &TestUser) {
     let event = event(USER_CREATED_TOPIC, serde_json::json!({ "user_id": user.id, "handle": user.handle, "invite_code": "" }));
     ctx.notify.handle_event(event).await.unwrap();
+}
+
+/// `identity.user.created` with the age group of the sign-up day.
+async fn created_as(ctx: &Ctx, user: &TestUser, minor: bool) {
+    let payload = serde_json::json!({ "user_id": user.id, "handle": user.handle, "invite_code": "", "minor": minor });
+    ctx.notify.handle_event(event(USER_CREATED_TOPIC, payload)).await.unwrap();
+}
+
+/// The account was made `years_ago`.
+async fn signed_up(ctx: &Ctx, user: &TestUser, years_ago: i32) {
+    sqlx::query("UPDATE users SET created_at = now() - make_interval(years => $2) WHERE id = $1")
+        .bind(user.id)
+        .bind(years_ago)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
 }
 
 async fn set_birthdate(ctx: &Ctx, user: &TestUser, years_ago: i32) {
@@ -168,6 +185,38 @@ async fn the_default_is_decided_by_age_when_the_account_is_created() {
     assert_eq!(preview_of(&ctx, &quiet).await, PushPreview::PUSH_PREVIEW_SENDER_ONLY);
 }
 
+/// The event can be handled late (retries, a redrive) — after an 18th
+/// birthday, even. The age group is the one identity sent: the sign-up day's.
+#[tokio::test]
+async fn a_late_sign_up_event_keeps_the_age_of_the_sign_up_day() {
+    let ctx = start().await;
+    let (late, adult) = (ctx.app.user("late").await, ctx.app.user("adult").await);
+    // Signed up two years ago, under 17; 18 by the time the event is handled.
+    signed_up(&ctx, &late, 2).await;
+    set_birthdate(&ctx, &late, 19).await;
+    created_as(&ctx, &late, true).await;
+    created_as(&ctx, &adult, false).await;
+    assert_eq!(preview_of(&ctx, &late).await, PushPreview::PUSH_PREVIEW_SENDER_ONLY);
+    assert_eq!(preview_of(&ctx, &adult).await, PushPreview::PUSH_PREVIEW_FULL);
+}
+
+/// Without the event (a first push before it, or one given up on) and for an
+/// event from before it carried `minor`, the same rule: the age on the
+/// sign-up day.
+#[tokio::test]
+async fn without_the_age_group_the_sign_up_day_decides() {
+    let ctx = start_insecure().await;
+    let (first_push, old_event) = (ctx.app.user("first").await, ctx.app.user("old").await);
+    for user in [&first_push, &old_event] {
+        // Signed up at 16 years and 11 months, two years ago.
+        signed_up(&ctx, user, 2).await;
+        set_birthdate(&ctx, user, 19).await;
+    }
+    created(&ctx, &old_event).await;
+    assert_eq!(preview_of(&ctx, &first_push).await, PushPreview::PUSH_PREVIEW_SENDER_ONLY);
+    assert_eq!(preview_of(&ctx, &old_event).await, PushPreview::PUSH_PREVIEW_SENDER_ONLY);
+}
+
 #[tokio::test]
 async fn unknown_choices_are_refused_and_unspecified_keeps_the_choice() {
     let ctx = start().await;
@@ -256,7 +305,11 @@ async fn a_minor_giving_the_birthdate_later_gets_sender_only_unless_they_chose()
         }
         birthdate_given(&ctx, &adult, false).await;
     }
-    assert_eq!(preview_of(&ctx, &teen).await, PushPreview::PUSH_PREVIEW_SENDER_ONLY);
+    assert_eq!(
+        preview_of(&ctx, &teen).await,
+        PushPreview::PUSH_PREVIEW_SENDER_ONLY,
+        "a full stored before choices were told apart counts as not chosen",
+    );
     assert_eq!(preview_of(&ctx, &fresh).await, PushPreview::PUSH_PREVIEW_SENDER_ONLY, "nothing stored yet");
     assert_eq!(preview_of(&ctx, &chose).await, PushPreview::PUSH_PREVIEW_FULL, "their own choice stays");
     assert_eq!(preview_of(&ctx, &hid).await, PushPreview::PUSH_PREVIEW_HIDDEN, "only narrows");

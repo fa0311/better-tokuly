@@ -43,6 +43,10 @@ pub struct UserBlocked {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserCreated {
     pub user_id: Uuid,
+    /// Under 18 on the day of sign-up. Absent in events from before the
+    /// field: notify then decides by that day itself.
+    #[serde(default)]
+    pub minor: Option<bool>,
 }
 
 /// Our view of identity's `identity.user.birthdate_given`: an account gave
