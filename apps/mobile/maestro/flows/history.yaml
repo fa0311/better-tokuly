@@ -36,8 +36,8 @@ env:
     times: 8
     commands:
       - swipe:
-          start: 5%, 60%
-          end: 5%, 35%
+          start: 2%, 60%
+          end: 2%, 35%
           duration: 500
 - assertVisible:
     text: "ひるの公園"

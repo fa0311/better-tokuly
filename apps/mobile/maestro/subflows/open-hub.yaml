@@ -2,8 +2,15 @@ appId: app.tokuly.mobile
 name: Open an entry of the hub under the own profile
 ---
 # ENTRY is the entry's id (`me-<id>`, src/seams/hub.ts). The hub is below the
-# profile and grows with the app.
+# profile and grows with the app. Right after signing in, the map can take the
+# tab back (seen on the emulator): the tab is tapped until it is the one shown.
 - tapOn: { id: "tab-me" }
+- repeat:
+    while:
+      notVisible: { id: "tab-me", selected: true }
+    times: 3
+    commands:
+      - tapOn: { id: "tab-me" }
 - runFlow:
     file: tap-in-view.yaml
     env: { ID: "me-${ENTRY}" }
