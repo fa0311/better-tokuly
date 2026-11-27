@@ -26,6 +26,7 @@ import { INK_ON_BRIGHT, sticker, useTheme } from "#/lib/theme";
 import { studiedSecondsAt, timerAt } from "./clock";
 import { asAccount, NS, settingsClient, studyClient, timetableClient } from "./data";
 import { SubjectPill } from "./parts";
+import { askForReminders, useReminderPermission } from "./reminders";
 import { loadSession, takeSession, timerAccount, useStudyTimer } from "./session";
 
 type Mode = "stopwatch" | "pomodoro";
@@ -113,8 +114,12 @@ function Idle() {
     queryFn: async () => (await settingsClient().getSchoolSettings({})).settings,
   });
   const start = useMutation({
-    mutationFn: () =>
-      asAccount(() => studyClient().startStudySession({ mode: MODES[mode], subjectId, memo })),
+    mutationFn: async () => {
+      await askForReminders(useStudyTimer.getState().idleSeconds);
+      return asAccount(() =>
+        studyClient().startStudySession({ mode: MODES[mode], subjectId, memo }),
+      );
+    },
     onSuccess: (response) => {
       if (!response) return;
       takeSession(response.session, {
@@ -245,6 +250,9 @@ function Running({ session }: { session: school.StudySession }) {
   const paused = session.state === school.SessionState.PAUSED;
   const pomodoro = session.timer?.mode === school.StudyMode.POMODORO;
   const idleSeconds = useStudyTimer((state) => state.idleSeconds);
+  const reminders = useReminderPermission();
+  // Only a running timer is stopped by silence; a paused one waits.
+  const running = session.state === school.SessionState.RUNNING;
 
   const control = useMutation({
     mutationFn: (action: "pause" | "resume" | "skip") =>
@@ -360,15 +368,33 @@ function Running({ session }: { session: school.StudySession }) {
           </Button>
         </View>
       )}
-      <Text className="text-center text-xs text-ink-faint">
-        {t("mobile:school.timerNote", { minutes: Math.round(idleSeconds / 60) })}
-      </Text>
+      {running && reminders.permission !== undefined && reminders.permission !== "granted" ? (
+        <View testID="timer-reminder-off" className="gap-2 rounded-2xl bg-sun p-3">
+          <Text className="text-sm font-bold" style={{ color: INK_ON_BRIGHT }}>
+            {t("mobile:school.reminderOff", { minutes: Math.round(idleSeconds / 60) })}
+          </Text>
+          <Button
+            testID="timer-reminder-on"
+            size="sm"
+            variant="secondary"
+            onPress={() => void reminders.turnOn()}
+          >
+            {t("mobile:school.reminderTurnOn")}
+          </Button>
+        </View>
+      ) : (
+        <Text className="text-center text-xs text-ink-faint">
+          {t("mobile:school.timerNote", { minutes: Math.round(idleSeconds / 60) })}
+        </Text>
+      )}
     </>
   );
 }
 
 const RADIUS = 54;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+/** The face's side in points: the web's 16rem. */
+const FACE_SIZE = 256;
 
 /**
  * The face of a timer: the digits (counting up for a stopwatch, down for a
@@ -386,7 +412,10 @@ function TimerFace({ view, studiedSeconds }: { view: TimerView; studiedSeconds: 
     ? timerText(Math.ceil(view.remainingMs / 1000))
     : timerText(studiedSeconds);
   return (
-    <View className="aspect-square w-full max-w-64 items-center justify-center self-center">
+    <View
+      className="items-center justify-center self-center"
+      style={{ width: FACE_SIZE, height: FACE_SIZE }}
+    >
       <Svg
         viewBox="0 0 120 120"
         style={{

@@ -1,5 +1,5 @@
 appId: app.tokuly.mobile
-name: Study with the timer (pomodoro, a subject), pause it, cheer a friend, stop and log it
+name: Study with the timer (pomodoro, a subject; the reminder put off), pause it, cheer a friend, stop and log it
 env:
   PASSWORD: tokuly-e2e-pass
 ---
@@ -30,11 +30,20 @@ env:
 - tapOn: "数学"
 - takeScreenshot: 43-study-timer
 - tapOn: { id: "timer-start" }
+
+# The first start asks whether the reminder may come; "later" still starts the timer,
+# which then says to keep the app open.
+- extendedWaitUntil:
+    visible: "止まる前にお知らせしてもいい\\?|Can we ping you before it stops\\?"
+    timeout: 15000
+- takeScreenshot: 44-study-timer-reminder
+- tapOn: "あとで|Not now"
 - extendedWaitUntil:
     visible: { id: "timer-clock" }
     timeout: 15000
+- assertVisible: { id: "timer-reminder-off" }
 - assertVisible: "24:5.|25:00"
-- takeScreenshot: 44-study-timer-running
+- takeScreenshot: 45-study-timer-running
 
 # Paused and going again.
 - tapOn: { id: "timer-pause" }

@@ -329,6 +329,15 @@ export default {
       title: "Your timer is about to stop!",
       body: "Still studying? Open the app to keep it going",
     },
+    reminderAsk: {
+      title: "Can we ping you before it stops?",
+      body: "Left closed, the timer stops by itself after about {{minutes}} minutes. We'll send a notification when it's about to!",
+      later: "Not now",
+      allow: "Turn on reminders",
+    },
+    reminderOff:
+      "Notifications are off, so you won't get the heads-up. Keep the app open while you study! (Left closed for about {{minutes}} minutes, it stops)",
+    reminderTurnOn: "Turn on notifications",
     logOnWeb: "Log and charts (web)",
     onWeb: "Opens on the web",
     rooms: "Study rooms (web)",

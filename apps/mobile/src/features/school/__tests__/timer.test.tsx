@@ -6,7 +6,13 @@ import { create, type MessageInitShape, school } from "@tokuly/api";
 import { Alert, type AlertButton } from "react-native";
 import { type Account, currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
-import { cancelReminder, scheduleReminder } from "#/platform/notifications";
+import {
+  askPushPermission,
+  cancelReminder,
+  readPushPermission,
+  scheduleReminder,
+} from "#/platform/notifications";
+import { writeSecure } from "#/platform/secure-storage";
 import { testQueryClient } from "#/testing/query";
 import {
   followAccount,
@@ -23,6 +29,8 @@ jest.mock("#/features/session/account", () => ({ currentAccount: jest.fn(), isAc
 jest.mock("#/platform/notifications", () => ({
   scheduleReminder: jest.fn(async () => {}),
   cancelReminder: jest.fn(async () => {}),
+  readPushPermission: jest.fn(async () => "granted"),
+  askPushPermission: jest.fn(async () => "granted"),
 }));
 jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
 
@@ -97,7 +105,18 @@ function signIn(account: Account) {
   followAccount(account);
 }
 
-beforeEach(() => jest.spyOn(Alert, "alert").mockImplementation(() => {}));
+beforeEach(async () => {
+  jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  jest.mocked(readPushPermission).mockResolvedValue("granted");
+  await writeSecure("school.reminders.asked", null);
+});
+
+/** Answers the next alert with its button whose text is `text`. */
+function answerAlert(text: string) {
+  jest.mocked(Alert.alert).mockImplementationOnce((_title, _body, buttons?: AlertButton[]) => {
+    buttons?.find((button) => button.text === text)?.onPress?.();
+  });
+}
 afterEach(() => {
   jest.clearAllMocks();
   jest.restoreAllMocks();
@@ -221,5 +240,70 @@ describe("the timer card", () => {
     await waitFor(() =>
       expect(Alert.alert).toHaveBeenLastCalledWith("25分 勉強したよ! おつかれさま!"),
     );
+  });
+});
+
+describe("the reminder's permission", () => {
+  async function show() {
+    await render(
+      <QueryClientProvider
+        client={testQueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <TimerCard />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("is asked for, with the reason, the first time the timer starts, and only then", async () => {
+    const { account, calls } = accountOf("s1");
+    signIn(account);
+    takeSession(undefined);
+    jest.mocked(readPushPermission).mockResolvedValue("undetermined");
+    answerAlert("お知らせをオンにする");
+    await show();
+    await fireEvent.press(await screen.findByTestId("timer-start"));
+    expect(await screen.findByTestId("timer-clock")).toBeTruthy();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      "止まる前にお知らせしてもいい?",
+      expect.stringContaining("15分くらい"),
+      expect.any(Array),
+      { cancelable: false },
+    );
+    expect(askPushPermission).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual([`start:${school.StudyMode.STOPWATCH}`]);
+
+    // The next start does not ask again, whatever was answered.
+    takeSession(undefined);
+    jest.mocked(Alert.alert).mockClear();
+    await fireEvent.press(await screen.findByTestId("timer-start"));
+    expect(await screen.findByTestId("timer-clock")).toBeTruthy();
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(askPushPermission).toHaveBeenCalledTimes(1);
+  });
+
+  it("declined, the running timer says to keep the app open and offers to turn them on", async () => {
+    const { account, calls } = accountOf("s1");
+    signIn(account);
+    takeSession(undefined);
+    jest.mocked(readPushPermission).mockResolvedValue("undetermined");
+    answerAlert("あとで");
+    await show();
+    await fireEvent.press(await screen.findByTestId("timer-start"));
+    expect(await screen.findByTestId("timer-reminder-off")).toBeTruthy();
+    expect(askPushPermission).not.toHaveBeenCalled();
+    expect(calls).toEqual([`start:${school.StudyMode.STOPWATCH}`]);
+
+    await fireEvent.press(screen.getByTestId("timer-reminder-on"));
+    await waitFor(() => expect(screen.queryByTestId("timer-reminder-off")).toBeNull());
+    expect(askPushPermission).toHaveBeenCalledTimes(1);
+  });
+
+  it("allowed, the running timer shows no warning", async () => {
+    signIn(accountOf("s1").account);
+    takeSession(session(RUNNING, Date.now()));
+    await show();
+    expect(await screen.findByTestId("timer-clock")).toBeTruthy();
+    await waitFor(() => expect(readPushPermission).toHaveBeenCalled());
+    expect(screen.queryByTestId("timer-reminder-off")).toBeNull();
   });
 });
