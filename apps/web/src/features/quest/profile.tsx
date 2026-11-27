@@ -1,41 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import { create, type identity, quest } from "@tokuly/api";
+import { localized, profileQuest } from "@tokuly/core/quest";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ProfileSection, ProfileSectionProps } from "#/seams/profile";
-import { localized } from "./api";
 import { BadgeMedal, LevelPill, TitlePill, useBadgeName } from "./parts";
-
-/** The cards the quest domain attaches to a profile (`docs/events/quest.md`, "Profile cards"). */
-const LEVEL_CARD = "quest.level";
-const STREAK_CARD = "quest.streak";
-
-const cardOf = (profile: identity.Profile, kind: string) =>
-  profile.cards.find((card) => card.kind === kind);
-
-/** The showcase as the level card carries it: a JSON array of `{ key, emoji, tier, name_ja, name_en }`. */
-function showcaseOf(card: identity.ProfileCard | undefined): quest.Badge[] {
-  try {
-    const rows: unknown = JSON.parse(card?.data.badges ?? "[]");
-    if (!Array.isArray(rows)) return [];
-    return rows.flatMap((row) => {
-      if (!row || typeof row !== "object") return [];
-      const { key, emoji, tier, name_ja, name_en } = row as Record<string, unknown>;
-      if (typeof key !== "string") return [];
-      return [
-        create(quest.BadgeSchema, {
-          key,
-          emoji: typeof emoji === "string" ? emoji : "",
-          tier: Number(tier) || 0,
-          name: { ja: String(name_ja ?? ""), en: String(name_en ?? "") },
-          owned: true,
-        }),
-      ];
-    });
-  } catch {
-    return [];
-  }
-}
 
 /**
  * Under the bio: the person's level and the title (称号) they wear, and — on
@@ -43,21 +11,18 @@ function showcaseOf(card: identity.ProfileCard | undefined): quest.Badge[] {
  */
 function QuestStatus({ profile, user, isSelf }: ProfileSectionProps) {
   const { t, i18n } = useTranslation("quest");
-  const levelCard = cardOf(profile, LEVEL_CARD);
-  const streakCard = cardOf(profile, STREAK_CARD);
-  if (!levelCard && !streakCard) return null;
-  const level = Number(levelCard?.data.level) || 0;
-  const title = localized(
-    create(quest.TitleSchema, {
-      text: { ja: levelCard?.data.title_ja ?? "", en: levelCard?.data.title_en ?? "" },
-    }).text,
-    i18n.language,
-  );
-  const days = Number(streakCard?.data.days) || 0;
-  const expiring = Number(streakCard?.data.state) === quest.StreakState.EXPIRING;
+  const {
+    shown,
+    level,
+    title: titleText,
+    streakDays: days,
+    streakExpiring: expiring,
+  } = profileQuest(profile);
+  if (!shown && days === 0) return null;
+  const title = localized(titleText, i18n.language);
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="quest-profile-status">
-      {levelCard && level > 0 && (
+      {level > 0 && (
         <Link
           to="/quest/u/$handle"
           params={{ handle: user.handle }}
@@ -85,9 +50,8 @@ function QuestStatus({ profile, user, isSelf }: ProfileSectionProps) {
 function QuestShowcase({ profile, user, isSelf }: ProfileSectionProps) {
   const { t } = useTranslation("quest");
   const badgeName = useBadgeName();
-  const levelCard = cardOf(profile, LEVEL_CARD);
-  if (!levelCard) return null;
-  const badges = showcaseOf(levelCard);
+  const { shown, showcase: badges } = profileQuest(profile);
+  if (!shown) return null;
   if (badges.length === 0 && !isSelf) return null;
   return (
     <section

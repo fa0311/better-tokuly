@@ -1,12 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import type { quest } from "@tokuly/api";
+import { badgeLines, fraction, isHiddenSecret, nextInLine } from "@tokuly/core/quest";
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { useBadgeCatalog, useLocalized, useUserBadges } from "./api";
-import { badgeLines, fraction, isHiddenSecret, nextInLine } from "./model";
 import { BadgeMedal, ProgressBar, QuestNav, RarityChip, TitlePill, useBadgeName } from "./parts";
 
 /**

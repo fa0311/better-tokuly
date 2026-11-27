@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type common, quest, toDate } from "@tokuly/api";
+import { isHiddenSecret, questKeys } from "@tokuly/core/quest";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -13,8 +14,7 @@ import { EmojiText } from "#/features/emoji";
 import { profileClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import { questAdminClient, questKeys, useBadgeCatalog, useLocalized } from "./api";
-import { isHiddenSecret } from "./model";
+import { questAdminClient, useBadgeCatalog, useLocalized } from "./api";
 import { SectionTitle, useBadgeName } from "./parts";
 
 const REASON_LIMIT = 500;

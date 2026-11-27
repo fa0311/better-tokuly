@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { quest } from "@tokuly/api";
+import { fraction, levelFraction, xpToNextLevel } from "@tokuly/core/quest";
 import { ChevronRight, Settings2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
@@ -8,7 +9,6 @@ import { BalancePill } from "#/features/wallet";
 import { cn } from "#/lib/cn";
 import { useLocalized, useProgress } from "./api";
 import { Missions } from "./missions";
-import { fraction, levelFraction, xpToNextLevel } from "./model";
 import { ProgressBar, QuestNav, SectionTitle, TitlePill } from "./parts";
 
 /**

@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MessageInitShape, quest } from "@tokuly/api";
 import { profileKeys } from "@tokuly/core/profile";
+import { questKeys } from "@tokuly/core/quest";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Card } from "#/components/ui/card";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
-import { questClient, questKeys } from "./api";
+import { questClient } from "./api";
 
 type Change = MessageInitShape<typeof quest.UpdatePreferencesRequestSchema>;
 
