@@ -3,13 +3,8 @@ import { common } from "@tokuly/api";
 import { forgetUserNotes } from "@tokuly/core/notes";
 import { lazy, useEffect } from "react";
 import { realtime } from "#/lib/realtime";
-import { useSessionStore } from "#/stores/session";
-import { resetDeletedNotes } from "./api";
 import { ComposeHost } from "./compose-host";
-import { closeCompose } from "./compose-store";
-import { discardAllDrafts } from "./drafts";
 import { applyNotesFrame, hintTimelines } from "./live";
-import { resetViews } from "./views";
 
 const NoteSubjectCard = lazy(() =>
   import("./subject-card").then((module) => ({ default: module.NoteSubjectCard })),
@@ -57,18 +52,6 @@ export default function NotesBackground() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [queryClient]);
-
-  useEffect(
-    () =>
-      useSessionStore.subscribe((session) => {
-        if (session.state.status !== "signedOut") return;
-        closeCompose();
-        discardAllDrafts();
-        resetViews();
-        resetDeletedNotes();
-      }),
-    [],
-  );
 
   return <ComposeHost />;
 }

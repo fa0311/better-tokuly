@@ -1,6 +1,6 @@
 import type { geo } from "@tokuly/api";
 import { withDismissed } from "@tokuly/core/places";
-import { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "#/lib/device-memory";
+import { readDeviceMemory, writeDeviceMemory } from "#/lib/device-memory";
 
 /**
  * Suggestions the person answered "not now". The server keeps suggesting a
@@ -8,9 +8,9 @@ import { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "#/lib/d
  * answer is remembered on this device: per account, as fingerprints rather
  * than coordinates, and only for as long as the spot is still suggested.
  */
-const PREFIX = "tokuly.places.dismissed.";
+export const PREFIX = "tokuly.places.dismissed.";
 /** The device-wide list of coordinates an earlier version kept: removed wherever it is still found. */
-const LEGACY_KEY = "tokuly.places.dismissedSuggestions";
+export const LEGACY_KEY = "tokuly.places.dismissedSuggestions";
 
 export function readDismissed(userId: string): string[] {
   const stored = readDeviceMemory<unknown>(PREFIX + userId);
@@ -32,9 +32,4 @@ export function dismissSuggestion(
   const next = withDismissed(userId, readDismissed(userId), suggestion, current);
   writeDeviceMemory(PREFIX + userId, next);
   return next;
-}
-
-/** Forgets every answer kept in this browser, for every account. */
-export function forgetDismissed(): void {
-  forgetDeviceMemory(PREFIX, LEGACY_KEY);
 }

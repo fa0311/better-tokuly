@@ -14,6 +14,11 @@ import { useCreatePlaylist, useMyPlaylists, useSaveTo } from "./data";
 /** The video being saved; the sheet is open while one is set. */
 const useSaveTarget = create<{ video: video.VideoSummary | null }>(() => ({ video: null }));
 
+/** Closes "save to…": the account that opened it left. */
+export function closeSaveSheet(): void {
+  useSaveTarget.setState({ video: null });
+}
+
 /** Opens "save to…" for a video, from any screen. */
 export function openSaveSheet(summary: video.VideoSummary): void {
   useSaveTarget.setState({ video: summary });

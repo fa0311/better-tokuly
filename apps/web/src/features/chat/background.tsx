@@ -4,15 +4,12 @@ import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { setBadge } from "#/stores/badges";
 import { useSessionStore } from "#/stores/session";
-import { callClient, chatKeys } from "./api";
+import { callClient } from "./api";
 import { CallHost } from "./calls/call-host";
-import { hangUp } from "./calls/session";
 import { useConversationList, useUnread } from "./conversations";
-import { clearDrafts } from "./drafts";
 import { applyChatEvent, resynchronize } from "./events";
 import { useLive } from "./live";
 import { setChatRouter } from "./navigation";
-import { clearOutbox } from "./outbox";
 
 /**
  * Chat, for as long as someone is signed in and whatever page they are on:
@@ -64,18 +61,7 @@ export default function ChatBackground() {
       }
     });
     client.start();
-    return () => {
-      offFrame();
-      // Signed out: nothing of this account's chats may greet the next person.
-      // (Checked, because development double-mounts effects while still signed in.)
-      if (useSessionStore.getState().state.status === "signedIn") return;
-      void hangUp();
-      clearOutbox();
-      clearDrafts();
-      queryClient.removeQueries({ queryKey: chatKeys.all });
-      useLive.getState().reset();
-      setBadge("chat", 0);
-    };
+    return offFrame;
   }, [queryClient, userId]);
 
   // A call that was already ringing or running when the app opened was announced before we listened: ask for it.

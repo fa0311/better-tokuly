@@ -115,7 +115,8 @@ export function TodayMoment({
 }
 
 /** Per account: what one person celebrated is not seen by the next one on this browser. */
-const seenKey = (userId: string) => `tokuly.plans.momentSeen.${userId}`;
+export const MOMENT_SEEN_PREFIX = "tokuly.plans.momentSeen.";
+const seenKey = (userId: string) => `${MOMENT_SEEN_PREFIX}${userId}`;
 
 /** Whether the moment for `id` on `day` was shown to this account in this browser already (it opens by itself once). */
 export function momentSeen(userId: string, id: string, day: string): boolean {

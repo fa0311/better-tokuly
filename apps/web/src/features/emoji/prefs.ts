@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 // Small browser-side facts the emoji components share: whether pictures may move, and whether sensitive emoji are shown.
 
-const SENSITIVE_KEY = "tokuly.emoji.showSensitive";
+export const SENSITIVE_KEY = "tokuly.emoji.showSensitive";
 const listeners = new Set<() => void>();
 let watching = false;
 

@@ -113,6 +113,9 @@ of what a feature shows. What a feature _sends by itself_ is its own duty:
   server for it; throwing keeps the session aside for the next start. What a
   feature keeps on the device for an account it drops once
   `accountsOnDevice()` no longer lists the session.
+- **Nothing stays in memory.** A store outside the signed-in tree (friends'
+  positions, who is typing) is emptied in `forget()` of `lifecycle.ts`, which
+  runs after every leave, before the next account's screens mount.
 - **Consent is per account, per device.** Nothing is sent for an account
   (its location, a push registration) until it said yes on this device, and
   the server is told when it stops, leaves or is switched away from.

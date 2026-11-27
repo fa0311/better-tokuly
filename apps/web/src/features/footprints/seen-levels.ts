@@ -1,6 +1,6 @@
 import type { SeenLevels } from "@tokuly/core/footprints";
 import { opaqueHash } from "@tokuly/core/places";
-import { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "#/lib/device-memory";
+import { readDeviceMemory, writeDeviceMemory } from "#/lib/device-memory";
 
 /**
  * The levels that were already celebrated, so a level-up is announced
@@ -8,9 +8,9 @@ import { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "#/lib/d
  * their IDs, so the entry does not say where the account has been; and it
  * is removed on sign-out.
  */
-const PREFIX = "tokuly.footprints.levels.";
+export const PREFIX = "tokuly.footprints.levels.";
 /** The device-wide entry with region IDs an earlier version kept: removed wherever it is still found. */
-const LEGACY_KEY = "tokuly.footprints.levels";
+export const LEGACY_KEY = "tokuly.footprints.levels";
 
 /** What a region is remembered as for one account. */
 export const regionMark = (userId: string, regionId: string): string =>
@@ -28,15 +28,4 @@ export function readSeenLevels(userId: string): SeenLevels | null {
 
 export function writeSeenLevels(userId: string, seen: SeenLevels): void {
   writeDeviceMemory(PREFIX + userId, seen);
-}
-
-/** Forgets the celebrated levels of every account in this browser. */
-export function forgetSeenLevels(): void {
-  // The legacy key is a prefix of the per-account ones, so it is removed by exact name.
-  forgetDeviceMemory(PREFIX);
-  try {
-    window.localStorage.removeItem(LEGACY_KEY);
-  } catch {
-    // Nothing to clear.
-  }
 }

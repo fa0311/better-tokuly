@@ -39,6 +39,13 @@ export interface AccountLifecycle {
    */
   beforeEnd?(session: Api): Promise<unknown>;
   /**
+   * The account has left: what the feature holds of it in memory (stores
+   * outside the signed-in tree, a sheet about to open) is dropped, before the
+   * next account's screens mount. Runs on every switch, added account and
+   * sign-out; the tree's own state goes with the tree.
+   */
+  forget?(): void;
+  /**
    * Secure-storage entries the feature keeps for this device's accounts
    * (an unanswered gift). The first launch of an install forgets them with
    * the accounts: the iOS keychain outlives an uninstall.
@@ -73,6 +80,17 @@ export async function runBeforeLeave(account: Account, lifecycles = LIFECYCLES):
   await Promise.all(
     lifecycles.flatMap(({ beforeLeave }) => (beforeLeave ? [run(beforeLeave)] : [])),
   );
+}
+
+/** Drops what every feature held of the account that left; one that fails does not stop the others. */
+export function runForget(lifecycles = LIFECYCLES): void {
+  for (const { forget } of lifecycles) {
+    try {
+      forget?.();
+    } catch (error) {
+      console.error("lifecycle: forgetting an account failed", error);
+    }
+  }
 }
 
 /** What the features take back as a departed session; the first failure stops it from being ended. */

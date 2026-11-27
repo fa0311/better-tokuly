@@ -2,12 +2,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { api } from "#/lib/api";
 import { useMe } from "#/stores/session";
-import { applyAccent, DEFAULT_ACCENT, storedAccent } from "./appearance/accent";
+import { applyAccent, storedAccent } from "./appearance/accent";
 import { isThemeSetting, setAppearance, useAppearance } from "./appearance/appearance-store";
 import { PRIVATE_KEYS, useSettings } from "./data";
 
-/** Which account's look this browser last took over from the server. */
-const OWNER_KEY = "tokuly.appearanceOwner";
+/** Which account's look this browser last took over from the server (forgotten on sign-out). */
+export const OWNER_KEY = "tokuly.appearanceOwner";
 
 /**
  * Keeps the look of the app in line with the account while someone is signed
@@ -36,14 +36,10 @@ export default function SettingsBackground() {
     });
   }, [userId, appearance]);
 
-  // Signing out ends the browser's claim, so the next sign-in starts from the account again.
   useEffect(
     () => () => {
       if (api().session.state.status !== "signedOut") return;
-      window.localStorage.removeItem(OWNER_KEY);
       for (const queryKey of PRIVATE_KEYS) queryClient.removeQueries({ queryKey });
-      // The signed-out pages wear the default colour again.
-      applyAccent(DEFAULT_ACCENT);
     },
     [queryClient],
   );

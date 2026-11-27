@@ -18,6 +18,7 @@ describe("the seam registries", () => {
 
   it("find the features by their files", () => {
     expect(areasOf("lifecycle")).toEqual([
+      "chat",
       "live",
       "map",
       "media",
