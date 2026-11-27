@@ -853,3 +853,49 @@ async fn a_member_removed_while_joining_does_not_stay_in_the_call() {
     let call = get_call(ctx, owner, call_id).await;
     assert_eq!(state_of(&call, member), Some(CallParticipantState::CALL_PARTICIPANT_STATE_LEFT));
 }
+
+#[tokio::test]
+async fn an_erased_account_leaves_no_trace_in_the_calls_of_a_group() {
+    let (ctx, _livekit) = start_with_room_service().await;
+    let (group, owner, members) = ctx.group_of("部活", 2).await;
+    let (first, second) = (&members[0], &members[1]);
+    let ended = start_call(&ctx, &owner, &group.id, false).await.call.id.clone();
+    join(&ctx, first, &ended).await;
+    leave(&ctx, first, &ended).await;
+    assert_eq!(leave(&ctx, &owner, &ended).await.state, CallState::CALL_STATE_ENDED);
+    let live = start_call(&ctx, &owner, &group.id, false).await.call.id.clone();
+    join(&ctx, first, &live).await;
+
+    // What identity does when the grace period is over: anonymise, then announce.
+    sqlx::query("UPDATE users SET deleted_at = now(), display_name = '' WHERE id = $1")
+        .bind(first.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    let deleted = tokuly_core::events::Event {
+        id: Uuid::now_v7(),
+        topic: "identity.user.deleted".into(),
+        actor_id: None,
+        occurred_at: chrono::Utc::now(),
+        data: serde_json::json!({ "user_id": first.id }),
+    };
+    ctx.chat.handle_event(&deleted).await.unwrap();
+
+    for call_id in [&ended, &live] {
+        let call = get_call(&ctx, &owner, call_id).await;
+        assert_eq!(state_of(&call, first), None, "not among the participants any more");
+        assert!(state_of(&call, &owner).is_some());
+    }
+    assert_eq!(get_call(&ctx, &owner, &live).await.state, CallState::CALL_STATE_ACTIVE, "the others talk on");
+    join(&ctx, second, &live).await;
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM chat_call_participants WHERE user_id = $1")
+        .bind(first.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+
+    // Delivered again (at-least-once): nothing changes.
+    ctx.chat.handle_event(&deleted).await.unwrap();
+    assert_eq!(get_call(&ctx, &owner, &live).await.state, CallState::CALL_STATE_ACTIVE);
+}

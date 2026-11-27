@@ -287,6 +287,95 @@ async fn a_takedown_during_the_second_erasure_does_not_deadlock_with_it() {
     assert_eq!(announcements(&ctx, &history).await.len(), history.len(), "every message once");
 }
 
+/// Before direct conversations went with their second account, erasing both
+/// sides left the conversation behind with nobody in it. The sweep deletes
+/// those the same way the erasure does now.
+#[tokio::test]
+async fn direct_conversations_left_empty_by_earlier_erasures_are_swept() {
+    let ctx = start().await;
+    let (taro, hanako) = ctx.friends("taro", "hanako").await;
+    let jiro = ctx.app.user("jiro").await;
+    ctx.befriend(&taro, &jiro).await;
+    let (direct, history, unsent, photo) = long_direct(&ctx, &taro, &hanako).await;
+    let kept = ctx.direct(&taro, &jiro).await;
+    // What the handler did then: memberships went, the conversation stayed.
+    erase(&ctx, &taro).await;
+    let hanako_deleted = erase(&ctx, &hanako).await;
+    sqlx::query("DELETE FROM chat_members WHERE conversation_id = ANY($1::uuid[]) AND user_id = ANY($2)")
+        .bind(vec![direct.id.clone(), kept.id.clone()])
+        .bind(vec![taro.id, hanako.id])
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE chat_conversations SET member_count = 0 WHERE id = $1::uuid")
+        .bind(&direct.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+
+    // Two workers start at once while the erasure is delivered again.
+    let (a, b, c) = tokio::join!(
+        ctx.chat.sweep_erased_directs(),
+        ctx.chat.sweep_erased_directs(),
+        ctx.chat.handle_event(&hanako_deleted),
+    );
+    assert!(a.unwrap() + b.unwrap() >= 1);
+    c.unwrap();
+    assert!(!conversation_exists(&ctx, &direct.id).await);
+    let announced = announcements(&ctx, &history).await;
+    assert_eq!(announced.len(), history.len(), "every message once");
+    assert_eq!(announced.iter().filter(|id| **id == unsent).count(), 1);
+    assert!(
+        !tokuly_media::assets::is_attached(&ctx.app.core, photo.parse().unwrap()).await.unwrap(),
+        "uploads of its messages are released"
+    );
+    assert!(conversation_exists(&ctx, &kept.id).await, "jiro is still there to read it");
+
+    // Run again (the next start): nothing more is announced.
+    ctx.chat.sweep_erased_directs().await.unwrap();
+    assert_eq!(announcements(&ctx, &history).await.len(), history.len());
+}
+
+/// A forward holds the original upload under its own message, so two
+/// conversations can hold the same uploads, each in its own order. Deleted
+/// at the same time, both release them.
+#[tokio::test]
+async fn two_conversations_sharing_uploads_are_deleted_at_once() {
+    let ctx = start().await;
+    let (taro, hanako) = ctx.friends("taro", "hanako").await;
+    let jiro = ctx.app.user("jiro").await;
+    ctx.befriend(&taro, &jiro).await;
+    let first = ctx.group(&taro, "写真部", &[&hanako]).await;
+    let second = ctx.group(&taro, "写真部2", &[&jiro]).await;
+    let mut photos = Vec::new();
+    for _ in 0..40 {
+        photos.push(ctx.photo(&taro).await);
+    }
+    for photo in &photos {
+        ctx.send(&taro, &media_request(&first.id, &[photo], "")).await.unwrap();
+    }
+    for photo in photos.iter().rev() {
+        ctx.send(&taro, &media_request(&second.id, &[photo], "")).await.unwrap();
+    }
+    let leave = |user: &TestUser, conversation_id: &str| {
+        let request = LeaveConversationRequest { conversation_id: conversation_id.to_owned(), ..Default::default() };
+        let (ctx, user) = (&ctx, user.clone());
+        async move { ctx.call::<_, LeaveConversationResponse>("Conversation", "LeaveConversation", &user, &request).await }
+    };
+    leave(&hanako, &first.id).await.unwrap();
+    leave(&jiro, &second.id).await.unwrap();
+
+    let (a, b) = tokio::join!(leave(&taro, &first.id), leave(&taro, &second.id));
+    a.unwrap();
+    b.unwrap();
+
+    assert!(!conversation_exists(&ctx, &first.id).await);
+    assert!(!conversation_exists(&ctx, &second.id).await);
+    for photo in &photos {
+        assert!(!tokuly_media::assets::is_attached(&ctx.app.core, photo.parse().unwrap()).await.unwrap());
+    }
+}
+
 #[tokio::test]
 async fn a_block_closes_a_direct_conversation_and_unblocking_reopens_it() {
     let ctx = start().await;

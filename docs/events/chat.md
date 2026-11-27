@@ -72,7 +72,7 @@ Durable consumer `chat`. Every handler is idempotent.
 
 | Topic | Reaction |
 |---|---|
-| `identity.user.deleted` `{ user_id }` | The user's memberships, reactions and co-presence go. Their messages stay (the sender renders as a deleted user). Direct conversations become read-only for the other side (a live call fails, an open POV request is cancelled); once that side is erased too, the conversation is deleted like an empty group. The account row stays as identity's tombstone, so nothing goes by `ON DELETE CASCADE`. Groups lose a member, with the usual system message; a group they owned passes to the longest standing admin, else member; a group nobody is left in is deleted with its uploads released. |
+| `identity.user.deleted` `{ user_id }` | The user's memberships, reactions, call participations and co-presence go. Their messages stay (the sender renders as a deleted user). Direct conversations become read-only for the other side (a live call fails, an open POV request is cancelled); once that side is erased too, the conversation is deleted like an empty group. The account row stays as identity's tombstone, so nothing goes by `ON DELETE CASCADE`. Groups lose a member, with the usual system message; a group they owned passes to the longest standing admin, else member; a group nobody is left in is deleted with its uploads released (in upload ID order, so two deletions holding the same uploads do not wait on each other). |
 | `identity.user.created` `{ user_id }` | Stores the account's default for 「AI に自分のメッセージを使ってもいい」 (off for a minor, on for an adult, by the age at creation; no birthdate counts as a minor), unless a value is stored already. Idempotent. |
 | `identity.user.birthdate_given` `{ user_id, minor }` | For a minor: the consent off, unless the owner chose. Idempotent. |
 | `social.user.blocked` / `social.user.unblocked` `{ user_id, blocked_id }` | The direct conversation of the two becomes read-only for both (live call ends as `FAILED`, open POV request is cancelled), or writable again. Sending already checks blocks live, so the event only maintains the flag lists show. Groups are not touched. |
@@ -147,6 +147,7 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 | POV expiry | 60 s | Open requests past their 2 h become `EXPIRED`; unsaved answers past their 24 h lose their content (attachments and caption removed, uploads released). |
 | link preview sweep | 5 min | Re-queues links nobody looked up for 2 minutes (a lost job) and gives up on those older than a day. |
 | removed text purge | 1 h | Forgets what edited and unsent messages said (`chat_removed_texts`, kept for reports) 30 days after the edit or deletion. |
+| erased direct sweep | at start | Deletes direct conversations whose two accounts are both erased, as the second erasure does (`Chat::sweep_erased_directs`): erasures handled before that rule left them behind empty. Finds nothing once it has run. |
 
 ## Media assets
 

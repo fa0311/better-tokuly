@@ -11,6 +11,7 @@
 //! | POV expiry (unanswered requests, unsaved answers) | 60 s |
 //! | link previews whose job was lost | 5 min |
 //! | texts kept for reports after an edit or unsend, past their 30 days | 1 h |
+//! | direct conversations of two erased accounts left by earlier erasures | at start |
 use std::time::Duration;
 
 use tokuly_core::{
@@ -105,6 +106,13 @@ impl Chat {
                     },
                 )
                 .await;
+        });
+
+        let chat = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = chat.sweep_erased_directs().await {
+                tracing::error!(error = %e, "sweeping the direct conversations of erased accounts failed");
+            }
         });
 
         self.spawn_periodic("co-presence sweep", PRESENCE_SWEEP_INTERVAL, |chat| async move {
