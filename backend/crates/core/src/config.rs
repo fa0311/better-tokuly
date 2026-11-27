@@ -53,6 +53,13 @@ pub struct Config {
     #[arg(long, env = "TOKULY_RATE_LIMIT_ADDRESS_PER_MINUTE", default_value_t = 1800)]
     pub rate_limit_address_per_minute: u32,
 
+    /// RPCs all callers without an account from one IPv6 /48 may make per
+    /// minute together, over all of its /64s: holding a /48 does not give
+    /// 65536 counts of the address limit. A carrier may hand the /64s of
+    /// one /48 to many phones, so it is ten addresses' worth. 0 = no limit.
+    #[arg(long, env = "TOKULY_RATE_LIMIT_NETWORK_PER_MINUTE", default_value_t = 18000)]
+    pub rate_limit_network_per_minute: u32,
+
     /// Proxies in front of the API whose `X-Forwarded-For` header names the
     /// real client (addresses or CIDR ranges, comma separated). From any
     /// other peer the header is ignored. The default covers an edge proxy on
@@ -275,6 +282,7 @@ impl Config {
         crate::request_limits::RequestLimits {
             per_account: self.rate_limit_account_per_minute,
             per_address: self.rate_limit_address_per_minute,
+            per_network: self.rate_limit_network_per_minute,
         }
     }
 

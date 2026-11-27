@@ -7,8 +7,9 @@
 //! and devices, a caller without one (no token, or a token that is no longer
 //! valid) by its address. IPv6 addresses count per /64, the block one
 //! subscriber is given, so walking through the addresses of one network
-//! does not reset the count. API tokens have their own limit
-//! ([`crate::api_tokens`]) and are not counted here.
+//! does not reset the count, and the /64s of one /48 share a count of their
+//! own: holding a /48 does not give 65536 counts. API tokens have their own
+//! limit ([`crate::api_tokens`]) and are not counted here.
 //!
 //! Only RPCs are counted (`/tokuly.<domain>.v1.<Service>/<Method>`); the few
 //! plain HTTP routes behind the middleware (the OAuth endpoints, pictures of
@@ -37,11 +38,13 @@ pub struct RequestLimits {
     pub per_account: u32,
     /// For callers without an account, per address (IPv6: per /64).
     pub per_address: u32,
+    /// For callers without an account from IPv6, per /48 over all of its /64s.
+    pub per_network: u32,
 }
 
 impl RequestLimits {
     /// No limit at all.
-    pub const NONE: Self = Self { per_account: 0, per_address: 0 };
+    pub const NONE: Self = Self { per_account: 0, per_address: 0, per_network: 0 };
 }
 
 /// How long the counter may take before the request goes ahead uncounted.
@@ -101,10 +104,51 @@ impl Caller {
         }
     }
 
+    /// What a request of this caller is counted against: its account, or its
+    /// address and, for IPv6, also the /48 around it.
+    fn counts(self) -> impl Iterator<Item = Count> {
+        let (count, network) = match self {
+            Self::Account(user_id) => (Count::Account(user_id), None),
+            Self::Address(address) => {
+                (Count::Address(address), address.is_ipv6().then(|| Count::Network(proxies::masked(address, 48))))
+            }
+        };
+        std::iter::once(count).chain(network)
+    }
+}
+
+/// One count a request goes against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Count {
+    Account(Uuid),
+    /// An IPv4 address or an IPv6 /64.
+    Address(IpAddr),
+    /// An IPv6 /48.
+    Network(IpAddr),
+}
+
+impl Count {
+    fn limit(&self, limits: &RequestLimits) -> u32 {
+        match self {
+            Self::Account(_) => limits.per_account,
+            Self::Address(_) => limits.per_address,
+            Self::Network(_) => limits.per_network,
+        }
+    }
+
     fn key(&self) -> String {
         match self {
             Self::Account(user_id) => format!("all:user:{}", user_id.simple()),
             Self::Address(address) => format!("all:addr:{address}"),
+            Self::Network(network) => format!("all:net:{network}"),
+        }
+    }
+
+    fn refusal(&self, limit: u32) -> String {
+        match self {
+            Self::Account(_) => format!("an account may make {limit} requests per minute"),
+            Self::Address(_) => format!("{limit} requests per minute are allowed without signing in"),
+            Self::Network(_) => format!("{limit} requests per minute are allowed without signing in from one IPv6 /48"),
         }
     }
 }
@@ -144,32 +188,27 @@ impl RequestGate {
         if !is_rpc(path) {
             return None;
         }
-        let caller = Caller::of(state, address)?;
-        let limit = match caller {
-            Caller::Account(_) => self.limits.per_account,
-            Caller::Address(_) => self.limits.per_address,
-        };
-        if limit == 0 {
-            return None;
-        }
-        let status = match tokio::time::timeout(COUNT_TIMEOUT, count_per_minute(cache, &caller.key(), limit)).await {
-            Ok(Ok(status)) => status,
-            Ok(Err(e)) => {
-                tracing::debug!(error = %e, "overall request limit not counted; request allowed");
-                return None;
+        for count in Caller::of(state, address)?.counts() {
+            let limit = count.limit(&self.limits);
+            if limit == 0 {
+                continue;
             }
-            Err(_) => {
-                tracing::debug!("overall request limit not counted in time; request allowed");
-                return None;
-            }
-        };
-        status.exceeded.then(|| {
-            let message = match caller {
-                Caller::Account(_) => format!("an account may make {limit} requests per minute"),
-                Caller::Address(_) => format!("{limit} requests per minute are allowed without signing in"),
+            let status = match tokio::time::timeout(COUNT_TIMEOUT, count_per_minute(cache, &count.key(), limit)).await {
+                Ok(Ok(status)) => status,
+                Ok(Err(e)) => {
+                    tracing::debug!(error = %e, "overall request limit not counted; request allowed");
+                    return None;
+                }
+                Err(_) => {
+                    tracing::debug!("overall request limit not counted in time; request allowed");
+                    return None;
+                }
             };
-            Refused { error: AppError::rate_limited("RATE_LIMITED", message), status }
-        })
+            if status.exceeded {
+                return Some(Refused { error: AppError::rate_limited("RATE_LIMITED", count.refusal(limit)), status });
+            }
+        }
+        None
     }
 }
 
@@ -229,6 +268,19 @@ mod tests {
             rate: crate::api_tokens::RateTier { name: "standard".into(), per_minute: 60 },
         };
         assert_eq!(Caller::of(&AuthState::Authenticated(AuthContext::from_api_token(token)), address), None);
+    }
+
+    #[test]
+    fn ipv6_addresses_also_count_per_48() {
+        let user = Uuid::now_v7();
+        assert_eq!(Caller::Account(user).counts().collect::<Vec<_>>(), [Count::Account(user)]);
+        let v4 = ip("203.0.113.7");
+        assert_eq!(Caller::Address(v4).counts().collect::<Vec<_>>(), [Count::Address(v4)]);
+        let v6 = ip("2001:db8:1:2::");
+        assert_eq!(
+            Caller::Address(v6).counts().collect::<Vec<_>>(),
+            [Count::Address(v6), Count::Network(ip("2001:db8:1::"))]
+        );
     }
 
     #[test]

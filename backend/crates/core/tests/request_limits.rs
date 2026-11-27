@@ -91,6 +91,11 @@ fn fresh_v6_network() -> u128 {
     (0x2001_0db8u128 << 96) | (((Uuid::now_v7().as_u128() >> 32) as u32 as u128) << 64)
 }
 
+/// A /48 nobody else uses in this run: 3fff:<random 28 bits>::/48 (RFC 9637).
+fn fresh_v6_site() -> u128 {
+    (0x3fffu128 << 112) | (((Uuid::now_v7().as_u128() >> 32) & 0x0fff_ffff) << 80)
+}
+
 fn v6(network: u128, host: u64) -> IpAddr {
     IpAddr::from((network | u128::from(host)).to_be_bytes())
 }
@@ -98,7 +103,7 @@ fn v6(network: u128, host: u64) -> IpAddr {
 #[tokio::test]
 async fn an_account_is_counted_over_all_its_sessions() {
     let tokens = tokens();
-    let app = app(tokens.clone(), RequestLimits { per_account: 3, per_address: 0 }, valkey().await);
+    let app = app(tokens.clone(), RequestLimits { per_account: 3, per_address: 0, per_network: 0 }, valkey().await);
     let user = Uuid::now_v7();
     let (phone, _) = tokens.issue(user, Uuid::now_v7(), &[]).unwrap();
     let (laptop, _) = tokens.issue(user, Uuid::now_v7(), &[]).unwrap();
@@ -118,7 +123,7 @@ async fn an_account_is_counted_over_all_its_sessions() {
 
 #[tokio::test]
 async fn callers_without_an_account_are_counted_per_address_and_ipv6_per_64() {
-    let app = app(tokens(), RequestLimits { per_account: 0, per_address: 2 }, valkey().await);
+    let app = app(tokens(), RequestLimits { per_account: 0, per_address: 2, per_network: 0 }, valkey().await);
     let network = fresh_v6_network();
     // Hopping between addresses of one /64 does not start a new count.
     for host in [1, 2] {
@@ -144,12 +149,32 @@ async fn callers_without_an_account_are_counted_per_address_and_ipv6_per_64() {
     assert_eq!(call(&app, GET_NOTE, &caller).await.0, 200, "another client behind the same proxy");
 }
 
+/// A /48 holds 65 536 /64s: walking through them does not give a caller
+/// as many counts, the /64s of one /48 also share a count of their own.
+#[tokio::test]
+async fn the_64s_of_one_ipv6_48_share_a_count_too() {
+    let app = app(tokens(), RequestLimits { per_account: 0, per_address: 2, per_network: 3 }, valkey().await);
+    let site = fresh_v6_site();
+    let subnet = |n: u128| v6(site | (n << 64), 1);
+    for n in 0..3 {
+        assert_eq!(call(&app, GET_NOTE, &Caller::anonymous(subnet(n))).await.0, 200, "the /64 number {n}");
+    }
+    let (status, reason, retry_after, _) = call(&app, GET_NOTE, &Caller::anonymous(subnet(3))).await;
+    assert_eq!((status, reason.as_str()), (429, "RATE_LIMITED"), "a fresh /64 of the same /48");
+    assert!(retry_after.is_some());
+    // The next /48 has its own count, and IPv4 has no such count.
+    assert_eq!(call(&app, GET_NOTE, &Caller::anonymous(v6(fresh_v6_site(), 1))).await.0, 200);
+    for _ in 0..4 {
+        assert_eq!(call(&app, GET_NOTE, &Caller::anonymous(fresh_v4())).await.0, 200);
+    }
+}
+
 /// A proxy may add its `X-Forwarded-For` as a field of its own after the
 /// one the client sent (HAProxy does): the client is still the one our proxy
 /// names, not the one the client claims in the first field.
 #[tokio::test]
 async fn a_forwarded_for_field_of_the_client_does_not_pick_the_address() {
-    let app = app(tokens(), RequestLimits { per_account: 0, per_address: 2 }, valkey().await);
+    let app = app(tokens(), RequestLimits { per_account: 0, per_address: 2, per_network: 0 }, valkey().await);
     let client = fresh_v4().to_string();
     let call = |claimed: String| {
         let request = http::Request::post(GET_NOTE)
@@ -171,7 +196,7 @@ async fn a_forwarded_for_field_of_the_client_does_not_pick_the_address() {
 /// of the API, listed or not.
 #[tokio::test]
 async fn every_rpc_callable_without_an_account_is_limited_per_address() {
-    let app = app(tokens(), RequestLimits { per_account: 0, per_address: 1 }, valkey().await);
+    let app = app(tokens(), RequestLimits { per_account: 0, per_address: 1, per_network: 0 }, valkey().await);
     let paths: Vec<String> = api_access::classified()
         .map(|(path, _)| path)
         .chain(["/tokuly.unlisted.v1.NewService/NewMethod".to_owned()])
@@ -192,7 +217,7 @@ async fn every_rpc_callable_without_an_account_is_limited_per_address() {
 async fn what_is_not_counted() {
     let tokens = tokens();
     let cache = valkey().await;
-    let app = app(tokens.clone(), RequestLimits { per_account: 1, per_address: 1 }, cache.clone());
+    let app = app(tokens.clone(), RequestLimits { per_account: 1, per_address: 1, per_network: 0 }, cache.clone());
     let address = fresh_v4();
     // Plain HTTP routes (probes, OAuth, pictures) are limited by their domains.
     for path in ["/healthz", "/oauth/token", "/media/link-image/x"] {
@@ -219,7 +244,7 @@ async fn what_is_not_counted() {
 async fn a_deployment_without_rate_limits_is_not_counted() {
     // TOKULY_RATE_LIMITS=false (the browser tests, the dev setup); a cache of its own, as the switch is shared by clones.
     let cache = valkey().await.with_rate_limits(false);
-    let app = app(tokens(), RequestLimits { per_account: 1, per_address: 1 }, cache.clone());
+    let app = app(tokens(), RequestLimits { per_account: 1, per_address: 1, per_network: 0 }, cache.clone());
     let address = fresh_v4();
     for _ in 0..3 {
         assert_eq!(call(&app, GET_NOTE, &Caller::anonymous(address)).await.0, 200);
@@ -283,7 +308,7 @@ async fn while_valkey_does_not_answer_requests_go_through_but_staff_sessions_do_
     let valkey = SilentValkey::start().await;
     let cache = valkey.cache().await;
     let tokens = tokens().with_revocations(cache.clone());
-    let app = app(tokens.clone(), RequestLimits { per_account: 1, per_address: 1 }, cache);
+    let app = app(tokens.clone(), RequestLimits { per_account: 1, per_address: 1, per_network: 0 }, cache);
     let (member, _) = tokens.issue(Uuid::now_v7(), Uuid::now_v7(), &[]).unwrap();
     let (moderator, _) = tokens.issue(Uuid::now_v7(), Uuid::now_v7(), &["moderator".to_owned()]).unwrap();
     let address = fresh_v4();
