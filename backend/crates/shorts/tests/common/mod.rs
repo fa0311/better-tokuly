@@ -5,9 +5,10 @@
 //! global (the for-you feed, trending hashtags, sound suggestions) are
 //! asserted on through things only the test itself made.
 //!
-//! Valkey is shared by every test, so the buffer of playback counters is
-//! too: tests that report playback and then flush hold [`playback_lock`]
-//! for the whole sequence.
+//! Valkey is shared by every test in this binary, so the buffer of playback
+//! counters is too: tests that report playback and then flush hold
+//! [`playback_lock`] for the whole sequence. Test binaries use separate
+//! prefixes to avoid another process taking their counters.
 #![allow(dead_code)] // each test binary uses its own subset
 
 use std::time::Duration;
@@ -78,7 +79,13 @@ pub async fn start_with(cfg: ShortsConfig) -> Ctx {
         let media = Media::new(core.clone(), MediaConfig::default()).expect("media domain");
         let social = Social::new(core.clone(), identity.clone(), SocialConfig::default()).expect("social domain");
         let video = VideoDomain::new(core.clone(), identity.clone(), VideoConfig::default()).expect("video domain");
-        let shorts = Shorts::new(core.clone(), identity.clone(), cfg).expect("shorts domain");
+        let shorts = Shorts::new_with_signal_buffer_prefix(
+            core.clone(),
+            identity.clone(),
+            cfg,
+            tokuly_testkit::test_run_prefix(),
+        )
+        .expect("shorts domain");
         let router = shorts.register(video.register(social.register(media.register(identity.register(router)))));
         domains = Some((shorts, media, video));
         router

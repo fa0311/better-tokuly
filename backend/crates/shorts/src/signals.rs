@@ -33,6 +33,10 @@
 //! | `shorts:once:<signal>:<short>:<account>` | marker, TTL 7 days | this account's like / comment / save / share was counted |
 //! | `shorts:seen:<user>` | sorted set by time, capped | shorts the user has played |
 //! | `shorts:lastwatch:<user>:<channel>` | short ID, TTL 1 h | the short to credit if the user now follows the channel |
+//!
+//! Tests prefix the pending set and hashes with the test-run ID because the
+//! test database is shared with other processes; a flush must not take their
+//! buffered counters.
 use std::{collections::HashSet, time::Duration};
 
 use sqlx::PgExecutor;
@@ -66,12 +70,24 @@ const SERVED_MEMORY_SECONDS: i64 = 6 * 3600;
 
 const PENDING_SET: &str = "shorts:pending";
 
+fn buffered_key(prefix: &str, key: &str) -> String {
+    if prefix.is_empty() { key.to_owned() } else { format!("{prefix}:{key}") }
+}
+
+fn pending_set_key(prefix: &str) -> String {
+    buffered_key(prefix, PENDING_SET)
+}
+
 fn signal_key(short_id: Uuid, signal: Engagement, account: Uuid) -> String {
     format!("shorts:once:{}:{}:{}", signal.name(), short_id.simple(), account.simple())
 }
 
 fn pending_key(short_id: Uuid) -> String {
     format!("shorts:pending:{}", short_id.simple())
+}
+
+fn pending_key_with_prefix(prefix: &str, short_id: Uuid) -> String {
+    buffered_key(prefix, &pending_key(short_id))
 }
 
 fn seen_key(user_id: Uuid) -> String {
@@ -417,7 +433,7 @@ impl Shorts {
         let now_ms = now().timestamp_millis();
         let mut writes = redis::pipe();
         for ((report, stay), (sample, view)) in stays.iter().zip(&counted) {
-            let key = pending_key(report.short.id);
+            let key = pending_key_with_prefix(&self.signal_buffer_prefix, report.short.id);
             if *view {
                 writes.cmd("HINCRBY").arg(&key).arg(if weighs { "views" } else { "guest_views" }).arg(1).ignore();
             }
@@ -430,7 +446,11 @@ impl Shorts {
                 writes.cmd("HINCRBY").arg(&key).arg("ratio_milli").arg((stay.ratio * 1000.0).round() as i64).ignore();
             }
             if *view || *sample {
-                writes.cmd("SADD").arg(PENDING_SET).arg(report.short.id.simple().to_string()).ignore();
+                writes
+                    .cmd("SADD")
+                    .arg(pending_set_key(&self.signal_buffer_prefix))
+                    .arg(report.short.id.simple().to_string())
+                    .ignore();
             }
             if let Some(user_id) = viewer.user_id {
                 writes
@@ -548,7 +568,11 @@ impl Shorts {
     pub async fn flush_signals(&self) -> AppResult<u64> {
         let core = &self.core;
         let mut conn = core.cache.conn();
-        let members: Vec<String> = redis::cmd("SPOP").arg(PENDING_SET).arg(FLUSH_BATCH).query_async(&mut conn).await?;
+        let members: Vec<String> = redis::cmd("SPOP")
+            .arg(pending_set_key(&self.signal_buffer_prefix))
+            .arg(FLUSH_BATCH)
+            .query_async(&mut conn)
+            .await?;
         let mut ids: Vec<Uuid> = members.iter().filter_map(|member| Uuid::parse_str(member).ok()).collect();
         if ids.is_empty() {
             return Ok(0);
@@ -558,7 +582,7 @@ impl Shorts {
         let script = redis::Script::new(TAKE_PENDING);
         let mut take = script.prepare_invoke();
         for id in &ids {
-            take.key(pending_key(*id));
+            take.key(pending_key_with_prefix(&self.signal_buffer_prefix, *id));
         }
         let taken: Vec<Vec<String>> = take.invoke_async(&mut conn).await?;
         let batch: Vec<(Uuid, Pending)> = ids
@@ -575,7 +599,7 @@ impl Shorts {
                 // Put the counters back; the next flush tries again.
                 let mut restore = redis::pipe();
                 for (id, pending) in &batch {
-                    let key = pending_key(*id);
+                    let key = pending_key_with_prefix(&self.signal_buffer_prefix, *id);
                     for (field, value) in [
                         ("views", pending.views),
                         ("guest_views", pending.guest_views),
@@ -587,7 +611,11 @@ impl Shorts {
                             restore.cmd("HINCRBY").arg(&key).arg(field).arg(value).ignore();
                         }
                     }
-                    restore.cmd("SADD").arg(PENDING_SET).arg(id.simple().to_string()).ignore();
+                    restore
+                        .cmd("SADD")
+                        .arg(pending_set_key(&self.signal_buffer_prefix))
+                        .arg(id.simple().to_string())
+                        .ignore();
                 }
                 if let Err(lost) = restore.query_async::<()>(&mut conn).await {
                     tracing::error!(error = %lost, shorts = batch.len(), "buffered playback counters were lost");
@@ -789,6 +817,18 @@ mod tests {
         assert_eq!(network_of("::ffff:203.0.113.7"), "203.0.113.7");
         assert_eq!(network_of("203.0.113.7"), "203.0.113.7");
         assert!(Pending::from_fields(&[]).is_empty());
+    }
+
+    #[test]
+    fn signal_buffer_keys_can_be_scoped_per_test_run() {
+        let id = Uuid::nil();
+        assert_eq!(pending_set_key(""), "shorts:pending");
+        assert_eq!(pending_key_with_prefix("", id), pending_key(id));
+        assert_eq!(pending_set_key("tokuly_test_1_ab12cd"), "tokuly_test_1_ab12cd:shorts:pending");
+        assert_eq!(
+            pending_key_with_prefix("tokuly_test_1_ab12cd", id),
+            "tokuly_test_1_ab12cd:shorts:pending:00000000000000000000000000000000"
+        );
     }
 
     #[test]

@@ -90,6 +90,7 @@ pub struct ShortsInner {
     pub core: Core,
     pub identity: Identity,
     pub cfg: ShortsConfig,
+    pub(crate) signal_buffer_prefix: String,
     clips: RwLock<Option<Arc<dyn ClipDirectory>>>,
 }
 
@@ -110,9 +111,29 @@ impl Shorts {
     /// subject resolver for shorts and the `shorts` section of the personal
     /// data export.
     pub fn new(core: Core, identity: Identity, cfg: ShortsConfig) -> anyhow::Result<Self> {
+        Self::new_with_signal_buffer_prefix(core, identity, cfg, "")
+    }
+
+    /// Builds the domain with a prefix for buffered playback counters in
+    /// Valkey. Every instance that reads and writes the same counter buffer
+    /// must use the same prefix. This is useful for isolated test runs that
+    /// share a Valkey database; production instances should use [`Self::new`]
+    /// so their workers share the same buffer.
+    pub fn new_with_signal_buffer_prefix(
+        core: Core,
+        identity: Identity,
+        cfg: ShortsConfig,
+        prefix: impl Into<String>,
+    ) -> anyhow::Result<Self> {
         cfg.validate()?;
         subjects::register(&core);
-        Ok(Self(Arc::new(ShortsInner { core, identity, cfg, clips: RwLock::new(None) })))
+        Ok(Self(Arc::new(ShortsInner {
+            core,
+            identity,
+            cfg,
+            signal_buffer_prefix: prefix.into(),
+            clips: RwLock::new(None),
+        })))
     }
 
     /// Registers the four shorts services on the Connect router.
