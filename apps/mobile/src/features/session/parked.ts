@@ -20,7 +20,7 @@ export function withParkedTokens<T>(work: () => Promise<T>): Promise<T> {
  * Runs `work` as a parked account's session without making it the active
  * one (what it still owes the server, such as removing a push registration
  * a switch could not remove). Resolves to `null` when the device no longer
- * holds that account.
+ * holds that account; throws when its session cannot be resumed now.
  */
 export function asParked<T>(
   sessionId: string,
@@ -29,7 +29,8 @@ export function asParked<T>(
   return withParkedTokens(async () => {
     if (!(await parkedTokens())[sessionId]) return null;
     const account = apiWith(parkedTokenStore(sessionId));
-    if (!(await account.session.restore()))
+    // A refresh, not a restore: that would wait out a rate limit, holding up the device's tokens.
+    if (!(await account.session.refresh()))
       throw new Error("the parked session could not be resumed");
     return work(account);
   });
