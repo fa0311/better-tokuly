@@ -53,6 +53,9 @@ describe("gift tiers", () => {
   it("shows amounts exactly, never rounded", () => {
     expect(exactCoins(12_345n, "ja")).toBe("12,345");
     expect(exactCoins(1_000_000, "en")).toBe("1,000,000");
+    expect(exactCoins(12_345_678_901_234_567_890n, "en")).toBe("12,345,678,901,234,567,890");
+    expect(exactCoins(12_345_678_901_234_567_890n, "ja")).toBe("12,345,678,901,234,567,890");
+    expect(exactCoins(-12_345n, "en")).toBe("-12,345");
   });
 
   it("reads typed amounts", () => {
