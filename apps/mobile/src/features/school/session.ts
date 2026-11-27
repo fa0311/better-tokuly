@@ -179,28 +179,24 @@ export function forgetReminder(): Promise<void> {
 }
 
 /**
- * The account leaves the device: its timer stops and is logged with its own
- * API (a timer the server cannot hear from would only be stopped by it
- * later, and friends would see it studying until then).
+ * The account leaves the device: the timer this phone kept running for it
+ * stops and is logged with its own API (the server would only stop a timer
+ * it cannot hear from later, and friends would see it studying until then).
+ *
+ * Only that one: a timer this phone does not hold (not loaded yet, or the
+ * store follows someone else) it said nothing for, and the account may be
+ * running one on another device.
  */
 export async function stopAs(account: Account): Promise<void> {
-  const mine = owner?.sessionId === account.sessionId;
-  const { session, loaded } = useStudyTimer.getState();
-  // Only a timer known to be off is left alone: one not loaded yet may be running.
-  const idle = mine && loaded && !session;
-  if (mine) {
-    owner = null;
-    useStudyTimer.setState(INITIAL);
-  }
+  if (owner?.sessionId !== account.sessionId) return;
+  const { session } = useStudyTimer.getState();
+  owner = null;
+  useStudyTimer.setState(INITIAL);
   await forgetReminder();
-  if (!idle) await stopTimer(account.api);
-}
-
-/** Stops whatever timer `api`'s account has; an account without one, or offline, is fine as it is. */
-export async function stopTimer(api: Account["api"]): Promise<void> {
+  if (!session) return;
   try {
-    await api.service(school.StudyService).stopStudySession({});
+    await account.api.service(school.StudyService).stopStudySession({});
   } catch {
-    // None running, or offline: the server stops a silent timer by itself, counted until the last heartbeat.
+    // None running anymore, or offline: the server stops a silent timer by itself, counted until the last heartbeat.
   }
 }

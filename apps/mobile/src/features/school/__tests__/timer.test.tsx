@@ -14,6 +14,7 @@ import {
 } from "#/platform/notifications";
 import { writeSecure } from "#/platform/secure-storage";
 import { testQueryClient } from "#/testing/query";
+import lifecycle from "../lifecycle";
 import {
   followAccount,
   forgetReminder,
@@ -199,17 +200,30 @@ describe("leaving the device", () => {
     expect(cancelReminder).toHaveBeenCalled();
   });
 
-  it("leaves a timer known to be off alone, and stops one not loaded yet", async () => {
+  it("stops only a timer this phone kept running", async () => {
     const idle = accountOf("s1");
     signIn(idle.account);
     takeSession(undefined);
     await stopAs(idle.account);
     expect(idle.calls).toEqual([]);
 
+    // Not loaded yet: this phone said nothing for it; another device may be running it.
     const unknown = accountOf("s2");
     signIn(unknown.account);
     await stopAs(unknown.account);
-    expect(unknown.calls).toEqual(["stop"]);
+    expect(unknown.calls).toEqual([]);
+
+    // Someone else's timer is on the screen: the leaving account's is not this phone's to stop.
+    const parked = accountOf("s3");
+    signIn(accountOf("s4").account);
+    takeSession(session(RUNNING));
+    await stopAs(parked.account);
+    expect(parked.calls).toEqual([]);
+    expect(useStudyTimer.getState().session).toBeDefined();
+  });
+
+  it("leaves a session that left long ago alone: its timer may be another device's by now", () => {
+    expect(lifecycle).not.toHaveProperty("beforeEnd");
   });
 
   it("goes on when the server cannot be told", async () => {

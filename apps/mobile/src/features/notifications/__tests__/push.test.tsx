@@ -160,13 +160,7 @@ describe("push registration", () => {
       await expect(switchAccount("s-alt")).resolves.toBe("switched");
     });
     // The leaving account's registration went while its session still worked.
-    expect(calls).toEqual([
-      "register as main: apns",
-      "switch as main",
-      "unregister as main",
-      // The study timer stops with the account too (a timer not loaded yet may be running).
-      "StopStudySession as main",
-    ]);
+    expect(calls).toEqual(["register as main: apns", "switch as main", "unregister as main"]);
     expect(device).toEqual(["tray cleared"]);
 
     // The next account starts undecided: nothing is registered for it.
@@ -306,12 +300,7 @@ describe("push registration", () => {
     offline = false;
     calls.length = 0;
     await act(() => settleDeparted());
-    expect(calls).toEqual([
-      "refresh rt-main",
-      "unregister as main",
-      "StopStudySession as main",
-      "SignOut as main",
-    ]);
+    expect(calls).toEqual(["refresh rt-main", "unregister as main", "SignOut as main"]);
 
     // Done once: nothing is left to tell.
     calls.length = 0;
