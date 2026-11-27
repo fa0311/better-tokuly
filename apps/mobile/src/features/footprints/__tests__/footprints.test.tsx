@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { create, geo } from "@tokuly/api";
+import { Code, ConnectError, create, fromDate, geo } from "@tokuly/api";
 import type { ReactNode } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
@@ -26,8 +26,11 @@ const tokyo = create(geo.RegionSchema, {
   countryCode: "JP",
 });
 
-/** One account's footprint service; `switchOnSeen` lets another account take over while the recap is marked seen. */
-function footprintsOf({ cells = 125, switchOnSeen = false } = {}) {
+/**
+ * One account's footprint service; `switchOnSeen` lets another account take
+ * over while the recap is marked seen, `boardDown` fails the ranking.
+ */
+function footprintsOf({ cells = 125, switchOnSeen = false, boardDown = false } = {}) {
   let switched = false;
   let seen = false;
   const asked: unknown[] = [];
@@ -44,8 +47,9 @@ function footprintsOf({ cells = 125, switchOnSeen = false } = {}) {
             : [],
         });
       },
-      getLeaderboard: async () =>
-        create(geo.GetLeaderboardResponseSchema, {
+      getLeaderboard: async () => {
+        if (boardDown) throw new ConnectError("no network", Code.Unavailable);
+        return create(geo.GetLeaderboardResponseSchema, {
           entries: [
             {
               rank: 1,
@@ -60,7 +64,8 @@ function footprintsOf({ cells = 125, switchOnSeen = false } = {}) {
               cellCount: 125n,
             },
           ],
-        }),
+        });
+      },
       getRecap: async ({ markSeen }: { markSeen: boolean }) => {
         asked.push({ markSeen });
         if (markSeen && switchOnSeen) switched = true;
@@ -69,6 +74,8 @@ function footprintsOf({ cells = 125, switchOnSeen = false } = {}) {
         return create(geo.GetRecapResponseSchema, {
           newCellCount: fresh ? 12n : 0n,
           distanceMeters: 1500,
+          // 2 May, 05:00 in Tokyo.
+          since: fromDate(new Date("2026-05-01T20:00:00Z")),
         });
       },
     }),
@@ -124,6 +131,21 @@ describe("the footprints screen", () => {
     footprintsOf({ cells: 0 });
     await show(<FootprintsScreen />);
     expect(await screen.findByText("まだ霧の中…!")).toBeTruthy();
+  });
+
+  it("dates the recap on the account's calendar, not the phone's", async () => {
+    footprintsOf();
+    await show(<FootprintsScreen />);
+    await screen.findByTestId("footprints-recap");
+    expect(screen.getByText(/5月2日 から/)).toBeTruthy();
+  });
+
+  it("says when the ranking cannot be read, instead of calling the account alone", async () => {
+    footprintsOf({ boardDown: true });
+    await show(<FootprintsScreen />);
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("まだ誰もいないよ")).toBeNull();
+    expect(screen.queryByText("ともだちを追加")).toBeNull();
   });
 
   it("marks the recap seen when the person says so", async () => {

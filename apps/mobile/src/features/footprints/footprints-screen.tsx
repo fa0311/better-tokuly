@@ -10,6 +10,7 @@ import { Avatar } from "#/components/avatar";
 import { Button } from "#/components/button";
 import { EmptyState, ErrorNote, Page, Row, Section, Spinner } from "#/components/page";
 import { Tabs } from "#/components/tabs";
+import { useAccountTimeZone } from "#/features/history/data";
 import { GazetteerCredit } from "#/features/history/parts";
 import { useMe } from "#/features/session/store";
 import { webScreenHref } from "#/features/web/handoff";
@@ -163,6 +164,7 @@ function Fact({ label, value }: { label: string; value: string }) {
 function RecapCard() {
   const { t, i18n } = useTranslation(NS);
   const { colors } = useTheme();
+  const zone = useAccountTimeZone();
   const recap = useRecap();
   const seen = useMarkRecapSeen();
   const count = Number(recap.data?.newCellCount ?? 0);
@@ -177,7 +179,7 @@ function RecapCard() {
       <Text className="text-xs font-black" style={{ color: INK_ON_BRIGHT }}>
         🎁 {t("recap.title")}
         {since
-          ? `・${t("recap.since", { date: since.toLocaleDateString(i18n.language, { month: "short", day: "numeric" }) })}`
+          ? `・${t("recap.since", { date: since.toLocaleDateString(i18n.language, { timeZone: zone, month: "short", day: "numeric" }) })}`
           : ""}
       </Text>
       <Text className="text-2xl font-black" style={{ color: INK_ON_BRIGHT }}>
