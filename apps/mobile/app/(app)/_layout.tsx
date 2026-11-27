@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { routeFor, usePendingLink } from "#/features/session/routing";
 import { useSessionStore } from "#/features/session/store";
 import { BirthdateGate } from "#/features/settings/birthdate-gate";
+import { TooYoungGate } from "#/features/settings/too-young-gate";
 import { useTheme } from "#/lib/theme";
 import { BackgroundFeatures } from "#/seams/background";
 import { BadgeSourceRunner } from "#/seams/badges";
@@ -12,7 +13,8 @@ import { SCREENS } from "#/seams/screens";
 /**
  * Signed in: the tabs, the screens pushed over them, and what runs on every one of them.
  * All three come from the features (`#/seams`): nothing is listed here. An
- * account without a birthdate is asked for it first (`BirthdateGate`).
+ * account without a birthdate is asked for it first (`BirthdateGate`); one under 13
+ * sees nothing of the app, background work included (`TooYoungGate`).
  */
 export const unstable_settings = { initialRouteName: "(tabs)" };
 
@@ -33,7 +35,7 @@ function SignedIn() {
   useTranslation();
   const { colors } = useTheme();
   return (
-    <>
+    <TooYoungGate>
       <BackgroundFeatures />
       <BadgeSourceRunner />
       <BirthdateGate>
@@ -52,6 +54,6 @@ function SignedIn() {
           ))}
         </Stack>
       </BirthdateGate>
-    </>
+    </TooYoungGate>
   );
 }

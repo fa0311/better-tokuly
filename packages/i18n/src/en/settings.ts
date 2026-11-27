@@ -627,6 +627,14 @@ export default {
     laterHint: "Until you answer, you use Tokuly with the settings for under-18s",
   },
 
+  tooYoung: {
+    title: "Sorry, Tokuly is for 13 and up",
+    lead: "Your account opens up again on your 13th birthday. See you then!",
+    birthdate: "Your date of birth cannot be changed",
+    deleteLead: "Want to delete the account instead? You can do that here",
+    signOut: "Sign out",
+  },
+
   errors: {
     BIO_TOO_LONG: "Keep your bio to 300 characters",
     SCHOOL_NAME_INVALID: "Keep the school name to 60 characters",

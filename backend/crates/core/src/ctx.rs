@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn a_session_is_required_where_a_handler_says_so() {
-        let session = AuthContext { user_id: Uuid::now_v7(), session_id: Uuid::now_v7(), roles: Vec::new(), expires_at: chrono::Utc::now(), api_token: None };
+        let session = AuthContext { user_id: Uuid::now_v7(), session_id: Uuid::now_v7(), roles: Vec::new(), expires_at: chrono::Utc::now(), api_token: None, too_young: false };
         assert!(context(AuthState::Authenticated(session)).require_session().is_ok());
 
         let token = ApiToken {

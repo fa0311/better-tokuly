@@ -25,6 +25,7 @@ export default {
   DISPLAY_NAME_INVALID: "Names are 1-40 characters",
   BIRTHDATE_INVALID: "Enter a valid birthday",
   AGE_RESTRICTED: "Sorry, you need to be 13 or older to use Tokuly",
+  ACCOUNT_TOO_YOUNG: "Sorry, you need to be 13 or older to use Tokuly",
   RATE_LIMITED: "Slow down a little and try again",
   TOKEN_INVALID: "This link is invalid or has expired",
   SIGN_IN_REQUIRED: "Please sign in",

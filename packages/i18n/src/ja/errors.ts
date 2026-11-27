@@ -25,6 +25,7 @@ export default {
   DISPLAY_NAME_INVALID: "なまえは1〜40文字で入力してね",
   BIRTHDATE_INVALID: "誕生日を正しく入力してね",
   AGE_RESTRICTED: "ごめんなさい、Tokulyは13歳から使えます",
+  ACCOUNT_TOO_YOUNG: "ごめんなさい、Tokulyは13歳から使えます",
   RATE_LIMITED: "ちょっと待ってから、もう一度ためしてね",
   TOKEN_INVALID: "このリンクは無効か、期限が切れています",
   SIGN_IN_REQUIRED: "ログインが必要です",

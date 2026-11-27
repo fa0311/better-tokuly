@@ -415,8 +415,10 @@ service AccountService {
   // Gives the birthdate of an account that has none (made before sign-up
   // asked for it; clients ask when `Me.birthdate` is empty). It cannot be
   // changed afterwards. An account under 18 then gets the privacy defaults
-  // of minors, as at sign-up. BIRTHDATE_INVALID, AGE_RESTRICTED (under the
-  // minimum age: nothing is stored), BIRTHDATE_ALREADY_SET, RATE_LIMITED.
+  // of minors, as at sign-up. Under the minimum age the account is too young
+  // (`Me.too_young`): the client refreshes its access token at once, and the
+  // new one reaches what a too-young account may. BIRTHDATE_INVALID,
+  // BIRTHDATE_ALREADY_SET, RATE_LIMITED.
   rpc SetBirthdate(SetBirthdateRequest) returns (SetBirthdateResponse);
 
   rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
@@ -513,6 +515,11 @@ message Me {
   // account has given none yet (an empty `birthdate`; a bot goes by its
   // owner).
   bool minor = 21;
+  // Under the minimum age (13) by the birthdate given: the account cannot use
+  // the app until that birthday. Its sessions reach the AuthService, GetMe,
+  // RequestAccountDeletion and CancelAccountDeletion only; everything else
+  // answers PERMISSION_DENIED with ACCOUNT_TOO_YOUNG.
+  bool too_young = 22;
 }
 
 // Ephemeral mood/status shown on the profile and next to the map pin.

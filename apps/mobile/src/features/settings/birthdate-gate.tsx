@@ -44,6 +44,8 @@ function BirthdatePrompt({ onLater }: { onLater: () => void }) {
       const response = await api().service(identity.AccountService).setBirthdate({ birthdate });
       if (response.settings) query.setQueryData(settingsKeys.settings, response.settings);
       if (response.me) api().session.updateMe(response.me);
+      // Under 13: the next token is one that reaches only what such an account may.
+      if (response.me?.tooYoung) await api().session.refresh();
     } catch (e) {
       setError(errorMessage(e, { namespace: "settings" }));
       setBusy(false);

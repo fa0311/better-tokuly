@@ -12,7 +12,7 @@ except `identity.export.ready`.
 | Topic | Payload | When |
 |---|---|---|
 | `identity.user.created` | `{ user_id, handle, invite_code, minor }` | A person signed up. Never for bots. `minor`: under 18 that day; start the account with your defaults for minors. |
-| `identity.user.birthdate_given` | `{ user_id, minor }` (`maintenance::BirthdateGiven`) | An account without a birthdate gave one (`SetBirthdate`). Apply what you would have at sign-up, by `minor`. Emitted with `identity.user.privacy_changed`: the settings that apply changed for either age group. |
+| `identity.user.birthdate_given` | `{ user_id, minor }` (`maintenance::BirthdateGiven`) | An account without a birthdate gave one (`SetBirthdate`), or (once, migration `0101`) an account under 18 gave it before the defaults for minors came. Apply what you would have at sign-up, by `minor`, unless the person chose otherwise. Emitted with `identity.user.privacy_changed`: the settings that apply changed for either age group. |
 | `identity.user.updated` | `{ user_id }` | The account's public face changed: profile fields, the verified badge, the プロフ帳. Search rebuilds the account's document on it. |
 | `identity.profile.updated` | `{ user_id, changed: [group…] }` | The プロフ帳 changed. `changed` names the groups: `mbti`, `blood_type`, `pronouns`, `long_bio`, `theme`, `visibility`, `oshi`, `tags`, `links`, `qa_cards`, `pinned_song`. Carries no text: a consumer reads what it may show (audiences apply). Emitted with `identity.user.updated`. |
 | `identity.user.status_changed` | `{ user_id }` | |
@@ -53,7 +53,10 @@ Durable `identity-sessions`:
 - **Minors** (`age`): two rules. Defaults are decided by the age on the day the birthdate is given and
   stored (the two events above say which group); limits follow the age today: `is_minor(core, id)`,
   `minors_among(core, ids)`, `minor_on(birthdate, today)`. No birthdate counts as a minor, a bot goes by
-  its owner, `ADULT_AGE` is 18.
+  its owner, `ADULT_AGE` is 18. Strangers put in touch by position or school meet within their
+  `AgeGroup` only: `age_group(core, id)`, `age_groups_among(core, ids)` leave accounts without a
+  birthdate out, `adult_if_born_by(today)` for a query. Under the minimum age an account is too young
+  (`too_young_on`, `Me.too_young`): its sessions reach `tokuly_core::auth::reachable_while_too_young` only.
 - **Bots** (`bots`): `create_bot_account(tx, owner, handle, display_name, bio) -> Uuid`, `set_bot_owner(tx, bot, owner)`, `is_bot(core, id)`, `bots_among(core, ids) -> HashSet`, `bot_owners(core, ids) -> HashMap<bot, owner>`, and the one rule for places where only people count: `humans_only(core, ids) -> Vec<Uuid>` (or `NOT u.bot` in a join on `users`). Friend suggestions, leaderboards, rankings, nearby discovery, intro counts and anonymity group sizes use it.
 - **Birthdays** (`birthdays`): `shared_birthdays(core, owners, closeness) -> HashMap<Uuid, SharedBirthday { month, day, year: Option }>` (batched, the caller says who is a friend), `Identity::visible_birthdays(viewer, owners)` (friendships and blocks from the profile extensions), `set_birthday_audience(core, user, audience, show_year)`, `audience_of(&PrivacySettings)`.
 - **プロフ帳** (`extras`): `search_terms(core, ids, &locked) -> HashMap<Uuid, ProfileSearchTerms { text, tags }>` (public fields of unlocked accounts only, for search documents), `Extras::load(..).view(&Viewer)`, `reaches(visibility, circle, &Viewer)` (an allowlist: unknown values reach only the owner), `tag_key`.

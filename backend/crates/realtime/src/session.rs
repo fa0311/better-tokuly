@@ -343,6 +343,10 @@ impl<'g> Session<'g> {
             Ok(claimed) => claimed,
             // The reason (TOKEN_EXPIRED, TOKEN_INVALID, SESSION_REVOKED)
             // tells the client whether refreshing its token will help.
+            // Not a token a refresh would mend.
+            Err(reason @ tokuly_core::auth::ACCOUNT_TOO_YOUNG) => {
+                return Some(self.fatal(id, Rejection::new(Code::PermissionDenied, reason)));
+            }
             Err(reason) => return Some(self.fatal(id, Rejection::new(Code::Unauthenticated, reason))),
         };
         // A connection may sign in, and refresh its token, but never become
@@ -422,6 +426,10 @@ impl<'g> Session<'g> {
             return Ok(None);
         }
         let verified = match self.gateway.core.tokens.authenticate_shared(access_token).await {
+            // An account under the minimum age has nothing to listen to.
+            tokuly_core::auth::AuthState::Authenticated(verified) if verified.too_young => {
+                return Err(tokuly_core::auth::ACCOUNT_TOO_YOUNG);
+            }
             tokuly_core::auth::AuthState::Authenticated(verified) => verified,
             tokuly_core::auth::AuthState::Invalid(reason) => return Err(reason),
             tokuly_core::auth::AuthState::Anonymous => return Err("TOKEN_INVALID"),

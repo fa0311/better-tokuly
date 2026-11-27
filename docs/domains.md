@@ -52,6 +52,9 @@ See their proto files. Summary of behaviour that is not obvious from the API:
   but discovery and friend requests go no wider than friends of friends
   until they turn 18. An account without a birthdate (from before sign-up
   asked) is asked on its next sign-in and counts as a minor until it answers.
+  An answer under 13 makes the account **too young**: it signs in only to
+  read why and to delete itself, until its 13th birthday; it cannot answer
+  again. Sign-up refuses under 13.
   **Several accounts on one device** (main, 裏垢, creator; at most 5): each
   is added by a full sign-in and keeps its own session; switching needs no
   password but asks for the target's second factor when it has not passed

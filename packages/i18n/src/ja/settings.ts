@@ -613,6 +613,14 @@ export default {
     laterHint: "答えるまでは、18歳未満と同じ設定で使えるよ",
   },
 
+  tooYoung: {
+    title: "ごめんね、Tokulyは13歳からなんだ",
+    lead: "13歳の誕生日が来たら、このアカウントでまた使えるようになるよ。それまで待っててね！",
+    birthdate: "生年月日はもう変えられないよ",
+    deleteLead: "アカウントを消したいときは、ここから削除できるよ",
+    signOut: "ログアウト",
+  },
+
   errors: {
     BIO_TOO_LONG: "ひとことは300文字までにしてね",
     SCHOOL_NAME_INVALID: "学校名は60文字までにしてね",

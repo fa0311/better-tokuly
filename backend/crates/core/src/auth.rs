@@ -54,6 +54,9 @@ pub struct AuthContext {
     /// The API token making the request, with the scopes that limit it.
     /// `None` for a normal session, which may do everything its user may.
     pub api_token: Option<ApiToken>,
+    /// The account is under the minimum age: its session reaches only what
+    /// [`reachable_while_too_young`] lets through.
+    pub too_young: bool,
 }
 
 impl AuthContext {
@@ -66,6 +69,7 @@ impl AuthContext {
             roles: Vec::new(),
             expires_at: token.expires_at.unwrap_or(Time::MAX_UTC),
             api_token: Some(token),
+            too_young: false,
         }
     }
 
@@ -113,6 +117,9 @@ struct Claims {
     sid: Uuid,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     roles: Vec<String>,
+    /// [`AuthContext::too_young`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    young: bool,
     iat: i64,
     exp: i64,
     iss: String,
@@ -193,12 +200,23 @@ impl Tokens {
         session_id: Uuid,
         roles: &[String],
     ) -> AppResult<(String, Time)> {
+        self.issue_claims(user_id, session_id, roles, false)
+    }
+
+    /// Issues an access token of an account under the minimum age
+    /// ([`AuthContext::too_young`]); it carries no roles.
+    pub fn issue_too_young(&self, user_id: Uuid, session_id: Uuid) -> AppResult<(String, Time)> {
+        self.issue_claims(user_id, session_id, &[], true)
+    }
+
+    fn issue_claims(&self, user_id: Uuid, session_id: Uuid, roles: &[String], young: bool) -> AppResult<(String, Time)> {
         let now = Utc::now();
         let expires = now + ACCESS_TOKEN_TTL;
         let claims = Claims {
             sub: user_id,
             sid: session_id,
             roles: roles.to_vec(),
+            young,
             iat: now.timestamp(),
             exp: expires.timestamp(),
             iss: ISSUER.to_owned(),
@@ -235,6 +253,7 @@ impl Tokens {
             roles: data.claims.roles,
             expires_at: chrono::DateTime::from_timestamp(data.claims.exp, 0).unwrap_or_default(),
             api_token: None,
+            too_young: data.claims.young,
         })
     }
 
@@ -365,6 +384,24 @@ pub const SESSION_UNVERIFIABLE: &str = "SESSION_UNVERIFIABLE";
 /// does not answer ([`session_outlived`]).
 const UNVERIFIABLE_GRACE: Duration = Duration::from_secs(5);
 
+/// Why a session of an account under the minimum age is refused
+/// ([`reachable_while_too_young`]).
+pub const ACCOUNT_TOO_YOUNG: &str = "ACCOUNT_TOO_YOUNG";
+
+/// What the session of an account under the minimum age may call: signing
+/// in, out and between accounts, its own account (to show why it cannot use
+/// the app) and the deletion of it. Nothing else of the app.
+pub fn reachable_while_too_young(path: &str) -> bool {
+    let Some((service, method)) = path.strip_prefix('/').unwrap_or(path).split_once('/') else { return false };
+    match service {
+        "tokuly.identity.v1.AuthService" => true,
+        "tokuly.identity.v1.AccountService" => {
+            matches!(method, "GetMe" | "RequestAccountDeletion" | "CancelAccountDeletion")
+        }
+        _ => false,
+    }
+}
+
 /// What Valkey says about a session's revocation.
 #[derive(Debug, PartialEq, Eq)]
 enum Revocation {
@@ -467,8 +504,9 @@ pub fn cookie_header(headers: &http::HeaderMap) -> String {
 /// [`ClientMeta`] for handlers.
 ///
 /// A request with a session token, a bad token or none is only rejected
-/// here over the overall limits ([`crate::request_limits`]), or for a staff
-/// session that cannot be checked ([`SESSION_UNVERIFIABLE`]): handlers decide
+/// here over the overall limits ([`crate::request_limits`]), for a staff
+/// session that cannot be checked ([`SESSION_UNVERIFIABLE`]), or for an
+/// account under the minimum age ([`ACCOUNT_TOO_YOUNG`]): handlers decide
 /// what an anonymous caller may do. A request with an API token is held to
 /// the token's rate limit and scopes first, and may end here (see
 /// [`crate::api_tokens`]).
@@ -526,6 +564,13 @@ pub async fn auth_middleware(
         let mut response = api_tokens::render(refused.error, headers);
         refused.status.write_headers(response.headers_mut());
         return response;
+    }
+    if let AuthState::Authenticated(ctx) = &state
+        && ctx.too_young
+        && !reachable_while_too_young(req.uri().path())
+    {
+        let error = AppError::denied(ACCOUNT_TOO_YOUNG, "Tokuly is for people of the minimum age and older");
+        return api_tokens::render(error, headers);
     }
     // A stream opened with a session must not outlive it either.
     let session = match &state {
@@ -587,6 +632,32 @@ mod tests {
 
     fn tokens() -> Tokens {
         Tokens::new(&Keys::new("0123456789abcdef0123456789abcdef")).unwrap()
+    }
+
+    #[test]
+    fn a_too_young_session_reaches_signing_in_and_its_deletion_only() {
+        let t = tokens();
+        let (user, session) = (Uuid::now_v7(), Uuid::now_v7());
+        let (young, _) = t.issue_too_young(user, session).unwrap();
+        assert!(t.verify(&young).unwrap().too_young);
+        let (token, _) = t.issue(user, session, &[]).unwrap();
+        assert!(!t.verify(&token).unwrap().too_young);
+        for path in [
+            "/tokuly.identity.v1.AuthService/RefreshToken",
+            "/tokuly.identity.v1.AuthService/SignOut",
+            "/tokuly.identity.v1.AccountService/GetMe",
+            "/tokuly.identity.v1.AccountService/RequestAccountDeletion",
+        ] {
+            assert!(reachable_while_too_young(path), "{path}");
+        }
+        for path in [
+            "/tokuly.identity.v1.AccountService/UpdateSettings",
+            "/tokuly.chat.v1.MessageService/SendMessage",
+            "/tokuly.identity.v1.AuthServiceX/SignIn",
+            "/media/upload",
+        ] {
+            assert!(!reachable_while_too_young(path), "{path}");
+        }
     }
 
     #[test]

@@ -327,7 +327,9 @@ impl AccountService for Identity {
             let user_id = ctx.user_id()?;
             let core = &self.core;
             core.cache.rate_limit(&format!("set-birthdate:{user_id}"), 10, Duration::from_secs(3600)).await?;
-            let birthdate = users::validate_birthdate(request.birthdate, self.cfg.min_age)?;
+            // An answer under the minimum age is stored as well: the account
+            // is then too young, and cannot answer again.
+            let birthdate = users::validate_birthdate(request.birthdate, 0)?;
             let minor = crate::age::minor_on(Some(birthdate), Utc::now().date_naive());
             let mut tx = core.db.begin().await?;
             let stored: Option<serde_json::Value> =

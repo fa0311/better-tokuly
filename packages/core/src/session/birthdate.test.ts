@@ -1,6 +1,6 @@
 import { create, identity } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { asksForBirthdate, asksForBirthdateNow } from "./birthdate";
+import { asksForBirthdate, asksForBirthdateNow, isTooYoung } from "./birthdate";
 
 describe("asksForBirthdate", () => {
   it("asks an account without a birthdate", () => {
@@ -24,5 +24,15 @@ describe("asksForBirthdateNow", () => {
   it("asks another account, and nobody while signed out", () => {
     expect(asksForBirthdateNow(without("u2"), "u1")).toBe(true);
     expect(asksForBirthdateNow(null, null)).toBe(false);
+  });
+});
+
+describe("isTooYoung", () => {
+  it("follows the account, and nobody is while signed out", () => {
+    expect(isTooYoung(create(identity.MeSchema, { birthdate: "2015-01-01", tooYoung: true }))).toBe(
+      true,
+    );
+    expect(isTooYoung(create(identity.MeSchema, { birthdate: "" }))).toBe(false);
+    expect(isTooYoung(null)).toBe(false);
   });
 });

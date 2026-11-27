@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
-import { accountClient } from "#/lib/api";
+import { accountClient, api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { useMe } from "#/stores/session";
 import { adoptMe, keys } from "../data";
@@ -42,6 +42,8 @@ function BirthdatePrompt({ onLater }: { onLater: () => void }) {
       const response = await accountClient().setBirthdate({ birthdate });
       if (response.settings) queryClient.setQueryData(keys.settings, response.settings);
       adoptMe(response.me);
+      // Under 13: the next token is one that reaches only what such an account may.
+      if (response.me?.tooYoung) await api().session.refresh();
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
