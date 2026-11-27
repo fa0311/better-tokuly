@@ -264,6 +264,7 @@ export default {
         TOTP_ENABLED: "Two-step verification turned on",
         TOTP_DISABLED: "Two-step verification turned off",
         RECOVERY_CODE_USED: "Signed in with a recovery code",
+        RECOVERY_CODES_REVOKED: "Recovery codes were invalidated for safety. Turn two-step verification off and on again for new ones",
         SESSION_REVOKED: "A device was signed out",
         DEVICE_LOGIN_APPROVED: "Device sign-in approved",
         DEVICE_LOGIN_DENIED: "Device sign-in refused",

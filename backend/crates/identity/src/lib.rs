@@ -59,6 +59,7 @@ pub const SEALED: &[tokuly_core::rekey::Sealed] = {
         Sealed::bytes("sessions", "refresh_sealed", "refresh").hashed("refresh_hash"),
         Sealed::bytes("connections", "access_token", "connection"),
         Sealed::bytes("connections", "refresh_token", "connection"),
+        Sealed::text("users", "recovery_codes", totp::RECOVERY_CODES_LABEL),
     ]
 };
 

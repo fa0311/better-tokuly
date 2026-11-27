@@ -449,15 +449,7 @@ impl Identity {
         {
             return Ok(true);
         }
-        let used: Option<Uuid> = sqlx::query_scalar(
-            "UPDATE users SET recovery_code_hashes = ARRAY(SELECT h FROM unnest(recovery_code_hashes) h WHERE h <> ALL($2))
-             WHERE id = $1 AND recovery_code_hashes && $2 RETURNING id",
-        )
-        .bind(user.id)
-        .bind(totp::recovery_code_hashes(&self.core.keys, code))
-        .fetch_optional(&self.core.db)
-        .await?;
-        if used.is_some() {
+        if self.spend_recovery_code(user.id, code).await? {
             self.log_security_event(user.id, "RECOVERY_CODE_USED", meta, "", serde_json::json!({})).await;
             return Ok(true);
         }

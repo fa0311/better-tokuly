@@ -33,6 +33,7 @@ parking_lot.workspace = true
 argon2.workspace = true
 webauthn-rs.workspace = true
 totp-rs.workspace = true
+subtle.workspace = true
 rand.workspace = true
 reqwest.workspace = true
 unicode-segmentation.workspace = true

@@ -8,8 +8,8 @@
 //! meanwhile is under the new secret already.
 //!
 //! Keyed hashes of secrets that are not stored (API tokens, client
-//! secrets, recovery codes) cannot be computed again: they are accepted
-//! under the previous secret while it is set, and rewritten when used.
+//! secrets) cannot be computed again: they are accepted under the previous
+//! secret while it is set, and rewritten when used.
 use sqlx::PgPool;
 
 use crate::keys::{Keys, b64url, b64url_decode};

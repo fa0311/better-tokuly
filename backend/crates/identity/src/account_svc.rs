@@ -581,13 +581,13 @@ impl AccountService for Identity {
                 "wrong authentication code"
             );
             let codes = totp::generate_recovery_codes();
-            let hashes: Vec<String> = codes.iter().map(|c| totp::hash_recovery_code(&self.core.keys, c)).collect();
             sqlx::query(
-                "UPDATE users SET totp_secret = $2, totp_enabled_at = now(), recovery_code_hashes = $3 WHERE id = $1",
+                "UPDATE users SET totp_secret = $2, totp_enabled_at = now(), recovery_codes = $3, recovery_code_hashes = '{}'
+                 WHERE id = $1",
             )
             .bind(user_id)
             .bind(sealed)
-            .bind(hashes)
+            .bind(totp::seal_recovery_codes(&self.core.keys, &codes))
             .execute(&self.core.db)
             .await
             .map_err(AppError::from)?;
@@ -622,19 +622,12 @@ impl AccountService for Identity {
             Some(secret) => self.accept_totp(user.id, secret, request.code).await?,
             None => false,
         };
-        let recovery_ok = if code_ok {
-            false
-        } else {
-            let hit: bool = sqlx::query_scalar("SELECT recovery_code_hashes && $2 FROM users WHERE id = $1")
-                .bind(user.id)
-                .bind(totp::recovery_code_hashes(&self.core.keys, request.code))
-                .fetch_one(&self.core.db)
-                .await
-                .map_err(AppError::from)?;
-            hit
-        };
+        let recovery_ok = !code_ok && self.spend_recovery_code(user.id, request.code).await?;
         ensure!(code_ok || recovery_ok, invalid, "INVALID_TOTP", "wrong authentication code");
-        sqlx::query("UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, recovery_code_hashes = '{}' WHERE id = $1")
+        sqlx::query(
+            "UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, recovery_codes = NULL, recovery_code_hashes = '{}'
+             WHERE id = $1",
+        )
             .bind(user.id)
             .execute(&self.core.db)
             .await

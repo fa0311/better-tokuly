@@ -192,6 +192,11 @@ impl Dev {
         let Some(row) = row else { return Ok(Judged::current(Verdict::Invalid)) };
         let renewed = row.token_hash != hashes[0];
         if renewed {
+            // A revocation forgets the answer under the hash it finds stored,
+            // the new one from now on; but a server not yet given the new
+            // secret may have cached one under the old. Forgotten first: once
+            // the row is rewritten, no later use comes back here to do it.
+            self.forget_tokens(std::slice::from_ref(&row.token_hash)).await?;
             sqlx::query("UPDATE dev_tokens SET token_hash = $2 WHERE id = $1 AND token_hash = $3")
                 .bind(row.id)
                 .bind(&hashes[0])
