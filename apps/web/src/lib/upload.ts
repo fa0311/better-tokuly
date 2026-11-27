@@ -1,5 +1,6 @@
 import { media } from "@tokuly/api";
 import { AssetFailedError } from "@tokuly/core/errors";
+import * as uploads from "@tokuly/core/media";
 import { api } from "#/lib/api";
 
 export { AssetFailedError };
@@ -12,9 +13,6 @@ export interface UploadOptions {
   onProgress?(fraction: number): void;
   signal?: AbortSignal;
 }
-
-/** Parts uploaded at the same time for multipart uploads. */
-const PARALLEL_PARTS = 3;
 
 function put(
   url: string,
@@ -49,78 +47,17 @@ export async function uploadFile(
   file: Blob & { name?: string },
   options: UploadOptions,
 ): Promise<media.Asset> {
-  const created = await mediaClient().createUpload(
+  return uploads.uploadBytes(
+    mediaClient,
     {
       purpose: options.purpose,
       fileName: file.name ?? "upload",
       contentType: file.type || "application/octet-stream",
-      sizeBytes: BigInt(file.size),
     },
-    { signal: options.signal },
+    file,
+    (url, body, headers, onProgress) => put(url, body, headers, onProgress, options.signal),
+    options,
   );
-  try {
-    if (created.putUrl) {
-      await put(
-        created.putUrl,
-        file,
-        created.putHeaders,
-        (loaded) => options.onProgress?.(loaded / file.size),
-        options.signal,
-      );
-    } else {
-      await uploadParts(file, created, options);
-    }
-    const completed = await mediaClient().completeUpload(
-      { uploadId: created.uploadId },
-      { signal: options.signal },
-    );
-    options.onProgress?.(1);
-    return completed.asset!;
-  } catch (error) {
-    // Do not leave a half-finished upload behind.
-    void mediaClient()
-      .abortUpload({ uploadId: created.uploadId })
-      .catch(() => {});
-    throw error;
-  }
-}
-
-async function uploadParts(
-  file: Blob,
-  created: media.CreateUploadResponse,
-  options: UploadOptions,
-): Promise<void> {
-  const partSize = Number(created.partSizeBytes);
-  const loaded = new Array<number>(created.partCount).fill(0);
-  const report = () =>
-    options.onProgress?.(loaded.reduce((sum, bytes) => sum + bytes, 0) / file.size);
-  let next = 1;
-
-  const worker = async () => {
-    while (next <= created.partCount) {
-      const partNumber = next++;
-      const { parts } = await mediaClient().getUploadParts(
-        { uploadId: created.uploadId, partNumbers: [partNumber] },
-        { signal: options.signal },
-      );
-      const url = parts[0]?.putUrl;
-      if (!url) throw new Error(`no upload URL for part ${partNumber}`);
-      const chunk = file.slice((partNumber - 1) * partSize, partNumber * partSize);
-      await put(
-        url,
-        chunk,
-        {},
-        (bytes) => {
-          loaded[partNumber - 1] = bytes;
-          report();
-        },
-        options.signal,
-      );
-      loaded[partNumber - 1] = chunk.size;
-      report();
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(PARALLEL_PARTS, created.partCount) }, worker));
 }
 
 /**
@@ -132,15 +69,7 @@ export async function waitForAsset(
   onUpdate?: (asset: media.Asset) => void,
   signal?: AbortSignal,
 ): Promise<media.Asset> {
-  for await (const update of mediaClient().watchAsset({ assetId }, { signal })) {
-    const asset = update.asset;
-    if (!asset) continue;
-    onUpdate?.(asset);
-    if (asset.status === media.AssetStatus.READY) return asset;
-    if (asset.status === media.AssetStatus.FAILED)
-      throw new AssetFailedError(asset.error || "PROCESSING_FAILED", asset.maxDurationSeconds);
-  }
-  throw new AssetFailedError("PROCESSING_FAILED");
+  return uploads.waitForAsset(mediaClient, assetId, onUpdate, signal);
 }
 
 /** Upload and wait until the asset is usable: the common case for images. */
@@ -148,8 +77,5 @@ export async function uploadAndProcess(
   file: Blob & { name?: string },
   options: UploadOptions,
 ): Promise<media.Asset> {
-  const asset = await uploadFile(file, options);
-  return asset.status === media.AssetStatus.READY
-    ? asset
-    : waitForAsset(asset.id, undefined, options.signal);
+  return uploads.processed(mediaClient, await uploadFile(file, options), options.signal);
 }

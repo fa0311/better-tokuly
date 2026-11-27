@@ -1,9 +1,10 @@
 import { type Api, media } from "@tokuly/api";
-import { AssetFailedError } from "@tokuly/core/errors";
+import * as uploads from "@tokuly/core/media";
 import { api } from "#/lib/api";
 import { SERVER_URL } from "#/lib/config";
 
-const mediaClient = (options: { api?: Api }) => (options.api ?? api()).service(media.MediaService);
+const mediaClient = (options: { api?: Api }) => () =>
+  (options.api ?? api()).service(media.MediaService);
 
 /** A file on the device (a photo from the library or the camera), as the pickers hand it over. */
 export interface LocalFile {
@@ -19,8 +20,6 @@ export interface UploadOptions {
   /** The account the upload belongs to (`Account.api`); the active one when left out. */
   api?: Api;
 }
-
-const PARALLEL_PARTS = 3;
 
 /** An upload URL the server gave as a path is on the app's own server. */
 const absolute = (url: string) => (url.startsWith("/") ? `${SERVER_URL}${url}` : url);
@@ -46,48 +45,6 @@ function put(
   });
 }
 
-async function putParts(
-  blob: Blob,
-  created: media.CreateUploadResponse,
-  options: UploadOptions,
-): Promise<void> {
-  const partSize = Number(created.partSizeBytes);
-  const loaded = new Array<number>(created.partCount).fill(0);
-  const report = () =>
-    options.onProgress?.(loaded.reduce((sum, bytes) => sum + bytes, 0) / blob.size);
-  let next = 1;
-  const worker = async () => {
-    while (next <= created.partCount) {
-      const partNumber = next++;
-      const { parts } = await mediaClient(options).getUploadParts({
-        uploadId: created.uploadId,
-        partNumbers: [partNumber],
-      });
-      const url = parts[0]?.putUrl;
-      if (!url) throw new Error(`no upload URL for part ${partNumber}`);
-      const chunk = blob.slice((partNumber - 1) * partSize, partNumber * partSize);
-      await put(url, chunk, {}, (bytes) => {
-        loaded[partNumber - 1] = bytes;
-        report();
-      });
-      loaded[partNumber - 1] = chunk.size;
-      report();
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(PARALLEL_PARTS, created.partCount) }, worker));
-}
-
-/** Resolves once the asset finished processing (READY); rejects when it failed. */
-async function waitForAsset(assetId: string, options: UploadOptions): Promise<media.Asset> {
-  for await (const update of mediaClient(options).watchAsset({ assetId })) {
-    const asset = update.asset;
-    if (asset?.status === media.AssetStatus.READY) return asset;
-    if (asset?.status === media.AssetStatus.FAILED)
-      throw new AssetFailedError(asset.error || "PROCESSING_FAILED", asset.maxDurationSeconds);
-  }
-  throw new AssetFailedError("PROCESSING_FAILED");
-}
-
 /**
  * The web's upload flow on the phone: the bytes go straight to object
  * storage (one request, or parts for a large file), then the asset is
@@ -98,26 +55,17 @@ export async function uploadAndProcess(
   options: UploadOptions,
 ): Promise<media.Asset> {
   const blob = await (await fetch(file.uri)).blob();
-  const created = await mediaClient(options).createUpload({
-    purpose: options.purpose,
-    fileName: file.name,
-    contentType: file.type || blob.type || "application/octet-stream",
-    sizeBytes: BigInt(blob.size),
-  });
-  let asset: media.Asset;
-  try {
-    if (created.putUrl)
-      await put(created.putUrl, blob, created.putHeaders, (bytes) =>
-        options.onProgress?.(bytes / blob.size),
-      );
-    else await putParts(blob, created, options);
-    asset = (await mediaClient(options).completeUpload({ uploadId: created.uploadId })).asset!;
-    options.onProgress?.(1);
-  } catch (error) {
-    void mediaClient(options)
-      .abortUpload({ uploadId: created.uploadId })
-      .catch(() => {});
-    throw error;
-  }
-  return asset.status === media.AssetStatus.READY ? asset : waitForAsset(asset.id, options);
+  const client = mediaClient(options);
+  const asset = await uploads.uploadBytes(
+    client,
+    {
+      purpose: options.purpose,
+      fileName: file.name,
+      contentType: file.type || blob.type || "application/octet-stream",
+    },
+    blob,
+    put,
+    options,
+  );
+  return uploads.processed(client, asset);
 }
