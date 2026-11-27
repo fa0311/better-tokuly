@@ -2,7 +2,10 @@
 # architecture, brings the whole Compose stack up the way a self-hoster would
 # and checks it end to end (tools/ci/smoke.sh): sign-up, mail, an upload
 # through object storage and the worker, map tiles, realtime, and a backup
-# brought back into an empty stack (tools/ci/backup-roundtrip.sh).
+# brought back into an empty stack (tools/ci/backup-roundtrip.sh). For a
+# release, also on amd64: the previous release's backend runs on the new schema
+# (tools/ci/previous-release.sh), and the demo data the next release's upgrade
+# checks start from is made (tools/ci/demo-data.sh).
 #
 # When a caller asks for tags, the images that passed are published to the
 # GitHub Container Registry under those tags for both architectures.
@@ -16,6 +19,10 @@ on:
         description: Tags to publish once the checks pass, separated by spaces. Empty builds and checks only.
         type: string
         default: ""
+      release:
+        description: Run the release checks and publish the demo data under the tags.
+        type: boolean
+        default: false
 
 jobs:
   stack:
@@ -36,6 +43,10 @@ jobs:
       REGISTRY: ghcr.io/${{ github.repository }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The release checks look for the stable release before this one.
+          fetch-depth: ${{ inputs.release && '0' || '1' }}
+          fetch-tags: ${{ inputs.release }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Write .env
@@ -82,6 +93,18 @@ jobs:
           tools/ci/backup-roundtrip.sh --destroy-this-stack http://localhost
           tools/ci/smoke.sh http://localhost
 
+      - name: The previous release's backend runs on this schema
+        if: inputs.release && matrix.arch == 'amd64'
+        run: tools/ci/previous-release.sh --destroy-this-stack http://localhost
+
+      - name: Demo data for the next release's upgrade checks
+        if: inputs.release && matrix.arch == 'amd64'
+        run: |
+          mkdir demo-data
+          tools/ci/demo-data.sh make demo-data/demo.dump http://localhost
+          printf 'FROM scratch\nLABEL org.opencontainers.image.source=https://github.com/%s\nCOPY demo.dump /\n' "$GITHUB_REPOSITORY" |
+            docker build --load -t "$REGISTRY/ci-demo-data:sha-${GITHUB_SHA::12}" -f - demo-data
+
       - name: Diagnostics
         if: failure()
         run: |
@@ -107,6 +130,9 @@ jobs:
             docker tag "$REGISTRY/$image:candidate" "$REGISTRY/$image:sha-${GITHUB_SHA::12}-${{ matrix.arch }}"
             docker push "$REGISTRY/$image:sha-${GITHUB_SHA::12}-${{ matrix.arch }}"
           done
+          if [ "${{ inputs.release && matrix.arch == 'amd64' }}" = true ]; then
+            docker push "$REGISTRY/ci-demo-data:sha-${GITHUB_SHA::12}"
+          fi
 
   publish:
     name: Publish for both architectures
@@ -128,3 +154,6 @@ jobs:
             for tag in "$sha" $TAGS; do names+=(-t "$REGISTRY/$image:$tag"); done
             docker buildx imagetools create "${names[@]}" "$REGISTRY/$image:$sha-amd64" "$REGISTRY/$image:$sha-arm64"
           done
+          if [ "${{ inputs.release }}" = true ]; then
+            for tag in $TAGS; do docker buildx imagetools create -t "$REGISTRY/ci-demo-data:$tag" "$REGISTRY/ci-demo-data:$sha"; done
+          fi

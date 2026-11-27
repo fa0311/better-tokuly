@@ -239,14 +239,15 @@ get it too), and:
 
 - applies after every released file on an upgrade but in number order on a
   fresh install: use only what lower-numbered files create
-  (`tools/ci/migrations-upgrade.sh` checks both end the same);
+  (`tools/ci/migrations-upgrade.sh` checks both end the same, on the
+  release's demo data);
 - takes no long lock: an index is built with `CREATE INDEX CONCURRENTLY`,
   alone in a file that starts with `-- no-transaction`; a `NOT NULL` column
   comes with a `DEFAULT`; big rewrites and backfills go to a job;
 - leaves the previous release's binary working on the new schema, because the
   API and the workers are replaced one after the other: add columns and
   tables, never rename them; a column is dropped one release after the code
-  stopped using it.
+  stopped using it (`tools/ci/previous-release.sh` checks it at every release).
 
 ### Talking to other domains
 
