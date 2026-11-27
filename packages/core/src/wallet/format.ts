@@ -26,7 +26,10 @@ export function formatMoney(minor: bigint, currency: string, language: string): 
 
 /** A plain coin count with thousands separators, for running text. */
 export function formatCoins(coins: bigint): string {
-  return coins.toLocaleString("en-US");
+  const negative = coins < 0n;
+  const digits = (negative ? -coins : coins).toString();
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return negative ? `-${grouped}` : grouped;
 }
 
 /**
