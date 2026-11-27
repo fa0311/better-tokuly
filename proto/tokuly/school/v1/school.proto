@@ -912,7 +912,9 @@ service StudyService {
   // Sends "がんばれ!" to a friend who is studying. Quiet: a realtime event,
   // and a notification only if the friend asked for those.
   // Errors: NOT_STUDYING (not a friend, not studying, or not showing it),
-  // CANNOT_CHEER_SELF, RATE_LIMITED (one cheer per friend every few minutes).
+  // CANNOT_CHEER_SELF, CHEER_TOO_SOON (one cheer per friend every few
+  // minutes: the last one still counts), RATE_LIMITED (the caller's own limit
+  // of cheers per minute: nothing was sent).
   rpc CheerStudy(CheerStudyRequest) returns (CheerStudyResponse);
   // Cheers received during one of the caller's sessions, newest first.
   // Errors: SESSION_NOT_FOUND.

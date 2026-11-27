@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
-import { errorReason, school } from "@tokuly/api";
-import { studyTime } from "@tokuly/core/school";
+import { school } from "@tokuly/api";
+import { lastCheerStillCounts, studyTime } from "@tokuly/core/school";
 import { router } from "expo-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -93,8 +93,7 @@ function CheerButton({ userId, name }: { userId: string; name: string }) {
       if (answer) setSent(true);
     },
     onError: (error) => {
-      // The last cheer still counts.
-      if (errorReason(error) === "RATE_LIMITED") {
+      if (lastCheerStillCounts(error)) {
         setSent(true);
         Alert.alert(t("study.cheerTooSoon"));
       } else Alert.alert(errorMessage(error, { namespace: NS }));

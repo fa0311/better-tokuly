@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type common, errorReason, school, toMillis } from "@tokuly/api";
-import { addDays, dayLabel, refreshSchool, schoolKeys, studyTime } from "@tokuly/core/school";
+import { type common, school, toMillis } from "@tokuly/api";
+import {
+  addDays,
+  dayLabel,
+  lastCheerStillCounts,
+  refreshSchool,
+  schoolKeys,
+  studyTime,
+} from "@tokuly/core/school";
 import { ChevronLeft, ChevronRight, DoorOpen, Megaphone } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -38,8 +45,7 @@ export function CheerButton({
       toast.success(t("study.cheerSent", { name }), { icon: "📣" });
     },
     onError: (error) => {
-      // One cheer per friend every few minutes: the last one still counts.
-      if (errorReason(error) === "RATE_LIMITED") {
+      if (lastCheerStillCounts(error)) {
         setSent(true);
         toast(t("study.cheerTooSoon"));
       } else toastError(error);

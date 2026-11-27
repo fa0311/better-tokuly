@@ -1,7 +1,16 @@
-import { school, toMillis } from "@tokuly/api";
+import { errorReason, school, toMillis } from "@tokuly/api";
 import type { i18n as I18n } from "i18next";
 import { zonedMoment } from "../format/zoned";
 import { clock, dayLabel } from "./dates";
+
+/**
+ * Whether a refused cheer leaves the last one standing: the friend's
+ * cool-down refused it, so the button stays 「送ったよ」. The sender's own
+ * limit (`RATE_LIMITED`) sent nothing to this friend.
+ */
+export function lastCheerStillCounts(error: unknown): boolean {
+  return errorReason(error) === "CHEER_TOO_SOON";
+}
 
 /** Whether a listed class actually takes place (cancelled and moved-away ones are listed to show what changed). */
 export function takesPlace(item: school.ScheduledClass): boolean {

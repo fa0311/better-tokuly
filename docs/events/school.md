@@ -221,7 +221,7 @@ reads of other people's timetables 120/min; free-period search 30/min;
 timetable copies 20/h; statistics and presence reads 240/min; settings
 changes 30/min; session starts 30/min; pause / resume / skip 30/min;
 heartbeats 120/min; session edits 60/min; manual log entries 60/h; cheers
-60/min per sender and 1 per 5 minutes per sender→recipient; room creation
+60/min per sender and 1 per 5 minutes per sender→recipient (`CHEER_TOO_SOON`); room creation
 10/h; room joins 30/min; room reads 240/min; room changes (title, audience,
 lengths, what a member studies) 30/min; timer control 60/min; reactions
 30/min; invitation calls 60/h, and 3 invitation notifications per host and

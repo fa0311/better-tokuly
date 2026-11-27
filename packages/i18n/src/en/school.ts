@@ -612,6 +612,7 @@ export default {
     STUDY_NOT_SHARED: "Their studying isn't shared",
     NOT_STUDYING: "They don't seem to be studying right now",
     CANNOT_CHEER_SELF: "You can't cheer yourself on",
+    CHEER_TOO_SOON: "You just cheered them. Give it a few minutes",
     ROOM_TITLE_INVALID: "A room's name is 1-40 characters",
     MEMBER_CAP_INVALID: "Seats must be 2-50",
     ALREADY_HOSTING: "You already have a room open. Close that one first",
