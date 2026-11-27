@@ -207,6 +207,20 @@ impl Dev {
         Ok(rows)
     }
 
+    /// Revokes every live token that existed at `made_before`, a few
+    /// hundred per statement (`tokuly sessions revoke-all`); returns how many.
+    pub(crate) async fn revoke_every_api_token(&self, made_before: Time) -> AppResult<u64> {
+        const NEXT_BATCH: &str = "id IN (SELECT id FROM dev_tokens
+             WHERE id > $1 AND revoked_at IS NULL AND created_at <= $3 AND (expires_at IS NULL OR expires_at > now())
+             ORDER BY id LIMIT 500)";
+        let (mut after, mut revoked) = (Uuid::nil(), 0);
+        loop {
+            let batch = self.revoke_tokens_where(NEXT_BATCH, after, "operator", None, Some(made_before)).await?;
+            let Some(last) = batch.iter().map(|token| token.id).max() else { return Ok(revoked) };
+            (after, revoked) = (last, revoked + batch.len() as u64);
+        }
+    }
+
     /// Revokes one token on its owner's say-so.
     pub(crate) async fn revoke_token(&self, token_id: Uuid, actor: Uuid) -> AppResult<Option<TokenRow>> {
         Ok(self.revoke_tokens_where("id = $1", token_id, "owner", Some(actor), None).await?.pop())

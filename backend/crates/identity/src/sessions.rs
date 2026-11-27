@@ -22,6 +22,8 @@ pub const REFRESH_COOKIE: &str = "tokuly_rt";
 const COOKIE_RPC_PATH: &str = "/tokuly.identity.v1.AuthService/";
 /// How long the previous refresh token is still honoured after a rotation.
 const ROTATION_GRACE_SECONDS: i64 = 60;
+/// Sessions [`Identity::sign_everyone_out`] revokes per statement.
+const SIGN_OUT_BATCH: i64 = 500;
 
 /// Freshly issued credentials for a session.
 #[derive(Debug, Clone)]
@@ -369,6 +371,51 @@ impl Identity {
         .await?;
         self.forget_session_tokens(&ids).await?;
         Ok(ids.len())
+    }
+
+    /// `tokuly sessions revoke-all`: every session made by `made_before`
+    /// is revoked, so every account signs in again, and its access tokens
+    /// are refused at once by every server. Sessions made later (people
+    /// signing in again while it runs) are left alone. A few hundred
+    /// sessions per statement, so sign-ins and refreshes go on meanwhile.
+    /// Returns how many were revoked.
+    pub async fn sign_everyone_out(&self, made_before: DateTime<Utc>) -> AppResult<u64> {
+        use futures::StreamExt as _;
+        // A session's access tokens are issued when it is made or
+        // refreshed, which marks it active, or in the minute after a
+        // refresh (a rotation's grace): one idle for longer than that and
+        // an access token's lifetime has none left to refuse.
+        let window = ACCESS_TOKEN_WINDOW_SECONDS + ROTATION_GRACE_SECONDS as f64;
+        let (mut after, mut revoked) = (Uuid::nil(), 0);
+        loop {
+            let batch: Vec<Uuid> = sqlx::query_scalar(
+                "WITH batch AS (
+                     SELECT id FROM sessions
+                     WHERE id > $1 AND revoked_at IS NULL AND created_at <= $2
+                       AND expires_at > now() - make_interval(secs => $4)
+                     ORDER BY id LIMIT $3 FOR UPDATE
+                 )
+                 UPDATE sessions s SET revoked_at = now() FROM batch WHERE s.id = batch.id RETURNING s.id",
+            )
+            .bind(after)
+            .bind(made_before)
+            .bind(SIGN_OUT_BATCH)
+            .bind(window)
+            .fetch_all(&self.core.db)
+            .await?;
+            let Some(last) = batch.iter().max() else { return Ok(revoked) };
+            (after, revoked) = (*last, revoked + batch.len() as u64);
+            // The web sessions linked to these were revoked with them.
+            let live: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM sessions
+                 WHERE (id = ANY($1) OR linked_to = ANY($1)) AND last_active_at > now() - make_interval(secs => $2)",
+            )
+            .bind(&batch)
+            .bind(window)
+            .fetch_all(&self.core.db)
+            .await?;
+            futures::stream::iter(live).for_each_concurrent(16, |id| self.core.revoke_session(id)).await;
+        }
     }
 
     pub async fn list_sessions(&self, user_id: Uuid, current: Uuid) -> AppResult<Vec<Session>> {

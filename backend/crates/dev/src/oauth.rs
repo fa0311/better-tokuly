@@ -538,6 +538,32 @@ impl Dev {
         })
     }
 
+    /// Revokes every token pair issued by `made_before` whose refresh
+    /// token still lives, a few hundred per statement (`tokuly sessions
+    /// revoke-all`); returns how many. The applications ask again.
+    pub(crate) async fn revoke_every_oauth_token(&self, made_before: Time) -> AppResult<u64> {
+        let (mut after, mut revoked) = (Uuid::nil(), 0);
+        loop {
+            let batch: Vec<(Uuid, String)> = sqlx::query_as(
+                "WITH batch AS (
+                     SELECT id FROM dev_oauth_tokens
+                     WHERE id > $1 AND revoked_at IS NULL AND created_at <= $2 AND refresh_expires_at > now()
+                     ORDER BY id LIMIT 500 FOR UPDATE
+                 )
+                 UPDATE dev_oauth_tokens o SET revoked_at = now() FROM batch WHERE o.id = batch.id
+                 RETURNING o.id, o.access_hash",
+            )
+            .bind(after)
+            .bind(made_before)
+            .fetch_all(&self.core.db)
+            .await?;
+            let Some(last) = batch.iter().map(|(id, _)| *id).max() else { return Ok(revoked) };
+            (after, revoked) = (last, revoked + batch.len() as u64);
+            let hashes: Vec<String> = batch.into_iter().map(|(_, hash)| hash).collect();
+            self.forget_tokens(&hashes).await?;
+        }
+    }
+
     /// Revokes every token pair of a family, at once.
     async fn revoke_family(&self, family_id: Uuid) -> AppResult<()> {
         let hashes: Vec<String> = sqlx::query_scalar("UPDATE dev_oauth_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL RETURNING access_hash")
