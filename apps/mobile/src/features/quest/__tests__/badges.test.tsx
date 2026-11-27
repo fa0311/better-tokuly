@@ -41,8 +41,11 @@ const bronze = create(quest.BadgeSchema, {
 });
 const secret = create(quest.BadgeSchema, { key: "secret_1", secret: true });
 
-/** The badge service with what the caller shows; the showcases and titles it was sent. */
-function server() {
+/**
+ * The badge service with what the caller shows; the showcases and titles it
+ * was sent. `mineFails`: the caller's own badges cannot be read.
+ */
+function server({ mineFails = false } = {}) {
   const sent: { showcase: string[][]; title: string[] } = { showcase: [], title: [] };
   jest.mocked(api).mockReturnValue({
     service: () => ({
@@ -60,8 +63,13 @@ function server() {
           ownedCount: 2,
           totalCount: 3,
         }),
-      listUserBadges: async () =>
-        create(quest.ListUserBadgesResponseSchema, { badges: [gold, bronze], showcase: [bronze] }),
+      listUserBadges: async () => {
+        if (mineFails) throw new Error("the connection dropped");
+        return create(quest.ListUserBadgesResponseSchema, {
+          badges: [gold, bronze],
+          showcase: [bronze],
+        });
+      },
       getBadge: async () =>
         create(quest.GetBadgeResponseSchema, {
           badge: gold,
@@ -89,7 +97,11 @@ async function show(children: ReactNode) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        {children}
+      </QueryClientProvider>
     </SafeAreaProvider>,
   );
 }
@@ -117,6 +129,16 @@ describe("badges", () => {
     await fireEvent.press(screen.getByTestId("quest-badge-title"));
     await waitFor(() => expect(sent.title).toEqual(["chatter_gold"]));
     expect(sent.showcase).toEqual([["chatter_bronze", "chatter_gold"]]);
+  });
+
+  it("never sends a showcase while the one shown now is unknown", async () => {
+    const sent = server({ mineFails: true });
+    await show(<BadgeScreen badgeKey="chatter_gold" />);
+    await waitFor(() => expect(screen.getByText("プロフィールにかざる")).toBeTruthy());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await fireEvent.press(screen.getByTestId("quest-badge-showcase"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent.showcase).toEqual([]);
   });
 });
 

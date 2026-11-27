@@ -23,7 +23,7 @@ const SHOWCASE_SIZE = 5;
  * on the profile and wearing its title.
  */
 export function BadgeScreen({ badgeKey }: { badgeKey: string }) {
-  const { t, i18n } = useTranslation("quest");
+  const { t, i18n } = useTranslation(["quest", "common"]);
   const { colors } = useTheme();
   const text = useLocalized();
   const badgeName = useBadgeName();
@@ -60,6 +60,8 @@ export function BadgeScreen({ badgeKey }: { badgeKey: string }) {
   const tier = tierKey(badge.tier);
   // The day it was earned, on the account's calendar.
   const earned = badge.earnedAt ? zonedDate(toMillis(badge.earnedAt), zone) : undefined;
+  // The showcase is sent whole, so it is changed only from the one known to be shown now.
+  const known = mine.data !== undefined;
   const showcaseKeys = mine.data?.showcase.map((item) => item.key) ?? [];
   const shown = showcaseKeys.includes(badge.key);
   const wearing = mine.data?.title?.badgeKey === badge.key;
@@ -129,7 +131,7 @@ export function BadgeScreen({ badgeKey }: { badgeKey: string }) {
               block
               variant={shown ? "secondary" : "lime"}
               loading={showcase.isPending}
-              disabled={mine.isPending || full}
+              disabled={!known || full}
               onPress={() =>
                 showcase.mutate(
                   shown
@@ -140,6 +142,14 @@ export function BadgeScreen({ badgeKey }: { badgeKey: string }) {
             >
               {shown ? t("badge.hide") : t("badge.show")}
             </Button>
+            {mine.isError && (
+              <View className="flex-row flex-wrap items-center justify-center gap-2">
+                <Text className="text-sm font-bold text-ink-soft">{t("badges.error")}</Text>
+                <Button variant="secondary" size="sm" onPress={() => void mine.refetch()}>
+                  {t("common:actions.retry")}
+                </Button>
+              </View>
+            )}
             {full && (
               <Text className="text-center text-sm font-bold text-ink-soft">
                 {t("badge.showcaseFull", { count: SHOWCASE_SIZE })}
@@ -151,7 +161,7 @@ export function BadgeScreen({ badgeKey }: { badgeKey: string }) {
                 block
                 variant={wearing ? "secondary" : "primary"}
                 loading={wear.isPending}
-                disabled={mine.isPending}
+                disabled={!known}
                 onPress={() => wear.mutate(wearing ? "" : badge.key)}
               >
                 {wearing ? t("badge.removeTitle") : t("badge.wearTitle", { title })}
