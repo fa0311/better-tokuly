@@ -72,3 +72,53 @@ async fn rekey_carries_over_what_nobody_used_and_without_it_the_old_secret_opens
     let again = tokuly_core::rekey::rekey(&during.core.db, &during.core.keys, &tokuly_identity::SEALED[0]).await.unwrap();
     assert_eq!(again.resealed, 0, "a second run has nothing left to do");
 }
+
+/// How many values of the scratch table only `OLD` opens.
+async fn left_under_the_old_secret(app: &TestApp) -> usize {
+    let stored: Vec<Vec<u8>> = sqlx::query_scalar("SELECT sealed FROM rekey_under_writes").fetch_all(&app.core.db).await.unwrap();
+    stored.iter().filter(|sealed| Keys::new(NEW).open("scratch", sealed).is_none()).count()
+}
+
+#[tokio::test]
+async fn rekey_leaves_nothing_behind_in_rows_the_servers_write_meanwhile() {
+    const ROWS: i32 = 3000;
+    let during = app(NEW, OLD).await;
+    let db = during.core.db.clone();
+    sqlx::query("CREATE TABLE IF NOT EXISTS rekey_under_writes (id int PRIMARY KEY, sealed bytea NOT NULL, touched int NOT NULL DEFAULT 0)")
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("TRUNCATE rekey_under_writes").execute(&db).await.unwrap();
+    let old = Keys::new(OLD);
+    let sealed: Vec<Vec<u8>> = (0..ROWS).map(|id| old.seal("scratch", id.to_string().as_bytes())).collect();
+    sqlx::query("INSERT INTO rekey_under_writes (id, sealed) SELECT * FROM unnest($1::int[], $2::bytea[])")
+        .bind((0..ROWS).collect::<Vec<_>>())
+        .bind(&sealed)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    // A server at work: other columns of the same rows change all the time.
+    let writer = tokio::spawn({
+        let db = db.clone();
+        async move {
+            loop {
+                sqlx::query("UPDATE rekey_under_writes SET touched = touched + 1 WHERE id = floor(random() * $1)::int")
+                    .bind(ROWS)
+                    .execute(&db)
+                    .await
+                    .unwrap();
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        }
+    });
+    let column = tokuly_core::rekey::Sealed::bytes("rekey_under_writes", "sealed", "scratch");
+    let done = tokuly_core::rekey::rekey(&db, &during.core.keys, &column).await;
+    writer.abort();
+    let _ = writer.await;
+
+    assert_eq!(done.unwrap().resealed, ROWS as u64);
+    assert_eq!(left_under_the_old_secret(&during).await, 0, "removing the old secret would make these unreadable");
+    let opened: Vec<Vec<u8>> = sqlx::query_scalar("SELECT sealed FROM rekey_under_writes ORDER BY id").fetch_all(&db).await.unwrap();
+    assert!(opened.iter().enumerate().all(|(id, sealed)| Keys::new(NEW).open("scratch", sealed) == Some(id.to_string().into_bytes())));
+}

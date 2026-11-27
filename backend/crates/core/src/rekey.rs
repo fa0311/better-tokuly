@@ -3,9 +3,9 @@
 //!
 //! Every domain lists the columns it seals ([`Sealed`], a `SEALED` constant
 //! of its crate); the server binary hands them all to [`rekey`]. A row is
-//! rewritten only if it still holds the value that was read, so the command
-//! may run while the servers do: what they seal meanwhile is under the new
-//! secret already.
+//! rewritten only if it is still the row that was read, and read again if
+//! not, so the command may run while the servers do: what they seal
+//! meanwhile is under the new secret already.
 //!
 //! Keyed hashes of secrets that are not stored (API tokens, client
 //! secrets, recovery codes) cannot be computed again: they are accepted
@@ -76,49 +76,76 @@ pub struct Rekeyed {
     pub unopened: u64,
 }
 
-const BATCH: i64 = 500;
+/// Passes over a column before [`rekey`] gives up.
+const PASSES: usize = 10;
 
 /// Seals again under the current secret every value of `column` that only
 /// the previous secret opens.
+///
+/// A pass reads the column in one statement, so it meets every row once
+/// whatever the servers write meanwhile. A row that changed before its turn
+/// is not written over: the next pass reads it again. It ends with the pass
+/// that left nothing under the previous secret.
 pub async fn rekey(db: &PgPool, keys: &Keys, column: &Sealed) -> anyhow::Result<Rekeyed> {
     anyhow::ensure!(keys.has_previous(), "TOKULY_SECRET_PREVIOUS is not set: there is nothing to seal again");
+    let mut done = Rekeyed::default();
+    for _ in 0..PASSES {
+        let pass = pass(db, keys, column).await?;
+        done.resealed += pass.resealed;
+        done.unopened = pass.unopened;
+        if pass.left == 0 {
+            return Ok(done);
+        }
+    }
+    anyhow::bail!(
+        "{}.{}: values are still sealed under the previous secret after {PASSES} passes: \
+         is a server still running without the new TOKULY_SECRET?",
+        column.table,
+        column.column
+    )
+}
+
+/// What one pass over a column found.
+struct Pass {
+    resealed: u64,
+    unopened: u64,
+    /// Under the previous secret still: the row changed before it was written.
+    left: u64,
+}
+
+async fn pass(db: &PgPool, keys: &Keys, column: &Sealed) -> anyhow::Result<Pass> {
+    use futures::TryStreamExt as _;
     let Sealed { table, column: name, text, hash, .. } = *column;
     let stored = if text { format!("{name}::text") } else { format!("encode({name}, 'base64')") };
-    let select = format!(
-        "SELECT ctid::text, {label}, {stored} FROM {table} WHERE {name} IS NOT NULL AND ctid > $1::tid ORDER BY ctid LIMIT {BATCH}",
-        label = column.label_sql(),
-    );
+    let select = format!("SELECT ctid::text, {label}, {stored} FROM {table} WHERE {name} IS NOT NULL", label = column.label_sql());
     // Values travel as text: base64url as stored, or base64 of the bytes.
     let (new, old) = if text { ("$1", "$2") } else { ("decode($1, 'base64')", "decode($2, 'base64')") };
     let and_hash = hash.map(|hash| format!(", {hash} = $4")).unwrap_or_default();
     let update = format!("UPDATE {table} SET {name} = {new}{and_hash} WHERE ctid = $3::tid AND {name} = {old}");
-    let mut done = Rekeyed::default();
-    let mut after = "(0,0)".to_owned();
-    loop {
-        let rows: Vec<(String, String, String)> =
-            sqlx::query_as(sqlx::AssertSqlSafe(select.clone())).bind(&after).fetch_all(db).await?;
-        let Some(last) = rows.last() else { break };
-        after = last.0.clone();
-        for (ctid, label, encoded) in rows {
-            let sealed = if text { b64url_decode(&encoded) } else { base64_decode(&encoded) };
-            let Some(sealed) = sealed else {
-                done.unopened += 1;
-                continue;
-            };
-            let Some(plain) = keys.open_previous(&label, &sealed) else {
-                done.unopened += u64::from(keys.open(&label, &sealed).is_none());
-                continue;
-            };
-            let resealed = keys.seal(&label, &plain);
-            let resealed = if text { b64url(&resealed) } else { base64_encode(&resealed) };
-            let mut query = sqlx::query(sqlx::AssertSqlSafe(update.clone())).bind(resealed).bind(encoded).bind(ctid);
-            if hash.is_some() {
-                query = query.bind(keys.token_hash(std::str::from_utf8(&plain)?));
-            }
-            done.resealed += query.execute(db).await?.rows_affected();
+    let mut pass = Pass { resealed: 0, unopened: 0, left: 0 };
+    let mut rows = sqlx::query_as::<_, (String, String, String)>(sqlx::AssertSqlSafe(select)).fetch(db);
+    while let Some((ctid, label, encoded)) = rows.try_next().await? {
+        let sealed = if text { b64url_decode(&encoded) } else { base64_decode(&encoded) };
+        let Some(sealed) = sealed else {
+            pass.unopened += 1;
+            continue;
+        };
+        let Some(plain) = keys.open_previous(&label, &sealed) else {
+            pass.unopened += u64::from(keys.open(&label, &sealed).is_none());
+            continue;
+        };
+        let resealed = keys.seal(&label, &plain);
+        let resealed = if text { b64url(&resealed) } else { base64_encode(&resealed) };
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(update.clone())).bind(resealed).bind(encoded).bind(ctid);
+        if hash.is_some() {
+            query = query.bind(keys.token_hash(std::str::from_utf8(&plain)?));
+        }
+        match query.execute(db).await?.rows_affected() {
+            0 => pass.left += 1,
+            written => pass.resealed += written,
         }
     }
-    Ok(done)
+    Ok(pass)
 }
 
 fn base64_decode(encoded: &str) -> Option<Vec<u8>> {
