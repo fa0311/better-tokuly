@@ -8,10 +8,22 @@ name: iOS
 
 on:
   workflow_dispatch:
-  # Not on pull requests: they merge without waiting for it (docs/agents/rules.md); main covers it
-  # (a newer push cancels the older run), and a pull request can still start it by hand.
+  # Not on pull requests: they merge without waiting for it (docs/agents/rules.md); main
+  # rebuilds it when an app or build input changes. A pull request can still start it by hand.
   push:
     branches: [main]
+    # Backend-only and docs pushes should not consume scarce macOS arm64 capacity.
+    paths:
+      - apps/mobile/**
+      - packages/**
+      - proto/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/ios.yml
+      - .github/actions/setup-js/**
+      - .github/actions/ios-simulator-app/**
+      - .github/actions/ghcr-cache/**
 
 # A newer push replaces the run of the same branch, on main too: only the newest commit's
 # result matters before a release (docs/agents/rules.md), and the runners stay free.
