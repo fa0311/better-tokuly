@@ -17,6 +17,7 @@ on:
       - apps/mobile/**
       - packages/**
       - proto/**
+      - buf.yaml
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
