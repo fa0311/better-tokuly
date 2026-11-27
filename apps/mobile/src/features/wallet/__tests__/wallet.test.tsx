@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, wallet } from "@tokuly/api";
+import { walletKeys } from "@tokuly/core/wallet";
 import type { ReactNode } from "react";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -184,6 +185,23 @@ describe("the wallet screen", () => {
     await waitFor(() => expect(screen.getByText("ゲット！ 🪙 +15")).toBeTruthy());
     expect(screen.getByText("今日のぶんは受け取ったよ")).toBeTruthy();
     expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it("shows a claim as won only until the next bonus, not for one made elsewhere later", async () => {
+    const api = server();
+    const queryClient = new QueryClient();
+    const readBonus = () => queryClient.invalidateQueries({ queryKey: walletKeys.dailyBonus });
+    await show(<WalletScreen />, queryClient);
+    await fireEvent.press(await screen.findByTestId("wallet-bonus-claim"));
+    api.answer();
+    await waitFor(() => expect(screen.getByText("ゲット！ 🪙 +15")).toBeTruthy());
+    api.nextDay();
+    await act(readBonus);
+    expect(await screen.findByTestId("wallet-bonus-claim")).toBeTruthy();
+    api.claimElsewhere();
+    await act(readBonus);
+    await waitFor(() => expect(screen.getByText("今日のぶんは受け取ったよ")).toBeTruthy());
+    expect(screen.queryByText(/ゲット/)).toBeNull();
   });
 
   it("keeps asking for the next bonus while the phone's clock is ahead of the server's", async () => {

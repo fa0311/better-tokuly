@@ -148,6 +148,12 @@ function BonusCard() {
     if (unlocked) void refetch();
   }, [unlocked, now, refetch]);
 
+  // The next bonus waits: what was won belongs to the day before.
+  const claimable = bonus?.claimable;
+  useEffect(() => {
+    if (claimable) setWon(null);
+  }, [claimable]);
+
   if (isPending) return <Spinner />;
   if (!bonus || bonus.cycle.length === 0) return null;
   const collected = collectedSteps(bonus);
