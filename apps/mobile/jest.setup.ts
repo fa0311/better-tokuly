@@ -25,3 +25,8 @@ jest.mock("@livekit/react-native", () => ({
     stopAudioSession: jest.fn(async () => {}),
   },
 }));
+
+// The phone's network state: online, and nothing changes unless a test says so.
+jest.mock("expo-network", () => ({
+  addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),
+}));

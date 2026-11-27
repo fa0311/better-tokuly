@@ -1,8 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
 import { applyCommunityEvent, communityKeys } from "@tokuly/core/community";
+import { rereadListsAfterReconnect } from "@tokuly/core/query";
 import { lazy, useEffect } from "react";
-import { realtime, rereadListsAfterReconnect } from "#/lib/realtime";
+import { realtime } from "#/lib/realtime";
 import { boardClient } from "./api";
 
 const CommunitySubjectCard = lazy(() =>
@@ -41,6 +42,7 @@ export default function CommunityBackground() {
     // themselves again when its topic is back (`CommunityLayout`).
     const stop = rereadListsAfterReconnect(
       queryClient,
+      client,
       communityKeys.all,
       (key) => key[1] === "in" && client.isSubscribed(`community:${String(key[2])}`),
     );

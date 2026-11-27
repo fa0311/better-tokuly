@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { spaces } from "@tokuly/api";
+import { rereadListsAfterReconnect } from "@tokuly/core/query";
 import {
   applySpacesEvent,
   ELSEWHERE_WINDOW_MS,
@@ -35,18 +36,7 @@ export default function SpacesBackground() {
     const client = realtime();
     /** When this person was last seen entering a venue other than this session's. */
     let enteredElsewhereAt = 0;
-    let welcomed = false;
     const off = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // What changed while the connection was down was not announced: the lists are read again.
-        if (welcomed) {
-          void queryClient.invalidateQueries({ queryKey: spacesKeys.lists });
-          void queryClient.invalidateQueries({ queryKey: spacesKeys.hangouts });
-          void queryClient.invalidateQueries({ queryKey: spacesKeys.friendsInRooms });
-        }
-        welcomed = true;
-        return;
-      }
       if (frame.body.case !== "spaces") return;
       const event = frame.body.value.event;
       const active = useAudioSession.getState().active;
@@ -101,8 +91,22 @@ export default function SpacesBackground() {
       }
       applySpacesEvent(queryClient, event, myId);
     });
+    // What changed while the connection was down was not announced: the lists on screen
+    // (hangouts, rooms live and upcoming, friends in rooms) are read again. A followed room reads
+    // itself and its participants again when its topic is back (`useSpaceTopic`).
+    const stop = rereadListsAfterReconnect(
+      queryClient,
+      client,
+      spacesKeys.all,
+      (key) =>
+        (key[1] === "space" || key[1] === "participants") &&
+        client.isSubscribed(`space:${String(key[2])}`),
+    );
     client.start();
-    return off;
+    return () => {
+      off();
+      stop();
+    };
   }, [queryClient, myId]);
 
   return <MiniPlayer />;

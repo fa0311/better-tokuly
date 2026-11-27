@@ -11,7 +11,7 @@ listed in its `package.json`), each with its own tests:
 | `@tokuly/core/format`        | ages, durations, distances, speeds, dates and times on a zone's clock                                                                       |
 | `@tokuly/core/errors`        | an API reason or a refused upload → the text to show                                                                                        |
 | `@tokuly/core/engagement`    | subjects, counts and the viewer's reactions, a tap shown before the answer, realtime counters, engagement keys                              |
-| `@tokuly/core/query`         | the retry rule, `ClientSource`, `nextCursor`, pushes that arrive while a snapshot is read                                                   |
+| `@tokuly/core/query`         | the retry rule, `ClientSource`, `nextCursor`, pushes that arrive while a snapshot is read, what is read again after a reconnect             |
 | `@tokuly/core/session`       | device accounts                                                                                                                             |
 | `@tokuly/core/profile`       | profile keys and options, the viewer's relationship                                                                                         |
 | `@tokuly/core/friends`       | follow and circle keys, the follow summary, what to re-read after a change                                                                  |

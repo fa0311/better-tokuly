@@ -1,11 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { spaces } from "@tokuly/api";
+import { rereadListsAfterReconnect } from "@tokuly/core/query";
 import { ELSEWHERE_WINDOW_MS, exitReasonOf, onStage, spacesKeys } from "@tokuly/core/spaces";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { realtime, rereadListsAfterReconnect } from "#/lib/realtime";
+import { realtime } from "#/lib/realtime";
 import { useMe } from "#/stores/session";
 
 import { EndCallPrompt } from "./end-call-prompt";
@@ -116,6 +117,7 @@ export default function SpacesBackground() {
     // itself and its participants again when its topic is back (`useSpaceTopic`).
     const stop = rereadListsAfterReconnect(
       queryClient,
+      client,
       spacesKeys.all,
       (key) =>
         (key[1] === "space" || key[1] === "participants") &&
