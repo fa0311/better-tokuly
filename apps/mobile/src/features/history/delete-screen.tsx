@@ -64,7 +64,6 @@ export function DeleteHistoryScreen({ date }: { date?: string }) {
         );
       }
       Alert.alert(t("delete.done"));
-      router.back();
     },
     onError: (error) => Alert.alert(errorMessage(error, { namespace: NS })),
   });
@@ -126,9 +125,12 @@ export function DeleteHistoryScreen({ date }: { date?: string }) {
         variant="danger"
         block
         size="lg"
-        disabled={!range}
+        // Once it went through there is nothing left to send again.
+        disabled={!range || remove.isSuccess}
         loading={remove.isPending}
-        onPress={() => remove.mutate()}
+        // Closing is this screen's own: when the person already left it, the
+        // answer forgets the cache all the same but moves nothing under them.
+        onPress={() => remove.mutate(undefined, { onSuccess: (answer) => answer && router.back() })}
       >
         {everything ? t("delete.confirmAll") : t("delete.confirm")}
       </Button>

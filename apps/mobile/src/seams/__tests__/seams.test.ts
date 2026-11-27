@@ -44,9 +44,9 @@ describe("the features on the seams", () => {
       ["spaces", "/spaces"],
       ["ask", "/ask"],
       ["school", "/school"],
+      ["history", "/history"],
       ["stamps", "/stamps"],
       ["emoji", "/emoji"],
-      ["history", "/history"],
       ["more", "/more"],
       ["settings", "/settings"],
     ]);
