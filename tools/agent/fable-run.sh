@@ -3,7 +3,8 @@
 #   fable-run.sh <name> <base ref> <budget usd> <task file>
 # base ref: origin/main for new work, or origin/<pr branch> for a review-with-fixes (the task file
 # then says to commit fixes onto that branch). The prompt is ~/tokuly-dev/notes/api-runs/common.md +
-# the task file. Run it as a background command; its last lines are the report.
+# the task file. Run it as a background command with the longest time limit (2 h: the default 30 min kills
+# long reviews before they report, and their cost is then not in the ledger); its last lines are the report.
 set -euo pipefail
 name=$1 base=$2 budget=$3 task=$4
 repo=$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)
