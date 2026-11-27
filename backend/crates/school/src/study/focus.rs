@@ -8,7 +8,7 @@ use tokuly_proto::school::{
     PomodoroConfig, StartStudySessionRequest, StudyMode, StudySession, school_event::Event as Push,
 };
 
-use super::sessions::{self, ENDED, End, Ended, NewSession, PAUSED, RUNNING, SOURCE_TIMER, SessionRow};
+use super::sessions::{self, BELIEVED_UNTIL, ENDED, End, Ended, NewSession, PAUSED, RUNNING, SOURCE_TIMER, SessionRow};
 use crate::{
     School,
     rooms::{self, RoomExit, RoomRow},
@@ -45,7 +45,7 @@ async fn store_timer(conn: &mut PgConnection, session: &mut SessionRow, timer: &
     // Nothing between the last count and now is owed: counting restarts here.
     session.checkpoint_at = at;
     sqlx::query(
-        "UPDATE school_study_sessions SET state = $2, paused_at = $3, timer_anchor_at = $4, timer_offset_ms = $5, believed_until = $7, checkpoint_at = $6
+        "UPDATE school_study_sessions SET state = $2, paused_at = $3, timer_anchor_at = $4, timer_offset_ms = $5, heartbeat_at = $6, heard_phase_ends_at = $7, checkpoint_at = $6
          WHERE id = $1",
     )
     .bind(session.id)
@@ -54,7 +54,7 @@ async fn store_timer(conn: &mut PgConnection, session: &mut SessionRow, timer: &
     .bind(session.timer_anchor_at)
     .bind(session.timer_offset_ms)
     .bind(at)
-    .bind(session.believed_until)
+    .bind(session.heard_phase_ends_at)
     .execute(conn)
     .await?;
     Ok(())
@@ -334,8 +334,8 @@ impl School {
         let overdue: Vec<Uuid> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT user_id FROM school_study_sessions
              WHERE state <> {ENDED}
-               AND (started_at <= $3 OR (state = {PAUSED} AND paused_at < $2) OR (state <> {PAUSED} AND believed_until < $1))
-             ORDER BY believed_until LIMIT 500"
+               AND (started_at <= $3 OR (state = {PAUSED} AND paused_at < $2) OR (state <> {PAUSED} AND {BELIEVED_UNTIL} < $1))
+             ORDER BY {BELIEVED_UNTIL} LIMIT 500"
         )))
         .bind(idle)
         .bind(paused)

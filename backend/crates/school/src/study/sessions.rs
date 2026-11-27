@@ -63,7 +63,8 @@ pub(crate) struct SessionRow {
     pub timer_anchor_at: Option<DateTime<Utc>>,
     pub timer_offset_ms: i64,
     pub checkpoint_at: DateTime<Utc>,
-    pub believed_until: DateTime<Utc>,
+    pub heartbeat_at: DateTime<Utc>,
+    pub heard_phase_ends_at: Option<DateTime<Utc>>,
     pub paused_at: Option<DateTime<Utc>>,
     pub counted_seconds: i32,
     pub auto_stopped: bool,
@@ -73,8 +74,12 @@ pub(crate) struct SessionRow {
 }
 
 pub(crate) const COLUMNS: &str = "id, user_id, subject_id, memo, source, state, started_at, ended_at, mode, work_seconds, break_seconds, \
-     long_break_seconds, rounds, timer_anchor_at, timer_offset_ms, checkpoint_at, believed_until, paused_at, counted_seconds, auto_stopped, \
+     long_break_seconds, rounds, timer_anchor_at, timer_offset_ms, checkpoint_at, heartbeat_at, heard_phase_ends_at, paused_at, counted_seconds, \
+     auto_stopped,
      cheer_count, room_id, room_joined_at";
+
+/// [`SessionRow::believed_until`] in SQL (`GREATEST` skips a NULL).
+pub(crate) const BELIEVED_UNTIL: &str = "GREATEST(heartbeat_at, heard_phase_ends_at)";
 
 impl SessionRow {
     pub fn is_active(&self) -> bool {
@@ -113,13 +118,20 @@ impl SessionRow {
         }
     }
 
+    /// How far the client is believed: its last sign of life, or the end of
+    /// the pomodoro phase that was running then. (Mirrored in SQL by
+    /// [`BELIEVED_UNTIL`].)
+    pub fn believed_until(&self) -> Time {
+        self.heard_phase_ends_at.map_or(self.heartbeat_at, |end| end.max(self.heartbeat_at))
+    }
+
     /// Study time at `at`: what is counted plus the work since, as far as
     /// the client is still believed (the idle limit has not caught up).
     pub fn studied_seconds(&self, timer: &Timer, at: Time, idle: Duration) -> i32 {
         if !self.is_active() {
             return self.counted_seconds;
         }
-        let believed_until = at.min(self.believed_until + idle);
+        let believed_until = at.min(self.believed_until() + idle);
         self.counted_seconds
             + (timer::total_ms(&timer.work_intervals(self.checkpoint_at, believed_until)) / 1000) as i32
     }
@@ -181,13 +193,13 @@ pub(crate) async fn insert(conn: &mut PgConnection, new: &NewSession<'_>) -> App
     let (work, short_break, long_break, rounds) = new.plan.columns();
     // A session in a room is believed further from its first heartbeat on.
     let believed = match new.room {
-        None => believed_until(&Timer::started(new.plan, new.at), new.at),
-        Some(_) => new.at,
+        None => Timer::started(new.plan, new.at).phase_ends_at(new.at),
+        Some(_) => None,
     };
     sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "INSERT INTO school_study_sessions (user_id, subject_id, memo, source, state, started_at, mode, work_seconds, break_seconds,
-             long_break_seconds, rounds, timer_anchor_at, checkpoint_at, believed_until, room_id, room_joined_at)
-         VALUES ($1, $2, $3, $4, {RUNNING}, $5, $6, $7, $8, $9, $10, $11, $5, $14, $12, $13)
+             long_break_seconds, rounds, timer_anchor_at, checkpoint_at, heartbeat_at, heard_phase_ends_at, room_id, room_joined_at)
+         VALUES ($1, $2, $3, $4, {RUNNING}, $5, $6, $7, $8, $9, $10, $11, $5, $5, $14, $12, $13)
          RETURNING {COLUMNS}"
     )))
     .bind(new.user_id)
@@ -275,15 +287,11 @@ pub(crate) async fn advance(
     recount(conn, session).await
 }
 
-/// How far a client heard from at `at` is believed, with `timer` as it then
-/// was: to the end of the pomodoro phase in progress, else just to `at`.
-fn believed_until(timer: &Timer, at: Time) -> Time {
-    timer.phase_ends_at(at).map_or(at, |end| end.max(at))
-}
-
-/// Notes in `session` that the client was heard from at `at`.
+/// Notes in `session` that the client was heard from at `at`, with `timer`
+/// as it then was.
 pub(crate) fn hear_from(session: &mut SessionRow, timer: &Timer, at: Time) {
-    session.believed_until = believed_until(timer, at);
+    session.heartbeat_at = at;
+    session.heard_phase_ends_at = timer.phase_ends_at(at);
 }
 
 /// Records that the client was heard from at `at`.
@@ -294,9 +302,10 @@ pub(crate) async fn heard_from(
     at: Time,
 ) -> AppResult<()> {
     hear_from(session, timer, at);
-    sqlx::query("UPDATE school_study_sessions SET believed_until = $2 WHERE id = $1")
+    sqlx::query("UPDATE school_study_sessions SET heartbeat_at = $2, heard_phase_ends_at = $3 WHERE id = $1")
         .bind(session.id)
-        .bind(session.believed_until)
+        .bind(at)
+        .bind(session.heard_phase_ends_at)
         .execute(conn)
         .await?;
     Ok(())
@@ -333,7 +342,7 @@ impl School {
         }
         match (session.state, session.paused_at) {
             (PAUSED, Some(paused_at)) => at - paused_at > Duration::seconds(self.cfg.session_max_pause_seconds),
-            _ => at - session.believed_until > self.idle_limit(),
+            _ => at - session.believed_until() > self.idle_limit(),
         }
     }
 
@@ -360,7 +369,7 @@ impl School {
                 let longest = session.started_at + Duration::seconds(self.cfg.session_max_seconds);
                 let until = match (session.state, session.paused_at) {
                     (PAUSED, Some(paused_at)) => paused_at,
-                    _ => session.believed_until.min(at).min(longest),
+                    _ => session.believed_until().min(at).min(longest),
                 };
                 // (A pomodoro phase believed to its end may not be counted yet.)
                 advance(tx, &mut session, timer, until).await?;

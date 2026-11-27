@@ -7,7 +7,7 @@ use tokuly_proto::school::{RoomReaction, RoomReactionSent, TimerAction, TimerSna
 use super::{COLUMNS, RoomRow, lock, not_found, store_timer};
 use crate::{
     School,
-    study::sessions::ENDED,
+    study::sessions::{BELIEVED_UNTIL, ENDED},
     timer::{Plan, Run},
 };
 
@@ -104,7 +104,8 @@ impl School {
         let at = self.now();
         ensure!(reaction != RoomReaction::ROOM_REACTION_UNSPECIFIED, invalid, "REACTION_REQUIRED", "choose a reaction");
         let room_id: Option<Uuid> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT room_id FROM school_study_sessions WHERE user_id = $1 AND state <> {ENDED} AND room_id IS NOT NULL AND believed_until >= $2"
+            "SELECT room_id FROM school_study_sessions WHERE user_id = $1 AND state <> {ENDED} AND room_id IS NOT NULL AND {believed} >= $2",
+            believed = BELIEVED_UNTIL
         )))
         .bind(user_id)
         .bind(at - self.idle_limit())

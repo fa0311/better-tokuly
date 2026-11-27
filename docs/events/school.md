@@ -1,6 +1,6 @@
 # school — events, jobs and configuration
 
-Crate `tokuly-school`, migration `2100_school.sql`, API `tokuly.school.v1`
+Crate `tokuly-school`, migrations `21xx_school*.sql`, API `tokuly.school.v1`
 (`SchoolService`, `TimetableService`, `StudyService`, `StudyRoomService`,
 `ExamService`, `AssignmentService`, realtime `SchoolEvent`).
 

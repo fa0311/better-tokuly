@@ -31,11 +31,12 @@ impl School {
         Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {} FROM school_study_sessions s
              WHERE s.user_id = ANY($1) AND s.state <> {ENDED}
-               AND ((s.state = {PAUSED} AND s.paused_at >= $3) OR (s.state <> {PAUSED} AND s.believed_until >= $2))
+               AND ((s.state = {PAUSED} AND s.paused_at >= $3) OR (s.state <> {PAUSED} AND {believed} >= $2))
                AND NOT EXISTS (SELECT 1 FROM school_settings st WHERE st.user_id = s.user_id AND st.study_visibility <> 1)
                AND {}",
             sessions::COLUMNS,
-            crate::account_is_active("s.user_id")
+            crate::account_is_active("s.user_id"),
+            believed = sessions::BELIEVED_UNTIL
         )))
         .bind(user_ids)
         .bind(at - self.idle_limit())
