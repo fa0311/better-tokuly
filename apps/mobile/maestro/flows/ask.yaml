@@ -53,6 +53,7 @@ env:
 
 # The friend's box: asked anonymously, then it waits among the questions sent.
 - openLink: "tokuly://ask/u/${output.friend}"
+- runFlow: ../subflows/confirm-open-link.yaml
 - extendedWaitUntil:
     visible: { id: "ask-input" }
     timeout: 15000

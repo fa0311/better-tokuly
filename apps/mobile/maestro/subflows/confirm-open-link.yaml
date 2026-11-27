@@ -1,0 +1,11 @@
+appId: app.tokuly.mobile
+name: Confirm opening Tokuly from a deep link
+---
+# On iOS the first custom-scheme handoff can ask whether to open Tokuly.
+# Android opens the target directly; on iOS this tap is a no-op if no prompt appears.
+- runFlow:
+    when: { platform: iOS }
+    commands:
+      - tapOn:
+          text: "(Open|開く)"
+          optional: true
