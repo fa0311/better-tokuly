@@ -46,6 +46,7 @@ describe("the features on the seams", () => {
       ["school", "/school"],
       ["stamps", "/stamps"],
       ["emoji", "/emoji"],
+      ["history", "/history"],
       ["more", "/more"],
       ["settings", "/settings"],
     ]);
@@ -87,6 +88,9 @@ describe("the features on the seams", () => {
       "g/[handle]/new",
       "g/[handle]/t/[id]",
       "g/join/[code]",
+      "history/[date]",
+      "history/delete",
+      "history/index",
       "invite/[code]",
       "licenses",
       "live/[id]",

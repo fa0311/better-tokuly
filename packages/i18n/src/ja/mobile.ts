@@ -335,6 +335,11 @@ export default {
     dueHint: "その日の23:59まで",
     actions: "課題のメニュー",
   },
+  history: {
+    recordingOff: "いまは履歴を記録してないよ。行った場所や通った道はここにのこらないよ",
+    openPrivacy: "プライバシー設定をひらく",
+    memoPhotos: "写真 {{count}}枚はそのままのこるよ（写真の追加・削除はWebで）",
+  },
   quest: {
     coins: "もってるコイン",
     onWeb: "Webでひらく",

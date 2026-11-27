@@ -334,6 +334,12 @@ export default {
     dueHint: "By 23:59 that day",
     actions: "Assignment menu",
   },
+  history: {
+    recordingOff:
+      "History is off right now: places you visit and the ways you take are not kept here.",
+    openPrivacy: "Open privacy settings",
+    memoPhotos: "Its photos ({{count}}) stay as they are: add or remove them on the web",
+  },
   quest: {
     coins: "Your coins",
     onWeb: "Open on the web",

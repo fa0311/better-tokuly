@@ -20,7 +20,6 @@ const WEB_ONLY = [
   "clip",
   "developers",
   "footprints",
-  "history",
   "news",
   "party",
   "places",
