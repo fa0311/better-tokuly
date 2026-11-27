@@ -149,6 +149,8 @@ struct AccessLookup {
     account_time_zone: String,
     /// The application's owner is suspended or deleted.
     owner_gone: bool,
+    owner_birthdate: Option<chrono::NaiveDate>,
+    owner_time_zone: String,
 }
 
 impl Dev {
@@ -253,7 +255,8 @@ impl Dev {
                     p.status = 'active' AS app_active, p.rate_tier,
                     (u.banned_at IS NOT NULL OR u.deleted_at IS NOT NULL) AS account_gone,
                     u.birthdate AS account_birthdate, u.time_zone AS account_time_zone,
-                    (w.banned_at IS NOT NULL OR w.deleted_at IS NOT NULL) AS owner_gone
+                    (w.banned_at IS NOT NULL OR w.deleted_at IS NOT NULL) AS owner_gone,
+                    w.birthdate AS owner_birthdate, w.time_zone AS owner_time_zone
              FROM dev_oauth_tokens o
              JOIN dev_authorizations a ON a.id = o.authorization_id
              JOIN dev_apps p ON p.id = a.app_id
@@ -272,7 +275,11 @@ impl Dev {
         if row.access_expires_at <= Utc::now() {
             return Ok(judged(Verdict::Expired));
         }
-        if self.identity.too_young(row.account_birthdate, &row.account_time_zone) {
+        // The user under the minimum age, or the application's owner (whose
+        // application is then suspended, as for a suspended owner).
+        if self.identity.too_young(row.account_birthdate, &row.account_time_zone)
+            || self.identity.too_young(row.owner_birthdate, &row.owner_time_zone)
+        {
             return Ok(judged(Verdict::TooYoung));
         }
         Ok(judged(Verdict::Valid(ApiToken {

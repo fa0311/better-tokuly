@@ -13,7 +13,7 @@ use tokuly_proto::common::SubjectType;
 
 use crate::{
     Dev,
-    apps::{AppRow, app_columns},
+    apps::{AppRow, select_apps},
     events::{AppEvent, ContentRemoved, UserRef},
 };
 
@@ -113,11 +113,10 @@ impl Dev {
         for bot_id in bots {
             self.delete_bot(bot_id, user_id, None).await?;
         }
-        let apps: Vec<AppRow> =
-            sqlx::query_as(concat!("SELECT ", app_columns!(), " FROM dev_apps p WHERE p.owner_id = $1"))
-                .bind(user_id)
-                .fetch_all(&self.core.db)
-                .await?;
+        let apps: Vec<AppRow> = sqlx::query_as(concat!(select_apps!(), " WHERE p.owner_id = $1"))
+            .bind(user_id)
+            .fetch_all(&self.core.db)
+            .await?;
         for app in apps {
             self.delete_app(&app, None).await?;
         }
@@ -190,7 +189,8 @@ impl SubjectResolver for AppSubjects {
     async fn resolve(&self, id: &str, _viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let Ok(app_id) = Uuid::parse_str(id) else { return Ok(None) };
         // A disabled application is gone as far as the public is concerned.
-        let Some(app) = self.0.find_app(app_id).await?.filter(AppRow::is_usable) else { return Ok(None) };
+        let app = self.0.find_app(app_id).await?.filter(|app| app.is_usable(&self.0.identity));
+        let Some(app) = app else { return Ok(None) };
         let image_url = app
             .icon
             .as_ref()

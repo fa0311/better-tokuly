@@ -129,6 +129,69 @@ async fn a_suspended_developers_application_stops_until_the_suspension_ends() {
     assert!(whoami(&ctx, &caller).await.is_ok());
 }
 
+/// A developer under the minimum age: their application is suspended, as for
+/// a suspended developer, until that birthday. Nothing tells its users why.
+#[tokio::test]
+async fn a_too_young_developers_application_stops_until_that_birthday() {
+    let ctx = start().await;
+    let (dana, user) = (ctx.app.user("dana").await, ctx.app.user("user").await);
+    let app = create_app(&ctx, &dana, &["identity:read"], CONFIDENTIAL).await;
+    let (access, refresh_token) = obtain_tokens(&ctx, &user, &app, "identity:read").await;
+    let caller = with_token(&user, &access);
+    assert!(whoami(&ctx, &caller).await.is_ok());
+
+    let answer = |years: u32| {
+        let (ctx, dana) = (&ctx, &dana);
+        async move {
+            let birthdate = chrono::Utc::now().date_naive().checked_sub_months(chrono::Months::new(12 * years)).unwrap();
+            sqlx::query("UPDATE users SET birthdate = $2 WHERE id = $1")
+                .bind(dana.id)
+                .bind(birthdate)
+                .execute(&ctx.app.core.db)
+                .await
+                .unwrap();
+            let given = event("identity.user.birthdate_given", serde_json::json!({ "user_id": dana.id, "minor": true }));
+            ctx.dev.on_account_event(&given).await.unwrap();
+        }
+    };
+    answer(12).await;
+    // At once, although the token was in use a moment ago.
+    assert_eq!(whoami(&ctx, &caller).await.unwrap_err().reason, "TOKEN_REVOKED");
+    let refreshed = ctx
+        .form("/oauth/token", app.basic(), &[("grant_type", "refresh_token"), ("refresh_token", &refresh_token)])
+        .await;
+    assert_eq!(refreshed.error(), "invalid_client");
+    let (_, challenge) = pkce();
+    let consent = ctx
+        .app
+        .call::<_, GetConsentResponse>(
+            &format!("{AUTHORIZATION_SERVICE}/GetConsent"),
+            Some(&user),
+            &GetConsentRequest { request: authorization_request(&app, "identity:read", &challenge).into(), ..Default::default() },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(consent.reason, "CLIENT_NOT_FOUND", "as for a client nobody registered");
+    let card = ctx
+        .app
+        .call::<_, GetPublicAppResponse>(
+            &format!("{AUTHORIZATION_SERVICE}/GetPublicApp"),
+            None,
+            &GetPublicAppRequest { app_id: app.id.clone(), ..Default::default() },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(card.reason, "APP_NOT_FOUND");
+
+    // Nothing was revoked: from that birthday the application works again.
+    answer(13).await;
+    assert!(whoami(&ctx, &caller).await.is_ok());
+    let refreshed = ctx
+        .form("/oauth/token", app.basic(), &[("grant_type", "refresh_token"), ("refresh_token", &refresh_token)])
+        .await;
+    assert_eq!(refreshed.status, 200, "{:?}", refreshed.json());
+}
+
 #[tokio::test]
 async fn an_event_that_arrives_late_revokes_only_what_existed_when_it_happened() {
     let ctx = start().await;
