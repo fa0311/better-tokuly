@@ -26,6 +26,5 @@ export default [
       "ランキング",
       "称号",
     ],
-    card: () => import("./hub-card"),
   },
 ] satisfies HubTile[];

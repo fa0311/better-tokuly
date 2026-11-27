@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { toMillis } from "@tokuly/api";
 import { classWhen, clock, currentClass, inkOn, untilText } from "@tokuly/core/school";
-import { CalendarDays, ChevronRight } from "lucide-react";
+import { CalendarDays } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { useAccountNow } from "#/lib/account-time";
@@ -101,40 +101,5 @@ function Progress({ from, to, now }: { from: number; to: number; now: number }) 
     <div className="mt-3 h-2.5 overflow-hidden rounded-full border-2 border-current bg-white/40">
       <div className="h-full bg-current" style={{ width: `${done * 100}%` }} />
     </div>
-  );
-}
-
-/**
- * The school tile of the "じぶん" hub: leads to the school area and says
- * what class is on, or which one comes next.
- */
-export function SchoolHubTile() {
-  const { t, i18n } = useTranslation("school");
-  const { data } = useClassNow();
-  const { ms: now, date: today } = useAccountNow(30_000);
-  const current = currentClass(data, now);
-  const next = data?.next;
-  const line = current
-    ? t("now.tileCurrent", { subject: current.subject?.name ?? "", end: clock(current.endMinute) })
-    : next
-      ? t("now.tileNext", {
-          subject: next.subject?.name ?? "",
-          when: classWhen(i18n, next, today),
-        })
-      : t("now.tileEmpty");
-  return (
-    <Link
-      to="/school"
-      className="pressable sticker flex items-center gap-4 rounded-card bg-surface p-4"
-    >
-      <span className="grid size-11 shrink-0 place-items-center rounded-2xl border-2 border-ink bg-lime text-2xl">
-        🏫
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block font-black">{t("title")}</span>
-        <span className="block truncate text-sm font-bold text-ink-soft">{line}</span>
-      </span>
-      <ChevronRight className="size-6 shrink-0 text-ink-faint" />
-    </Link>
   );
 }

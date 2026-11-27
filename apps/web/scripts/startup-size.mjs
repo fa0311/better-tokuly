@@ -6,9 +6,10 @@
  * of every route down to the one opened), compressed with gzip. On top of
  * that, a signed-in page waits for the background features and badge
  * sources (`background.tsx`, `badges.ts`: the chunks the layout's globs point to,
- * with what they import), counted on their own line. Chunks a page imports
- * while it runs (strings, a hub card) never hold up the first render and
- * are not counted.
+ * with what they import), counted on their own line. The hub page (`/me`)
+ * also counts its cards (`features/<area>/hub-card.tsx`, fetched with it). Chunks
+ * a page imports while it runs (strings, a dialog) never hold up the first
+ * render and are not counted.
  *
  *   node scripts/startup-size.mjs            the table
  *   node scripts/startup-size.mjs --check    also fail when a number is over `startup-budget.json`
@@ -80,29 +81,38 @@ function closure(files) {
   return seen;
 }
 
-// The chunks the signed-in layout fetches: the targets of the `import.meta.glob`
-// maps over `features/*/background.tsx` and `features/*/badges.ts`, as built.
-const sources = (file) =>
-  readdirSync(join(web, "src/features")).filter((area) =>
-    existsSync(join(web, "src/features", area, file)),
-  ).length;
-const backgroundTargets = new Set();
-for (const name of readdirSync(join(web, ".output/public/assets"))) {
-  if (!name.endsWith(".js")) continue;
-  const code = readFileSync(join(web, ".output/public/assets", name), "utf8");
-  for (const [, target] of code.matchAll(
-    /"\.\.\/features\/[^"/]+\/(?:background\.tsx|badges\.ts)":[^`"']*[`"']\.\/([^`"']+\.js)[`"']/g,
-  )) {
-    backgroundTargets.add(`/assets/${target}`);
-  }
-}
-const expected = sources("background.tsx") + sources("badges.ts");
-if (backgroundTargets.size !== expected) {
-  throw new Error(
-    `Found ${backgroundTargets.size} background and badge chunks in the build, expected ${expected} ` +
-      "(one per features/*/background.tsx and badges.ts): this script no longer reads the build right.",
+// The chunks behind the `import.meta.glob` maps over `features/*/<file>`, as built: the
+// signed-in layout's (`background.tsx`, `badges.ts`) and the hub page's (`hub-card.tsx`).
+const assets = readdirSync(join(web, ".output/public/assets"))
+  .filter((name) => name.endsWith(".js"))
+  .map((name) => readFileSync(join(web, ".output/public/assets", name), "utf8"));
+function globTargets(files) {
+  const pattern = files.map((file) => file.replace(".", "\\.")).join("|");
+  const entry = new RegExp(
+    `"\\.\\./features/[^"/]+/(?:${pattern})":[^\`"']*[\`"']\\./([^\`"']+\\.js)[\`"']`,
+    "g",
   );
+  const targets = new Set();
+  for (const code of assets) {
+    for (const [, target] of code.matchAll(entry)) targets.add(`/assets/${target}`);
+  }
+  const expected = files
+    .map(
+      (file) =>
+        readdirSync(join(web, "src/features")).filter((area) =>
+          existsSync(join(web, "src/features", area, file)),
+        ).length,
+    )
+    .reduce((a, b) => a + b, 0);
+  if (targets.size !== expected) {
+    throw new Error(
+      `Found ${targets.size} chunks for features/*/{${files}} in the build, expected ${expected}: ` +
+        "this script no longer reads the build right.",
+    );
+  }
+  return targets;
 }
+const backgroundTargets = globTargets(["background.tsx", "badges.ts"]);
 const shell = new Set([...own("__root__").js, ...own("/_app").js]);
 const backgroundFiles = [...closure(backgroundTargets)].filter((file) => !shell.has(file));
 const background = {
@@ -111,8 +121,26 @@ const background = {
   css: 0,
 };
 
+// The hub page fetches its cards with its own code: they count in its row.
+const HUB = "/_app/me";
+if (!routes[HUB]) throw new Error(`No route ${HUB} in the build: where did the hub go?`);
+function withCards(id, row) {
+  if (id !== HUB) return row;
+  const page = new Set(chain(id).flatMap((at) => own(at).js));
+  const cards = [...closure(globTargets(["hub-card.tsx"]))].filter(
+    (file) => !page.has(file) && !backgroundFiles.includes(file),
+  );
+  return {
+    ...row,
+    files: row.files + cards.length,
+    js: row.js + cards.reduce((total, file) => total + gzipped(file), 0),
+  };
+}
+
 const leaves = Object.keys(routes).filter((id) => !routes[id].children?.length);
-const rows = leaves.map((id) => ({ id, ...load(chain(id)) })).sort((a, b) => b.js - a.js);
+const rows = leaves
+  .map((id) => withCards(id, { id, ...load(chain(id)) }))
+  .sort((a, b) => b.js - a.js);
 const root = load(["__root__"]);
 const heaviest = rows[0];
 
