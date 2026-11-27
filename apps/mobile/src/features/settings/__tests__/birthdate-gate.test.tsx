@@ -1,6 +1,6 @@
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { common, create, identity } from "@tokuly/api";
 import { Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -75,5 +75,17 @@ describe("the birthdate gate", () => {
     await open();
     await fireEvent.press(screen.getByTestId("birthdate-later"));
     expect(screen.getByText("アプリ")).toBeTruthy();
+  });
+
+  it("asks again at the next sign-in after 「あとで」", async () => {
+    account();
+    signIn({ birthdate: "", user: { id: "u3" } });
+    await open();
+    await fireEvent.press(screen.getByTestId("birthdate-later"));
+    expect(screen.getByText("アプリ")).toBeTruthy();
+
+    await act(() => useSessionStore.setState({ state: { status: "signedOut" } as never }));
+    await act(() => signIn({ birthdate: "", user: { id: "u3" } }));
+    expect(screen.getByTestId("birthdate-screen")).toBeTruthy();
   });
 });

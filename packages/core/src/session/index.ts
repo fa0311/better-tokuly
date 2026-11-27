@@ -4,4 +4,4 @@
  * refresh token lives (a cookie, the keychain) is each app's.
  */
 export { accountKeys, canAddAccount, deviceAccountsQuery } from "./accounts";
-export { asksForBirthdate } from "./birthdate";
+export { asksForBirthdate, asksForBirthdateNow } from "./birthdate";

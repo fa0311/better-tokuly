@@ -1,11 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { identity } from "@tokuly/api";
-import { asksForBirthdate } from "@tokuly/core/session";
-import { type ReactNode, useState } from "react";
+import { asksForBirthdateNow } from "@tokuly/core/session";
+import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { create } from "zustand";
 import { Button } from "#/components/button";
 import { ErrorNote, Page } from "#/components/page";
 import { TextField } from "#/components/text-field";
@@ -14,21 +13,21 @@ import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { settingsKeys } from "./data";
 
-/** Accounts that answered "later" since the app started: the next start asks again. */
-const useLater = create<{ users: string[] }>(() => ({ users: [] }));
-
 /**
- * Asks an account made before sign-up asked for a birthdate
- * (`asksForBirthdate`) for it, in place of the screens (`children`).
+ * Asks an account made before sign-up asked for a birthdate for it, in place
+ * of the screens (`children`). 「あとで」 holds while the account stays signed
+ * in (`asksForBirthdateNow`): it is forgotten at sign-out or when another
+ * account becomes active, so the next sign-in asks again.
  */
 export function BirthdateGate({ children }: { children: ReactNode }) {
   const me = useMe();
-  const userId = me?.user?.id ?? "";
-  const later = useLater((s) => s.users.includes(userId));
-  if (!me || !asksForBirthdate(me) || later) return children;
-  return (
-    <BirthdatePrompt onLater={() => useLater.setState((s) => ({ users: [...s.users, userId] }))} />
-  );
+  const userId = me?.user?.id ?? null;
+  const [later, setLater] = useState<string | null>(null);
+  useEffect(() => {
+    if (!userId) setLater(null);
+  }, [userId]);
+  if (!asksForBirthdateNow(me, later)) return children;
+  return <BirthdatePrompt onLater={() => setLater(userId)} />;
 }
 
 function BirthdatePrompt({ onLater }: { onLater: () => void }) {

@@ -8,3 +8,13 @@ import type { identity } from "@tokuly/api";
 export function asksForBirthdate(me: identity.Me): boolean {
   return !me.bot && me.birthdate === "";
 }
+
+/**
+ * Whether the birthdate screen shows now. `later` is the account that
+ * answered 「あとで」 during this sign-in: the app forgets it when the
+ * account signs out (or another one becomes active), so the next sign-in
+ * asks again.
+ */
+export function asksForBirthdateNow(me: identity.Me | null, later: string | null): boolean {
+  return me !== null && asksForBirthdate(me) && later !== me.user?.id;
+}
