@@ -49,6 +49,10 @@ enum Verdict {
     Invalid,
     Expired,
     Revoked,
+    /// The account the token acts for (a bot's owner) is under the minimum
+    /// age: refused like a revoked token until that birthday, so that an
+    /// application learns nothing about the age.
+    TooYoung,
 }
 
 impl Verdict {
@@ -60,6 +64,7 @@ impl Verdict {
             },
             Self::Invalid => INVALID_TTL,
             Self::Expired | Self::Revoked => DEAD_TTL,
+            Self::TooYoung => VALID_TTL,
         }
     }
 
@@ -70,7 +75,7 @@ impl Verdict {
             Self::Valid(token) => Ok(token),
             Self::Invalid => Err(TokenRejection::Invalid),
             Self::Expired => Err(TokenRejection::Expired),
-            Self::Revoked => Err(TokenRejection::Revoked),
+            Self::Revoked | Self::TooYoung => Err(TokenRejection::Revoked),
         }
     }
 }
@@ -117,6 +122,8 @@ struct TokenLookup {
     account_gone: bool,
     creator_gone: bool,
     creator_password_hash: Option<String>,
+    /// A bot has no birthdate of its own: its owner made the token.
+    creator_birthdate: Option<chrono::NaiveDate>,
     /// For a bot token the owner's address (a token of a handed-over bot is
     /// revoked): what makes a bot a demo bot.
     creator_email: Option<String>,
@@ -137,6 +144,7 @@ struct AccessLookup {
     app_active: bool,
     rate_tier: String,
     account_gone: bool,
+    account_birthdate: Option<chrono::NaiveDate>,
     /// The application's owner is suspended or deleted.
     owner_gone: bool,
 }
@@ -164,6 +172,7 @@ impl Dev {
                     (u.banned_at IS NOT NULL OR u.deleted_at IS NOT NULL) AS account_gone,
                     (c.banned_at IS NOT NULL OR c.deleted_at IS NOT NULL) AS creator_gone,
                     c.password_hash AS creator_password_hash,
+                    c.birthdate AS creator_birthdate,
                     c.email::text AS creator_email,
                     COALESCE(b.disabled_at IS NOT NULL, false) AS bot_disabled,
                     COALESCE(t.kind = 'bot' AND b.owner_id <> t.created_by, false) AS creator_not_owner
@@ -196,6 +205,9 @@ impl Dev {
         }
         if row.expires_at.is_some_and(|at| at <= Utc::now()) {
             return Ok(Verdict::Expired);
+        }
+        if self.identity.too_young(row.creator_birthdate) {
+            return Ok(Verdict::TooYoung);
         }
         let marks = self.password_marks(row.creator_password_hash.as_deref());
         let current_mark = marks.first().cloned();
@@ -238,6 +250,7 @@ impl Dev {
                     o.revoked_at IS NOT NULL AS revoked,
                     p.status = 'active' AS app_active, p.rate_tier,
                     (u.banned_at IS NOT NULL OR u.deleted_at IS NOT NULL) AS account_gone,
+                    u.birthdate AS account_birthdate,
                     (w.banned_at IS NOT NULL OR w.deleted_at IS NOT NULL) AS owner_gone
              FROM dev_oauth_tokens o
              JOIN dev_authorizations a ON a.id = o.authorization_id
@@ -256,6 +269,9 @@ impl Dev {
         }
         if row.access_expires_at <= Utc::now() {
             return Ok(judged(Verdict::Expired));
+        }
+        if self.identity.too_young(row.account_birthdate) {
+            return Ok(judged(Verdict::TooYoung));
         }
         Ok(judged(Verdict::Valid(ApiToken {
             kind: ApiTokenKind::OAuth,

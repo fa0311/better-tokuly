@@ -40,6 +40,15 @@ pub fn too_young_on(birthdate: Option<NaiveDate>, today: NaiveDate, min_age: u32
     birthdate.is_some_and(|born| today.years_since(born).is_none_or(|age| age < min_age))
 }
 
+impl crate::Identity {
+    /// [`too_young_on`] today, by the minimum age of this deployment. Other
+    /// domains ask it for what acts for an account without a session of its
+    /// own (API tokens, bots, webhooks).
+    pub fn too_young(&self, birthdate: Option<NaiveDate>) -> bool {
+        too_young_on(birthdate, Utc::now().date_naive(), self.cfg.min_age)
+    }
+}
+
 /// The two age groups strangers meet within.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AgeGroup {

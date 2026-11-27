@@ -57,10 +57,10 @@ fn session_id_of(token: &str) -> Option<Uuid> {
 impl Identity {
     /// An access token of `user`'s session. While the account is under the
     /// minimum age it reaches signing in and the account's deletion only
-    /// ([`crate::age::too_young_on`]); from that birthday on, the next token
+    /// ([`Self::too_young`]); from that birthday on, the next token
     /// is a normal one.
     fn access_token(&self, user: &UserRow, session_id: Uuid) -> AppResult<(String, Time)> {
-        if crate::age::too_young_on(user.birthdate, Utc::now().date_naive(), self.cfg.min_age) {
+        if self.too_young(user.birthdate) {
             return self.core.tokens.issue_too_young(user.id, session_id);
         }
         self.core.tokens.issue(user.id, session_id, &user.roles)
