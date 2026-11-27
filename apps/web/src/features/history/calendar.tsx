@@ -1,6 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { geo } from "@tokuly/api";
+import {
+  historyQueries,
+  type Month,
+  monthGrid,
+  monthOfDay,
+  parseDay,
+  shiftMonth,
+} from "@tokuly/core/history";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,8 +17,7 @@ import { GazetteerCredit } from "#/features/places";
 import { useAccountTimeZone, useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { formatDistance } from "#/lib/format";
-import { historyClient, historyKeys } from "./api";
-import { type Month, monthGrid, monthOfDay, parseDay, shiftMonth } from "./dates";
+import { historyClient } from "./api";
 
 /** The month at a glance: active days stand out, and each leads to its diary page. */
 export function HistoryCalendar() {
@@ -22,11 +29,7 @@ export function HistoryCalendar() {
   const [month, setMonth] = useState<Month>(thisMonth);
   const isCurrent = month.year === thisMonth.year && month.month === thisMonth.month;
 
-  const { data, isPending } = useQuery({
-    queryKey: historyKeys.month(month, timeZone),
-    queryFn: () =>
-      historyClient().listActiveDays({ year: month.year, month: month.month, timeZone }),
-  });
+  const { data, isPending } = useQuery(historyQueries.month(historyClient, month, timeZone));
   const days = new Map((data?.days ?? []).map((day) => [day.date, day]));
   const active = [...days.values()].sort((a, b) => b.date.localeCompare(a.date));
   const title = new Date(month.year, month.month - 1, 1).toLocaleDateString(i18n.language, {

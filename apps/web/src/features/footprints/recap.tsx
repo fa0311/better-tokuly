@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type geo, toDate } from "@tokuly/api";
+import { footprintQueries, formatPercent } from "@tokuly/core/footprints";
 import type { TFunction } from "i18next";
 import { Share2, Sparkles } from "lucide-react";
 import { useEffect } from "react";
@@ -16,15 +17,11 @@ import { useMe } from "#/stores/session";
 import { footprintClient, footprintKeys, regionName } from "./api";
 import { celebrate } from "./celebrate";
 import { cellArt } from "./hexes";
-import { formatPercent } from "./levels";
 import { flagEmoji } from "./meter";
 
 /** What was uncovered since the person last looked. Shared by the teaser and the dialog. */
 export function useRecap() {
-  return useQuery({
-    queryKey: footprintKeys.recap,
-    queryFn: () => footprintClient().getRecap({ markSeen: false }),
-  });
+  return useQuery(footprintQueries.recap(footprintClient));
 }
 
 /** The nudge on the footprint page when there is something new to look at. */

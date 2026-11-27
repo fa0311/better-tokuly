@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { labelFromKey } from "#/features/places/labels";
+import { labelFromKey } from "@tokuly/core/places";
 import { NewPlaceScreen } from "#/features/places/place-editor-screen";
 
 interface NewPlaceSearch {

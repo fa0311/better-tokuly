@@ -1,14 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { fromDate, geo } from "@tokuly/api";
+import { geo } from "@tokuly/api";
+import { activityMeta, historyQueries } from "@tokuly/core/history";
+import { placeQueries } from "@tokuly/core/places";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
-import { PlaceRow, placeClient, placeKeys } from "#/features/places";
+import { PlaceRow, placeClient } from "#/features/places";
 import { shiftDate, useAccountTimeZone, useAccountToday, zonedMoment } from "#/lib/account-time";
 import { compactDuration, formatDistance, kmh } from "#/lib/format";
-import { activityMeta } from "./activity";
-import { historyClient, historyKeys } from "./api";
+import { historyClient } from "./api";
 
 type Period = "week" | "month" | "year" | "all";
 
@@ -37,15 +38,9 @@ export function StatsPanel() {
           ? startOf(`${today.slice(0, 4)}-01-01`)
           : null;
 
-  const stats = useQuery({
-    queryKey: historyKeys.stats(from?.getTime() ?? null, null),
-    queryFn: () => historyClient().getStats({ from: from ? fromDate(from) : undefined }),
-  });
+  const stats = useQuery(historyQueries.stats(historyClient, from));
   // "Where I keep going" comes from my places: each carries how often I have been.
-  const places = useQuery({
-    queryKey: placeKeys.mine,
-    queryFn: () => placeClient().listMyPlaces({}),
-  });
+  const places = useQuery(placeQueries.mine(placeClient));
   const top = [...(places.data?.places ?? [])]
     .filter((place) => place.myVisitCount > 0)
     .sort((a, b) => b.myVisitCount - a.myVisitCount)

@@ -1,10 +1,6 @@
 import type { geo } from "@tokuly/api";
-import {
-  forgetDeviceMemory,
-  opaqueHash,
-  readDeviceMemory,
-  writeDeviceMemory,
-} from "./device-memory";
+import { withDismissed } from "@tokuly/core/places";
+import { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "./device-memory";
 
 /**
  * Suggestions the person answered "not now". The server keeps suggesting a
@@ -15,13 +11,6 @@ import {
 const PREFIX = "tokuly.places.dismissed.";
 /** The device-wide list of coordinates an earlier version kept: removed wherever it is still found. */
 const LEGACY_KEY = "tokuly.places.dismissedSuggestions";
-
-/** The fingerprint of a suggestion for one account (the spot at about 100 m, mixed with the user ID). */
-export function suggestionMark(userId: string, suggestion: geo.PlaceSuggestion): string {
-  return opaqueHash(
-    `${userId}|${suggestion.center?.lat.toFixed(3)},${suggestion.center?.lng.toFixed(3)}`,
-  );
-}
 
 export function readDismissed(userId: string): string[] {
   const stored = readDeviceMemory<unknown>(PREFIX + userId);
@@ -40,10 +29,7 @@ export function dismissSuggestion(
   suggestion: geo.PlaceSuggestion,
   current: geo.PlaceSuggestion[],
 ): string[] {
-  const live = new Set(current.map((entry) => suggestionMark(userId, entry)));
-  const next = [...new Set([...readDismissed(userId), suggestionMark(userId, suggestion)])].filter(
-    (mark) => live.has(mark),
-  );
+  const next = withDismissed(userId, readDismissed(userId), suggestion, current);
   writeDeviceMemory(PREFIX + userId, next);
   return next;
 }

@@ -1,6 +1,8 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { fromDate, toDate } from "@tokuly/api";
+import { toDate } from "@tokuly/api";
+import { dayRange, formatDay, historyQueries } from "@tokuly/core/history";
+import { placeEmoji, placeQueries } from "@tokuly/core/places";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TextField } from "#/components/ui/field";
@@ -8,7 +10,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
-import { GazetteerCredit, placeClient, placeEmoji, placeKeys } from "#/features/places";
+import { GazetteerCredit, placeClient } from "#/features/places";
 import {
   accountTimeZone,
   shiftDate,
@@ -16,8 +18,7 @@ import {
   useAccountToday,
   zonedMoment,
 } from "#/lib/account-time";
-import { historyClient, historyKeys } from "./api";
-import { dayRange, formatDay } from "./dates";
+import { historyClient } from "./api";
 import { VisitCard } from "./visit-card";
 
 type Period = "all" | "week" | "month" | "custom";
@@ -33,10 +34,7 @@ export function VisitsList() {
   const [customFrom, setCustomFrom] = useState(today);
   const [customTo, setCustomTo] = useState(today);
 
-  const places = useQuery({
-    queryKey: placeKeys.mine,
-    queryFn: () => placeClient().listMyPlaces({}),
-  });
+  const places = useQuery(placeQueries.mine(placeClient));
 
   // Days begin at the account's midnight.
   const startOf = (day: string) => new Date(zonedMoment(day, 0, zone));
@@ -46,22 +44,13 @@ export function VisitsList() {
       : period === "month"
         ? startOf(`${today.slice(0, 7)}-01`)
         : period === "custom"
-          ? (dayRange(customFrom)?.from ?? null)
+          ? (dayRange(customFrom, zone)?.from ?? null)
           : null;
-  const to: Date | null = period === "custom" ? (dayRange(customTo)?.to ?? null) : null;
+  const to: Date | null = period === "custom" ? (dayRange(customTo, zone)?.to ?? null) : null;
   const rangeValid = period !== "custom" || Boolean(from && to && from < to);
 
   const query = useInfiniteQuery({
-    queryKey: historyKeys.visits(from?.getTime() ?? null, to?.getTime() ?? null, placeId),
-    queryFn: ({ pageParam }) =>
-      historyClient().listVisits({
-        from: from ? fromDate(from) : undefined,
-        to: to ? fromDate(to) : undefined,
-        placeId: placeId === ANY_PLACE ? "" : placeId,
-        page: { limit: 30, cursor: pageParam },
-      }),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.page?.nextCursor || undefined,
+    ...historyQueries.visits(historyClient, from, to, placeId === ANY_PLACE ? "" : placeId),
     enabled: rangeValid,
   });
   const visits = query.data?.pages.flatMap((page) => page.visits) ?? [];

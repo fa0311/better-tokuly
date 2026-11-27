@@ -1,9 +1,10 @@
-import { accountTimeZone, shiftDate, zonedMoment } from "#/lib/account-time";
+import { shiftDate, zonedMoment } from "../format";
 
 /**
  * Calendar days of the history, as `YYYY-MM-DD` strings on the account's
  * calendar (its time zone — the same zone the requests name, so "today"
  * means the same on the screen and on the server, wherever the device is).
+ * Each app passes the account's zone.
  */
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -33,11 +34,8 @@ export function shiftDay(date: string, days: number): string {
   return formatDay(parsed);
 }
 
-/** The moments a day begins and ends (the start of the next day) in `zone`: the account's unless given. */
-export function dayRange(
-  date: string,
-  zone: string = accountTimeZone(),
-): { from: Date; to: Date } | null {
+/** The moments a day begins and ends (the start of the next day) in `zone`, the account's. */
+export function dayRange(date: string, zone: string): { from: Date; to: Date } | null {
   if (!parseDay(date)) return null;
   return {
     from: new Date(zonedMoment(date, 0, zone)),

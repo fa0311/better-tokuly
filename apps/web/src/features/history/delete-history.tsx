@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { create, fromDate, geo } from "@tokuly/api";
+import { DELETED_HISTORY_KEYS, dayRange } from "@tokuly/core/history";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -7,16 +8,11 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { TextField } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
-import { placeKeys } from "#/features/places";
 import { accountTimeZone, useAccountToday } from "#/lib/account-time";
 import { errorMessage } from "#/lib/errors";
 import { historyClient, historyKeys } from "./api";
-import { dayRange } from "./dates";
 
 type Scope = "range" | "all";
-
-/** Every footprint query (the footprints feature builds on this one and cannot be imported from here). */
-const FOOTPRINT_KEYS = ["geo", "footprints"] as const;
 
 /**
  * Deleting history for good: one day (`date` given), or — from the history
@@ -42,8 +38,8 @@ export function DeleteHistoryDialog({
   const [to, setTo] = useState(today);
   const [footprints, setFootprints] = useState(false);
 
-  const start = dayRange(date ?? from)?.from;
-  const end = dayRange(date ?? to)?.to;
+  const start = dayRange(date ?? from, accountTimeZone())?.from;
+  const end = dayRange(date ?? to, accountTimeZone())?.to;
   const everything = !date && scope === "all";
   const valid = everything || Boolean(start && end && start < end);
 
@@ -55,13 +51,10 @@ export function DeleteHistoryDialog({
           : { from: fromDate(start!), to: fromDate(end!), includeFootprints: footprints },
       ),
     onSuccess: async () => {
-      // What was deleted must not be shown again from memory, not even for the
-      // moment a re-read takes. Resetting (rather than marking stale) empties
-      // every cached answer about the history, the footprints and the places
-      // (which count visits) at once, tells the screens showing them, and
-      // re-reads what is on screen.
-      for (const queryKey of [historyKeys.all, FOOTPRINT_KEYS, placeKeys.all])
-        void queryClient.resetQueries({ queryKey });
+      // Resetting empties every cached answer about the history, the
+      // footprints and the places at once, tells the screens showing them,
+      // and re-reads what is on screen.
+      for (const queryKey of DELETED_HISTORY_KEYS) void queryClient.resetQueries({ queryKey });
       if (date) {
         // The day on screen is empty now; the re-read adds back what remains (a memo stays).
         queryClient.setQueryData(

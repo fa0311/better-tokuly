@@ -4,5 +4,4 @@
  *   <Link to="/history/$date" params={{ date: accountToday() }} />   // a day's diary page (`#/lib/account-time`)
  *   decodePolyline(day.pathPolyline)                                       // [{ lat, lng }, …] of an encoded path
  */
-export { formatDay, parseDay } from "./dates";
-export { decodePolyline } from "./timeline";
+export { decodePolyline, formatDay, parseDay } from "@tokuly/core/history";

@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
+import { formatPercent } from "@tokuly/core/footprints";
 import { useTranslation } from "react-i18next";
 import { type ProfileSection, type ProfileSectionProps, ProfileStat } from "#/seams/profile";
-import { formatPercent } from "./levels";
 
 /**
  * The footprint numbers of a profile. They lead to the scratch map they come

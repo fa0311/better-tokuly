@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toDate } from "@tokuly/api";
+import { placeEmoji } from "@tokuly/core/places";
 import { Check } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,7 +24,6 @@ import {
   placeKeys,
 } from "./api";
 import { GazetteerCredit } from "./credit";
-import { placeEmoji } from "./labels";
 
 const MAX_MESSAGE = 200;
 const MAX_TAGGED = 20;

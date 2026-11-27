@@ -1,10 +1,6 @@
-import {
-  forgetDeviceMemory,
-  opaqueHash,
-  readDeviceMemory,
-  writeDeviceMemory,
-} from "#/features/places";
-import type { SeenLevels } from "./levels";
+import type { SeenLevels } from "@tokuly/core/footprints";
+import { opaqueHash } from "@tokuly/core/places";
+import { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "#/features/places";
 
 /**
  * The levels that were already celebrated, so a level-up is announced

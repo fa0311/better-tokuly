@@ -1,39 +1,12 @@
-import { type common, geo, social } from "@tokuly/api";
+import { geo, social } from "@tokuly/api";
+import type { LatLng } from "@tokuly/core/places";
 import { accountTimeZone, zonedDate } from "#/lib/account-time";
 import { api } from "#/lib/api";
 
+export { DEFAULT_CENTER, type LatLng, placeKeys, toLatLng } from "@tokuly/core/places";
+
 export const placeClient = () => api().service(geo.PlaceService);
 export const locationClient = () => api().service(geo.LocationService);
-
-/** Query keys of the places area. Everything about one place hangs under `placeKeys.place(id)`. */
-export const placeKeys = {
-  all: ["geo", "places"] as const,
-  mine: ["geo", "places", "mine"] as const,
-  saved: ["geo", "places", "saved"] as const,
-  suggestions: ["geo", "places", "suggestions"] as const,
-  place: (id: string) => ["geo", "places", "place", id] as const,
-  search: (query: string, near: LatLng | null) =>
-    ["geo", "places", "search", query, near?.lat ?? null, near?.lng ?? null] as const,
-  reverse: (position: LatLng, language: string) =>
-    [
-      "geo",
-      "reverse",
-      Number(position.lat.toFixed(4)),
-      Number(position.lng.toFixed(4)),
-      language,
-    ] as const,
-};
-
-export interface LatLng {
-  lat: number;
-  lng: number;
-}
-
-/** Shibuya crossing: where maps open before the device says where it is. */
-export const DEFAULT_CENTER: LatLng = { lat: 35.6595, lng: 139.7005 };
-
-export const toLatLng = (point: common.LatLng | undefined): LatLng | null =>
-  point ? { lat: point.lat, lng: point.lng } : null;
 
 /** The device's position, asked once. Rejects when the browser cannot or may not say. */
 export function currentPosition(): Promise<LatLng> {

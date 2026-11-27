@@ -16,15 +16,14 @@ describe("days", () => {
   });
 
   it("spans a day from midnight to midnight in the account's time zone", () => {
-    // Without a session the account's zone is Asia/Tokyo (UTC+9), whatever the device says.
-    const range = dayRange("2026-11-22")!;
+    const range = dayRange("2026-11-22", "Asia/Tokyo")!;
     expect(range.from.toISOString()).toBe("2026-11-21T15:00:00.000Z");
     expect(range.to.toISOString()).toBe("2026-11-22T15:00:00.000Z");
     expect(dayRange("2026-11-22", "UTC")?.from.toISOString()).toBe("2026-11-22T00:00:00.000Z");
     // A day a daylight-saving jump shortens is still one calendar day.
     const short = dayRange("2026-03-08", "America/New_York")!;
     expect((short.to.getTime() - short.from.getTime()) / 3_600_000).toBe(23);
-    expect(dayRange("nope")).toBeNull();
+    expect(dayRange("nope", "Asia/Tokyo")).toBeNull();
   });
 });
 

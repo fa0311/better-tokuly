@@ -1,6 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { errorReason, fromDate } from "@tokuly/api";
+import { errorReason } from "@tokuly/api";
+import {
+  activityMeta,
+  buildTimeline,
+  dayRange,
+  decodePolyline,
+  historyQueries,
+  parseDay,
+  shiftDay,
+  toTrack,
+  visitEmoji,
+  visitName,
+} from "@tokuly/core/history";
 import { ChevronLeft, ChevronRight, EllipsisVertical, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,14 +25,11 @@ import { GazetteerCredit, toLatLng } from "#/features/places";
 import { useAccountTimeZone, useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { compactDuration, formatDistance, kmh } from "#/lib/format";
-import { activityMeta } from "./activity";
-import { historyClient, historyKeys } from "./api";
-import { dayRange, parseDay, shiftDay } from "./dates";
+import { historyClient } from "./api";
 import { DayMap, type DayStop } from "./day-map";
 import { DeleteHistoryDialog } from "./delete-history";
 import { DayMemoEditor } from "./memo";
-import { buildTimeline, decodePolyline, toTrack } from "./timeline";
-import { VisitCard, visitEmoji, visitName } from "./visit-card";
+import { VisitCard } from "./visit-card";
 
 /** `/history/<YYYY-MM-DD>`: one day as a diary — where I was, how I got around, and what I want to remember. */
 export function DayScreen({ date }: { date: string }) {
@@ -33,22 +42,14 @@ export function DayScreen({ date }: { date: string }) {
   const [deleting, setDeleting] = useState(false);
 
   const day = useQuery({
-    queryKey: historyKeys.day(date, timeZone),
-    queryFn: () => historyClient().getDay({ date, timeZone }),
+    ...historyQueries.day(historyClient, date, timeZone),
     enabled: Boolean(range),
   });
   // The points of the day with their times, for the replay. When the store
   // that keeps them cannot be reached, the day is shown without it.
   const route = useQuery({
-    queryKey: historyKeys.route(date),
-    queryFn: () =>
-      historyClient().getRoute({
-        from: fromDate(range!.from),
-        to: fromDate(range!.to),
-        maxPoints: 1500,
-      }),
+    ...historyQueries.route(historyClient, date, range ?? { from: new Date(0), to: new Date(0) }),
     enabled: Boolean(range),
-    retry: false,
   });
 
   if (!range) {

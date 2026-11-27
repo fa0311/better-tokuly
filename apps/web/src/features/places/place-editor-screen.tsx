@@ -1,6 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { common, geo, media } from "@tokuly/api";
+import {
+  CATEGORIES,
+  EMOJI_CHOICES,
+  LABELS,
+  labelMeta,
+  placeQueries,
+  VISIBILITIES,
+  visibilityKey,
+} from "@tokuly/core/places";
 import { Crosshair, ImagePlus, LocateFixed, SmilePlus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -34,14 +43,6 @@ import {
   toLatLng,
 } from "./api";
 import { GazetteerCredit } from "./credit";
-import {
-  CATEGORIES,
-  EMOJI_CHOICES,
-  LABELS,
-  labelMeta,
-  VISIBILITIES,
-  visibilityKey,
-} from "./labels";
 
 const DEFAULT_RADIUS = 100;
 /** The kinds of place in the order they are offered. */
@@ -110,11 +111,7 @@ export function NewPlaceScreen({ draft }: { draft: PlaceDraft }) {
 /** `/places/<id>/edit`: change a place of mine. */
 export function EditPlaceScreen({ placeId }: { placeId: string }) {
   const { t } = useTranslation("places");
-  const { data, isPending, isError } = useQuery({
-    queryKey: placeKeys.place(placeId),
-    queryFn: () => placeClient().getPlace({ placeId }),
-    retry: false,
-  });
+  const { data, isPending, isError } = useQuery(placeQueries.place(placeClient, placeId));
   if (isPending) return <EditorSkeleton title={t("editor.editTitle")} />;
   const place = data?.place;
   if (isError || !place?.center) {

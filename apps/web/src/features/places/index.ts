@@ -1,5 +1,6 @@
 /**
- * What the places feature shares with other features.
+ * What the places feature shares with other features (its logic is
+ * `@tokuly/core/places`).
  *
  * Places:
  *
@@ -21,11 +22,5 @@ export {
 } from "./api";
 export { CheckInDialog, type CheckInTarget } from "./check-in-dialog";
 export { GazetteerCredit } from "./credit";
-export {
-  forgetDeviceMemory,
-  opaqueHash,
-  readDeviceMemory,
-  writeDeviceMemory,
-} from "./device-memory";
-export { labelMeta, placeEmoji } from "./labels";
+export { forgetDeviceMemory, readDeviceMemory, writeDeviceMemory } from "./device-memory";
 export { PlaceBubble, PlaceRow } from "./place-row";

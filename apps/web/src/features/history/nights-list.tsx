@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { toDate } from "@tokuly/api";
+import { historyQueries, parseDay } from "@tokuly/core/history";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
@@ -10,20 +11,13 @@ import { SwitchRow } from "#/components/ui/switch";
 import { GazetteerCredit } from "#/features/places";
 import { accountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { historyClient, historyKeys } from "./api";
-import { parseDay } from "./dates";
+import { historyClient } from "./api";
 
 /** Where I slept, night by night; the switch keeps only the nights away from home. */
 export function NightsList() {
   const { t, i18n } = useTranslation("history");
   const [awayOnly, setAwayOnly] = useState(false);
-  const query = useInfiniteQuery({
-    queryKey: historyKeys.nights,
-    queryFn: ({ pageParam }) =>
-      historyClient().listNights({ page: { limit: 30, cursor: pageParam } }),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.page?.nextCursor || undefined,
-  });
+  const query = useInfiniteQuery(historyQueries.nights(historyClient));
   const all = query.data?.pages.flatMap((page) => page.nights) ?? [];
   const nights = awayOnly ? all.filter((night) => !night.atHome) : all;
   const clock = (date: Date | undefined) =>
