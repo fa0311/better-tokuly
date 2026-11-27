@@ -353,12 +353,29 @@ async fn set_birthdate_validates_the_answer() {
 async fn an_answer_under_the_minimum_age_makes_the_account_too_young() {
     let app = app().await;
     let child = without_birthdate(&app).await;
+    let (elsewhere, bystander) = (app.sign_in(child.id).await, sign_up(&app, born(30)).await);
     let response = set_birthdate(&app, &child, &born(12).to_string()).await.unwrap();
     let answered = response.me.as_option().unwrap();
     assert!(answered.too_young && answered.minor);
     assert_eq!(answered.birthdate, born(12).to_string());
     let given: BirthdateGiven = app.events_by("identity.user.birthdate_given", child.id).await[0].data().unwrap();
     assert!(given.minor, "the defaults for minors, as for any minor");
+
+    // The token the answer was given with is no way around it, nor is
+    // another device's: they reach what a too-young account may, at once.
+    for held in [&child, &elsewhere] {
+        assert!(me(&app, held).await.too_young);
+        let refused = app
+            .call::<_, GetSettingsResponse>(
+                "tokuly.identity.v1.AccountService/GetSettings",
+                Some(held),
+                &GetSettingsRequest::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(refused.reason, "ACCOUNT_TOO_YOUNG");
+    }
+    assert!(privacy(&app, &bystander).await.nearby_discoverable, "nobody else is held");
 
     // The next token (a refresh, or signing in again) is a too-young one.
     let child = app.sign_in(child.id).await;
@@ -384,13 +401,22 @@ async fn an_answer_under_the_minimum_age_makes_the_account_too_young() {
         .unwrap();
     assert!(deletion.deletion_scheduled_at.as_option().is_some());
 
-    // On the 13th birthday the account is let in.
-    sqlx::query("UPDATE users SET birthdate = $2 WHERE id = $1")
-        .bind(child.id)
-        .bind(born(13))
-        .execute(&app.core.db)
-        .await
-        .unwrap();
+}
+
+/// On the 13th birthday the account is let in: the next token is a normal one.
+#[tokio::test]
+async fn a_too_young_account_is_let_in_on_its_birthday() {
+    let app = app().await;
+    let child = sign_up(&app, born(15)).await;
+    let set_born = |years: u32| {
+        sqlx::query("UPDATE users SET birthdate = $2 WHERE id = $1").bind(child.id).bind(born(years)).execute(&app.core.db)
+    };
+    set_born(12).await.unwrap();
+    let young = app.sign_in(child.id).await;
+    assert!(me(&app, &young).await.too_young);
+
+    set_born(13).await.unwrap();
+    assert!(me(&app, &young).await.too_young == false, "by the date, whatever the token");
     let teen = app.sign_in(child.id).await;
     assert!(!me(&app, &teen).await.too_young);
     assert_eq!(privacy(&app, &teen).await.discoverable_to, FOF);

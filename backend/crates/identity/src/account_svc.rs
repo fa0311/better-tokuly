@@ -361,6 +361,11 @@ impl AccountService for Identity {
             // adult is out of the limits an account without a birthdate has.
             events::emit(&mut *tx, "identity.user.privacy_changed", Some(user_id), &UserRef { user_id }).await?;
             tx.commit().await?;
+            if self.too_young(Some(birthdate)) {
+                // Not only from the next token on: the ones that are out
+                // (this device's and the others') reach no more either.
+                core.hold_too_young(user_id).await;
+            }
             let user = users::get(core, user_id).await?;
             let me = self.me(&user).await?;
             ok(SetBirthdateResponse {

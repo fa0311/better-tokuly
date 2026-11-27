@@ -22,6 +22,7 @@ use crate::{
 };
 
 const SESSION_REVOKED_SUBJECT: &str = "sys.session.revoked";
+const ACCOUNT_TOO_YOUNG_SUBJECT: &str = "sys.account.too_young";
 /// Broadcast after a console settings change: every process reloads the console layer.
 const SETTINGS_CHANGED_SUBJECT: &str = "sys.settings.changed";
 /// How often every process looks at the console layer without being told.
@@ -168,15 +169,27 @@ impl Core {
             .subscribe(SESSION_REVOKED_SUBJECT)
             .await
             .map_err(|e| anyhow::anyhow!("cannot subscribe to system subjects: {e}"))?;
+        let mut too_young = self
+            .bus
+            .subscribe(ACCOUNT_TOO_YOUNG_SUBJECT)
+            .await
+            .map_err(|e| anyhow::anyhow!("cannot subscribe to system subjects: {e}"))?;
         let core = self.clone();
         tokio::spawn(async move {
+            let id = |payload: &[u8]| std::str::from_utf8(payload).ok().and_then(|s| Uuid::parse_str(s).ok());
             loop {
                 tokio::select! {
                     _ = core.shutdown.cancelled() => break,
                     message = revoked.next() => {
                         let Some(message) = message else { break };
-                        if let Some(id) = std::str::from_utf8(&message.payload).ok().and_then(|s| Uuid::parse_str(s).ok()) {
+                        if let Some(id) = id(&message.payload) {
                             core.tokens.revoke_session(id);
+                        }
+                    }
+                    message = too_young.next() => {
+                        let Some(message) = message else { break };
+                        if let Some(id) = id(&message.payload) {
+                            core.tokens.mark_too_young(id);
                         }
                     }
                 }
@@ -196,6 +209,17 @@ impl Core {
             .await
         {
             tracing::warn!(error = %e, "session revocation broadcast failed");
+        }
+    }
+
+    /// Holds the access tokens an account has already to what one under the
+    /// minimum age reaches, on every instance at once
+    /// ([`auth::Tokens::hold_too_young`]): its open streams and realtime
+    /// connections end, and its next request is answered as too young.
+    pub async fn hold_too_young(&self, user_id: Uuid) {
+        self.tokens.hold_too_young(user_id).await;
+        if let Err(e) = self.bus.publish(ACCOUNT_TOO_YOUNG_SUBJECT, user_id.to_string()).await {
+            tracing::warn!(error = %e, "too-young broadcast failed");
         }
     }
 

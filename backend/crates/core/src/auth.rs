@@ -7,7 +7,8 @@
 //! A revoked session's tokens stop working at once, not at expiry: the
 //! revocation is written to Valkey (`auth:revoked:<session>`, kept for the
 //! lifetime of an access token) and every authenticated request asks Valkey
-//! about its session (one `EXISTS` on the shared multiplexed connection). A
+//! about its session (one `MGET` on the shared multiplexed connection, which
+//! also learns whether the account is held as too young). A
 //! small in-memory set, fed over the bus and loaded from Valkey when a
 //! process starts, answers without the round trip for sessions already
 //! known to be revoked, and is what the synchronous [`Tokens::verify`] (the
@@ -138,6 +139,7 @@ pub struct Tokens {
 /// the session has expired (plus the verification leeway, with margin).
 const REVOCATION_TTL: Duration = Duration::from_secs(ACCESS_TOKEN_TTL.as_secs() + 30);
 const REVOKED_PREFIX: &str = "auth:revoked:";
+const TOO_YOUNG_PREFIX: &str = "auth:young:";
 /// How long a request waits for Valkey's answer about its session before it
 /// goes on with what this process knows.
 const REVOCATION_LOOKUP_TIMEOUT: Duration = Duration::from_millis(50);
@@ -149,6 +151,9 @@ struct TokensInner {
     validation: Validation,
     /// Revoked session IDs → instant after which the entry can be dropped.
     revoked: DashMap<Uuid, Time>,
+    /// Accounts held as too young ([`Tokens::hold_too_young`]) → instant
+    /// after which the entry can be dropped.
+    too_young: DashMap<Uuid, Time>,
     public_key: [u8; 32],
     /// When "revocations unreadable" was last logged (Unix seconds).
     unreadable_warned_at: std::sync::atomic::AtomicI64,
@@ -175,6 +180,7 @@ impl Tokens {
                     .collect(),
                 validation,
                 revoked: DashMap::new(),
+                too_young: DashMap::new(),
                 public_key,
                 unreadable_warned_at: std::sync::atomic::AtomicI64::new(0),
             }),
@@ -253,8 +259,40 @@ impl Tokens {
             roles: data.claims.roles,
             expires_at: chrono::DateTime::from_timestamp(data.claims.exp, 0).unwrap_or_default(),
             api_token: None,
-            too_young: data.claims.young,
+            too_young: data.claims.young || self.is_too_young(data.claims.sub),
         })
+    }
+
+    /// Holds the access tokens `user_id` has already to what an account
+    /// under the minimum age reaches ([`AuthContext::too_young`]), in this
+    /// process and (through Valkey) in every other one, for as long as such
+    /// a token lives: the account has just become too young, and the tokens
+    /// issued from now on say so themselves. Every token of the account is
+    /// held for that quarter of an hour, one issued on the birthday that
+    /// ends it included. [`crate::Core::hold_too_young`] also tells running
+    /// processes over the bus.
+    pub async fn hold_too_young(&self, user_id: Uuid) {
+        self.mark_too_young(user_id);
+        if let Some(cache) = &self.revocations
+            && let Err(e) = cache.set_string(&format!("{TOO_YOUNG_PREFIX}{user_id}"), "1", Some(REVOCATION_TTL)).await
+        {
+            tracing::warn!(error = %e, %user_id, "too-young hold not stored in Valkey");
+        }
+    }
+
+    /// [`Self::hold_too_young`] in this process only (what its broadcast does).
+    pub fn mark_too_young(&self, user_id: Uuid) {
+        self.inner.too_young.insert(user_id, Utc::now() + REVOCATION_TTL);
+        if self.inner.too_young.len() > 10_000 {
+            let now = Utc::now();
+            self.inner.too_young.retain(|_, until| *until > now);
+        }
+    }
+
+    /// Whether the tokens of `user_id` are held ([`Self::hold_too_young`]),
+    /// as far as this process knows.
+    pub fn is_too_young(&self, user_id: Uuid) -> bool {
+        self.inner.too_young.get(&user_id).is_some_and(|until| *until > Utc::now())
     }
 
     /// Revokes a session for the remaining lifetime of its tokens, in this
@@ -270,16 +308,26 @@ impl Tokens {
         }
     }
 
-    /// What Valkey says about a revocation of the session.
-    async fn revocation(&self, session_id: Uuid) -> Revocation {
+    /// What Valkey says about a revocation of the session. The same round
+    /// trip learns whether the account is held as too young
+    /// ([`Self::is_too_young`] says so afterwards).
+    async fn revocation(&self, session_id: Uuid, user_id: Uuid) -> Revocation {
         let Some(cache) = &self.revocations else { return Revocation::Absent };
-        let key = format!("{REVOKED_PREFIX}{session_id}");
-        match tokio::time::timeout(REVOCATION_LOOKUP_TIMEOUT, cache.exists(&key)).await {
-            Ok(Ok(true)) => {
+        let mut conn = cache.conn();
+        let mut mget = redis::cmd("MGET");
+        mget.arg(format!("{REVOKED_PREFIX}{session_id}")).arg(format!("{TOO_YOUNG_PREFIX}{user_id}"));
+        let lookup = mget.query_async::<(Option<String>, Option<String>)>(&mut conn);
+        match tokio::time::timeout(REVOCATION_LOOKUP_TIMEOUT, lookup).await {
+            Ok(Ok((revoked, too_young))) => {
+                if too_young.is_some() {
+                    self.mark_too_young(user_id);
+                }
+                if revoked.is_none() {
+                    return Revocation::Absent;
+                }
                 self.revoke_session(session_id);
                 Revocation::Revoked
             }
-            Ok(Ok(false)) => Revocation::Absent,
             Ok(Err(e)) => {
                 self.warn_unreadable(&e.to_string());
                 Revocation::Unknown
@@ -366,10 +414,10 @@ impl Tokens {
     /// keep moderating through an outage).
     pub async fn authenticate_shared(&self, token: &str) -> AuthState {
         match self.authenticate(token) {
-            AuthState::Authenticated(ctx) => match self.revocation(ctx.session_id).await {
+            AuthState::Authenticated(ctx) => match self.revocation(ctx.session_id, ctx.user_id).await {
                 Revocation::Revoked => AuthState::Invalid("SESSION_REVOKED"),
                 Revocation::Unknown if !ctx.roles.is_empty() => AuthState::Invalid(SESSION_UNVERIFIABLE),
-                _ => AuthState::Authenticated(ctx),
+                _ => AuthState::Authenticated(AuthContext { too_young: ctx.too_young || self.is_too_young(ctx.user_id), ..ctx }),
             },
             state => state,
         }
@@ -572,9 +620,15 @@ pub async fn auth_middleware(
         let error = AppError::denied(ACCOUNT_TOO_YOUNG, "Tokuly is for people of the minimum age and older");
         return api_tokens::render(error, headers);
     }
-    // A stream opened with a session must not outlive it either.
+    // A stream opened with a session must not outlive it either, nor the
+    // account's becoming too young for what it streams.
     let session = match &state {
-        AuthState::Authenticated(ctx) if ctx.is_session() => Some((ctx.session_id, ctx.expires_at, !ctx.roles.is_empty())),
+        AuthState::Authenticated(ctx) if ctx.is_session() => Some(StreamSession {
+            session_id: ctx.session_id,
+            expires_at: ctx.expires_at,
+            staff: !ctx.roles.is_empty(),
+            held_back_from: (!reachable_while_too_young(req.uri().path())).then_some(ctx.user_id),
+        }),
         _ => None,
     };
     req.extensions_mut().insert(state);
@@ -582,18 +636,30 @@ pub async fn auth_middleware(
     let mut response = next.run(req).await;
     if let Some(admitted) = admitted {
         admitted.respond(&mut response);
-    } else if let Some((session_id, expires_at, staff)) = session {
-        Guarded::wrap(&mut response, session_outlived(layer.tokens.clone(), session_id, expires_at, staff, layer.api.recheck));
+    } else if let Some(session) = session {
+        Guarded::wrap(&mut response, session_outlived(layer.tokens.clone(), session, layer.api.recheck));
     }
     response
 }
 
-/// Resolves when a session's access token stops being valid: it expired, or
-/// the session was revoked (here or, through Valkey, elsewhere). A staff
+/// The session a response is streamed to.
+struct StreamSession {
+    session_id: Uuid,
+    expires_at: Time,
+    staff: bool,
+    /// The account, when the stream is not one a too-young account may have.
+    held_back_from: Option<Uuid>,
+}
+
+/// Resolves when a session's access token stops being valid: it expired,
+/// the session was revoked (here or, through Valkey, elsewhere), or the
+/// account became too young for the stream ([`Tokens::hold_too_young`]). A staff
 /// session fails closed as its new requests do: once Valkey has not answered
 /// for [`UNVERIFIABLE_GRACE`], a revocation it missed cannot be ruled out, and
 /// the stream ends. Valkey being down does not end anyone else's stream.
-async fn session_outlived(tokens: Tokens, session_id: Uuid, expires_at: Time, staff: bool, recheck: Duration) {
+async fn session_outlived(tokens: Tokens, session: StreamSession, recheck: Duration) {
+    let StreamSession { session_id, expires_at, staff, held_back_from } = session;
+    let user_id = held_back_from.unwrap_or_default();
     let mut unverified_since = None;
     loop {
         let left = (expires_at - Utc::now()).to_std().unwrap_or_default();
@@ -602,7 +668,11 @@ async fn session_outlived(tokens: Tokens, session_id: Uuid, expires_at: Time, st
         if expires_at <= Utc::now() || tokens.is_revoked(session_id) {
             return;
         }
-        match tokens.revocation(session_id).await {
+        let revocation = tokens.revocation(session_id, user_id).await;
+        if held_back_from.is_some_and(|user_id| tokens.is_too_young(user_id)) {
+            return;
+        }
+        match revocation {
             Revocation::Revoked => return,
             Revocation::Absent => unverified_since = None,
             Revocation::Unknown if staff => {
@@ -1094,8 +1164,9 @@ mod tests {
         assert_eq!(stream_ends_within(stream, Duration::from_secs(5)).await.expect("the stream was cut off"), ["first"]);
     }
 
-    /// A Valkey that answers every `EXISTS` with 0 (and anything else with
-    /// `+OK`) until it is taken down; then it stops answering.
+    /// A Valkey that knows no key (`EXISTS` is 0, `MGET` of two keys two
+    /// nils; anything else `+OK`) until it is taken down; then it stops
+    /// answering.
     struct FakeValkey {
         url: String,
         down: Arc<std::sync::atomic::AtomicBool>,
@@ -1127,8 +1198,12 @@ mod tests {
                             let mut answers = Vec::new();
                             for (i, &start) in starts.iter().enumerate() {
                                 let command = &received[start..starts.get(i + 1).copied().unwrap_or(read)];
-                                let exists = command.windows(6).any(|w| w.eq_ignore_ascii_case(b"EXISTS"));
-                                answers.extend_from_slice(if exists { b":0\r\n" } else { b"+OK\r\n" });
+                                let asks = |name: &[u8]| command.windows(name.len()).any(|w| w.eq_ignore_ascii_case(name));
+                                answers.extend_from_slice(match () {
+                                    () if asks(b"EXISTS") => b":0\r\n",
+                                    () if asks(b"MGET") => b"*2\r\n$-1\r\n$-1\r\n",
+                                    () => b"+OK\r\n",
+                                });
                             }
                             let _ = socket.write_all(&answers).await;
                         }
