@@ -316,5 +316,23 @@ describe("Session", () => {
       expect(store.token).toBeNull();
       expect(session.peekAccessToken()).toBeNull();
     });
+
+    it("does not let the refusal of a refresh from before a sign-out end the account signed in since", async () => {
+      const { fake, transport } = server();
+      const store = memoryStore();
+      const session = new Session(transport, store);
+      await session.restore();
+      const answer = later<AuthResponse>();
+      fake.answer = () => answer.promise;
+      const refreshed = session.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+
+      await session.signOut();
+      expect(await session.adopt(tokens("bob", "s2"))).toBe(true);
+      answer.reject(new ConnectError("that session ended", Code.Unauthenticated));
+      expect(await refreshed).toBe(false);
+      expect(session.state).toMatchObject({ status: "signedIn", sessionId: "s2" });
+      expect(store.token).toMatch(/^rt-bob-/);
+    });
   });
 });

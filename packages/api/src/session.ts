@@ -63,6 +63,11 @@ export class Session {
    */
   private stale = false;
   private tooYoungAskedAtMs = 0;
+  /**
+   * Counts sign-outs: tokens asked for before one (a refresh on its way)
+   * are not adopted after it, or they would sign the account back in.
+   */
+  private signOuts = 0;
   private readonly auth: Client<typeof AuthService>;
 
   /**
@@ -110,6 +115,11 @@ export class Session {
    * the session goes stale (see `onAccountChange`) and nothing is sent.
    */
   async adopt(response: AuthResponse): Promise<boolean> {
+    return this.adoptUnlessSignedOut(response, this.signOuts);
+  }
+
+  private async adoptUnlessSignedOut(response: AuthResponse, signOuts: number): Promise<boolean> {
+    if (signOuts !== this.signOuts) return false;
     if (this.stale || !response.accessToken || !response.me) return false;
     const previous = this.current;
     const userId = response.me.user?.id ?? "";
@@ -124,9 +134,16 @@ export class Session {
         listener({ userId, sessionId: response.sessionId });
       return false;
     }
+    if (response.refreshToken && this.store) {
+      await this.store.set(response.refreshToken);
+      // Signed out while it was being kept: the store forgets it again.
+      if (signOuts !== this.signOuts) {
+        await this.store.clear();
+        return false;
+      }
+    }
     this.accessTokenValue = response.accessToken;
     this.expiresAtMs = toMillis(response.accessTokenExpiresAt);
-    if (response.refreshToken && this.store) await this.store.set(response.refreshToken);
     this.setState({ status: "signedIn", me: response.me, sessionId: response.sessionId });
     return true;
   }
@@ -216,6 +233,7 @@ export class Session {
   }
 
   private async doRefresh(): Promise<Refreshed> {
+    const signOuts = this.signOuts;
     try {
       const refreshToken = this.store ? ((await this.store.get()) ?? "") : "";
       if (this.store && !refreshToken) {
@@ -223,8 +241,10 @@ export class Session {
         return false;
       }
       const response = await this.auth.refreshToken({ refreshToken });
-      return await this.adopt(response);
+      return await this.adoptUnlessSignedOut(response, signOuts);
     } catch (error) {
+      // Signed out meanwhile: the answer is about a session that is gone here.
+      if (signOuts !== this.signOuts) return false;
       // Only a definite rejection signs the user out; a network failure keeps
       // the session so the app can retry when it is back online.
       if (isUnauthenticated(error)) {
@@ -284,6 +304,7 @@ export class Session {
    * their parked accounts out with the tokens they hold).
    */
   async signOut(allSessions = false, allAccountsOnDevice = false): Promise<void> {
+    this.signOuts++;
     const token = this.peekAccessToken();
     try {
       await this.auth.signOut(
