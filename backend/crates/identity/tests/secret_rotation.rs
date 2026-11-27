@@ -140,8 +140,19 @@ async fn recovery_codes_outlive_a_routine_change_of_the_secret_but_not_one_for_a
     // (Another account: a code of this time step is spent for the first.)
     let user = after.user("leaked").await;
     let codes = two_step(&after, &user).await;
+    let (kept, forgotten) = (after.user("hashed-kept").await, after.user("hashed-forgotten").await);
+    for account in [&kept, &forgotten] {
+        two_step(&after, account).await;
+        hashed_codes(&after, account, NEW, &["aaaa-1111", "bbbb-2222"]).await;
+    }
     let during = app(NEWER, NEW).await;
-    assert!(during.identity.forget_recovery_codes().await.unwrap() >= 1);
+    assert_eq!(recover(&during, &kept, "AAAA-1111").await, Ok(()), "a hashed code, under the previous secret");
+    assert!(during.identity.forget_recovery_codes().await.unwrap() >= 2);
+    assert_eq!(
+        recover(&during, &forgotten, "aaaa-1111").await.unwrap_err(),
+        "INVALID_TOTP",
+        "hashed codes are forgotten too, though the secret they were made under is still accepted"
+    );
     rekey(&during).await;
     let after = app(NEWER, "").await;
     assert_eq!(recover(&after, &user, &codes[0]).await.unwrap_err(), "INVALID_TOTP");
@@ -153,6 +164,18 @@ async fn recovery_codes_outlive_a_routine_change_of_the_secret_but_not_one_for_a
     .await
     .unwrap();
     assert!(noted, "the account's security log says why its codes stopped working");
+}
+
+/// Gives `user` recovery codes as versions before sealing stored them: keyed hashes under `secret`.
+async fn hashed_codes(app: &TestApp, user: &TestUser, secret: &str, codes: &[&str]) {
+    let keys = Keys::new(secret);
+    let hashes: Vec<String> = codes.iter().map(|code| keys.token_hash(&format!("recovery:{code}"))).collect();
+    sqlx::query("UPDATE users SET recovery_codes = NULL, recovery_code_hashes = $2 WHERE id = $1")
+        .bind(user.id)
+        .bind(hashes)
+        .execute(&app.core.db)
+        .await
+        .unwrap();
 }
 
 /// How many values of the scratch table only `OLD` opens.
