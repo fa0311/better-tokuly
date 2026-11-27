@@ -240,14 +240,6 @@ impl Tokens {
         }
     }
 
-    /// Whether Valkey holds a revocation of the session (another process
-    /// revoked it). An unreachable Valkey answers `false`: the bus and the
-    /// in-memory set still apply, and signing everyone out while Valkey is
-    /// down would be worse.
-    async fn revoked_elsewhere(&self, session_id: Uuid) -> bool {
-        self.revocation(session_id).await == Revocation::Revoked
-    }
-
     /// What Valkey says about a revocation of the session.
     async fn revocation(&self, session_id: Uuid) -> Revocation {
         let Some(cache) = &self.revocations else { return Revocation::Absent };
@@ -357,6 +349,10 @@ impl Tokens {
 /// Why a staff session is refused while Valkey does not answer
 /// ([`Tokens::authenticate_shared`]).
 pub const SESSION_UNVERIFIABLE: &str = "SESSION_UNVERIFIABLE";
+
+/// How long a stream opened with a staff session stays open while Valkey
+/// does not answer ([`session_outlived`]).
+const UNVERIFIABLE_GRACE: Duration = Duration::from_secs(5);
 
 /// What Valkey says about a session's revocation.
 #[derive(Debug, PartialEq, Eq)]
@@ -522,7 +518,7 @@ pub async fn auth_middleware(
     }
     // A stream opened with a session must not outlive it either.
     let session = match &state {
-        AuthState::Authenticated(ctx) if ctx.is_session() => Some((ctx.session_id, ctx.expires_at)),
+        AuthState::Authenticated(ctx) if ctx.is_session() => Some((ctx.session_id, ctx.expires_at, !ctx.roles.is_empty())),
         _ => None,
     };
     req.extensions_mut().insert(state);
@@ -530,20 +526,36 @@ pub async fn auth_middleware(
     let mut response = next.run(req).await;
     if let Some(admitted) = admitted {
         admitted.respond(&mut response);
-    } else if let Some((session_id, expires_at)) = session {
-        Guarded::wrap(&mut response, session_outlived(layer.tokens.clone(), session_id, expires_at, layer.api.recheck));
+    } else if let Some((session_id, expires_at, staff)) = session {
+        Guarded::wrap(&mut response, session_outlived(layer.tokens.clone(), session_id, expires_at, staff, layer.api.recheck));
     }
     response
 }
 
 /// Resolves when a session's access token stops being valid: it expired, or
-/// the session was revoked (here or, through Valkey, elsewhere).
-async fn session_outlived(tokens: Tokens, session_id: Uuid, expires_at: Time, recheck: Duration) {
+/// the session was revoked (here or, through Valkey, elsewhere). A staff
+/// session fails closed as its new requests do: once Valkey has not answered
+/// for [`UNVERIFIABLE_GRACE`], a revocation it missed cannot be ruled out, and
+/// the stream ends. Valkey being down does not end anyone else's stream.
+async fn session_outlived(tokens: Tokens, session_id: Uuid, expires_at: Time, staff: bool, recheck: Duration) {
+    let mut unverified_since = None;
     loop {
         let left = (expires_at - Utc::now()).to_std().unwrap_or_default();
-        tokio::time::sleep(left.min(recheck)).await;
-        if expires_at <= Utc::now() || tokens.is_revoked(session_id) || tokens.revoked_elsewhere(session_id).await {
+        let pause = if unverified_since.is_some() { recheck.min(UNVERIFIABLE_GRACE) } else { recheck };
+        tokio::time::sleep(left.min(pause)).await;
+        if expires_at <= Utc::now() || tokens.is_revoked(session_id) {
             return;
+        }
+        match tokens.revocation(session_id).await {
+            Revocation::Revoked => return,
+            Revocation::Absent => unverified_since = None,
+            Revocation::Unknown if staff => {
+                let since = *unverified_since.get_or_insert_with(std::time::Instant::now);
+                if since.elapsed() >= UNVERIFIABLE_GRACE {
+                    return;
+                }
+            }
+            Revocation::Unknown => {}
         }
     }
 }
@@ -984,5 +996,92 @@ mod tests {
         let stream = open(jwt).await;
         layer_tokens.revoke(session).await;
         assert_eq!(stream_ends_within(stream, Duration::from_secs(5)).await.expect("the stream was cut off"), ["first"]);
+    }
+
+    /// A Valkey that answers every `EXISTS` with 0 (and anything else with
+    /// `+OK`) until it is taken down; then it stops answering.
+    struct FakeValkey {
+        url: String,
+        down: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl FakeValkey {
+        async fn start() -> Self {
+            use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("redis://{}", listener.local_addr().unwrap());
+            let down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let silent = down.clone();
+            tokio::spawn(async move {
+                while let Ok((mut socket, _)) = listener.accept().await {
+                    let silent = silent.clone();
+                    tokio::spawn(async move {
+                        let mut buffer = [0u8; 4096];
+                        while let Ok(read) = socket.read(&mut buffer).await {
+                            if read == 0 {
+                                break;
+                            }
+                            if silent.load(Ordering::Relaxed) {
+                                continue;
+                            }
+                            // One answer per command (each starts with `*` at the start of a line).
+                            let received = &buffer[..read];
+                            let starts: Vec<usize> = (0..read).filter(|&at| received[at] == b'*' && (at == 0 || received[at - 1] == b'\n')).collect();
+                            let mut answers = Vec::new();
+                            for (i, &start) in starts.iter().enumerate() {
+                                let command = &received[start..starts.get(i + 1).copied().unwrap_or(read)];
+                                let exists = command.windows(6).any(|w| w.eq_ignore_ascii_case(b"EXISTS"));
+                                answers.extend_from_slice(if exists { b":0\r\n" } else { b"+OK\r\n" });
+                            }
+                            let _ = socket.write_all(&answers).await;
+                        }
+                    });
+                }
+            });
+            Self { url, down }
+        }
+
+        fn take_down(&self) {
+            self.down.store(true, Ordering::Relaxed);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_staff_stream_ends_soon_after_valkey_stops_answering() {
+        use tower::ServiceExt as _;
+
+        let valkey = FakeValkey::start().await;
+        let cache = crate::cache::Cache::connect(&valkey.url).await.unwrap();
+        let layer_tokens = tokens().with_revocations(cache);
+        let layer = AuthLayer::new(layer_tokens.clone(), crate::proxies::TrustedProxies::parse(&[]).unwrap())
+            .with_stream_recheck(Duration::from_millis(50));
+        let app = TokenApp::with_layer(layer, Arc::new(FakeVerifier::default()));
+        let open = |bearer: String| {
+            let router = app.router.clone();
+            async move {
+                let request = http::Request::builder().method("POST").uri("/tokuly.media.v1.MediaService/WatchAsset").header("content-type", "application/connect+json");
+                let request = request.header("authorization", format!("Bearer {bearer}")).body(axum::body::Body::empty()).unwrap();
+                let response = router.oneshot(request).await.unwrap();
+                assert_eq!(response.status(), http::StatusCode::OK);
+                response.into_body().into_data_stream()
+            }
+        };
+        let session = Uuid::now_v7();
+        let (moderator, _) = layer_tokens.issue(Uuid::now_v7(), session, &["moderator".to_owned()]).unwrap();
+        let (member, _) = layer_tokens.issue(Uuid::now_v7(), Uuid::now_v7(), &[]).unwrap();
+        let (staff_stream, member_stream) = (open(moderator).await, open(member).await);
+
+        // Revoked on another instance while Valkey is down: the revocation is
+        // stored nowhere this process can read, and its broadcast never arrives.
+        valkey.take_down();
+        tokens().revoke(session).await;
+
+        let (staff, member) = tokio::join!(
+            stream_ends_within(staff_stream, UNVERIFIABLE_GRACE + Duration::from_secs(2)),
+            stream_ends_within(member_stream, UNVERIFIABLE_GRACE + Duration::from_secs(2)),
+        );
+        assert_eq!(staff.expect("the staff stream was cut off"), ["first"]);
+        assert!(member.is_none(), "a member's stream goes on through the outage");
     }
 }
