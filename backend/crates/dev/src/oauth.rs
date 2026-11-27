@@ -325,7 +325,7 @@ impl Dev {
             Err(_) => None,
         }
         // Disabled, or its owner suspended: the same answer as for an ID nobody registered.
-        .filter(AppRow::is_usable)
+        .filter(|app| app.is_usable(&self.identity))
         .or_not_found("CLIENT_NOT_FOUND", "unknown client_id")?;
         let redirect_uri = if request.redirect_uri.is_empty() && app.redirect_uris.len() == 1 {
             app.redirect_uris[0].clone()
@@ -474,7 +474,7 @@ impl Dev {
             Ok(app_id) => self.find_app(app_id).await?,
             Err(_) => None,
         };
-        let Some(app) = app.filter(AppRow::is_usable) else { return Err(failed()) };
+        let Some(app) = app.filter(|app| app.is_usable(&self.identity)) else { return Err(failed()) };
         match (app.confidential, secret) {
             (true, Some(secret)) if app.secret_matches(self, secret) => {
                 self.renew_secret_hash(&app, secret).await?;
@@ -839,7 +839,7 @@ impl Dev {
         let app = self
             .find_app(grant.app_id)
             .await?
-            .filter(|app| app.is_usable() && app.device_flow)
+            .filter(|app| app.is_usable(&self.identity) && app.device_flow)
             .ok_or_else(not_found)?;
         Ok((hash, grant, app))
     }

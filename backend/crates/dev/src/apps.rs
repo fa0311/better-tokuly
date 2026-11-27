@@ -4,6 +4,7 @@ use std::time::Duration;
 use chrono::Utc;
 use connectrpc::{RequestContext, ServiceRequest, ServiceResult};
 use tokuly_core::{api_tokens::Scopes, events, keys::secure_eq, outbound, prelude::*};
+use tokuly_identity::Identity;
 use tokuly_proto::{
     common::{Image, SubjectType},
     dev::*,
@@ -44,19 +45,24 @@ pub(crate) struct AppRow {
     pub updated_at: Time,
     /// Users with an authorization.
     pub user_count: i64,
-    /// Whether the owner's account is in good standing.
+    /// Whether the owner's account is in good standing: neither suspended nor gone.
     pub owner_active: bool,
+    pub owner_birthdate: Option<chrono::NaiveDate>,
+    pub owner_time_zone: String,
 }
 
-macro_rules! app_columns {
+/// `SELECT … FROM` the applications (`p`) as [`AppRow`]s, with their owner (`w`).
+macro_rules! select_apps {
     () => {
-        "p.id, p.owner_id, p.name, p.description, p.icon, p.homepage_url, p.privacy_policy_url, p.redirect_uris, p.scopes, p.confidential, p.device_flow, \
+        "SELECT p.id, p.owner_id, p.name, p.description, p.icon, p.homepage_url, p.privacy_policy_url, p.redirect_uris, p.scopes, p.confidential, p.device_flow, \
          p.secret_hash, p.secret_hint, p.previous_secret_hash, p.previous_secret_expires_at, p.status, p.disabled_reason, p.created_at, p.updated_at, \
          (SELECT count(*) FROM dev_authorizations a WHERE a.app_id = p.id) AS user_count, \
-         COALESCE((SELECT u.banned_at IS NULL AND u.deleted_at IS NULL FROM users u WHERE u.id = p.owner_id), false) AS owner_active"
+         COALESCE(w.banned_at IS NULL AND w.deleted_at IS NULL, false) AS owner_active, \
+         w.birthdate AS owner_birthdate, COALESCE(w.time_zone, 'UTC') AS owner_time_zone \
+         FROM dev_apps p LEFT JOIN users w ON w.id = p.owner_id"
     };
 }
-pub(crate) use app_columns;
+pub(crate) use select_apps;
 
 fn image(icon: &Option<serde_json::Value>) -> Option<Image> {
     icon.as_ref().and_then(|json| serde_json::from_value(json.clone()).ok())
@@ -69,10 +75,11 @@ impl AppRow {
     }
 
     /// Whether the application may be used at all: not taken down, and its
-    /// owner neither suspended nor gone. Everything users and clients see
-    /// treats an application that is not usable as one that does not exist.
-    pub(crate) fn is_usable(&self) -> bool {
-        self.is_active() && self.owner_active
+    /// owner neither suspended nor gone nor under the minimum age (until that
+    /// birthday). Everything users and clients see treats an application
+    /// that is not usable as one that does not exist.
+    pub(crate) fn is_usable(&self, identity: &Identity) -> bool {
+        self.is_active() && self.owner_active && !identity.too_young(self.owner_birthdate, &self.owner_time_zone)
     }
 
     pub(crate) fn scopes(&self) -> Scopes {
@@ -254,7 +261,7 @@ impl AppFields {
 
 impl Dev {
     pub(crate) async fn find_app(&self, app_id: Uuid) -> AppResult<Option<AppRow>> {
-        Ok(sqlx::query_as(concat!("SELECT ", app_columns!(), " FROM dev_apps p WHERE p.id = $1"))
+        Ok(sqlx::query_as(concat!(select_apps!(), " WHERE p.id = $1"))
             .bind(app_id)
             .fetch_optional(&self.core.db)
             .await?)
@@ -270,18 +277,18 @@ impl Dev {
 
     /// The public card of an application that is not disabled.
     pub(crate) async fn find_public_app(&self, app_id: Uuid) -> AppResult<Option<PublicApp>> {
-        let Some(app) = self.find_app(app_id).await?.filter(AppRow::is_usable) else { return Ok(None) };
+        let app = self.find_app(app_id).await?.filter(|app| app.is_usable(&self.identity));
+        let Some(app) = app else { return Ok(None) };
         let owner = tokuly_identity::summary(&self.core, app.owner_id).await?;
         Ok(Some(app.to_public(owner)))
     }
 
     /// Public cards of several applications, by ID.
     pub(crate) async fn public_apps(&self, app_ids: &[Uuid]) -> AppResult<std::collections::HashMap<Uuid, PublicApp>> {
-        let rows: Vec<AppRow> =
-            sqlx::query_as(concat!("SELECT ", app_columns!(), " FROM dev_apps p WHERE p.id = ANY($1)"))
-                .bind(app_ids)
-                .fetch_all(&self.core.db)
-                .await?;
+        let rows: Vec<AppRow> = sqlx::query_as(concat!(select_apps!(), " WHERE p.id = ANY($1)"))
+            .bind(app_ids)
+            .fetch_all(&self.core.db)
+            .await?;
         let owners: Vec<Uuid> = rows.iter().map(|app| app.owner_id).collect();
         let owners = tokuly_identity::summaries(&self.core, &owners).await?;
         Ok(rows
@@ -414,9 +421,8 @@ impl AppService for Dev {
             let page = Page::from_view(request.page.as_option(), MAX_PAGE_SIZE);
             let after: Option<Uuid> = page.decode()?;
             let mut rows: Vec<AppRow> = sqlx::query_as(concat!(
-                "SELECT ",
-                app_columns!(),
-                " FROM dev_apps p WHERE p.owner_id = $1 AND ($2::uuid IS NULL OR p.id < $2) ORDER BY p.id DESC LIMIT $3"
+                select_apps!(),
+                " WHERE p.owner_id = $1 AND ($2::uuid IS NULL OR p.id < $2) ORDER BY p.id DESC LIMIT $3"
             ))
             .bind(owner)
             .bind(after)
