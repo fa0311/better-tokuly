@@ -90,21 +90,46 @@ async fn animated_emoji_keep_their_animation_and_offer_stills() {
 async fn clients_catch_up_with_what_changed_since_their_version() {
     let ctx = start().await;
     let moderator = ctx.moderator().await;
+    let category = unique("catchup");
+    ctx.create_category(&moderator, &category).await;
     // Make sure the catalogue has a history before the client's first sync.
     ctx.add(&moderator, &unique("warmup")).await;
     let synced = ctx.catalog().await.version;
 
-    let (kept, disabled, deleted) = (unique("kept"), unique("disabled"), unique("deleted"));
-    let kept_id = ctx.add(&moderator, &kept).await.emoji.id.clone();
-    let disabled_id = ctx.add(&moderator, &disabled).await.emoji.id.clone();
-    let deleted_id = ctx.add(&moderator, &deleted).await.emoji.id.clone();
+    let (kept_name, disabled_name, deleted_name) = (unique("kept"), unique("disabled"), unique("deleted"));
+    let kept = ctx
+        .add_with(
+            &moderator,
+            AddEmojiRequest { category: category.clone(), ..ctx.add_request(&moderator, &kept_name).await },
+        )
+        .await;
+    let kept_id = kept.emoji.id.clone();
+    let disabled = ctx
+        .add_with(
+            &moderator,
+            AddEmojiRequest { category: category.clone(), ..ctx.add_request(&moderator, &disabled_name).await },
+        )
+        .await;
+    let disabled_id = disabled.emoji.id.clone();
+    let deleted = ctx
+        .add_with(
+            &moderator,
+            AddEmojiRequest { category: category.clone(), ..ctx.add_request(&moderator, &deleted_name).await },
+        )
+        .await;
+    let deleted_id = deleted.emoji.id.clone();
 
     let added = ctx.changes(synced).await;
     assert!(!added.full && added.version > synced);
-    for name in [&kept, &disabled, &deleted] {
+    for name in [&kept_name, &disabled_name, &deleted_name] {
         assert!(named(&added.upserted, name).is_some(), "{name} was added since {synced}");
     }
-    assert!(!added.categories.is_empty() || ctx.catalog().await.categories.is_empty());
+    let added_category = added
+        .categories
+        .iter()
+        .find(|candidate| candidate.name == category)
+        .expect("the delta includes the category whose emoji count changed");
+    assert_eq!(added_category.emoji_count, 3);
     let synced = added.version;
 
     ctx.disable(&moderator, &disabled_id, "調整中だよ").await;
@@ -119,14 +144,14 @@ async fn clients_catch_up_with_what_changed_since_their_version() {
     let changed = ctx.changes(synced).await;
     assert!(!changed.full);
     assert!(changed.removed_ids.contains(&disabled_id) && changed.removed_ids.contains(&deleted_id));
-    assert!(named(&changed.upserted, &disabled).is_none() && named(&changed.upserted, &deleted).is_none());
+    assert!(named(&changed.upserted, &disabled_name).is_none() && named(&changed.upserted, &deleted_name).is_none());
     let moved = named(&changed.upserted, &renamed).expect("a renamed emoji is an upsert");
     assert_eq!(moved.id, kept_id, "a rename keeps the ID clients key their copy by");
 
     // An emoji that comes back is an upsert again, no longer a removal.
     ctx.enable(&moderator, &disabled_id).await;
     let back = ctx.changes(synced).await;
-    assert!(named(&back.upserted, &disabled).is_some());
+    assert!(named(&back.upserted, &disabled_name).is_some());
     assert!(!back.removed_ids.contains(&disabled_id) && back.removed_ids.contains(&deleted_id));
 
     // Versions the server cannot compare with get the whole catalogue.
