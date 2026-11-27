@@ -36,14 +36,20 @@ async function loadNamespace(language: Language, namespace: string) {
 /** What every page shows: the app's own words and the error texts. */
 const ALWAYS = ["common", "errors"];
 
+/** Namespaces the browser is fetching right now. */
+let reading = 0;
+
 const backend: BackendModule = {
   type: "backend",
   init() {},
   read(language, namespace, done) {
-    loadNamespace(normalizeLanguage(language), namespace).then(
-      (strings) => done(null, strings),
-      (error: Error) => done(error, false),
-    );
+    reading++;
+    loadNamespace(normalizeLanguage(language), namespace)
+      .then(
+        (strings) => done(null, strings),
+        (error: Error) => done(error, false),
+      )
+      .finally(() => reading--);
   },
 };
 
@@ -153,9 +159,29 @@ export function namespacesOf(keys: readonly string[]): string[] {
  * moment it takes instead of suspending: a suspended update would take the
  * screen away under someone's hands (a composer that just opened its stamp
  * button lost what was being typed).
+ *
+ * Called from the root's first effect, but the page is not hydrated yet
+ * then: a screen that suspended for its strings hydrates when they arrive,
+ * and only then asks for its next namespace. Turning suspense off at once
+ * rendered those screens without their words, against the server's HTML
+ * (`/login` lost its title and React threw the page away). So it waits
+ * until no strings have been loading for a few idle moments.
  */
 export function stopSuspendingForStrings(): void {
-  i18n.options.react = { ...i18n.options.react, useSuspense: false };
+  const later = (next: () => void) =>
+    typeof requestIdleCallback === "function"
+      ? requestIdleCallback(next, { timeout: 200 })
+      : setTimeout(next, 50);
+  let quiet = 0;
+  const settle = () => {
+    quiet = reading === 0 ? quiet + 1 : 0;
+    if (quiet < 3) {
+      later(settle);
+      return;
+    }
+    i18n.options.react = { ...i18n.options.react, useSuspense: false };
+  };
+  later(settle);
 }
 
 export function setLanguage(language: Language): void {
