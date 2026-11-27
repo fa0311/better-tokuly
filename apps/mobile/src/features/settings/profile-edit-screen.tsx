@@ -368,7 +368,6 @@ function ProfileForm({ me }: { me: identity.Me }) {
           value={bio}
           onChangeText={setBio}
           multiline
-          style={{ height: 112, paddingTop: 12, textAlignVertical: "top" }}
         />
         <TextField
           testID="profile-school"

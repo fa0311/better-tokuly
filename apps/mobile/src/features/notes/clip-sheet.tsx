@@ -67,7 +67,7 @@ export function ClipSheet({ noteId, onClose }: { noteId: string; onClose(): void
             maxLength={CLIP_NAME_MAX}
             placeholder={t("sheet.new")}
             placeholderTextColor={colors["ink-faint"]}
-            className="h-11 flex-1 rounded-control bg-surface-2 px-4 text-base text-ink"
+            className="h-11 py-0 flex-1 rounded-control bg-surface-2 px-4 text-base text-ink"
           />
           <Button
             testID="clip-create"

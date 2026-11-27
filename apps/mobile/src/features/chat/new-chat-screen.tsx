@@ -81,7 +81,7 @@ export function NewChatScreen() {
         value={query}
         onChangeText={setQuery}
         autoCapitalize="none"
-        className="mx-4 my-2 h-11 rounded-full bg-surface px-4 text-ink"
+        className="mx-4 my-2 h-11 py-0 rounded-full bg-surface px-4 text-ink"
       />
       {friends.isPending ? (
         <Spinner />
@@ -143,7 +143,7 @@ export function NewChatScreen() {
               value={name}
               onChangeText={setName}
               maxLength={50}
-              className="h-11 rounded-full bg-surface-2 px-4 text-ink"
+              className="h-11 py-0 rounded-full bg-surface-2 px-4 text-ink"
             />
           )}
           <Button

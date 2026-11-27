@@ -73,7 +73,7 @@ export function SearchScreen({ start }: { start: SearchStart }) {
           autoCapitalize="none"
           autoCorrect={false}
           autoFocus={!start.query}
-          className="h-11 flex-1 text-base text-ink"
+          className="h-11 py-0 flex-1 text-base text-ink"
         />
         {text ? (
           <Pressable

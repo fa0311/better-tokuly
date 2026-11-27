@@ -420,7 +420,7 @@ function Composer({
               maxLength={100}
               placeholder={t("compose.warningPlaceholder")}
               placeholderTextColor={colors["ink-faint"]}
-              className="h-11 rounded-control bg-surface px-4 text-base text-ink"
+              className="h-11 py-0 rounded-control bg-surface px-4 text-base text-ink"
             />
           )}
           {photos.photos.length > 0 && (
@@ -495,7 +495,8 @@ function Composer({
             </View>
           )}
         </ScrollView>
-        <View className="flex-row items-center gap-1 border-t border-line bg-surface px-2 py-2">
+        {/* The tools, then what is done with the note; on a narrow phone the two wrap. */}
+        <View className="flex-row flex-wrap items-center gap-1 border-t border-line bg-surface px-2 py-2">
           <Pressable
             testID="note-add-photo"
             accessibilityRole="button"
@@ -547,30 +548,30 @@ function Composer({
           >
             <TriangleAlert color={warning ? colors.coral : colors.brand} size={22} />
           </Pressable>
-          <Text
-            className={`ml-auto mr-2 text-sm font-black ${over ? "text-danger" : "text-coral"}`}
-          >
-            {length > COUNT_FROM ? `${length}/${NOTE_MAX_CHARS}` : ""}
-          </Text>
-          <Button
-            testID="note-save-draft"
-            variant="ghost"
-            size="sm"
-            disabled={!hasContent || over || photos.busy || Boolean(busy)}
-            loading={busy === "draft"}
-            onPress={() => void keepAsDraft()}
-          >
-            {t("compose.saveDraft")}
-          </Button>
-          <Button
-            testID="note-post"
-            size="sm"
-            disabled={!canPost}
-            loading={busy === "post"}
-            onPress={() => void post()}
-          >
-            {replyTo ? t("compose.reply") : t("compose.post")}
-          </Button>
+          <View className="ml-auto flex-row items-center gap-1">
+            <Text className={`mr-2 text-sm font-black ${over ? "text-danger" : "text-coral"}`}>
+              {length > COUNT_FROM ? `${length}/${NOTE_MAX_CHARS}` : ""}
+            </Text>
+            <Button
+              testID="note-save-draft"
+              variant="ghost"
+              size="sm"
+              disabled={!hasContent || over || photos.busy || Boolean(busy)}
+              loading={busy === "draft"}
+              onPress={() => void keepAsDraft()}
+            >
+              {t("compose.saveDraft")}
+            </Button>
+            <Button
+              testID="note-post"
+              size="sm"
+              disabled={!canPost}
+              loading={busy === "post"}
+              onPress={() => void post()}
+            >
+              {replyTo ? t("compose.reply") : t("compose.post")}
+            </Button>
+          </View>
         </View>
       </KeyboardAvoidingView>
       <EmojiPicker

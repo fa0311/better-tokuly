@@ -108,7 +108,7 @@ export function ComposeThreadScreen({ handle, channel }: { handle: string; chann
         placeholder={t("compose.bodyPlaceholder")}
         value={body}
         onChangeText={setBody}
-        style={{ height: 160, textAlignVertical: "top", paddingTop: 12 }}
+        style={{ minHeight: 160 }}
       />
       <TextField
         testID="compose-tags"

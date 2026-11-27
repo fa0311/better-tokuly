@@ -84,7 +84,7 @@ function InviteCodeBox() {
           value={text}
           onChangeText={setText}
           placeholder={t("join.codeLabel")}
-          className="h-11 flex-1 rounded-control border-2 border-line bg-bg px-3 text-base text-ink"
+          className="h-11 py-0 flex-1 rounded-control border-2 border-line bg-bg px-3 text-base text-ink"
         />
         <Button
           testID="invite-code-open"

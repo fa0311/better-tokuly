@@ -245,7 +245,7 @@ export function GiftSheet({
                     keyboardType="number-pad"
                     accessibilityLabel={t("gift.amount")}
                     placeholderTextColor={colors["ink-faint"]}
-                    className="h-12 rounded-control border-2 border-line bg-surface px-4 text-base text-ink"
+                    className="h-12 py-0 rounded-control border-2 border-line bg-surface px-4 text-base text-ink"
                   />
                   {amountText !== "" && !inRange ? (
                     <Text className="px-1 text-sm font-bold text-danger">
