@@ -5,6 +5,8 @@ The commands are in [`apps/mobile/README.md`](../../apps/mobile/README.md), "Che
 Logic is tested in the shared packages (Vitest). Component tests in the app
 (jest-expo, React Native Testing Library) cover the screens that matter and
 mock only the edges: the network (`expo/fetch`), device modules, the clock.
+A test's query cache comes from `testQueryClient` (`src/testing/query.ts`): it
+never starts a garbage-collection timer, so jest exits when the tests are done.
 
 ## End to end (Maestro)
 

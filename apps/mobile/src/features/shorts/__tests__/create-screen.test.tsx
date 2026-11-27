@@ -1,7 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { CreateShortScreen } from "../create-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -24,7 +25,7 @@ async function open(locked: boolean) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={testQueryClient()}>
         <CreateShortScreen />
       </QueryClientProvider>
     </SafeAreaProvider>,

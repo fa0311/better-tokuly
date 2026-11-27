@@ -1,7 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react-native";
 import { community, create } from "@tokuly/api";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { MembersScreen } from "../members-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -40,7 +41,7 @@ function server(status: community.MembershipStatus) {
 
 async function show() {
   await render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={testQueryClient()}>
       <MembersScreen handle="neko" />
     </QueryClientProvider>,
   );

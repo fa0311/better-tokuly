@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Code, ConnectError, create, fromDate, geo } from "@tokuly/api";
 import type { ReactNode } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { FootprintsScreen } from "../footprints-screen";
 import links from "../links";
 
@@ -97,14 +98,7 @@ async function show(children: ReactNode) {
       }}
     >
       <QueryClientProvider
-        client={
-          new QueryClient({
-            defaultOptions: {
-              queries: { retry: false, gcTime: Infinity },
-              mutations: { gcTime: Infinity },
-            },
-          })
-        }
+        client={testQueryClient({ defaultOptions: { queries: { retry: false } } })}
       >
         {children}
       </QueryClientProvider>

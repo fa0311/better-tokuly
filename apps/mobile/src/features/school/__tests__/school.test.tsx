@@ -1,5 +1,5 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, fromDate, school, toDate } from "@tokuly/api";
 import { router } from "expo-router";
@@ -8,6 +8,7 @@ import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { AssignmentsScreen } from "../assignments-screen";
 import { NewAssignmentScreen } from "../new-assignment-screen";
 import { SchoolScreen } from "../today-screen";
@@ -129,14 +130,7 @@ async function show(children: ReactNode) {
       }}
     >
       <QueryClientProvider
-        client={
-          new QueryClient({
-            defaultOptions: {
-              queries: { retry: false, gcTime: Infinity },
-              mutations: { gcTime: Infinity },
-            },
-          })
-        }
+        client={testQueryClient({ defaultOptions: { queries: { retry: false } } })}
       >
         {children}
       </QueryClientProvider>

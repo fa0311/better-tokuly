@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { community, create } from "@tokuly/api";
 import { router } from "expo-router";
@@ -8,6 +8,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
 import { realtime } from "#/lib/realtime";
+import { testQueryClient } from "#/testing/query";
 import { CommunityScreen } from "../community-screen";
 import { ComposeThreadScreen } from "../compose-screen";
 
@@ -75,7 +76,7 @@ async function show(children: ReactNode) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
+      <QueryClientProvider client={testQueryClient()}>{children}</QueryClientProvider>
     </SafeAreaProvider>,
   );
 }

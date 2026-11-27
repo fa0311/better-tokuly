@@ -1,9 +1,10 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react-native";
 import { spaces } from "@tokuly/api";
 import { usePathname } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useSessionStore } from "#/features/session/store";
+import { testQueryClient } from "#/testing/query";
 import SpacesBackground from "../background";
 import { type ActiveVenue, useAudioSession } from "../session";
 
@@ -47,7 +48,7 @@ async function showAt(path: string) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={testQueryClient()}>
         <SpacesBackground />
       </QueryClientProvider>
     </SafeAreaProvider>,

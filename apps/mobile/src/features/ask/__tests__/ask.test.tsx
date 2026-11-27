@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { ask, common, create, engagement } from "@tokuly/api";
 import type { ReactNode } from "react";
@@ -6,6 +6,7 @@ import { Alert, type AlertButton } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { api } from "#/lib/api";
 import { screenFor } from "#/seams/links";
+import { testQueryClient } from "#/testing/query";
 import { AnswerScreen } from "../answer-screen";
 import { AskForm } from "../ask-form";
 import { InboxScreen } from "../inbox-screen";
@@ -67,7 +68,7 @@ function server(questions: ask.Question[]) {
   return sent;
 }
 
-const queryClient = new QueryClient();
+const queryClient = testQueryClient();
 afterEach(() => queryClient.clear());
 
 const framed = (children: ReactNode) => (

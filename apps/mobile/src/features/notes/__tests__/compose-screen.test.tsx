@@ -1,11 +1,12 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Code, ConnectError, common, create, notes, stamp } from "@tokuly/api";
+import { shouldRetry } from "@tokuly/core/query";
 import { router } from "expo-router";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { api } from "#/lib/api";
-import { createQueryClient } from "#/lib/query";
+import { testQueryClient } from "#/testing/query";
 import { ComposeScreen } from "../compose-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -89,6 +90,9 @@ function account(
   return { object, calls };
 }
 
+/** With the app's retry policy: a stamp that is gone is not asked for again. */
+const newCache = () => testQueryClient({ defaultOptions: { queries: { retry: shouldRetry } } });
+
 async function open(element: React.ReactElement) {
   await render(
     <SafeAreaProvider
@@ -97,7 +101,7 @@ async function open(element: React.ReactElement) {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={createQueryClient()}>{element}</QueryClientProvider>
+      <QueryClientProvider client={newCache()}>{element}</QueryClientProvider>
     </SafeAreaProvider>,
   );
 }

@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { create, live } from "@tokuly/api";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount } from "#/features/session/account";
 import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import lifecycle from "../lifecycle";
 import { WatchLiveScreen } from "../watch-screen";
 
@@ -106,7 +107,7 @@ async function open() {
         insets: { top: 0, left: 0, right: 0, bottom: 0 },
       }}
     >
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={testQueryClient()}>
         <WatchLiveScreen streamId="abc" />
       </QueryClientProvider>
     </SafeAreaProvider>,

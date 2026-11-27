@@ -1,8 +1,8 @@
-import { QueryClient } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react-native";
 import { create, spaces } from "@tokuly/api";
 import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { enterSpace, leaveVenue, toggleMicrophone, useAudioSession } from "../session";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -77,7 +77,7 @@ describe("the audio session", () => {
   });
 
   it("does not open the microphone again on a connection made after being sent off stage", async () => {
-    const queryClient = new QueryClient();
+    const queryClient = testQueryClient();
     expect(await enterSpace(queryClient, ROOM)).toBe(true);
     await toggleMicrophone(queryClient);
     expect(useAudioSession.getState().active?.micOn).toBe(true);

@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Code, ConnectError, common, create, geo } from "@tokuly/api";
 import { historyKeys } from "@tokuly/core/history";
@@ -9,6 +9,7 @@ import { Alert, type AlertButton } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { currentAccount, isActive } from "#/features/session/account";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { CheckInScreen } from "../check-in-screen";
 import { PlaceScreen } from "../place-screen";
 import { PlacesScreen } from "../places-screen";
@@ -116,13 +117,7 @@ async function answerWrites() {
   });
 }
 
-const newCache = () =>
-  new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: Infinity },
-      mutations: { gcTime: Infinity },
-    },
-  });
+const newCache = () => testQueryClient({ defaultOptions: { queries: { retry: false } } });
 
 function show(children: ReactNode, cache = newCache()) {
   return render(

@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, notes } from "@tokuly/api";
 import { storyKeys } from "@tokuly/core/stories";
@@ -6,6 +6,7 @@ import { router } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useSessionStore } from "#/features/session/store";
 import { api } from "#/lib/api";
+import { testQueryClient } from "#/testing/query";
 import { StoryViewerScreen } from "../viewer-screen";
 
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
@@ -54,7 +55,7 @@ function setUp() {
   useSessionStore.setState({
     state: { status: "signedIn", sessionId: "s", me: { user: { id: "me" } } as never },
   });
-  const queryClient = new QueryClient();
+  const queryClient = testQueryClient();
   queryClient.setQueryData(storyKeys.tray, [
     create(notes.StoryReelSchema, {
       user: { id: "friend", displayName: "Aoi" },
