@@ -19,7 +19,7 @@ const NS = { namespace: "quest" } as const;
 export function useClaim() {
   const { t } = useTranslation("quest");
   const queryClient = useQueryClient();
-  const sending = useRef(new Set<string>());
+  const sending = useSending();
   const claim = useMutation({
     mutationFn: (mission: quest.Mission) =>
       asAccount((account) =>
@@ -48,25 +48,26 @@ export function useClaim() {
       void queryClient.invalidateQueries({ queryKey: questKeys.progress });
       void queryClient.invalidateQueries({ queryKey: coinsKey });
     },
-    onSettled: (_answer, _error, mission) => {
-      sending.current.delete(mission.id);
-    },
+    onSettled: (_answer, _error, mission) => sending.done(mission),
   });
   return {
     claim: (mission: quest.Mission) => {
-      if (sending.current.has(mission.id)) return;
-      sending.current.add(mission.id);
-      claim.mutate(mission);
+      if (sending.start(mission)) claim.mutate(mission);
     },
     /** The mission whose claim is on its way, if any. */
     claiming: claim.isPending ? claim.variables?.id : undefined,
   };
 }
 
-/** Swapping a mission for another one (once a day), after asking. */
+/**
+ * Swapping a mission for another one (once a day), after asking. Like a
+ * claim, it is sent once while on its way, however often it is confirmed
+ * (two taps on the button open two questions).
+ */
 export function useReroll() {
   const { t } = useTranslation("quest");
   const queryClient = useQueryClient();
+  const sending = useSending();
   const reroll = useMutation({
     mutationFn: (mission: quest.Mission) =>
       asAccount((account) =>
@@ -77,13 +78,32 @@ export function useReroll() {
       Alert.alert(errorMessage(error, NS));
       void queryClient.invalidateQueries({ queryKey: questKeys.missions });
     },
+    onSettled: (_answer, _error, mission) => sending.done(mission),
   });
   return {
     ask: (mission: quest.Mission) =>
       Alert.alert(t("missions.rerollConfirm.title"), t("missions.rerollConfirm.body"), [
         { text: t("common:actions.cancel"), style: "cancel" },
-        { text: t("missions.rerollConfirm.action"), onPress: () => reroll.mutate(mission) },
+        {
+          text: t("missions.rerollConfirm.action"),
+          onPress: () => {
+            if (sending.start(mission)) reroll.mutate(mission);
+          },
+        },
       ]),
     rerolling: reroll.isPending ? reroll.variables?.id : undefined,
+  };
+}
+
+/** The missions with a request on its way: `start` is false for one already sent. */
+function useSending() {
+  const missions = useRef(new Set<string>()).current;
+  return {
+    start(mission: quest.Mission): boolean {
+      if (missions.has(mission.id)) return false;
+      missions.add(mission.id);
+      return true;
+    },
+    done: (mission: quest.Mission) => missions.delete(mission.id),
   };
 }

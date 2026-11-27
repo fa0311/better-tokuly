@@ -20,11 +20,12 @@ const later = { seconds: BigInt(Math.floor(Date.now() / 1000) + 3600), nanos: 0 
  * and waiting, the claims it was sent (answered when `answer()` is called),
  * and a balance that the claim raises on the server.
  */
-function server() {
-  let state = M.COMPLETED;
+function server(start: quest.MissionState = M.COMPLETED) {
+  let state = start;
   let coins = 100n;
   let switched = false;
   const claims: string[] = [];
+  const rerolls: string[] = [];
   let answer = () => {};
   let lose = () => {};
   const mission = () =>
@@ -54,6 +55,10 @@ function server() {
           dailyBonus: { claimed: 0, required: 3, reward: { coins: 30 } },
         }),
       getBalance: async () => ({ balance: { coins } }),
+      rerollMission: ({ missionId }: { missionId: string }) => {
+        rerolls.push(missionId);
+        return new Promise(() => {});
+      },
       claimMission: ({ missionId }: { missionId: string }) => {
         claims.push(missionId);
         return new Promise((resolve, reject) => {
@@ -84,6 +89,7 @@ function server() {
   jest.mocked(isActive).mockImplementation(() => !switched);
   return {
     claims,
+    rerolls,
     answer: () => answer(),
     /** The server grants the claim, but its answer never reaches the phone. */
     loseAnswer: () => lose(),
@@ -143,6 +149,22 @@ describe("the quest screen", () => {
     await waitFor(() => expect(screen.getByText("受け取りずみ")).toBeTruthy());
     await waitFor(() => expect(screen.getByTestId("quest-coins").props.children).toBe("🪙 110"));
     expect(api.claims).toEqual(["m1"]);
+  });
+
+  it("sends one reroll however often it is asked for and confirmed", async () => {
+    const api = server(M.ACTIVE);
+    await show(<QuestScreen />);
+    const reroll = await screen.findByTestId("mission-reroll-stamps_5");
+    await fireEvent.press(reroll);
+    await fireEvent.press(reroll);
+    const confirms = jest
+      .mocked(Alert.alert)
+      .mock.calls.map(([, , buttons]) => buttons?.find((button) => button.style !== "cancel"));
+    expect(confirms).toHaveLength(2);
+    for (const confirm of confirms) confirm?.onPress?.();
+    await waitFor(() => expect(api.rerolls).toEqual(["m1"]));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(api.rerolls).toEqual(["m1"]);
   });
 
   it("drops a claim answered after an account switch", async () => {
