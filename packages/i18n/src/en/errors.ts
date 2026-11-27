@@ -805,7 +805,9 @@ export default {
   SEARCH_UNAVAILABLE: "Search is taking a nap. Try again in a moment",
   SORT_UNKNOWN: "That order is not available",
   // settings
+  BIRTHDATE_ALREADY_SET: "Your date of birth is already set",
   BIRTHDAY_YEAR_RESTRICTED: "Under 18 the year of your birthday cannot be shown to everyone",
+  SETTING_RESTRICTED: "Until you turn 18 this reaches friends of friends at most",
   CONNECTION_EXPIRED: "That took too long. Try connecting again",
   EMAIL_ALREADY_VERIFIED: "Your email is already verified",
   EMAIL_MISSING: "There is no email address on this account",

@@ -53,7 +53,7 @@ async fn friends_of_friends_are_suggested_until_related_or_dismissed() {
     }
     ctx.befriend(&f2, &close).await;
     ctx.befriend(&f2, &dismissed).await;
-    ctx.set_privacy(&private, |p| p.discoverable = false).await;
+    ctx.set_privacy(&private, |p| p.discoverable_to = Audience::AUDIENCE_NOBODY.into()).await;
     // Mutual friends come from the candidate's friend list: shown only when
     // that list is visible to me (friends only, the default, hides them).
     ctx.set_privacy(&close, |p| p.friend_list_visible_to = Audience::AUDIENCE_FRIENDS_OF_FRIENDS.into()).await;
@@ -108,7 +108,7 @@ async fn contacts_match_verified_discoverable_accounts_by_email_hash() {
     let me = ctx.app.user("me").await;
     let (known, friend, hidden, unverified) = (ctx.app.user("known").await, ctx.app.user("friend").await, ctx.app.user("hidden").await, ctx.app.user("unverified").await);
     ctx.befriend(&me, &friend).await;
-    ctx.set_privacy(&hidden, |p| p.discoverable = false).await;
+    ctx.set_privacy(&hidden, |p| p.discoverable_to = Audience::AUDIENCE_NOBODY.into()).await;
     sqlx::query("UPDATE users SET email_verified_at = NULL WHERE id = $1").bind(unverified.id).execute(&ctx.app.core.db).await.unwrap();
     let match_contacts = |hashes: Vec<String>| {
         let (ctx, me) = (&ctx, me.clone());
@@ -505,6 +505,7 @@ async fn nearby_sessions_open_only_where_the_user_really_is() {
 
 /// A school is self-declared: on its own it introduces people of one age
 /// group only, so naming a school does not show an adult who goes there.
+/// A minor is found by friends of friends only, so not by schoolmates either.
 #[tokio::test]
 async fn a_shared_school_suggests_only_within_an_age_group() {
     let ctx = start().await;
@@ -524,11 +525,7 @@ async fn a_shared_school_suggests_only_within_an_age_group() {
     ctx.befriend(&friend, &known_adult).await;
 
     let for_pupil = suggestions_for(&ctx, &pupil, 0).await;
-    let mut seen = suggested(&for_pupil);
-    seen.sort();
-    let mut expected = vec![(classmate.id, "SAME_SCHOOL"), (known_adult.id, "FRIEND_OF_FRIEND")];
-    expected.sort();
-    assert_eq!(seen, expected, "the unknown adult is not suggested");
+    assert_eq!(suggested(&for_pupil), vec![(known_adult.id, "FRIEND_OF_FRIEND")], "neither the unknown adult nor the classmate");
 
     let for_adult = suggestions_for(&ctx, &adult, 0).await;
     assert_eq!(suggested(&for_adult), vec![(known_adult.id, "SAME_SCHOOL")], "an adult sees no pupils by naming their school");

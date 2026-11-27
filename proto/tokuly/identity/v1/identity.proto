@@ -408,7 +408,16 @@ service AccountService {
   rpc SetStatus(SetStatusRequest) returns (SetStatusResponse);
 
   rpc GetSettings(GetSettingsRequest) returns (GetSettingsResponse);
+  // SETTINGS_INVALID; SETTING_RESTRICTED when an account under 18 widens a
+  // setting past what minors may choose (`PrivacySettings`);
+  // BIRTHDAY_YEAR_RESTRICTED.
   rpc UpdateSettings(UpdateSettingsRequest) returns (UpdateSettingsResponse);
+  // Gives the birthdate of an account that has none (made before sign-up
+  // asked for it; clients ask when `Me.birthdate` is empty). It cannot be
+  // changed afterwards. An account under 18 then gets the privacy defaults
+  // of minors, as at sign-up. BIRTHDATE_INVALID, AGE_RESTRICTED (under the
+  // minimum age: nothing is stored), BIRTHDATE_ALREADY_SET, RATE_LIMITED.
+  rpc SetBirthdate(SetBirthdateRequest) returns (SetBirthdateResponse);
 
   rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
   // INVALID_CREDENTIALS, EMAIL_INVALID, EMAIL_UNCHANGED, RATE_LIMITED. An
@@ -500,6 +509,10 @@ message Me {
   tokuly.common.v1.UserSummary bot_owner = 19;
   // School shown on the profile.
   string school_name = 20;
+  // The limits for people under 18 apply: by the birthdate, or because the
+  // account has given none yet (an empty `birthdate`; a bot goes by its
+  // owner).
+  bool minor = 21;
 }
 
 // Ephemeral mood/status shown on the profile and next to the map pin.
@@ -559,15 +572,22 @@ enum Audience {
   AUDIENCE_NOBODY = 4;
 }
 
+// Accounts under 18 start with the defaults for minors, decided when the
+// birthdate is given and then stored: discoverable_to and
+// friend_requests_from AUDIENCE_FRIENDS_OF_FRIENDS, default_note_visibility
+// VISIBILITY_FOLLOWERS, nearby_discoverable off. They may change them, except
+// that discoverable_to and friend_requests_from go no wider than friends of
+// friends until they turn 18 (SETTING_RESTRICTED).
 message PrivacySettings {
+  reserved 4;
+  reserved "discoverable";
+
   // Who may send friend requests.
   Audience friend_requests_from = 1;
   // Who may see the friend list.
   Audience friend_list_visible_to = 2;
   // Who may see the scratch map (footprints) in full; others get percentages only.
   Audience footprints_visible_to = 3;
-  // Appear in "people you may know" and contact matching.
-  bool discoverable = 4;
   // Appear in nearby discovery (within ~50 m) while the add-friend screen is open.
   bool nearby_discoverable = 5;
   // Share battery level / charging state with friends.
@@ -590,7 +610,7 @@ message PrivacySettings {
   Audience direct_messages_from = 14;
   // Who may call me.
   Audience calls_from = 15;
-  // Notes default visibility.
+  // Notes default visibility: public, followers, friends or private.
   tokuly.common.v1.Visibility default_note_visibility = 16;
   // Who sees my birthday (on the profile, in friends' calendars, birthday
   // reminders): AUDIENCE_EVERYONE, AUDIENCE_FRIENDS or AUDIENCE_NOBODY
@@ -600,6 +620,11 @@ message PrivacySettings {
   // for an account under 18 (BIRTHDAY_YEAR_RESTRICTED): the year gives the
   // age away.
   bool birthday_show_year = 18;
+  // Who finds me in user search, address-book matching and "people you may
+  // know": AUDIENCE_EVERYONE (all of them), AUDIENCE_FRIENDS_OF_FRIENDS
+  // (only as a friend of a friend among "people you may know"; never
+  // through search or an address book) or AUDIENCE_NOBODY.
+  Audience discoverable_to = 19;
 }
 
 message AppearanceSettings {
@@ -640,6 +665,17 @@ message UpdateSettingsRequest {
 
 message UpdateSettingsResponse {
   Settings settings = 1;
+}
+
+message SetBirthdateRequest {
+  // YYYY-MM-DD.
+  string birthdate = 1;
+}
+
+message SetBirthdateResponse {
+  Me me = 1;
+  // With the defaults of the age group applied.
+  Settings settings = 2;
 }
 
 // Password changes, new passkeys and turning TOTP on or off are also told to

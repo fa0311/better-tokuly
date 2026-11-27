@@ -11,6 +11,7 @@ import {
   mailpitIsUp,
   PASSWORD,
   rpc,
+  signInAs,
   test,
 } from "./support";
 
@@ -739,6 +740,32 @@ test("an audience is chosen from options that each say what they mean", async ({
   await expect(page.getByRole("combobox", { name: "メッセージを送れる人" })).toContainText(
     "ともだちのともだちまで",
   );
+});
+
+test("a minor starts found by friends of friends and cannot widen it", async ({
+  page,
+  request,
+}) => {
+  const teen = await createAccount(request, "teen", {
+    birthdate: `${new Date().getFullYear() - 15}-04-02`,
+  });
+  await signInAs(page, teen);
+  await page.goto("/settings/privacy");
+  await expect(
+    page.getByText(
+      "18歳になるまでは、見つけてもらう範囲とリクエストは「ともだちのともだちまで」だよ",
+    ),
+  ).toBeVisible();
+  for (const name of ["あなたを見つけられる人", "ともだちリクエストを送れる人"]) {
+    const select = page.getByRole("combobox", { name });
+    await expect(select).toContainText("ともだちのともだちまで");
+    await select.click();
+    await expect(page.getByRole("option", { name: /^だれにも/ })).toBeVisible();
+    await expect(page.getByRole("option", { name: /^だれでも/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  }
+  const notes = page.getByRole("combobox", { name: "ノートのはじめの公開範囲" });
+  await expect(notes).toContainText("フォロワーだけ");
 });
 
 test("blocked people are listed and can be unblocked", async ({ page, me, request }) => {

@@ -45,6 +45,13 @@ See their proto files. Summary of behaviour that is not obvious from the API:
   friends / everyone, month and day or the full date; never the year to
   everyone under 18). **Bots** (made on the developer platform) carry the
   bot flag and their owner; bots never count as people.
+  **Minors** (under 18) start with defaults of their own, decided by the age
+  on the day the birthdate is given and stored (never recomputed): found and
+  asked to be friends by friends of friends only (no search, no address
+  books), notes for followers, nearby discovery off. They may change them,
+  but discovery and friend requests go no wider than friends of friends
+  until they turn 18. An account without a birthdate (from before sign-up
+  asked) is asked on its next sign-in and counts as a minor until it answers.
   **Several accounts on one device** (main, 裏垢, creator; at most 5): each
   is added by a full sign-in and keeps its own session; switching needs no
   password but asks for the target's second factor when it has not passed
@@ -56,9 +63,7 @@ See their proto files. Summary of behaviour that is not obvious from the API:
   weekly streak counter, plus manual favourites. Blocking is silent and hides
   both users from each other everywhere. Invite links/QR count "intros".
   Nearby discovery pairs users with the add-friend screen open within ~50 m
-  (minors only with minors, adults only with adults); an account signed up
-  under 18 starts with nearby discovery off (existing accounts keep their
-  setting). Mutual friends (on
+  (minors only with minors, adults only with adults). Mutual friends (on
   profiles, in search, requests and suggestions) follow the other user's
   friend list audience, like their best friends.
   A bump is two shake attempts within ~4 s and ~30 m; friends of both get

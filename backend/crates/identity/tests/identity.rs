@@ -477,10 +477,10 @@ async fn settings_default_then_persist() {
     let settings = response.settings.into_option().unwrap();
     let mut privacy = settings.privacy.into_option().unwrap();
     let mut appearance = settings.appearance.into_option().unwrap();
-    assert!(privacy.discoverable && privacy.record_history);
+    assert!(privacy.discoverable_to == Audience::AUDIENCE_EVERYONE && privacy.record_history);
     assert_eq!(appearance.dopamine_level, 3);
 
-    privacy.discoverable = false;
+    privacy.discoverable_to = Audience::AUDIENCE_NOBODY.into();
     privacy.location_history_days = 30;
     appearance.dopamine_level = 5;
     appearance.theme = "dark".into();
@@ -497,7 +497,7 @@ async fn settings_default_then_persist() {
         .await
         .unwrap();
     let settings = updated.settings.into_option().unwrap();
-    assert!(!settings.privacy.as_option().unwrap().discoverable);
+    assert_eq!(settings.privacy.as_option().unwrap().discoverable_to, Audience::AUDIENCE_NOBODY);
     assert_eq!(settings.privacy.as_option().unwrap().location_history_days, 30);
     assert_eq!(settings.appearance.as_option().unwrap().dopamine_level, 5);
     assert_eq!(app.events_by("identity.user.privacy_changed", user.id).await.len(), 1);
@@ -1737,34 +1737,6 @@ async fn profile_images_hold_their_uploads() {
     let cleared = set_avatar(&owner, String::new()).await.unwrap();
     assert!(cleared.me.as_option().unwrap().user.as_option().unwrap().avatar.is_unset());
     assert!(!assets::is_attached(&app.core, second.id).await.unwrap());
-}
-
-#[tokio::test]
-async fn nearby_discovery_starts_off_for_an_account_signed_up_under_18() {
-    let app = app().await;
-    let today = chrono::Utc::now().date_naive();
-    let born =
-        |years: u32| today.checked_sub_months(chrono::Months::new(12 * years)).unwrap().format("%Y-%m-%d").to_string();
-    let nearby = |birthdate: String| {
-        let app = &app;
-        async move {
-            let request = SignUpRequest { birthdate, ..sign_up_request(&unique("age")) };
-            let auth: AuthResponse = app.call("tokuly.identity.v1.AuthService/SignUp", None, &request).await.unwrap();
-            let id = auth.me.as_option().unwrap().user.as_option().unwrap().id.parse().unwrap();
-            let user = app.sign_in(id).await;
-            let response: GetSettingsResponse = app
-                .call("tokuly.identity.v1.AccountService/GetSettings", Some(&user), &GetSettingsRequest::default())
-                .await
-                .unwrap();
-            let privacy = response.settings.into_option().unwrap().privacy.into_option().unwrap();
-            assert!(privacy.discoverable && privacy.share_battery, "the other defaults stay");
-            privacy.nearby_discoverable
-        }
-    };
-    assert!(!nearby(born(15)).await, "15: off until they turn it on");
-    assert!(!nearby(born(17)).await, "17: off");
-    assert!(nearby(born(18)).await, "18: on, the default");
-    assert!(nearby(born(30)).await);
 }
 
 #[tokio::test]

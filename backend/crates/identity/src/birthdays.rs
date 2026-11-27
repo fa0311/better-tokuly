@@ -17,9 +17,6 @@ use tokuly_proto::identity::{Audience, PrivacySettings, Relationship};
 
 use crate::{Identity, maintenance::UserRef, settings};
 
-/// Below this age the year of a birthday is never shown to everyone.
-pub const BIRTHDAY_YEAR_ADULT_AGE: u32 = 18;
-
 /// A birthday as someone may see it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SharedBirthday {
@@ -135,13 +132,13 @@ pub async fn set_birthday_audience(
     Ok(())
 }
 
-/// The year of a minor's birthday is not shown to everyone.
+/// The year of a minor's birthday (under [`crate::age::ADULT_AGE`]) is not shown to everyone.
 pub(crate) fn check_year_rule(
     privacy: &PrivacySettings,
     birthdate: Option<NaiveDate>,
     today: NaiveDate,
 ) -> AppResult<()> {
-    let minor = birthdate.is_some_and(|b| today.years_since(b).is_none_or(|age| age < BIRTHDAY_YEAR_ADULT_AGE));
+    let minor = birthdate.is_some() && crate::age::minor_on(birthdate, today);
     ensure!(
         !(minor && privacy.birthday_show_year && audience_of(privacy) == Audience::AUDIENCE_EVERYONE),
         invalid,

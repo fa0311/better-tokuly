@@ -11,7 +11,8 @@ except `identity.export.ready`.
 
 | Topic | Payload | When |
 |---|---|---|
-| `identity.user.created` | `{ user_id, handle, invite_code }` | A person signed up. Never for bots. |
+| `identity.user.created` | `{ user_id, handle, invite_code, minor }` | A person signed up. Never for bots. `minor`: under 18 that day; start the account with your defaults for minors. |
+| `identity.user.birthdate_given` | `{ user_id, minor }` (`maintenance::BirthdateGiven`) | An account without a birthdate gave one (`SetBirthdate`). Apply what you would have at sign-up, by `minor`. |
 | `identity.user.updated` | `{ user_id }` | The account's public face changed: profile fields, the verified badge, the プロフ帳. Search rebuilds the account's document on it. |
 | `identity.profile.updated` | `{ user_id, changed: [group…] }` | The プロフ帳 changed. `changed` names the groups: `mbti`, `blood_type`, `pronouns`, `long_bio`, `theme`, `visibility`, `oshi`, `tags`, `links`, `qa_cards`, `pinned_song`. Carries no text: a consumer reads what it may show (audiences apply). Emitted with `identity.user.updated`. |
 | `identity.user.status_changed` | `{ user_id }` | |
@@ -47,7 +48,12 @@ Durable `identity-sessions`:
 
 ## Public Rust API for other domains
 
-- `users::{summaries, summaries_ordered, summary, pick, filter_active, …}`, `settings::{privacy_of, privacy_of_many}`.
+- `users::{summaries, summaries_ordered, summary, pick, filter_active, …}`, `settings::{privacy_of, privacy_of_many}`
+  (the settings as they apply: a minor's within the limits), `settings::{findable_by_anyone, findable_by_friends_of_friends}`.
+- **Minors** (`age`): two rules. Defaults are decided by the age on the day the birthdate is given and
+  stored (the two events above say which group); limits follow the age today: `is_minor(core, id)`,
+  `minors_among(core, ids)`, `minor_on(birthdate, today)`. No birthdate counts as a minor, a bot goes by
+  its owner, `ADULT_AGE` is 18.
 - **Bots** (`bots`): `create_bot_account(tx, owner, handle, display_name, bio) -> Uuid`, `set_bot_owner(tx, bot, owner)`, `is_bot(core, id)`, `bots_among(core, ids) -> HashSet`, `bot_owners(core, ids) -> HashMap<bot, owner>`, and the one rule for places where only people count: `humans_only(core, ids) -> Vec<Uuid>` (or `NOT u.bot` in a join on `users`). Friend suggestions, leaderboards, rankings, nearby discovery, intro counts and anonymity group sizes use it.
 - **Birthdays** (`birthdays`): `shared_birthdays(core, owners, closeness) -> HashMap<Uuid, SharedBirthday { month, day, year: Option }>` (batched, the caller says who is a friend), `Identity::visible_birthdays(viewer, owners)` (friendships and blocks from the profile extensions), `set_birthday_audience(core, user, audience, show_year)`, `audience_of(&PrivacySettings)`.
 - **プロフ帳** (`extras`): `search_terms(core, ids, &locked) -> HashMap<Uuid, ProfileSearchTerms { text, tags }>` (public fields of unlocked accounts only, for search documents), `Extras::load(..).view(&Viewer)`, `reaches(visibility, circle, &Viewer)` (an allowlist: unknown values reach only the owner), `tag_key`.
@@ -102,7 +108,7 @@ The model is in the module documentation of `handoff.rs`. The contract:
 
 ## Limits
 
-`UpdateProfileExtras` 60 an hour, `PinSong` 30 an hour, `RecheckProfileLinks`
+`UpdateProfileExtras` 60 an hour, `PinSong` 30 an hour, `SetBirthdate` 10 an hour, `RecheckProfileLinks`
 5 an hour per account; `SuggestProfileTags` 120 a minute per account or
 address; `ListDeviceAccounts` / `RemoveDeviceAccount` 120 a minute and
 `SwitchAccount` 30 per 5 minutes per address, 10 per 5 minutes per target
