@@ -1,10 +1,10 @@
 import { errorReason, school, toMillis } from "@tokuly/api";
-import { replacesSession } from "@tokuly/core/school";
+import { isBreak, replacesSession } from "@tokuly/core/school";
 import { create } from "zustand";
 import { type Account, isActive } from "#/features/session/account";
 import i18n from "#/lib/i18n";
 import { cancelReminder, scheduleReminder } from "#/platform/notifications";
-import { syncClock } from "./clock";
+import { phaseEndAt, syncClock, timerAt } from "./clock";
 
 /**
  * The signed-in account's study timer on this phone. The server keeps the
@@ -26,7 +26,7 @@ interface StudyTimer {
   failed: boolean;
   /** How often the server wants to hear "still here". */
   heartbeatSeconds: number;
-  /** Silence after which the server stops the session. */
+  /** Silence after which the server stops the session (for a pomodoro, after the phase it was last heard in). */
   idleSeconds: number;
   /** The server stopped the timer by itself; until the person has seen it. */
   autoStopped: boolean;
@@ -148,8 +148,33 @@ export async function heartbeat(account: Account): Promise<void> {
 }
 
 const REMINDER_ID = "school.study.idle";
-/** How long before the server's limit the reminder comes: time to pick the phone up. */
+/** How long before the server's limit the reminder comes at the latest: time to pick the phone up. */
 const REMINDER_LEAD_SECONDS = 120;
+
+/**
+ * When the reminder for a timer going off screen now comes, in seconds from
+ * now, and which one it is. The server gives up the idle limit after the
+ * last sign of life — for a running pomodoro, after the end of the phase it
+ * was last heard in. A pomodoro is reminded at the end of its phase, a
+ * stopwatch shortly before the limit; never later than that.
+ */
+export function reminderFor(
+  session: school.StudySession,
+  idleSeconds: number,
+  nowMs: number,
+): { seconds: number; key: string } {
+  const believedMs = Math.max(heardAtMs, phaseEndAt(session.timer, heardAtMs) ?? 0);
+  const latestMs = believedMs + (idleSeconds - REMINDER_LEAD_SECONDS) * 1000;
+  const phaseEndMs = phaseEndAt(session.timer, nowMs);
+  const key =
+    phaseEndMs !== undefined && phaseEndMs <= latestMs
+      ? isBreak(timerAt(session.timer, nowMs).phase)
+        ? "mobile:school.phaseReminder.break"
+        : "mobile:school.phaseReminder.work"
+      : "mobile:school.idleReminder";
+  const atMs = Math.min(phaseEndMs ?? latestMs, latestMs);
+  return { seconds: Math.max(60, (atMs - nowMs) / 1000), key };
+}
 
 /**
  * Asking for the reminder and taking it back happen in the order they were
@@ -173,15 +198,16 @@ export function remindBeforeIdle(): Promise<void> {
     const { session, idleSeconds } = useStudyTimer.getState();
     // A paused timer waits for its own, longer limit; it needs no heartbeat.
     if (!session || session.state !== school.SessionState.RUNNING) return;
+    const reminder = reminderFor(session, idleSeconds, Date.now());
     await scheduleReminder(
       REMINDER_ID,
       {
-        title: i18n.t("mobile:school.idleReminder.title"),
-        body: i18n.t("mobile:school.idleReminder.body"),
+        title: i18n.t(`${reminder.key}.title`),
+        body: i18n.t(`${reminder.key}.body`),
         path: "/school/study",
         channel: "school",
       },
-      Math.max(60, idleSeconds - REMINDER_LEAD_SECONDS),
+      reminder.seconds,
     );
   });
 }

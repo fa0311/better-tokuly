@@ -145,7 +145,7 @@ impl School {
         let mut tx = core.db.begin().await?;
         let gone = match self.lock_active(&mut tx, user_id).await? {
             Some((session, room)) => {
-                Some(self.end_locked(&mut tx, session, room, End::Server, Leave::Removed, at).await?)
+                Some(self.end_locked(&mut tx, session, room, End::Server(at), Leave::Removed, at).await?)
             }
             None => None,
         };

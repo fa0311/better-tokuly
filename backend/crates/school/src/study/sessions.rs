@@ -4,8 +4,13 @@
 //! is counted — [`advance`] — whenever the client is heard from, and when a
 //! study room's timer changes for everyone in it. A session the client ends
 //! is counted up to that moment; a session the server has to end is cut back
-//! to the client's last sign of life ([`End::Server`]), so nobody gains time
+//! to how far the client was believed ([`End::Server`]), so nobody gains time
 //! by walking away from a running timer.
+//!
+//! The client is believed up to its last sign of life — or, when a pomodoro
+//! phase was running then, up to that phase's planned end, because a phone
+//! locked in the middle of a phase cannot send heartbeats. The server gives
+//! up on a session the idle limit after that ([`School::is_overdue`]).
 use chrono::{DateTime, Duration, Utc};
 use sqlx::{PgConnection, Postgres, Transaction};
 use tokuly_core::{
@@ -59,6 +64,7 @@ pub(crate) struct SessionRow {
     pub timer_offset_ms: i64,
     pub checkpoint_at: DateTime<Utc>,
     pub heartbeat_at: DateTime<Utc>,
+    pub heard_phase_ends_at: Option<DateTime<Utc>>,
     pub paused_at: Option<DateTime<Utc>>,
     pub counted_seconds: i32,
     pub auto_stopped: bool,
@@ -68,8 +74,12 @@ pub(crate) struct SessionRow {
 }
 
 pub(crate) const COLUMNS: &str = "id, user_id, subject_id, memo, source, state, started_at, ended_at, mode, work_seconds, break_seconds, \
-     long_break_seconds, rounds, timer_anchor_at, timer_offset_ms, checkpoint_at, heartbeat_at, paused_at, counted_seconds, auto_stopped, \
+     long_break_seconds, rounds, timer_anchor_at, timer_offset_ms, checkpoint_at, heartbeat_at, heard_phase_ends_at, paused_at, counted_seconds, \
+     auto_stopped,
      cheer_count, room_id, room_joined_at";
+
+/// [`SessionRow::believed_until`] in SQL (`GREATEST` skips a NULL).
+pub(crate) const BELIEVED_UNTIL: &str = "GREATEST(heartbeat_at, heard_phase_ends_at)";
 
 impl SessionRow {
     pub fn is_active(&self) -> bool {
@@ -108,13 +118,20 @@ impl SessionRow {
         }
     }
 
+    /// How far the client is believed: its last sign of life, or the end of
+    /// the pomodoro phase that was running then. (Mirrored in SQL by
+    /// [`BELIEVED_UNTIL`].)
+    pub fn believed_until(&self) -> Time {
+        self.heard_phase_ends_at.map_or(self.heartbeat_at, |end| end.max(self.heartbeat_at))
+    }
+
     /// Study time at `at`: what is counted plus the work since, as far as
-    /// the client has been heard from recently enough to believe it.
+    /// the client is still believed (the idle limit has not caught up).
     pub fn studied_seconds(&self, timer: &Timer, at: Time, idle: Duration) -> i32 {
         if !self.is_active() {
             return self.counted_seconds;
         }
-        let believed_until = at.min(self.heartbeat_at + idle);
+        let believed_until = at.min(self.believed_until() + idle);
         self.counted_seconds
             + (timer::total_ms(&timer.work_intervals(self.checkpoint_at, believed_until)) / 1000) as i32
     }
@@ -153,9 +170,9 @@ pub(crate) enum End {
     /// The user stopped it (or left the room) at this moment.
     Client(Time),
     /// The server ends it: heartbeats stopped, a limit was reached, the room
-    /// closed, the host removed the member. Only the time up to the last
-    /// sign of life counts.
-    Server,
+    /// closed, the host removed the member — at this moment. Only the time
+    /// up to how far the client was believed counts.
+    Server(Time),
 }
 
 /// A new session to insert.
@@ -174,10 +191,15 @@ pub(crate) struct NewSession<'a> {
 /// when the user has one (the unique index decides, whatever raced).
 pub(crate) async fn insert(conn: &mut PgConnection, new: &NewSession<'_>) -> AppResult<SessionRow> {
     let (work, short_break, long_break, rounds) = new.plan.columns();
+    // A session in a room is believed further from its first heartbeat on.
+    let believed = match new.room {
+        None => Timer::started(new.plan, new.at).phase_ends_at(new.at),
+        Some(_) => None,
+    };
     sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "INSERT INTO school_study_sessions (user_id, subject_id, memo, source, state, started_at, mode, work_seconds, break_seconds,
-             long_break_seconds, rounds, timer_anchor_at, checkpoint_at, heartbeat_at, room_id, room_joined_at)
-         VALUES ($1, $2, $3, $4, {RUNNING}, $5, $6, $7, $8, $9, $10, $11, $5, $5, $12, $13)
+             long_break_seconds, rounds, timer_anchor_at, checkpoint_at, heartbeat_at, heard_phase_ends_at, room_id, room_joined_at)
+         VALUES ($1, $2, $3, $4, {RUNNING}, $5, $6, $7, $8, $9, $10, $11, $5, $5, $14, $12, $13)
          RETURNING {COLUMNS}"
     )))
     .bind(new.user_id)
@@ -194,6 +216,7 @@ pub(crate) async fn insert(conn: &mut PgConnection, new: &NewSession<'_>) -> App
     .bind(new.room.is_none().then_some(new.at))
     .bind(new.room.map(|(room_id, _)| room_id))
     .bind(new.room.map(|(_, joined_at)| joined_at))
+    .bind(believed)
     .fetch_one(conn)
     .await
     .map_err(|error| match &error {
@@ -264,12 +287,25 @@ pub(crate) async fn advance(
     recount(conn, session).await
 }
 
-/// Records that the client was heard from at `at`.
-pub(crate) async fn heard_from(conn: &mut PgConnection, session: &mut SessionRow, at: Time) -> AppResult<()> {
+/// Notes in `session` that the client was heard from at `at`, with `timer`
+/// as it then was.
+pub(crate) fn hear_from(session: &mut SessionRow, timer: &Timer, at: Time) {
     session.heartbeat_at = at;
-    sqlx::query("UPDATE school_study_sessions SET heartbeat_at = $2 WHERE id = $1")
+    session.heard_phase_ends_at = timer.phase_ends_at(at);
+}
+
+/// Records that the client was heard from at `at`.
+pub(crate) async fn heard_from(
+    conn: &mut PgConnection,
+    session: &mut SessionRow,
+    timer: &Timer,
+    at: Time,
+) -> AppResult<()> {
+    hear_from(session, timer, at);
+    sqlx::query("UPDATE school_study_sessions SET heartbeat_at = $2, heard_phase_ends_at = $3 WHERE id = $1")
         .bind(session.id)
         .bind(at)
+        .bind(session.heard_phase_ends_at)
         .execute(conn)
         .await?;
     Ok(())
@@ -297,7 +333,8 @@ impl School {
     }
 
     /// Whether the server's limits have caught up with an active session:
-    /// its client fell silent, it stayed paused too long, or it has lasted
+    /// its client stayed silent for the idle limit past how far it was
+    /// believed, it stayed paused too long, or it has lasted
     /// as long as a session may.
     pub(crate) fn is_overdue(&self, session: &SessionRow, at: Time) -> bool {
         if at >= session.started_at + Duration::seconds(self.cfg.session_max_seconds) {
@@ -305,7 +342,7 @@ impl School {
         }
         match (session.state, session.paused_at) {
             (PAUSED, Some(paused_at)) => at - paused_at > Duration::seconds(self.cfg.session_max_pause_seconds),
-            _ => at - session.heartbeat_at > self.idle_limit(),
+            _ => at - session.believed_until() > self.idle_limit(),
         }
     }
 
@@ -325,15 +362,17 @@ impl School {
                 advance(tx, &mut session, timer, at).await?;
                 at
             }
-            End::Server => {
+            End::Server(at) => {
                 // A paused session stopped counting when it was paused; a
-                // running one is believed up to its last heartbeat, and never
-                // past the longest a session may last.
+                // running one counts as far as it was believed, never past
+                // now, nor past the longest a session may last.
                 let longest = session.started_at + Duration::seconds(self.cfg.session_max_seconds);
                 let until = match (session.state, session.paused_at) {
                     (PAUSED, Some(paused_at)) => paused_at,
-                    _ => session.heartbeat_at.min(longest),
+                    _ => session.believed_until().min(at).min(longest),
                 };
+                // (A pomodoro phase believed to its end may not be counted yet.)
+                advance(tx, &mut session, timer, until).await?;
                 cut_back(tx, &mut session, until).await?;
                 recount(tx, &mut session).await?;
                 until
@@ -343,7 +382,7 @@ impl School {
         session.ended_at = Some(ended_at);
         session.paused_at = None;
         session.timer_anchor_at = None;
-        session.auto_stopped = end == End::Server;
+        session.auto_stopped = matches!(end, End::Server(_));
         let subject = match session.subject_id {
             Some(id) => subjects::require(tx, session.user_id, id).await.ok(),
             None => None,

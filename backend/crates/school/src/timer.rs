@@ -256,6 +256,13 @@ impl Timer {
             .collect()
     }
 
+    /// A timer of `plan` that starts at `at`.
+    pub fn started(plan: Plan, at: Time) -> Self {
+        let mut timer = Self::idle(plan);
+        timer.run_from(at);
+        timer
+    }
+
     /// Starts an idle timer or resumes a paused one.
     pub fn run_from(&mut self, at: Time) {
         if self.run != Run::Running {

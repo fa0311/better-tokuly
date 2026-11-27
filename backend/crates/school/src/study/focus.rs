@@ -8,7 +8,7 @@ use tokuly_proto::school::{
     PomodoroConfig, StartStudySessionRequest, StudyMode, StudySession, school_event::Event as Push,
 };
 
-use super::sessions::{self, ENDED, End, Ended, NewSession, PAUSED, RUNNING, SOURCE_TIMER, SessionRow};
+use super::sessions::{self, BELIEVED_UNTIL, ENDED, End, Ended, NewSession, PAUSED, RUNNING, SOURCE_TIMER, SessionRow};
 use crate::{
     School,
     rooms::{self, RoomExit, RoomRow},
@@ -41,11 +41,11 @@ async fn store_timer(conn: &mut PgConnection, session: &mut SessionRow, timer: &
     session.paused_at = (session.state == PAUSED).then_some(at);
     session.timer_anchor_at = timer.anchor;
     session.timer_offset_ms = timer.offset_ms;
-    session.heartbeat_at = at;
+    sessions::hear_from(session, timer, at);
     // Nothing between the last count and now is owed: counting restarts here.
     session.checkpoint_at = at;
     sqlx::query(
-        "UPDATE school_study_sessions SET state = $2, paused_at = $3, timer_anchor_at = $4, timer_offset_ms = $5, heartbeat_at = $6, checkpoint_at = $6
+        "UPDATE school_study_sessions SET state = $2, paused_at = $3, timer_anchor_at = $4, timer_offset_ms = $5, heartbeat_at = $6, heard_phase_ends_at = $7, checkpoint_at = $6
          WHERE id = $1",
     )
     .bind(session.id)
@@ -54,6 +54,7 @@ async fn store_timer(conn: &mut PgConnection, session: &mut SessionRow, timer: &
     .bind(session.timer_anchor_at)
     .bind(session.timer_offset_ms)
     .bind(at)
+    .bind(session.heard_phase_ends_at)
     .execute(conn)
     .await?;
     Ok(())
@@ -84,7 +85,7 @@ impl School {
         Ok(match self.lock_active(tx, user_id).await? {
             None => Active::None,
             Some((session, room)) if self.is_overdue(&session, at) => {
-                Active::Expired(self.end_locked(tx, session, room, End::Server, rooms::Leave::Idle, at).await?)
+                Active::Expired(self.end_locked(tx, session, room, End::Server(at), rooms::Leave::Idle, at).await?)
             }
             Some((session, room)) => Active::Live(session, room),
         })
@@ -274,7 +275,7 @@ impl School {
             Active::Live(mut session, room) => {
                 let timer = session.timer(room.as_ref());
                 sessions::advance(&mut tx, &mut session, &timer, at).await?;
-                sessions::heard_from(&mut tx, &mut session, at).await?;
+                sessions::heard_from(&mut tx, &mut session, &timer, at).await?;
                 tx.commit().await?;
                 self.session_proto(&session, room.as_ref(), at).await
             }
@@ -333,8 +334,8 @@ impl School {
         let overdue: Vec<Uuid> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT user_id FROM school_study_sessions
              WHERE state <> {ENDED}
-               AND (started_at <= $3 OR (state = {PAUSED} AND paused_at < $2) OR (state <> {PAUSED} AND heartbeat_at < $1))
-             ORDER BY heartbeat_at LIMIT 500"
+               AND (started_at <= $3 OR (state = {PAUSED} AND paused_at < $2) OR (state <> {PAUSED} AND {BELIEVED_UNTIL} < $1))
+             ORDER BY {BELIEVED_UNTIL} LIMIT 500"
         )))
         .bind(idle)
         .bind(paused)

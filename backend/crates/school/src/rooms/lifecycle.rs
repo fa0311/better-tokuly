@@ -165,7 +165,7 @@ impl School {
         let timer = room.timer();
         let mut ended = Vec::new();
         for session in member_sessions(tx, room.id, true).await? {
-            let end = if Some(session.user_id) == closer { End::Client(at) } else { End::Server };
+            let end = if Some(session.user_id) == closer { End::Client(at) } else { End::Server(at) };
             ended.push(self.finish(tx, session, &timer, end).await?);
         }
         sqlx::query(
@@ -835,7 +835,8 @@ impl School {
         .await?;
         let gone = match session {
             Some(session) => {
-                let (ended, exit) = self.depart(&mut tx, &mut room, session, End::Server, Leave::Removed, at).await?;
+                let (ended, exit) =
+                    self.depart(&mut tx, &mut room, session, End::Server(at), Leave::Removed, at).await?;
                 Some(Gone { ended, exit: Some(exit) })
             }
             None => None,

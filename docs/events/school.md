@@ -1,6 +1,6 @@
 # school — events, jobs and configuration
 
-Crate `tokuly-school`, migration `2100_school.sql`, API `tokuly.school.v1`
+Crate `tokuly-school`, migrations `21xx_school*.sql`, API `tokuly.school.v1`
 (`SchoolService`, `TimetableService`, `StudyService`, `StudyRoomService`,
 `ExamService`, `AssignmentService`, realtime `SchoolEvent`).
 
@@ -16,7 +16,13 @@ Crate `tokuly-school`, migration `2100_school.sql`, API `tokuly.school.v1`
   client ends counts up to that moment. A session the server has to end —
   the client fell silent for `TOKULY_SCHOOL_SESSION_IDLE_SECONDS`, a pause
   outlasted its limit, the room closed, the host removed the member — is cut
-  back to the client's last sign of life.
+  back to how far the client was believed: its last sign of life.
+- **A running pomodoro phase is believed to its end.** A locked phone sends
+  no heartbeats, so a client last heard from inside a running pomodoro phase
+  (its own timer or its room's) is believed until that phase's planned end;
+  the idle time counts from there. A phase that ends without a heartbeat is
+  counted to its end and no further. The stopwatch has no such end: it is
+  believed to its last heartbeat.
 - **Days are the user's.** Every "per day" figure (totals, goal, streak,
   heatmap, countdowns, today's classes, urgency) uses `users.time_zone`
   (Asia/Tokyo unless changed). Totals are sums over segments cut at local
@@ -203,7 +209,7 @@ No job-queue jobs. `School::spawn_workers` starts:
 | Worker | Schedule | What it does |
 |---|---|---|
 | event consumer | on events | See "Events consumed". |
-| sweep (`School::sweep`) | every `TOKULY_SCHOOL_SWEEP_INTERVAL_SECONDS` | (1) Pushes `room_timer` for rooms whose phase ended by itself and notes when the next one ends. (2) Ends sessions that are overdue — silent longer than the idle time, paused longer than the pause limit, or as long as a session may last — at their last heartbeat; members of rooms leave them (`IDLE`). (3) Closes rooms that stood empty for `TOKULY_SCHOOL_ROOM_EMPTY_CLOSE_SECONDS`. (4) Sends the class reminders that are due and schedules each user's next one. (5) Sends the assignment reminders that are due. Every step claims rows with row locks (`SKIP LOCKED` where it matters), so several worker processes can run it. |
+| sweep (`School::sweep`) | every `TOKULY_SCHOOL_SWEEP_INTERVAL_SECONDS` | (1) Pushes `room_timer` for rooms whose phase ended by itself and notes when the next one ends. (2) Ends sessions that are overdue — silent longer than the idle time, paused longer than the pause limit, or as long as a session may last — where they were last believed; members of rooms leave them (`IDLE`). (3) Closes rooms that stood empty for `TOKULY_SCHOOL_ROOM_EMPTY_CLOSE_SECONDS`. (4) Sends the class reminders that are due and schedules each user's next one. (5) Sends the assignment reminders that are due. Every step claims rows with row locks (`SKIP LOCKED` where it matters), so several worker processes can run it. |
 
 The limits are also applied when the user's own client shows up again (any
 session RPC), so they hold even where no worker runs.
@@ -234,7 +240,7 @@ topic, a notification) sits behind one of these.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TOKULY_SCHOOL_SESSION_IDLE_SECONDS` | `900` | Silence after which the server ends a session (and a stay in a room). Time is only ever counted up to the last heartbeat. |
+| `TOKULY_SCHOOL_SESSION_IDLE_SECONDS` | `900` | Silence after which the server ends a session (and a stay in a room), counted from the last heartbeat or the end of the pomodoro phase it was in. Time is never counted past that point. |
 | `TOKULY_SCHOOL_HEARTBEAT_INTERVAL_SECONDS` | `60` | How often clients are asked to send a heartbeat (at most half the idle time). |
 | `TOKULY_SCHOOL_SESSION_MAX_PAUSE_SECONDS` | `10800` | How long a session may stay paused. |
 | `TOKULY_SCHOOL_SESSION_MAX_SECONDS` | `43200` | Longest a single session may last (at most a day). |

@@ -312,6 +312,49 @@ async fn a_silent_client_keeps_only_the_time_up_to_its_last_heartbeat() {
 }
 
 #[tokio::test]
+async fn a_silent_pomodoro_is_believed_until_its_phase_ends() {
+    let ctx = start().await;
+    let (me, friend) = (ctx.app.user("me").await, ctx.app.user("friend").await);
+    ctx.befriend(&me, &friend).await;
+    ctx.at(2026, 4, 13, 18, 0);
+    let request = StartStudySessionRequest {
+        mode: StudyMode::STUDY_MODE_POMODORO.into(),
+        pomodoro: PomodoroConfig {
+            work_minutes: 25,
+            break_minutes: 5,
+            long_break_minutes: 15,
+            rounds: 4,
+            ..Default::default()
+        }
+        .into(),
+        ..Default::default()
+    };
+    let _: StartStudySessionResponse = ctx.ok(STUDY, "StartStudySession", &me, &request).await;
+    ctx.pass(2);
+    ctx.heartbeat(&me).await;
+
+    // The phone is locked from 18:02. The work phase ends at 18:25, so the
+    // session stays going past the 15 minutes a stopwatch would get...
+    ctx.pass(18);
+    assert!(current(&ctx, &me).await.is_some(), "18:20, inside the phase");
+    assert_eq!(studying_friends(&ctx, &friend).await.len(), 1, "and friends still see it");
+    ctx.pass(19);
+    assert!(current(&ctx, &me).await.is_some(), "18:39, within the grace after the phase");
+
+    // ...until the phase end plus the usual grace, and it is counted up to
+    // the end of that phase: not the break, not the next round.
+    ctx.pass(2);
+    assert!(current(&ctx, &me).await.is_none(), "18:41, past the grace");
+    assert!(studying_friends(&ctx, &friend).await.is_empty());
+    let ended = ctx.heartbeat(&me).await;
+    assert_eq!(
+        (ended.state.as_known().unwrap(), ended.auto_stopped, ended.studied_seconds),
+        (SessionState::SESSION_STATE_ENDED, true, 1500)
+    );
+    assert_eq!(instant(&ended.ended_at), tokyo(2026, 4, 13, 18, 25));
+}
+
+#[tokio::test]
 async fn a_session_ends_when_it_has_lasted_as_long_as_one_may() {
     let ctx = start_with(SchoolConfig { session_max_seconds: 1800, ..Default::default() }).await;
     let me = ctx.app.user("me").await;
