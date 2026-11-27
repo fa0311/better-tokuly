@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { school } from "@tokuly/api";
+import { refreshSchool, schoolKeys, timerText } from "@tokuly/core/school";
 import { Globe, Lock, Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,8 +13,8 @@ import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
-import { keys, refresh, roomClient, toastError } from "./api";
-import { timerText } from "./dates";
+import { roomClient, toastError } from "./api";
+
 import { Block, FriendPicker, RowsSkeleton, SchoolPage, Segmented, useNow } from "./parts";
 import { setActiveSession } from "./session-store";
 import { SubjectSelect } from "./subject-select";
@@ -41,12 +42,12 @@ export function RoomsScreen() {
   const [creating, setCreating] = useState(false);
   const scope = tab === "friends" ? school.RoomScope.FRIENDS : school.RoomScope.PUBLIC;
   const mine = useQuery({
-    queryKey: keys.rooms(school.RoomScope.MINE),
+    queryKey: schoolKeys.rooms(school.RoomScope.MINE),
     queryFn: () => listRooms(school.RoomScope.MINE),
     staleTime: 0,
   });
   const rooms = useQuery({
-    queryKey: keys.rooms(scope),
+    queryKey: schoolKeys.rooms(scope),
     queryFn: () => listRooms(scope),
     staleTime: 0,
   });
@@ -274,7 +275,7 @@ function CreateRoomDialog({ onClose }: { onClose(): void }) {
       }),
     onSuccess: (response) => {
       setActiveSession(response.session, response.heartbeatIntervalSeconds);
-      refresh(queryClient, "rooms", "study");
+      refreshSchool(queryClient, "rooms", "study");
       onClose();
       if (response.room)
         void navigate({ to: "/school/rooms/$roomId", params: { roomId: response.room.id } });

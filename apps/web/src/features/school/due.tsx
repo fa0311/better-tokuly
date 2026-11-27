@@ -1,6 +1,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { fromDate, school, toDate, toMillis } from "@tokuly/api";
+import { fromDate, school, toDate } from "@tokuly/api";
+import {
+  addDays,
+  dueItems,
+  examCountdown,
+  fromLocalInput,
+  momentLabel,
+  refreshSchool,
+  toLocalInput,
+  urgencyKey,
+} from "@tokuly/core/school";
 import { BellOff, Check, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,8 +23,8 @@ import { EmptyState } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { useAccountTimeZone, useAccountToday, zonedMoment } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { assignmentClient, refresh, toastError, useAssignments, useExams } from "./api";
-import { addDays, fromLocalInput, momentLabel, toLocalInput } from "./dates";
+import { assignmentClient, toastError, useAssignments, useExams } from "./api";
+
 import { RowsSkeleton, SubjectPill } from "./parts";
 import { SubjectSelect } from "./subject-select";
 
@@ -25,24 +35,11 @@ const URGENCY_STYLE: Partial<Record<school.AssignmentUrgency, string>> = {
   [school.AssignmentUrgency.THIS_WEEK]: "bg-sky text-[#17122b]",
 };
 
-const URGENCY_KEY: Partial<Record<school.AssignmentUrgency, string>> = {
-  [school.AssignmentUrgency.OVERDUE]: "overdue",
-  [school.AssignmentUrgency.TODAY]: "today",
-  [school.AssignmentUrgency.TOMORROW]: "tomorrow",
-  [school.AssignmentUrgency.THIS_WEEK]: "thisWeek",
-};
-
 /** An exam's countdown in words: "あと5日" before it, "テスト期間中 (あと3日)" during it. */
 export function useExamCountdown() {
-  const { t } = useTranslation("school");
-  return (exam: Pick<school.Exam, "status" | "daysUntilStart" | "daysLeft">) => {
-    if (exam.status === school.ExamStatus.FINISHED) return t("exams.finished");
-    if (exam.status === school.ExamStatus.ONGOING)
-      return t("exams.ongoing", { count: exam.daysLeft });
-    return exam.daysUntilStart === 0
-      ? t("exams.startsToday")
-      : t("exams.daysUntil", { count: exam.daysUntilStart });
-  };
+  const { i18n } = useTranslation("school");
+  return (exam: Pick<school.Exam, "status" | "daysUntilStart" | "daysLeft">) =>
+    examCountdown(i18n, exam);
 }
 
 /** One assignment: tick it off, see what it is for and when it is due, open it to change it. */
@@ -60,13 +57,13 @@ export function AssignmentRow({
       assignmentClient().updateAssignment({ assignmentId: assignment.id, done }),
     onSuccess: (_response, done) => {
       if (done) toast.success(t("assignments.doneToast"));
-      refresh(queryClient, "assignments");
+      refreshSchool(queryClient, "assignments");
     },
     onError: toastError,
   });
   const due = toDate(assignment.dueAt);
   const zone = useAccountTimeZone();
-  const urgency = URGENCY_KEY[assignment.urgency];
+  const urgency = urgencyKey(assignment.urgency);
   const done = toggle.isPending ? toggle.variables : assignment.done;
   const text = (
     <>
@@ -141,16 +138,7 @@ export function DueList({ limit }: { limit?: number }) {
   const zone = useAccountTimeZone();
   if (exams.isPending || assignments.isPending) return <RowsSkeleton rows={2} />;
 
-  const items = [
-    ...(exams.data ?? [])
-      .filter((exam) => exam.status !== school.ExamStatus.FINISHED)
-      .map((exam) => ({ at: zonedMoment(exam.startDate, 0, zone), exam, assignment: undefined })),
-    ...(assignments.data?.assignments ?? []).map((assignment) => ({
-      at: toMillis(assignment.dueAt),
-      exam: undefined,
-      assignment,
-    })),
-  ].sort((a, b) => a.at - b.at);
+  const items = dueItems(exams.data ?? [], assignments.data?.assignments ?? [], zone);
   if (items.length === 0)
     return (
       <p className="rounded-card bg-surface-2 px-4 py-5 text-center text-sm font-bold text-ink-soft">
@@ -232,7 +220,7 @@ export function AssignmentDialog({
   const dueDate = fromLocalInput(due, zone);
 
   const done = () => {
-    refresh(queryClient, "assignments");
+    refreshSchool(queryClient, "assignments");
     onClose();
   };
   const save = useMutation({

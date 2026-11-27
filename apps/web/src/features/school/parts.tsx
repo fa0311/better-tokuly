@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { common, school } from "@tokuly/api";
+import { inkOn } from "@tokuly/core/school";
 import { Check, Settings } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -110,18 +111,6 @@ export function Block({
       {children}
     </section>
   );
-}
-
-/** Ink or white, whichever reads on a subject's colour. */
-export function inkOn(color: string): string {
-  const hex = /^#([0-9a-f]{6})$/i.exec(color)?.[1];
-  if (!hex) return "#17122b";
-  const [r, g, b] = [0, 2, 4].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255) as [
-    number,
-    number,
-    number,
-  ];
-  return 0.299 * r + 0.587 * g + 0.114 * b > 0.6 ? "#17122b" : "#ffffff";
 }
 
 type SubjectLike = Pick<school.Subject, "name" | "emoji" | "color">;

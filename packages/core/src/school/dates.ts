@@ -1,5 +1,5 @@
 import { school } from "@tokuly/api";
-import { zonedMoment, zonedTime } from "#/lib/account-time";
+import { zonedMoment, zonedTime } from "../format/zoned";
 
 /**
  * Calendar dates of the school API are `YYYY-MM-DD` strings and times of day
@@ -9,7 +9,7 @@ import { zonedMoment, zonedTime } from "#/lib/account-time";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
-/** The calendar date of a moment on this device. "Today" for the API is the account's: see `#/lib/account-time`. */
+/** The calendar date of a moment on this device. "Today" for the API is the account's: `zonedDate` (`@tokuly/core/format`). */
 export function ymd(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }

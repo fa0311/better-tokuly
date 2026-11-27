@@ -1,6 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { school } from "@tokuly/api";
+import {
+  clockInput,
+  dayLabel,
+  isYmd,
+  layoutWeekdays,
+  parseClock,
+  refreshSchool,
+  schoolKeys,
+  WEEKDAYS,
+} from "@tokuly/core/school";
 import type { TFunction } from "i18next";
 import { Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
@@ -14,8 +24,8 @@ import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { keys, refresh, timetableClient, toastError } from "./api";
-import { clockInput, dayLabel, isYmd, layoutWeekdays, parseClock, WEEKDAYS } from "./dates";
+import { timetableClient, toastError } from "./api";
+
 import { FriendPicker, Segmented } from "./parts";
 
 interface PeriodDraft {
@@ -77,7 +87,7 @@ export function TermDialog({
   const { t, i18n } = useTranslation("school");
   const queryClient = useQueryClient();
   const presets = useQuery({
-    queryKey: keys.presets,
+    queryKey: schoolKeys.presets,
     queryFn: async () => (await timetableClient().listLayoutPresets({})).presets,
     enabled: open,
   });
@@ -159,7 +169,7 @@ export function TermDialog({
     onSuccess: (response) => {
       if (response.removedEntryCount > 0)
         toast(t("terms.removedEntries", { count: response.removedEntryCount }));
-      refresh(queryClient, "timetable");
+      refreshSchool(queryClient, "timetable");
       if (response.term) onSaved?.(response.term);
       onOpenChange(false);
     },
@@ -169,7 +179,7 @@ export function TermDialog({
     mutationFn: () => timetableClient().deleteTerm({ termId: term?.id ?? "" }),
     onSuccess: () => {
       toast.success(t("terms.deleted"));
-      refresh(queryClient, "timetable");
+      refreshSchool(queryClient, "timetable");
       setDeleting(false);
       onOpenChange(false);
     },
@@ -438,7 +448,7 @@ export function ShareDialog({
       toast.success(
         audience === school.TimetableAudience.NOBODY ? t("share.savedPrivate") : t("share.saved"),
       );
-      refresh(queryClient, "timetable");
+      refreshSchool(queryClient, "timetable");
       onOpenChange(false);
     },
     onError: toastError,
@@ -527,7 +537,7 @@ export function DayOverridesDialog({
           kind === school.DayOverrideKind.WEEK_PATTERN ? pattern : school.WeekPattern.UNSPECIFIED,
       }),
     onSuccess: () => {
-      refresh(queryClient, "timetable");
+      refreshSchool(queryClient, "timetable");
       setName("");
       setEndDate("");
     },
@@ -535,7 +545,7 @@ export function DayOverridesDialog({
   });
   const remove = useMutation({
     mutationFn: (dayOverrideId: string) => timetableClient().deleteDayOverride({ dayOverrideId }),
-    onSuccess: () => refresh(queryClient, "timetable"),
+    onSuccess: () => refreshSchool(queryClient, "timetable"),
     onError: toastError,
   });
 
@@ -719,7 +729,7 @@ export function CopyDialog({
             ? t("copy.skipped", { count: response.skippedEntryCount })
             : undefined,
       });
-      refresh(queryClient, "timetable", "subjects");
+      refreshSchool(queryClient, "timetable", "subjects");
       onOpenChange(false);
       void navigate({ to: "/school/timetable", search: { term: response.term?.id } });
     },

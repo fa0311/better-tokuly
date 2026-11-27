@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { school } from "@tokuly/api";
+import { addDays, dayLabel, isYmd, refreshSchool, schoolKeys } from "@tokuly/core/school";
 import { ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,8 +16,8 @@ import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { examClient, keys, refresh, toastError, useAssignments, useExams } from "./api";
-import { addDays, dayLabel, isYmd } from "./dates";
+import { examClient, toastError, useAssignments, useExams } from "./api";
+
 import {
   AssignmentDialog,
   AssignmentRow,
@@ -150,7 +151,7 @@ function ExamDialog({ exam, onClose }: { exam?: school.Exam; onClose(): void }) 
         : (await examClient().createExam(input)).exam;
     },
     onSuccess: (saved) => {
-      refresh(queryClient, "exams");
+      refreshSchool(queryClient, "exams");
       onClose();
       if (!exam && saved)
         void navigate({ to: "/school/exams/$examId", params: { examId: saved.id } });
@@ -231,7 +232,7 @@ export function ExamScreen({ examId }: { examId: string }) {
     isPending,
     isError,
   } = useQuery({
-    queryKey: keys.exam(examId),
+    queryKey: schoolKeys.exam(examId),
     queryFn: async () => (await examClient().getExam({ examId })).exam,
   });
   const [editing, setEditing] = useState(false);
@@ -243,14 +244,14 @@ export function ExamScreen({ examId }: { examId: string }) {
     mutationFn: () => examClient().deleteExam({ examId }),
     onSuccess: () => {
       toast.success(t("exams.deleted"));
-      refresh(queryClient, "exams");
+      refreshSchool(queryClient, "exams");
       void navigate({ to: "/school/exams" });
     },
     onError: toastError,
   });
   const profile = useMutation({
     mutationFn: (showOnProfile: boolean) => examClient().updateExam({ examId, showOnProfile }),
-    onSuccess: () => refresh(queryClient, "exams"),
+    onSuccess: () => refreshSchool(queryClient, "exams"),
     onError: toastError,
   });
 
@@ -440,7 +441,7 @@ function ExamSubjectDialog({
   const [period, setPeriod] = useState(item?.period ? String(item.period) : "");
   const [scope, setScope] = useState(item?.scope ?? "");
   const done = () => {
-    refresh(queryClient, "exams");
+    refreshSchool(queryClient, "exams");
     onClose();
   };
   const save = useMutation({
@@ -547,7 +548,7 @@ function ResultDialog({ item, onClose }: { item: school.ExamSubject; onClose(): 
             },
       }),
     onSuccess: () => {
-      refresh(queryClient, "exams");
+      refreshSchool(queryClient, "exams");
       onClose();
     },
     onError: toastError,

@@ -1,37 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { type school, toMillis } from "@tokuly/api";
-import type { TFunction } from "i18next";
+import { toMillis } from "@tokuly/api";
+import { classWhen, clock, currentClass, inkOn, untilText } from "@tokuly/core/school";
 import { CalendarDays, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { useAccountNow } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { useClassNow } from "./api";
-import { clock, dayLabel } from "./dates";
-import { inkOn } from "./parts";
-
-/** "あと12分" until a moment; hours when it is further away. */
-function useUntil() {
-  const { t } = useTranslation("school");
-  return (ms: number) => {
-    const minutes = Math.max(0, Math.ceil(ms / 60_000));
-    return minutes < 60
-      ? t("now.minutesLeft", { count: minutes })
-      : t("now.hoursLeft", { count: Math.floor(minutes / 60), minutes: minutes % 60 });
-  };
-}
-
-function when(
-  item: school.ScheduledClass,
-  today: string,
-  language: string,
-  t: TFunction<"school">,
-): string {
-  const period = t("day.period", { period: item.period });
-  return item.date === today
-    ? `${period} ${clock(item.startMinute)}〜`
-    : `${dayLabel(item.date, language)} ${period} ${clock(item.startMinute)}〜`;
-}
 
 /**
  * The class in progress and the next one, like a home-screen widget: the
@@ -42,10 +17,10 @@ export function ClassNowCard({ className }: { className?: string }) {
   const { data, isPending } = useClassNow();
   // The account's clock: "today" is theirs, wherever the device is.
   const { ms: now, date: today } = useAccountNow(15_000);
-  const until = useUntil();
+  const until = (ms: number) => untilText(i18n, ms);
 
   if (isPending) return <Skeleton className={cn("h-36", className)} />;
-  const current = data?.current && toMillis(data.current.endsAt) > now ? data.current : undefined;
+  const current = currentClass(data, now);
   const next = data?.next;
   const color = current ? current.color || current.subject?.color || "#c6f24e" : undefined;
 
@@ -97,7 +72,7 @@ export function ClassNowCard({ className }: { className?: string }) {
             </span>
           </span>
           <span className="shrink-0 text-right text-sm font-bold">
-            <span className="block">{when(next, today, i18n.language, t)}</span>
+            <span className="block">{classWhen(i18n, next, today)}</span>
             {next.date === today && (
               <span className="block text-xs text-ink-soft">
                 {until(toMillis(next.startsAt) - now)}
@@ -137,14 +112,14 @@ export function SchoolHubTile() {
   const { t, i18n } = useTranslation("school");
   const { data } = useClassNow();
   const { ms: now, date: today } = useAccountNow(30_000);
-  const current = data?.current && toMillis(data.current.endsAt) > now ? data.current : undefined;
+  const current = currentClass(data, now);
   const next = data?.next;
   const line = current
     ? t("now.tileCurrent", { subject: current.subject?.name ?? "", end: clock(current.endMinute) })
     : next
       ? t("now.tileNext", {
           subject: next.subject?.name ?? "",
-          when: when(next, today, i18n.language, t),
+          when: classWhen(i18n, next, today),
         })
       : t("now.tileEmpty");
   return (

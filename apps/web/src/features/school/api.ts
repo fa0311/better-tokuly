@@ -1,5 +1,6 @@
-import { type QueryClient, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { school, social } from "@tokuly/api";
+import { schoolKeys, schoolQueries } from "@tokuly/core/school";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
@@ -17,48 +18,9 @@ export function toastError(error: unknown): void {
   toast.error(errorMessage(error, { namespace: "school" }));
 }
 
-/**
- * Query keys. Everything starts with `school`, then the part of the feature,
- * so one part can be refreshed without touching the others.
- */
-export const keys = {
-  settings: ["school", "settings"] as const,
-  subjects: (archived = false) => ["school", "subjects", { archived }] as const,
-  presets: ["school", "presets"] as const,
-  terms: ["school", "timetable", "terms"] as const,
-  term: (termId: string) => ["school", "timetable", "term", termId] as const,
-  day: (date: string, userId = "") => ["school", "timetable", "day", userId, date] as const,
-  days: (start: string, end: string, userId = "") =>
-    ["school", "timetable", "days", userId, start, end] as const,
-  now: (userId = "") => ["school", "timetable", "now", userId] as const,
-  friendTimetables: ["school", "timetable", "friends"] as const,
-  friendTimetable: (userId: string, termId = "") =>
-    ["school", "timetable", "friend", userId, termId] as const,
-  free: (start: string, userIds: string[]) =>
-    ["school", "timetable", "free", start, userIds] as const,
-  progress: ["school", "study", "progress"] as const,
-  summary: (period: school.StatsPeriod, anchor = "") =>
-    ["school", "study", "summary", period, anchor] as const,
-  heatmap: (userId = "") => ["school", "study", "heatmap", userId] as const,
-  sessions: ["school", "study", "sessions"] as const,
-  cheers: (sessionId: string) => ["school", "study", "cheers", sessionId] as const,
-  studying: ["school", "studying"] as const,
-  ranking: (anchor = "") => ["school", "study", "ranking", anchor] as const,
-  rooms: (scope: school.RoomScope) => ["school", "rooms", "list", scope] as const,
-  room: (roomId: string) => ["school", "rooms", "room", roomId] as const,
-  exams: ["school", "exams"] as const,
-  exam: (examId: string) => ["school", "exams", examId] as const,
-  assignments: (filter: school.AssignmentFilter) => ["school", "assignments", filter] as const,
-};
-
-/** Refreshes everything under the given parts: `refresh(queryClient, "timetable", "subjects")`. */
-export function refresh(queryClient: QueryClient, ...parts: string[]): void {
-  for (const part of parts) void queryClient.invalidateQueries({ queryKey: ["school", part] });
-}
-
 export function useSchoolSettings() {
   return useQuery({
-    queryKey: keys.settings,
+    queryKey: schoolKeys.settings,
     queryFn: async () => (await settingsClient().getSchoolSettings({})).settings,
   });
 }
@@ -66,7 +28,7 @@ export function useSchoolSettings() {
 /** The caller's subjects by name; archived ones only when asked for. */
 export function useSubjects(includeArchived = false, enabled = true) {
   return useQuery({
-    queryKey: keys.subjects(includeArchived),
+    queryKey: schoolKeys.subjects(includeArchived),
     queryFn: async () => (await timetableClient().listSubjects({ includeArchived })).subjects,
     enabled,
   });
@@ -74,14 +36,14 @@ export function useSubjects(includeArchived = false, enabled = true) {
 
 export function useTerms() {
   return useQuery({
-    queryKey: keys.terms,
+    queryKey: schoolKeys.terms,
     queryFn: async () => (await timetableClient().listTerms({})).terms,
   });
 }
 
 export function useTerm(termId: string | undefined) {
   return useQuery({
-    queryKey: keys.term(termId ?? ""),
+    queryKey: schoolKeys.term(termId ?? ""),
     queryFn: () => timetableClient().getTerm({ termId: termId ?? "" }),
     enabled: Boolean(termId),
   });
@@ -89,32 +51,19 @@ export function useTerm(termId: string | undefined) {
 
 /** The class in progress and the next one; asked again every minute while on screen. */
 export function useClassNow(userId = "") {
-  return useQuery({
-    queryKey: keys.now(userId),
-    queryFn: async () => (await timetableClient().getNow({ userId })).now,
-    refetchInterval: 60_000,
-  });
+  return useQuery(schoolQueries.now(timetableClient, userId));
 }
 
 export function useProgress() {
-  return useQuery({
-    queryKey: keys.progress,
-    queryFn: async () => (await studyClient().getStudyProgress({})).progress,
-  });
+  return useQuery(schoolQueries.progress(studyClient));
 }
 
 export function useExams() {
-  return useQuery({
-    queryKey: keys.exams,
-    queryFn: async () => (await examClient().listExams({})).exams,
-  });
+  return useQuery(schoolQueries.exams(examClient));
 }
 
 export function useAssignments(filter: school.AssignmentFilter) {
-  return useQuery({
-    queryKey: keys.assignments(filter),
-    queryFn: () => assignmentClient().listAssignments({ filter, page: { limit: 100 } }),
-  });
+  return useQuery(schoolQueries.assignments(assignmentClient, filter));
 }
 
 /** The viewer's friends (the cache entry the friends screen and chat use too). */

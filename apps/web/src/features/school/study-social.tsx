@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type common, errorReason, school, toMillis } from "@tokuly/api";
+import { addDays, dayLabel, refreshSchool, schoolKeys, studyTime } from "@tokuly/core/school";
 import { ChevronLeft, ChevronRight, DoorOpen, Megaphone } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,8 +13,8 @@ import { Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
-import { keys, refresh, settingsClient, studyClient, toastError } from "./api";
-import { addDays, dayLabel, studyTime } from "./dates";
+import { settingsClient, studyClient, toastError } from "./api";
+
 import { Heatmap } from "./heatmap";
 import { RowsSkeleton, SubjectPill, useNow } from "./parts";
 import { isBreak, serverNow } from "./timer";
@@ -63,7 +64,7 @@ export function CheerButton({
 export function StudyingFriends() {
   const { t, i18n } = useTranslation("school");
   const { data, isPending } = useQuery({
-    queryKey: keys.studying,
+    queryKey: schoolKeys.studying,
     queryFn: async () => (await studyClient().listStudyingFriends({})).friends,
   });
   const now = useNow(30_000);
@@ -146,14 +147,14 @@ export function Ranking() {
   const today = useAccountToday();
   const [viewing, setViewing] = useState<common.UserSummary | undefined>(undefined);
   const { data, isPending } = useQuery({
-    queryKey: keys.ranking(anchor),
+    queryKey: schoolKeys.ranking(anchor),
     queryFn: () => studyClient().getStudyRanking({ anchorDate: anchor }),
   });
   const join = useMutation({
     mutationFn: () => settingsClient().updateSchoolSettings({ joinRanking: true }),
     onSuccess: () => {
       toast.success(t("ranking.joined"));
-      refresh(queryClient, "settings", "study");
+      refreshSchool(queryClient, "settings", "study");
     },
     onError: toastError,
   });

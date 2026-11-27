@@ -1,5 +1,14 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { school, toMillis } from "@tokuly/api";
+import {
+  classColor,
+  classStatusKey,
+  clock,
+  dayLabel,
+  inkOn,
+  refreshSchool,
+  takesPlace,
+} from "@tokuly/core/school";
 import { Undo2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,34 +18,10 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { SelectField } from "#/components/ui/select";
 import { cn } from "#/lib/cn";
-import { refresh, timetableClient, toastError } from "./api";
-import { clock, dayLabel } from "./dates";
-import { inkOn, Segmented } from "./parts";
+import { timetableClient, toastError } from "./api";
+
+import { Segmented } from "./parts";
 import { SubjectSelect } from "./subject-select";
-
-/** Whether a listed class actually takes place (cancelled and moved-away ones are listed to show what changed). */
-export function takesPlace(item: school.ScheduledClass): boolean {
-  return (
-    item.status !== school.ClassStatus.CANCELLED && item.status !== school.ClassStatus.MOVED_AWAY
-  );
-}
-
-function statusKey(status: school.ClassStatus): string | undefined {
-  switch (status) {
-    case school.ClassStatus.CANCELLED:
-      return "cancelled";
-    case school.ClassStatus.REPLACED:
-      return "replaced";
-    case school.ClassStatus.EXTRA:
-      return "extra";
-    case school.ClassStatus.MOVED_AWAY:
-      return "movedAway";
-    case school.ClassStatus.MOVED_HERE:
-      return "movedHere";
-    default:
-      return undefined;
-  }
-}
 
 /**
  * One resolved day: every period of the term with the class that takes
@@ -165,8 +150,8 @@ export function DayView({
 function ClassLine({ item }: { item: school.ScheduledClass }) {
   const { t, i18n } = useTranslation("school");
   const off = !takesPlace(item);
-  const key = statusKey(item.status);
-  const color = item.color || item.subject?.color || "#ddd6ee";
+  const key = classStatusKey(item.status);
+  const color = classColor(item);
   const where =
     item.status === school.ClassStatus.MOVED_AWAY || item.status === school.ClassStatus.MOVED_HERE
       ? t(item.status === school.ClassStatus.MOVED_AWAY ? "day.movedTo" : "day.movedFrom", {
@@ -231,7 +216,7 @@ function ChangeDialog({
   const [toPeriod, setToPeriod] = useState(String(period));
 
   const done = () => {
-    refresh(queryClient, "timetable");
+    refreshSchool(queryClient, "timetable");
     onClose();
   };
   const create = useMutation({
@@ -297,7 +282,7 @@ function ChangeDialog({
             className="flex items-center gap-3 rounded-2xl bg-surface-2 px-3 py-2"
           >
             <span className="min-w-0 flex-1 truncate text-sm font-bold">
-              {t(`day.status.${statusKey(item.status) ?? "replaced"}`)} · {item.subject?.name}
+              {t(`day.status.${classStatusKey(item.status) ?? "replaced"}`)} · {item.subject?.name}
             </span>
             <Button
               size="sm"

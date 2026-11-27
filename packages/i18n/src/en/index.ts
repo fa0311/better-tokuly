@@ -18,6 +18,7 @@ import notes from "./notes";
 import notifications from "./notifications";
 import plans from "./plans";
 import profile from "./profile";
+import school from "./school";
 import search from "./search";
 import settings from "./settings";
 import shorts from "./shorts";
@@ -49,5 +50,6 @@ export default {
   community,
   plans,
   ask,
+  school,
   mobile,
 };

@@ -1,12 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type MessageInitShape, school } from "@tokuly/api";
+import { refreshSchool, schoolKeys } from "@tokuly/core/school";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Panel } from "#/components/ui/card";
 import { TextField } from "#/components/ui/field";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
-import { keys, refresh, settingsClient, toastError, useSchoolSettings } from "./api";
+import { settingsClient, toastError, useSchoolSettings } from "./api";
 import { Block, LoadFailed, RowsSkeleton, SchoolPage } from "./parts";
 
 type Patch = MessageInitShape<typeof school.UpdateSchoolSettingsRequestSchema>;
@@ -21,17 +22,17 @@ export function SchoolSettingsScreen() {
     onMutate: (patch) => {
       // Switches answer at once; the server's version replaces this when it arrives.
       const { pomodoro: _pomodoro, ...simple } = patch as Record<string, unknown>;
-      queryClient.setQueryData<school.SchoolSettings>(keys.settings, (current) =>
+      queryClient.setQueryData<school.SchoolSettings>(schoolKeys.settings, (current) =>
         current ? ({ ...current, ...simple } as school.SchoolSettings) : current,
       );
     },
     onSuccess: (response) => {
-      queryClient.setQueryData(keys.settings, response.settings);
-      refresh(queryClient, "study", "studying");
+      queryClient.setQueryData(schoolKeys.settings, response.settings);
+      refreshSchool(queryClient, "study", "studying");
     },
     onError: (error) => {
       toastError(error);
-      void queryClient.invalidateQueries({ queryKey: keys.settings });
+      void queryClient.invalidateQueries({ queryKey: schoolKeys.settings });
     },
   });
   const data = settings.data;

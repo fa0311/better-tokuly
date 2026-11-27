@@ -1,5 +1,13 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fromDate, school, toDate } from "@tokuly/api";
+import {
+  fromLocalInput,
+  momentLabel,
+  refreshSchool,
+  schoolKeys,
+  studyTime,
+  toLocalInput,
+} from "@tokuly/core/school";
 import { PenLine, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,8 +19,8 @@ import { TextField } from "#/components/ui/field";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { useAccountTimeZone } from "#/lib/account-time";
-import { keys, refresh, studyClient, toastError } from "./api";
-import { fromLocalInput, momentLabel, studyTime, toLocalInput } from "./dates";
+import { studyClient, toastError } from "./api";
+
 import { Block, RowsSkeleton, SubjectPill } from "./parts";
 import { SubjectSelect } from "./subject-select";
 import { CheersDialog } from "./timer-card";
@@ -30,7 +38,7 @@ export function StudyLog() {
   const zone = useAccountTimeZone();
   const [editing, setEditing] = useState<school.StudySession | undefined>(undefined);
   const query = useInfiniteQuery({
-    queryKey: keys.sessions,
+    queryKey: schoolKeys.sessions,
     queryFn: ({ pageParam }) =>
       studyClient().listStudySessions({ page: { limit: 20, cursor: pageParam } }),
     initialPageParam: "",
@@ -130,7 +138,7 @@ function LogDialog({ onClose }: { onClose(): void }) {
       }),
     onSuccess: () => {
       toast.success(t("log.added"));
-      refresh(queryClient, "study");
+      refreshSchool(queryClient, "study");
       onClose();
     },
     onError: toastError,
@@ -210,7 +218,7 @@ function SessionDialog({ session, onClose }: { session: school.StudySession; onC
   const valid = startedAt && endedAt && endedAt.getTime() > startedAt.getTime() && !outside;
 
   const done = () => {
-    refresh(queryClient, "study");
+    refreshSchool(queryClient, "study");
     onClose();
   };
   const save = useMutation({
