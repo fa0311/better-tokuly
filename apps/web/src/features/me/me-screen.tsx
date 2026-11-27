@@ -7,6 +7,7 @@ import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { openQuickSearch } from "#/features/search";
+import { HUB_CARDS } from "#/seams/hub-cards";
 import { signOut as signOutOfApp, useMe } from "#/stores/session";
 
 /**
@@ -57,7 +58,7 @@ export function MeScreen() {
       </button>
 
       <div className="mt-6">
-        <HubSections variant="page" />
+        <HubSections variant="page" cards={HUB_CARDS} />
       </div>
 
       <Button

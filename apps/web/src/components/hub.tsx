@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Suspense } from "react";
+import { type ComponentType, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { CountBadge } from "#/components/ui/badge";
 import { useStaffAccess } from "#/features/admin";
@@ -12,7 +12,8 @@ import { useBadge } from "#/stores/badges";
  * from the features themselves (`src/features/<area>/hub.tsx`, see
  * `#/seams/hub`).
  *
- * - `page`: the hub page — roomy rows, and a feature's own card where it has one;
+ * - `page`: the hub page — roomy rows, and a feature's own card where it has one
+ *   (`cards`, from `#/seams/hub-cards`, which only the hub page imports);
  * - `launcher`: an app drawer of icons, for a sheet over whatever page is open.
  */
 export function HubSections(props: HubSectionsProps) {
@@ -31,9 +32,11 @@ interface HubSectionsProps {
   variant: "page" | "launcher";
   /** Called when a tile is followed (the launcher closes itself). */
   onNavigate?(): void;
+  /** The page's widgets, by the id of the tile each replaces. */
+  cards?: Record<string, ComponentType>;
 }
 
-function Sections({ variant, onNavigate }: HubSectionsProps) {
+function Sections({ variant, onNavigate, cards }: HubSectionsProps) {
   // The section titles follow the language; the tiles' own labels are read while rendering.
   const { t } = useTranslation("common");
   const isStaff = useStaffAccess().staff;
@@ -58,10 +61,11 @@ function Sections({ variant, onNavigate }: HubSectionsProps) {
                 : "grid-cols-4 gap-x-1 gap-y-3 sm:grid-cols-5",
             )}
           >
-            {section.tiles.map((tile) =>
-              variant === "page" && tile.Card ? (
+            {section.tiles.map((tile) => {
+              const Card = variant === "page" ? cards?.[tile.id] : undefined;
+              return Card ? (
                 <li key={tile.id} className="col-span-full">
-                  <tile.Card />
+                  <Card />
                 </li>
               ) : (
                 <li key={tile.id}>
@@ -71,8 +75,8 @@ function Sections({ variant, onNavigate }: HubSectionsProps) {
                     <LauncherTile tile={tile} onNavigate={onNavigate} />
                   )}
                 </li>
-              ),
-            )}
+              );
+            })}
           </ul>
         </section>
       ))}

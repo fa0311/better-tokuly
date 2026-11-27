@@ -65,6 +65,7 @@ touching the same file.
 | ------------------------------ | --------------------------------------- | ------------------------------------------------------------------------------------- |
 | `background.tsx`               | a component (usually rendering nothing) | runs on every page while someone is signed in: realtime listeners, toasts, ringing    |
 | `hub.tsx`                      | `HubTile[]` (`#/seams/hub`)             | the area's way in: a tile on the hub (`/me`), in the launcher and in the quick search |
+| `hub-card.tsx`                 | a component (`#/seams/hub-cards`)       | a widget on the hub page instead of the area's tile; loads with the hub page only     |
 | `nav.ts`                       | `NavClaim` (`#/seams/nav`)              | which primary item (map, chat, notes, watch) is lit on the area's routes              |
 | `profile.tsx`                  | `ProfileSection[]` (`#/seams/profile`)  | what the area shows on a person's profile, by slot                                    |
 | `badges.ts`                    | `BadgeSources` (`#/seams/badges`)       | unread counts derived from the area's queries                                         |

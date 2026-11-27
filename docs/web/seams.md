@@ -16,6 +16,10 @@ export default [
     icon: CalendarHeart, tint: "bg-lime", badge: "plans", keywords: ["予定", "calendar"] },
 ] satisfies HubTile[];
 
+// src/features/school/hub-card.tsx — on the hub page, instead of the "school" tile:
+// what class is on. It loads with the hub page and counts in its size, so keep it small.
+export default function SchoolHubCard() { … }
+
 // src/features/stories/nav.ts — /stories/* belongs to "notes" in the tab bar and the rail.
 export default { primary: "notes", paths: ["/stories"] } satisfies NavClaim;
 
