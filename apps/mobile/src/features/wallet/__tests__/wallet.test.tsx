@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { create, wallet } from "@tokuly/api";
 import type { ReactNode } from "react";
 import { Alert } from "react-native";
@@ -28,6 +28,8 @@ function server() {
   let revision = 1n;
   let claimed = false;
   let switched = false;
+  /** How long until the next bonus unlocks, by the phone's clock. */
+  let unlocksIn = 3 * 3_600_000;
   const claims: number[] = [];
   let answer = () => {};
   let lose = () => {};
@@ -38,7 +40,7 @@ function server() {
       nextCoins: claimed ? 15n : 15n,
       nextCycleDay: claimed ? 4 : 3,
       cycle: CYCLE,
-      nextClaimAt: claimed ? at(new Date(Date.now() + 3 * 3_600_000)) : undefined,
+      nextClaimAt: claimed ? at(new Date(Date.now() + unlocksIn)) : undefined,
     });
   const balance = () => create(wallet.BalanceSchema, { coins, earnings: 0n, revision });
   const grant = () => {
@@ -111,6 +113,16 @@ function server() {
     switchAccount: () => {
       switched = true;
     },
+    /** The bonus is claimed on another phone. */
+    claimElsewhere: grant,
+    /** Midnight passes on the server: the next bonus waits. */
+    nextDay: () => {
+      claimed = false;
+    },
+    /** The phone's clock runs ahead of the server's: it is past midnight here, not yet there. */
+    clockAhead: () => {
+      unlocksIn = -1000;
+    },
   };
 }
 
@@ -172,6 +184,22 @@ describe("the wallet screen", () => {
     await waitFor(() => expect(screen.getByText("ゲット！ 🪙 +15")).toBeTruthy());
     expect(screen.getByText("今日のぶんは受け取ったよ")).toBeTruthy();
     expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it("keeps asking for the next bonus while the phone's clock is ahead of the server's", async () => {
+    jest.useFakeTimers();
+    try {
+      const api = server();
+      api.claimElsewhere();
+      api.clockAhead();
+      await show(<WalletScreen />);
+      expect(await screen.findByTestId("wallet-bonus-claimed")).toBeTruthy();
+      api.nextDay();
+      await act(() => jest.advanceTimersByTimeAsync(21_000));
+      expect(await screen.findByTestId("wallet-bonus-claim")).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("never shows a claim whose answer was lost as won, and reads the server again", async () => {

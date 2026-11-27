@@ -141,9 +141,12 @@ function BonusCard() {
   const unlocked = !!bonus && !bonus.claimable && unlocksAt > 0 && now >= unlocksAt;
 
   // Midnight passed with the screen open: today's bonus is there to take.
+  // The phone's clock may be ahead of the server's, so it is asked with
+  // every tick until it agrees.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `now` is the tick
   useEffect(() => {
     if (unlocked) void refetch();
-  }, [unlocked, refetch]);
+  }, [unlocked, now, refetch]);
 
   if (isPending) return <Spinner />;
   if (!bonus || bonus.cycle.length === 0) return null;
