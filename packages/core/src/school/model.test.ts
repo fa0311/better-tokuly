@@ -7,6 +7,7 @@ import {
   classWhen,
   currentClass,
   dueItems,
+  dueLeftOut,
   examCountdown,
   inkOn,
   lastCheerStillCounts,
@@ -74,6 +75,22 @@ describe("what is due", () => {
       "later",
       "next-month",
     ]);
+  });
+
+  it("says how many items a short list leaves out, and whether they are all assignments", () => {
+    const items = dueItems(
+      [exam({ id: "x", startDate: "2026-12-10", status: school.ExamStatus.UPCOMING })],
+      [
+        assignment("a1", new Date(Date.UTC(2026, 10, 25))),
+        assignment("a2", new Date(Date.UTC(2026, 10, 26))),
+        assignment("a3", new Date(Date.UTC(2026, 11, 20))),
+      ],
+      "Asia/Tokyo",
+    );
+    expect(dueLeftOut(items, 4)).toEqual({ count: 0, assignmentsOnly: true });
+    expect(dueLeftOut(items, 3)).toEqual({ count: 1, assignmentsOnly: true });
+    // The exam is among the ones left out: the assignments list would not show it.
+    expect(dueLeftOut(items, 2)).toEqual({ count: 2, assignmentsOnly: false });
   });
 
   it("counts an exam from midnight of its first day on the account's calendar", () => {

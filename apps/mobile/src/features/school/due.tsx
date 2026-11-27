@@ -3,6 +3,7 @@ import { school, toDate } from "@tokuly/api";
 import {
   dayLabel,
   dueItems,
+  dueLeftOut,
   examCountdown,
   momentLabel,
   refreshSchool,
@@ -162,6 +163,7 @@ export function DueList({ limit }: { limit: number }) {
   const failed = (exams.error && !exams.data) || (assignments.error && !assignments.data);
   if (failed) return <ErrorNote>{errorMessage(failed, { namespace: NS })}</ErrorNote>;
   const items = dueItems(exams.data ?? [], assignments.data?.assignments ?? [], zone);
+  const leftOut = dueLeftOut(items, limit);
   if (items.length === 0)
     return (
       <Text
@@ -210,10 +212,19 @@ export function DueList({ limit }: { limit: number }) {
           </Pressable>
         ),
       )}
-      {items.length > limit && (
-        <Pressable onPress={() => router.push("/school/assignments")}>
+      {leftOut.count > 0 && (
+        <Pressable
+          accessibilityRole="link"
+          onPress={() =>
+            router.push(
+              leftOut.assignmentsOnly
+                ? "/school/assignments"
+                : (webScreenHref("/school/exams") as never),
+            )
+          }
+        >
           <Text className="px-1 text-right text-sm font-bold text-brand">
-            {t("due.more", { count: items.length - limit })}
+            {t("due.more", { count: leftOut.count })}
           </Text>
         </Pressable>
       )}

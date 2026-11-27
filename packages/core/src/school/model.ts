@@ -123,3 +123,16 @@ export function dueItems(
     ...assignments.map((assignment): DueItem => ({ at: toMillis(assignment.dueAt), assignment })),
   ].sort((a, b) => a.at - b.at);
 }
+
+/**
+ * What a due list cut after `limit` items leaves out: how many, and whether
+ * they are all assignments (the assignments list shows them; otherwise an
+ * exam is among them and the exams screen does).
+ */
+export function dueLeftOut(
+  items: readonly DueItem[],
+  limit: number,
+): { count: number; assignmentsOnly: boolean } {
+  const left = items.slice(limit);
+  return { count: left.length, assignmentsOnly: left.every((item) => item.assignment) };
+}
