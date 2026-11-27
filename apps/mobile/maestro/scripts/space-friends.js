@@ -44,6 +44,19 @@ call(
   { title, audience: "SPACE_AUDIENCE_FRIENDS" },
   friend.token,
 );
+// The friendship reaches the rooms a moment later (later still on a slow machine): the flow
+// starts once `me` is shown the friend's room.
+const shown = () =>
+  (
+    call("tokuly.spaces.v1.SpaceService/ListLiveSpaces", { scope: "LIVE_SCOPE_FRIENDS" }, me.token)
+      .spaces ?? []
+  ).some((space) => space.title === title);
+const deadline = Date.now() + 60000;
+while (!shown()) {
+  if (Date.now() > deadline) throw new Error("the friend's room was not shown to me");
+  // Maestro's scripts have no timers: a short pause between asks.
+  for (const until = Date.now() + 300; Date.now() < until; );
+}
 const hangout = `e2e hangout ${Date.now().toString(36)}`;
 call(
   "tokuly.spaces.v1.HangoutService/CreateHangout",
