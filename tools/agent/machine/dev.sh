@@ -17,6 +17,14 @@ browser_addresses() {
 }
 # The tokuly.toml a Compose deployment starts with, so the browser tests meet the same settings.
 first_config() { "$REPO/tools/init-env.sh" --config "$RUN/tokuly-$1.toml"; export TOKULY_CONFIG="$RUN/tokuly-$1.toml"; }
+# A binary built before the checkout's last backend or proto commit tests an API the checkout no longer has.
+not_older_than_checkout() {
+  local changed; changed=$(git log -1 --format=%ct -- "$(git rev-parse --show-toplevel)"/{backend,proto})
+  [ "$(stat -c %Y "$1")" -ge "$changed" ] || {
+    echo "$1 is older than this checkout's last backend change ($(git log -1 --format='%h %s' -- "$(git rev-parse --show-toplevel)"/{backend,proto})); build it from this checkout"
+    exit 1
+  }
+}
 stop_one() { [ -f "$RUN/$1.pid" ] && kill "$(cat "$RUN/$1.pid")" 2>/dev/null || true; rm -f "$RUN/$1.pid"; }
 case "${1:-}" in
   api)
@@ -55,6 +63,7 @@ case "${1:-}" in
     # The database is recreated on every start. logs: $TOKULY_DEV_HOME/logs/api-<name>.log
     name=${2:?name}; port=${3:?api port}; webport=${4:?web port}
     [ -n "${TOKULY_BIN:-}" ] || { echo "set TOKULY_BIN to the tokuly binary of your build"; exit 1; }
+    not_older_than_checkout "$TOKULY_BIN"
     stop_one "api-$name"
     eval "$("$REPO/tools/dev/infra.sh" env)"
     ADMIN_URL="$TOKULY_DATABASE_URL"; db="tokuly_${name//[^a-z0-9_]/_}"
