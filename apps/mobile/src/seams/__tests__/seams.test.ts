@@ -148,6 +148,7 @@ describe("the features on the seams", () => {
       "u/[handle]",
       "wallet/history",
       "wallet/index",
+      "wallet/limit",
       "wallet/purchases",
       "watch/[videoId]",
       "watch/channels",
