@@ -78,11 +78,7 @@ export function useDay(date: string) {
 
 /** The day's points with their times; without them the day is shown with its path or visits only. */
 export function useRoute(date: string) {
-  const range = dayRange(date, useAccountTimeZone());
-  return useQuery({
-    ...historyQueries.route(historyClient, date, range ?? { from: new Date(0), to: new Date(0) }),
-    enabled: range !== null,
-  });
+  return useQuery(historyQueries.route(historyClient, date, useAccountTimeZone()));
 }
 
 export function useVisits(from: Date | null) {

@@ -58,7 +58,10 @@ export function DeleteHistoryScreen({ date }: { date?: string }) {
       if (date) {
         // The day on screen is empty now; the re-read adds back what remains (a memo stays).
         queryClient.setQueryData(historyKeys.day(date, zone), create(geo.GetDayResponseSchema, {}));
-        queryClient.setQueryData(historyKeys.route(date), create(geo.GetRouteResponseSchema, {}));
+        queryClient.setQueryData(
+          historyKeys.route(date, zone),
+          create(geo.GetRouteResponseSchema, {}),
+        );
       }
       Alert.alert(t("delete.done"));
       router.back();

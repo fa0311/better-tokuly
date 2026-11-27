@@ -206,6 +206,18 @@ describe("a day", () => {
 });
 
 describe("a day, when the account's settings change", () => {
+  it("reads the route again for the day of the account's new time zone", async () => {
+    const { routes } = historyOf();
+    const { again } = await show(<DayScreen date="2026-11-22" />);
+    await screen.findByTestId("history-day-map");
+    expect(toDate(routes[0]?.from)?.toISOString()).toBe("2026-11-21T15:00:00.000Z");
+    mockTimeZone = "America/Los_Angeles";
+    await again(<DayScreen date="2026-11-22" />);
+    await waitFor(() => expect(routes).toHaveLength(2));
+    expect(toDate(routes[1]?.from)?.toISOString()).toBe("2026-11-22T08:00:00.000Z");
+    expect(toDate(routes[1]?.to)?.toISOString()).toBe("2026-11-23T08:00:00.000Z");
+  });
+
   it("does not promise that today will be kept while the account keeps no history", async () => {
     mockRecordHistory = false;
     historyOf({ emptyDays: true });

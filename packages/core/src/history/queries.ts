@@ -1,6 +1,6 @@
 import { fromDate, type geo } from "@tokuly/api";
 import { type ClientSource, nextCursor } from "../query";
-import type { Month } from "./dates";
+import { dayRange, type Month } from "./dates";
 import { historyKeys as keys } from "./keys";
 
 type History = ClientSource<typeof geo.HistoryService>;
@@ -21,16 +21,25 @@ export const historyQueries = {
     queryFn: () => client().getDay({ date, timeZone }),
   }),
   /**
-   * The points of a day with their times. When the store that keeps them
-   * cannot be reached (HISTORY_UNAVAILABLE) the day is shown without them,
-   * so it is not asked again.
+   * The points of a day with their times, the day being cut in `timeZone`
+   * (`null` for a date that is none: the app does not enable the query).
+   * When the store that keeps them cannot be reached (HISTORY_UNAVAILABLE)
+   * the day is shown without them, so it is not asked again.
    */
-  route: (client: History, date: string, range: { from: Date; to: Date }, maxPoints = 1500) => ({
-    queryKey: keys.route(date),
-    queryFn: () =>
-      client().getRoute({ from: fromDate(range.from), to: fromDate(range.to), maxPoints }),
-    retry: false,
-  }),
+  route: (client: History, date: string, timeZone: string, maxPoints = 1500) => {
+    const range = dayRange(date, timeZone);
+    return {
+      queryKey: keys.route(date, timeZone),
+      queryFn: () =>
+        client().getRoute({
+          from: range ? fromDate(range.from) : undefined,
+          to: range ? fromDate(range.to) : undefined,
+          maxPoints,
+        }),
+      enabled: range !== null,
+      retry: false,
+    };
+  },
   /** Visits newest first, between `from` and `to` (open ends when `null`), at one place or any (""). */
   visits: (client: History, from: Date | null, to: Date | null, placeId = "") => ({
     queryKey: keys.visits(from?.getTime() ?? null, to?.getTime() ?? null, placeId),

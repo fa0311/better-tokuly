@@ -61,7 +61,10 @@ export function DeleteHistoryDialog({
           historyKeys.day(date, accountTimeZone()),
           create(geo.GetDayResponseSchema, {}),
         );
-        queryClient.setQueryData(historyKeys.route(date), create(geo.GetRouteResponseSchema, {}));
+        queryClient.setQueryData(
+          historyKeys.route(date, accountTimeZone()),
+          create(geo.GetRouteResponseSchema, {}),
+        );
       }
       onOpenChange(false);
       toast.success(t("delete.done"));
