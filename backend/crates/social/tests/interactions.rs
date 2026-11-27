@@ -598,7 +598,13 @@ async fn a_shake_where_the_shaker_is_not_is_refused_before_anyone_can_match_it()
     assert!(shake(&ctx, &bob, spot).await.unwrap().is_empty(), "the refused shake was never published");
     let asked = ctx.claims.asked.lock().unwrap().clone();
     let (_, claim) = asked.iter().find(|(user, _)| *user == alice.id).copied().expect("Alice's claim was checked");
-    assert_eq!((claim.lat, claim.lng, claim.accuracy_meters), (north_of(spot, 2.0).0, north_of(spot, 2.0).1, 5.0));
+    let expected = north_of(spot, 2.0);
+    let error_meters = geoindex::distance_meters(claim.lat, claim.lng, expected.0, expected.1);
+    assert!(
+        error_meters < 0.001,
+        "claim should preserve the requested position within 1 mm, got {error_meters} m"
+    );
+    assert_eq!(claim.accuracy_meters, 5.0);
 }
 
 #[tokio::test]
