@@ -11,7 +11,9 @@ export const friendKeys = {
   requests: ["social", "requests"] as const,
   incoming: ["social", "requests", "incoming"] as const,
   outgoing: ["social", "requests", "outgoing"] as const,
+  /** Prefix for suggestions; keep each server-side result limit in its own cache entry. */
   suggestions: ["social", "suggestions"] as const,
+  suggestionList: (limit: number) => ["social", "suggestions", "list", limit] as const,
   invite: ["social", "invite"] as const,
 };
 

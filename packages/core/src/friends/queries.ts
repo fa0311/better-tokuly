@@ -28,7 +28,7 @@ export const friendQueries = {
 
   /** People the viewer may know. */
   suggestions: (client: Friends) => ({
-    queryKey: friendKeys.suggestions,
+    queryKey: friendKeys.suggestionList(20),
     queryFn: () => client().listSuggestions({ limit: 20 }),
   }),
 

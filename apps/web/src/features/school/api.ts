@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { school, social } from "@tokuly/api";
+import { friendKeys } from "@tokuly/core/friends";
 import { schoolKeys, schoolQueries } from "@tokuly/core/school";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
@@ -69,7 +70,7 @@ export function useAssignments(filter: school.AssignmentFilter) {
 /** The viewer's friends (the cache entry the friends screen and chat use too). */
 export function useFriends(query = "") {
   return useQuery({
-    queryKey: ["social", "friends", "list", query],
+    queryKey: friendKeys.list(query),
     queryFn: () => friendClient().listFriends({ query, page: { limit: 100 } }),
   });
 }
