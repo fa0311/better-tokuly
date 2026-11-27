@@ -74,18 +74,18 @@ impl Poster {
             self.next_note = now + self.rng.between(900.0, 2700.0);
             posts.push(match spot {
                 Some(spot) if self.rng.chance(0.4) => {
-                    Post::Note { text: self.rng.pick(SPOTS[spot].notes), spot: Some(spot) }
+                    Post::Note { text: self.rng.pick::<&str>(SPOTS[spot].notes), spot: Some(spot) }
                 }
-                _ => Post::Note { text: self.rng.pick(NOTES), spot: None },
+                _ => Post::Note { text: self.rng.pick::<&str>(NOTES), spot: None },
             });
         }
         if now >= self.next_story {
             self.next_story = now + self.rng.between(1.5 * 3600.0, 4.0 * 3600.0);
-            posts.push(Post::Story { caption: self.rng.pick(STORY_CAPTIONS), colours: self.rng.draw() });
+            posts.push(Post::Story { caption: self.rng.pick::<&str>(STORY_CAPTIONS), colours: self.rng.draw() });
         }
         if now >= self.next_short {
             self.next_short = now + self.rng.between(2.0 * 3600.0, 6.0 * 3600.0);
-            posts.push(Post::Short { caption: self.rng.pick(SHORT_CAPTIONS), clip: self.rng.below(CLIP_COUNT) });
+            posts.push(Post::Short { caption: self.rng.pick::<&str>(SHORT_CAPTIONS), clip: self.rng.below(CLIP_COUNT) });
         }
         if now >= self.next_reaction {
             self.next_reaction = now + self.rng.between(60.0, 240.0);
@@ -93,9 +93,9 @@ impl Poster {
                 let friend = *self.rng.pick(&self.friends);
                 posts.push(match self.rng.below(20) {
                     0..10 => Post::Like { author: friend },
-                    10..13 => Post::Reply { author: friend, text: self.rng.pick(REPLIES) },
-                    13..17 => Post::StoryReaction { owner: friend, emoji: self.rng.pick(REACTIONS) },
-                    _ => Post::ShortReaction { author: friend, emoji: self.rng.pick(REACTIONS) },
+                    10..13 => Post::Reply { author: friend, text: self.rng.pick::<&str>(REPLIES) },
+                    13..17 => Post::StoryReaction { owner: friend, emoji: self.rng.pick::<&str>(REACTIONS) },
+                    _ => Post::ShortReaction { author: friend, emoji: self.rng.pick::<&str>(REACTIONS) },
                 });
             }
         }

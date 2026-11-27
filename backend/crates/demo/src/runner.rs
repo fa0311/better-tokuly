@@ -571,7 +571,7 @@ impl Stage {
             self.tally.visitors.fetch_add(1, Ordering::Relaxed);
             let mut rng = self.rng.fork(&format!("visitor {visitor} {bot}"));
             let conversation = self.direct(bot, &visitor).await?;
-            self.send(bot, conversation, rng.pick(GREETINGS)).await?;
+            self.send(bot, conversation, rng.pick::<&str>(GREETINGS)).await?;
             // The first friend among the bots brings a few of its own along.
             if self.visitors.lock().expect("not poisoned").insert(visitor.clone()) {
                 let mut friends: Vec<usize> = self
