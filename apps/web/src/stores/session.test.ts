@@ -16,6 +16,9 @@ const fake = vi.hoisted(() => {
       onAccountChange: () => () => {},
       restore: async () => true,
       assumeSignedOut: () => {},
+      signOut: async () => {
+        for (const listener of listeners) listener({ status: "signedOut" });
+      },
     },
   };
 });
@@ -38,7 +41,7 @@ vi.stubGlobal(
   },
 );
 
-const { startSession } = await import("./session");
+const { signOut, startSession } = await import("./session");
 
 const signedIn: SessionState = {
   status: "signedIn",
@@ -56,5 +59,21 @@ describe("the session store", () => {
     fake.become(signedIn);
     fake.become({ status: "signedOut" });
     expect(forget).toHaveBeenCalledOnce();
+  });
+
+  it("signs out only once nothing of the account is left: the next screen comes after it", async () => {
+    startSession();
+    fake.become(signedIn);
+    let cleaned!: () => void;
+    forget.mockImplementationOnce(() => new Promise<void>((resolve) => (cleaned = resolve)));
+
+    let done = false;
+    const signingOut = signOut().then(() => (done = true));
+    await vi.waitFor(() => expect(cleaned).toBeDefined());
+    await Promise.resolve();
+    expect(done).toBe(false);
+    cleaned();
+    await signingOut;
+    expect(done).toBe(true);
   });
 });
