@@ -20,6 +20,7 @@
     "./friends": "./src/friends/index.ts",
     "./history": "./src/history/index.ts",
     "./map": "./src/map/index.ts",
+    "./media": "./src/media/index.ts",
     "./notes": "./src/notes/index.ts",
     "./notifications": "./src/notifications/index.ts",
     "./places": "./src/places/index.ts",
