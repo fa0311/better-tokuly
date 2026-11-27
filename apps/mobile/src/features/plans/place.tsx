@@ -1,10 +1,8 @@
 import { Camera, Map as MapLibre, Marker } from "@maplibre/maplibre-react-native";
 import type { plans } from "@tokuly/api";
-import { buildMapStyle } from "@tokuly/core/map";
 import { MapPin } from "lucide-react-native";
-import { useTranslation } from "react-i18next";
 import { Linking, Platform, Text, View } from "react-native";
-import { TILE_CONFIG } from "#/lib/config";
+import { useMapStyle } from "#/lib/map-style";
 import { INK_ON_BRIGHT, sticker, useTheme } from "#/lib/theme";
 
 /**
@@ -30,12 +28,7 @@ export function openInMaps(place: plans.PlanPlace): void {
  */
 export function PlaceMap({ location }: { location: NonNullable<plans.PlanPlace["location"]> }) {
   const theme = useTheme();
-  const { i18n } = useTranslation();
-  const {
-    sky: _sky,
-    projection: _projection,
-    ...style
-  } = buildMapStyle("tokuly", theme.dark, i18n.language, TILE_CONFIG);
+  const mapStyle = useMapStyle();
   const center: [number, number] = [location.lng, location.lat];
   return (
     <View
@@ -46,7 +39,7 @@ export function PlaceMap({ location }: { location: NonNullable<plans.PlanPlace["
     >
       <MapLibre
         style={{ flex: 1 }}
-        mapStyle={style}
+        mapStyle={mapStyle}
         logo={false}
         attribution={false}
         compass={false}

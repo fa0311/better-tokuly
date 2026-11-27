@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { geo, isNotFound, toDate, toMillis } from "@tokuly/api";
 import { compactAge, compactDuration, zonedDate } from "@tokuly/core/format";
 import { historyKeys } from "@tokuly/core/history";
-import { buildMapStyle } from "@tokuly/core/map";
 import { type LatLng, labelMeta, placeKeys, toLatLng, visibilityKey } from "@tokuly/core/places";
 import { router, Stack, useNavigation } from "expo-router";
 import {
@@ -23,8 +22,8 @@ import { useAccountTimeZone } from "#/features/history/data";
 import { Faces, GazetteerCredit } from "#/features/history/parts";
 import { useMe } from "#/features/session/store";
 import { webScreenHref } from "#/features/web/handoff";
-import { TILE_CONFIG } from "#/lib/config";
 import { errorMessage } from "#/lib/errors";
+import { useMapStyle } from "#/lib/map-style";
 import { INK_ON_BRIGHT, sticker, useTheme } from "#/lib/theme";
 import { asAccount, NS, placeClient, usePlace, usePlaceVisits } from "./data";
 import { PlaceBubble } from "./parts";
@@ -336,12 +335,7 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
  */
 function PlaceMap({ place, center }: { place: geo.Place; center: LatLng }) {
   const theme = useTheme();
-  const { i18n } = useTranslation();
-  const {
-    sky: _sky,
-    projection: _projection,
-    ...style
-  } = buildMapStyle("tokuly", theme.dark, i18n.language, TILE_CONFIG);
+  const mapStyle = useMapStyle();
   return (
     <View
       testID="place-map"
@@ -351,7 +345,7 @@ function PlaceMap({ place, center }: { place: geo.Place; center: LatLng }) {
     >
       <MapLibre
         style={{ flex: 1 }}
-        mapStyle={style}
+        mapStyle={mapStyle}
         logo={false}
         attribution={false}
         compass={false}

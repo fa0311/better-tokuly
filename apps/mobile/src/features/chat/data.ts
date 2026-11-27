@@ -85,9 +85,10 @@ export function useUnread(): Unread {
 }
 
 /** One of the conversation lists, paged; kept current by the realtime events. */
-export function useConversationList(filter: ListFilter) {
+export function useConversationList(filter: ListFilter, { enabled = true } = {}) {
   const queryClient = useQueryClient();
   return useInfiniteQuery({
+    enabled,
     queryKey: chatKeys.list(filter),
     queryFn: async ({ pageParam }): Promise<ListPage> => {
       const askedAt = unreadTotals.version();

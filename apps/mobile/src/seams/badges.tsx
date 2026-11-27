@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import badges from "#/generated/seams/badges";
+import { useAfterFirstScreen } from "./background";
 import { HUB_BADGE, waitingInHub } from "./hub";
 
 /**
@@ -13,7 +14,8 @@ import { HUB_BADGE, waitingInHub } from "./hub";
  *   export default { chat: () => useUnread().badge } satisfies BadgeSources;
  *
  * A hook must be cheap on every screen: one query that realtime events keep
- * current, never polling.
+ * current, never polling. The counts load once the first screen is up
+ * (`useAfterFirstScreen`).
  */
 export type BadgeSources = Record<string, () => number>;
 
@@ -40,6 +42,7 @@ function Source({ badge, useCount }: { badge: string; useCount: () => number }) 
 
 /** Runs every badge source; mounted once inside the signed-in layout. */
 export function BadgeSourceRunner() {
+  if (!useAfterFirstScreen()) return null;
   return SOURCES.map(([badge, useCount]) => (
     <Source key={badge} badge={badge} useCount={useCount} />
   ));
