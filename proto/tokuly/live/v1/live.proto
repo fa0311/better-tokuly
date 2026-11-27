@@ -286,6 +286,10 @@ message StreamStudioInfo {
   // VISIBILITY_CIRCLE: the caller's circle the stream is shared with (the
   // summary shows the stream's own visibility to its owner).
   string circle_id = 10;
+  // Viewers cannot send gifts whatever `gifts_enabled` says: gifts are for
+  // streamers of 18 and over, and the owner is younger or has not given a
+  // birthdate yet. It lifts by itself on the 18th birthday.
+  bool gifts_age_restricted = 11;
 }
 
 // A stream page.
@@ -295,6 +299,10 @@ message Stream {
   repeated string tags = 3;
   bool dvr_enabled = 4;
   bool auto_archive = 5;
+  // Whether viewers can send gifts; clients show no gift button without
+  // it. It is false when the streamer turned gifts off and when the
+  // streamer cannot receive any, alike. The owner sees their own setting
+  // here (`studio.gifts_age_restricted` says when it does not take effect).
   bool gifts_enabled = 6;
   ChatSettings chat = 7;
   // Unset when the caller cannot play the stream right now.
@@ -940,9 +948,11 @@ service LiveGiftService {
   // the streamer's earnings (minus the platform fee), exactly once per
   // `idempotency_key`: repeating a call with the same key returns the
   // first gift and moves nothing, and a call that was cut off is finished
-  // by repeating it. Errors: STREAM_NOT_FOUND, STREAM_NOT_LIVE, GIFTS_DISABLED,
-  // GIFT_OWN_STREAM, GIFT_AMOUNT_INVALID, GIFT_MESSAGE_TOO_LONG,
-  // GIFT_MESSAGE_INVALID, MESSAGE_BLOCKED, IDEMPOTENCY_KEY_INVALID,
+  // by repeating it. Errors: STREAM_NOT_FOUND, STREAM_NOT_LIVE,
+  // GIFTS_DISABLED (the stream takes no gifts, `Stream.gifts_enabled`: the
+  // streamer turned them off or cannot receive any), GIFT_OWN_STREAM,
+  // GIFT_AMOUNT_INVALID, GIFT_MESSAGE_TOO_LONG, GIFT_MESSAGE_INVALID,
+  // MESSAGE_BLOCKED, IDEMPOTENCY_KEY_INVALID,
   // LINKS_NOT_ALLOWED, CHAT_NOT_ALLOWED, CHAT_BANNED, CHAT_TIMED_OUT,
   // INSUFFICIENT_COINS, RATE_LIMITED, and GIFT_RETURNED (failed_precondition)
   // when the stream was deleted while the gift was being paid: the coins

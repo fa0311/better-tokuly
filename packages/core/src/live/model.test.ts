@@ -9,6 +9,7 @@ import {
   countdownParts,
   exactCoins,
   giftAttempt,
+  giftEntry,
   mentionOf,
   mergePoll,
   newIdempotencyKey,
@@ -85,6 +86,33 @@ describe("gift tiers", () => {
   it("makes idempotency keys the server accepts", () => {
     const key = newIdempotencyKey(() => "0199aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee");
     expect(key).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+  });
+});
+
+describe("gift entry", () => {
+  const stream = (init: MessageInitShape<typeof live.StreamSchema>) =>
+    create(live.StreamSchema, init);
+  const { LIVE, UPCOMING, ENDED } = live.StreamStatus;
+
+  it("offers viewers the gift button only on a stream on air that takes gifts", () => {
+    expect(giftEntry(stream({ summary: { status: LIVE }, giftsEnabled: true }))).toBe("send");
+    expect(giftEntry(stream({ summary: { status: LIVE }, giftsEnabled: false }))).toBe("none");
+    expect(giftEntry(stream({ summary: { status: UPCOMING }, giftsEnabled: true }))).toBe("none");
+  });
+
+  it("tells the owner when gifts are on but they cannot receive any yet", () => {
+    const owned = (status: live.StreamStatus, giftsEnabled: boolean, giftsAgeRestricted: boolean) =>
+      stream({
+        summary: { status },
+        giftsEnabled,
+        viewer: { isOwner: true },
+        studio: { giftsAgeRestricted },
+      });
+    expect(giftEntry(owned(LIVE, true, true))).toBe("age-restricted");
+    expect(giftEntry(owned(UPCOMING, true, true))).toBe("age-restricted");
+    expect(giftEntry(owned(LIVE, false, true))).toBe("none");
+    expect(giftEntry(owned(ENDED, true, true))).toBe("none");
+    expect(giftEntry(owned(LIVE, true, false))).toBe("none");
   });
 });
 

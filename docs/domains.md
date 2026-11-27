@@ -217,6 +217,8 @@ YouTube-like long-form video.
 - Gifts (super chat): 12 colour tiers by coin amount with a highlighted
   message whose max length grows with the tier; spends coins via wallet,
   credits the streamer's earnings; gift history for sender and streamer.
+  Only streamers of 18 and over receive gifts (by their age today; no
+  birthdate counts as under 18): a younger streamer's stream takes none.
 - Polls, viewer list for the streamer, raid/host another stream at the end.
 - Clips: 0.1–60 s ranges of a live archive or video, title ≤ 64.
 - OBS overlays: chat and alert widgets with style presets and custom CSS.

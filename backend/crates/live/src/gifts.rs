@@ -35,6 +35,15 @@
 //! are refunded and the row is dropped (`GIFT_RETURNED`). However many
 //! settlers and a deletion race, a gift is either settled or returned,
 //! never both.
+//!
+//! # Who may receive gifts
+//!
+//! Accounts of [`tokuly_identity::age::ADULT_AGE`] and over, by their age
+//! today ([`may_receive`]): the streamer, who is the channel's owner. A
+//! younger streamer's stream takes no gifts, and viewers are told exactly
+//! that, as for a stream with gifts turned off (`gifts_enabled` false,
+//! `GIFTS_DISABLED`); only the streamer sees why. Gifts received before
+//! stay.
 use std::{collections::HashMap, time::Duration};
 
 use tokuly_core::{
@@ -136,6 +145,11 @@ pub fn validate_message(input: &str, tier: &tiers::Tier) -> AppResult<String> {
         tier.max_message_length
     );
     Ok(message.to_owned())
+}
+
+/// Whether `recipient_id` may be paid gifts today (a bot goes by its owner).
+pub async fn may_receive(core: &Core, recipient_id: Uuid) -> AppResult<bool> {
+    Ok(!tokuly_identity::age::is_minor(core, recipient_id).await?)
 }
 
 /// Gifts as the API returns them. `for_streamer` adds what reached the
@@ -313,7 +327,16 @@ impl Live {
         }
 
         ensure!(stream.is_live(), precondition, "STREAM_NOT_LIVE", "gifts can be sent while the stream is on air");
-        ensure!(stream.gifts_enabled, precondition, "GIFTS_DISABLED", "this stream does not accept gifts");
+        // Refused before anything is written down or paid, in the same words
+        // (and after the same lookup) whether the streamer turned gifts off or
+        // may not receive any.
+        let may_receive = may_receive(core, stream.owner_id).await?;
+        ensure!(
+            stream.gifts_enabled && may_receive,
+            precondition,
+            "GIFTS_DISABLED",
+            "this stream does not accept gifts"
+        );
         ensure!(sender_id != stream.owner_id, invalid, "GIFT_OWN_STREAM", "you cannot send a gift to your own stream");
         let tier = tiers::tier_for(coins).ok_or_else(|| {
             AppError::invalid(

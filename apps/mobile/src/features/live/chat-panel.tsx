@@ -1,6 +1,6 @@
 import { common, live } from "@tokuly/api";
 import type { Subject } from "@tokuly/core/engagement";
-import { activeHighlights, authorName, mentionOf, pollVisible } from "@tokuly/core/live";
+import { activeHighlights, authorName, giftEntry, mentionOf, pollVisible } from "@tokuly/core/live";
 import { Pin, X } from "lucide-react-native";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -114,7 +114,8 @@ export function LiveChat({ stream }: { stream: live.Stream }) {
 
   const viewer = stream.viewer;
   const writable = status === StreamStatus.UPCOMING || status === StreamStatus.LIVE;
-  const canGift = status === StreamStatus.LIVE && stream.giftsEnabled && !viewer?.isOwner;
+  const gifts = giftEntry(stream);
+  const canGift = gifts === "send";
   const poll = pollVisible(stream.activePoll, now) ? stream.activePoll : undefined;
   const selfHandle = me?.user?.handle.toLowerCase();
   const mention = (message: live.ChatMessage) => composer.current?.insert(mentionOf(message));
@@ -162,6 +163,14 @@ export function LiveChat({ stream }: { stream: live.Stream }) {
             />
           )}
         />
+      )}
+      {gifts === "age-restricted" && (
+        <Text
+          testID="gifts-age-restricted"
+          className="border-t-2 border-line px-4 py-2 text-sm font-bold text-ink-soft"
+        >
+          🎁 {t("gift.ageRestricted")}
+        </Text>
       )}
       {writable && (
         <ChatComposer

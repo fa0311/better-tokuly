@@ -541,6 +541,20 @@ test("a gift lowers the sender's coins and shows highlighted in the chat", async
   await studio.context().close();
 });
 
+test("a streamer under 18 is told that gifts come from 18 on", async ({ page, request }) => {
+  const streamer = await createAccount(request, "teen", { birthdate: "2010-05-01" });
+  await createChannel(request, streamer);
+  const stream = await createStream(request, streamer);
+  await signInAs(page, streamer);
+
+  await page.goto(`/live/${stream.shortId}`);
+  await expect(page.getByTestId("gifts-age-restricted")).toContainText(
+    "投げ銭・ギフトは18歳から受け取れるよ！",
+  );
+  await page.goto("/studio/live/new");
+  await expect(page.getByText("投げ銭・ギフトは18歳から受け取れるよ！")).toBeVisible();
+});
+
 // ───────────────────────────── Overlays ─────────────────────────────
 
 test("the chat overlay shows a message on a bare page that keeps its address to itself", async ({

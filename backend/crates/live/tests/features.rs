@@ -205,6 +205,91 @@ async fn a_gift_moves_coins_once_and_shows_up_highlighted() {
     assert_eq!((top.supporters[0].coins, top.supporters[0].gift_count), (510, 2));
 }
 
+/// Gifts are for streamers of 18 and over (#138), by their age today: a
+/// younger streamer's stream takes none, and says so in the same words as a
+/// stream with gifts turned off (checklist 3); no birthdate counts as
+/// younger; the 18th birthday lifts it; gifts received before stay.
+#[tokio::test]
+async fn only_streamers_of_eighteen_and_over_receive_gifts() {
+    let ctx = start().await;
+    let streamer = ctx.app.user("streamer").await;
+    let bob = ctx.app.user("bob").await;
+    ctx.coins(&bob, 1_000).await;
+    let channel = ctx.channel(&streamer, "放課後ch").await;
+    let stream = ctx.on_air(&streamer, &channel, "放課後の配信").await;
+    let id = card(&stream).id.clone();
+    ctx.gift(&bob, &stream, 100, "", "gift-age-0001").await.unwrap();
+    // The streamer's 18th birthday `days` from today; `None`: no birthdate.
+    let set_birthday_in = |days: Option<i32>| {
+        let db = ctx.app.core.db.clone();
+        let streamer = streamer.id;
+        async move {
+            sqlx::query(
+                "UPDATE users SET birthdate = (current_date - interval '18 years' + make_interval(days => $2))::date
+                 WHERE id = $1",
+            )
+            .bind(streamer)
+            .bind(days)
+            .execute(&db)
+            .await
+            .unwrap();
+        }
+    };
+
+    let mut refused = None;
+    for birthday_in in [Some(1), None] {
+        set_birthday_in(birthday_in).await;
+        // Viewers see a stream that takes no gifts, nothing more.
+        for viewer in [Some(&bob), None] {
+            let seen = ctx.get_stream(viewer, &id).await.unwrap();
+            assert!(!seen.gifts_enabled, "{birthday_in:?}");
+            assert!(!seen.studio.is_set());
+        }
+        // The streamer keeps their setting and sees why it does not take effect.
+        let own = ctx.get_stream(Some(&streamer), &id).await.unwrap();
+        assert!(own.gifts_enabled);
+        assert!(own.studio.as_option().unwrap().gifts_age_restricted, "{birthday_in:?}");
+        // A gift is refused before any coin moves, as on a stream with gifts off.
+        let error = ctx.gift(&bob, &stream, 50, "", "gift-age-0002").await.unwrap_err();
+        assert_eq!(error.reason, "GIFTS_DISABLED", "{birthday_in:?}");
+        assert_eq!(ctx.balance(&bob).await.0, 900);
+        refused = Some(error);
+    }
+    let refused = refused.unwrap();
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM live_gifts WHERE sender_id = $1")
+        .bind(bob.id)
+        .fetch_one(&ctx.app.core.db)
+        .await
+        .unwrap();
+    assert_eq!(rows, 1, "nothing was written down for a refused gift");
+    // What was received before stays.
+    assert_eq!(ctx.row(&stream).await.gift_count, 1);
+    let received = ListReceivedGiftsRequest { channel_id: channel.summary.id.clone(), ..Default::default() };
+    let got: ListReceivedGiftsResponse =
+        ctx.call(GIFTS, "ListReceivedGifts", Some(&streamer), &received).await.unwrap();
+    assert_eq!(got.total_coins, 100);
+
+    // Turned off by a younger streamer: viewers cannot tell the two reasons apart.
+    set_birthday_in(Some(1)).await;
+    let off = UpdateStreamRequest { stream_id: id.clone(), gifts_enabled: Some(false), ..Default::default() };
+    let _: UpdateStreamResponse = ctx.call(STREAMS, "UpdateStream", Some(&streamer), &off).await.unwrap();
+    assert!(!ctx.get_stream(Some(&bob), &id).await.unwrap().gifts_enabled);
+    let turned_off = ctx.gift(&bob, &stream, 50, "", "gift-age-0003").await.unwrap_err();
+    assert_eq!(
+        (turned_off.status, turned_off.code, turned_off.reason, turned_off.message),
+        (refused.status, refused.code, refused.reason, refused.message)
+    );
+    let on = UpdateStreamRequest { gifts_enabled: Some(true), ..off };
+    let _: UpdateStreamResponse = ctx.call(STREAMS, "UpdateStream", Some(&streamer), &on).await.unwrap();
+
+    // The 18th birthday lifts it.
+    set_birthday_in(Some(0)).await;
+    assert!(ctx.get_stream(Some(&bob), &id).await.unwrap().gifts_enabled);
+    assert!(!ctx.get_stream(Some(&streamer), &id).await.unwrap().studio.as_option().unwrap().gifts_age_restricted);
+    ctx.gift(&bob, &stream, 50, "", "gift-age-0004").await.unwrap();
+    assert_eq!(ctx.row(&stream).await.gift_count, 2);
+}
+
 /// The same gift submitted many times at once, and a gift whose payment
 /// was cut off: coins move exactly once and nothing is lost (checklist 5, 6).
 #[tokio::test]

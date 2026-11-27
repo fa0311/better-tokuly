@@ -15,7 +15,7 @@ use crate::{
     access::{self, Viewer, in_feed, listed, public_stream},
     audience::{self, ViewerKey},
     chat::{self, NewMessage},
-    polls,
+    gifts, polls,
     streams::{self, StreamEdit, StreamRow, stream_columns},
 };
 
@@ -106,6 +106,9 @@ impl Live {
                 })
             }
         };
+        // Viewers see a stream of a streamer who may not receive gifts as one
+        // that takes none; the owner sees their setting and why.
+        let gifts_age_restricted = !gifts::may_receive(core, row.owner_id).await?;
         let studio = is_owner.then(|| StreamStudioInfo {
             encoder_connected: row.encoder_connected,
             encoder_protocol: row.encoder_protocol.clone(),
@@ -117,6 +120,7 @@ impl Live {
             archive_error: row.archive_error.clone(),
             end_reason: row.end_reason.into(),
             circle_id: row.circle_id.map(|id| id.to_string()).unwrap_or_default(),
+            gifts_age_restricted,
             ..Default::default()
         });
         let mut summary = streams::summary(core, row).await?;
@@ -129,7 +133,7 @@ impl Live {
             tags: row.tags.clone(),
             dvr_enabled: row.dvr_enabled,
             auto_archive: row.auto_archive,
-            gifts_enabled: row.gifts_enabled,
+            gifts_enabled: row.gifts_enabled && (is_owner || !gifts_age_restricted),
             chat: Some(settings).into(),
             playback: playable.then(|| self.playback_for(row, viewer.user_id, session)).flatten().into(),
             pinned_message: pinned.into(),
