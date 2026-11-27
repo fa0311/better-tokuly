@@ -62,10 +62,17 @@ export function timerAccount(): Account | null {
   return owner && isActive(owner) ? owner : null;
 }
 
+/** When the server last showed the timer alive, on this phone's clock. */
+let heardAtMs = 0;
+
 /**
  * Takes a session the server returned or pushed: an ended one clears the
  * timer, `undefined` means the server has none. An older copy never
  * replaces a newer one (`replacesSession`). Returns whether it was taken.
+ *
+ * A running timer the server no longer has after a silence longer than its
+ * limit was stopped by the server (the phone was off screen when it said
+ * so): the person is told, as when the heartbeat itself brings the news.
  */
 export function takeSession(
   session: school.StudySession | undefined,
@@ -75,13 +82,18 @@ export function takeSession(
   if (!replacesSession(session, state.session)) return false;
   syncClock(session?.timer);
   const ended = session?.state === school.SessionState.ENDED;
+  const outlived =
+    !session &&
+    state.session?.state === school.SessionState.RUNNING &&
+    Date.now() - heardAtMs >= state.idleSeconds * 1000;
+  if (session && !ended) heardAtMs = Date.now();
   useStudyTimer.setState({
     session: session && !ended ? session : undefined,
     loaded: true,
     failed: false,
     heartbeatSeconds: limits.heartbeatSeconds || state.heartbeatSeconds,
     idleSeconds: limits.idleSeconds || state.idleSeconds,
-    autoStopped: state.autoStopped || (ended && session.autoStopped),
+    autoStopped: state.autoStopped || outlived || (ended && session.autoStopped),
     revision: state.revision + 1,
   });
   if (!session || ended) void forgetReminder();

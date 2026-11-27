@@ -187,6 +187,35 @@ describe("the timer's session", () => {
     await Promise.all([leaving, forgetReminder()]);
     expect(done).toEqual(["scheduled", "taken back"]);
   });
+
+  it("says so when the timer is gone after a silence longer than the server's limit", async () => {
+    const { account } = accountOf("s1");
+    const gone = () =>
+      jest
+        .spyOn(account.api.service(school.StudyService), "heartbeatStudySession")
+        .mockRejectedValue(
+          new ConnectError("none", Code.FailedPrecondition, {
+            "x-tokuly-error": "NO_ACTIVE_SESSION",
+          }),
+        );
+    const now = jest.spyOn(Date, "now");
+    signIn(account);
+
+    // Stopped on another device a moment ago: nothing to explain.
+    now.mockReturnValue(T0);
+    takeSession(session(RUNNING), { idleSeconds: 900 });
+    gone();
+    now.mockReturnValue(T0 + 60_000);
+    await heartbeat(account);
+    expect(useStudyTimer.getState()).toMatchObject({ session: undefined, autoStopped: false });
+
+    // Back after twenty minutes off screen: the server gave up on it long ago.
+    now.mockReturnValue(T0 + 120_000);
+    takeSession(session(RUNNING, T0 + 120_000, { id: "st2" }));
+    now.mockReturnValue(T0 + 120_000 + 20 * 60_000);
+    await heartbeat(account);
+    expect(useStudyTimer.getState()).toMatchObject({ session: undefined, autoStopped: true });
+  });
 });
 
 describe("leaving the device", () => {
