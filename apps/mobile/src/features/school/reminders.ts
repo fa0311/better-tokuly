@@ -16,7 +16,7 @@ import { readSecure, writeSecure } from "#/platform/secure-storage";
  */
 
 /** Set once the person was asked on this device: "later" is an answer too. */
-const ASKED_KEY = "school.reminders.asked";
+export const ASKED_KEY = "school.reminders.asked";
 
 /**
  * Before the first start on this device: says why, then shows the OS

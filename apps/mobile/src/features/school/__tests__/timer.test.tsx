@@ -341,6 +341,10 @@ describe("the reminder's permission", () => {
     expect(askPushPermission).toHaveBeenCalledTimes(1);
   });
 
+  it("is asked for again by a new install: what was asked goes with the old one", () => {
+    expect(lifecycle.secureKeys).toContain("school.reminders.asked");
+  });
+
   it("declined, the running timer says to keep the app open and offers to turn them on", async () => {
     const { account, calls } = accountOf("s1");
     signIn(account);
