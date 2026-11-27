@@ -81,9 +81,10 @@ calendar month in Japan time. Anyone may choose a limit of their own
 (`wallet_accounts.monthly_limit_yen`; minors only up to the ceiling and
 without clearing it); it stays when they turn 18. The lower one is in force.
 
-Spending is the price of coin purchases started that month and still pending
-or completed, plus the `transfer` entries the account paid that month and that
-were not refunded. Coins have no exchange rate: one coin counts as ¥1 (and a
+Spending is the price of coin purchases paid that month and of those still
+waiting for their payment (whenever they were started: a purchase started
+before the month turned and paid after it counts in the new month), plus the
+`transfer` entries the account paid that month and that were not refunded. Coins have no exchange rate: one coin counts as ¥1 (and a
 package priced in another currency counts its coins). Grants (the daily bonus,
 rewards), spends and everything received are not spending.
 

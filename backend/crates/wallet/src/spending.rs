@@ -7,8 +7,10 @@
 //! ceiling; it stays when they turn 18. The lower of the two is in force.
 //!
 //! Spending, per calendar month in Japan time:
-//! - coin purchases that are pending or completed, at their price, in the
-//!   month they were started ([`purchase_yen`]);
+//! - coin purchases at their price ([`purchase_yen`]): in the month they
+//!   were paid, and while they wait for the payment whenever they were
+//!   started, so a purchase started before the month turned and paid after
+//!   it uses the new month's room;
 //! - `transfer` entries the account paid (gifts, stamp packs of creators),
 //!   unless refunded. There is no exchange rate for coins: one coin is ¥1.
 //!
@@ -51,18 +53,21 @@ fn midnight_in_japan(day: NaiveDate) -> Time {
     Tokyo.from_local_datetime(&day.and_time(NaiveTime::MIN)).single().expect("Japan has no daylight saving time").with_timezone(&Utc)
 }
 
-/// The smallest UUIDv7 of the millisecond `at`. Entries and purchases have
-/// UUIDv7 keys, so `id >= ` this lets the per-user index scans stop at the
-/// start of the month instead of reading the whole history.
+/// The smallest UUIDv7 of the millisecond `at`. Entries have UUIDv7 keys,
+/// so `id >= ` this lets the per-user index scan stop at the start of the
+/// month instead of reading the whole history.
 fn first_id_at(at: Time) -> Uuid {
     Uuid::from_u128((at.timestamp_millis().max(0) as u128) << 80)
 }
 
-/// Yen `user_id` has spent from `since` on.
+/// Yen `user_id` has spent from `since` on, counting the purchases still
+/// waiting for their payment.
 pub(crate) async fn spent_since(db: impl PgExecutor<'_>, user_id: Uuid, since: Time) -> AppResult<i64> {
+    // Purchases are not bounded by ID: one paid now may have started long
+    // before (a payment the provider reported late).
     Ok(sqlx::query_scalar(
         "SELECT ((SELECT COALESCE(sum(CASE WHEN currency = 'JPY' THEN price_minor ELSE coins END), 0) FROM wallet_purchases
-                  WHERE user_id = $1 AND id >= $3 AND created_at >= $2 AND status IN ('pending', 'completed'))
+                  WHERE user_id = $1 AND (status = 'pending' OR (status = 'completed' AND completed_at >= $2)))
                + (SELECT COALESCE(sum(amount), 0) FROM wallet_entries
                   WHERE from_user_id = $1 AND id >= $3 AND created_at >= $2 AND kind = 'transfer' AND refunded_at IS NULL))::bigint",
     )

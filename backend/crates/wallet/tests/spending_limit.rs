@@ -271,3 +271,32 @@ async fn the_limit_is_the_callers_own() {
     let error = app.call::<_, SetSpendingLimitResponse>(&format!("{WALLET}/SetSpendingLimit"), None, &request).await.unwrap_err();
     assert_eq!(error.code, "unauthenticated");
 }
+
+/// A purchase counts in the month its money is taken. One started just
+/// before midnight on the last day of a month (Japan time) and paid after
+/// it holds the new month's room while it waits, and uses it once paid:
+/// otherwise a minor could start ¥5,000 at 23:59, buy ¥5,000 more at
+/// 00:00 and then pay the first, ¥10,000 in one month.
+#[tokio::test]
+async fn a_purchase_started_before_the_month_turned_counts_in_the_month_it_is_paid() {
+    let (app, wallet) = app().await;
+    let fakepay = with_fakepay(&wallet);
+    let fan = minor(&app, "fan").await;
+    let late = start(&app, &fan, "coins_5000", FakePay::NAME).await.unwrap();
+    sqlx::query(
+        "UPDATE wallet_purchases SET created_at = (date_trunc('month', now() AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 'Asia/Tokyo') - interval '1 minute'
+         WHERE id = $1::uuid",
+    )
+    .bind(&late.id)
+    .execute(&app.core.db)
+    .await
+    .unwrap();
+    assert_eq!(limit(&app, &fan).await.spent_yen, 5000, "while it waits for its payment");
+    assert_eq!(start(&app, &fan, "coins_100", "").await.unwrap_err().reason, "SPENDING_LIMIT_REACHED");
+
+    fakepay.set(&provider_ref(&app, &late.id).await, PaymentState::Paid);
+    let request = ConfirmPurchaseRequest { purchase_id: late.id.clone(), ..Default::default() };
+    let _: ConfirmPurchaseResponse = app.call(&format!("{WALLET}/ConfirmPurchase"), Some(&fan), &request).await.unwrap();
+    assert_eq!(limit(&app, &fan).await.spent_yen, 5000, "paid this month");
+    assert_eq!(start(&app, &fan, "coins_100", "").await.unwrap_err().reason, "SPENDING_LIMIT_REACHED");
+}
