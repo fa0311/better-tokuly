@@ -425,11 +425,16 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
   const embed =
     preview.embedProvider === "youtube" && preview.embedId
       ? {
-          src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(preview.embedId)}?autoplay=1`,
+          src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(preview.embedId)}?autoplay=1&playsinline=1`,
           className: "aspect-video",
+          sandbox: "allow-scripts allow-same-origin allow-presentation allow-popups",
         }
       : preview.embedProvider === "spotify" && /^[a-z]+\/[A-Za-z0-9]+$/.test(preview.embedId)
-        ? { src: `https://open.spotify.com/embed/${preview.embedId}`, className: "h-[152px]" }
+        ? {
+            src: `https://open.spotify.com/embed/${preview.embedId}`,
+            className: "h-[152px]",
+            sandbox: "allow-scripts allow-same-origin allow-popups",
+          }
         : undefined;
 
   if (embed && playing) {
@@ -438,6 +443,9 @@ function LinkPreviewCard({ preview }: { preview: media.LinkPreview }) {
         src={embed.src}
         title={preview.title || preview.siteName}
         allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+        allowFullScreen
+        sandbox={embed.sandbox}
+        referrerPolicy="strict-origin-when-cross-origin"
         loading="lazy"
         className={cn("w-full rounded-2xl border-2 border-ink bg-black", embed.className)}
       />
