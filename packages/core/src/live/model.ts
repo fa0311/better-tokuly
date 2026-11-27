@@ -1,4 +1,5 @@
 import { type live, toMillis } from "@tokuly/api";
+import { formatCoins } from "../wallet/format.js";
 
 /**
  * The parts of watching a live stream that are plain arithmetic: which tier
@@ -30,12 +31,11 @@ export function parseCoins(text: string): bigint | null {
   return amount > 0n ? amount : null;
 }
 
-/**
- * A coin amount as it is decided and paid: exact, with the language's
- * separators (`12,345`), never rounded the way counts in lists are.
- */
+/** A live gift amount; BigInt balances stay exact while numbers retain locale formatting. */
 export function exactCoins(coins: bigint | number, language: string): string {
-  return new Intl.NumberFormat(language, { maximumFractionDigits: 0 }).format(Number(coins));
+  return typeof coins === "bigint"
+    ? formatCoins(coins)
+    : new Intl.NumberFormat(language, { maximumFractionDigits: 0 }).format(coins);
 }
 
 /**
