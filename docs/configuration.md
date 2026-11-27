@@ -25,3 +25,13 @@
 `TOKULY_PUBLIC_URL=http://192.168.1.10` のように IP アドレスでひらくと、**パスキーは使えません**
 （WebAuthn はドメイン名が必要）。サーバーは起動時に警告を出し、アプリはパスキーのボタンを出しません。
 パスワードと 2 段階認証はそのまま使えます。`http://localhost` はドメイン名あつかいです。
+
+## Caddy の前に CDN を置くとき
+
+Caddy から見た接続元がすべて CDN になります。Caddy は知らない相手の `X-Forwarded-For` を捨てるので、
+そのままでは**全員が CDN のアドレスとして数えられ**、アドレスごとのレート制限と接続数の上限にすぐかかります。
+CDN が公開しているアドレス範囲を 2 か所に足してください。
+
+- Caddy: [`infra/caddy/Caddyfile`](../infra/caddy/Caddyfile) の先頭にグローバル設定
+  `{ servers { trusted_proxies static <範囲…> } }` を足す。
+- Tokuly: `TOKULY_TRUSTED_PROXIES` と `TOKULY_RT_TRUSTED_PROXIES` に、既定値に加えて同じ範囲。
