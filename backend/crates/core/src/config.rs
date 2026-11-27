@@ -38,6 +38,20 @@ pub struct Config {
     #[arg(long, env = "TOKULY_RATE_LIMITS", default_value_t = true, action = clap::ArgAction::Set)]
     pub rate_limits: bool,
 
+    /// RPCs one signed-in account may make per minute, over all its sessions
+    /// and devices, before the limits of single RPCs apply. The web app
+    /// makes about 25 when it opens and 50 a minute when someone moves from
+    /// screen to screen without pause. 0 = no limit.
+    #[arg(long, env = "TOKULY_RATE_LIMIT_ACCOUNT_PER_MINUTE", default_value_t = 900)]
+    pub rate_limit_account_per_minute: u32,
+
+    /// RPCs one client address may make per minute without signing in (IPv6
+    /// counts per /64). Everyone behind one shared address (a school, a
+    /// carrier's NAT) shares it, and every app that opens refreshes its
+    /// session without signing in. 0 = no limit.
+    #[arg(long, env = "TOKULY_RATE_LIMIT_ADDRESS_PER_MINUTE", default_value_t = 600)]
+    pub rate_limit_address_per_minute: u32,
+
     /// Proxies in front of the API whose `X-Forwarded-For` header names the
     /// real client (addresses or CIDR ranges, comma separated). From any
     /// other peer the header is ignored. The default covers an edge proxy on
@@ -253,6 +267,14 @@ impl Config {
             .ok()
             .and_then(|u| u.host_str().map(str::to_owned))
             .unwrap_or_else(|| "localhost".to_owned())
+    }
+
+    /// The overall request limits (`TOKULY_RATE_LIMIT_*_PER_MINUTE`).
+    pub fn request_limits(&self) -> crate::request_limits::RequestLimits {
+        crate::request_limits::RequestLimits {
+            per_account: self.rate_limit_account_per_minute,
+            per_address: self.rate_limit_address_per_minute,
+        }
     }
 
     /// The parsed `TOKULY_TRUSTED_PROXIES`.

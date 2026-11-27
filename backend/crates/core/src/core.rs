@@ -91,8 +91,9 @@ impl Core {
         bus.ensure_streams().await?;
         let tokens = Tokens::new(&keys)?.with_revocations(cache.clone());
         let api_tokens = ApiTokens::default();
-        let auth_layer =
-            AuthLayer::new(tokens.clone(), cfg.trusted_proxies()?).with_api_tokens(api_tokens.clone(), Some(cache.clone()));
+        let auth_layer = AuthLayer::new(tokens.clone(), cfg.trusted_proxies()?)
+            .with_api_tokens(api_tokens.clone(), Some(cache.clone()))
+            .with_request_limits(cfg.request_limits(), cache.clone());
         let storage = Storage::new(&cfg);
         let mail = Mailer::new(&cfg.smtp_url, &cfg.mail_from)?;
         let analytics = Analytics::new(bus.clone(), &cfg);
