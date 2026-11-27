@@ -41,11 +41,11 @@ on:
       - .github/actions/**
       - tools/ci/use-images.sh
 
-# A newer push to a pull request replaces its run. On main a run that has started
-# finishes, so every result is seen; only runs still waiting are replaced.
+# A newer push replaces the run of the same branch, on main too: only the newest commit's
+# result matters before a release (docs/agents/rules.md), and the runners stay free.
 concurrency:
   group: e2e-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
