@@ -13,7 +13,29 @@ browser_addresses() {
     export TOKULY_RT_PUBLIC_WT_URL=https://127.0.0.1:54433/rt TOKULY_RT_PUBLIC_WS_URL=ws://localhost:58082/rt/ws
   else
     export TOKULY_RT_PUBLIC_WT_URL="https://127.0.0.1:$(($1 + 2))/rt" TOKULY_RT_PUBLIC_WS_URL="ws://localhost:$(($1 + 1))/rt/ws"
+    [ -z "${TOKULY_LIVE_WHIP_URL:-}" ] || pair_media_urls "$1"
   fi
+}
+# The media server of the API at port $1 (`api-here`) on <port>+3 to <port>+9. MediaMTX asks one API
+# whether a stream may be published, and an API kicks every publisher it does not know: on the
+# shared media server a second API's streams are refused, and it kicks the first one's.
+pair_media_urls() {
+  export TOKULY_LIVE_HLS_URL="http://127.0.0.1:$(($1 + 3))" TOKULY_LIVE_WHIP_URL="http://127.0.0.1:$(($1 + 4))"
+  export TOKULY_LIVE_WHEP_URL="$TOKULY_LIVE_WHIP_URL" TOKULY_MEDIAMTX_API_URL="http://127.0.0.1:$(($1 + 6))"
+  export TOKULY_LIVE_PLAYBACK_URL="http://127.0.0.1:$(($1 + 7))" TOKULY_LIVE_RTMP_URL="rtmp://127.0.0.1:$(($1 + 8))"
+  export TOKULY_LIVE_SRT_URL="srt://127.0.0.1:$(($1 + 9))"
+}
+pair_mediamtx() { # name port
+  local recordings="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/data/mediamtx-$1/recordings"
+  stop_one "mediamtx-$1"; pair_media_urls "$2"; mkdir -p "$recordings"
+  export TOKULY_LIVE_RECORDINGS_DIR="$recordings"
+  MTX_AUTHHTTPADDRESS="http://mediamtx:$TOKULY_LIVE_HOOK_SECRET@127.0.0.1:$2/hooks/live/auth" \
+    MTX_HLSADDRESS="127.0.0.1:$(($2 + 3))" MTX_WEBRTCADDRESS="127.0.0.1:$(($2 + 4))" \
+    MTX_WEBRTCLOCALUDPADDRESS="127.0.0.1:$(($2 + 5))" MTX_APIADDRESS="127.0.0.1:$(($2 + 6))" \
+    MTX_PLAYBACKADDRESS="127.0.0.1:$(($2 + 7))" MTX_RTMPADDRESS="127.0.0.1:$(($2 + 8))" \
+    MTX_SRTADDRESS="127.0.0.1:$(($2 + 9))" MTX_PATHDEFAULTS_RECORDPATH="$recordings/%path/%s-%f" \
+    nohup "${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/bin/mediamtx" "$REPO/infra/mediamtx/mediamtx.yml" \
+    >"$LOGS/mediamtx-$1.log" 2>&1 & echo $! >"$RUN/mediamtx-$1.pid"
 }
 # The tokuly.toml a Compose deployment starts with, so the browser tests meet the same settings.
 first_config() { "$REPO/tools/init-env.sh" --config "$RUN/tokuly-$1.toml"; export TOKULY_CONFIG="$RUN/tokuly-$1.toml"; }
@@ -59,7 +81,8 @@ case "${1:-}" in
     # A complete, separate backend for the checkout you are in: its own database, cache, event
     # streams, analytics database and search indexes, so it can run next to the shared API.
     #   TOKULY_BIN=<your build>/debug/tokuly dev.sh api-here <name> <api port> <web port>
-    # Listens on <api port> (API), <api port>+1 (realtime WebSocket), <api port>+2 (WebTransport).
+    # Listens on <api port> (API), <api port>+1 (realtime WebSocket), <api port>+2 (WebTransport);
+    # while the shared MediaMTX runs, the pair gets its own on <api port>+3 to +9 (`pair_mediamtx`).
     # The database is recreated on every start. logs: $TOKULY_DEV_HOME/logs/api-<name>.log
     name=${2:?name}; port=${3:?api port}; webport=${4:?web port}
     [ -n "${TOKULY_BIN:-}" ] || { echo "set TOKULY_BIN to the tokuly binary of your build"; exit 1; }
@@ -78,8 +101,9 @@ case "${1:-}" in
     export TOKULY_ADMIN_USER=e2e-admin@e2e.tokuly.test TOKULY_RATE_LIMITS=false TOKULY_NEWS_ALLOW_LOOPBACK=true
     export TOKULY_RT_WS_LISTEN="127.0.0.1:$((port + 1))" TOKULY_RT_WT_LISTEN="0.0.0.0:$((port + 2))"
     export TOKULY_RT_PUBLIC_WT_URL="https://127.0.0.1:$((port + 2))/rt" TOKULY_RT_PUBLIC_WS_URL="ws://localhost:$((port + 1))/rt/ws"
+    [ -z "${TOKULY_MEDIAMTX_API_URL:-}" ] || pair_mediamtx "$name" "$port"
     nohup "$TOKULY_BIN" all >"$LOGS/api-$name.log" 2>&1 & echo $! >"$RUN/api-$name.pid" ;;
-  api-here-stop) stop_one "api-${2:?name}" ;;
+  api-here-stop) stop_one "api-${2:?name}"; stop_one "mediamtx-$2" ;;
   web-here)
     # A dev server for the checkout you are in (a git worktree):
     #   dev.sh web-here <name> <port> [<api port>]     default API: the shared one on 58081

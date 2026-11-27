@@ -133,8 +133,10 @@ function LiveRoom({ space }: { space: spaces.Space }) {
   const role = space.viewer?.role ?? Role.LISTENER;
   const moderator = isModerator(role);
   const staged = onStage(role);
-  const hands = useParticipants(spaceId, Filter.HANDS, inside && moderator);
-  const audience = useParticipants(spaceId, Filter.AUDIENCE, inside);
+  // Asked once the server has the person in: the join and the first read would otherwise race.
+  const listed = inside && Boolean(space.viewer?.inside);
+  const hands = useParticipants(spaceId, Filter.HANDS, listed && moderator);
+  const audience = useParticipants(spaceId, Filter.AUDIENCE, listed);
   const handRaised = Boolean(space.viewer?.handRaised);
 
   const enter = async () => {
