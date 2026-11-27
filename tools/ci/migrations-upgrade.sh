@@ -8,11 +8,16 @@
 # against the release before it. Without one there is nothing to upgrade from
 # (alpha upgrades are not supported) and it says so.
 #
-#   tools/ci/migrations-upgrade.sh <postgres URL>    a server it may create and drop databases on
+# The release's schema comes with rows: its demo data (tools/ci/demo-data.sh, the
+# release's own unless a file is given), so that a change that only fails on a
+# filled table (a NOT NULL column without a DEFAULT) fails here. A release without
+# demo data is upgraded from its files and empty tables, with a warning.
+#
+#   tools/ci/migrations-upgrade.sh <postgres URL> [<demo data>]   a server it may create and drop databases on
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-[ $# -eq 1 ] || { echo "usage: tools/ci/migrations-upgrade.sh <postgres URL>" >&2; exit 2; }
-SERVER="$1"
+[ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: tools/ci/migrations-upgrade.sh <postgres URL> [<demo data>]" >&2; exit 2; }
+SERVER="$1" DEMO="${2:-}"
 DIR=backend/migrations
 export PGOPTIONS="-c client_min_messages=warning"
 
@@ -52,8 +57,30 @@ apply() {
 for db in upgraded fresh; do
   psql -q "$SERVER" -c "DROP DATABASE IF EXISTS tokuly_migrations_$db" -c "CREATE DATABASE tokuly_migrations_$db"
 done
+if [ -z "$DEMO" ] && tools/ci/demo-data.sh fetch "$release" "$WORK/demo.dump"; then DEMO="$WORK/demo.dump"; fi
 echo "== $release"
 apply tokuly_migrations_upgraded "${released[@]}"
+if [ -n "$DEMO" ]; then
+  echo "== its demo data"
+  # The data must be of the release: exactly its files applied, no more.
+  applied="$(pg_restore --data-only --table=_sqlx_migrations -f - "$DEMO" | sed -n '/^COPY /,/^\\\.$/p' | sed '1d;$d' | cut -f1 | sort -n)"
+  expected="$(printf '%s\n' "${released[@]##*/}" | sed 's/_.*//; s/^0*//' | sort -n)"
+  [ "$applied" = "$expected" ] || { echo "The demo data is not of $release's migrations:" >&2; diff <(echo "$expected") <(echo "$applied") >&2; exit 1; }
+  # What the files put in the tables makes way for the rows of the demo (sqlx's own table
+  # is not in an install made with psql). The schema stays the files': a restored one
+  # prints some constraints differently.
+  psql -q -X -v ON_ERROR_STOP=1 "$(database tokuly_migrations_upgraded)" <<'SQL'
+SELECT 'TRUNCATE ' || string_agg(format('%I.%I', n.nspname, c.relname), ', ') || ' CASCADE'
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 'p') AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND NOT EXISTS (SELECT FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')
+\gexec
+SQL
+  pg_restore --data-only --disable-triggers --no-owner --exit-on-error -d "$(database tokuly_migrations_upgraded)" \
+    -L <(pg_restore -l "$DEMO" | grep -v ' _sqlx_migrations ') "$DEMO"
+else
+  echo "::warning::No demo data of $release: the upgrade runs on empty tables."
+fi
 echo "== added since: ${added[*]:-none}"
 apply tokuly_migrations_upgraded "${added[@]}"
 echo "== fresh install"
