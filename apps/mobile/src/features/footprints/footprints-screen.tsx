@@ -334,7 +334,9 @@ function Leaderboard({ regions }: { regions: geo.Region[] }) {
       <View className="rounded-card bg-surface p-2" style={sticker(colors)}>
         {board.isPending ? (
           <Spinner />
-        ) : board.isError || entries.length === 0 ? (
+        ) : board.isError ? (
+          <ErrorNote>{errorMessage(board.error, { namespace: NS })}</ErrorNote>
+        ) : entries.length === 0 ? (
           <EmptyState emoji="🏝️" title={t("leaderboard.empty")} body={t("leaderboard.emptyBody")} />
         ) : (
           <>
@@ -353,7 +355,7 @@ function Leaderboard({ regions }: { regions: geo.Region[] }) {
             )}
           </>
         )}
-        {!board.isPending && scope === "friends" && entries.length <= 1 && (
+        {board.isSuccess && scope === "friends" && entries.length <= 1 && (
           <View className="m-2 flex-row items-center gap-3 rounded-2xl bg-surface-2 p-3">
             <Text className="text-2xl">👯</Text>
             <Text className="flex-1 text-sm font-bold text-ink-soft">
