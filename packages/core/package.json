@@ -39,6 +39,7 @@
     "./stories": "./src/stories/index.ts",
     "./video": "./src/video/index.ts",
     "./video/search": "./src/video/search.ts",
+    "./tokens": "./src/tokens/index.ts",
     "./wallet": "./src/wallet/index.ts"
   },
   "scripts": {
