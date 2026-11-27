@@ -2,8 +2,8 @@ appId: app.tokuly.mobile
 name: Open an entry of the hub under the own profile
 ---
 # ENTRY is the entry's id (`me-<id>`, src/seams/hub.ts). The hub is below the
-# profile and grows with the app, so the entry is scrolled into view first.
+# profile and grows with the app.
 - tapOn: { id: "tab-me" }
-- scrollUntilVisible:
-    element: { id: "me-${ENTRY}" }
-- tapOn: { id: "me-${ENTRY}" }
+- runFlow:
+    file: tap-in-view.yaml
+    env: { ID: "me-${ENTRY}" }

@@ -56,7 +56,13 @@ env:
 - runFlow:
     file: ../subflows/open-hub.yaml
     env: { ENTRY: settings }
-- tapOn: { id: "settings-sign-out" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: settings-sign-out }
+# The button of the question, not the row behind it of the same name.
+- extendedWaitUntil:
+    visible: "(Sign this account out of this device.*|このアカウントをこの端末から.*)"
+    timeout: 15000
 - tapOn: "(Sign out|ログアウト)"
 - extendedWaitUntil:
     visible: { id: "welcome-screen" }

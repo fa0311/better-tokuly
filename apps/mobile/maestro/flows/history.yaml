@@ -16,10 +16,9 @@ env:
       ACCOUNT: ${output.me}
 
 # The history is under the own profile; today is marked on the account's calendar.
-- tapOn: { id: "tab-me" }
-- scrollUntilVisible:
-    element: { id: "me-history" }
-- tapOn: { id: "me-history" }
+- runFlow:
+    file: ../subflows/open-hub.yaml
+    env: { ENTRY: history }
 - extendedWaitUntil:
     visible: { id: "history-month-totals" }
     timeout: 15000
@@ -30,12 +29,23 @@ env:
 - extendedWaitUntil:
     visible: { id: "history-day-map" }
     timeout: 15000
-- assertVisible: "あさのカフェ"
-- assertVisible: "ひるの公園"
+# The visits are below the map, in order (swiped by the edge, not on the map).
+- repeat:
+    while:
+      notVisible: "ひるの公園"
+    times: 8
+    commands:
+      - swipe:
+          start: 5%, 60%
+          end: 5%, 35%
+          duration: 500
+- assertVisible:
+    text: "ひるの公園"
+    below: "あさのカフェ"
 - takeScreenshot: 46-history-day
-- scrollUntilVisible:
-    element: { id: "history-memo" }
-- tapOn: { id: "history-memo" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: history-memo }
 - inputText: "e2e memo"
 - hideKeyboard
 - tapOn: { id: "history-memo-save" }
@@ -49,9 +59,9 @@ env:
       - tapOn: "OK"
 
 # Deleting the day leaves only the memo.
-- scrollUntilVisible:
-    element: { id: "history-day-delete" }
-- tapOn: { id: "history-day-delete" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: history-day-delete }
 - extendedWaitUntil:
     visible: { id: "history-delete-screen" }
     timeout: 15000

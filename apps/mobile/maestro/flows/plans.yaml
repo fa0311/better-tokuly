@@ -38,13 +38,16 @@ env:
     timeout: 15000
 - assertVisible: { id: "plan-place-map" }
 - assertVisible: { id: "plan-reminders" }
-- tapOn: { id: "plan-rsvp-going" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: plan-rsvp-going }
 - extendedWaitUntil:
     visible: { id: "plan-rsvp-going", selected: true }
     timeout: 10000
-- extendedWaitUntil:
-    visible: { id: "plan-rsvp-comment" }
-    timeout: 10000
+# A word to the host, below the answer.
+- runFlow:
+    file: ../subflows/scroll-to.yaml
+    env: { ID: plan-rsvp-comment }
 - waitForAnimationToEnd
 - takeScreenshot: 28-plan
 
@@ -61,16 +64,16 @@ env:
 - tapOn: { id: "plan-form-place" }
 - inputText: "Shinjuku"
 - hideKeyboard
-- scrollUntilVisible:
-    element: { id: "plan-form-invite" }
-- tapOn: { id: "plan-form-invite" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: plan-form-invite }
 - tapOn: { id: "plan-friend-${output.friend}" }
 - tapOn: { id: "plan-friend-confirm" }
 - waitForAnimationToEnd
 - takeScreenshot: 29-plan-form
-- scrollUntilVisible:
-    element: { id: "plan-create" }
-- tapOn: { id: "plan-create" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: plan-create }
 - extendedWaitUntil:
     visible: { id: "plan-screen" }
     timeout: 15000

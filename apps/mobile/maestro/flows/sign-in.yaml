@@ -14,24 +14,24 @@ env:
 - tapOn: { id: "sign-up-display-name" }
 - inputText: "Maestro"
 - hideKeyboard
-- scrollUntilVisible:
-    element: { id: "sign-up-handle" }
-- tapOn: { id: "sign-up-handle" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: sign-up-handle }
 - inputText: ${output.handle}
 - hideKeyboard
-- scrollUntilVisible:
-    element: { id: "sign-up-email" }
-- tapOn: { id: "sign-up-email" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: sign-up-email }
 - inputText: ${output.handle + '@e2e.tokuly.test'}
 - hideKeyboard
-- scrollUntilVisible:
-    element: { id: "sign-up-password" }
-- tapOn: { id: "sign-up-password" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: sign-up-password }
 - inputText: ${PASSWORD}
 - hideKeyboard
-- scrollUntilVisible:
-    element: { id: "sign-up-birthdate" }
-- tapOn: { id: "sign-up-birthdate" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: sign-up-birthdate }
 - inputText: "2008-04-01"
 - hideKeyboard
 - scrollUntilVisible:

@@ -35,13 +35,15 @@ env:
     timeout: 15000
 - waitForAnimationToEnd
 - takeScreenshot: 19-profile
-- tapOn: { id: "profile-bio" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: profile-bio }
 - inputText: "ramen and maps"
 - hideKeyboard
-# The save button is below the form, further down on a slow or small screen.
-- scrollUntilVisible:
-    element: { id: "profile-save" }
-- tapOn: { id: "profile-save" }
+# The save button is below the form.
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: profile-save }
 - tapOn: "OK"
 - back
 - tapOn: { id: "settings-profile" }
@@ -74,7 +76,9 @@ env:
 - takeScreenshot: 20-privacy
 - tapOn: { id: "privacy-friendRequestsFrom" }
 - tapOn: { id: "privacy-friendRequestsFrom-NOBODY" }
-- tapOn: { id: "privacy-shareBattery" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: privacy-shareBattery }
 - back
 - tapOn: { id: "settings-privacy" }
 - extendedWaitUntil:
@@ -91,9 +95,9 @@ env:
 - waitForAnimationToEnd
 - takeScreenshot: 21-notification-settings
 - tapOn: { id: "push-preview-senderOnly" }
-- scrollUntilVisible:
-    element: { id: "push-pause-1h" }
-- tapOn: { id: "push-pause-1h" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: push-pause-1h }
 - tapOn: "OK"
 - assertVisible: { id: "push-resume" }
 - tapOn: { id: "push-resume" }

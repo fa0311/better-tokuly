@@ -42,9 +42,9 @@ env:
 - takeScreenshot: 51-wallet-claimed
 
 # The history by day, and one movement.
-- scrollUntilVisible:
-    element: { id: "wallet-history" }
-- tapOn: { id: "wallet-history" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: wallet-history }
 - extendedWaitUntil:
     visible: { id: "wallet-history-list" }
     timeout: 15000
@@ -63,9 +63,9 @@ env:
 - runFlow: ../subflows/back.yaml
 
 # The purchases, with the one the script made.
-- scrollUntilVisible:
-    element: { id: "wallet-purchases" }
-- tapOn: { id: "wallet-purchases" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: wallet-purchases }
 - extendedWaitUntil:
     visible: { id: "wallet-purchases-list" }
     timeout: 15000

@@ -25,9 +25,9 @@ env:
     visible: { id: "quest-screen" }
     timeout: 15000
 - assertVisible: { id: "quest-level" }
-- extendedWaitUntil:
-    visible: { id: "${'mission-claim-' + output.mission}" }
-    timeout: 20000
+- runFlow:
+    file: ../subflows/scroll-to.yaml
+    env: { ID: "${'mission-claim-' + output.mission}" }
 - takeScreenshot: 40-quest
 # A double tap sends one claim: one reward, one message.
 - doubleTapOn: { id: "${'mission-claim-' + output.mission}" }
@@ -43,16 +43,16 @@ env:
 - takeScreenshot: 41-quest-claimed
 
 # The collection, and one badge with the friends who have it.
-- scrollUntilVisible:
-    element: { id: "quest-badges" }
-- tapOn: { id: "quest-badges" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: quest-badges }
 - extendedWaitUntil:
     visible: { id: "quest-badge-count" }
     timeout: 15000
 - takeScreenshot: 42-quest-badges
-- scrollUntilVisible:
-    element: { id: "badge-chatter_bronze" }
-- tapOn: { id: "badge-chatter_bronze" }
+- runFlow:
+    file: ../subflows/tap-in-view.yaml
+    env: { ID: badge-chatter_bronze }
 - extendedWaitUntil:
     visible: { id: "quest-badge-name" }
     timeout: 15000
@@ -63,7 +63,13 @@ env:
 
 # The own profile carries the level and invites to show badges.
 - tapOn: { id: "tab-me" }
-- scrollUntilVisible:
-    element: { id: "quest-profile" }
-    centerElement: true
+# The profile is still scrolled down to the hub, below the card.
+- runFlow:
+    when:
+      notVisible: { id: "quest-profile" }
+    commands:
+      - scrollUntilVisible:
+          element: { id: "quest-profile" }
+          direction: UP
+          centerElement: true
 - takeScreenshot: 44-quest-profile

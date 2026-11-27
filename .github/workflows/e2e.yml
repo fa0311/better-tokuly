@@ -406,6 +406,9 @@ jobs:
           api-level: 34
           arch: x86_64
           target: google_apis
+          # The phone `tools/agent/android.sh` runs, so a flow that passes there passes here
+          # (without it, a 320x640 screen hides what the flows tap).
+          profile: pixel_6
           ram-size: 3072M
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none
@@ -425,7 +428,12 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: maestro
-          path: ${{ runner.temp }}/maestro*
+          # With the flows' own folders: each one's commands, logs and, on failure, the
+          # screen and its view hierarchy.
+          path: |
+            ${{ runner.temp }}/maestro*
+            ${{ runner.temp }}/mobile-screenshots
+            !${{ runner.temp }}/mobile-screenshots/**/takeScreenshot
           retention-days: 7
       # The main screens as the flows reach them (takeScreenshot), for reviewing the UI. Maestro
       # only writes them inside the run's own output folder: <run>/<flow>/takeScreenshot/<name>.png.
