@@ -6,6 +6,9 @@ env:
 - runScript: ../scripts/study-timer.js
 - launchApp:
     clearState: true
+    # Maestro allows every permission by default: the timer asks for this one itself.
+    permissions:
+      notifications: unset
 - extendedWaitUntil:
     visible: { id: "welcome-screen" }
     timeout: 60000
