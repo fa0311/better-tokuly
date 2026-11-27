@@ -64,7 +64,9 @@ export function HistoryScreen() {
         }}
         renderItem={({ item: day }) => (
           <View className="gap-2">
-            <Text className="px-1 text-xs font-black text-ink-soft">{dayLabel(day.date)}</Text>
+            <Text testID="wallet-history-day" className="px-1 text-xs font-black text-ink-soft">
+              {dayLabel(day.date)}
+            </Text>
             <View className="overflow-hidden rounded-card bg-surface">
               {day.items.map((entry) => (
                 <EntryRow key={entry.id} entry={entry} when="time" onPress={() => setOpen(entry)} />

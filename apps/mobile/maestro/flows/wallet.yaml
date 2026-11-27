@@ -36,8 +36,9 @@ env:
 - extendedWaitUntil:
     visible: { id: "wallet-bonus-claimed" }
     timeout: 15000
-- assertVisible: "ゲット！.*"
-- assertNotVisible: "今日のボーナスはもう受け取ってるよ！"
+- assertVisible: { id: "wallet-bonus-won" }
+# The second tap did not reach the server: no refusal to dismiss.
+- assertNotVisible: "OK"
 - takeScreenshot: 51-wallet-claimed
 
 # The history by day, and one movement.
@@ -47,9 +48,9 @@ env:
 - extendedWaitUntil:
     visible: { id: "wallet-history-list" }
     timeout: 15000
-- assertVisible: "今日"
+- assertVisible: { id: "wallet-history-day" }
 - takeScreenshot: 52-wallet-history
-- tapOn: "ログインボーナス.*"
+- tapOn: { id: "wallet-entry-.*", index: 0 }
 - extendedWaitUntil:
     visible: { id: "wallet-entry-sheet" }
     timeout: 5000
@@ -57,7 +58,7 @@ env:
 - tapOn: { id: "sheet-wallet-entry-close" }
 - tapOn: { id: "wallet-history-filter-earnings" }
 - extendedWaitUntil:
-    visible: "収益はまだこれから！"
+    notVisible: { id: "wallet-entry-.*" }
     timeout: 15000
 - runFlow: ../subflows/back.yaml
 
@@ -68,5 +69,5 @@ env:
 - extendedWaitUntil:
     visible: { id: "wallet-purchases-list" }
     timeout: 15000
-- assertVisible: "完了"
+- assertVisible: { id: "wallet-purchase-completed" }
 - takeScreenshot: 54-wallet-purchases

@@ -236,7 +236,10 @@ function BonusCard() {
           accessibilityRole="summary"
           className="items-center gap-1 rounded-3xl border-2 border-dashed border-line px-4 py-3"
         >
-          <Text className="text-lg font-black text-ink">
+          <Text
+            testID={won !== null ? "wallet-bonus-won" : undefined}
+            className="text-lg font-black text-ink"
+          >
             {won !== null ? `${t("bonus.won")} ${coinText(won, true)}` : t("bonus.claimed")}
           </Text>
           {unlocksAt > 0 && (

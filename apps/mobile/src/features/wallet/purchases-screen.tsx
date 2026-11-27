@@ -12,7 +12,7 @@ import { useTheme } from "#/lib/theme";
 import { usePurchases } from "./data";
 import { coinText } from "./parts";
 
-/** `wallet:` key of a purchase's state. */
+/** `wallet:` key of a purchase's state (its last segment names the state in test IDs). */
 function statusKey(status: wallet.PurchaseStatus): string {
   switch (status) {
     case wallet.PurchaseStatus.COMPLETED:
@@ -71,6 +71,7 @@ export function PurchasesScreen() {
                 </Text>
               </View>
               <Text
+                testID={`wallet-purchase-${statusKey(purchase.status).split(".").pop()}`}
                 className="overflow-hidden rounded-full px-2.5 py-1 text-xs font-black"
                 style={{
                   backgroundColor: done ? colors.lime : pending ? colors.sun : colors["surface-2"],
