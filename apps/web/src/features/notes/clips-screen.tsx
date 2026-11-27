@@ -14,10 +14,6 @@ import { useMe } from "#/stores/session";
 import { useClips } from "./clips-api";
 import { ClipForm } from "./clips-form";
 
-export function parseClipsSearch(search: Record<string, unknown>): { user?: string } {
-  return { user: typeof search.user === "string" && search.user ? search.user : undefined };
-}
-
 /** Someone's clips (`handle`), or the caller's own with a way to make one. */
 export function ClipsScreen({ handle }: { handle?: string }) {
   const { t } = useTranslation("clips");

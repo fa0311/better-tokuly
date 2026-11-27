@@ -6,12 +6,8 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
-import {
-  ANNOUNCEMENT_CATEGORIES,
-  type AnnouncementCategory,
-  announcementClient,
-  categoryKey,
-} from "./api";
+import { announcementClient, categoryKey } from "./api";
+import { ANNOUNCEMENT_CATEGORIES, type AnnouncementCategory } from "./categories";
 import { AnnouncementCard } from "./parts";
 
 /** `/announcements`: the product update log, pinned announcements first. */

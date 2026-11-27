@@ -28,6 +28,7 @@ import {
   useSchoolCommunities,
   useTrending,
 } from "./api";
+import type { DiscoverSearch, DiscoverSort } from "./discover-search";
 import { EventCard } from "./events";
 import { CommunityCard, CommunityRow, RoleChip, SectionTitle } from "./parts";
 import { ThreadCard } from "./thread-card";
@@ -35,29 +36,11 @@ import { ThreadCard } from "./thread-card";
 const C = community.CommunityCategory;
 const D = community.DirectorySort;
 
-const SORTS = { members: D.MEMBERS, new: D.NEW, active: D.ACTIVE } as const;
-type SortKey = keyof typeof SORTS;
-
-export interface DiscoverSearch {
-  tab?: "discover";
-  q?: string;
-  category?: string;
-  tag?: string;
-  sort?: SortKey;
-}
-
-export function parseDiscoverSearch(search: Record<string, unknown>): DiscoverSearch {
-  const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
-  const category = text(search.category);
-  const sort = text(search.sort);
-  return {
-    tab: search.tab === "discover" ? "discover" : undefined,
-    q: text(search.q)?.slice(0, 64),
-    category: CATEGORIES.some((each) => each.key === category) ? category : undefined,
-    tag: text(search.tag),
-    sort: sort === "new" || sort === "active" ? sort : undefined,
-  };
-}
+const SORTS: Record<DiscoverSort, community.DirectorySort> = {
+  members: D.MEMBERS,
+  new: D.NEW,
+  active: D.ACTIVE,
+};
 
 /** `/communities`: the person's own communities, and the directory to find more. */
 export function DiscoverScreen({

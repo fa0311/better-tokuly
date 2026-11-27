@@ -14,6 +14,7 @@ export {
   storeCommunity,
   upsertReply,
 } from "./cache";
+export { CATEGORY_KEYS, type CategoryKey } from "./categories";
 export { communityKeys, type DirectoryOptions, type ThreadListOptions } from "./keys";
 export {
   appPathOf,

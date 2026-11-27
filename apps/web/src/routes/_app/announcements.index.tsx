@@ -1,6 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AnnouncementsScreen } from "#/features/announcements/announcements-screen";
-import { ANNOUNCEMENT_CATEGORIES, type AnnouncementCategory } from "#/features/announcements/api";
+import {
+  ANNOUNCEMENT_CATEGORIES,
+  type AnnouncementCategory,
+} from "#/features/announcements/categories";
 
 export const Route = createFileRoute("/_app/announcements/")({
   validateSearch: (search): { category?: AnnouncementCategory } => ({

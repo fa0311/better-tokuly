@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { INBOX_TABS, InboxScreen, type InboxTab } from "#/features/ask/inbox-screen";
+import { InboxScreen } from "#/features/ask/inbox-screen";
+import { INBOX_TABS, type InboxTab } from "#/features/ask/inbox-search";
 
 /** The owner's inbox (`ask.question` notifications lead here). `?tab=answered|archived|filtered` selects a folder. */
 export const Route = createFileRoute("/_app/ask/inbox")({

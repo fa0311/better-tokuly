@@ -8,9 +8,9 @@ import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { moderationClient } from "../api";
+import { ACTION_KINDS } from "../filter-values";
 import { formatDateTime } from "../format";
-import { ACTION_KINDS, actionKey } from "../labels";
-import { parseEnum, parseText } from "../params";
+import { actionKey } from "../labels";
 import { ConsolePage } from "../ui/console-page";
 import { type Column, DataTable } from "../ui/data-table";
 import { FilterField, FilterSelect, FilterToken } from "../ui/filters";
@@ -18,28 +18,9 @@ import { ErrorState, RowsSkeleton } from "../ui/states";
 import { UserCell } from "../ui/user";
 import { UserName } from "../ui/user-name";
 import { UserPicker } from "../ui/user-picker";
+import type { LogSearch } from "./log-search";
 import { ActionChip, SubjectTypeChip } from "./parts";
 import { TakedownDialog } from "./takedown-dialog";
-
-/** The moderation log's filters, kept in the address bar. */
-export interface LogSearch {
-  /** Actions against this account: its moderation history. */
-  user?: string;
-  /** Actions taken by this staff member. */
-  moderator?: string;
-  kind?: (typeof ACTION_KINDS)[number];
-  /** Actions belonging to this case. */
-  case?: string;
-}
-
-export function parseLogSearch(search: Record<string, unknown>): LogSearch {
-  return {
-    user: parseText(search.user),
-    moderator: parseText(search.moderator),
-    kind: parseEnum(search.kind, ACTION_KINDS),
-    case: parseText(search.case),
-  };
-}
 
 /** `/admin/moderation/log`: every action staff (or the system) took, newest first. */
 export function ModerationLogScreen({ search }: { search: LogSearch }) {

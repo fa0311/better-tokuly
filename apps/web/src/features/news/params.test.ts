@@ -1,6 +1,7 @@
 import { feed } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { listRequest, parseNewsParams, toggledFeedback } from "./params";
+import { parseNewsParams } from "./params";
+import { listRequest, toggledFeedback } from "./requests";
 
 describe("the address of the news list", () => {
   it("reads order, tag, source and language", () => {

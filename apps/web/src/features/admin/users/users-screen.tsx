@@ -1,14 +1,14 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { admin, toMillis } from "@tokuly/api";
+import { type admin, toMillis } from "@tokuly/api";
 import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { compactAge } from "#/lib/format";
 import { userAdminClient } from "../api";
+import { ACCOUNT_STATES } from "../filter-values";
 import { formatDate } from "../format";
 import { accountStateKey, roleKey } from "../labels";
-import { parseChoice, parseEnum, parseText } from "../params";
 import { STAFF_ROLES, type StaffRole } from "../roles";
 import { ConsolePage } from "../ui/console-page";
 import { type Column, DataTable } from "../ui/data-table";
@@ -18,30 +18,7 @@ import { ErrorState, RowsSkeleton } from "../ui/states";
 import { ToneChip } from "../ui/tone";
 import { UserCell } from "../ui/user";
 import { AccountStateChip, RoleChips } from "./parts";
-
-const STATES = [
-  admin.AccountState.ACTIVE,
-  admin.AccountState.SUSPENDED,
-  admin.AccountState.DELETION_SCHEDULED,
-  admin.AccountState.DELETED,
-] as const;
-
-/** The account search as it appears in the address bar. */
-export interface UsersSearch {
-  q?: string;
-  state?: (typeof STATES)[number];
-  role?: StaffRole;
-  verified?: true;
-}
-
-export function parseUsersSearch(search: Record<string, unknown>): UsersSearch {
-  return {
-    q: parseText(search.q),
-    state: parseEnum(search.state, STATES),
-    role: parseChoice(search.role, STAFF_ROLES),
-    verified: search.verified === true || search.verified === "true" ? true : undefined,
-  };
-}
+import type { UsersSearch } from "./users-search";
 
 /** `/admin/users`: find an account by handle, name, email or ID; without a query, the newest accounts. */
 export function UsersScreen({ search }: { search: UsersSearch }) {
@@ -142,7 +119,10 @@ export function UsersScreen({ search }: { search: UsersSearch }) {
           }
           options={[
             { value: "", label: t("common.all") },
-            ...STATES.map((state) => ({ value: String(state), label: t(accountStateKey(state)) })),
+            ...ACCOUNT_STATES.map((state) => ({
+              value: String(state),
+              label: t(accountStateKey(state)),
+            })),
           ]}
         />
         <FilterSelect<StaffRole | "">

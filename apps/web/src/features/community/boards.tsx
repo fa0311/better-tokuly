@@ -11,19 +11,10 @@ import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { NS, useChannels, useThreads } from "./api";
+import type { BoardSearch, BoardSort, BoardWindow } from "./boards-search";
 import { AnonymousNotice, ThreadComposer } from "./composer";
 import { Notice, useDurationLabel } from "./parts";
 import { ThreadCard } from "./thread-card";
-
-export type BoardSort = "hot" | "new" | "top";
-export type BoardWindow = "day" | "week" | "month" | "year" | "all";
-
-export interface BoardSearch {
-  channel?: string;
-  sort?: BoardSort;
-  window?: BoardWindow;
-  tag?: string;
-}
 
 const SORTS: Record<BoardSort, community.ThreadSort> = {
   hot: community.ThreadSort.HOT,
@@ -37,18 +28,6 @@ const WINDOWS: Record<BoardWindow, community.TopWindow> = {
   year: community.TopWindow.YEAR,
   all: community.TopWindow.ALL,
 };
-
-export function parseBoardSearch(search: Record<string, unknown>): BoardSearch {
-  const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
-  const sort = text(search.sort);
-  const window = text(search.window);
-  return {
-    channel: text(search.channel),
-    sort: sort === "new" || sort === "top" ? sort : undefined,
-    window: window && window in WINDOWS && window !== "all" ? (window as BoardWindow) : undefined,
-    tag: text(search.tag),
-  };
-}
 
 /** The boards of a community: its channels, and the threads of one (or all) in the chosen order. */
 export function Boards({

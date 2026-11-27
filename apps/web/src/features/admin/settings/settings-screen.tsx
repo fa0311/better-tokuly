@@ -11,7 +11,6 @@ import { Tabs } from "#/components/ui/tabs";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
 import { serverSettingsClient } from "../api";
-import { parseChoice, parseText } from "../params";
 import { ConsolePage, Section } from "../ui/console-page";
 import { SearchBox } from "../ui/filters";
 import { useSearchText } from "../ui/hooks";
@@ -19,23 +18,12 @@ import { ErrorState, RowsSkeleton } from "../ui/states";
 import { type Tone, ToneChip } from "../ui/tone";
 import { processNames, secretText, settingsKey, sourceLabel, valueText } from "./labels";
 import { SettingDialog, SettingHistoryDialog } from "./setting-dialog";
-
-const FILTERS = ["all", "console", "locked", "pending", "rejected"] as const;
-type Filter = (typeof FILTERS)[number];
-
-export interface SettingsSearch {
-  q?: string;
-  show?: Filter;
-}
-
-export function parseSettingsSearch(search: Record<string, unknown>): SettingsSearch {
-  return { q: parseText(search.q), show: parseChoice(search.show, FILTERS) };
-}
+import { FILTERS, type Filter, type SettingsSearch } from "./settings-search";
 
 /** Pages of the console that edit settings of their own; this page links to them. */
 const RELATED = [
-  { to: "/admin/chat-ai", label: () => i18n.t("chat:aiAdmin.nav") },
-  { to: "/admin/flags", label: () => i18n.t("admin:nav.flags") },
+  { to: "/admin/chat-ai", label: "chat:aiAdmin.nav" },
+  { to: "/admin/flags", label: "admin:nav.flags" },
 ];
 
 const SOURCE_TONE: Record<admin.ServerSettingSource, Tone> = {
@@ -151,7 +139,7 @@ export function ServerSettingsScreen({ search }: { search: SettingsSearch }) {
               <span className="font-bold text-ink-soft">{t("settings.related")}</span>
               {RELATED.map((page) => (
                 <Link key={page.to} to={page.to} className="font-bold text-brand underline">
-                  {page.label()}
+                  {t(page.label)}
                 </Link>
               ))}
             </p>

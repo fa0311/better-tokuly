@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { parseRecapSearch } from "#/features/notes/feed/recap-screen";
+import { parseRecapSearch } from "#/features/notes/feed/recap-search";
 
 /**
  * `/recap/2026-10` (or `/recap/2026`): the address the "your recap is ready"

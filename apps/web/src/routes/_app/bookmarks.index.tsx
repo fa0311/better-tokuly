@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { BookmarksScreen, parseBookmarksSearch } from "#/features/engagement/bookmarks-screen";
+import { BookmarksScreen } from "#/features/engagement/bookmarks-screen";
+import { parseBookmarksSearch } from "#/features/engagement/bookmarks-search";
 
 /** Saved subjects and collections. `?collection=<id>` opens one collection, `?tab=reactions` what the viewer reacted to. */
 export const Route = createFileRoute("/_app/bookmarks/")({

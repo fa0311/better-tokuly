@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { serviceShortName } from "#/features/dev/reference/data";
-import { referenceHead } from "#/features/dev/reference/head";
+import { referenceHead, serviceShortName } from "#/features/dev/reference/head";
 import { ReferenceService } from "#/features/dev/reference/reference-screen";
 
 // `/docs/api/tokuly.notes.v1.NoteService`

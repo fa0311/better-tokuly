@@ -2,6 +2,9 @@ const SITE = "Tokuly API";
 const DESCRIPTION =
   "The Tokuly API: every service and method with request and response shapes, scopes, errors, examples and a live try-it panel.";
 
+/** `tokuly.notes.v1.NoteService` → `NoteService`. */
+export const serviceShortName = (service: string) => service.slice(service.lastIndexOf(".") + 1);
+
 /**
  * The `<head>` of a reference page. The pages render in the browser, so the
  * title and description come from the address alone and are in the HTML the

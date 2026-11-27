@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ClipsScreen, parseClipsSearch } from "#/features/notes/clips-screen";
+import { ClipsScreen } from "#/features/notes/clips-screen";
+import { parseClipsSearch } from "#/features/notes/clips-search";
 
 /** The caller's clips, or `?user=<handle>`'s public ones. */
 export const Route = createFileRoute("/_app/notes/clips/")({

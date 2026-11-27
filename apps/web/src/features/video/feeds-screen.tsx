@@ -5,13 +5,11 @@ import {
   CATEGORIES,
   type Dismissal,
   FEED_SOURCES,
-  FEEDS,
   type Feed,
   type FeedSearch,
   feedKey,
   feedVideos,
   loadFeedPage,
-  validateFeedSearch,
 } from "@tokuly/core/video";
 import { Ban, Clapperboard, History, ListVideo, ThumbsDown, Undo2, Users } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -29,8 +27,6 @@ import { ChannelRow } from "./channel/channel-row";
 import { ChannelAvatar, VideoCard, VideoCardSkeleton, VideoGrid } from "./video-card";
 
 const { VideoCategory } = video;
-
-export { FEEDS, type Feed, type FeedSearch, validateFeedSearch };
 
 /**
  * `/watch`: the three feeds — recommendations, the channels the viewer

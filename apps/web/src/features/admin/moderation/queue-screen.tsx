@@ -8,8 +8,9 @@ import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { compactAge } from "#/lib/format";
+import { REPORT_CATEGORIES, SUBJECT_TYPES } from "../filter-values";
 import { formatDateTime } from "../format";
-import { categoryKey, REPORT_CATEGORIES, SUBJECT_TYPES, subjectTypeKey } from "../labels";
+import { categoryKey, subjectTypeKey } from "../labels";
 import { ConsolePage } from "../ui/console-page";
 import { type Column, DataTable } from "../ui/data-table";
 import { FilterField, FilterSelect, FilterToken } from "../ui/filters";
@@ -18,7 +19,8 @@ import { UserCell } from "../ui/user";
 import { UserName } from "../ui/user-name";
 import { UserPicker } from "../ui/user-picker";
 import { CaseStateChip, CategoryChips, SubjectTypeChip, useCaseTitle } from "./parts";
-import { type QueueSearch, useCaseQueue } from "./queue";
+import { useCaseQueue } from "./queue";
+import type { QueueSearch } from "./queue-search";
 import { TakedownDialog } from "./takedown-dialog";
 
 /** `/admin/moderation`: the reports queue. */

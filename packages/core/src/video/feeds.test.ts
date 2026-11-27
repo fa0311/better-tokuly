@@ -1,7 +1,9 @@
 import { create, video } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { feedKey, feedVideos, validateFeedSearch } from "./feeds";
+import { feedKey, feedVideos } from "./feeds";
 import { videoKeys } from "./keys";
+import { CATEGORIES } from "./labels";
+import { validateFeedSearch } from "./search";
 
 const { VideoCategory } = video;
 
@@ -16,6 +18,13 @@ describe("video feeds", () => {
     });
     expect(validateFeedSearch({ feed: "home", category: "999" })).toEqual({});
     expect(validateFeedSearch({ feed: "nope" })).toEqual({});
+  });
+
+  it("takes every genre the chips offer", () => {
+    for (const { value } of CATEGORIES) {
+      expect(validateFeedSearch({ category: value })).toEqual({ category: value });
+    }
+    expect(validateFeedSearch({ category: VideoCategory.UNSPECIFIED })).toEqual({});
   });
 
   it("keys trending by genre only", () => {

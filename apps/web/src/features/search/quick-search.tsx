@@ -5,31 +5,16 @@ import { MAX_QUERY_LENGTH } from "@tokuly/core/search";
 import { ArrowDown, ArrowUp, CornerDownLeft, Search, X } from "lucide-react";
 import { type ReactNode, type RefObject, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { create } from "zustand";
 import { Spinner } from "#/components/ui/spinner";
 import { useStaffAccess } from "#/features/admin";
 import { cn } from "#/lib/cn";
-import { HUB_TILES } from "#/seams/hub";
+import { HUB_NAMESPACES, HUB_TILES } from "#/seams/hub";
 import { submitSearch } from "./api";
 import { useHasKeyboard } from "./hooks";
+import { closeQuickSearch, usePalette } from "./palette";
 import { optionId, SuggestionList, useOpenSuggestion, useSuggestionKeys } from "./suggestion-list";
 import { destinationSuggestions } from "./suggestions";
 import { useSuggestions } from "./typeahead";
-
-const usePalette = create<{ open: boolean; query: string }>(() => ({ open: false, query: "" }));
-
-/** Opens the quick search over whatever page is showing, optionally with something typed already. */
-export function openQuickSearch(query = ""): void {
-  usePalette.setState({ open: true, query });
-}
-
-export function closeQuickSearch(): void {
-  usePalette.setState({ open: false });
-}
-
-export function toggleQuickSearch(): void {
-  usePalette.setState((state) => ({ open: !state.open, query: "" }));
-}
 
 /**
  * Quick search: a command palette that answers while typing and jumps
@@ -64,6 +49,7 @@ export function QuickSearch() {
 /** The inside of the palette; mounted while it is open, so each opening starts fresh. */
 function Palette({ field }: { field: RefObject<HTMLInputElement | null> }) {
   const { t } = useTranslation("search");
+  const { t: tileName } = useTranslation(HUB_NAMESPACES, { useSuspense: false });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const keyboard = useHasKeyboard();
@@ -76,6 +62,7 @@ function Palette({ field }: { field: RefObject<HTMLInputElement | null> }) {
     ...destinationSuggestions(
       text,
       HUB_TILES.filter((tile) => isStaff || !tile.staffOnly),
+      (tile) => tileName(tile.label),
     ),
     ...typeahead.suggestions,
   ];

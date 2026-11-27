@@ -8,9 +8,10 @@ import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { systemClient } from "../api";
+import { SUBJECT_TYPES } from "../filter-values";
 import { formatDateTime, fromLocalInput } from "../format";
-import { SUBJECT_TYPES, subjectTypeKey } from "../labels";
-import { parseChoice, parseText } from "../params";
+import { subjectTypeKey } from "../labels";
+import { parseChoice } from "../params";
 import { ConsolePage } from "../ui/console-page";
 import { type Column, DataTable } from "../ui/data-table";
 import {
@@ -25,11 +26,8 @@ import { ToneChip } from "../ui/tone";
 import { UserCell } from "../ui/user";
 import { UserName } from "../ui/user-name";
 import { UserPicker } from "../ui/user-picker";
+import { type AuditSearch, TARGET_TYPES, type TargetType } from "./audit-search";
 import { JsonDiff } from "./json-diff";
-
-/** The kinds of thing an audit entry can be about. */
-const TARGET_TYPES = ["user", "case", "subject", "flag", "announcement"] as const;
-type TargetType = (typeof TARGET_TYPES)[number];
 
 /** Every action the admin domain records, grouped by what it acts on (`docs/events/admin.md`). */
 const ACTIONS: Record<string, string[]> = {
@@ -59,30 +57,6 @@ const ACTIONS: Record<string, string[]> = {
     "announcement.deleted",
   ],
 };
-
-/** The audit log's filters, kept in the address bar. Times are local `YYYY-MM-DDTHH:mm`. */
-export interface AuditSearch {
-  actor?: string;
-  /** An exact action (`user.suspended`) or a prefix ending in a dot (`user.`). */
-  action?: string;
-  targetType?: TargetType;
-  targetId?: string;
-  targetUser?: string;
-  since?: string;
-  until?: string;
-}
-
-export function parseAuditSearch(search: Record<string, unknown>): AuditSearch {
-  return {
-    actor: parseText(search.actor),
-    action: parseText(search.action),
-    targetType: parseChoice(search.targetType, TARGET_TYPES),
-    targetId: parseText(search.targetId),
-    targetUser: parseText(search.targetUser),
-    since: parseText(search.since),
-    until: parseText(search.until),
-  };
-}
 
 /** `/admin/audit`: who did what, to what, and why. */
 export function AuditScreen({ search }: { search: AuditSearch }) {

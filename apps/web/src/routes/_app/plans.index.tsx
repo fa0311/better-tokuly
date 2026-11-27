@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { PlansScreen, parsePlansSearch } from "#/features/plans/plans-screen";
+import { PlansScreen } from "#/features/plans/plans-screen";
+import { parsePlansSearch } from "#/features/plans/plans-search";
 
 /** The plans hub. `?tab=polls|moments` selects a tab, so going back returns to it. */
 export const Route = createFileRoute("/_app/plans/")({

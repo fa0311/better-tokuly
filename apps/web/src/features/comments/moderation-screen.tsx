@@ -38,12 +38,10 @@ import {
 import { authorName } from "./author";
 import { ContextRow } from "./context-row";
 import { BlockedCommenters, Rules } from "./moderation-rules";
+import type { ModerationTab } from "./moderation-search";
 import { useReviewQueueRealtime } from "./realtime";
 
 const { CommentStatus } = engagement;
-
-export const MODERATION_TABS = ["queue", "received", "mine", "rules", "blocked"] as const;
-export type ModerationTab = (typeof MODERATION_TABS)[number];
 
 type ReceivedPages = InfiniteData<engagement.ListReceivedCommentsResponse>;
 

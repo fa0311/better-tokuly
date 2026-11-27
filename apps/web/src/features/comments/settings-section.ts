@@ -1,5 +1,5 @@
 import { MessageSquareText } from "lucide-react";
-import i18n from "#/lib/i18n";
+import { useTranslation } from "react-i18next";
 import type { SettingsSection } from "#/seams/settings";
 import { useHeldCount } from "./api";
 
@@ -10,10 +10,11 @@ export default {
   to: "/settings/comments",
   icon: MessageSquareText,
   tint: "bg-sky text-[#17122b]",
-  title: () => i18n.t("comments:settingsRow.title"),
-  hint: () => i18n.t("comments:settingsRow.hint"),
+  title: "comments:settingsRow.title",
+  hint: "comments:settingsRow.hint",
   useAttention: () => {
+    const { t } = useTranslation("comments");
     const held = useHeldCount().data ?? 0;
-    return held > 0 ? i18n.t("comments:settingsRow.held", { count: held }) : undefined;
+    return held > 0 ? t("settingsRow.held", { count: held }) : undefined;
   },
 } satisfies SettingsSection;

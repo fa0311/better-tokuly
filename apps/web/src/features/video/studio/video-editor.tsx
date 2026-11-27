@@ -38,11 +38,9 @@ import {
 import { FormSection, VideoStateChips } from "./shared";
 import { SubtitlesTab } from "./subtitles";
 import { ThumbnailField } from "./thumbnail-field";
+import type { EditorTab } from "./video-editor-search";
 
 const { VideoStatus, ProcessingState } = video;
-
-export const EDITOR_TABS = ["details", "subtitles", "analytics"] as const;
-export type EditorTab = (typeof EDITOR_TABS)[number];
 
 /**
  * `/studio/videos/<id>`: one video of the creator. The details, subtitles

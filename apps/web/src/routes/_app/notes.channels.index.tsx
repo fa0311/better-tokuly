@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ChannelsScreen, parseChannelsSearch } from "#/features/notes/channels-screen";
+import { ChannelsScreen } from "#/features/notes/channels-screen";
+import { parseChannelsSearch } from "#/features/notes/channels-search";
 
 /** The channel directory. `?tab=followed|managed` and `?q=` keep the list on going back. */
 export const Route = createFileRoute("/_app/notes/channels/")({

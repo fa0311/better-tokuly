@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { contextOfSearch, validateShortSearch } from "@tokuly/core/shorts";
+import { contextOfSearch, validateShortSearch } from "@tokuly/core/shorts/search";
 import { ShortScreen } from "#/features/shorts/feed/feed-screen";
 
 /**

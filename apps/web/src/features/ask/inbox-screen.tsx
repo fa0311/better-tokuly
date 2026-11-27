@@ -12,14 +12,12 @@ import { Tabs } from "#/components/ui/tabs";
 import { compactAge } from "#/lib/format";
 import { useMe } from "#/stores/session";
 import { boxClient, useInbox, useInboxCounts, useSettings } from "./api";
+import { INBOX_TABS, type InboxTab } from "./inbox-search";
 import { Picture, Sender } from "./parts";
 import { QaCard } from "./qa-card";
 import { useQuestionActions } from "./question-actions";
 import { BoxShareSheet } from "./share-sheet";
 import { SwipeRow } from "./swipe-row";
-
-export const INBOX_TABS = ["inbox", "answered", "archived", "filtered"] as const;
-export type InboxTab = (typeof INBOX_TABS)[number];
 
 const FOLDERS: Record<InboxTab, ask.QuestionFolder> = {
   inbox: ask.QuestionFolder.INBOX,

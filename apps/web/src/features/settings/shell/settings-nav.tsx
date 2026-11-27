@@ -6,7 +6,7 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
-import { SETTINGS_SECTIONS, type SettingsSection } from "#/seams/settings";
+import { SETTINGS_NAMESPACES, SETTINGS_SECTIONS, type SettingsSection } from "#/seams/settings";
 import { signOut as signOutOfApp, useMe } from "#/stores/session";
 
 /** Who is signed in, leading to their public profile (to check how an edit looks). */
@@ -55,6 +55,7 @@ function SectionRow({ section, active }: { section: SettingsSection; active: boo
   const Icon = section.icon;
   // Sections that want the person's attention say why, with a dot.
   const note = (section.useAttention ?? noAttention)();
+  const { t: name } = useTranslation(SETTINGS_NAMESPACES, { useSuspense: false });
   return (
     <Link
       to={section.to}
@@ -73,11 +74,11 @@ function SectionRow({ section, active }: { section: SettingsSection; active: boo
         <Icon className="size-5" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-black">{section.title()}</span>
+        <span className="block truncate font-black">{name(section.title)}</span>
         <span
           className={cn("block truncate text-sm", note ? "font-bold text-danger" : "text-ink-soft")}
         >
-          {note ?? section.hint()}
+          {note ?? name(section.hint)}
         </span>
       </span>
       {note && <span aria-hidden className="size-2.5 shrink-0 rounded-full bg-pink" />}

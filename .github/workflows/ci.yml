@@ -306,6 +306,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-js
       - run: pnpm --filter @tokuly/web build
+      # What the first page of each route downloads must stay within apps/web/startup-budget.json.
+      - run: pnpm --filter @tokuly/web size --check
 
   # ── Client packages (packages/*) ────────────────────────────────────────────
   packages-test:

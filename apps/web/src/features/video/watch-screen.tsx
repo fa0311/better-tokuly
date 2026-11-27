@@ -1,13 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, toMillis, video } from "@tokuly/api";
-import {
-  blockKind,
-  rateVideo,
-  startPosition,
-  validateWatchSearch,
-  type WatchSearch,
-} from "@tokuly/core/video";
+import { blockKind, rateVideo, startPosition, type WatchSearch } from "@tokuly/core/video";
 import {
   BarChart3,
   Clock3,
@@ -39,8 +33,6 @@ import { SubscribeButton } from "./subscribe-button";
 import { ChannelAvatar, ChannelName, imageUrl, VideoCard, VideoCardSkeleton } from "./video-card";
 
 const { Rating, VideoStatus, TrafficSource } = video;
-
-export { validateWatchSearch, type WatchSearch };
 
 const THEATRE_KEY = "tokuly.player.theatre";
 

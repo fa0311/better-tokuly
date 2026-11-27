@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { parseSpacesSearch, SpacesScreen } from "#/features/spaces/spaces-screen";
+import { SpacesScreen } from "#/features/spaces/spaces-screen";
+import { parseSpacesSearch } from "#/features/spaces/spaces-search";
 
 /** Rooms and hangouts. `?tab=hangouts|mine` selects a tab, `?tag=` filters the public rooms. */
 export const Route = createFileRoute("/_app/spaces/")({

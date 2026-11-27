@@ -1,8 +1,10 @@
 import { community } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
+import { CATEGORY_KEYS } from "./categories";
 import {
   appPathOf,
   assignableRoles,
+  CATEGORIES,
   canRead,
   checkInOpen,
   eventPhase,
@@ -16,6 +18,12 @@ import {
 
 const R = community.MemberRole;
 const at = (ms: number) => ({ seconds: BigInt(ms / 1000), nanos: 0 }) as never;
+
+describe("CATEGORIES", () => {
+  it("names every category the address may carry, in the same order", () => {
+    expect(CATEGORIES.map((category) => category.key)).toEqual([...CATEGORY_KEYS]);
+  });
+});
 
 describe("appPathOf", () => {
   it("maps the domain's paths to this app's community pages", () => {

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { QuickSearch, toggleQuickSearch } from "./quick-search";
+import { toggleQuickSearch } from "./palette";
+import { QuickSearch } from "./quick-search";
 import { SEARCH_BOX_ATTRIBUTE } from "./search-box";
 
 /** Whether a key press belongs to something that is being typed into. */

@@ -16,25 +16,9 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { analyticsClient, shortKeys, useShort } from "../api";
 import { ChoiceChips } from "../sort-chips";
+import { type AnalyticsSearch, RANGES } from "./analytics-search";
 
 const { PlaybackSource } = shorts;
-
-export const RANGES = [7, 28, 90] as const;
-export type RangeDays = (typeof RANGES)[number];
-
-export interface AnalyticsSearch {
-  /** One short's numbers instead of the channel's. */
-  short?: string;
-  days?: RangeDays;
-}
-
-export function validateAnalyticsSearch(search: Record<string, unknown>): AnalyticsSearch {
-  const days = RANGES.find((value) => value === Number(search.days));
-  return {
-    ...(typeof search.short === "string" && search.short ? { short: search.short } : {}),
-    ...(days && days !== 28 ? { days } : {}),
-  };
-}
 
 const SOURCE_KEYS: Record<number, string> = {
   [PlaybackSource.FOR_YOU]: "forYou",

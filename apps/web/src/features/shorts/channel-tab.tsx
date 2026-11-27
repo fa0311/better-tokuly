@@ -5,7 +5,6 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
 import type { ChannelTab } from "#/features/video";
-import i18n from "#/lib/i18n";
 import { ShortList } from "./short-tile";
 import { ChoiceChips } from "./sort-chips";
 
@@ -57,6 +56,6 @@ function ChannelShorts({ channel }: { channel: video.Channel }) {
 export default {
   id: "shorts",
   order: 20,
-  label: () => i18n.t("shorts:channel.tab"),
+  label: "shorts:channel.tab",
   Component: ChannelShorts,
 } satisfies ChannelTab;

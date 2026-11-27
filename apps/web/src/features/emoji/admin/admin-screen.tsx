@@ -4,28 +4,12 @@ import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { useStaffAccess } from "#/features/admin";
+import { ADMIN_TABS, type AdminSearch, type AdminTab } from "./admin-search";
 import { AllEmoji } from "./all";
 import { Categories } from "./categories";
 import { Packs } from "./packs";
 import { ReviewQueue, useReviewQueue } from "./queue";
 import { TrustedSubmitters } from "./trusted";
-
-const TABS = ["queue", "all", "categories", "trusted", "packs"] as const;
-type Tab = (typeof TABS)[number];
-
-/** What the staff page shows, as kept in the address: `/admin/emoji?tab=all&q=neko`. */
-export interface AdminSearch {
-  tab?: Tab;
-  /** A name to look for on the "all" tab (the "manage" link on an emoji's page). */
-  q?: string;
-}
-
-export function validateAdminSearch(search: Record<string, unknown>): AdminSearch {
-  return {
-    tab: TABS.find((tab) => tab === search.tab),
-    q: typeof search.q === "string" ? search.q.slice(0, 64) : undefined,
-  };
-}
 
 /**
  * The staff page for custom emoji, inside the admin console: the review
@@ -66,7 +50,15 @@ export function AdminScreen({ search }: { search: AdminSearch }) {
   );
 }
 
-function Moderation({ tab, query, onTab }: { tab: Tab; query: string; onTab(tab: Tab): void }) {
+function Moderation({
+  tab,
+  query,
+  onTab,
+}: {
+  tab: AdminTab;
+  query: string;
+  onTab(tab: AdminTab): void;
+}) {
   const { t } = useTranslation("emoji");
   const queue = useReviewQueue();
   const waiting = queue.data?.pages[0]?.pendingCount;
@@ -80,10 +72,10 @@ function Moderation({ tab, query, onTab }: { tab: Tab; query: string; onTab(tab:
   return (
     <>
       <div ref={strip}>
-        <Tabs<Tab>
+        <Tabs<AdminTab>
           value={tab}
           onChange={onTab}
-          items={TABS.map((value) => ({
+          items={ADMIN_TABS.map((value) => ({
             value,
             label: t(`admin.tabs.${value}`),
             badge: value === "queue" ? waiting : undefined,

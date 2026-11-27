@@ -2,7 +2,8 @@ import { defaultParseSearch } from "@tanstack/react-router";
 import { search } from "@tokuly/api";
 import { MAX_QUERY_LENGTH } from "@tokuly/core/search";
 import { describe, expect, it } from "vitest";
-import { parseSearchParams, searchHref } from "./params";
+import { searchHref } from "./hit-href";
+import { parseSearchParams } from "./params";
 
 describe("the address of a result page", () => {
   it("reads query, tab, order and owner", () => {

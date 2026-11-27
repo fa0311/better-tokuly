@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dayKey, groupByDay } from "./days";
-import { parseRecapSearch } from "./recap-screen";
+import { parseRecapSearch } from "./recap-search";
 
 describe("groupByDay", () => {
   it("splits a list in time order into runs of the same day", () => {

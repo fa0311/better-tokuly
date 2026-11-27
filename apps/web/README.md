@@ -168,14 +168,20 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
 - Every string goes through `useTranslation("<namespace>")`, in Japanese
   (casual and friendly, like 「友達と位置情報共有を楽しもう!」) and English.
   A file in `src/i18n/ja/` and its twin in `src/i18n/en/` are a namespace
-  named after the file; nothing needs registering. The namespaces of the
+  named after the file; nothing needs registering. The browser loads only
+  the language it shows, and a namespace when a component first asks for it
+  (`#/lib/i18n`). The namespaces of the
   areas every app has are in `packages/i18n/src/{ja,en}/` (listed in its
   `index.ts`).
 
 **Checks**
 
 - `pnpm --filter @tokuly/web typecheck` and `test` must pass; `vite build`
-  must succeed. Changes to `packages/` also need
+  must succeed, and after it `pnpm --filter @tokuly/web size --check`: what
+  the first page of a route downloads stays within `startup-budget.json`.
+  Anything outside a route's `component` (`validateSearch`, `beforeLoad`,
+  `head`) is in every page's download: take it from a small module
+  (`<screen>-search.ts`), never from a screen. Changes to `packages/` also need
   `pnpm --filter "./packages/*" test` and `typecheck`.
 - Formatting and lint: `pnpm lint:web` (repo root; Biome, line width 100,
   sorted imports) must be clean — CI checks it. `pnpm format:web` fixes what

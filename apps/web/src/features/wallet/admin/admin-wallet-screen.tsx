@@ -6,22 +6,11 @@ import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { walletAdminClient } from "../api";
 import { AdjustmentsLog } from "./adjustments";
+import { STAFF_TABS, type StaffTab, type StaffWalletSearch } from "./admin-wallet-search";
 import { useWalletStaffAccess } from "./hooks";
 import { PackageManager } from "./packages";
 import { PayoutQueue } from "./payout-queue";
 import { UserWallets } from "./user-wallets";
-
-export const STAFF_TABS = ["payouts", "users", "adjustments", "packages"] as const;
-export type StaffTab = (typeof STAFF_TABS)[number];
-
-/** Where the staff page is, as kept in the address (so a view can be linked and survives a reload). */
-export interface StaffWalletSearch {
-  tab?: StaffTab;
-  /** The account open in the "users" tab. */
-  user?: string;
-  /** The payout request open in the "payouts" tab. */
-  payout?: string;
-}
 
 /**
  * The staff side of the wallet, inside the admin console: the payout review

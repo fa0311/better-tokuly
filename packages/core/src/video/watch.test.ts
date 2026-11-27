@@ -1,5 +1,6 @@
 import { common, create, video } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
+import { validateWatchSearch } from "./search";
 import {
   audienceKey,
   blockKind,
@@ -8,7 +9,6 @@ import {
   nextInQueue,
   playlistTitle,
   startPosition,
-  validateWatchSearch,
   withRating,
 } from "./watch";
 

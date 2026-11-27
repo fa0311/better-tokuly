@@ -167,7 +167,7 @@ export function ChannelLayout({ handle }: { handle: string }) {
             }
             items={[
               { value: "home", label: t("channel.tabs.home") },
-              ...tabs.map((tab) => ({ value: tab.id, label: tab.label() })),
+              ...tabs.map((tab) => ({ value: tab.id, label: t(tab.label) })),
             ]}
           />
         </div>

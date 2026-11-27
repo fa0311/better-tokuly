@@ -7,10 +7,9 @@ import {
   SlidersHorizontal,
   Users,
 } from "lucide-react";
-import i18n from "#/lib/i18n";
 import type { AdminSection } from "#/seams/admin";
 
-const label = (key: string) => () => i18n.t(`admin:nav.${key}`);
+const label = (key: string) => `admin:nav.${key}`;
 
 /** The console's own sections; the review pages of other domains follow (their `admin-section.ts`). */
 export default [

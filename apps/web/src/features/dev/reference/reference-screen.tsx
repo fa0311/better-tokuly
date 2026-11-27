@@ -19,12 +19,12 @@ import {
   methodPath,
   methodUrl,
   searchMethods,
-  serviceShortName,
   useMethod,
   useReference,
   useServices,
 } from "./data";
 import { curlExample, typescriptExample, WEBHOOK_VERIFY_EXAMPLE } from "./examples";
+import { serviceShortName } from "./head";
 import { exampleOf, parseSchema, reasonsOf } from "./schema";
 import { Prose, SchemaView } from "./schema-view";
 import { TryIt } from "./try-it";

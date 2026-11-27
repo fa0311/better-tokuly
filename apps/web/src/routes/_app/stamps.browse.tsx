@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { BrowseScreen, validateBrowseSearch } from "#/features/stamps/browse-screen";
+import { BrowseScreen } from "#/features/stamps/browse-screen";
+import { validateBrowseSearch } from "#/features/stamps/browse-search";
 
 export const Route = createFileRoute("/_app/stamps/browse")({
   // The search, shelf, tag and price filter live in the address:

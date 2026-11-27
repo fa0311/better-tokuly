@@ -9,14 +9,14 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
-import i18n from "#/lib/i18n";
+import { useTranslation } from "react-i18next";
 import type { SettingsSection } from "#/seams/settings";
 import { useMe } from "#/stores/session";
 
 const INK = "text-[#17122b]";
 const strings = (id: string) => ({
-  title: () => i18n.t(`settings:sections.${id}.title`),
-  hint: () => i18n.t(`settings:sections.${id}.hint`),
+  title: `settings:sections.${id}.title`,
+  hint: `settings:sections.${id}.hint`,
 });
 
 /**
@@ -56,10 +56,9 @@ export default [
     tint: `bg-sun ${INK}`,
     ...strings("account"),
     useAttention: () => {
+      const { t } = useTranslation("settings");
       const me = useMe();
-      return me?.email && !me.emailVerified
-        ? i18n.t("settings:home.attention.emailUnverified")
-        : undefined;
+      return me?.email && !me.emailVerified ? t("home.attention.emailUnverified") : undefined;
     },
   },
   {
@@ -101,9 +100,9 @@ export default [
     icon: HardDriveDownload,
     tint: "bg-brand text-on-brand",
     ...strings("data"),
-    useAttention: () =>
-      useMe()?.deletionScheduledAt
-        ? i18n.t("settings:home.attention.deletionScheduled")
-        : undefined,
+    useAttention: () => {
+      const { t } = useTranslation("settings");
+      return useMe()?.deletionScheduledAt ? t("home.attention.deletionScheduled") : undefined;
+    },
   },
 ] satisfies SettingsSection[];

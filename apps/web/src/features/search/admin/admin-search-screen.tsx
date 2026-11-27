@@ -2,14 +2,12 @@ import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { useStaffAccess } from "#/features/admin";
+import { STAFF_TABS, type StaffTab } from "./admin-search-search";
 import { BlockedTerms } from "./blocked-terms";
 import { Documents } from "./documents";
 import { Indexes } from "./indexes";
 import { StaffPage } from "./parts";
 import { Synonyms } from "./synonyms";
-
-export const STAFF_TABS = ["indexes", "documents", "blocked", "synonyms"] as const;
-export type StaffTab = (typeof STAFF_TABS)[number];
 
 /**
  * `/admin/search`: the search engine as its operators see it — the state of

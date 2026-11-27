@@ -2,6 +2,7 @@ import { search } from "@tokuly/api";
 import { ja } from "@tokuly/i18n";
 import { describe, expect, it } from "vitest";
 import { hitExtra, isKind, KINDS, kindFromSlug, kindSlug } from "./kinds";
+import { KIND_SLUGS } from "./params";
 import { hitPath, isAppPath } from "./paths";
 
 const K = search.SearchKind;
@@ -39,7 +40,7 @@ describe("search kinds", () => {
 
   it("names every kind in the address, and reads the name back", () => {
     for (const kind of KINDS) expect(kindFromSlug(kindSlug(kind))).toBe(kind);
-    expect(new Set(KINDS.map(kindSlug)).size).toBe(KINDS.length);
+    expect(KINDS.map(kindSlug)).toEqual([...KIND_SLUGS]);
     expect(kindFromSlug("people")).toBe(K.USER);
     expect(kindFromSlug("everything")).toBeUndefined();
     expect(kindFromSlug(3)).toBeUndefined();

@@ -1,5 +1,6 @@
 import type { LinkProps } from "@tanstack/react-router";
 import type { ComponentType } from "react";
+import { namespacesOf } from "#/lib/i18n";
 
 /**
  * Settings sections: the rows of `/settings` (and of the list next to every
@@ -14,8 +15,8 @@ import type { ComponentType } from "react";
  *     to: "/settings/comments",
  *     icon: MessageSquareText,
  *     tint: "bg-sky text-[#17122b]",
- *     title: () => i18n.t("comments:settingsRow.title"),
- *     hint: () => i18n.t("comments:settingsRow.hint"),
+ *     title: "comments:settingsRow.title",
+ *     hint: "comments:settingsRow.hint",
  *   } satisfies SettingsSection;
  *
  * Give the page itself a route under `/settings/…` when it should open next
@@ -29,9 +30,9 @@ export interface SettingsSection {
   icon: ComponentType<{ className?: string }>;
   /** Background and text colour of the icon bubble. */
   tint: string;
-  title(): string;
+  title: string;
   /** One line under the title: what is inside. */
-  hint(): string;
+  hint: string;
   /** A hook returning a short note when the section wants attention (shown instead of the hint, with a dot). */
   useAttention?(): string | undefined;
 }
@@ -45,3 +46,8 @@ const modules = import.meta.glob<{ default: SettingsSection | SettingsSection[] 
 export const SETTINGS_SECTIONS: SettingsSection[] = Object.values(modules)
   .flatMap((module) => module.default)
   .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+
+/** What `useTranslation` loads before the rows' titles show. */
+export const SETTINGS_NAMESPACES = namespacesOf(
+  SETTINGS_SECTIONS.flatMap((section) => [section.title, section.hint]),
+);

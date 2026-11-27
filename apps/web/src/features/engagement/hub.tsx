@@ -1,5 +1,4 @@
 import { Bookmark } from "lucide-react";
-import i18n from "#/lib/i18n";
 import type { HubTile } from "#/seams/hub";
 
 /** The way in to saved things from the hub. */
@@ -9,7 +8,7 @@ export default [
     section: "make",
     order: 60,
     to: "/bookmarks",
-    label: () => i18n.t("engagement:tile"),
+    label: "engagement:tile",
     icon: Bookmark,
     tint: "bg-sky",
     keywords: ["bookmarks", "saved", "ブックマーク", "保存"],

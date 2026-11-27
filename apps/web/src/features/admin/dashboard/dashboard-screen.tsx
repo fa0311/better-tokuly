@@ -7,7 +7,7 @@ import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { compactDuration } from "#/lib/format";
-import { ADMIN_SECTIONS } from "#/seams/admin";
+import { ADMIN_NAMESPACES, ADMIN_SECTIONS } from "#/seams/admin";
 import { systemClient } from "../api";
 import { formatBytes, formatCompact, formatCount, formatDateTime } from "../format";
 import { useStaffAccess } from "../roles";
@@ -361,6 +361,7 @@ function StreamTable({ stream }: { stream: admin.StreamStats }) {
 /** Staff without the admin role see no server numbers: point them at what they can open. */
 function StaffHome() {
   const { t } = useTranslation("admin");
+  const { t: name } = useTranslation(ADMIN_NAMESPACES, { useSuspense: false });
   const access = useStaffAccess();
   const sections = ADMIN_SECTIONS.filter((item) => item.to !== "/admin" && access[item.needs]);
   return (
@@ -382,7 +383,7 @@ function StaffHome() {
                   <span className="grid size-9 place-items-center rounded-xl border-2 border-ink bg-coral text-[#17122b]">
                     <Icon className="size-5" />
                   </span>
-                  <span className="font-black">{item.label()}</span>
+                  <span className="font-black">{name(item.label)}</span>
                 </Link>
               </li>
             );

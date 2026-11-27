@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AuditScreen, parseAuditSearch } from "#/features/admin/audit/audit-screen";
+import { AuditScreen } from "#/features/admin/audit/audit-screen";
+import { parseAuditSearch } from "#/features/admin/audit/audit-search";
 import { RequireAccess } from "#/features/admin/console-layout";
 
 export const Route = createFileRoute("/_app/admin/audit")({
