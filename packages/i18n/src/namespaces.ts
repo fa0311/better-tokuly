@@ -1,0 +1,39 @@
+/**
+ * The shared namespaces by name: one file per namespace in `./ja` and `./en`
+ * (a test ties the list to them).
+ */
+export const NAMESPACES = [
+  "accounts",
+  "ask",
+  "auth",
+  "chat",
+  "clips",
+  "common",
+  "community",
+  "emoji",
+  "errors",
+  "follows",
+  "footprints",
+  "friends",
+  "history",
+  "live",
+  "map",
+  "mobile",
+  "notelists",
+  "notes",
+  "notifications",
+  "places",
+  "plans",
+  "profile",
+  "quest",
+  "school",
+  "search",
+  "settings",
+  "shorts",
+  "spaces",
+  "stamps",
+  "stories",
+  "video",
+  "wallet",
+] as const;
+export type Namespace = (typeof NAMESPACES)[number];

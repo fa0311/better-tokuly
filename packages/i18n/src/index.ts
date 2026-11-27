@@ -10,5 +10,5 @@ import en from "./en";
 import ja from "./ja";
 
 export { type Language, normalizeLanguage, SUPPORTED_LANGUAGES } from "./language";
-export { NAMESPACES, type Namespace } from "./load";
+export { NAMESPACES, type Namespace } from "./namespaces";
 export { en, ja };
