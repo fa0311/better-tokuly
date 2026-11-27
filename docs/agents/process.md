@@ -28,6 +28,12 @@ Every PR gets an independent review before merge ([`review.md`](review.md)); ris
 location, privacy, minors) by the strongest model available, with fixes committed onto the PR. A second,
 narrower re-check after fixes for those risky ones. Verify claims yourself where cheap (checksums, a test).
 
+## Stacked pull requests
+
+A pure move of shared code goes first, the feature on top. Review and merge the move as soon as it is ready:
+moves of several areas touch the same index files and conflict with each other while they wait. After the
+squash merge, move the feature onto main with `git rebase --onto origin/main <old head of the move>`.
+
 ## Releasing
 
 Tag only when CI, Stack and End to end are green on the commit (`gh workflow run e2e.yml --ref main` when a
