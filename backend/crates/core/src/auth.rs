@@ -456,14 +456,6 @@ pub fn cookie_header(headers: &http::HeaderMap) -> String {
         .join("; ")
 }
 
-/// The `X-Forwarded-For` chain of a request: every field of that name, in
-/// order. A proxy may add its entry as a field of its own after the one the
-/// client sent; read alone, the first field would be the client's word.
-fn forwarded_for(headers: &http::HeaderMap) -> Option<String> {
-    let fields: Vec<&str> = headers.get_all("x-forwarded-for").iter().map(|value| value.to_str().unwrap_or_default()).collect();
-    (!fields.is_empty()).then(|| fields.join(","))
-}
-
 /// Axum middleware: authenticates the request and records [`AuthState`] and
 /// [`ClientMeta`] for handlers.
 ///
@@ -489,7 +481,7 @@ pub async fn auth_middleware(
     let address = req
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|peer| layer.trusted_proxies.client_ip(peer.0.ip(), forwarded_for(headers).as_deref()));
+        .map(|peer| layer.trusted_proxies.client_of(peer.0.ip(), headers));
     let meta = ClientMeta {
         ip: address.map(|address| address.to_string()).unwrap_or_default(),
         user_agent: text("user-agent"),

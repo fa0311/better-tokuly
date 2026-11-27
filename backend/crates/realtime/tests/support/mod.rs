@@ -237,8 +237,8 @@ pub fn is_topic_stats(frame: &ServerFrame) -> bool {
 pub struct WsOptions<'a> {
     /// The `Origin` header (browsers send one, native apps do not).
     pub origin: Option<&'a str>,
-    /// The `X-Forwarded-For` header, as an edge proxy would set it.
-    pub forwarded_for: Option<&'a str>,
+    /// The `X-Forwarded-For` fields, in order, as the proxies in front would set them.
+    pub forwarded_for: &'a [&'a str],
     /// Size of the socket's receive buffer (small = stalls the sender soon).
     pub receive_buffer: Option<u32>,
 }
@@ -262,10 +262,12 @@ impl WsClient {
         }
         let tcp = socket.connect(addr).await.expect("TCP connection to the gateway");
         let mut request = format!("ws://{addr}/rt/ws").into_client_request().expect("request");
-        for (name, value) in [("origin", options.origin), ("x-forwarded-for", options.forwarded_for)] {
-            if let Some(value) = value {
-                request.headers_mut().insert(name, value.parse().expect("header value"));
-            }
+        let headers = request.headers_mut();
+        if let Some(origin) = options.origin {
+            headers.insert("origin", origin.parse().expect("header value"));
+        }
+        for hops in options.forwarded_for {
+            headers.append("x-forwarded-for", hops.parse().expect("header value"));
         }
         match tokio_tungstenite::client_async(request, tcp).await {
             Ok((stream, _response)) => Ok(Self { stream, next_id: 1 }),
