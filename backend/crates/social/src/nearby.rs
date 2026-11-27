@@ -22,7 +22,7 @@ use futures::{Stream, StreamExt as _};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokuly_core::{geoindex, prelude::*};
-use tokuly_identity::settings;
+use tokuly_identity::{age::AgeGroup, settings};
 use tokuly_proto::social::{DiscoverNearbyResponse, NearbyUser};
 
 use crate::{Social, claims::Claim, graph, livegeo::LiveGeoSet, people};
@@ -66,9 +66,9 @@ const SESSION_KEY_TTL: Duration = Duration::from_secs(MAX_SESSION.as_secs() + 60
 #[derive(Debug, Clone, Copy)]
 struct Spot {
     user_id: Uuid,
-    /// The user is a minor: they only meet other minors (see
-    /// [`people::minors_among`]).
-    minor: bool,
+    /// The user's age group: they only meet people of the same one, and
+    /// nobody without one (see [`people::age_groups_among`]).
+    age_group: Option<AgeGroup>,
     lat: f64,
     lng: f64,
     radius_meters: f64,
@@ -107,8 +107,8 @@ impl Social {
         core.cache.set_string(&session_key(user_id), &session, Some(SESSION_KEY_TTL)).await?;
 
         let allowance = if accuracy_meters.is_finite() { accuracy_meters.clamp(0.0, MAX_ACCURACY_ALLOWANCE) } else { 0.0 };
-        let minor = people::minors_among(core, &[user_id]).await?.contains(&user_id);
-        let spot = Spot { user_id, minor, lat, lng, radius_meters: self.cfg.nearby_radius_meters + allowance };
+        let age_group = people::age_groups_among(core, &[user_id]).await?.remove(&user_id);
+        let spot = Spot { user_id, age_group, lat, lng, radius_meters: self.cfg.nearby_radius_meters + allowance };
 
         // Listen before showing up, so nobody arriving after our first look
         // goes unnoticed.
@@ -201,7 +201,7 @@ impl Social {
 
     /// Everyone else in discovery around `spot`, nearest first. People in a
     /// block with the user are left out, in both directions, and so is
-    /// everyone of the other age group (minors and adults).
+    /// everyone of the other age group (minors and adults) or without one.
     async fn nearby_users(&self, spot: &Spot) -> AppResult<Vec<(Uuid, NearbyUser)>> {
         let core = &self.core;
         let hidden = graph::blocked_ids_either(core, spot.user_id).await?;
@@ -211,8 +211,8 @@ impl Social {
             .into_iter()
             .filter(|(id, _)| *id != spot.user_id && !hidden.contains(id))
             .collect();
-        let minors = people::minors_among(core, &found.iter().map(|(id, _)| *id).collect::<Vec<_>>()).await?;
-        found.retain(|(id, _)| minors.contains(id) == spot.minor);
+        let groups = people::age_groups_among(core, &found.iter().map(|(id, _)| *id).collect::<Vec<_>>()).await?;
+        found.retain(|(id, _)| spot.age_group.is_some() && groups.get(id) == spot.age_group.as_ref());
         found.truncate(MAX_NEARBY);
         let ids: Vec<Uuid> = found.iter().map(|(id, _)| *id).collect();
         let summaries = tokuly_identity::summaries(core, &ids).await?;

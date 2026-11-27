@@ -66,8 +66,8 @@ See their proto files. Summary of behaviour that is not obvious from the API:
   weekly streak counter, plus manual favourites. Blocking is silent and hides
   both users from each other everywhere. Invite links/QR count "intros".
   Nearby discovery pairs users with the add-friend screen open within ~50 m
-  (minors only with minors, adults only with adults; no birthdate yet
-  counts as a minor). Mutual friends (on profiles, in search, requests and
+  (minors only with minors, adults only with adults; an account without a
+  birthdate meets no stranger this way, nor in bumps or school suggestions). Mutual friends (on profiles, in search, requests and
   suggestions) follow the other user's friend list audience, like their best
   friends, except on a received request: whoever asks shows whom both know.
   Someone found by friends of friends only (every minor) is suggested to

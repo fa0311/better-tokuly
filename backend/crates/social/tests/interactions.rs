@@ -239,6 +239,24 @@ async fn minors_bump_adults_only_when_they_are_friends() {
 }
 
 #[tokio::test]
+async fn an_account_without_a_birthdate_bumps_friends_only() {
+    let ctx = start().await;
+    let (unknown, kid, adult, friend) = (ctx.app.user("unknown").await, ctx.app.user("kid").await, ctx.app.user("adult").await, ctx.app.user("friend").await);
+    sqlx::query("UPDATE users SET birthdate = NULL WHERE id = $1").bind(unknown.id).execute(&ctx.app.core.db).await.unwrap();
+    ctx.make_minor(&kid).await;
+    ctx.befriend(&unknown, &friend).await;
+
+    for stranger in [&kid, &adult] {
+        let spot = somewhere();
+        assert!(shake(&ctx, &unknown, spot).await.unwrap().is_empty());
+        assert!(shake(&ctx, stranger, north_of(spot, 3.0)).await.unwrap().is_empty(), "in neither age group");
+    }
+    let spot = somewhere();
+    assert!(shake(&ctx, &unknown, spot).await.unwrap().is_empty());
+    assert_eq!(shake(&ctx, &friend, north_of(spot, 3.0)).await.unwrap().len(), 1, "friends always may");
+}
+
+#[tokio::test]
 async fn a_bump_puts_a_declined_request_back_on_the_table() {
     let ctx = start().await;
     let (asker, decliner) = (ctx.app.user("asker").await, ctx.app.user("decliner").await);
