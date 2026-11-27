@@ -129,7 +129,14 @@ async function show(children: ReactNode) {
       }}
     >
       <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        client={
+          new QueryClient({
+            defaultOptions: {
+              queries: { retry: false, gcTime: Infinity },
+              mutations: { gcTime: Infinity },
+            },
+          })
+        }
       >
         {children}
       </QueryClientProvider>

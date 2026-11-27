@@ -319,6 +319,7 @@ export default {
         OTHER: "その他",
       },
     },
+  },
   school: {
     onWeb: "Webでひらくよ",
     timer: "勉強タイマー（Web）",

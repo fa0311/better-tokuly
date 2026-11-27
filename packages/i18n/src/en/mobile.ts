@@ -318,6 +318,7 @@ export default {
         OTHER: "Something else",
       },
     },
+  },
   school: {
     onWeb: "Opens on the web",
     timer: "Study timer (web)",
