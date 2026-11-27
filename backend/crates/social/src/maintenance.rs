@@ -8,7 +8,7 @@ use tokuly_core::{
     export::DataExporter,
     prelude::*,
 };
-use tokuly_identity::maintenance::{UserCreated, UserRef};
+use tokuly_identity::maintenance::{BirthdateGiven, UserCreated, UserRef};
 use tokuly_proto::social::social_event::Event as Push;
 
 use crate::{
@@ -22,6 +22,7 @@ use crate::{
 };
 
 const USER_CREATED: &str = "identity.user.created";
+const BIRTHDATE_GIVEN: &str = "identity.user.birthdate_given";
 const USER_DELETED: &str = "identity.user.deleted";
 const PRIVACY_CHANGED: &str = "identity.user.privacy_changed";
 const MUTE_CHANGED: &str = "notify.mute.changed";
@@ -52,6 +53,7 @@ impl Social {
             "social",
             &[
                 USER_CREATED,
+                BIRTHDATE_GIVEN,
                 USER_DELETED,
                 PRIVACY_CHANGED,
                 MUTE_CHANGED,
@@ -82,8 +84,12 @@ impl Social {
         match event.topic.as_str() {
             USER_CREATED => {
                 let created: UserCreated = event.data()?;
-                self.lock_if_minor(created.user_id).await?;
+                self.lock_if_minor(created.user_id, created.minor).await?;
                 self.record_intro(created.user_id, &created.invite_code).await
+            }
+            BIRTHDATE_GIVEN => {
+                let given: BirthdateGiven = event.data()?;
+                self.lock_if_minor(given.user_id, given.minor).await
             }
             USER_DELETED => self.forget_user(event.data::<UserRef>()?.user_id).await,
             PRIVACY_CHANGED => {

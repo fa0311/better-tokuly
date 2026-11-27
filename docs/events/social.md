@@ -14,7 +14,8 @@ Three relationships, none of which implies another:
   communities). Following someone gives no access to their location.
   A **locked** account approves its followers (declining is silent;
   unlocking approves every request still waiting). Accounts of minors (by
-  birthdate) are created locked (`identity.user.created`); turning 18
+  the age on the day the birthdate was given) are created locked
+  (`identity.user.created`, `identity.user.birthdate_given`); turning 18
   changes nothing.
 - **Circles**: the built-in close-friends list and up to 20 custom ones
   (name, one emoji, colour, order; 1000 members each). Members are the
@@ -72,8 +73,9 @@ Durable consumer `social`. Every handler is idempotent.
 
 | Topic | Reaction |
 |---|---|
-| `identity.user.created` | Stores `locked = true` follow settings for an account of a minor (unless it has settings already). If `invite_code` belongs to someone: records the intro, suggests the two to each other, and sends a friend request from the newcomer to the inviter (source `INVITE_LINK`; the inviter's "who may send me requests" audience does not apply, since they handed out the link). |
+| `identity.user.created` | Stores `locked = true` follow settings for an account of a minor (its `minor`; unless it has settings already). If `invite_code` belongs to someone: records the intro, suggests the two to each other, and sends a friend request from the newcomer to the inviter (source `INVITE_LINK`; the inviter's "who may send me requests" audience does not apply, since they handed out the link). |
 | `identity.user.deleted` | Deletes every row about the user (friendships, requests, blocks, suggestions, invite, intros, shared history, bumps, map reactions, map views, follows, follow requests, follow settings, dismissed follow suggestions, their circles and their memberships in others'), drops cached lists, and pushes `friend_removed_user_id` to their former friends. |
+| `identity.user.birthdate_given` | Stores `locked = true` follow settings when `minor` (unless the account has settings already). |
 | `identity.user.privacy_changed` | Re-syncs friends' view of the user's online state with `share_online_status`: hidden → pushed as offline (no "last seen"); shown again while online → pushed as online. With `nearby_discoverable` off, ends the user's open nearby session and takes them off the nearby map at once. |
 | `social.friend.accepted`, `social.friend.removed`, `social.friend.prefs_changed`, `social.user.blocked`, `social.user.unblocked`, `social.follow.created`, `social.follow.removed`, `social.circle.members_changed`, `social.circle.deleted` | Our own: drops the cached lists they changed, in case the request that made the change was cut off before doing so. |
 | `notify.mute.changed` | `{ user_id, muted_user_id, muted }`: mirrors a mute made in the notification settings onto the friendship's `muted` flag (when the two are friends). Not re-announced as `social.friend.prefs_changed`. |

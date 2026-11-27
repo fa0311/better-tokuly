@@ -236,12 +236,13 @@ fn mute_until(seconds: i64, now: DateTime<Utc>) -> AppResult<Option<DateTime<Utc
 }
 
 impl Social {
-    /// Stores a locked setting for a new account of a minor (by birthdate),
-    /// unless the account already has a setting of its own. Called once, when
-    /// the account is created: the lock then stays until its owner lifts it,
-    /// whatever the date.
-    pub(crate) async fn lock_if_minor(&self, user_id: Uuid) -> AppResult<()> {
-        if people::minors_among(&self.core, &[user_id]).await?.contains(&user_id) {
+    /// Stores a locked setting for the account of a minor, unless the account
+    /// already has a setting of its own. `minor` is the age group on the day
+    /// the birthdate was given (`identity.user.created`,
+    /// `identity.user.birthdate_given`): the lock then stays until its owner
+    /// lifts it, whatever the date.
+    pub(crate) async fn lock_if_minor(&self, user_id: Uuid, minor: bool) -> AppResult<()> {
+        if minor {
             sqlx::query("INSERT INTO follow_settings (user_id, locked) VALUES ($1, true) ON CONFLICT (user_id) DO NOTHING")
                 .bind(user_id)
                 .execute(&self.core.db)

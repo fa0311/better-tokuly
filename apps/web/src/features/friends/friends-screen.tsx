@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type common, errorReason, identity, social } from "@tokuly/api";
-import { friendKeys, friendQueries } from "@tokuly/core/friends";
+import { friendKeys, friendQueries, mutualFriendsOf } from "@tokuly/core/friends";
+import type { TFunction } from "i18next";
 import { Check, ChevronRight, Copy, Radar, Star, UserPlus, X } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
@@ -172,10 +173,10 @@ function Requests() {
                   key={request.id}
                   user={request.from}
                   subtitle={
-                    request.message ||
-                    (request.mutualFriendCount > 0
-                      ? t("requests.mutual", { count: request.mutualFriendCount })
-                      : undefined)
+                    // Whom both know is what helps decide: it may take a second line.
+                    <span className="line-clamp-2 whitespace-normal">
+                      {requestDetail(t, request) ?? `@${request.from.handle}`}
+                    </span>
                   }
                   trailing={
                     <span className="flex gap-2">
@@ -566,4 +567,18 @@ function Invite() {
       )}
     </Card>
   );
+}
+
+/** Under a friend request: its message, and whom both know (shown with names when the server sent them). */
+function requestDetail(t: TFunction<"friends">, request: social.FriendRequest): string | undefined {
+  const mutual = mutualFriendsOf(request);
+  const names = mutual?.names.join(t("requests.nameSeparator"));
+  const line = !mutual
+    ? undefined
+    : !names
+      ? t("requests.mutual", { count: request.mutualFriendCount })
+      : mutual.more > 0
+        ? t("requests.mutualNamedMore", { names, count: mutual.more })
+        : t("requests.mutualNamed", { names });
+  return [request.message, line].filter(Boolean).join(" · ") || undefined;
 }

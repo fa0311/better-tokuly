@@ -165,8 +165,12 @@ message FriendRequest {
   google.protobuf.Timestamp created_at = 6;
   // Friends the caller shares with the other side; 0 unless the other
   // side's friend list is visible to the caller (mutual friends are part
-  // of it). The same rule holds for every mutual-friend field.
+  // of it). The same rule holds for every mutual-friend field, except on a
+  // request the caller received: whoever asks shows the people both know,
+  // whatever their friend list's audience.
   int32 mutual_friend_count = 7;
+  // Up to three of them, under the same rule.
+  repeated tokuly.common.v1.UserSummary mutual_friends = 8;
 }
 
 enum FriendRequestDirection {

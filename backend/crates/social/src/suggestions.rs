@@ -20,7 +20,7 @@ const MAX_SUGGESTIONS: usize = 50;
 /// Candidates fetched per source before filtering.
 const CANDIDATES_PER_SOURCE: i64 = 100;
 /// Mutual friends shown with one suggestion.
-const MUTUAL_PREVIEW: usize = 3;
+pub(crate) const MUTUAL_PREVIEW: usize = 3;
 /// Most address-book hashes accepted per `MatchContacts` call.
 const MAX_CONTACT_HASHES: usize = 2000;
 /// Most distinct hashes one user may have looked up per day. An address
@@ -111,6 +111,14 @@ fn normalize_contact_hash(hash: &str) -> AppResult<String> {
     Ok(hash.to_ascii_lowercase())
 }
 
+/// How far a candidate lets themselves be found (privacy `discoverable_to`,
+/// within the limits for minors).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    Anyone,
+    FriendsOfFriends,
+}
+
 /// Orders candidates for display: by reason priority, then by how many
 /// friends they share with the user, then by ID for a stable result.
 fn rank_candidates(candidates: &mut [(Uuid, SuggestionReason)], mutual_counts: &HashMap<Uuid, usize>) {
@@ -156,8 +164,8 @@ impl Social {
         .bind(CANDIDATES_PER_SOURCE)
         .fetch_all(&core.db)
         .await?;
-        for candidate in friends_of_friends {
-            consider(candidate, SuggestionReason::FriendOfFriend);
+        for candidate in &friends_of_friends {
+            consider(*candidate, SuggestionReason::FriendOfFriend);
         }
         // A school is whatever an account says it is. Where that is all two
         // people have in common, they are suggested within their own age
@@ -168,10 +176,20 @@ impl Social {
         }
         reasons.remove(&user_id);
 
-        // 2. Drop everyone who should not be suggested.
+        // 2. Drop everyone who should not be suggested. Someone found by
+        //    friends of friends only (every minor) is suggested as one, and
+        //    only as one: no other reason may give away an address book,
+        //    an invite or a school.
         let candidate_ids: Vec<Uuid> = reasons.keys().copied().collect();
-        let suggestable = self.suggestable_among(user_id, &candidate_ids).await?;
-        let mut candidates: Vec<(Uuid, SuggestionReason)> = reasons.into_iter().filter(|(id, _)| suggestable.contains(id)).collect();
+        let reach = self.suggestable_among(user_id, &candidate_ids).await?;
+        let friends_of_friends: HashSet<Uuid> = friends_of_friends.into_iter().collect();
+        let mut candidates: Vec<(Uuid, SuggestionReason)> = reasons
+            .into_iter()
+            .filter_map(|(id, reason)| match reach.get(&id)? {
+                Reach::Anyone => Some((id, reason)),
+                Reach::FriendsOfFriends => friends_of_friends.contains(&id).then_some((id, SuggestionReason::FriendOfFriend)),
+            })
+            .collect();
 
         // 3. Rank, cut, and decorate with mutual friends.
         let ids: Vec<Uuid> = candidates.iter().map(|(id, _)| *id).collect();
@@ -204,13 +222,14 @@ impl Social {
             .collect())
     }
 
-    /// The members of `candidates` that may be suggested to `user_id`: active
-    /// and discoverable accounts with which the user has no relationship yet
-    /// (friend, request in either direction, block in either direction) and
-    /// which the user has not dismissed.
-    async fn suggestable_among(&self, user_id: Uuid, candidates: &[Uuid]) -> AppResult<HashSet<Uuid>> {
+    /// The members of `candidates` that may be suggested to `user_id`, with
+    /// how far they let themselves be found: active and discoverable
+    /// accounts with which the user has no relationship yet (friend, request
+    /// in either direction, block in either direction) and which the user
+    /// has not dismissed.
+    async fn suggestable_among(&self, user_id: Uuid, candidates: &[Uuid]) -> AppResult<HashMap<Uuid, Reach>> {
         if candidates.is_empty() {
-            return Ok(HashSet::new());
+            return Ok(HashMap::new());
         }
         let core = &self.core;
         let unrelated: Vec<Uuid> = sqlx::query_scalar(
@@ -228,12 +247,22 @@ impl Social {
         .await?;
         let active = users::filter_active(core, &unrelated).await?;
         let privacy = settings::privacy_of_many(core, &active).await?;
-        Ok(active.into_iter().filter(|id| privacy.get(id).is_some_and(settings::findable_by_anyone)).collect())
+        Ok(active
+            .into_iter()
+            .filter_map(|id| {
+                let privacy = privacy.get(&id)?;
+                if settings::findable_by_anyone(privacy) {
+                    Some((id, Reach::Anyone))
+                } else {
+                    settings::findable_by_friends_of_friends(privacy).then_some((id, Reach::FriendsOfFriends))
+                }
+            })
+            .collect())
     }
 
     /// The friends `user_id` shares with each of `others` (users without
     /// shared friends are absent).
-    async fn mutual_friends_with(&self, user_id: Uuid, others: &[Uuid]) -> AppResult<HashMap<Uuid, Vec<Uuid>>> {
+    pub(crate) async fn mutual_friends_with(&self, user_id: Uuid, others: &[Uuid]) -> AppResult<HashMap<Uuid, Vec<Uuid>>> {
         if others.is_empty() {
             return Ok(HashMap::new());
         }

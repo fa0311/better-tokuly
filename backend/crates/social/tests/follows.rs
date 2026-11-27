@@ -231,16 +231,22 @@ async fn requests_can_be_withdrawn_and_unlocking_approves_the_waiting_ones() {
     assert_eq!(ctx.app.events_by("social.follow.settings_changed", lock.id).await.len(), 2);
 }
 
-/// Delivers `identity.user.created` for `user` (no relay runs in tests).
-async fn created(ctx: &Ctx, user: &TestUser) {
+/// Delivers an identity event about `user` (no relay runs in tests).
+async fn deliver(ctx: &Ctx, user: &TestUser, topic: &str, data: serde_json::Value) {
     let event = tokuly_core::events::Event {
         id: Uuid::now_v7(),
-        topic: "identity.user.created".into(),
+        topic: topic.into(),
         actor_id: Some(user.id),
         occurred_at: chrono::Utc::now(),
-        data: serde_json::json!({ "user_id": user.id, "handle": user.handle, "invite_code": "" }),
+        data,
     };
     ctx.social.handle_event(&event).await.unwrap();
+}
+
+/// Delivers `identity.user.created` for `user`, signed up as a minor or not.
+async fn created(ctx: &Ctx, user: &TestUser, minor: bool) {
+    let data = serde_json::json!({ "user_id": user.id, "handle": user.handle, "invite_code": "", "minor": minor });
+    deliver(ctx, user, "identity.user.created", data).await;
 }
 
 async fn locked(ctx: &Ctx, user: &TestUser) -> bool {
@@ -253,8 +259,8 @@ async fn minors_start_locked_and_birthdays_change_nothing() {
     let ctx = start().await;
     let (teen, adult, late) = (ctx.app.user("teen").await, ctx.app.user("adult").await, ctx.app.user("late").await);
     ctx.make_minor(&teen).await;
-    created(&ctx, &teen).await;
-    created(&ctx, &adult).await;
+    created(&ctx, &teen, true).await;
+    created(&ctx, &adult, false).await;
     assert!(locked(&ctx, &teen).await);
     assert!(!locked(&ctx, &adult).await);
     assert_eq!(state(&ctx.follow(&adult, &teen).await), FollowState::FOLLOW_STATE_REQUESTED);
@@ -269,7 +275,26 @@ async fn minors_start_locked_and_birthdays_change_nothing() {
     // A redelivered sign-up event does not undo the owner's own choice.
     ctx.set_locked(&teen, false).await;
     ctx.make_minor(&teen).await;
-    created(&ctx, &teen).await;
+    created(&ctx, &teen, true).await;
+    assert!(!locked(&ctx, &teen).await);
+}
+
+#[tokio::test]
+async fn an_older_account_giving_a_minors_birthdate_is_locked_then() {
+    let ctx = start().await;
+    let (teen, adult, chose) = (ctx.app.user("teen").await, ctx.app.user("adult").await, ctx.app.user("chose").await);
+    let given = |user: &TestUser, minor: bool| serde_json::json!({ "user_id": user.id, "minor": minor });
+    deliver(&ctx, &teen, "identity.user.birthdate_given", given(&teen, true)).await;
+    deliver(&ctx, &adult, "identity.user.birthdate_given", given(&adult, false)).await;
+    assert!(locked(&ctx, &teen).await);
+    assert!(!locked(&ctx, &adult).await);
+    // A setting the account chose before stays, and so does a later choice
+    // when the event comes again.
+    ctx.set_locked(&chose, false).await;
+    deliver(&ctx, &chose, "identity.user.birthdate_given", given(&chose, true)).await;
+    assert!(!locked(&ctx, &chose).await);
+    ctx.set_locked(&teen, false).await;
+    deliver(&ctx, &teen, "identity.user.birthdate_given", given(&teen, true)).await;
     assert!(!locked(&ctx, &teen).await);
 }
 

@@ -17,6 +17,9 @@ export default {
     decline: "Decline",
     cancel: "Cancel",
     mutual: "{{count}} mutual friends",
+    mutualNamed: "Friends with {{names}}",
+    mutualNamedMore: "Friends with {{names}} and {{count}} more",
+    nameSeparator: ", ",
   },
   actions: {
     add: "Add",

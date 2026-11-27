@@ -1,5 +1,8 @@
 import { FlashList } from "@shopify/flash-list";
+import type { social } from "@tokuly/api";
+import { mutualFriendsOf } from "@tokuly/core/friends";
 import { Link } from "expo-router";
+import type { TFunction } from "i18next";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, TextInput, View } from "react-native";
@@ -121,18 +124,25 @@ function RequestLists() {
           );
         const user = item.kind === "incoming" ? item.request.from : item.request.to;
         return (
-          <PersonRow
-            user={user}
-            detail={
-              item.request.mutualFriendCount > 0
-                ? t("requests.mutual", { count: item.request.mutualFriendCount })
-                : undefined
-            }
-          >
+          <PersonRow user={user} detail={requestDetail(t, item.request)}>
             <RequestActions request={item.request} incoming={item.kind === "incoming"} />
           </PersonRow>
         );
       }}
     />
   );
+}
+
+/** Under a friend request: its message, and whom both know (shown with names when the server sent them). */
+function requestDetail(t: TFunction<"friends">, request: social.FriendRequest): string | undefined {
+  const mutual = mutualFriendsOf(request);
+  const names = mutual?.names.join(t("requests.nameSeparator"));
+  const line = !mutual
+    ? undefined
+    : !names
+      ? t("requests.mutual", { count: request.mutualFriendCount })
+      : mutual.more > 0
+        ? t("requests.mutualNamedMore", { names, count: mutual.more })
+        : t("requests.mutualNamed", { names });
+  return [request.message, line].filter(Boolean).join(" · ") || undefined;
 }

@@ -6,3 +6,4 @@
 export { FOLLOW_CARD, isCloseFriends, refreshFollows, summaryFromProfile } from "./follows";
 export { circleKeys, followKeys, friendKeys } from "./keys";
 export { friendQueries } from "./queries";
+export { mutualFriendsOf } from "./requests";

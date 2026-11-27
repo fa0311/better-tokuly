@@ -386,3 +386,29 @@ async fn one_account_cannot_starve_the_pool_through_the_pair_lock() {
     assert!(!graph::are_friends(&ctx.app.core, alice.id, bob.id).await.unwrap());
     assert!(graph::is_blocked_either(&ctx.app.core, alice.id, bob.id).await.unwrap());
 }
+
+#[tokio::test]
+async fn a_received_request_shows_the_friends_both_know_whatever_the_senders_audience() {
+    let ctx = start().await;
+    let (teen, sender, a, b) =
+        (ctx.app.user("teen").await, ctx.app.user("sender").await, ctx.app.user("a").await, ctx.app.user("b").await);
+    for friend in [&a, &b] {
+        ctx.befriend(&teen, friend).await;
+        ctx.befriend(&sender, friend).await;
+    }
+    for user in [&teen, &sender] {
+        ctx.set_privacy(user, |p| p.friend_list_visible_to = Audience::AUDIENCE_NOBODY.into()).await;
+    }
+    ctx.request(&sender, &teen).await;
+
+    let received = list_requests(&ctx, &teen, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_INCOMING).await.requests.remove(0);
+    assert_eq!(received.mutual_friend_count, 2, "whoever asks shows whom both know");
+    let mut shown: Vec<Uuid> = received.mutual_friends.iter().map(id_of).collect();
+    shown.sort();
+    let mut both = vec![a.id, b.id];
+    both.sort();
+    assert_eq!(shown, both);
+    // The sender learns nothing of the recipient's friend list.
+    let sent = list_requests(&ctx, &sender, FriendRequestDirection::FRIEND_REQUEST_DIRECTION_OUTGOING).await.requests.remove(0);
+    assert_eq!((sent.mutual_friend_count, sent.mutual_friends.len()), (0, 0));
+}
