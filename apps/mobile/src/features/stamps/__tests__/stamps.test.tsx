@@ -117,6 +117,16 @@ describe("StampPicker", () => {
     expect(onClose).toHaveBeenCalled();
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: "s1", name: "にゃー" }));
   });
+
+  it("picks once per opening, however fast the second tap comes", async () => {
+    server();
+    const onPick = jest.fn();
+    await show(<StampPicker visible onPick={onPick} onClose={() => {}} />);
+    const cell = await screen.findByTestId("stamp-s1");
+    await fireEvent.press(cell);
+    await fireEvent.press(cell);
+    expect(onPick).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("stamp links", () => {

@@ -2,7 +2,7 @@ import type { common, stamp } from "@tokuly/api";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { Clock, Heart, Smile, Store } from "lucide-react-native";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FlatList, Modal, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -40,6 +40,11 @@ export function StampPicker({
   const library = useLibrary(visible);
   const [shelf, setShelf] = useState<Shelf>("recents");
   const data = library.data;
+  // A second tap before the sheet is gone would send the stamp twice: one pick per opening.
+  const picked = useRef(false);
+  useEffect(() => {
+    if (visible) picked.current = false;
+  }, [visible]);
   const toStore = () => {
     onClose();
     router.push("/stamps");
@@ -76,9 +81,11 @@ export function StampPicker({
               <ShelfStamps
                 library={data}
                 shelf={shelf}
-                onPick={(picked) => {
+                onPick={(chosen) => {
+                  if (picked.current) return;
+                  picked.current = true;
                   onClose();
-                  onPick(picked);
+                  onPick(chosen);
                 }}
                 toStore={toStore}
               />
