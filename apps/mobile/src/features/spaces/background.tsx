@@ -1,28 +1,19 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { spaces } from "@tokuly/api";
-import { applySpacesEvent, onStage, spacesKeys } from "@tokuly/core/spaces";
+import {
+  applySpacesEvent,
+  ELSEWHERE_WINDOW_MS,
+  exitReasonOf,
+  onStage,
+  spacesKeys,
+} from "@tokuly/core/spaces";
 import { useEffect } from "react";
 import { useMe } from "#/features/session/store";
 import { realtime } from "#/lib/realtime";
 import { MiniPlayer } from "./mini-player";
 import { emitBurst, isOwnBurst } from "./reactions";
-import { type ExitReason, putOutside, roleChanged, useAudioSession } from "./session";
+import { putOutside, roleChanged, useAudioSession } from "./session";
 import { useSpaceTopic } from "./topic";
-
-const Leave = spaces.SpaceLeaveReason;
-
-/** How recent an entry elsewhere must be to explain being out of this venue. */
-const ELSEWHERE_WINDOW_MS = 15_000;
-
-/** Why the server says the person is outside, in this app's words. */
-function exitReasonOf(reason: spaces.SpaceLeaveReason): ExitReason {
-  if (reason === Leave.REMOVED) return "removed";
-  if (reason === Leave.BANNED) return "banned";
-  if (reason === Leave.ENDED) return "ended";
-  if (reason === Leave.DISCONNECTED) return "lost";
-  // They left with another device, or entered another room there.
-  return "elsewhere";
-}
 
 /**
  * Runs while someone is signed in: keeps loaded rooms and hangouts current

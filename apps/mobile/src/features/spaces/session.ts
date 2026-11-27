@@ -1,12 +1,21 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { errorReason, isNotFound, spaces } from "@tokuly/api";
 import {
+  type Exit,
+  type ExitReason,
+  goneReason,
+  markLeftHangout,
+  markLeftSpace,
   onStage,
-  patchHangout,
-  patchSpace,
   rememberHangout,
   rememberSpace,
+  SILENCE,
+  SPEAKING_LINGER_MS,
   spacesKeys,
+  type Voices,
+  voicesOf,
+  whyOutsideHangout,
+  whyOutsideSpace,
 } from "@tokuly/core/spaces";
 import { DisconnectReason, type Room, RoomEvent } from "livekit-client";
 import { Alert } from "react-native";
@@ -42,19 +51,6 @@ export interface ActiveVenue {
   revision: number;
 }
 
-/**
- * Why the person is not inside any more although they did not leave:
- * removed or banned by a moderator, the room `ended`, the hangout `closed`,
- * entered `elsewhere` (another device), or the connection `lost`.
- */
-export type ExitReason = "removed" | "banned" | "ended" | "closed" | "elsewhere" | "lost";
-
-export interface Exit {
-  kind: ActiveVenue["kind"];
-  id: string;
-  reason: ExitReason;
-}
-
 interface SessionState {
   active: ActiveVenue | null;
   /** The last involuntary exit, until the person has seen it or enters again. */
@@ -77,8 +73,6 @@ let promoteTimer: ReturnType<typeof setTimeout> | undefined;
 /** When each person was last heard talking, by user ID. */
 const lastSpoke = new Map<string, number>();
 let quietTimer: ReturnType<typeof setTimeout> | undefined;
-/** A face stays lit this long after its voice went quiet, so it does not flicker between words. */
-const SPEAKING_LINGER_MS = 1200;
 /** Tries to get back in after LiveKit gave a connection up, before calling it lost. */
 const MAX_REJOINS = 4;
 
@@ -248,7 +242,7 @@ async function disconnected(mine: number, reason: DisconnectReason | undefined):
       if (mine !== generation) return;
       // Entering again was refused for good: the venue is gone for this person.
       if (isNotFound(error) || errorReason(error) === "BANNED_FROM_SPACE")
-        return void close({ ...venue, reason: venue.kind === "space" ? "removed" : "closed" });
+        return void close({ ...venue, reason: goneReason(venue.kind) });
       // The network, the API or LiveKit is not there yet: wait and try again.
     }
   }
@@ -266,18 +260,13 @@ async function whyOutside(
     if (venue.kind === "space") {
       const { space } = await spaceService(account).getSpace({ spaceId: venue.id });
       rememberSpace(queryClient, space);
-      if (!space) return "removed";
-      if (space.state !== spaces.SpaceState.LIVE) return "ended";
-      // Out on the server after a moderator's cut. Without one the connection was only gone too long.
-      if (!space.viewer?.inside && cut) return "removed";
-      return null;
+      return whyOutsideSpace(space, cut);
     }
     const { hangout } = await hangoutService(account).getHangout({ hangoutId: venue.id });
     rememberHangout(queryClient, hangout);
-    if (hangout?.viewer?.state !== spaces.HangoutMemberState.MEMBER) return "closed";
-    return null;
+    return whyOutsideHangout(hangout);
   } catch (error) {
-    if (isNotFound(error)) return venue.kind === "space" ? "removed" : "closed";
+    if (isNotFound(error)) return goneReason(venue.kind);
     throw error;
   }
 }
@@ -414,20 +403,13 @@ export async function leaveVenue(queryClient: QueryClient): Promise<void> {
   await close();
   try {
     if (active.kind === "space") {
-      patchSpace(queryClient, active.id, (space) =>
-        space.viewer
-          ? { ...space, viewer: { ...space.viewer, inside: false, handRaised: false } }
-          : space,
-      );
+      markLeftSpace(queryClient, active.id);
       await spaceService(account).leaveSpace({ spaceId: active.id });
       if (isActive(account))
         void queryClient.invalidateQueries({ queryKey: spacesKeys.space(active.id) });
     } else {
       await hangoutService(account).leaveHangout({ hangoutId: active.id });
-      if (isActive(account))
-        patchHangout(queryClient, active.id, (hangout) =>
-          hangout.viewer ? { ...hangout, viewer: { ...hangout.viewer, inside: false } } : hangout,
-        );
+      if (isActive(account)) markLeftHangout(queryClient, active.id);
     }
   } catch {
     // Gone already (the room ended, the hangout closed): there is nothing left to leave.
@@ -537,18 +519,6 @@ export async function toggleMicrophone(queryClient: QueryClient): Promise<void> 
   await setMicrophone(!active.micOn);
 }
 
-/** Who can be heard right now, by user ID. */
-export interface Voices {
-  /** Talking at this moment. */
-  speaking: ReadonlySet<string>;
-  /** Connected with an open microphone. */
-  open: ReadonlySet<string>;
-  /** Connected with audio (on stage, or in the hangout's voice room). */
-  connected: ReadonlySet<string>;
-}
-
-const SILENCE: Voices = { speaking: new Set(), open: new Set(), connected: new Set() };
-
 /**
  * The voices of the venue the person is inside (`kind` and `id` name it);
  * nothing while they are outside, where there is no connection to read from.
@@ -564,19 +534,11 @@ export function useVoices(kind: ActiveVenue["kind"], id: string): Voices {
 
 function readVoices(_revision: number): Voices {
   if (!room) return SILENCE;
-  const speaking = new Set<string>();
-  const open = new Set<string>();
-  const connected = new Set<string>();
-  const now = Date.now();
-  for (const participant of [room.localParticipant, ...room.remoteParticipants.values()]) {
-    connected.add(participant.identity);
-    if (participant.isMicrophoneEnabled) open.add(participant.identity);
-    const heard =
-      participant.isSpeaking ||
-      now - (lastSpoke.get(participant.identity) ?? 0) < SPEAKING_LINGER_MS;
-    if (heard && participant.isMicrophoneEnabled) speaking.add(participant.identity);
-  }
-  return { speaking, open, connected };
+  return voicesOf(
+    [room.localParticipant, ...room.remoteParticipants.values()],
+    lastSpoke,
+    Date.now(),
+  );
 }
 
 /** Whether the person is inside this very venue with this phone. */

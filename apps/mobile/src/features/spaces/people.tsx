@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { spaces } from "@tokuly/api";
+import type { Voices } from "@tokuly/core/spaces";
 import { isModerator, nameOf, onStage, rememberSpace, spacesKeys } from "@tokuly/core/spaces";
 import { router } from "expo-router";
 import { MicOff } from "lucide-react-native";
@@ -11,7 +12,6 @@ import { useMe } from "#/features/session/store";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
 import { spaceClient } from "./data";
-import type { Voices } from "./session";
 
 const Role = spaces.SpaceRole;
 

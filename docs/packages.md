@@ -30,7 +30,7 @@ listed in its `package.json`), each with its own tests:
 | `@tokuly/core/stories`       | story keys and options, story cache edits                                                                                                   |
 | `@tokuly/core/shorts`        | shorts keys, captions, feed contexts, the slide window                                                                                      |
 | `@tokuly/core/live`          | live keys and options, gift, chat and poll rules, a stream and its chat in the cache, pushed live events                                    |
-| `@tokuly/core/spaces`        | room and hangout keys and options, stage rules (who talks, who moderates, its order), pushed spaces events in the cache, tag input          |
+| `@tokuly/core/spaces`        | room and hangout keys and options, stage rules, pushed spaces events in the cache, why one is outside, who is heard, tag input              |
 | `@tokuly/core/ask`           | ask keys, question-box options, inbox and answer cache edits, pushed ask events, limits, share links, the question as a subject             |
 | `@tokuly/core/stamps`        | stamp keys and options of the store and the library, stamp and pack cache edits, pack states and send contexts                              |
 | `@tokuly/core/emoji`         | emoji keys and options, the catalogue copy (built, updated, looked up), `:shortcode:`s in text, emoji search, the deck limit                |

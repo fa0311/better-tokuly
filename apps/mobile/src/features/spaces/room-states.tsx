@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { spaces, toMillis } from "@tokuly/api";
-import { minutesOf, nameOf, rememberSpace } from "@tokuly/core/spaces";
+import { type Exit, minutesOf, nameOf, rememberSpace } from "@tokuly/core/spaces";
 import { router } from "expo-router";
 import { Bell, BellRing } from "lucide-react-native";
 import { useState } from "react";
@@ -13,7 +13,7 @@ import { errorMessage } from "#/lib/errors";
 import { sticker, useTheme } from "#/lib/theme";
 import { spaceClient } from "./data";
 import { formatWhen } from "./parts";
-import { acknowledgeExit, type Exit, enterHangout, enterSpace, startSpace } from "./session";
+import { acknowledgeExit, enterHangout, enterSpace, startSpace } from "./session";
 
 const Role = spaces.SpaceRole;
 
