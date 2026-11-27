@@ -1,5 +1,6 @@
 import { create, geo } from "@tokuly/api";
 import { useLive } from "#/features/chat/live";
+import { useOutbox } from "#/features/chat/outbox";
 import { useLocations } from "#/features/map/locations-store";
 import { useAudioSession } from "#/features/spaces/session";
 import { runForget } from "../lifecycle";
@@ -12,6 +13,11 @@ function asTheLeavingAccount(): void {
   useLocations.getState().setOnline("friend-of-a", true);
   useLocations.getState().setOwn({ latitude: 35.66, longitude: 139.7 } as never);
   useLive.getState().setTyping("conversation-of-a", "friend-of-a", true);
+  useOutbox.setState({
+    items: {
+      "group-of-a-and-b": [{ clientId: "c1", text: "これは届かない", state: "failed" } as never],
+    },
+  });
   useAudioSession.setState({
     active: { kind: "space", id: "room-of-a" } as never,
     exit: { kind: "space", id: "room-of-a", reason: "removed" } as never,
@@ -25,6 +31,7 @@ describe("an account that left", () => {
 
     expect(useLocations.getState()).toMatchObject({ friends: {}, online: {}, own: null });
     expect(useLive.getState().typing).toEqual({});
+    expect(useOutbox.getState().items).toEqual({});
     expect(useAudioSession.getState()).toMatchObject({ active: null, exit: null });
   });
 });

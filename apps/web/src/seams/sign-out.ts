@@ -13,7 +13,8 @@
  *   } satisfies SignOutCleanup;
  *
  * `stores/session.ts` runs every one when a signed-in session becomes
- * signed out, whatever is mounted. Not here: what the device keeps for itself
+ * signed out, whatever is mounted; signing out here returns once they ran,
+ * before the next screen. Not here: what the device keeps for itself
  * (the theme, the volume) and owed work kept by account until it reaches the
  * server (a stop of sharing, an unanswered gift).
  */

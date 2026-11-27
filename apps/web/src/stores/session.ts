@@ -40,6 +40,14 @@ function takeHandoffHint(): boolean {
 let started = false;
 
 /**
+ * The removal of what the last signed-out account left in this browser. It
+ * loads every feature's list first, so it ends a moment after the session
+ * does; `signOut` waits for it, or the next screen (or a closed tab) would
+ * come before it.
+ */
+let forgetting: Promise<void> = Promise.resolve();
+
+/**
  * Says that this browser has a session again, before a reload that must
  * resume it (another account on this device became the active one).
  */
@@ -107,7 +115,9 @@ export function startSession(): void {
     // Only an account that was signed in leaves: an offline start, signed out with its session
     // kept, keeps its drafts.
     if (previous.status === "signedIn" && state.status === "signedOut")
-      void forgetSignedOutAccount();
+      forgetting = forgetSignedOutAccount().catch((error) =>
+        console.error("sign-out: the cleanup could not run", error),
+      );
   });
   const handedOff = takeHandoffHint();
   if (handedOff || window.localStorage.getItem(SESSION_HINT_KEY)) void session.restore();
@@ -159,11 +169,13 @@ function runHook(hook: BeforeSignOut): Promise<void> {
 }
 
 /**
- * Signs out, after giving the registered hooks their moment. Signing out
- * always completes: a hook that fails or hangs is left behind.
+ * Signs out, after giving the registered hooks their moment, and returns once
+ * nothing of the account is left in this browser. Signing out always
+ * completes: a hook that fails or hangs is left behind.
  */
 export async function signOut(allSessions = false, allAccountsOnDevice = false): Promise<void> {
   await Promise.all([...beforeSignOut].map(runHook));
   await api().session.signOut(allSessions, allAccountsOnDevice);
+  await forgetting;
   if (allAccountsOnDevice) announceAccountChange();
 }
