@@ -262,6 +262,20 @@ describe("a place", () => {
     expect(router.back).not.toHaveBeenCalled();
   });
 
+  it("that cannot be read says so, not that it is gone", async () => {
+    placesOf({ unreachable: true });
+    await show(<PlaceScreen placeId="p1" />);
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("この場所は見つかりませんでした")).toBeNull();
+  });
+
+  it("that cannot be read does not leave the check-in waiting forever", async () => {
+    placesOf({ unreachable: true });
+    await show(<CheckInScreen placeId="p1" />);
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByTestId("check-in-submit")).toBeNull();
+  });
+
   it("is checked in at once", async () => {
     const written = placesOf();
     await show(<CheckInScreen placeId="p1" />);

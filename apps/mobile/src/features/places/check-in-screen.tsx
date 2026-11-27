@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Text } from "react-native";
 import { Button } from "#/components/button";
-import { Page, Spinner } from "#/components/page";
+import { ErrorNote, Page, Spinner } from "#/components/page";
 import { TextField } from "#/components/text-field";
 import { errorMessage } from "#/lib/errors";
 import { asAccount, NS, placeClient, usePlace } from "./data";
@@ -22,7 +22,8 @@ const MAX_MESSAGE = 200;
 export function CheckInScreen({ placeId }: { placeId: string }) {
   const { t } = useTranslation(NS);
   const queryClient = useQueryClient();
-  const place = usePlace(placeId).data?.place;
+  const query = usePlace(placeId);
+  const place = query.data?.place;
   const [message, setMessage] = useState("");
   const checkIn = useMutation({
     mutationFn: () =>
@@ -40,7 +41,14 @@ export function CheckInScreen({ placeId }: { placeId: string }) {
     },
     onError: (error) => Alert.alert(errorMessage(error, { namespace: NS })),
   });
-  if (!place) return <Spinner />;
+  if (query.isPending) return <Spinner />;
+  if (!place) {
+    return (
+      <Page testID="check-in">
+        <ErrorNote>{errorMessage(query.error, { namespace: NS })}</ErrorNote>
+      </Page>
+    );
+  }
   return (
     <Page testID="check-in">
       <PlaceBubble place={place} size="lg" />

@@ -1,6 +1,6 @@
 import { Camera, Map as MapLibre, Marker } from "@maplibre/maplibre-react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { geo, toDate, toMillis } from "@tokuly/api";
+import { geo, isNotFound, toDate, toMillis } from "@tokuly/api";
 import { compactAge, compactDuration, zonedDate } from "@tokuly/core/format";
 import { historyKeys } from "@tokuly/core/history";
 import { buildMapStyle } from "@tokuly/core/map";
@@ -18,7 +18,7 @@ import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Linking, Platform, Pressable, Text, View } from "react-native";
 import { Button } from "#/components/button";
-import { EmptyState, Page, Row, Section, Spinner } from "#/components/page";
+import { EmptyState, ErrorNote, Page, Row, Section, Spinner } from "#/components/page";
 import { useAccountTimeZone } from "#/features/history/data";
 import { Faces, GazetteerCredit } from "#/features/history/parts";
 import { useMe } from "#/features/session/store";
@@ -106,6 +106,14 @@ export function PlaceScreen({ placeId }: { placeId: string }) {
   };
 
   if (query.isPending) return <Spinner />;
+  // Not read (offline, the server down) is not "gone".
+  if (!place && query.isError && !isNotFound(query.error)) {
+    return (
+      <Page testID="place">
+        <ErrorNote>{errorMessage(query.error, { namespace: NS })}</ErrorNote>
+      </Page>
+    );
+  }
   if (!place || !center) {
     return (
       <Page testID="place">
