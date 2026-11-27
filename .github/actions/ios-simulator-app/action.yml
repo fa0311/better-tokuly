@@ -21,6 +21,15 @@ outputs:
 runs:
   using: composite
   steps:
+    # DerivedData and simulator apps are tied to this toolchain, not just the source tree.
+    - name: Simulator toolchain
+      id: toolchain
+      shell: bash
+      run: |
+        xcode="$(xcodebuild -version | awk 'NR == 1 { version = $2 } NR == 2 { build = $3 } END { printf "%s-%s", version, build }')"
+        sdk="$(xcrun --sdk iphonesimulator --show-sdk-version)"
+        echo "key=${xcode}-ios${sdk}" >> "$GITHUB_OUTPUT"
+
     # The address is read at build time (app.config.ts, and the JS bundle).
     - name: Generate the native project
       shell: bash
@@ -52,8 +61,8 @@ runs:
       uses: actions/cache/restore@v6
       with:
         path: apps/mobile/ios/build
-        key: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-${{ github.sha }}
-        restore-keys: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-
+        key: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-${{ steps.toolchain.outputs.key }}-${{ github.sha }}
+        restore-keys: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-${{ steps.toolchain.outputs.key }}-
 
     - name: Build for the simulator
       id: build
@@ -92,7 +101,7 @@ runs:
       uses: actions/cache/save@v6
       with:
         path: apps/mobile/ios/build
-        key: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-${{ github.sha }}
+        key: ios-derived-data-${{ inputs.configuration }}-${{ runner.os }}-${{ steps.toolchain.outputs.key }}-${{ github.sha }}
 
     - name: Keep the build log
       if: failure()

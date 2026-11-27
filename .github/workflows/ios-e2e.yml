@@ -38,14 +38,21 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
-      # The app depends on nothing but these files (and the address it is built for; the
-      # flows are not part of it): when they are unchanged, the one built for them is reused.
+      # The runner image can update Xcode without any app source changing.
+      - name: Simulator toolchain
+        id: toolchain
+        run: |
+          xcode="$(xcodebuild -version | awk 'NR == 1 { version = $2 } NR == 2 { build = $3 } END { printf "%s-%s", version, build }')"
+          sdk="$(xcrun --sdk iphonesimulator --show-sdk-version)"
+          echo "key=${xcode}-ios${sdk}" >> "$GITHUB_OUTPUT"
+      # The app depends on these files, the simulator toolchain, and the address it is built
+      # for; the flows are not part of it. When they are unchanged, the one built for them is reused.
       - name: An app built from the same files
         id: cached
         uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/Tokuly.app.zip
-          key: ios-simulator-app-${{ hashFiles('apps/mobile/**', '!apps/mobile/maestro/**', 'packages/**', 'proto/**', 'pnpm-lock.yaml', 'package.json', 'pnpm-workspace.yaml', '.github/actions/ios-simulator-app/**') }}-localhost-8080
+          key: ios-simulator-app-${{ steps.toolchain.outputs.key }}-${{ hashFiles('apps/mobile/**', '!apps/mobile/maestro/**', 'packages/**', 'proto/**', 'pnpm-lock.yaml', 'package.json', 'pnpm-workspace.yaml', '.github/actions/ios-simulator-app/**') }}-localhost-8080
       - if: steps.cached.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-js
       - if: steps.cached.outputs.cache-hit != 'true'
