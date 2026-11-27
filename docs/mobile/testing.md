@@ -10,9 +10,17 @@ never starts a garbage-collection timer, so jest exits when the tests are done.
 
 ## End to end (Maestro)
 
-The flows in `apps/mobile/maestro/flows`, one file per area, run against a
-real stack. The End to end workflow (`.github/workflows/e2e.yml`) builds a
-release APK for the emulator and runs them against the Compose stack.
+The shared flows in `apps/mobile/maestro/flows`, one file per area, run
+against a real stack on Android and iOS.
+
+- `.github/workflows/e2e.yml` runs the web Playwright flows and these Maestro
+  flows in an Android emulator against the Compose stack.
+- `.github/workflows/ios-e2e.yml` runs the same Maestro flows on an iPhone
+  simulator against a native stack on a macOS runner. It runs nightly and by
+  manual dispatch; it is not a required check, so it does not hold up a PR.
+- `.github/workflows/ios.yml` builds the app for an iOS simulator on macOS when
+  `main` changes (or by manual dispatch). It checks the generated Xcode
+  project, config plugins, pods and Swift modules; it does not run Maestro.
 
 | flow | what it does |
 | --- | --- |
@@ -41,10 +49,10 @@ release APK for the emulator and runs them against the Compose stack.
 | `web-screens` | opens a web-only feature from 「もっと見る」 and sees it signed in |
 
 Each flow makes its own accounts and data through the API (`maestro/scripts`), and waits
-for the server's state, not for time. Each starts the app afresh through `subflows/launch.yaml`,
-which launches it again when it dies at start (Android's clean-up after clearing its data
-can kill a quick new launch). What a flow taps it first scrolls into view
-(`subflows/tap-in-view.yaml`): screens grow, and a tap does not scroll. CI's emulator is the
+for the server's state, not for time. Each starts the app afresh through
+`subflows/launch.yaml`; its retry covers Android killing a quick relaunch while
+cleaning up the previous app process. What a flow taps it first scrolls into view
+(`subflows/tap-in-view.yaml`): screens grow, and a tap does not scroll. Android CI uses the
 same Pixel 6 as the local one (`tools/agent/android.sh`); a change to a
 layout also runs its flows on the smallest phone the app is laid out for,
 320x640 (`android.sh small <command…>`).
