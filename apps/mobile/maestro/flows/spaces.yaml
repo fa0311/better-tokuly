@@ -15,7 +15,9 @@ env:
       ACCOUNT: ${output.me}
       PASSWORD: ${PASSWORD}
 
-# The rooms, from the last tab: the friend's room is under ともだちがいるルーム.
+# The friend opens their room now (see the script), and the rooms from the last tab show it
+# under ともだちがいるルーム.
+- runScript: ../scripts/space-room.js
 - runFlow:
     file: ../subflows/open-hub.yaml
     env: { ENTRY: spaces }
