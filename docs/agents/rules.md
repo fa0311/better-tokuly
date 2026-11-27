@@ -9,7 +9,8 @@ Binding for every agent. Newer lines win over older ones. Dates are 2026.
   Inspirations: Bump/Zenly (the map is the heart), Instagram, Twitter, Misskey.
 - UI copy: Japanese first, casual and friendly (「友達と位置情報共有を楽しもう!」), English second.
 - Minors: privacy-protective defaults decided at sign-up and stored, never recomputed from today's date.
-  The defaults are the lead's proposal on #138 (11/27, left to the lead).
+  The defaults are the decision on #138; an answer under 13 makes the account "too young" (no use, a way to
+  delete it, no second answer) (11/27, left to the lead).
 - Buying coins stays a web screen until store distribution is decided; decide before the first store
   release (Google Play / App Store billing or no purchase entry in store builds) (11/27, left to the lead).
 
