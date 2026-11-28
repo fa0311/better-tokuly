@@ -1,7 +1,9 @@
 import { toMillis } from "@tokuly/api";
+import { latenessText } from "@tokuly/core/moments";
 import { Image } from "expo-image";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { MapPin } from "lucide-react-native";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, Platform, Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
@@ -10,17 +12,26 @@ import { EmptyState, ErrorNote, Page, Spinner } from "#/components/page";
 import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
 import { useMoment, useMomentToday } from "./data";
-import { lateLabel } from "./format";
 
 export function MomentDetailScreen() {
   const { momentId } = useLocalSearchParams<{ momentId: string }>();
   const { t, i18n } = useTranslation("moments");
+  const navigation = useNavigation();
   const { colors } = useTheme();
   const query = useMoment(momentId);
   const today = useMomentToday();
   const moment = query.data;
   const waitingForUnlockCheck =
     Boolean(moment && !moment.locked && !moment.mine) && today.data?.unlocked !== true;
+  const authorName = moment?.author?.displayName || moment?.author?.handle;
+  const detailTitle =
+    moment && !moment.locked && authorName
+      ? t("card.by", { name: authorName })
+      : t("today.friends");
+
+  useEffect(() => {
+    navigation.setOptions({ title: detailTitle });
+  }, [detailTitle, navigation]);
 
   if ((query.isPending && !moment) || (waitingForUnlockCheck && !today.isError)) {
     return (
@@ -48,13 +59,9 @@ export function MomentDetailScreen() {
   if (!moment || moment.locked) {
     return (
       <Page testID="moment-detail">
-        <EmptyState
-          emoji="🔒"
-          title={t("friends.lockedDetail")}
-          body={t("friends.lockedDetailBody")}
-        />
+        <EmptyState emoji="🔒" title={t("locked.title")} />
         <Button variant="secondary" onPress={() => router.push("/moments")}>
-          {t("friends.shareToUnlock")}
+          {t("locked.action")}
         </Button>
       </Page>
     );
@@ -65,7 +72,6 @@ export function MomentDetailScreen() {
         new Date(toMillis(moment.postedAt)),
       )
     : undefined;
-  const lateSeconds = Number(moment.lateSeconds);
   const location = moment.location;
 
   return (
@@ -77,11 +83,9 @@ export function MomentDetailScreen() {
             {moment.author?.displayName || moment.author?.handle || t("friends.someone")}
           </Text>
           {posted && <Text className="text-xs text-ink-soft">{posted}</Text>}
-          {lateSeconds > 0 && (
-            <Text className="text-xs font-bold text-brand">
-              {t("friends.late", { time: lateLabel(t, lateSeconds) })}
-            </Text>
-          )}
+          <Text className="text-xs font-bold text-brand">
+            {latenessText(i18n, moment.lateSeconds)}
+          </Text>
         </View>
       </View>
 

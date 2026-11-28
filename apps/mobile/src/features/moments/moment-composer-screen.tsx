@@ -342,6 +342,9 @@ export function MomentComposerScreen() {
             ) : null}
           </View>
         )}
+        <Button variant="secondary" onPress={() => router.push("/moments/friends")}>
+          {t("friends.open")}
+        </Button>
       </Page>
     );
   }

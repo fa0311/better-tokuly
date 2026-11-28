@@ -1,5 +1,6 @@
 import { FlashList } from "@shopify/flash-list";
 import { type moments, toMillis } from "@tokuly/api";
+import { latenessText } from "@tokuly/core/moments";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { ChevronRight, LockKeyhole } from "lucide-react-native";
@@ -11,7 +12,6 @@ import { EmptyState, ErrorNote, Spinner } from "#/components/page";
 import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
 import { useFriendMoments, useMomentToday } from "./data";
-import { lateLabel } from "./format";
 
 export function MomentFriendsScreen() {
   const { t } = useTranslation("moments");
@@ -66,17 +66,21 @@ export function MomentFriendsScreen() {
         ListHeaderComponent={
           <View className="gap-2 px-4 pt-4 pb-1">
             <Text className="text-sm text-ink-soft">
-              {unlocked ? t("friends.unlocked") : t("friends.locked")}
+              {unlocked ? t("camera.posted") : t("locked.title")}
             </Text>
             {!unlocked && (
               <Button variant="secondary" onPress={() => router.push("/moments")}>
-                {t("friends.shareToUnlock")}
+                {t("locked.action")}
               </Button>
             )}
           </View>
         }
         ListEmptyComponent={
-          <EmptyState emoji="🌤️" title={t("friends.empty.title")} body={t("friends.empty.body")} />
+          <EmptyState
+            emoji="🌤️"
+            title={t("today.friendsEmpty")}
+            body={t("today.friendsEmptyBody")}
+          />
         }
         ListFooterComponent={
           friends.isFetchingNextPage ? (
@@ -133,9 +137,7 @@ function MomentCard({ moment, onPress }: { moment: moments.Moment; onPress(): vo
           {posted && !moment.locked && (
             <Text className="text-xs text-ink-faint">
               {posted}
-              {lateSeconds > 0
-                ? ` · ${t("friends.late", { time: lateLabel(t, lateSeconds) })}`
-                : ""}
+              {lateSeconds > 0 ? ` · ${latenessText(i18n, moment.lateSeconds)}` : ""}
             </Text>
           )}
         </View>
