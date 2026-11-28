@@ -58,12 +58,6 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
     if (!topic || !streamId) return;
     const client = realtime();
     const offFrame = client.onFrame((frame) => {
-      if (frame.body.case === "social") {
-        // A block (or an ended friendship) on this account: read the block list again.
-        if (frame.body.value.event.case === "friendRemovedUserId")
-          void queryClient.invalidateQueries({ queryKey: liveKeys.blocked });
-        return;
-      }
       if (frame.body.case !== "live") return;
       const event = frame.body.value.event;
       if (frame.topic === topic) {

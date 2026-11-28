@@ -1,11 +1,11 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type { admin } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { announcementClient, categoryKey } from "./api";
 import { ANNOUNCEMENT_CATEGORIES, type AnnouncementCategory } from "./categories";
 import { AnnouncementCard } from "./parts";

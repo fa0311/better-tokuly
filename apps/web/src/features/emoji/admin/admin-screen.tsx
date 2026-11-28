@@ -1,9 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { useStaffAccess } from "#/features/admin";
+import { useTranslation } from "#/lib/use-translation";
 import { ADMIN_TABS, type AdminSearch, type AdminTab } from "./admin-search";
 import { AllEmoji } from "./all";
 import { Categories } from "./categories";

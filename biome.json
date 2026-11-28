@@ -61,6 +61,10 @@
                   "react": {
                     "importNames": ["lazy"],
                     "message": "A lazy component whose code fails to arrive takes the app to its error screen, and never loads again. Use `onDemand` from `#/components/on-demand`."
+                  },
+                  "react-i18next": {
+                    "importNames": ["useTranslation"],
+                    "message": "A component that suspends for its strings after the page has hydrated hides the screen, and the focus with it. Use `useTranslation` from `#/lib/use-translation`."
                   }
                 }
               }
@@ -68,6 +72,10 @@
           }
         }
       }
+    },
+    {
+      "includes": ["apps/web/src/**", "!apps/web/src/**/*.test.ts", "!apps/web/src/**/*.test.tsx"],
+      "plugins": ["./apps/web/lint/no-bare-import.grit"]
     }
   ]
 }

@@ -3,9 +3,9 @@ import { geo } from "@tokuly/api";
 import { ghostSummary } from "@tokuly/core/map";
 import { BellRing, ChevronRight, Ghost, Link2, MapPinOff, Navigation, Play } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import {
   mapKeys,

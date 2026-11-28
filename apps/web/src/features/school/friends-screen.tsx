@@ -4,7 +4,6 @@ import { errorReason, toMillis } from "@tokuly/api";
 import { clock, dayLabel, schoolKeys } from "@tokuly/core/school";
 import { ChevronRight, Copy, MessageCircle } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
@@ -15,6 +14,7 @@ import { openDirectChat } from "#/features/chat";
 import { EmojiText } from "#/features/emoji";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { timetableClient, useTerms } from "./api";
 
 import { DayView } from "./day-view";

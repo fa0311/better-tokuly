@@ -4,13 +4,13 @@ import { type CatalogEmoji, emojiKeys, toCatalogEmoji } from "@tokuly/core/emoji
 import { profileKeys } from "@tokuly/core/profile";
 import { ClipboardList, Plus, Star, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
 import { profileClient } from "#/lib/api";
+import { useTranslation } from "#/lib/use-translation";
 import { emojiClient } from "./api";
 import { type BrowseSearch, SORTS, type Sort, validateBrowseSearch } from "./browse-search";
 import { useCatalog } from "./catalog";

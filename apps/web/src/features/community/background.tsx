@@ -4,6 +4,7 @@ import { communityKeys } from "@tokuly/core/community/keys";
 import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { onDemand } from "#/components/on-demand";
+import { loadModule } from "#/lib/load-module";
 import { onFramesLoading, realtime } from "#/lib/realtime";
 
 const CommunitySubjectCard = onDemand(
@@ -13,15 +14,18 @@ const CommunitySubjectCard = onDemand(
 
 // Saved and reacted-to community pages open at this app's addresses for them. Registered once
 // engagement has loaded, off the way of the first page: a list drawn before then draws again.
-void import("#/features/engagement").then(({ registerSubjectCard }) => {
-  for (const type of [
-    common.SubjectType.COMMUNITY,
-    common.SubjectType.COMMUNITY_THREAD,
-    common.SubjectType.COMMUNITY_REPLY,
-    common.SubjectType.COMMUNITY_EVENT,
-  ])
-    registerSubjectCard(type, CommunitySubjectCard);
-});
+loadModule(
+  () => import("#/features/engagement"),
+  ({ registerSubjectCard }) => {
+    for (const type of [
+      common.SubjectType.COMMUNITY,
+      common.SubjectType.COMMUNITY_THREAD,
+      common.SubjectType.COMMUNITY_REPLY,
+      common.SubjectType.COMMUNITY_EVENT,
+    ])
+      registerSubjectCard(type, CommunitySubjectCard);
+  },
+);
 
 /**
  * Runs while someone is signed in: keeps what is loaded about communities

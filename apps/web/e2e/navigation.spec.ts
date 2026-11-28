@@ -218,3 +218,19 @@ test("a page whose code cannot load says so inside the app, with the navigation,
   await expect(page.getByRole("heading", { level: 1, name: "アップデート情報" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "うまくいきませんでした" })).toHaveCount(0);
 });
+
+test("a page the server rendered is taken over as it is, its words loaded first", async ({
+  page,
+}) => {
+  // React throws the server's page away (and says so) when the first render in the browser
+  // differs from it: a screen that showed nothing while its strings were still loading did.
+  const thrownAway: string[] = [];
+  page.on("pageerror", (error) => thrownAway.push(`${page.url()}: ${error.message}`));
+  for (const path of ["/login", "/signup"]) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    // The browser has taken the page over once its code and strings have arrived.
+    await page.waitForLoadState("networkidle");
+  }
+  expect(thrownAway).toEqual([]);
+});

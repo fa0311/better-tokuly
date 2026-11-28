@@ -3,12 +3,12 @@ import type { search } from "@tokuly/api";
 import { isKind, kindSlug, searchKeys } from "@tokuly/core/search";
 import { RefreshCw, RotateCw } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { searchAdminClient } from "../api";
 import { formatBytes, formatDateTime, Pane, staffErrorMessage, type Tone, ToneChip } from "./parts";
 

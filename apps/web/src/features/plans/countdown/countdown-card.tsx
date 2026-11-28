@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { plans } from "@tokuly/api";
 import { Pin, Repeat, Users } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { nameOf } from "../api";
 import { formatDay } from "../dates";

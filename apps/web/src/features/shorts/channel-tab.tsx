@@ -2,9 +2,9 @@ import { Link } from "@tanstack/react-router";
 import { shorts, type video } from "@tokuly/api";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
 import type { ChannelTab } from "#/features/video";
+import { useTranslation } from "#/lib/use-translation";
 import { ShortList } from "./short-tile";
 import { ChoiceChips } from "./sort-chips";
 

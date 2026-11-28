@@ -1,11 +1,11 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { toDate, wallet } from "@tokuly/api";
 import { uniqueById, walletKeys } from "@tokuly/core/wallet";
-import { useTranslation } from "react-i18next";
 import { Coins } from "#/components/ui/coins";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { PAGE_SIZE, walletAdminClient } from "../api";
 import { Cell, ColumnHeads, Pane, RECORD_ROW } from "./parts";
 

@@ -3,13 +3,13 @@ import type { identity } from "@tokuly/api";
 import { errorReason } from "@tokuly/api";
 import { BadgeCheck, MailWarning } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { accountClient, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { Group, StateChip } from "../shell/settings-page";
 import { PasswordField } from "./password-field";
 

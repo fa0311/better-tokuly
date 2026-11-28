@@ -1,9 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { LogOut, Mic, MicOff, Volume2 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { type ActiveVenue, leaveVenue, toggleMicrophone, unblockAudio, useVoices } from "./session";
 
 /** The pill itself: what plays, who talks, mute and leave. */

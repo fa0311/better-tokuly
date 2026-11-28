@@ -37,7 +37,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -48,6 +47,7 @@ import { StampImage, StampPicker } from "#/features/stamps";
 import { api, profileClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocations } from "#/stores/locations";
 import { postNote } from "./actions";
 import { draftClient, useHashtagSearch, useTrendingHashtags } from "./api";

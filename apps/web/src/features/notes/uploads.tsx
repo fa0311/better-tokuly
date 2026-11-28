@@ -2,13 +2,13 @@ import type { media } from "@tokuly/api";
 import { AssetFailedError } from "@tokuly/core/errors";
 import { Film, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
 import { uploadFile, waitForAsset } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 
 /** A picture or video picked for a note or a story, on its way to the server or already there. */
 export interface Upload {

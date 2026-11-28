@@ -1,7 +1,7 @@
 import type { Colors } from "@tokuly/core/tokens";
 import type { CSSProperties } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 /**
  * A small screen drawn in the theme being edited, whichever theme the app

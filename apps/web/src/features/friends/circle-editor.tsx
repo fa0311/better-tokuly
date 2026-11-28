@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { social } from "@tokuly/api";
 import { Check, SmilePlus, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
@@ -10,6 +9,7 @@ import { TextField } from "#/components/ui/field";
 import { EmojiPicker } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { CIRCLE_COLORS, circleClient, circleKeys, isCloseFriends } from "./follow-data";
 
 const NAME_MAX = 30;

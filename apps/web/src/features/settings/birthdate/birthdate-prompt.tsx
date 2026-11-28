@@ -1,12 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { asksForBirthdateNow } from "@tokuly/core/session";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { accountClient, api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { adoptMe, keys } from "../data";
 

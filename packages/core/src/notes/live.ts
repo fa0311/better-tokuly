@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/query-core";
-import type { notes } from "@tokuly/api";
+import { type notes, toMillis } from "@tokuly/api";
 import { patchNote, withCounters } from "./cache";
 import { notesKeys } from "./keys";
 import type { TimelineData } from "./timeline";
@@ -64,6 +64,20 @@ export function applyNotesEvent(
     default:
       return {};
   }
+}
+
+/**
+ * A note as it was read again after `refresh` (an edit, a vote): it takes the
+ * place of every cached copy but keeps their counters, which move on their
+ * own. A copy edited later than the answer stays: the answers to two quick
+ * edits may land out of order.
+ */
+export function putRefreshedNote(queryClient: QueryClient, fresh: notes.Note): void {
+  patchNote(queryClient, fresh.id, (note) =>
+    toMillis(note.editedAt) > toMillis(fresh.editedAt)
+      ? note
+      : { ...fresh, counters: note.counters ?? fresh.counters },
+  );
 }
 
 /** Notification kinds that mean a note now belongs in the home or mentions timeline. */

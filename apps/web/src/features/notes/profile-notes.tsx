@@ -1,9 +1,9 @@
 import { notes, toMillis } from "@tokuly/api";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { useTranslation } from "#/lib/use-translation";
 import { ActivityRow } from "./feed/activity-card";
 import { useUserActivity } from "./feed/api";
 import { dayLabel, groupByDay } from "./feed/days";

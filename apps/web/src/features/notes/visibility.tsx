@@ -19,9 +19,9 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { ComponentType } from "react";
-import { useTranslation } from "react-i18next";
 import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 /** The icon of each audience. */
 export const AUDIENCE_ICONS: Record<AudienceKey, ComponentType<{ className?: string }>> = {

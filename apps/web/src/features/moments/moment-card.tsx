@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { type moments, toMillis } from "@tokuly/api";
 import { latenessText, reactionBlocker } from "@tokuly/core/moments";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { MomentPair } from "./pair";
 import { ReactionPicker, ReactionStrip } from "./reactions";
 

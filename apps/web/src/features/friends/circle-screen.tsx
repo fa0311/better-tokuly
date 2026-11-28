@@ -8,13 +8,13 @@ import {
 import type { social } from "@tokuly/api";
 import { BellOff, Check, Pencil, Plus, UserPlus, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { CircleEditor } from "./circle-editor";
 import { CircleBadge, useCircleName } from "./circles-screen";
 import { circleClient, circleKeys } from "./follow-data";

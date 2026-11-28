@@ -1,11 +1,11 @@
 import { useNavigate } from "@tanstack/react-router";
 import { EllipsisVertical, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Menu } from "#/components/ui/menu";
 import { Page } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { useTranslation } from "#/lib/use-translation";
 import { HistoryCalendar } from "./calendar";
 import { DeleteHistoryDialog } from "./delete-history";
 import { NightsList } from "./nights-list";

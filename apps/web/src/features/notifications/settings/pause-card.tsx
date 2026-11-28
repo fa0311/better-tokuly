@@ -1,9 +1,9 @@
 import { type notify, toMillis } from "@tokuly/api";
 import { CirclePause, Play } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Card, Chip } from "#/components/ui/card";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { usePreferenceActions } from "../preferences";
 import { useNow } from "../when";
 

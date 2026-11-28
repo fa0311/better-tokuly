@@ -1,8 +1,8 @@
 import { Mic, Send, Trash2 } from "lucide-react";
 import { type PointerEvent, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { describeFile, type OutgoingFile } from "./attachments";
 import { VoiceRecorder } from "./recorder";
 import { playTime } from "./text";

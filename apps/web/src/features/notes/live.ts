@@ -1,11 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { social } from "@tokuly/api";
-import {
-  applyNotesEvent,
-  forgetUserNotes,
-  isNoteNotification,
-  patchNote,
-} from "@tokuly/core/notes";
+import { applyNotesEvent, isNoteNotification, putRefreshedNote } from "@tokuly/core/notes";
 import type { ServerFrame } from "@tokuly/realtime";
 import { markNoteDeleted, noteClient } from "./api";
 import { hintTimelines } from "./timeline-hints";
@@ -14,11 +8,7 @@ import { hintTimelines } from "./timeline-hints";
 export async function refreshNote(queryClient: QueryClient, noteId: string): Promise<void> {
   try {
     const fresh = (await noteClient().getNote({ noteId })).note;
-    if (fresh)
-      patchNote(queryClient, noteId, (note) => ({
-        ...fresh,
-        counters: note.counters ?? fresh.counters,
-      }));
+    if (fresh) putRefreshedNote(queryClient, fresh);
   } catch {
     // Gone or hidden meanwhile: the other pushes say so.
   }
@@ -38,12 +28,4 @@ export function applyNotesFrame(queryClient: QueryClient, frame: ServerFrame): v
   if (effect.deleted) markNoteDeleted(effect.deleted);
   // What a reader may see of a poll, or the new words: read the note again.
   if (effect.refresh) void refreshNote(queryClient, effect.refresh);
-}
-
-/** A friendship ended, or the other side put up a block: that person's notes leave the cache. */
-export function applySocialEvent(
-  queryClient: QueryClient,
-  event: social.SocialEvent["event"],
-): void {
-  if (event.case === "friendRemovedUserId") forgetUserNotes(queryClient, event.value);
 }

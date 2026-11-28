@@ -3,11 +3,11 @@ import { stamp } from "@tokuly/api";
 import { statusKey } from "@tokuly/core/stamps";
 import { BadgeCheck, Check, Clapperboard, Heart, Search, Sparkles, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { Coins } from "#/components/ui/coins";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { StampImage } from "./stamp-image";
 
 /** A pack's cover on a soft tile tinted with the cover's own colour. */

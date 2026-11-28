@@ -6,6 +6,7 @@ import type { social } from "@tokuly/api";
  */
 export const friendKeys = {
   all: ["social"] as const,
+  lists: ["social", "friends", "list"] as const,
   /** The viewer's friends filtered by name or handle (`""`: all of them); the map's list too. */
   list: (query: string) => ["social", "friends", "list", query] as const,
   requests: ["social", "requests"] as const,

@@ -2,15 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useElementScrollRestoration } from "@tanstack/react-router";
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import type { notes } from "@tokuly/api";
-import {
-  countNewEntries,
-  entryKey,
-  notesKeys,
-  type TimelineData,
-  type TimelinePage,
-  type TimelineSource,
-  withFreshEntries,
-} from "@tokuly/core/notes";
+import { entryKey, lookForNewEntries, notesKeys, type TimelineSource } from "@tokuly/core/notes";
 import { ArrowUp } from "lucide-react";
 import {
   type ReactNode,
@@ -21,13 +13,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
-import { fetchTimeline, useDeletedNotes, useTimeline } from "./api";
+import { useTranslation } from "#/lib/use-translation";
+import { freshPage, useDeletedNotes, useTimeline } from "./api";
 import { NoteCard } from "./note-card";
 import { useScroller } from "./shell";
 import { onTimelineHint } from "./timeline-hints";
@@ -90,9 +82,12 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
   const { element: scroller } = useScroller();
   const query = useTimeline(source);
   const deleted = useDeletedNotes((state) => state.ids);
-  const [fresh, setFresh] = useState<{ page: TimelinePage; count: number | undefined } | null>(
-    null,
-  );
+  // The look waiting behind the "new notes" pill: `take(true)` puts its notes on top.
+  const [fresh, setFresh] = useState<{
+    count: number | undefined;
+    take: (yes: boolean) => void;
+  } | null>(null);
+  const pill = useRef<((yes: boolean) => void) | undefined>(undefined);
   const key = notesKeys.timeline(source);
   const checking = useRef(false);
   // Asked to look while a look, or the first page, was on its way: either may have read the
@@ -100,10 +95,17 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
   const checkAgain = useRef(false);
   const lastCheck = useRef(0);
 
-  const apply = (page: TimelinePage) => {
-    queryClient.setQueryData<TimelineData>(key, (current) => withFreshEntries(current, page));
-    setFresh(null);
-  };
+  const behindPill = (count: number | undefined) =>
+    new Promise<boolean>((resolve) => {
+      const take = (yes: boolean) => {
+        if (pill.current !== take) return;
+        pill.current = undefined;
+        setFresh(null);
+        resolve(yes);
+      };
+      pill.current = take;
+      setFresh({ count, take });
+    });
 
   const check = async (force: boolean) => {
     if (checking.current || !queryClient.getQueryData(key)) {
@@ -111,21 +113,27 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
       return;
     }
     checking.current = true;
+    const read = async () => {
+      try {
+        return await freshPage(source);
+      } finally {
+        checking.current = false;
+        if (checkAgain.current) {
+          checkAgain.current = false;
+          setTimeout(() => void latestCheck.current(false));
+        }
+      }
+    };
     try {
-      const page = await fetchTimeline(source, "");
-      lastCheck.current = Date.now();
-      const count = countNewEntries(queryClient.getQueryData<TimelineData>(key), page);
-      const atTop = (scroller?.scrollTop ?? 0) < TOP_ZONE;
-      if (count === 0 || force || atTop) apply(page);
-      else setFresh({ page, count });
+      await lookForNewEntries(queryClient, source, read, (count) => {
+        lastCheck.current = Date.now();
+        // A newer look replaces the one behind the pill.
+        pill.current?.(false);
+        const atTop = (scroller?.scrollTop ?? 0) < TOP_ZONE;
+        return count === 0 || force || atTop || behindPill(count);
+      });
     } catch (error) {
       if (force) toast.error(errorMessage(error, { namespace: "notes" }));
-    } finally {
-      checking.current = false;
-    }
-    if (checkAgain.current) {
-      checkAgain.current = false;
-      void latestCheck.current(false);
     }
   };
   const latestCheck = useRef(check);
@@ -164,6 +172,9 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
     checkAgain.current = false;
     void latestCheck.current(false);
   }, [loaded]);
+
+  // A look still behind the pill ends with the timeline it was for.
+  useEffect(() => () => pill.current?.(false), [key.join("|")]);
 
   // Coming back to a timeline that was read a while ago: see what was posted meanwhile.
   const dataUpdatedAt = query.dataUpdatedAt;
@@ -205,7 +216,7 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
           <button
             type="button"
             onClick={() => {
-              apply(fresh.page);
+              fresh.take(true);
               scroller?.scrollTo({ top: 0, behavior: "smooth" });
             }}
             className="sticker pressable pointer-events-auto inline-flex h-10 animate-pop-in items-center gap-1.5 rounded-full bg-brand px-4 text-sm font-black text-on-brand"

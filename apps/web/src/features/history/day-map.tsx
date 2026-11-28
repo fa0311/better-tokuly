@@ -1,7 +1,6 @@
 import { positionAt, type TrackPoint } from "@tokuly/core/history";
 import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Slider } from "#/components/ui/slider";
 import { cameraMs, FitTo, GeoLayer, MapFrame, Pin, useIsDark, useMap } from "#/features/map";
@@ -9,6 +8,7 @@ import { DEFAULT_CENTER, type LatLng } from "#/features/places";
 import { accountTimeZone } from "#/lib/account-time";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 
 /** How long a whole day takes to replay at normal speed. */

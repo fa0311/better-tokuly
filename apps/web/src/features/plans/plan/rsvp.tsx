@@ -1,13 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { plans } from "@tokuly/api";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
 import { TextField } from "#/components/ui/field";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { keys, planClient, rememberPlan } from "../api";
 

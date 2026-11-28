@@ -28,18 +28,10 @@ export default function StoriesBackground() {
         );
       }),
     );
-    const offSocial = onFramesLoading("social", () =>
-      import("./frames").then(
-        ({ applySocialEvent }) =>
-          ({ event }) =>
-            applySocialEvent(queryClient, event),
-      ),
-    );
     client.start();
     return () => {
       offWelcome();
       offNotes();
-      offSocial();
     };
   }, [queryClient]);
 

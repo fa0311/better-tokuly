@@ -11,7 +11,6 @@ import {
 } from "@tokuly/core/school";
 import { ChevronLeft, ChevronRight, DoorOpen, Megaphone } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -20,6 +19,7 @@ import { Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { settingsClient, studyClient, toastError } from "./api";
 
 import { Heatmap } from "./heatmap";

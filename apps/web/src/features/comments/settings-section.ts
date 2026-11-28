@@ -1,5 +1,5 @@
 import { MessageSquareText } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import type { SettingsSection } from "#/seams/settings";
 import { useHeldCount } from "./api";
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { DEFAULT_CENTER, MapClick, MapFrame, Pin } from "#/features/map";
+import { useTranslation } from "#/lib/use-translation";
 import { NS } from "./api";
 
 export interface LatLng {

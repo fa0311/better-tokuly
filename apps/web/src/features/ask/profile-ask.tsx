@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { common } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { useAnswers, useBox } from "./api";
 import { SectionTitle } from "./parts";
 import { QaCard } from "./qa-card";

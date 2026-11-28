@@ -7,6 +7,7 @@ import {
   expect as baseExpect,
   befriend,
   createAccount,
+  failToLoadPart,
   rpc,
   signInAs,
   test,
@@ -315,6 +316,29 @@ test("a new notification pops up as a toast wherever you are, and the toast open
   await expect(page).toHaveURL(new RegExp(`/u/${haru.handle}$`));
   await expectUnread(request, me, 0);
   await expect(navBadge(page)).toHaveCount(0);
+});
+
+test("a toast whose opening code cannot load says so, stays, and opens when tapped again", async ({
+  page,
+  request,
+  me,
+}) => {
+  await page.goto("/me");
+  await live(page);
+  // What opens a notification fails to arrive, as when the connection drops right as it is tapped.
+  const letThrough = await failToLoadPart(page, "notifications", "inbox-actions.ts");
+  const haru = await friendRequestFrom(request, "haru", me);
+
+  const toast = toasts(page).filter({ hasText: "haruさんから友達リクエストが届いたよ" });
+  await toast.getByRole("button", { name: /友達リクエスト/ }).click();
+  await expect(
+    toasts(page).filter({ hasText: "通信できなかったよ。接続を確認してね!" }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/me$/);
+
+  await letThrough();
+  await toast.getByRole("button", { name: /友達リクエスト/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/u/${haru.handle}$`));
 });
 
 test("the open inbox updates by itself instead of showing a toast", async ({

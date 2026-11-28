@@ -9,7 +9,6 @@ import {
 } from "@tokuly/core/wallet";
 import { Check, Flame, Gift } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
@@ -17,6 +16,7 @@ import { CoinIcon, Coins } from "#/components/ui/coins";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { walletClient } from "./api";
 import { CoinBurst, useCoinBurst } from "./celebration";
 

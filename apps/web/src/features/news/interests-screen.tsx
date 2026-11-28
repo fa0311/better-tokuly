@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Flame, Heart, RotateCcw, ThumbsDown } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -10,6 +9,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { newsClient, newsKeys, useNewsTags } from "./api";
 
 /** The strongest interest the API keeps (scores stay within ±20). */

@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { type ask, toMillis } from "@tokuly/api";
 import { ChevronRight } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { compactDuration } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 
 /** "あと3時間" while a prompt takes responses, "しめきり" afterwards. */
 export function PromptState({ prompt, className }: { prompt: ask.Prompt; className?: string }) {

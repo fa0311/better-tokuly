@@ -3,6 +3,7 @@ import { common } from "@tokuly/api";
 import type { ServerFrame } from "@tokuly/realtime";
 import { useEffect } from "react";
 import { onDemand } from "#/components/on-demand";
+import { loadModule, loadNow } from "#/lib/load-module";
 import { onFramesLoading, realtime } from "#/lib/realtime";
 import { ComposeHost } from "./compose-host";
 import { hintTimelines } from "./timeline-hints";
@@ -14,15 +15,16 @@ const NoteSubjectCard = onDemand(
 
 // Saved and reacted-to notes are drawn as notes on `/bookmarks`. Registered once engagement has
 // loaded, off the way of the first page: a list drawn before then draws again.
-void import("#/features/engagement").then(({ registerSubjectCard }) =>
-  registerSubjectCard(common.SubjectType.NOTE, NoteSubjectCard),
+loadModule(
+  () => import("#/features/engagement"),
+  ({ registerSubjectCard }) => registerSubjectCard(common.SubjectType.NOTE, NoteSubjectCard),
 );
 
 /**
  * Runs while someone is signed in: keeps cached notes current from the
  * realtime connection (counters, deletions, link previews), tells timelines
- * when to look for new notes, drops the notes of someone who stopped being a
- * friend, and hosts the composer so any page can open it. When the session
+ * when to look for new notes, and hosts the composer so any page can open
+ * it. (Someone who stops being a friend: `./forget-user.ts`.) When the session
  * ends, what this browser kept for the account (drafts, reported views, the
  * notes known to be deleted) goes with it.
  */
@@ -37,21 +39,13 @@ export default function NotesBackground() {
       if (frame.body.case === "welcome") hintTimelines();
     });
     const applyFrame = () =>
-      import("./live").then(
+      loadNow(() => import("./live")).then(
         ({ applyNotesFrame }) =>
           (_: unknown, frame: ServerFrame) =>
             applyNotesFrame(queryClient, frame),
       );
     const offNotes = onFramesLoading("notes", applyFrame);
     const offNotify = onFramesLoading("notify", applyFrame);
-    // A friendship ended, or the other side put up a block.
-    const offSocial = onFramesLoading("social", () =>
-      import("./live").then(
-        ({ applySocialEvent }) =>
-          ({ event }) =>
-            applySocialEvent(queryClient, event),
-      ),
-    );
     client.start();
     const onVisible = () => {
       if (document.visibilityState === "visible") hintTimelines();
@@ -61,7 +55,6 @@ export default function NotesBackground() {
       offWelcome();
       offNotes();
       offNotify();
-      offSocial();
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [queryClient]);

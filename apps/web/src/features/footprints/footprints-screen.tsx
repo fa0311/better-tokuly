@@ -11,7 +11,6 @@ import {
 import { profileKeys } from "@tokuly/core/profile";
 import { Gift } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -25,6 +24,7 @@ import {
   toLatLng,
 } from "#/features/places";
 import { profileClient } from "#/lib/api";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { footprintClient, footprintKeys, regionName } from "./api";
 import { celebrate } from "./celebrate";

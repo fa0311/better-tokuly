@@ -2,12 +2,12 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { quest, toMillis } from "@tokuly/api";
 import { formatDay, questKeys } from "@tokuly/core/quest";
-import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { useAccountNow } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { leaderboardClient, useLocalized } from "./api";
 import {
   BadgeMedal,

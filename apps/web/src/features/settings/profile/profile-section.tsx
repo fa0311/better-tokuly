@@ -1,4 +1,4 @@
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { SettingsPage } from "../shell/settings-page";
 import { ProfileForm } from "./profile-form";

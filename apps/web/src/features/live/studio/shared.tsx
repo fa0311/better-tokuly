@@ -2,13 +2,13 @@ import { Link } from "@tanstack/react-router";
 import { live, type video } from "@tokuly/api";
 import { Check, Copy, Eye, EyeOff } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { create } from "zustand";
 import { EmptyState } from "#/components/ui/page";
 import { copyText } from "#/features/engagement";
 import { useMyChannels } from "#/features/video";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { maskSecret, maskUrl } from "../model";
 import { ChannelFace } from "../parts";
 

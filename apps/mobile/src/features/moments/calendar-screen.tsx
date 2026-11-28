@@ -1,8 +1,8 @@
 import { type Month, monthGrid, monthOf, monthOfDay, shiftMonth } from "@tokuly/core/history";
 import { Image } from "expo-image";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, ChevronRight } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
 import { Button } from "#/components/button";
@@ -24,13 +24,40 @@ export function MomentCalendarScreen() {
   const { t, i18n } = useTranslation("moments");
   const { colors } = useTheme();
   const today = useMomentToday();
-  const [month, setMonth] = useState<Month>(() => monthOf(new Date()));
+  const params = useLocalSearchParams<{ year?: string; month?: string }>();
+  const routeYear = Number(params.year);
+  const routeMonth = Number(params.month);
+  const hasRouteMonth =
+    Number.isInteger(routeYear) &&
+    Number.isInteger(routeMonth) &&
+    routeYear >= 1970 &&
+    routeYear <= 9999 &&
+    routeMonth >= 1 &&
+    routeMonth <= 12;
+  const [month, setMonth] = useState<Month>(() =>
+    hasRouteMonth ? { year: routeYear, month: routeMonth } : monthOf(new Date()),
+  );
   const todayDate = today.data?.day?.date;
   const currentMonth = todayDate ? monthOfDay(todayDate) : monthOf(new Date());
+  const hasManuallySelectedMonth = useRef(false);
 
   useEffect(() => {
-    if (todayDate) setMonth(monthOfDay(todayDate));
-  }, [todayDate]);
+    if (hasRouteMonth) {
+      setMonth({ year: routeYear, month: routeMonth });
+    }
+    hasManuallySelectedMonth.current = false;
+  }, [hasRouteMonth, routeMonth, routeYear]);
+
+  useEffect(() => {
+    if (!hasRouteMonth && todayDate && !hasManuallySelectedMonth.current) {
+      const todayMonth = monthOfDay(todayDate);
+      setMonth((current) =>
+        current.year === todayMonth.year && current.month === todayMonth.month
+          ? current
+          : todayMonth,
+      );
+    }
+  }, [hasRouteMonth, todayDate]);
 
   const query = useMomentCalendar(month, !today.isPending);
   const entries = query.data?.days ?? [];
@@ -66,7 +93,10 @@ export function MomentCalendarScreen() {
             testID="moment-calendar-previous"
             label={t("calendar.previous")}
             icon={<ChevronLeft size={20} color={colors.ink} />}
-            onPress={() => setMonth(shiftMonth(month, -1))}
+            onPress={() => {
+              hasManuallySelectedMonth.current = true;
+              setMonth(shiftMonth(month, -1));
+            }}
           />
           <Text accessibilityLiveRegion="polite" className="text-lg font-black text-ink">
             {title}
@@ -76,7 +106,12 @@ export function MomentCalendarScreen() {
               testID="moment-calendar-next"
               label={t("calendar.next")}
               icon={<ChevronRight size={20} color={colors.ink} />}
-              onPress={() => !isCurrent && setMonth(shiftMonth(month, 1))}
+              onPress={() => {
+                if (!isCurrent) {
+                  hasManuallySelectedMonth.current = true;
+                  setMonth(shiftMonth(month, 1));
+                }
+              }}
             />
           </View>
         </View>
@@ -186,6 +221,9 @@ export function MomentCalendarScreen() {
               onTime: query.data?.onTimeCount ?? 0,
             })}
           </Text>
+          <Button variant="secondary" size="sm" onPress={() => router.push("/moments/recap")}>
+            {t("calendar.recap")}
+          </Button>
         </View>
       )}
     </Page>

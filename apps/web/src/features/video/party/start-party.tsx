@@ -3,12 +3,12 @@ import { useNavigate } from "@tanstack/react-router";
 import type { video } from "@tokuly/api";
 import { PartyPopper } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { partyClient, videoKeys } from "../api";
 import { Thumbnail } from "../video-card";
 

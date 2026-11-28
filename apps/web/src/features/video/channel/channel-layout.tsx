@@ -3,10 +3,10 @@ import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-route
 import { common, type video } from "@tokuly/api";
 import { Clapperboard, Pencil } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { SubjectMoreButton } from "#/features/engagement";
+import { useTranslation } from "#/lib/use-translation";
 import { channelClient, videoKeys } from "../api";
 import { formatCount } from "../format";
 import { SubscribeButton } from "../subscribe-button";

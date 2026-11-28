@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { video } from "@tokuly/api";
 import { FileUp, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -12,6 +11,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { videoClient, videoKeys } from "../api";
 import { scriptUrl } from "../player/media-url";
 

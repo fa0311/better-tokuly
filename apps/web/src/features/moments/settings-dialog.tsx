@@ -1,13 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { moments } from "@tokuly/api";
 import { momentKeys } from "@tokuly/core/moments";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { momentClient, useMomentSettings } from "./api";
 
 type Audience = "friends" | "close";

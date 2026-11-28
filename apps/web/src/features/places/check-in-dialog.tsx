@@ -4,7 +4,6 @@ import { toDate } from "@tokuly/api";
 import { placeEmoji } from "@tokuly/core/places";
 import { Check } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -14,6 +13,7 @@ import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { distanceMeters } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import {
   currentPosition,
   FRIENDS_KEY,

@@ -4,9 +4,11 @@ import { blinkingGif, discPicture, type Rgb, type TestFile, uploadPicture } from
 import {
   type Account,
   adminAccount,
+  backOnline,
   befriend,
   createAccount,
   expect,
+  failToLoadPart,
   rpc,
   signInAs,
   test,
@@ -211,6 +213,24 @@ test("the picker finds an emoji by a Japanese alias and by name, and pins what i
   await expect(picker).toBeHidden();
   await expect(page.locator(`[data-testid="deck-item"][data-emoji="${emoji.code}"]`)).toBeVisible();
   await expect.poll(() => deckOf(request, me)).toContain(emoji.code);
+});
+
+test("the picker's Unicode emoji that cannot load come once the device is back online", async ({
+  page,
+  me: _me,
+}) => {
+  // The Unicode table fails to arrive, as when the connection drops right as the picker opens.
+  const letThrough = await failToLoadPart(page, "emoji", "unicode-data.ts");
+  await page.goto("/emoji/my-deck");
+  await page.getByRole("button", { name: "追加" }).click();
+  const picker = page.getByTestId("emoji-picker");
+  await expect(picker).toBeVisible();
+  await picker.getByRole("searchbox").fill("すし");
+
+  await letThrough();
+  await expect(picker.getByRole("button", { name: /^🍣/ })).toHaveCount(0);
+  await backOnline(page);
+  await expect(picker.getByRole("button", { name: /^🍣/ })).toBeVisible();
 });
 
 // ───────────────────────────── Emoji in text ─────────────────────────────

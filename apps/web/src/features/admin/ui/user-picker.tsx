@@ -2,10 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import type { admin } from "@tokuly/api";
 import { Search } from "lucide-react";
 import { useId, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { userAdminClient } from "../api";
 import { useDebounced } from "./hooks";
 

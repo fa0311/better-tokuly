@@ -13,13 +13,13 @@ import {
 import type { ColorName } from "@tokuly/core/tokens";
 import { CircleCheck, Download, RotateCcw, TriangleAlert, Upload } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { changeSettings, useSettings } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";
 import {

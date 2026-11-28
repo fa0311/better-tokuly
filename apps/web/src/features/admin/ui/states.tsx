@@ -1,8 +1,8 @@
 import { RotateCw } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 
 /** Shown in place of content that failed to load. */
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?(): void }) {

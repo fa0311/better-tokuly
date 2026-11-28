@@ -5,6 +5,8 @@ import { applyQuestEvent, localized, loudness } from "@tokuly/core/quest";
 import type { TFunction } from "i18next";
 import { toast } from "sonner";
 import { celebrate as rainGlyphs } from "#/features/footprints";
+import { errorMessage } from "#/lib/errors";
+import { loadNow } from "#/lib/load-module";
 import { motionFactor, reveal } from "./celebrate";
 
 /** Away from the quest pages, XP is announced at most this often (with everything earned since). */
@@ -125,7 +127,9 @@ export function questCelebrations({
               action: {
                 label: t("live.sendMessage"),
                 onClick: () =>
-                  void import("#/features/chat").then((chat) => chat.openDirectChat(friend.id)),
+                  void loadNow(() => import("#/features/chat"))
+                    .then((chat) => chat.openDirectChat(friend.id))
+                    .catch((error: unknown) => toast.error(errorMessage(error))),
               },
             });
             return;

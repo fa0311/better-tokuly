@@ -297,6 +297,32 @@ export async function failToLoad(
 }
 
 /**
+ * Makes the Japanese strings of one namespace (`src/i18n/ja/<namespace>.ts`
+ * or `packages/i18n/src/ja/<namespace>.ts`) fail to arrive. As with
+ * `failToLoad`, a build's chunk is found where the strings' glob map imports
+ * it. Returns what lets them through again, once the app has asked for them.
+ */
+export async function failToLoadStrings(
+  page: Page,
+  namespace: string,
+): Promise<() => Promise<void>> {
+  const source = new RegExp(`/i18n/(src/)?ja/${namespace}\\.ts(\\?|$)`);
+  const globEntry = new RegExp(
+    `"(?:\\.\\./i18n|\\.)/ja/${namespace}\\.ts":[^\`"']*[\`"']\\./([^\`"']+\\.js)[\`"']`,
+    "g",
+  );
+  const chunks = new Set<string>();
+  return blockCode(
+    page,
+    `the ${namespace} strings`,
+    (path) => source.test(path) || chunks.has(path),
+    (body) => {
+      for (const [, chunk] of body.matchAll(globEntry)) chunks.add(`/assets/${chunk}`);
+    },
+  );
+}
+
+/**
  * Makes the code of an `onDemand` part, `features/<area>/<file>`, fail to
  * arrive. The development server serves the file under its own path; a
  * build names the part's chunk after the file (`<name>-<hash>.js`), so pick

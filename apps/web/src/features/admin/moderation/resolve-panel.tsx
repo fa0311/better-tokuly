@@ -1,11 +1,11 @@
 import { admin, common } from "@tokuly/api";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { TextArea } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { actionKey } from "../labels";
 import { NOTE_MAX, REASON_MAX } from "../ui/action-dialog";
 import { Section } from "../ui/console-page";

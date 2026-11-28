@@ -3,7 +3,6 @@ import { create, geo, toMillis } from "@tokuly/api";
 import { pinState } from "@tokuly/core/map";
 import { BellPlus, Check, Siren, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -17,6 +16,7 @@ import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocations } from "#/stores/locations";
 import { useFlyToUser } from "./camera";
 import {

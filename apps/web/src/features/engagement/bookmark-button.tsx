@@ -1,8 +1,8 @@
 import { compactCount, type Subject } from "@tokuly/core/engagement";
 import { Bookmark } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useBookmark, useEngagement } from "./api";
 import { useBurst } from "./burst";
 import { openCollectionChooser } from "./collection-chooser-host";

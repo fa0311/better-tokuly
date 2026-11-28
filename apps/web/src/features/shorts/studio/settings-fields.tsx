@@ -1,8 +1,8 @@
 import { common } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { CircleField, LockedNote } from "#/features/video/audience";
+import { useTranslation } from "#/lib/use-translation";
 
 const { Visibility } = common;
 

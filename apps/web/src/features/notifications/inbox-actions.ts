@@ -7,9 +7,9 @@ import {
   withRead,
   withRemoved,
 } from "@tokuly/core/notifications";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { applyUnread, inboxClient, rereadInbox, updateInboxLists } from "./api";
 import { openTargetPath } from "./target";
 

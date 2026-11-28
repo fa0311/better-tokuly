@@ -12,7 +12,6 @@ import {
   Undo2,
 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -22,6 +21,7 @@ import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { keys, nameOf, planClient } from "../api";
 import { SectionTitle } from "../parts";

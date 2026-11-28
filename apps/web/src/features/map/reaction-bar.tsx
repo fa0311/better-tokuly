@@ -1,12 +1,12 @@
 import { social } from "@tokuly/api";
 import { Smile, Sticker } from "lucide-react";
 import { type PointerEvent, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { EmojiPicker } from "#/features/engagement";
 import { StampPicker } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { interactionClient } from "./data";
 import { emitEffect } from "./effects";
 

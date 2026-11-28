@@ -3,12 +3,12 @@ import type { notes } from "@tokuly/api";
 import { notesKeys } from "@tokuly/core/notes";
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { muteClient } from "./api";
 
 /** `/settings/notes`: muted words (plain or patterns) and people whose renotes are hidden. */

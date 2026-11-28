@@ -1,9 +1,9 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { ShieldCheck } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { ADMIN_NAMESPACES, ADMIN_SECTIONS } from "#/seams/admin";
 import { type StaffAccess, type StaffLevel, useStaffAccess } from "./roles";
 import { ConsolePage } from "./ui/console-page";

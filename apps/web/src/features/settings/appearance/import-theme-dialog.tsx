@@ -1,11 +1,11 @@
 import { parseThemeFile, type ThemeColors } from "@tokuly/core/theme";
 import { FileUp } from "lucide-react";
 import { useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea } from "#/components/ui/field";
+import { useTranslation } from "#/lib/use-translation";
 
 /** Takes a theme file in, pasted or chosen; its colours replace the editor's. */
 export function ImportThemeDialog({

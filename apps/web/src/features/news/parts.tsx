@@ -2,10 +2,10 @@ import { Link } from "@tanstack/react-router";
 import { feed, type Timestamp, toMillis } from "@tokuly/api";
 import { Dices, Globe, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
 import { linkPreviewImage } from "#/lib/link-preview-image";
+import { useTranslation } from "#/lib/use-translation";
 import { useFeedback } from "./api";
 import { toggledFeedback } from "./requests";
 

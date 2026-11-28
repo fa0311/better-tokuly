@@ -13,12 +13,12 @@ import {
   VolumeX,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Menu } from "#/components/ui/menu";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useHideTabBar } from "#/stores/shell";
 import { useShort } from "../api";
 import { type FeedEntry, listQuery } from "../lists";

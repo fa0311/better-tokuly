@@ -1,12 +1,12 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type chat, toMillis } from "@tokuly/api";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { ListRow, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { useTranslation } from "#/lib/use-translation";
 import { chatKeys, messageClient } from "./api";
 import { displayName } from "./people";
 import { dateTime } from "./text";

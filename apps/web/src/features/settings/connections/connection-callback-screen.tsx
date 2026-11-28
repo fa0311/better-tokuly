@@ -1,12 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { EmptyState } from "#/components/ui/page";
 import { Spinner } from "#/components/ui/spinner";
 import { accountClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { keys } from "../data";
 import { SettingsPage } from "../shell/settings-page";
 import { PROVIDERS, type Provider } from "./connections-section";

@@ -52,7 +52,8 @@ env:
 - inputText: "カラオケ"
 - tapOn: { id: "poll-input-1" }
 - inputText: "ボウリング"
-- hideKeyboard
+# Not hideKeyboard: on Android that is a back press, which the composer answers with "keep
+# writing, discard or draft?" when the keyboard has already gone. The bar rides on the keyboard.
 - tapOn: { id: "note-post" }
 - extendedWaitUntil:
     visible: ${output.mine}

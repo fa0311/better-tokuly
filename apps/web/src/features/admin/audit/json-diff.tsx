@@ -1,5 +1,5 @@
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 type Snapshot = Record<string, unknown>;
 

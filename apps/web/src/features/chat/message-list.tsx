@@ -2,8 +2,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { chat } from "@tokuly/api";
 import type { Row } from "@tokuly/core/chat";
 import { type Ref, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Spinner } from "#/components/ui/spinner";
+import { useTranslation } from "#/lib/use-translation";
 import { MessageItem } from "./message-item";
 import { dayLabel } from "./text";
 

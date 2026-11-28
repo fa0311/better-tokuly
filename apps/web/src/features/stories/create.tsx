@@ -3,7 +3,6 @@ import { media, notes, social } from "@tokuly/api";
 import { friendQueries } from "@tokuly/core/friends";
 import { Check, GripVertical, ImagePlus, Search } from "lucide-react";
 import { useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -16,6 +15,7 @@ import { charCount, type Upload, UploadTile, useUploads } from "#/features/notes
 import { api } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { addStory, storyClient } from "./api";
 

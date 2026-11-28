@@ -3,7 +3,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { common, fromDate, toMillis, video } from "@tokuly/api";
 import { CalendarClock, Eye, EyeOff, Play, Rocket, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -15,6 +14,7 @@ import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { waitForAsset } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import {
   patchVideoEverywhere,
   removeVideoEverywhere,
