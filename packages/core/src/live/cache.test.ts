@@ -1,8 +1,8 @@
 import { create } from "@bufbuild/protobuf";
-import { QueryClient } from "@tanstack/query-core";
+import { QueryClient, QueryObserver } from "@tanstack/query-core";
 import { live } from "@tokuly/api";
 import { describe, expect, it, vi } from "vitest";
-import { LiveChats, patchStream, storePoll } from "./cache";
+import { LiveChats, liveQueries, patchStream, refreshStream, storePoll } from "./cache";
 import { liveKeys } from "./keys";
 
 /** A chat client whose reads answer when the test says so. */
@@ -132,5 +132,98 @@ describe("pushed events", () => {
     patchStream(queryClient, "s1", () => {
       throw new Error("patched the wrong stream");
     });
+  });
+});
+
+describe("reading a stream's page again", () => {
+  /** A stream client whose reads answer when the test says so. */
+  function slowStream() {
+    const answers: ((stream: live.Stream) => void)[] = [];
+    const signals: AbortSignal[] = [];
+    const client = {
+      getStream: (_request: unknown, options: { signal: AbortSignal }) => {
+        signals.push(options.signal);
+        return new Promise((resolve) => answers.push((stream) => resolve({ stream })));
+      },
+    };
+    return { query: liveQueries.stream(() => client as never, "s1-short"), answers, signals };
+  }
+  const page = (
+    fields: { pinnedMessage?: live.ChatMessage; highlightedGifts?: live.ChatMessage[] } = {},
+  ) => create(live.StreamSchema, { summary: { id: "s1", shortId: "s1-short" }, ...fields });
+  const pinned = line("pinned", 1);
+  const gift = create(live.ChatMessageSchema, {
+    id: "gift",
+    streamId: "s1",
+    kind: live.ChatMessageKind.GIFT,
+    author: { user: { id: "u2" } },
+    gift: { coins: 500n, highlightedUntil: { seconds: 99n, nanos: 0 } },
+  });
+
+  it("does not bring a deleted line back as the pin or a highlight", async () => {
+    const { chats } = slowChat();
+    const { query, answers } = slowStream();
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      query.queryKey,
+      page({ pinnedMessage: pinned, highlightedGifts: [gift] }),
+    );
+    // Read again (`streamUpdated`, a refocus), answered before the moderator deleted both lines.
+    const reading = queryClient.fetchQuery({ ...query, staleTime: 0 });
+    await vi.waitFor(() => expect(answers).toHaveLength(1));
+    chats.apply(queryClient, "s1", {
+      case: "chatMessageDeleted",
+      value: create(live.ChatMessageDeletedSchema, { messageId: "pinned" }),
+    });
+    chats.apply(queryClient, "s1", {
+      case: "chatUserCleared",
+      value: create(live.ChatUserClearedSchema, { userId: "u2" }),
+    });
+    answers[0]?.(page({ pinnedMessage: pinned, highlightedGifts: [gift] }));
+    await reading;
+    const stream = queryClient.getQueryData<live.Stream>(query.queryKey);
+    expect(stream?.pinnedMessage).toBeUndefined();
+    expect(stream?.highlightedGifts).toEqual([]);
+  });
+
+  it("keeps a pin pushed while the first read under the short ID was on its way", async () => {
+    const { chats } = slowChat();
+    const { query, answers } = slowStream();
+    const queryClient = new QueryClient();
+    const reading = queryClient.fetchQuery(query);
+    await vi.waitFor(() => expect(answers).toHaveLength(1));
+    // Nothing tells yet that "s1-short" is "s1": the pin waits for the answer.
+    chats.apply(queryClient, "s1", {
+      case: "chatPinChanged",
+      value: create(live.ChatPinChangedSchema, { message: pinned }),
+    });
+    chats.apply(queryClient, "s1", {
+      case: "stats",
+      value: create(live.StreamStatsSchema, { viewerCount: 42n }),
+    });
+    answers[0]?.(page());
+    const stream = await reading;
+    expect(stream?.pinnedMessage?.id).toBe("pinned");
+    expect(stream?.summary?.viewerCount).toBe(42n);
+  });
+
+  it("replaces a read in flight, and tells its request to stop", async () => {
+    const { query, answers, signals } = slowStream();
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(query.queryKey, page());
+    // The page is on screen and reading again.
+    const observer = new QueryObserver(queryClient, { ...query, staleTime: 0 });
+    const unwatch = observer.subscribe(() => {});
+    await vi.waitFor(() => expect(answers).toHaveLength(1));
+    refreshStream(queryClient, "s1");
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    expect(signals[0]?.aborted).toBe(true);
+    answers[1]?.(page({ pinnedMessage: pinned }));
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData<live.Stream>(query.queryKey)?.pinnedMessage?.id).toBe(
+        "pinned",
+      ),
+    );
+    unwatch();
   });
 });

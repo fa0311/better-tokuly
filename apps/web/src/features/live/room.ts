@@ -1,6 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, live } from "@tokuly/api";
 import { LiveChats } from "@tokuly/core/live";
+import { reread } from "@tokuly/core/query";
 import { useEffect, useRef, useState } from "react";
 import { deviceId, realtime } from "#/lib/realtime";
 import {
@@ -95,10 +96,7 @@ export function useLiveRoom(stream: live.Stream): LiveRoom {
       // what was pushed in between (the user's own events too, which a reconnect also missed).
       onSubscribed: () => {
         refreshStream(queryClient, streamId);
-        void queryClient.invalidateQueries({
-          queryKey: liveKeys.chat(streamId),
-          refetchType: "all",
-        });
+        void reread(queryClient, [liveKeys.chat(streamId)]);
       },
       // Blocked by the streamer, unfriended, narrowed to members, deleted: the page reads the
       // stream again and lands where a stranger would (as when a watching report says so).
