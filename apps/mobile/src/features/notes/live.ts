@@ -1,7 +1,7 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
 import { subjectTopic } from "@tokuly/core/engagement";
-import { applyNotesEvent, isNoteNotification, patchNote } from "@tokuly/core/notes";
+import { applyNotesEvent, isNoteNotification, putRefreshedNote } from "@tokuly/core/notes";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 import { realtime } from "#/lib/realtime";
@@ -31,11 +31,7 @@ async function refreshNote(queryClient: QueryClient, noteId: string): Promise<vo
   const client = noteClient();
   try {
     const { note: fresh } = await client.getNote({ noteId });
-    if (fresh)
-      patchNote(queryClient, noteId, (note) => ({
-        ...fresh,
-        counters: note.counters ?? fresh.counters,
-      }));
+    if (fresh) putRefreshedNote(queryClient, fresh);
   } catch {
     // Gone or hidden meanwhile: the other pushes say so.
   }

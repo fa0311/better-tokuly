@@ -65,7 +65,7 @@ found.
 | Friends (W M) | reread on pushes, every `Welcome`; forgetters on removal | — | |
 | Notes: timelines (W M) | hints on every `Welcome`, a look after the first page | — | |
 | Notes: card topic (W M) | no read on `onSubscribed` | a note deleted or edited before its topic took effect stays as it was | #526 |
-| Notes: forgetting a person (W M) | `setQueryData`, no journal | an ex-friend's or a blocker's notes come back from a page read before | #515 |
+| Notes: forgetting a person (W M) | journal, `pushToAll`; a look is `pushAfter` until its pill is tapped | — | |
 | Comments (W) | `onSubscribed` invalidates, `setQueriesData` | a removed comment comes back; replies are never read again | #521 |
 | Community (W M) | invalidate, `onSubscribed` on the community | a removed reply comes back | #522 |
 | Moments (W M) | `setQueryData`, every `Welcome` | a deleted moment, or an ex-friend's, comes back | #517 |

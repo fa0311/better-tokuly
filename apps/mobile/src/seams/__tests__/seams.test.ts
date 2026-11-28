@@ -104,6 +104,7 @@ describe("the features on the seams", () => {
       "moments/friends/[momentId]",
       "moments/friends/index",
       "moments/index",
+      "moments/recap",
       "more",
       "new-chat",
       "notes/[id]",

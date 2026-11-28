@@ -5,8 +5,10 @@ import type { APIRequestContext, Page } from "@playwright/test";
 import { create, identity } from "@tokuly/api";
 import {
   type Account,
+  backOnline,
   expect as baseExpect,
   createAccount,
+  failToLoadStrings,
   mailedVerificationToken,
   mailpitIsUp,
   PASSWORD,
@@ -131,6 +133,24 @@ test("the settings home lists every section and opens each of them", async ({ pa
     // Phones show one thing at a time; wide screens keep the list next to the section.
     if (!isWide(page)) await page.getByRole("link", { name: "back" }).click();
   }
+});
+
+test("a row whose strings cannot load shows no raw keys, and its words come once they arrive", async ({
+  page,
+  me,
+}) => {
+  // The licenses' strings fail to arrive, as when the connection drops right as settings open.
+  const letThrough = await failToLoadStrings(page, "licenses");
+  await page.goto(`/u/${me.handle}`);
+  await page.getByRole("link", { name: "設定" }).click();
+  const sections = page.getByRole("navigation", { name: "設定" });
+  await expect(sections.getByRole("link", { name: /^プロフィール/ })).toBeVisible();
+
+  await letThrough();
+  await expect(sections).not.toContainText("settingsRow");
+  await backOnline(page);
+  await expect(sections.getByRole("link", { name: /^ライセンス表記/ })).toBeVisible();
+  await expect(sections).not.toContainText("settingsRow");
 });
 
 test("the licenses credit the map and place data, each with its licence", async ({
