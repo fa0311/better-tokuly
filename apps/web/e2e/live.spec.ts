@@ -623,6 +623,59 @@ test("a streamer under 18 is told that gifts come from 18 on", async ({ page, re
 
 // ───────────────────────────── Overlays ─────────────────────────────
 
+test("a widget deleted while it was being read again stays gone", async ({ page, request, me }) => {
+  const channelId = await createChannel(request, me);
+  const { overlay } = await rpc<{ overlay: { id: string; token: string } }>(
+    request,
+    `${OVERLAYS}/CreateOverlay`,
+    { channelId, kind: "OVERLAY_KIND_ALERT_BOX", name: "消えるアラート" },
+    me,
+  );
+  let reads = 0;
+  page.on("requestfinished", (finished) => {
+    if (finished.url().endsWith(`${OVERLAYS}/GetOverlay`)) reads++;
+  });
+  await page.goto(`/overlay/${overlay.token}`);
+  await expect(page.getByTestId("overlay-root")).toBeAttached();
+  // Read once to open, and once more when its topic took effect.
+  await expect.poll(() => reads).toBe(2);
+
+  // Its settings change: it is read again. That read is answered now, while the widget still
+  // exists, and lands only after the widget was deleted.
+  let answered = () => {};
+  const read = new Promise<void>((resolve) => (answered = resolve));
+  let release = () => {};
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/${OVERLAYS}/GetOverlay`, async (route) => {
+    const response = await route.fetch();
+    answered();
+    await released;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await rpc(request, `${OVERLAYS}/UpdateOverlay`, { overlayId: overlay.id, name: "改名" }, me);
+  await read;
+  await rpc(request, `${OVERLAYS}/DeleteOverlay`, { overlayId: overlay.id }, me);
+  await expect(page.getByTestId("overlay-gone")).toBeVisible({ timeout: 30_000 });
+
+  // From now on the page notes whether the widget is ever drawn again, however briefly.
+  await page.evaluate(() => {
+    const seen = window as { widgetBack?: boolean };
+    new MutationObserver(() => {
+      if (document.querySelector('[data-testid="overlay-root"]')) seen.widgetBack = true;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  const landed = page.waitForEvent("requestfinished", (finished) =>
+    finished.url().endsWith(`${OVERLAYS}/GetOverlay`),
+  );
+  release();
+  await landed;
+  await page.waitForTimeout(1000);
+  baseExpect(await page.evaluate(() => (window as { widgetBack?: boolean }).widgetBack)).toBe(
+    undefined,
+  );
+  await expect(page.getByTestId("overlay-gone")).toBeVisible();
+});
+
 test("the chat overlay shows a message on a bare page that keeps its address to itself", async ({
   page,
   request,

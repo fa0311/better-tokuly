@@ -102,7 +102,8 @@ export function OverlayScreen({ token }: { token: string }) {
     const key = widgetKey(token);
     // Its configuration or its stream changed: the widget is read again.
     const readAgain = () => void reread(queryClient, [key]);
-    const close = () => queryClient.setQueryData(key, null);
+    // Gone for good: a read of it in flight, answered before, does not bring it back.
+    const close = () => pushTo<WidgetState | null>(queryClient, key, () => null);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const next = () => {
       const upcoming = queue.current.shift();

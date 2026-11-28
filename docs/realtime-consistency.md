@@ -77,7 +77,7 @@ found.
 | Spaces: rooms (W M) | `onSubscribed` invalidates | an ended room shows LIVE again; someone who left is back on stage | #530 |
 | Live: chat (W M) | journal, `onSubscribed` | — | |
 | Live: stream page (W M) | journal, `onSubscribed` reread | — | |
-| Live: overlay (W) | journal | a revoked widget comes back, frozen | #540 |
+| Live: overlay (W) | journal, removal through it | — | |
 | Watch party, video cards (W M) | party: journal + `sequence` | heartbeat playback lost to a reload; a pushed card overwritten | #539 |
 | School: room (W) | journal, `onSubscribed` | — | |
 | School: own session (W M) | timer `serverTime` | a stopped session comes back until the heartbeat fails | #531 |
