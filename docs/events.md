@@ -4,6 +4,10 @@ Events flow through the transactional outbox into the `EVENTS` JetStream
 stream (`tokuly_core::events`). Topics are `<domain>.<entity>.<verb>`; payloads
 are JSON. Each domain lists what it emits and consumes under its heading.
 
+A new consumer starts with the events published from when its worker
+started (`ConsumeOptions::start`); one that needs the week of history the
+stream keeps asks for `StartAt::All`. An existing consumer keeps its place.
+
 An event too large for the bus is dropped by the relay and logged (ID, topic,
 size); producers keep events small (`visible_to` lists are bounded by
 `tokuly_core::events::MAX_VISIBLE_TO`).

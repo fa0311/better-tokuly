@@ -96,7 +96,7 @@ async fn stream_stats_include_consumer_lag() {
     let consumer = app
         .core
         .bus
-        .durable_consumer(tokuly_core::bus::STREAM_JOBS, "job-admin-stats-test", vec!["job.admin.stats_test".into()], std::time::Duration::from_secs(30), 3)
+        .durable_consumer(tokuly_core::bus::STREAM_JOBS, "job-admin-stats-test", vec!["job.admin.stats_test".into()], std::time::Duration::from_secs(30), 3, tokuly_core::bus::StartAt::All)
         .await
         .unwrap();
     drop(consumer);

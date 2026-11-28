@@ -49,7 +49,7 @@ pub(crate) async fn sweep(cfg: &Config, now: u64) -> anyhow::Result<usize> {
 pub(crate) mod tests {
     use std::time::Duration;
 
-    use tokuly_core::bus::{Bus, STREAM_EVENTS};
+    use tokuly_core::bus::{Bus, STREAM_EVENTS, StartAt};
 
     use super::*;
     use crate::{env::base_config, run::STALE_AFTER};
@@ -64,7 +64,7 @@ pub(crate) mod tests {
     async fn create(cfg: &Config, prefix: &str) {
         let bus = Bus::connect(&cfg.nats_url, prefix).await.expect("bus");
         bus.ensure_streams().await.expect("streams");
-        bus.durable_consumer(STREAM_EVENTS, "testkit-cleanup", vec!["evt.>".to_owned()], Duration::from_secs(30), 1)
+        bus.durable_consumer(STREAM_EVENTS, "testkit-cleanup", vec!["evt.>".to_owned()], Duration::from_secs(30), 1, StartAt::New)
             .await
             .expect("consumer");
     }
