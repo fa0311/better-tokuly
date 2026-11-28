@@ -18,14 +18,14 @@ import { Avatar } from "#/components/avatar";
 import { CameraScreen } from "#/features/media/camera-screen";
 import type { LocalMedia } from "#/features/media/posts";
 import { type UploadState, uploadFile } from "#/features/media/upload";
-import { StampPicker } from "#/features/stamps/picker";
-import { StampImage } from "#/features/stamps/stamp-image";
 import {
   type Account,
   AccountChanged,
   currentAccount,
   ensureActive,
 } from "#/features/session/account";
+import { StampPicker } from "#/features/stamps/picker";
+import { StampImage } from "#/features/stamps/stamp-image";
 import { mediaUrl } from "#/lib/config";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
