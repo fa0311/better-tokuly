@@ -24,7 +24,7 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Menu } from "#/components/ui/menu";
@@ -67,6 +67,11 @@ import { useCoveredInset, useIsWide } from "./sheet";
 import { StoryPanel, StoryTray } from "./stories";
 import { TripChips, TripLayer, TripsPanel } from "./trips";
 import { useFocusedUserId, useMapUi } from "./ui-store";
+
+// Friends' moments of today: their own data and pictures, not in the map's first download.
+const MomentsOnMap = lazy(() =>
+  import("#/features/moments").then((module) => ({ default: module.MomentsOnMap })),
+);
 
 /** Pins closer than this on screen are drawn as one stack. */
 const CLUSTER_PIXELS = 46;
@@ -117,6 +122,9 @@ export function MapScreen({ focusUserId }: { focusUserId?: string }) {
       <MapView initialCenter={view.center} initialZoom={view.zoom}>
         <Camera centerOnFirstFix={!view.remembered} />
         <RememberView />
+        <Suspense>
+          <MomentsOnMap />
+        </Suspense>
         <FriendLayer />
         <TripLayer />
         <OwnMarker />

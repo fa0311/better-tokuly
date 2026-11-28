@@ -48,6 +48,7 @@
     "react-i18next": "catalog:",
     "sonner": "catalog:",
     "tailwind-merge": "catalog:",
+    "thumbhash": "0.1.1",
     "zustand": "catalog:"
   },
   "devDependencies": {

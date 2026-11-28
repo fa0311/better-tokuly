@@ -1,5 +1,7 @@
 import { createECDH, randomBytes } from "node:crypto";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import { postMoment, promptReached } from "./moments";
+import { discPicture, uploadPicture } from "./pictures";
 import {
   type Account,
   expect as baseExpect,
@@ -255,6 +257,45 @@ test("opening an entry marks it read and goes where it points", async ({ page, r
   await page.goBack();
   await expect(row(page, "haruさんから")).toBeVisible();
   await expect(row(page, "haruさんから").getByText("未読", { exact: true })).toHaveCount(0);
+});
+
+test("a RealMoji on my moment arrives in the inbox and opens the moment", async ({
+  page,
+  request,
+  me,
+}) => {
+  const aoi = await createAccount(request, "aoi");
+  await befriend(request, me, aoi);
+  promptReached([me, aoi]);
+  const moment = await postMoment(request, me);
+  await postMoment(request, aoi, { color: [40, 160, 220] });
+  const selfie = await uploadPicture(
+    request,
+    aoi,
+    discPicture("selfie.png", [250, 200, 60]),
+    "ASSET_PURPOSE_REALMOJI",
+  );
+  const REACTIONS = "tokuly.moments.v1.MomentReactionService";
+  await rpc(
+    request,
+    `${REACTIONS}/SetRealmoji`,
+    { emoji: "REALMOJI_EMOJI_SMILE", assetId: selfie },
+    aoi,
+  );
+  await rpc(
+    request,
+    `${REACTIONS}/React`,
+    { momentId: moment, realmoji: "REALMOJI_EMOJI_SMILE" },
+    aoi,
+  );
+  await expect
+    .poll(async () => (await inboxOf(request, me)).map((entry) => entry.title))
+    .toContain("aoiさんがリアクションしたよ!");
+
+  await page.goto("/notifications");
+  await row(page, "aoiさんがリアクションしたよ!").getByRole("link").click();
+  await expect(page).toHaveURL(new RegExp(`/moments/${moment}$`));
+  await expect(page.getByTestId("moment-reaction-list").getByText("aoi")).toBeVisible();
 });
 
 test("a new notification pops up as a toast wherever you are, and the toast opens it", async ({

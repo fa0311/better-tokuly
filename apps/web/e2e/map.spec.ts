@@ -1,4 +1,5 @@
 import type { APIRequestContext, Browser, Locator, Page } from "@playwright/test";
+import { postMoment, promptReached } from "./moments";
 import { type Account, befriend, createAccount, expect, PASSWORD, rpc, test } from "./support";
 
 /** Where the browser is (the Playwright config's geolocation): Shibuya crossing. */
@@ -148,6 +149,28 @@ test("a friend's pin appears on the map and moves when they report a new positio
   await expect
     .poll(() => offsetFromMe(page, pin), { timeout: 20_000 })
     .toBeGreaterThan(before + 40);
+});
+
+test("a friend's moment of today sits on the map where it was taken and opens it", async ({
+  page,
+  me,
+  request,
+}) => {
+  test.setTimeout(90_000);
+  const aoi = await friendAt(request, me, "Aoi", 0.002, -0.002);
+  promptReached([me, aoi]);
+  const moment = await postMoment(request, aoi, {
+    location: { lat: HERE.lat + 0.002, lng: HERE.lng - 0.002 },
+  });
+  // Mine unlocks theirs: before that the map shows none.
+  await postMoment(request, me, { color: [40, 160, 220] });
+
+  await openMap(page);
+  const pin = page.getByRole("button", { name: "Aoiさんの瞬間を見る" });
+  await expect(pin).toBeVisible({ timeout: 20_000 });
+  await pin.click();
+  await expect(page).toHaveURL(new RegExp(`/moments/${moment}$`));
+  await expect(page.getByTestId("moment-detail")).toBeVisible();
 });
 
 test("a pin shows battery and how long the friend has been there, and so does their sheet", async ({
