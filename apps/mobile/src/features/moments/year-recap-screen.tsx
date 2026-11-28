@@ -9,9 +9,9 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Button } from "#/components/button";
 import { IconButton } from "#/components/icon-button";
 import { EmptyState, ErrorNote, Page, Spinner } from "#/components/page";
+import { useMe } from "#/features/session/store";
 import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
-import { useMe } from "#/features/session/store";
 import { useMomentToday } from "./data";
 import { useMomentYear } from "./year-data";
 
@@ -168,13 +168,13 @@ export function MomentYearRecapScreen() {
             ? t("recap.loadingMonth", { month: label })
             : failed
               ? t("recap.monthLoadError", { month: label })
-            : available
-              ? t("recap.monthSummary", {
-                  month: label,
-                  posted: response?.postedCount ?? 0,
-                  onTime: response?.onTimeCount ?? 0,
-                })
-              : t("recap.upcomingMonth", { month: label });
+              : available
+                ? t("recap.monthSummary", {
+                    month: label,
+                    posted: response?.postedCount ?? 0,
+                    onTime: response?.onTimeCount ?? 0,
+                  })
+                : t("recap.upcomingMonth", { month: label });
 
           return (
             <MonthTile
