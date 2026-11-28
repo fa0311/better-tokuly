@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { loadModule } from "#/lib/load-module";
 import { forgetShownBadges, setBadge, useShownBadges } from "#/stores/badges";
 
 /**
@@ -29,31 +30,16 @@ const LOADERS = new Map(
 /** Sources already loaded, so a remount starts counting at once. */
 const loaded = new Map<string, BadgeSource>();
 
-/**
- * Loads one badge's source and runs it. A load that fails (the connection
- * dropped right as the badge first showed) leaves only this badge at 0 and
- * is tried again once the device is back online: never the app's error screen.
- */
+/** Loads one badge's source (`loadModule`: a failed load leaves it at 0) and runs it. */
 function Runner({ badge }: { badge: string }) {
   const [useCount, setUseCount] = useState(() => loaded.get(badge));
   useEffect(() => {
     const load = LOADERS.get(badge);
     if (useCount || !load) return;
-    let current = true;
-    const attempt = () =>
-      load().then(
-        (module) => {
-          loaded.set(badge, module.default);
-          if (current) setUseCount(() => module.default);
-        },
-        () => {},
-      );
-    void attempt();
-    window.addEventListener("online", attempt);
-    return () => {
-      current = false;
-      window.removeEventListener("online", attempt);
-    };
+    return loadModule(load, (module) => {
+      loaded.set(badge, module.default);
+      setUseCount(() => module.default);
+    });
   }, [badge, useCount]);
   return useCount ? <Source badge={badge} useCount={useCount} /> : null;
 }
