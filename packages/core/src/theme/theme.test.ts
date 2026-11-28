@@ -66,6 +66,15 @@ describe("contrast", () => {
     ]);
     expect(problems[0]?.min).toBe(4.5);
   });
+
+  it("checks the faintest text where it is text, not on surface-3 where it is only icons", () => {
+    const problems = contrastProblems({ ...colors.light, "ink-faint": "#9993ad" });
+    expect(problems.map(({ text, on }) => `${text}/${on}`)).toEqual([
+      "ink-faint/bg",
+      "ink-faint/surface",
+      "ink-faint/surface-2",
+    ]);
+  });
 });
 
 describe("theme files", () => {

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { emoji as emojiApi } from "@tokuly/api";
 import { type CatalogEmoji, emojiPageParam } from "@tokuly/core/emoji";
+import { colors } from "@tokuly/core/tokens";
 import { Search, X } from "lucide-react";
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import { Chip } from "#/components/ui/card";
@@ -153,23 +154,20 @@ export function FilterPill({
 }
 
 /**
- * The surface colours of both themes, as `styles.css` defines them on the
- * root element. The theme is an attribute of <html>, so a tile cannot ask
- * for "the other theme": the preview sets the tokens it needs itself.
+ * The surface colours of both themes, from the design tokens. The theme is
+ * an attribute of <html>, so a tile cannot ask for "the other theme": the
+ * preview sets the tokens it needs itself.
  */
+const themeTokens = (theme: "light" | "dark") =>
+  Object.fromEntries(
+    (["surface", "ink", "ink-faint", "line"] as const).map((name) => [
+      `--${name}`,
+      colors[theme][name],
+    ]),
+  ) as CSSProperties;
 const THEME_TOKENS: Record<"light" | "dark", CSSProperties> = {
-  light: {
-    "--surface": "#ffffff",
-    "--ink": "#17122b",
-    "--ink-faint": "#9993ad",
-    "--line": "#ddd6ee",
-  } as CSSProperties,
-  dark: {
-    "--surface": "#17132a",
-    "--ink": "#f6f3ff",
-    "--ink-faint": "#7a7397",
-    "--line": "#322b52",
-  } as CSSProperties,
+  light: themeTokens("light"),
+  dark: themeTokens("dark"),
 };
 
 /** A tile in one theme's colours, whatever theme the page is in. */
