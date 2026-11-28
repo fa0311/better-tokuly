@@ -32,6 +32,10 @@ done
 if [ "$bypass" -eq 0 ]; then ok "every running rustc compilation goes through sccache"
 else bad "$bypass rustc compilation(s) bypass sccache (see above)"; fi
 
+# The pinned Rust (backend/rust-toolchain.toml) is installed: cargo cannot install it here.
+pinned=$(cd "$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --show-toplevel)/backend" && rustc --version 2>/dev/null)
+[ -n "$pinned" ] && ok "pinned Rust installed ($pinned)" || bad "the Rust of backend/rust-toolchain.toml is missing (provision.sh)"
+
 # Guards.
 pgrep -f 'memguard.sh' >/dev/null && ok "memguard running" || bad "memguard not running (see docs/agents/machine.md)"
 pgrep -f 'diskguard.sh' >/dev/null && ok "diskguard running" || bad "diskguard not running"

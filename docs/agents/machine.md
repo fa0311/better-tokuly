@@ -7,7 +7,7 @@ a persistent volume; anything installed with `apt` is lost when the container is
 ## After the container is recreated
 
 ```sh
-tools/agent/machine/provision.sh                 # system packages (Postgres, Valkey, clang, mold, QEMU, …)
+tools/agent/machine/provision.sh                 # system packages (Postgres, Valkey, clang, mold, QEMU, …), the pinned Rust
 # first time on a new machine also: setup-build.sh, setup-android.sh, vm/create-vm.sh
 TOKULY_DEV_MEDIAMTX=1 tools/dev/infra.sh up      # native services; NATS may take a while on a big store
 nohup tools/agent/machine/memguard.sh  > $TOKULY_DEV_HOME/logs/memguard.log  2>&1 &
