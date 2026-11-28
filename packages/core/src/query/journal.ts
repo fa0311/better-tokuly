@@ -15,7 +15,12 @@ import { pushesDuringReadByKey } from "./pushes";
  * what is there), remove by ID, keep the higher version.
  *
  * A query that holds `null` or `undefined` has nothing to change: updates
- * see the data only, and leave an empty answer as it is.
+ * see the data only, and leave an empty answer as it is. An update may
+ * return `null` (what the query held is gone: a revoked widget, a plan the
+ * viewer was removed from), and an older read cannot bring it back.
+ *
+ * For plain queries only: an infinite query calls its query function once
+ * per page, so a page's answer is not what `pushTo` updates.
  */
 
 /** One journal per query client (each app has one; tests make their own), by query hash. */
@@ -30,7 +35,8 @@ function journalOf(queryClient: QueryClient) {
   return journal;
 }
 
-type Update<T> = (current: NonNullable<T>) => NonNullable<T>;
+/** A pushed change: what the query holds next, or `null` when what it held is gone (where `T` allows it). */
+type Update<T> = (current: NonNullable<T>) => NonNullable<T> | Extract<T, null>;
 
 const replay =
   <T>(update: Update<T>) =>
@@ -42,6 +48,8 @@ export function journaled<T, TKey extends QueryKey = QueryKey>(
   queryFn: QueryFunction<T, TKey>,
 ): QueryFunction<T, TKey> {
   return async (context) => {
+    if ("pageParam" in context)
+      throw new Error(`journaled() reads a whole query, not a page: ${String(context.queryKey)}`);
     const read = journalOf(context.client).begin(hashKey(context.queryKey));
     let answer: T;
     try {

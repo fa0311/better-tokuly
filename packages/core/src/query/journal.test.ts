@@ -103,4 +103,32 @@ describe("journaled reads and pushes", () => {
     await queryClient.fetchQuery({ queryKey: key, queryFn, staleTime: 0 });
     expect(queryClient.getQueryData(key)).toBeNull();
   });
+
+  it("does not let a read bring back what a push said is gone", async () => {
+    const queryClient = new QueryClient();
+    const api = server();
+    queryClient.setQueryData<Line[] | null>(key, [{ id: "widget", version: 1 }]);
+    const loading = queryClient.fetchQuery({ queryKey: key, queryFn: api.queryFn });
+    pushTo<Line[] | null>(queryClient, key, () => null);
+    expect(queryClient.getQueryData(key)).toBeNull();
+    // Answered before it was revoked; a later push on the empty query changes nothing.
+    pushTo<Line[] | null>(queryClient, key, add({ id: "late", version: 1 }));
+    api.answer(0, [{ id: "widget", version: 1 }]);
+    await loading;
+    expect(queryClient.getQueryData(key)).toBeNull();
+  });
+
+  it("refuses to journal one page of an infinite query", async () => {
+    const queryClient = new QueryClient();
+    await expect(
+      queryClient.fetchInfiniteQuery({
+        queryKey: key,
+        // Typed apart on purpose: nothing but this check stops it at run time.
+        queryFn: journaled(async () => [] as Line[]) as never,
+        initialPageParam: 0,
+        getNextPageParam: () => undefined,
+        retry: false,
+      }),
+    ).rejects.toThrow(/not a page/);
+  });
 });
