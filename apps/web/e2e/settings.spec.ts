@@ -133,6 +133,26 @@ test("the settings home lists every section and opens each of them", async ({ pa
   }
 });
 
+test("the licenses credit the map and place data, each with its licence", async ({
+  page,
+  me: _me,
+}) => {
+  await page.goto("/settings");
+  await page
+    .getByRole("navigation", { name: "設定" })
+    .getByRole("link", { name: /^ライセンス表記/ })
+    .click();
+  await expect(heading(page, "ライセンス表記")).toBeVisible();
+  for (const [name, license] of [
+    ["GeoNames", "CC-BY-4.0"],
+    ["OpenStreetMap", "ODbL-1.0"],
+    ["M PLUS Rounded 1c", "OFL-1.1"],
+  ]) {
+    const row = page.getByRole("listitem").filter({ has: page.getByRole("link", { name }) });
+    await expect(row.getByRole("link", { name: license })).toHaveAttribute("href", /^https:/);
+  }
+});
+
 // ── Profile ─────────────────────────────────────────────────────────
 
 test("an edited profile shows at once in the app and on the profile page", async ({ page, me }) => {
