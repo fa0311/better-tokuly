@@ -84,10 +84,43 @@ describe("live locations", () => {
 
   it("keeps a friend removed after the snapshot was read off the map", () => {
     const held = answer(EMPTY, snapshot([location("aoi", true), location("ren", true)], 2n));
-    const removed = withoutFriend(held, "aoi", 3n);
-    const late = answer(removed, snapshot([location("aoi", true), location("ren", true)], 2n));
+    const asking = askedForSnapshot(held);
+    const removed = withoutFriend(asking, "aoi", 3n);
+    const late = withSnapshot(
+      removed,
+      snapshot([location("aoi", true), location("ren", true)], 2n),
+      asking.asked,
+    );
     expect(Object.keys(late.friends)).toEqual(["ren"]);
     expect(late.online).toEqual({ ren: true });
+    expect(Object.keys(late.removed)).toEqual(["aoi"]);
+  });
+
+  it("forgets a removal once a snapshot asked for after it is applied", () => {
+    const removed = withoutFriend(withLocation(EMPTY, location("aoi", true)), "aoi", 3n);
+    const read = answer(removed, snapshot([], 3n));
+    expect(read.removed).toEqual({});
+  });
+
+  it("keeps a removal against a snapshot asked for before it, answering late", () => {
+    const first = askedForSnapshot(withLocation(EMPTY, location("aoi", true)));
+    const removed = withoutFriend(first, "aoi", 3n);
+    const second = askedForSnapshot(removed);
+    const newer = withSnapshot(second, snapshot([], 3n), second.asked);
+    const older = withSnapshot(newer, snapshot([location("aoi", true)], 2n), first.asked);
+    expect(older.friends).toEqual({});
+    // The late answer to the first snapshot is the one the removal guards against.
+    const late = withSnapshot(removed, snapshot([location("aoi", true)], 2n), first.asked);
+    expect(late.friends).toEqual({});
+    expect(Object.keys(late.removed)).toEqual(["aoi"]);
+  });
+
+  it("takes back a friend accepted again after the server's count started over", () => {
+    // Removed as number 5; the count is lost, and the new friendship's pin never arrives.
+    const removed = withoutFriend(withLocation(EMPTY, location("aoi", true)), "aoi", 5n);
+    const read = answer(removed, snapshot([location("aoi", true)], 1n));
+    expect(Object.keys(read.friends)).toEqual(["aoi"]);
+    expect(read.removed).toEqual({});
   });
 
   it("takes a friend back from a snapshot read after the removal, or from a new pin", () => {

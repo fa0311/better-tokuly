@@ -13,17 +13,27 @@ import { geo, toMillis } from "@tokuly/api";
 export interface LiveLocations {
   friends: Record<string, geo.FriendLocation>;
   online: Record<string, boolean>;
-  /** The number of the last removal of each user. */
-  removed: Record<string, bigint>;
   /**
-   * Who a numbered pin showed while a snapshot was on its way: its number,
-   * and the last snapshot asked for before it arrived (see `asked`).
+   * Who a numbered removal took off the map: the highest number, and the last
+   * snapshot asked for before the removal arrived (see `asked`).
    */
-  appeared: Record<string, { sequence: bigint; after: number }>;
+  removed: Record<string, Mark>;
+  /** Who a numbered pin showed while a snapshot was on its way, marked the same way. */
+  appeared: Record<string, Mark>;
   /** Snapshots asked for so far; each answer is applied with its ticket. */
   asked: number;
   /** The ticket of the snapshot applied last: older answers are dropped. */
   applied: number;
+}
+
+/**
+ * A numbered push held against snapshots that may answer late. A snapshot
+ * asked for after the push arrived was read after it, so it already says
+ * what the push did, and the mark goes when that snapshot is applied.
+ */
+export interface Mark {
+  sequence: bigint;
+  after: number;
 }
 
 export const NO_LOCATIONS: LiveLocations = {
@@ -46,7 +56,9 @@ export function askedForSnapshot(live: LiveLocations): LiveLocations {
  * answer to a snapshot asked for later, which is newer and stands. Otherwise
  * a pin already held stays when it is newer than the snapshot's; someone
  * removed after the snapshot was read does not come back; and someone who
- * appeared after it was read stays.
+ * appeared after it was read stays. Marks from before the snapshot was asked
+ * for are in it, so they are dropped, even when the server's count started
+ * over since.
  */
 export function withSnapshot(
   live: LiveLocations,
@@ -54,25 +66,25 @@ export function withSnapshot(
   ticket: number,
 ): LiveLocations {
   if (ticket < live.applied) return live;
-  const since = snapshot.removalSequence;
   const listed = new Set(snapshot.locations.map((location) => location.userId));
-  const appearedSince = (userId: string) => {
-    const mark = live.appeared[userId];
-    return mark !== undefined && mark.after >= ticket && mark.sequence > since;
-  };
+  const since = snapshot.removalSequence;
+  const removed = pending(live.removed, ticket);
+  const appeared = pending(live.appeared, ticket);
+  const after = (marks: Record<string, Mark>, userId: string) =>
+    (marks[userId]?.sequence ?? 0n) > since;
   const held = (location: geo.FriendLocation) => ({
     location,
     online: live.online[location.userId] ?? location.online,
   });
   const kept = [
     ...snapshot.locations
-      .filter((location) => (live.removed[location.userId] ?? 0n) <= since)
+      .filter((location) => !after(removed, location.userId))
       .map((location) => {
         const pin = live.friends[location.userId];
         return pin && supersedes(pin, location) ? held(pin) : { location, online: location.online };
       }),
     ...Object.values(live.friends)
-      .filter((pin) => !listed.has(pin.userId) && appearedSince(pin.userId))
+      .filter((pin) => !listed.has(pin.userId) && after(appeared, pin.userId))
       .map(held),
   ];
   return {
@@ -80,14 +92,16 @@ export function withSnapshot(
     online: Object.fromEntries(
       kept.filter(({ online }) => online).map(({ location }) => [location.userId, true]),
     ),
-    removed: live.removed,
-    // What arrived before this snapshot was asked for is in it.
-    appeared: Object.fromEntries(
-      Object.entries(live.appeared).filter(([, mark]) => mark.after >= ticket),
-    ),
+    removed,
+    appeared,
     asked: live.asked,
     applied: ticket,
   };
+}
+
+/** The marks a snapshot asked for with `ticket` may not say yet. */
+function pending(marks: Record<string, Mark>, ticket: number): Record<string, Mark> {
+  return Object.fromEntries(Object.entries(marks).filter(([, mark]) => mark.after >= ticket));
 }
 
 /**
@@ -135,11 +149,15 @@ export function withoutFriend(
 ): LiveLocations {
   const { [userId]: _removed, ...friends } = live.friends;
   const { [userId]: _gone, ...appeared } = live.appeared;
-  const last = live.removed[userId] ?? 0n;
+  const last = live.removed[userId]?.sequence ?? 0n;
+  const sequence = removalSequence > last ? removalSequence : last;
   return {
     ...live,
     friends,
-    removed: removalSequence > last ? { ...live.removed, [userId]: removalSequence } : live.removed,
+    removed:
+      removalSequence > 0n
+        ? { ...live.removed, [userId]: { sequence, after: live.asked } }
+        : live.removed,
     appeared,
   };
 }
