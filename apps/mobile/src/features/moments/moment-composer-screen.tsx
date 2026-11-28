@@ -60,7 +60,9 @@ export function MomentComposerScreen() {
   const [photos, setPhotos] = useState<Photos>({});
   const [retakes, setRetakes] = useState(0);
   const [caption, setCaption] = useState("");
-  const [audienceOverride, setAudienceOverride] = useState<MomentAudienceChoice>();
+  const [audienceOverride, setAudienceOverride] = useState<
+    { date: string; value: MomentAudienceChoice } | undefined
+  >();
   const [locationChoice, setLocationChoice] = useState<boolean | undefined>();
   const [cameraFor, setCameraFor] = useState<Side | null>(null);
   const [savingCapture, setSavingCapture] = useState(false);
@@ -76,8 +78,8 @@ export function MomentComposerScreen() {
     today.data?.settings?.audience === moments.MomentAudience.CLOSE_FRIENDS
       ? "closeFriends"
       : "friends";
-  const audience = audienceOverride ?? savedAudience;
   const day = today.data?.day;
+  const audience = audienceOverride?.date === day?.date ? audienceOverride.value : savedAudience;
   const phase = momentPhase(today.data, now);
   const cleanedCaption = cleanCaption(caption);
 
@@ -408,7 +410,7 @@ export function MomentComposerScreen() {
               { value: "friends", label: t("camera.friends") },
               { value: "closeFriends", label: t("camera.closeFriends") },
             ]}
-            onChange={setAudienceOverride}
+            onChange={(value) => setAudienceOverride({ date: day.date, value })}
           />
         </View>
 
