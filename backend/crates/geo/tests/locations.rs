@@ -795,46 +795,103 @@ async fn a_block_pushes_what_an_unfriend_does() {
     assert_eq!(seen(&ctx, &kai).await, before.1);
 }
 
-/// A snapshot can answer after a removal pushed later than it was read: the
-/// removal's number, higher than the snapshot's, tells the app so.
+/// A snapshot can answer after a push that changed who is on the map: a
+/// removal, or the pin of someone who just became visible. The push's number,
+/// higher than the snapshot's, tells the app so; nothing else is numbered.
 #[tokio::test]
-async fn removals_are_numbered_against_the_snapshot() {
+async fn changes_to_who_is_on_the_map_are_numbered_against_the_snapshot() {
     let ctx = start().await;
     let (aoi, ren, kai) = (ctx.app.user("aoi").await, ctx.app.user("ren").await, ctx.app.user("kai").await);
     ctx.befriend(&aoi, &ren).await;
     ctx.befriend(&kai, &ren).await;
+    ctx.at(&aoi, somewhere()).await;
+    ctx.at(&kai, somewhere()).await;
     let mut rens = ctx.open_app(&ren).await;
     async fn snapshot(ctx: &Ctx, viewer: &TestUser) -> i64 {
         let response: ListFriendLocationsResponse =
             ctx.location("ListFriendLocations", viewer, &ListFriendLocationsRequest::default()).await.unwrap();
         response.removal_sequence
     }
-    async fn removal(listener: &mut FrameListener) -> Option<(String, i64)> {
+    /// The next removal or pin pushed: whose, whether it shows them, its number.
+    async fn change(listener: &mut FrameListener) -> Option<(String, bool, i64)> {
         let deadline = tokio::time::Instant::now() + SOON;
         loop {
             let left = deadline.checked_duration_since(tokio::time::Instant::now())?;
             let Some(event) = listener.next(left).await?.event::<GeoEvent>() else { continue };
-            if let Some(Push::LocationRemovedUserId(id)) = event.event {
-                return Some((id, event.removal_sequence));
+            match event.event {
+                Some(Push::LocationRemovedUserId(id)) => return Some((id, false, event.removal_sequence)),
+                Some(Push::Location(location)) => return Some((location.user_id, true, event.removal_sequence)),
+                _ => continue,
             }
         }
     }
+    let (aoi_id, kai_id) = (aoi.id.to_string(), kai.id.to_string());
     let before = snapshot(&ctx, &ren).await;
 
     ctx.unfriend(&aoi, &ren).await;
-    let (removed, first) = removal(&mut rens).await.expect("removal pushed");
-    assert_eq!(removed, aoi.id.to_string());
-    assert!(first > before, "a snapshot read before the removal counts fewer removals");
+    let (removed, shown, first) = change(&mut rens).await.expect("removal pushed");
+    assert_eq!((removed, shown), (aoi_id.clone(), false));
+    assert!(first > before, "a snapshot read before the removal counts fewer changes");
     assert_eq!(snapshot(&ctx, &ren).await, first, "one read after it counts it");
 
-    sqlx::query("UPDATE users SET banned_at = now() WHERE id = $1")
-        .bind(kai.id)
-        .execute(&ctx.app.core.db)
-        .await
-        .unwrap();
+    // Friends again: the pin that shows aoi is numbered next.
+    ctx.befriend(&aoi, &ren).await;
+    ctx.deliver(
+        "social.friend.accepted",
+        ren.id,
+        serde_json::json!({ "user_id": ren.id, "friend_id": aoi.id, "source": 1 }),
+    )
+    .await;
+    assert_eq!(change(&mut rens).await, Some((aoi_id.clone(), true, first + 1)), "an addition is numbered");
+
+    // A ban and its lifting, in order.
+    let set_banned = async |banned: bool| {
+        sqlx::query("UPDATE users SET banned_at = CASE WHEN $2 THEN now() END WHERE id = $1")
+            .bind(kai.id)
+            .bind(banned)
+            .execute(&ctx.app.core.db)
+            .await
+            .unwrap();
+    };
+    set_banned(true).await;
     ctx.deliver("identity.user.banned", kai.id, serde_json::json!({ "user_id": kai.id })).await;
-    assert_eq!(removal(&mut rens).await, Some((kai.id.to_string(), first + 1)), "numbered per viewer, in order");
-    assert_eq!(snapshot(&ctx, &aoi).await, 1, "each viewer counts their own removals");
+    assert_eq!(change(&mut rens).await, Some((kai_id.clone(), false, first + 2)));
+    set_banned(false).await;
+    ctx.deliver("identity.user.unbanned", kai.id, serde_json::json!({ "user_id": kai.id })).await;
+    assert_eq!(change(&mut rens).await, Some((kai_id, true, first + 3)));
+
+    // An ordinary pin is not a change to who is on the map.
+    ctx.at(&aoi, somewhere()).await;
+    assert_eq!(change(&mut rens).await, Some((aoi_id, true, 0)));
+    // aoi never watched: the removal and the pin they were sent are not
+    // numbered, so the count moves with nothing their app was not sent.
+    assert_eq!(snapshot(&ctx, &aoi).await, 0, "only what a watching app is sent is numbered");
+}
+
+/// A viewer whose app is not open but who has a snapshot on its way is
+/// watching from the moment it is read: a removal after that read is
+/// numbered, or the late answer would bring the removed friend back.
+#[tokio::test]
+async fn a_snapshot_on_its_way_gets_its_removals_numbered() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    ctx.at(&aoi, somewhere()).await;
+    // Connected, but not marked online: only the snapshot makes ren watch.
+    let mut rens = ctx.app.listen_user(ren.id).await;
+    let read: ListFriendLocationsResponse =
+        ctx.location("ListFriendLocations", &ren, &ListFriendLocationsRequest::default()).await.unwrap();
+    assert_eq!(read.locations.len(), 1);
+
+    ctx.unfriend(&aoi, &ren).await;
+    let removal = loop {
+        let frame = rens.next(SOON).await.expect("removal pushed");
+        let Some(event) = frame.event::<GeoEvent>() else { continue };
+        if matches!(event.event, Some(Push::LocationRemovedUserId(ref id)) if *id == aoi.id.to_string()) {
+            break event.removal_sequence;
+        }
+    };
+    assert!(removal > read.removal_sequence, "numbered above the snapshot that may still list aoi");
 }
 
 #[tokio::test]

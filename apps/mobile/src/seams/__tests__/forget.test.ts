@@ -11,6 +11,7 @@ function asTheLeavingAccount(): void {
     create(geo.ListFriendLocationsResponseSchema, {
       locations: [create(geo.FriendLocationSchema, { userId: "friend-of-a" })],
     }),
+    useLocations.getState().askSnapshot(),
   );
   useLocations.getState().remove("friend-of-b", 1n);
   useLocations.getState().setOnline("friend-of-a", true);

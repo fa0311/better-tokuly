@@ -38,13 +38,14 @@ fn watching_key(viewer: Uuid) -> String {
     format!("geo:watching:{}", viewer.simple())
 }
 
-/// Each viewer's running count of `location_removed_user_id` pushes, which
-/// a snapshot reports so that an app can order the two. It outlives any app
+/// Each viewer's running count of the pushes that change who is on their
+/// map (a removal, the pin of someone who just became visible), which a
+/// snapshot reports so that an app can order the two. It outlives any app
 /// session; when it is lost the count starts over, and an app still holding
-/// higher numbers leaves those users off until their next pin.
-const REMOVALS_TTL_SECONDS: i64 = 30 * 24 * 3600;
+/// higher numbers leaves removed users off until their next pin.
+const CHANGES_TTL_SECONDS: i64 = 30 * 24 * 3600;
 
-fn removals_key(viewer: Uuid) -> String {
+fn changes_key(viewer: Uuid) -> String {
     format!("geo:removals:{}", viewer.simple())
 }
 
@@ -56,6 +57,21 @@ static AREA_LOOKUP: fn(f64, f64) -> Area = area_lookup;
 
 pub(crate) fn frame(event: Event) -> GeoEvent {
     GeoEvent { event: Some(event), ..Default::default() }
+}
+
+/// What a pin push follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Cause {
+    /// A new sample or something about where the owner is: friends who see
+    /// a frozen pin get nothing, a frozen pin does not move.
+    Live,
+    /// A change to ghost rules, privacy or status: everyone gets their
+    /// current view again.
+    Refresh,
+    /// The owner just became visible to the recipients (a new friend, a
+    /// lifted ban): as `Refresh`, and numbered like a removal, so that a
+    /// snapshot read before it does not take them off again.
+    Appeared,
 }
 
 /// Who a pin update goes to.
@@ -111,46 +127,59 @@ impl Geo {
         self.core.rt.notify_users(user_ids, &frame(event)).await;
     }
 
-    /// Takes `user_id` off the maps of `viewers`, numbering the removal per
-    /// viewer. A snapshot read before it reports a lower number
-    /// ([`Self::removals_seen`]), so the app can tell it came first even when
-    /// it answers after the push. Unnumbered (0) if Valkey fails: the
-    /// removal still goes out.
+    /// Takes `user_id` off the maps of `viewers`. The removal is numbered
+    /// for those who watch ([`Self::number_changes`]); the others have no
+    /// snapshot on its way and get it unnumbered (0).
     pub(crate) async fn push_removed(&self, viewers: &[Uuid], user_id: Uuid) {
-        let numbers = self.number_removals(viewers).await.unwrap_or_else(|e| {
+        let watching = self.watching(viewers).await.unwrap_or_else(|e| {
             tracing::warn!(error = %e, "geo: removals not numbered");
-            vec![0; viewers.len()]
+            HashSet::new()
         });
-        for (viewer, removal_sequence) in viewers.iter().zip(numbers) {
+        let numbered: Vec<Uuid> = viewers.iter().copied().filter(|viewer| watching.contains(viewer)).collect();
+        let numbers: HashMap<Uuid, i64> = numbered.iter().copied().zip(self.number_changes(&numbered).await).collect();
+        for viewer in viewers {
             let event = GeoEvent {
                 event: Some(Event::LocationRemovedUserId(user_id.to_string())),
-                removal_sequence,
+                removal_sequence: numbers.get(viewer).copied().unwrap_or(0),
                 ..Default::default()
             };
             self.core.rt.notify_user(*viewer, &event).await;
         }
     }
 
-    async fn number_removals(&self, viewers: &[Uuid]) -> AppResult<Vec<i64>> {
+    /// Numbers a change to who is on each viewer's map, per viewer. A
+    /// snapshot read before it reports a lower number ([`Self::changes_seen`]),
+    /// so the app can tell it came first even when it answers after the
+    /// push. Only what is pushed to a viewer who watches is numbered: a
+    /// snapshot on its way marked them watching before it was read, and the
+    /// count moves with nothing their app is not sent. 0 if Valkey fails.
+    async fn number_changes(&self, viewers: &[Uuid]) -> Vec<i64> {
+        if viewers.is_empty() {
+            return Vec::new();
+        }
         let mut pipe = redis::pipe();
         for viewer in viewers {
-            let key = removals_key(*viewer);
-            pipe.incr(&key, 1).expire(&key, REMOVALS_TTL_SECONDS).ignore();
+            let key = changes_key(*viewer);
+            pipe.incr(&key, 1).expire(&key, CHANGES_TTL_SECONDS).ignore();
         }
-        Ok(pipe.query_async(&mut self.core.cache.conn()).await?)
+        pipe.query_async(&mut self.core.cache.conn()).await.unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "geo: changes to who is on the map not numbered");
+            vec![0; viewers.len()]
+        })
     }
 
-    /// How many removals `viewer` has been pushed. Read before the snapshot
-    /// it goes with, so that every removal it counts is already in effect.
-    pub(crate) async fn removals_seen(&self, viewer: Uuid) -> AppResult<i64> {
+    /// How many changes to who is on the map `viewer` has been pushed. Read
+    /// before the snapshot it goes with, so that every change it counts is
+    /// already in effect.
+    pub(crate) async fn changes_seen(&self, viewer: Uuid) -> AppResult<i64> {
         let seen: Option<i64> =
-            redis::cmd("GET").arg(removals_key(viewer)).query_async(&mut self.core.cache.conn()).await?;
+            redis::cmd("GET").arg(changes_key(viewer)).query_async(&mut self.core.cache.conn()).await?;
         Ok(seen.unwrap_or(0))
     }
 
-    /// Forgets a deleted account's removal count.
-    pub(crate) async fn drop_removals(&self, user_id: Uuid) -> AppResult<()> {
-        self.core.cache.del(&removals_key(user_id)).await
+    /// Forgets a deleted account's count of changes.
+    pub(crate) async fn drop_changes(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.del(&changes_key(user_id)).await
     }
 
     /// Whether each user's account language is Japanese (cached for a few minutes).
@@ -190,9 +219,7 @@ impl Geo {
     }
 
     /// Pushes the owner's pin to friends, each seeing it through their own
-    /// ghost rule. Friends who see a frozen pin get nothing — a frozen pin
-    /// does not move — unless `refresh` is set, which re-sends everyone their
-    /// current view (after a change to ghost rules, privacy or status).
+    /// ghost rule ([`Cause`] says who of them).
     ///
     /// Only friends who watch (the app open, or the pins just loaded) get a
     /// push: the others load every pin when they open it (`ListFriendLocations`).
@@ -202,8 +229,9 @@ impl Geo {
         pin: Option<&Pin>,
         ctx: &OwnerCtx,
         recipients: Recipients<'_>,
-        refresh: bool,
+        cause: Cause,
     ) -> AppResult<()> {
+        let refresh = cause != Cause::Live;
         let friends = match recipients {
             Recipients::Friends => graph::friend_ids(&self.core, owner).await?,
             Recipients::Only(ids) => ids.to_vec(),
@@ -230,6 +258,7 @@ impl Geo {
             HashMap::new()
         };
         let mut changed = Vec::new();
+        let mut outgoing = Vec::new();
         for viewer in friends {
             let sight = visibility::sight(ctx, viewer, now);
             if !refresh && matches!(sight, Sight::Frozen(_)) {
@@ -253,8 +282,16 @@ impl Geo {
                 changed.push((field, now_shown));
             }
             if watches {
-                self.push(viewer.id, Event::Location(Box::new(view))).await;
+                outgoing.push((viewer.id, view));
             }
+        }
+        let viewers: Vec<Uuid> = outgoing.iter().map(|(viewer, _)| *viewer).collect();
+        let numbers =
+            if cause == Cause::Appeared { self.number_changes(&viewers).await } else { vec![0; viewers.len()] };
+        for ((viewer, view), removal_sequence) in outgoing.into_iter().zip(numbers) {
+            let event =
+                GeoEvent { event: Some(Event::Location(Box::new(view))), removal_sequence, ..Default::default() };
+            self.core.rt.notify_user(viewer, &event).await;
         }
         if !changed.is_empty() {
             let mut conn = self.core.cache.conn();
@@ -269,7 +306,7 @@ impl Geo {
         let ctx = self.ctx_of(owner).await?;
         let state = self.load_state(owner).await?;
         let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
-        self.fan_out(owner, pin, &ctx, Recipients::Friends, true).await
+        self.fan_out(owner, pin, &ctx, Recipients::Friends, Cause::Refresh).await
     }
 
     /// Shows friends the owner's pin again after something that comes from
@@ -280,7 +317,7 @@ impl Geo {
         let ctx = self.ctx_of(owner).await?;
         let state = self.load_state(owner).await?;
         let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
-        self.fan_out(owner, pin, &ctx, Recipients::Friends, false).await
+        self.fan_out(owner, pin, &ctx, Recipients::Friends, Cause::Live).await
     }
 
     /// Re-sends some friends their current view of the owner's pin.
@@ -291,7 +328,16 @@ impl Geo {
         let ctx = self.ctx_of(owner).await?;
         let state = self.load_state(owner).await?;
         let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
-        self.fan_out(owner, pin, &ctx, Recipients::Only(viewers), true).await
+        self.fan_out(owner, pin, &ctx, Recipients::Only(viewers), Cause::Refresh).await
+    }
+
+    /// Shows the owner's pin to those it just became visible to: a new
+    /// friend, or every friend once a ban is lifted.
+    pub(crate) async fn show_appeared(&self, owner: Uuid, recipients: Recipients<'_>) -> AppResult<()> {
+        let ctx = self.ctx_of(owner).await?;
+        let state = self.load_state(owner).await?;
+        let pin = state.as_ref().filter(|state| state.located()).map(|state| &state.pin);
+        self.fan_out(owner, pin, &ctx, recipients, Cause::Appeared).await
     }
 
     /// Publishes the owner's pin on the topic of each of their live shares.
