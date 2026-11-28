@@ -212,12 +212,14 @@ export function MomentComposerScreen() {
   };
 
   const post = async () => {
+    const submittedDay = day?.date;
     if (
       posting.current ||
       savingCapture ||
       !photos.back ||
       !photos.front ||
-      cleanedCaption === null
+      cleanedCaption === null ||
+      !submittedDay
     )
       return;
     const account = currentAccount();
@@ -254,6 +256,13 @@ export function MomentComposerScreen() {
           setLocationChoice(false);
           Alert.alert(t("camera.locationFailed"));
         }
+      }
+
+      const currentDay = queryClient.getQueryData<moments.GetTodayResponse>(momentKeys.today)?.day
+        ?.date;
+      if (currentDay !== submittedDay) {
+        Alert.alert(t("camera.promptChangedTitle"), t("camera.promptChangedBody"));
+        return;
       }
 
       const response = await account.api.service(moments.MomentService).postMoment(

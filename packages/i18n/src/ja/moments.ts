@@ -91,6 +91,8 @@ export default {
     locationFailed: "位置情報が取れなかったから、場所なしでシェアするね",
     audience: "見せる相手",
     audienceHint: "今回の投稿だけに適用されるよ。いつもの公開範囲は変わらないよ。",
+    promptChangedTitle: "新しい瞬間の合図が届いたよ",
+    promptChangedBody: "写真は準備できたよ。新しい瞬間の公開範囲を確認して、もう一度シェアしてね。",
     friends: "ともだち",
     closeFriends: "親しい友達",
     post: "シェアする!",

@@ -91,6 +91,9 @@ export default {
     locationFailed: "Couldn't get your location, sharing without it",
     audience: "Who sees it",
     audienceHint: "Only for this Moment. Your usual audience won't change.",
+    promptChangedTitle: "A new Moment prompt arrived",
+    promptChangedBody:
+      "Your photos are ready. Review who can see the new Moment, then share again.",
     friends: "Friends",
     closeFriends: "Close friends",
     post: "Share!",
