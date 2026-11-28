@@ -23,6 +23,21 @@ docker compose run --rm api dead-letters redrive notify  # only what failed in c
 A redriven event is handled only by the consumer it failed in (header
 `Tokuly-Redrive-For`); the others handled it long ago and ack it unread.
 
+## Changing a payload
+
+Events stay on the stream for 7 days and dead letters for up to 30, and a
+redrive sends a letter as it was buried: new code reads payloads written by
+releases a month old. So a payload only grows.
+
+- **Add fields, never rename or retype one.** A new field is optional for its
+  readers (`#[serde(default)]`, or an `Option`): old events do not have it.
+- **Remove a field over two releases.** The first stops reading it and keeps
+  writing it; the second, at least 30 days later, stops writing it.
+- **A different meaning is a new topic** (`…v2` or a new verb), emitted next to
+  the old one until nothing consumes the old one.
+- Readers ignore fields they do not know (serde's default; no
+  `deny_unknown_fields` on payload structs), so a rollback reads new events.
+
 When an account is erased, identity removes every letter that mentions its
 ID, except `identity.user.deleted` itself: that one holds only the ID, and
 redriving it is how a consumer that failed still erases its part.
