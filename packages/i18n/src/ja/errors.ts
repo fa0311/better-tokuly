@@ -111,6 +111,7 @@ export default {
   SUSPENSION_DURATION_INVALID: "停止期間は1時間〜365日で選んでね",
   TARGET_IS_STAFF: "スタッフへの対応は管理者だけができます",
   TIME_RANGE_INVALID: "時間の指定が正しくないよ",
+  CONSUMER_PREFIX_TOO_LONG: "コンシューマー名が長すぎるよ",
   TITLE_INVALID: "タイトルの長さを確認してね",
   USER_NOT_SUSPENDED: "このアカウントは停止されていません",
   // announcements

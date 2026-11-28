@@ -112,6 +112,7 @@ export default {
   SUSPENSION_DURATION_INVALID: "Pick a length between 1 hour and 365 days",
   TARGET_IS_STAFF: "Only admins can act on staff accounts",
   TIME_RANGE_INVALID: "That time range is not valid",
+  CONSUMER_PREFIX_TOO_LONG: "That consumer name is too long",
   TITLE_INVALID: "Check the length of the title",
   USER_NOT_SUSPENDED: "This account is not suspended",
   // announcements

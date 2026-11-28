@@ -56,6 +56,7 @@ const ACTIONS: Record<string, string[]> = {
     "announcement.unpublished",
     "announcement.deleted",
   ],
+  "dead_letters.": ["dead_letters.redriven"],
 };
 
 /** `/admin/audit`: who did what, to what, and why. */

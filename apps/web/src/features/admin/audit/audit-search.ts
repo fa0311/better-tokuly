@@ -1,7 +1,14 @@
 import { parseChoice, parseText } from "../params";
 
 /** The kinds of thing an audit entry can be about. */
-export const TARGET_TYPES = ["user", "case", "subject", "flag", "announcement"] as const;
+export const TARGET_TYPES = [
+  "user",
+  "case",
+  "subject",
+  "flag",
+  "announcement",
+  "dead_letters",
+] as const;
 export type TargetType = (typeof TARGET_TYPES)[number];
 
 /** The audit log's filters, kept in the address bar. Times are local `YYYY-MM-DDTHH:mm`. */

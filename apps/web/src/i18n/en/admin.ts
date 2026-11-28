@@ -14,6 +14,7 @@ export default {
     emoji: "Emoji",
     moments: "Moments",
     settings: "Server settings",
+    deadLetters: "Dead letters",
   },
   gate: {
     title: "This area is for staff",
@@ -589,6 +590,37 @@ export default {
       deleted: "Announcement deleted",
     },
   },
+  deadLetters: {
+    title: "Dead letters",
+    intro:
+      "Events and jobs whose handlers failed again and again and gave up. Fix the cause, then send them again: each goes back only to the consumer it failed in. (What they carry is people's data, so it is not shown here.)",
+    total: "{{count}} in all",
+    shown: "Showing {{shown}} of {{count}}",
+    filter: "Filter by consumer",
+    filterPlaceholder: "notify / job-media …",
+    empty: "No dead letters!",
+    emptyBody: "Every consumer is keeping up.",
+    emptyFiltered: "None for this consumer",
+    columns: {
+      diedAt: "Gave up",
+      consumer: "Consumer",
+      subject: "Topic",
+      error: "Last error",
+      deliveries: "Tries",
+    },
+    deliveries: "{{count}} times",
+    occurredAt: "Happened {{time}}",
+    redrive: {
+      open: "Send again",
+      title: "Send them all again?",
+      all: "Every dead letter (up to 1000) is sent again. Is the cause fixed?",
+      filtered:
+        'Everything that failed in consumers starting with "{{prefix}}" (up to 1000) is sent again. Is the cause fixed?',
+      confirm: "Send again",
+      done: "{{sent}} sent again!",
+      partly: "{{sent}} sent again; {{failed}} could not be sent and stay",
+    },
+  },
   audit: {
     title: "Audit log",
     empty: "Nothing recorded yet",
@@ -623,6 +655,7 @@ export default {
       subject: "Content",
       flag: "Flag",
       announcement: "Announcement",
+      dead_letters: "Dead letters",
     },
     groups: {
       case: "Cases",
@@ -630,6 +663,7 @@ export default {
       user: "Users",
       flag: "Flags",
       announcement: "Announcements",
+      dead_letters: "Dead letters",
     },
     actions: {
       case: {
@@ -657,6 +691,7 @@ export default {
         unpublished: "Announcement unpublished",
         deleted: "Announcement deleted",
       },
+      dead_letters: { redriven: "Sent again" },
     },
   },
   settings: {

@@ -14,6 +14,7 @@ export default {
     emoji: "絵文字",
     moments: "いまの瞬間",
     settings: "サーバー設定",
+    deadLetters: "届かなかったイベント",
   },
   gate: {
     title: "ここはスタッフ専用だよ",
@@ -586,6 +587,37 @@ export default {
       deleted: "お知らせを削除しました",
     },
   },
+  deadLetters: {
+    title: "届かなかったイベント",
+    intro:
+      "処理に何度も失敗して、あきらめたイベントとジョブだよ。原因を直したら再送してね。失敗したコンシューマーにだけもう一度届くよ（中身は個人の情報なので、ここには出さないよ）。",
+    total: "全部で {{count}} 件",
+    shown: "{{shown}} 件を表示中（全部で {{count}} 件）",
+    filter: "コンシューマー名で絞り込み",
+    filterPlaceholder: "notify / job-media …",
+    empty: "届かなかったイベントはないよ！",
+    emptyBody: "どのコンシューマーも、ちゃんと処理できているよ。",
+    emptyFiltered: "このコンシューマーのものはないよ",
+    columns: {
+      diedAt: "あきらめた日時",
+      consumer: "コンシューマー",
+      subject: "トピック",
+      error: "最後のエラー",
+      deliveries: "試した回数",
+    },
+    deliveries: "{{count}} 回",
+    occurredAt: "発生: {{time}}",
+    redrive: {
+      open: "再送する",
+      title: "まとめて再送する？",
+      all: "届かなかったイベントを全部（最大 1000 件）送り直すよ。原因はもう直ってる？",
+      filtered:
+        "「{{prefix}}」で始まるコンシューマーのものを全部（最大 1000 件）送り直すよ。原因はもう直ってる？",
+      confirm: "再送する",
+      done: "{{sent}} 件を再送したよ！",
+      partly: "{{sent}} 件を再送したよ。{{failed}} 件は送れなかったので残っているよ",
+    },
+  },
   audit: {
     title: "監査ログ",
     empty: "まだ記録がありません",
@@ -620,6 +652,7 @@ export default {
       subject: "コンテンツ",
       flag: "フラグ",
       announcement: "お知らせ",
+      dead_letters: "届かなかったイベント",
     },
     groups: {
       case: "ケース",
@@ -627,6 +660,7 @@ export default {
       user: "ユーザー",
       flag: "フラグ",
       announcement: "お知らせ",
+      dead_letters: "届かなかったイベント",
     },
     actions: {
       case: {
@@ -654,6 +688,7 @@ export default {
         unpublished: "公開を取り下げ",
         deleted: "お知らせを削除",
       },
+      dead_letters: { redriven: "まとめて再送" },
     },
   },
   settings: {

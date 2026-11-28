@@ -982,6 +982,18 @@ service SystemService {
   // newest first. Role: `admin`.
   // Errors: TIME_RANGE_INVALID.
   rpc ListAuditLog(ListAuditLogRequest) returns (ListAuditLogResponse);
+  // What the event consumers and job workers gave up on (the `DEAD`
+  // stream), oldest first: where each failed, why, and how often it was
+  // tried. Payloads are left out: they hold people's data. Role: `admin`.
+  // Errors: RATE_LIMITED, BUS_UNAVAILABLE, CONSUMER_PREFIX_TOO_LONG.
+  rpc ListDeadLetters(ListDeadLettersRequest) returns (ListDeadLettersResponse);
+  // Sends buried messages round again, each to the consumer it failed in
+  // (the others handled it long ago), and removes the ones sent: run it once
+  // the cause is fixed; a message that fails again is buried again. At most
+  // 1000 per call, oldest first. Audited as `dead_letters.redriven`.
+  // Role: `admin`.
+  // Errors: RATE_LIMITED, BUS_UNAVAILABLE, CONSUMER_PREFIX_TOO_LONG.
+  rpc RedriveDeadLetters(RedriveDeadLettersRequest) returns (RedriveDeadLettersResponse);
 }
 
 message GetServerStatsRequest {}
@@ -1082,7 +1094,8 @@ message AuditEntry {
   // Dotted name, e.g. `case.resolved`, `user.suspended`, `flag.updated`,
   // `announcement.published`.
   string action = 3;
-  // Kind of thing acted on: `user`, `case`, `subject`, `flag`, `announcement`.
+  // Kind of thing acted on: `user`, `case`, `subject`, `flag`, `announcement`,
+  // `setting`, `dead_letters`.
   string target_type = 4;
   // Its ID (a flag's name; `<subject type number>:<id>` for subjects).
   string target_id = 5;
@@ -1124,6 +1137,50 @@ message ListAuditLogRequest {
 message ListAuditLogResponse {
   repeated AuditEntry entries = 1;
   tokuly.common.v1.PageInfo page = 2;
+}
+
+// A message its handler gave up on.
+message DeadLetter {
+  // Its place on the `DEAD` stream.
+  int64 sequence = 1;
+  // The durable consumer (`notify-events`) or job queue
+  // (`job-media-transcode`) it failed in.
+  string consumer = 2;
+  // Where it was published (`evt.identity.user.deleted`, `job.media.transcode`).
+  string subject = 3;
+  // The last error, or why it could not be read.
+  string error = 4;
+  // How often it was delivered before the handler gave up.
+  int64 deliveries = 5;
+  google.protobuf.Timestamp died_at = 6;
+  // For an event: its ID and when it happened. Empty for jobs.
+  string event_id = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+}
+
+message ListDeadLettersRequest {
+  // Only what failed in consumers whose name starts with this.
+  string consumer_prefix = 1;
+  // At most this many (default and maximum 200).
+  int32 limit = 2;
+}
+
+message ListDeadLettersResponse {
+  repeated DeadLetter letters = 1;
+  // Messages on the `DEAD` stream, whatever the filter.
+  int64 total = 2;
+}
+
+message RedriveDeadLettersRequest {
+  // Only what failed in consumers whose name starts with this; empty for all.
+  string consumer_prefix = 1;
+}
+
+message RedriveDeadLettersResponse {
+  // Sent round again and removed from the dead letters.
+  int64 sent = 1;
+  // Could not be sent; they stay buried.
+  int64 failed = 2;
 }
 
 // ───────────────────────────── Server settings ─────────────────────────────
