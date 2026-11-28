@@ -102,7 +102,7 @@ export function MomentCalendarScreen() {
               const late = Number(entry?.lateSeconds ?? 0) > 0;
               const imageUrl = entry?.back?.url ? mediaUrl(entry.back.url) : undefined;
               const accessibilityLabel = momentId
-                ? t("calendar.openMoment", { date: labelDate })
+                ? t("calendar.day", { date: labelDate })
                 : t("calendar.emptyDay", { date: labelDate });
 
               return (
@@ -173,15 +173,15 @@ export function MomentCalendarScreen() {
           {entries.length === 0 && (
             <EmptyState
               emoji="🗓️"
-              title={t("calendar.empty.title")}
-              body={t("calendar.empty.body")}
+              title={t("calendar.emptyState.title")}
+              body={t("calendar.emptyState.body")}
             />
           )}
           <Text
             testID="moment-calendar-totals"
             className="px-1 text-center text-sm font-bold text-ink-soft"
           >
-            {t("calendar.totals", {
+            {t("calendar.summary", {
               posted: query.data?.postedCount ?? 0,
               onTime: query.data?.onTimeCount ?? 0,
             })}
