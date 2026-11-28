@@ -56,9 +56,10 @@ export function useMapSync(): void {
     const locations = useLocations.getState();
 
     const loadSnapshot = async () => {
+      const ticket = useLocations.getState().askSnapshot();
       try {
         const response = await locationClient().listFriendLocations({});
-        if (!cancelled) useLocations.getState().setSnapshot(response);
+        if (!cancelled) useLocations.getState().setSnapshot(response, ticket);
       } catch {
         // The live stream still delivers updates; the next reconnect retries.
       }
@@ -80,7 +81,8 @@ export function useMapSync(): void {
         locations.setOnline(body.value.userId, body.value.online);
       } else if (body.case === "geo") {
         const event = body.value.event;
-        if (event.case === "location") useLocations.getState().upsert(event.value);
+        if (event.case === "location")
+          useLocations.getState().upsert(event.value, body.value.removalSequence);
         else if (event.case === "locationRemovedUserId")
           forget(event.value, body.value.removalSequence);
       } else if (body.case === "social") {

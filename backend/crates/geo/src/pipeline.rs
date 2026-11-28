@@ -29,7 +29,7 @@ use crate::{
     Geo, claims,
     ctx::OwnerCtx,
     detect::{ProximityRules, StayEvent, StayRules, resolve_activity, speed_between},
-    fanout::{Recipients, VisitNews},
+    fanout::{Cause, Recipients, VisitNews},
     footprints::Uncovered,
     gatherings::Changes,
     geocode::Gazetteer,
@@ -328,7 +328,7 @@ impl Geo {
             self.push_visit_news(user_id, &ctx, &effects.visits).await?;
         }
         if push {
-            self.fan_out(user_id, Some(&state.pin), &ctx, Recipients::Friends, false).await?;
+            self.fan_out(user_id, Some(&state.pin), &ctx, Recipients::Friends, Cause::Live).await?;
             self.publish_shares(user_id, &state.pin, &ctx).await;
         }
         if let Some(changes) = effects.gatherings {
@@ -692,7 +692,7 @@ impl Geo {
             self.push_visit_news(user_id, &ctx, &[news]).await?;
         }
         if let Some(pin) = pin {
-            self.fan_out(user_id, Some(&pin), &ctx, Recipients::Friends, false).await?;
+            self.fan_out(user_id, Some(&pin), &ctx, Recipients::Friends, Cause::Live).await?;
             self.publish_shares(user_id, &pin, &ctx).await;
         }
         Ok(())

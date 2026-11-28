@@ -7,6 +7,8 @@
  */
 export { mapKeys } from "./keys";
 export {
+  askedForSnapshot,
+  cleared,
   type LiveLocations,
   NO_LOCATIONS,
   withLocation,

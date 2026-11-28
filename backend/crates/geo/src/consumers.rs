@@ -9,6 +9,7 @@ use tokuly_social::events::{BlockChanged, BumpCreated, FriendAccepted, FriendRem
 
 use crate::{
     Geo,
+    fanout::Recipients,
     geocode::Gazetteer,
     places::{PLACE_COLUMNS, PlaceRow},
 };
@@ -74,7 +75,8 @@ impl Geo {
         match event.topic.as_str() {
             USER_DELETED => self.forget_user(event.data::<UserRef>()?.user_id).await,
             USER_BANNED => self.hide_user(event.data::<UserRef>()?.user_id).await,
-            USER_UNBANNED | STATUS_CHANGED | USER_UPDATED => self.user_changed(event.data::<UserRef>()?.user_id).await,
+            USER_UNBANNED => self.unhide_user(event.data::<UserRef>()?.user_id).await,
+            STATUS_CHANGED | USER_UPDATED => self.user_changed(event.data::<UserRef>()?.user_id).await,
             PRIVACY_CHANGED => self.privacy_changed(event.data::<UserRef>()?.user_id).await,
             FRIEND_ACCEPTED => {
                 let accepted: FriendAccepted = event.data()?;
@@ -115,8 +117,8 @@ impl Geo {
 
     /// Two users became friends: each sees the other's pin at once.
     async fn became_friends(&self, a: Uuid, b: Uuid) -> AppResult<()> {
-        self.refresh_viewers(a, &[b]).await?;
-        self.refresh_viewers(b, &[a]).await
+        self.show_appeared(a, Recipients::Only(&[b])).await?;
+        self.show_appeared(b, Recipients::Only(&[a])).await
     }
 
     /// A friendship ended (unfriended or blocked): the two disappear from
@@ -148,11 +150,17 @@ impl Geo {
         Ok(())
     }
 
-    /// Status, language, or a lifted ban: rebuild the context and show friends the pin again.
+    /// Status or language: rebuild the context and show friends the pin again.
     async fn user_changed(&self, user_id: Uuid) -> AppResult<()> {
         self.invalidate_ctx(&[user_id]).await;
         self.forget_language(user_id);
         self.refresh_friends(user_id).await
+    }
+
+    /// A lifted ban: the account is back on its friends' maps.
+    async fn unhide_user(&self, user_id: Uuid) -> AppResult<()> {
+        self.invalidate_ctx(&[user_id]).await;
+        self.show_appeared(user_id, Recipients::Friends).await
     }
 
     /// A banned account disappears from its friends' maps.
@@ -372,7 +380,7 @@ impl Geo {
 
         self.delete_points(user_id, DateTime::UNIX_EPOCH, Utc::now() + chrono::Duration::days(3650)).await?;
         self.drop_state(user_id).await?;
-        self.drop_removals(user_id).await?;
+        self.drop_changes(user_id).await?;
         geoindex::remove(&self.core.cache, user_id).await?;
         self.forget_language(user_id);
         affected.push(user_id);

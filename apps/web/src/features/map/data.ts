@@ -116,13 +116,13 @@ function upsertById<T extends { id: string }>(list: T[] | undefined, item: T): T
 
 function applyGeoEvent(
   queryClient: QueryClient,
-  event: geo.GeoEvent["event"],
+  { event, removalSequence }: geo.GeoEvent,
   myId: string | undefined,
 ): void {
   const locations = useLocations.getState();
   switch (event.case) {
     case "location":
-      locations.upsert(event.value);
+      locations.upsert(event.value, removalSequence);
       break;
     case "gatheringUpdated":
       queryClient.setQueryData<geo.Gathering[]>(mapKeys.gatherings, (list) =>
@@ -284,11 +284,12 @@ export function useMapSync(): void {
     let cancelled = false;
 
     const loadSnapshot = async () => {
+      const ticket = useLocations.getState().askSnapshot();
       try {
         const response = await locationClient().listFriendLocations({});
         if (cancelled) return;
         setServerTime(toMillis(response.serverTime));
-        useLocations.getState().setSnapshot(response);
+        useLocations.getState().setSnapshot(response, ticket);
       } catch {
         // The live stream still delivers updates; the next reconnect retries.
       }
@@ -297,7 +298,7 @@ export function useMapSync(): void {
     let welcomed = false;
     const offFrame = client.onFrame((frame) => {
       if (frame.topic) return; // Topic-scoped frames (a public share) belong to whoever subscribed.
-      if (frame.body.case === "geo") applyGeoEvent(queryClient, frame.body.value.event, myId);
+      if (frame.body.case === "geo") applyGeoEvent(queryClient, frame.body.value, myId);
       else if (frame.body.case === "social")
         applySocialEvent(queryClient, frame.body.value.event, myId);
       else if (frame.body.case === "presence")
