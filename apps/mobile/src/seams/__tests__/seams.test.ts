@@ -35,6 +35,7 @@ describe("the features on the seams", () => {
   it("the hub and the settings", () => {
     expect(HUB_ENTRIES.map((entry) => [entry.id, entry.href])).toEqual([
       ["friends", "/friends"],
+      ["moments", "/moments"],
       ["search", "/search"],
       ["video", "/watch"],
       ["community", "/communities"],
@@ -99,6 +100,7 @@ describe("the features on the seams", () => {
       "licenses",
       "live/[id]",
       "live/index",
+      "moments/index",
       "more",
       "new-chat",
       "notes/[id]",
