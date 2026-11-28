@@ -61,6 +61,7 @@ jobs:
               - 'compose.dev.yaml'
               - 'tools/ci/backend-packages.sh'
               - 'tools/ci/test-archive.sh'
+              - 'tools/ci/domain-boundaries.py'
               - '.github/workflows/ci.yml'
               - '.github/actions/setup-rust/**'
             migrations:
@@ -242,6 +243,18 @@ jobs:
       - name: Service logs
         if: failure()
         run: docker compose -f compose.dev.yaml logs --tail 80
+
+  # No domain depends on, or runs SQL on the tables of, a domain backend/README.md does not
+  # list for it. Seconds, no build.
+  backend-boundaries:
+    name: "Backend: domain boundaries"
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: tools/ci/domain-boundaries.py
 
   # The latest stable release's schema upgrades to this one and ends up as a fresh
   # install's (tools/ci/migrations-upgrade.sh; passes while there is no stable tag).

@@ -36,7 +36,7 @@ Domains and their migration numbers. The binary serves all of them
 | shorts | 1000 | social, media, video |
 | engagement | 1100 | identity, social, media, stamp, emoji |
 | notify | 1200 | identity |
-| feed | 1300 | identity, social |
+| feed | 1300 | identity, social, media |
 | wallet | 1400 | identity |
 | search | 1500 | identity, social |
 | admin | 1600 | identity |
@@ -53,7 +53,8 @@ Domains and their migration numbers. The binary serves all of them
 
 A crate may only depend on crates listed for it (plus `core`, `proto`,
 `identity`). Everything else goes through events (below), so the graph stays
-acyclic and domains stay replaceable.
+acyclic and domains stay replaceable. `tools/ci/domain-boundaries.py` (CI) checks
+the dependencies and the SQL against the table.
 
 ### API packages
 
