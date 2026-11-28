@@ -90,11 +90,17 @@ export function MapScreen() {
     [layer, momentsQuery.data, momentsQuery.isError, momentsQuery.isFetching],
   );
 
+  const hasFitMomentsOnEntry = useRef(false);
   useEffect(() => {
-    if (layer !== "moments" || visibleMoments.length === 0) return;
+    if (layer !== "moments") {
+      hasFitMomentsOnEntry.current = false;
+      return;
+    }
+    if (hasFitMomentsOnEntry.current || visibleMoments.length === 0) return;
     const locations = visibleMoments.flatMap((moment) =>
       moment.location ? [[moment.location.lng, moment.location.lat] as const] : [],
     );
+    if (locations.length === 0) return;
     const west = Math.min(...locations.map(([lng]) => lng));
     const east = Math.max(...locations.map(([lng]) => lng));
     const south = Math.min(...locations.map(([, lat]) => lat));
@@ -107,6 +113,7 @@ export function MapScreen() {
         duration: 600,
       });
     }
+    hasFitMomentsOnEntry.current = true;
   }, [layer, visibleMoments]);
 
   const focus = (lng: number, lat: number) =>
