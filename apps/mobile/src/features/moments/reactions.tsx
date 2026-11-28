@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { media, moments } from "@tokuly/api";
+import { media, moments, type common } from "@tokuly/api";
 import {
   momentKeys,
   REALMOJI_FACES,
@@ -10,6 +10,7 @@ import {
 import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
+import { Sticker } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Alert, Modal, Pressable, Text, View } from "react-native";
@@ -17,6 +18,8 @@ import { Avatar } from "#/components/avatar";
 import { CameraScreen } from "#/features/media/camera-screen";
 import type { LocalMedia } from "#/features/media/posts";
 import { type UploadState, uploadFile } from "#/features/media/upload";
+import { StampPicker } from "#/features/stamps/picker";
+import { StampImage } from "#/features/stamps/stamp-image";
 import {
   type Account,
   AccountChanged,
@@ -25,8 +28,11 @@ import {
 } from "#/features/session/account";
 import { mediaUrl } from "#/lib/config";
 import { errorMessage } from "#/lib/errors";
+import { useTheme } from "#/lib/theme";
 import { forgetFiles, keepFile } from "#/platform/transfer";
 import { useMomentRealmojis } from "./data";
+
+class PhotoPreparationError extends Error {}
 
 const FACE_KEYS: Record<moments.RealmojiEmoji, string> = {
   [moments.RealmojiEmoji.UNSPECIFIED]: "",
@@ -51,8 +57,8 @@ export function MomentReactionStrip({ moment }: { moment: moments.Moment }) {
       className="flex-row items-center gap-2"
     >
       <View className="flex-row">
-        {moment.reactions.slice(0, 5).map((reaction) => (
-          <ReactionFace key={reaction.id} reaction={reaction} />
+        {moment.reactions.slice(0, 5).map((reaction, index) => (
+          <ReactionFace key={reaction.id} reaction={reaction} index={index} />
         ))}
       </View>
       <Text className="text-xs font-bold text-ink-soft">
@@ -62,12 +68,17 @@ export function MomentReactionStrip({ moment }: { moment: moments.Moment }) {
   );
 }
 
-function ReactionFace({ reaction }: { reaction: moments.MomentReaction }) {
+function ReactionFace({ reaction, index }: { reaction: moments.MomentReaction; index: number }) {
   const value = reaction.reaction;
   const imageUrl = value.case === "realmoji" ? mediaUrl(value.value.image?.url) : undefined;
   return (
-    <View className="relative -ml-1.5 h-9 w-9 items-center justify-center overflow-hidden rounded-full border-2 border-surface bg-surface-2 first:ml-0">
-      {imageUrl ? (
+    <View
+      style={{ marginLeft: index === 0 ? 0 : -6, width: 36, height: 36 }}
+      className="relative items-center justify-center overflow-hidden rounded-full border-2 border-surface bg-surface-2"
+    >
+      {value.case === "stamp" ? (
+        <StampImage stamp={value.value} size={30} />
+      ) : imageUrl ? (
         <Image source={{ uri: imageUrl }} contentFit="cover" style={{ width: 36, height: 36 }} />
       ) : (
         <Avatar user={reaction.user} size="sm" />
@@ -84,9 +95,11 @@ function ReactionFace({ reaction }: { reaction: moments.MomentReaction }) {
 /** Reacts to an unlocked friend's Moment with a saved face or a selfie taken now. */
 export function MomentReactionPicker({ moment }: { moment: moments.Moment }) {
   const { t } = useTranslation("moments");
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const library = useMomentRealmojis();
   const [taking, setTaking] = useState<moments.RealmojiEmoji | null>(null);
+  const [stampPickerVisible, setStampPickerVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const controller = useRef<AbortController | null>(null);
@@ -117,8 +130,14 @@ export function MomentReactionPicker({ moment }: { moment: moments.Moment }) {
       ensureActive(account);
       await work(account, abort.signal);
     } catch (error) {
-      if (!(error instanceof AccountChanged) && !abort.signal.aborted)
-        Alert.alert(t("react.failed"), errorMessage(error));
+      if (!(error instanceof AccountChanged) && !abort.signal.aborted) {
+        Alert.alert(
+          t("react.failed"),
+          error instanceof PhotoPreparationError
+            ? t("react.photoPreparationFailed")
+            : errorMessage(error),
+        );
+      }
     } finally {
       controller.current = null;
       busyRef.current = false;
@@ -129,20 +148,19 @@ export function MomentReactionPicker({ moment }: { moment: moments.Moment }) {
   const sendReaction = async (
     account: Account,
     signal: AbortSignal,
-    emoji: moments.RealmojiEmoji,
+    reaction: moments.ReactRequest["reaction"],
     assetId?: string,
   ) => {
     const response = await account.api.service(moments.MomentReactionService).react(
       {
         momentId: moment.id,
-        reaction: { case: "realmoji", value: emoji },
+        reaction,
         assetId,
       },
       { signal },
     );
     ensureActive(account);
     if (response.reaction) setMyReaction(queryClient, moment.id, response.reaction);
-    Alert.alert(t("react.sent"));
   };
 
   const removeReaction = () =>
@@ -161,8 +179,14 @@ export function MomentReactionPicker({ moment }: { moment: moments.Moment }) {
     file: LocalMedia,
   ) => {
     try {
-      const name = `realmoji-${emoji}-${file.name}`;
-      const kept = await keepFile(draftId, file.uri, name);
+      const filename = file.name.split(/[\\/]/).pop() || "photo.jpg";
+      const name = `realmoji-${emoji}-${filename}`;
+      let kept: Awaited<ReturnType<typeof keepFile>>;
+      try {
+        kept = await keepFile(draftId, file.uri, name);
+      } catch {
+        throw new PhotoPreparationError();
+      }
       ensureActive(account);
       const start: UploadState = {
         uri: kept.uri,
@@ -187,7 +211,7 @@ export function MomentReactionPicker({ moment }: { moment: moments.Moment }) {
       await sendReaction(
         account,
         signal,
-        emoji,
+        { case: "realmoji", value: emoji },
         emoji === moments.RealmojiEmoji.INSTANT ? asset.id : undefined,
       );
     } finally {
@@ -202,7 +226,17 @@ export function MomentReactionPicker({ moment }: { moment: moments.Moment }) {
       setTaking(emoji);
       return;
     }
-    void runForAccount(currentAccount(), (account, signal) => sendReaction(account, signal, emoji));
+    void runForAccount(currentAccount(), (account, signal) =>
+      sendReaction(account, signal, { case: "realmoji", value: emoji }),
+    );
+  };
+
+  const chooseStamp = (stamp: common.StampRef) => {
+    if (busy) return;
+    if (mine?.case === "stamp" && mine.value.id === stamp.id) return removeReaction();
+    void runForAccount(currentAccount(), (account, signal) =>
+      sendReaction(account, signal, { case: "stampId", value: stamp.id }),
+    );
   };
 
   const pickSelfie = async (emoji: moments.RealmojiEmoji) => {
@@ -277,6 +311,21 @@ export function MomentReactionPicker({ moment }: { moment: moments.Moment }) {
           );
         })}
         {busy && <ActivityIndicator accessibilityLabel={t("react.sending")} />}
+        <Pressable
+          testID="moment-react-stamp"
+          accessibilityRole="button"
+          accessibilityLabel={t("react.stamp")}
+          accessibilityState={{ selected: mine?.case === "stamp", disabled: busy }}
+          disabled={busy}
+          onPress={() => setStampPickerVisible(true)}
+          className={`h-12 w-12 items-center justify-center overflow-hidden rounded-full border-2 bg-surface-2 ${mine?.case === "stamp" ? "border-brand" : "border-line"}`}
+        >
+          {mine?.case === "stamp" ? (
+            <StampImage stamp={mine.value} size={44} />
+          ) : (
+            <Sticker size={22} color={colors["ink-soft"]} />
+          )}
+        </Pressable>
       </View>
       {moment.myReaction && (
         <Pressable
@@ -317,6 +366,11 @@ export function MomentReactionPicker({ moment }: { moment: moments.Moment }) {
           />
         )}
       </Modal>
+      <StampPicker
+        visible={stampPickerVisible}
+        onPick={chooseStamp}
+        onClose={() => setStampPickerVisible(false)}
+      />
     </View>
   );
 }
