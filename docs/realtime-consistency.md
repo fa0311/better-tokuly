@@ -56,7 +56,7 @@ found.
 | Area | Ordering today | What goes wrong | Issue |
 |---|---|---|---|
 | Map: friends' pins (W M) | snapshot tickets, `removalSequence`, sample time | presence pushed during a snapshot is lost | #538 |
-| Map: gatherings, trips (W) | `setQueryData`, every `Welcome` | an ended gathering or trip, or a member who left, comes back with positions | #520 |
+| Map: gatherings, trips (W) | journal, every `Welcome` | — | |
 | Map: SOS, alerts (W) | invalidate, every `Welcome` | — | |
 | Chat: conversations list (W M) | every `Welcome`, `aheadOf` by `lastSeq` | a conversation left, removed from or hidden comes back; a row's preview and unread go back | #513, #532 |
 | Chat: timeline (W M) | `seq`, union by ID, catch-up by `lastSeq` | an unsent or edited message comes back from a page read before | #514 |
@@ -70,9 +70,9 @@ found.
 | Community (W M) | invalidate, `onSubscribed` on the community | a removed reply comes back | #522 |
 | Moments (W M) | `setQueryData`, every `Welcome` | a deleted moment, or an ex-friend's, comes back | #517 |
 | Stories (W M) | `setQueryData`, every `Welcome` | a deleted story, or an ex-friend's reel, comes back in the tray | #516 |
-| Plans (W M) | `setQueryData(null)` on removal, every `Welcome` | a plan the person was removed from, or a deleted poll, comes back | #518 |
+| Plans (W M) | journal, every `Welcome` | — | |
 | Shorts (W M) | `resetQueries` on removal | — | |
-| Spaces: hangouts (W M) | `setQueryData`, every `Welcome` | a hangout the person was removed from comes back with who is inside | #519 |
+| Spaces: hangouts (W M) | journal, every `Welcome` | — | |
 | Spaces: rooms (W M) | `onSubscribed` invalidates | an ended room shows LIVE again; someone who left is back on stage | #530 |
 | Live: chat (W M) | journal, `onSubscribed` | — | |
 | Live: stream page (W M) | `onSubscribed` reread, `setQueryData` | a deleted message comes back as the pin or a highlight; a pin change goes back | #523 |
