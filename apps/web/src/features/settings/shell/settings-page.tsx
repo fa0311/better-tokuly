@@ -12,16 +12,24 @@ export function SettingsPage({
   title,
   back,
   actions,
+  wide,
   children,
 }: {
   title: ReactNode /** Parent page of a sub-page; sections omit it. */;
   back?: string;
   actions?: ReactNode;
+  /** Room for two columns on wide screens (an editor and its preview). */
+  wide?: boolean;
   children: ReactNode;
 }) {
-  const wide = useIsWide();
+  const withList = useIsWide();
   return (
-    <Page title={title} back={back ?? (wide ? undefined : "/settings")} actions={actions}>
+    <Page
+      title={title}
+      back={back ?? (withList ? undefined : "/settings")}
+      actions={actions}
+      wide={wide}
+    >
       {children}
     </Page>
   );

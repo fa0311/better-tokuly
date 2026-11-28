@@ -1,7 +1,6 @@
 /**
- * The accent colour of the account, applied on top of the theme: the brand
- * tokens of `styles.css` are redefined for both themes in a small stylesheet
- * of our own, so every `bg-brand` / `text-brand` in the app follows.
+ * The accent colour of the account: the brand tokens it gives each theme
+ * (`colors.ts` applies them).
  */
 
 /** The colour the design ships with; choosing it removes the override. */
@@ -18,9 +17,6 @@ export const ACCENTS = [
   { id: "blue", color: "#2f7df6" },
   { id: "ink", color: "#4a4266" },
 ] as const;
-
-const ACCENT_KEY = "tokuly.accent";
-const STYLE_ID = "tokuly-accent";
 
 type Rgb = [number, number, number];
 
@@ -91,31 +87,4 @@ export function accentTokens(color: string): { light: AccentTokens; dark: Accent
       onBrand: luminance(tint) > 0.2 ? "#120c2b" : "#ffffff",
     },
   };
-}
-
-function rule(selector: string, tokens: AccentTokens): string {
-  return `${selector}{--brand:${tokens.brand};--brand-strong:${tokens.brandStrong};--brand-soft:${tokens.brandSoft};--on-brand:${tokens.onBrand};}`;
-}
-
-/** Applies an accent colour to the whole app and remembers it for the next visit. */
-export function applyAccent(color: string): void {
-  const accent = isAccentColor(color) ? color.toLowerCase() : DEFAULT_ACCENT;
-  const existing = document.getElementById(STYLE_ID);
-  if (accent === DEFAULT_ACCENT) {
-    existing?.remove();
-    window.localStorage.removeItem(ACCENT_KEY);
-    return;
-  }
-  const tokens = accentTokens(accent);
-  const style =
-    existing ??
-    document.head.appendChild(Object.assign(document.createElement("style"), { id: STYLE_ID }));
-  style.textContent = rule(":root", tokens.light) + rule(':root[data-theme="dark"]', tokens.dark);
-  window.localStorage.setItem(ACCENT_KEY, accent);
-}
-
-/** The accent applied on the last visit (the default when none was chosen). */
-export function storedAccent(): string {
-  const value = window.localStorage.getItem(ACCENT_KEY);
-  return value && isAccentColor(value) ? value : DEFAULT_ACCENT;
 }

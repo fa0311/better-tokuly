@@ -40,6 +40,7 @@
     "./stories": "./src/stories/index.ts",
     "./video": "./src/video/index.ts",
     "./video/search": "./src/video/search.ts",
+    "./theme": "./src/theme/index.ts",
     "./tokens": "./src/tokens/index.ts",
     "./wallet": "./src/wallet/index.ts",
     "./*/keys": "./src/*/keys.ts"

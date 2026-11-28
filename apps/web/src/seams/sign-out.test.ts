@@ -11,6 +11,7 @@ const KEPT: Record<string, string> = {
   "tokuly.theme": "the look of this browser",
   "tokuly.dopa": "the look of this browser",
   "tokuly.accent": "the look of this browser (the default again on sign-out)",
+  "tokuly.customColors": "the look of this browser (the default again on sign-out)",
   "tokuly.signedIn": "the session's own hint, removed by stores/session.ts",
   "tokuly.accountChanged": "tabs telling each other of a switch",
   "tokuly.account": "the channel tabs tell each other on (no storage)",
