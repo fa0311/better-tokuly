@@ -11,9 +11,10 @@
 //!
 //! What the AI service receives: the latest text messages up to the
 //! question, labelled `asker`, `tokuly_bot` or `member1`, `member2`…, never
-//! names, handles, IDs or attachments. Other people's messages go only with
-//! their consent ([`Chat::ai_message_use_allowed`]) and never from someone
-//! in a block with the asker.
+//! names, handles, IDs or attachments. Other people's messages, and the
+//! bot's earlier answers to them, go only with their consent
+//! ([`Chat::ai_message_use_allowed`]) and never from someone in a block with
+//! the asker.
 //!
 //! The bot stays silent when it is switched off on the server, when the
 //! asker's 「Tokuly Bot と話す」 is off (the default for minors), when the
@@ -311,17 +312,31 @@ impl Chat {
         .bind(CONTEXT_MESSAGES)
         .fetch_all(&self.core.db)
         .await?;
-        // The others' messages go only with their authors' consent, and
-        // never from someone in a block with the asker.
-        let mut others: Vec<Uuid> =
-            recent.iter().filter_map(|row| row.sender_id).filter(|id| *id != asker && *id != bot).collect();
+        // An earlier answer of the bot repeats what it was asked: it goes
+        // with the words of whoever asked.
+        let answered: Vec<Uuid> =
+            recent.iter().filter(|row| row.sender_id == Some(bot)).filter_map(|row| row.reply_to_id).collect();
+        let askers: HashMap<Uuid, Uuid> =
+            sqlx::query_as("SELECT id, sender_id FROM chat_messages WHERE id = ANY($1) AND sender_id IS NOT NULL")
+                .bind(&answered)
+                .fetch_all(&self.core.db)
+                .await?
+                .into_iter()
+                .collect();
+        let source = |row: &MessageRow| match row.sender_id? {
+            sender if sender == bot => askers.get(&row.reply_to_id?).copied(),
+            sender => Some(sender),
+        };
+        // The others' words go only with their consent, and never from
+        // someone in a block with the asker.
+        let mut others: Vec<Uuid> = recent.iter().filter_map(source).filter(|id| *id != asker).collect();
         others.sort_unstable();
         others.dedup();
         let allowed = self.ai_message_use_allowed(&others).await?;
         let blocked = graph::blocked_ids_either(&self.core, asker).await?;
-        recent.retain(|row| match row.sender_id {
-            Some(sender) if sender == asker || sender == bot => true,
-            Some(sender) => allowed.get(&sender).copied().unwrap_or(false) && !blocked.contains(&sender),
+        recent.retain(|row| match source(row) {
+            Some(person) if person == asker => true,
+            Some(person) => allowed.get(&person).copied().unwrap_or(false) && !blocked.contains(&person),
             None => false,
         });
         recent.reverse();

@@ -290,6 +290,18 @@ async fn in_a_group_the_bot_answers_mentions_with_the_messages_of_people_who_all
     // The minor, whose bot is off by default, gets no answer and cannot bring it anywhere.
     ask(&ctx, minor, &group.id, "@tokuly_bot ねえねえ").await;
     assert_eq!(stub.count(), 2);
+
+    // Once they switch it on it answers them, but their consent is still
+    // off: neither their question nor the answer to it goes into anyone
+    // else's request.
+    set_bot_enabled(&ctx, minor, true).await;
+    ask(&ctx, minor, &group.id, "@tokuly_bot わたしの秘密を覚えてて").await;
+    assert_eq!(stub.count(), 3);
+    assert_eq!(answers(&ctx, &owner, &group.id, bot).await.len(), 3);
+    ask(&ctx, &owner, &group.id, "@tokuly_bot もう一回教えて").await;
+    let prompt = stub.last_prompt();
+    assert!(!prompt.contains("秘密"), "{prompt}");
+    assert_eq!(prompt.matches("\ntokuly_bot: ").count(), 2, "the answers to the owner and the adult only: {prompt}");
 }
 
 #[tokio::test]
