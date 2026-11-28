@@ -293,16 +293,21 @@ export async function failToLoad(
       failed += 1;
       return route.abort("internetdisconnected");
     }
-    if (!path.startsWith("/assets/")) return route.fallback();
-    const response = await route.fetch();
+    // Once the map is found, nothing else needs reading.
+    if (!path.startsWith("/assets/") || chunks.size > 0) return route.fallback();
+    const response = await route.fetch().catch(() => null);
+    // A connection the server dropped: the browser asks again by itself.
+    if (!response) return route.fallback();
     const body = await response.text();
     for (const [, chunk] of body.matchAll(globEntry)) chunks.add(`/assets/${chunk}`);
     return route.fulfill({ response, body });
   };
-  await page.route(/\.(js|ts|tsx)(\?|$)/, handler);
+  // On the browser context: once the app's service worker controls the page, it asks for the code.
+  const context = page.context();
+  await context.route(/\.(js|ts|tsx)(\?|$)/, handler);
   return async () => {
     await expect.poll(() => failed, { message: `the app asks for ${file}` }).toBeGreaterThan(0);
-    await page.unroute(/\.(js|ts|tsx)(\?|$)/, handler);
+    await context.unroute(/\.(js|ts|tsx)(\?|$)/, handler);
   };
 }
 

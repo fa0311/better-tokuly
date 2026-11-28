@@ -1,14 +1,5 @@
 import type { SignOutCleanup } from "#/seams/sign-out";
 import { applyAccent, DEFAULT_ACCENT } from "./appearance/accent";
-import { OWNER_KEY } from "./background";
-import { REQUEST_PREFIX } from "./your-data/export-card";
 
-/**
- * The browser's claim on the account's look ends, so the next sign-in starts
- * from the account again, and the signed-out pages wear the default colour.
- * The export the account asked for is not "on its way" for the next person.
- */
-export default {
-  storage: [OWNER_KEY, REQUEST_PREFIX],
-  forget: () => applyAccent(DEFAULT_ACCENT),
-} satisfies SignOutCleanup;
+/** The signed-out pages wear the default colour again: the account's look was its own. */
+export default { forget: () => applyAccent(DEFAULT_ACCENT) } satisfies SignOutCleanup;

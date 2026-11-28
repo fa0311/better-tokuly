@@ -80,7 +80,7 @@ export function draftFromStatus(status: plans.FreeStatus, now: number): PlanDraf
 }
 
 /** Per account: several people may use one browser, and their audiences are their own. */
-export const AUDIENCE_PREFIX = "tokuly.plans.freeAudience.";
+const AUDIENCE_PREFIX = "tokuly.plans.freeAudience.";
 const audienceKey = (userId: string) => `${AUDIENCE_PREFIX}${userId}`;
 
 /** The audience this account chose last time, so setting a status again stays two taps. */
