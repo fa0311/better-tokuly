@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { moments } from "@tokuly/api";
 import { momentKeys, momentQueries } from "@tokuly/core/moments";
 import { api } from "#/lib/api";
@@ -9,4 +9,15 @@ export { momentKeys };
 
 export function useMomentToday() {
   return useQuery(momentQueries.today(momentClient));
+}
+
+export function useFriendMoments() {
+  return useInfiniteQuery(momentQueries.friends(momentClient));
+}
+
+export function useMoment(momentId: string) {
+  return useQuery({
+    ...momentQueries.moment(momentClient, momentId),
+    enabled: Boolean(momentId),
+  });
 }
