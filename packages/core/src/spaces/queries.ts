@@ -1,5 +1,5 @@
 import { isNotFound, type spaces } from "@tokuly/api";
-import type { ClientSource } from "../query";
+import { type ClientSource, journal } from "../query";
 import { spacesKeys } from "./keys";
 
 type Spaces = ClientSource<typeof spaces.SpaceService>;
@@ -153,20 +153,26 @@ export const spacesQueries = {
     getNextPageParam: nextCursorOf,
   }),
 
+  /** The caller's hangouts and invitations. Pushes reach it through `pushTo` (`applySpacesEvent`). */
   hangouts: (client: Hangouts) => ({
     queryKey: spacesKeys.hangouts,
-    queryFn: async (): Promise<HangoutBoard> => {
-      const response = await client().listHangouts({});
+    queryFn: async ({ signal }: { signal: AbortSignal }): Promise<HangoutBoard> => {
+      const response = await client().listHangouts({}, { signal });
       return { hangouts: response.hangouts, invitations: response.invitations };
     },
+    persister: journal,
   }),
 
-  /** One hangout; `null` when the caller is no part of it (any more). */
+  /**
+   * One hangout; `null` when the caller is no part of it (any more). Pushes
+   * reach it through `pushTo` (`applySpacesEvent`).
+   */
   hangout: (client: Hangouts, hangoutId: string) => ({
     queryKey: spacesKeys.hangout(hangoutId),
-    queryFn: async (): Promise<spaces.Hangout | null> => {
+    persister: journal,
+    queryFn: async ({ signal }: { signal: AbortSignal }): Promise<spaces.Hangout | null> => {
       try {
-        return (await client().getHangout({ hangoutId })).hangout ?? null;
+        return (await client().getHangout({ hangoutId }, { signal })).hangout ?? null;
       } catch (error) {
         if (isNotFound(error)) return null;
         throw error;

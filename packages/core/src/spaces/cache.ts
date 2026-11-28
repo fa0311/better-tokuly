@@ -1,5 +1,6 @@
 import type { InfiniteData, QueryClient } from "@tanstack/query-core";
 import { fromDate, spaces } from "@tokuly/api";
+import { pushTo, reread } from "../query";
 import { spacesKeys } from "./keys";
 import {
   mergeHangout,
@@ -14,7 +15,10 @@ import type { HangoutBoard, SpacePage } from "./queries";
 /**
  * Rooms and hangouts in the query cache: a room on its own page and on every
  * list that shows it, a hangout on its page and on the board, and what a
- * pushed `SpacesEvent` changes in them.
+ * pushed `SpacesEvent` changes in them. Hangouts go by
+ * `docs/realtime-consistency.md`, rule 2: their pushes go through `pushTo`,
+ * so that a read made before a push cannot undo it (a hangout the person was
+ * taken out of does not come back with who is inside).
  */
 
 /** Rewrites a room wherever it is loaded: its own page and every list that shows it. */
@@ -49,41 +53,44 @@ export function rememberSpace(queryClient: QueryClient, space: spaces.Space | un
   }));
 }
 
-/** Rewrites a hangout wherever it is loaded. */
+/** Rewrites a hangout wherever it is loaded, and in a read of it in flight when it lands. */
 export function patchHangout(
   queryClient: QueryClient,
   hangoutId: string,
   patch: (hangout: spaces.Hangout) => spaces.Hangout,
 ): void {
-  queryClient.setQueryData<spaces.Hangout | null>(spacesKeys.hangout(hangoutId), (hangout) =>
-    hangout ? patch(hangout) : hangout,
-  );
+  pushTo<spaces.Hangout | null>(queryClient, spacesKeys.hangout(hangoutId), patch);
   const each = (list: spaces.Hangout[]) =>
     list.map((hangout) => (hangout.id === hangoutId ? patch(hangout) : hangout));
+  pushTo<HangoutBoard>(queryClient, spacesKeys.hangouts, (board) => ({
+    hangouts: each(board.hangouts),
+    invitations: each(board.invitations),
+  }));
+}
+
+/** Stores a hangout the server just returned (with the caller's `viewer`). */
+export function rememberHangout(queryClient: QueryClient, hangout: spaces.Hangout | undefined) {
+  if (!hangout) return;
+  const each = (list: spaces.Hangout[]) =>
+    list.map((loaded) => (loaded.id === hangout.id ? hangout : loaded));
+  queryClient.setQueryData(spacesKeys.hangout(hangout.id), hangout);
   queryClient.setQueryData<HangoutBoard>(
     spacesKeys.hangouts,
     (board) => board && { hangouts: each(board.hangouts), invitations: each(board.invitations) },
   );
 }
 
-/** Stores a hangout the server just returned (with the caller's `viewer`). */
-export function rememberHangout(queryClient: QueryClient, hangout: spaces.Hangout | undefined) {
-  if (!hangout) return;
-  queryClient.setQueryData(spacesKeys.hangout(hangout.id), hangout);
-  patchHangout(queryClient, hangout.id, () => hangout);
-}
-
-/** Takes a hangout out of everything that is loaded (closed, quit, removed, declined). */
+/**
+ * Takes a hangout out of everything that is loaded (closed, quit, removed,
+ * declined), and out of what a read in flight brings when it lands.
+ */
 export function forgetHangout(queryClient: QueryClient, hangoutId: string): void {
-  queryClient.setQueryData(spacesKeys.hangout(hangoutId), null);
-  queryClient.setQueryData<HangoutBoard>(
-    spacesKeys.hangouts,
-    (board) =>
-      board && {
-        hangouts: board.hangouts.filter((hangout) => hangout.id !== hangoutId),
-        invitations: board.invitations.filter((hangout) => hangout.id !== hangoutId),
-      },
-  );
+  const others = (list: spaces.Hangout[]) => list.filter((hangout) => hangout.id !== hangoutId);
+  pushTo<spaces.Hangout | null>(queryClient, spacesKeys.hangout(hangoutId), () => null);
+  pushTo<HangoutBoard>(queryClient, spacesKeys.hangouts, (board) => ({
+    hangouts: others(board.hangouts),
+    invitations: others(board.invitations),
+  }));
 }
 
 /** Lists of people waiting to be read again, by cache and room. */
@@ -184,33 +191,32 @@ export function applySpacesEvent(
     case "hangoutUpdated": {
       const pushed = event.value.hangout;
       if (!pushed) return;
-      const board = queryClient.getQueryData<HangoutBoard>(spacesKeys.hangouts);
-      const known =
-        !board ||
-        [...board.hangouts, ...board.invitations].some((hangout) => hangout.id === pushed.id);
       patchHangout(queryClient, pushed.id, (hangout) => mergeHangout(hangout, pushed, myId));
-      // New to the caller, or moved from "invited" to "member": the board's shape changed.
-      const mine = pushed.members.find((member) => member.user?.id === myId);
+      // New to the caller, or moved from "invited" to "member": the board's shape changed. A board
+      // still being read for the first time is read again: whether it has the hangout is not known.
+      const board = queryClient.getQueryData<HangoutBoard>(spacesKeys.hangouts);
       const listedAsMember = board?.hangouts.some((hangout) => hangout.id === pushed.id);
+      const listed =
+        listedAsMember || board?.invitations.some((hangout) => hangout.id === pushed.id);
+      const mine = pushed.members.find((member) => member.user?.id === myId);
       const isMember = mine?.state === spaces.HangoutMemberState.MEMBER;
-      if (!known || (board && listedAsMember !== isMember))
-        void queryClient.invalidateQueries({ queryKey: spacesKeys.hangouts });
+      if (!listed || listedAsMember !== isMember) void reread(queryClient, [spacesKeys.hangouts]);
       return;
     }
     case "hangoutRemoved":
       forgetHangout(queryClient, event.value.hangoutId);
-      void queryClient.invalidateQueries({ queryKey: spacesKeys.friendsInRooms });
+      void reread(queryClient, [spacesKeys.friendsInRooms]);
       return;
     case "hangoutPresence": {
       const presence = event.value;
       patchHangout(queryClient, presence.hangoutId, (hangout) =>
         withPresence(hangout, presence, myId, fromDate(new Date())),
       );
-      void queryClient.invalidateQueries({ queryKey: spacesKeys.friendsInRooms });
+      void reread(queryClient, [spacesKeys.friendsInRooms]);
       return;
     }
     case "hangoutInvitation":
-      void queryClient.invalidateQueries({ queryKey: spacesKeys.hangouts });
+      void reread(queryClient, [spacesKeys.hangouts]);
       return;
     default:
       return;

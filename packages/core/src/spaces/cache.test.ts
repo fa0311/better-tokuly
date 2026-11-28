@@ -4,7 +4,7 @@ import { spaces } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
 import { applySpacesEvent } from "./cache";
 import { spacesKeys } from "./keys";
-import type { HangoutBoard } from "./queries";
+import { type HangoutBoard, spacesQueries } from "./queries";
 
 const room = create(spaces.SpaceSchema, { id: "s1", state: spaces.SpaceState.LIVE });
 
@@ -63,5 +63,85 @@ describe("pushed events in the cache", () => {
       "me",
     );
     expect(queryClient.getQueryData(spacesKeys.space("s1"))).toBeNull();
+  });
+});
+
+/** Answers the test hands out, one per request, in the order the requests were made. */
+function server<T>() {
+  const pending: ((answer: T) => void)[] = [];
+  return {
+    request: () => new Promise<T>((resolve) => pending.push(resolve)),
+    answer: (request: number, answer: T) => pending[request]?.(answer),
+  };
+}
+
+const removed = (hangoutId: string): spaces.SpacesEvent["event"] => ({
+  case: "hangoutRemoved",
+  value: create(spaces.HangoutRemovedSchema, { hangoutId }),
+});
+
+describe("hangouts pushed during a read", () => {
+  // Who is inside: what a person taken out of the hangout must no longer see.
+  const hangout = create(spaces.HangoutSchema, {
+    id: "h1",
+    insideCount: 1,
+    members: [
+      {
+        user: { id: "friend" },
+        state: spaces.HangoutMemberState.MEMBER,
+        inside: true,
+      },
+    ],
+  });
+
+  it("a hangout the person was taken out of stays gone when an older read lands", async () => {
+    const queryClient = new QueryClient();
+    const api = server<spaces.GetHangoutResponse>();
+    const client = () => ({ getHangout: api.request }) as never;
+    const loading = queryClient.fetchQuery(spacesQueries.hangout(client, "h1"));
+    applySpacesEvent(queryClient, removed("h1"), "me");
+    // The answer was made before the removal.
+    api.answer(0, create(spaces.GetHangoutResponseSchema, { hangout }));
+    await loading;
+    expect(queryClient.getQueryData(spacesKeys.hangout("h1"))).toBeNull();
+  });
+
+  it("the board read before the removal does not bring the hangout back", async () => {
+    const queryClient = new QueryClient();
+    const api = server<spaces.ListHangoutsResponse>();
+    const client = () => ({ listHangouts: api.request }) as never;
+    const loading = queryClient.fetchQuery(spacesQueries.hangouts(client));
+    applySpacesEvent(queryClient, removed("h1"), "me");
+    api.answer(0, create(spaces.ListHangoutsResponseSchema, { hangouts: [hangout] }));
+    await loading;
+    expect(queryClient.getQueryData<HangoutBoard>(spacesKeys.hangouts)).toEqual({
+      hangouts: [],
+      invitations: [],
+    });
+  });
+
+  it("someone leaving the voice room during a read is not inside when it lands", async () => {
+    const queryClient = new QueryClient();
+    const api = server<spaces.GetHangoutResponse>();
+    const client = () => ({ getHangout: api.request }) as never;
+    const loading = queryClient.fetchQuery(spacesQueries.hangout(client, "h1"));
+    applySpacesEvent(
+      queryClient,
+      {
+        case: "hangoutPresence",
+        value: create(spaces.HangoutPresenceSchema, {
+          hangoutId: "h1",
+          user: { id: "friend" },
+          inside: false,
+          insideCount: 0,
+        }),
+      },
+      "me",
+    );
+    api.answer(0, create(spaces.GetHangoutResponseSchema, { hangout }));
+    await loading;
+    const read = queryClient.getQueryData<spaces.Hangout>(spacesKeys.hangout("h1"));
+    expect(read?.insideCount).toBe(0);
+    expect(read?.members.filter((member) => member.inside)).toEqual([]);
   });
 });

@@ -1,4 +1,5 @@
 import type { APIRequestContext, Browser, Page, TestInfo } from "@playwright/test";
+import { holdAnswers, pushes } from "./races";
 import { type Account, befriend, createAccount, expect, rpc, signInAs, test } from "./support";
 
 // Rooms and hangouts carry sound over LiveKit. Chrome's fake microphone (a beep) stands in for a
@@ -730,4 +731,69 @@ test("a hangout's owner renames it and removes a member, who is cut off at once"
   await expect(notice).toContainText("このたまり場はもうないよ");
   await expect(theirs.getByTestId("mini-player")).toHaveCount(0);
   await theirs.context().close();
+});
+
+// A read answered before a push and landing after it does not undo the push
+// (`docs/realtime-consistency.md`, rule 2): a hangout the person was taken out
+// of does not come back with who is in it.
+
+/** A hangout `owner` made with `me` in it, as a member. */
+async function hangoutWith(request: APIRequestContext, me: Account, name: string) {
+  const owner = await friendOf(request, me, "kai");
+  const { hangout } = await rpc<{ hangout: { id: string } }>(
+    request,
+    `${HANGOUTS}/CreateHangout`,
+    { name, emoji: "🛹", inviteeIds: [me.userId] },
+    owner,
+  );
+  await rpc(
+    request,
+    `${HANGOUTS}/RespondToHangoutInvite`,
+    { hangoutId: hangout.id, accept: true },
+    me,
+  );
+  return { owner, hangoutId: hangout.id };
+}
+
+test("a hangout the person is taken out of while its page loads does not come back", async ({
+  page,
+  request,
+  me,
+}) => {
+  const { owner, hangoutId } = await hangoutWith(request, me, "スケボー部");
+  const connected = await pushes(page);
+  const aboutTheHangout = await pushes(page, hangoutId);
+  const read = await holdAnswers(page, `${HANGOUTS}/GetHangout`);
+
+  await page.goto(`/spaces/hangouts/${hangoutId}`);
+  // Every read of the hangout has its answer while the person is still in it.
+  await expect.poll(connected).toBeGreaterThan(0);
+  await expect.poll(read.answered).toBe(true);
+  await rpc(request, `${HANGOUTS}/RemoveHangoutMember`, { hangoutId, userId: me.userId }, owner);
+  await expect.poll(aboutTheHangout).toBeGreaterThan(0);
+
+  await read.release();
+  await expect(page.getByText("このたまり場は見つからないよ")).toBeVisible();
+  await expect(page.getByTestId("hangout-members")).toHaveCount(0);
+});
+
+test("a hangout the person is taken out of while the list loads stays off it", async ({
+  page,
+  request,
+  me,
+}) => {
+  const { owner, hangoutId } = await hangoutWith(request, me, "放課後の屋上");
+  const connected = await pushes(page);
+  const aboutTheHangout = await pushes(page, hangoutId);
+  const read = await holdAnswers(page, `${HANGOUTS}/ListHangouts`);
+
+  await page.goto("/spaces?tab=hangouts");
+  await expect.poll(connected).toBeGreaterThan(0);
+  await expect.poll(read.answered).toBe(true);
+  await rpc(request, `${HANGOUTS}/RemoveHangoutMember`, { hangoutId, userId: me.userId }, owner);
+  await expect.poll(aboutTheHangout).toBeGreaterThan(0);
+
+  await read.release();
+  await expect(page.getByRole("button", { name: "たまり場をつくる" })).toBeVisible();
+  await expect(page.getByText("放課後の屋上")).toHaveCount(0);
 });
