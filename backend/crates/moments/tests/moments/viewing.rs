@@ -1,8 +1,11 @@
 //! Who sees which moment, locked or not, and with which location.
 use tokuly_core::geoindex::{self, Sight, SightRule};
-use tokuly_proto::moments::{
-    DeleteMomentRequest, DeleteMomentResponse, GetCalendarRequest, GetCalendarResponse, ListMapMomentsRequest,
-    ListMapMomentsResponse, MomentAudience, PostMomentResponse,
+use tokuly_proto::{
+    common::SubjectType,
+    moments::{
+        DeleteMomentRequest, DeleteMomentResponse, GetCalendarRequest, GetCalendarResponse, ListMapMomentsRequest,
+        ListMapMomentsResponse, MomentAudience, PostMomentResponse,
+    },
 };
 
 use crate::common::*;
@@ -186,4 +189,34 @@ async fn friends_in_another_region_are_seen_on_their_own_day() {
     ctx.prompt(&here).await;
     ctx.post(a).await;
     assert!(ctx.friend_moments(a).await.moments.iter().any(|m| m.id == theirs.id && !m.locked));
+}
+
+#[tokio::test]
+async fn a_locked_moment_lends_its_caption_to_no_bookmark_or_report() {
+    let ctx = start().await;
+    let users = ctx.circle_of(&["あや", "べに"]).await;
+    let (a, b) = (&users[0], &users[1]);
+    let region = ctx.region(&[a, b]).await;
+    ctx.prompt(&region).await;
+    let theirs = ctx.post(b).await;
+    let subjects = &ctx.app.core.subjects;
+    let titles = |viewer: uuid::Uuid| {
+        let moment_id = theirs.id.clone();
+        async move {
+            let kind = SubjectType::SUBJECT_TYPE_MOMENT;
+            let shown = subjects.resolve(kind, &moment_id, Some(viewer)).await.unwrap().title;
+            let reported = subjects.resolve_for_report(kind, &moment_id, Some(viewer)).await.unwrap().title;
+            [shown, reported]
+        }
+    };
+
+    // A bookmark's preview and a report's title come from the resolver:
+    // while a has not posted, they must not carry what the blur hides.
+    for title in titles(a.id).await {
+        assert!(!title.contains("放課後"), "{title}");
+    }
+    assert!(titles(b.id).await.iter().all(|title| title == "放課後🍦"), "the owner sees their own caption");
+
+    ctx.post(a).await;
+    assert!(titles(a.id).await.iter().all(|title| title == "放課後🍦"), "unlocked, the caption is theirs to see");
 }

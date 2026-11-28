@@ -31,11 +31,14 @@ pub(crate) fn register(moments: &Moments) {
     core.exporters.register(Arc::new(MomentsExporter { core: core.clone() }));
 }
 
-fn moment_info(moment: &MomentRow) -> SubjectInfo {
+/// A moment as a subject. `locked`: the viewer may not read the caption
+/// yet (see `viewing`), so the title does not carry it either: it ends up
+/// in bookmark previews and report titles.
+fn moment_info(moment: &MomentRow, locked: bool) -> SubjectInfo {
     SubjectInfo {
         id: moment.id,
         owner_id: moment.user_id,
-        title: if moment.caption.is_empty() {
+        title: if locked || moment.caption.is_empty() {
             format!("いまの瞬間 {}", moment.date)
         } else {
             moment.caption.clone()
@@ -66,7 +69,9 @@ struct MomentSubjects(Moments);
 impl SubjectResolver for MomentSubjects {
     async fn resolve(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
         let (Ok(id), Some(viewer)) = (Uuid::parse_str(id), viewer) else { return Ok(None) };
-        Ok(self.0.visible_moment(viewer, id).await?.as_ref().map(moment_info))
+        let Some(moment) = self.0.visible_moment(viewer, id).await? else { return Ok(None) };
+        let locked = moment.user_id != viewer && !self.0.unlocked(viewer).await?;
+        Ok(Some(moment_info(&moment, locked)))
     }
 
     async fn resolve_for_report(&self, id: &str, viewer: Option<Uuid>) -> AppResult<Option<SubjectInfo>> {
@@ -75,7 +80,8 @@ impl SubjectResolver for MomentSubjects {
             return Ok(Some(found));
         }
         let Some(moment) = self.0.find_moment(moment_id).await? else { return Ok(None) };
-        Ok(self.0.was_shown(&moment, viewer).await?.then(|| moment_info(&moment)))
+        // Shown unlocked (or their own): the caption is what they saw.
+        Ok(self.0.was_shown(&moment, viewer).await?.then(|| moment_info(&moment, false)))
     }
 }
 
