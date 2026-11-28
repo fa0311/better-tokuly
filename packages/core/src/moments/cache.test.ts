@@ -119,9 +119,17 @@ describe("moment cache", () => {
   it("forgets a person's moments after an unfriend or a block", () => {
     const queryClient = withCache([moment("a1", "aoi"), moment("r1", "ren")]);
     queryClient.setQueryData(momentKeys.moment("a1"), moment("a1", "aoi"));
+    queryClient.setQueryData(momentKeys.moment("a2"), moment("a2", "aoi"));
+    queryClient.setQueryData(momentKeys.reactions("a1"), { reactions: [reaction("x1", "ren")] });
+    queryClient.setQueryData(momentKeys.reactions("a2"), { reactions: [reaction("x2", "ren")] });
+    queryClient.setQueryData(momentKeys.reactions("r1"), { reactions: [reaction("x3", "aoi")] });
     forgetUserMoments(queryClient, "aoi");
     expect(friendIds(queryClient)).toEqual(["r1"]);
     expect(mapIds(queryClient)).toEqual(["r1"]);
     expect(queryClient.getQueryData(momentKeys.moment("a1"))).toBeUndefined();
+    expect(queryClient.getQueryData(momentKeys.moment("a2"))).toBeUndefined();
+    expect(queryClient.getQueryData(momentKeys.reactions("a1"))).toBeUndefined();
+    expect(queryClient.getQueryData(momentKeys.reactions("a2"))).toBeUndefined();
+    expect(queryClient.getQueryData(momentKeys.reactions("r1"))).toBeDefined();
   });
 });

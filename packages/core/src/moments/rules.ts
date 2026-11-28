@@ -78,8 +78,11 @@ export function realmojiGlyph(emoji: moments.RealmojiEmoji): string {
 /** A caption is one line of at most this many characters. */
 export const CAPTION_MAX = 100;
 
-/** The caption as the API takes it: one line, trimmed; `null` when it is too long. */
+/**
+ * The caption as the API takes it: one line without control characters
+ * (line breaks and tabs become a space), trimmed; `null` when it is too long.
+ */
 export function cleanCaption(text: string): string | null {
-  const line = text.replace(/\s*[\r\n]+\s*/g, " ").trim();
+  const line = text.replace(/\s*\p{Cc}+\s*/gu, " ").trim();
   return [...line].length > CAPTION_MAX ? null : line;
 }
