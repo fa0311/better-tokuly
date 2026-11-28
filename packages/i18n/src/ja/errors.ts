@@ -1104,5 +1104,6 @@ export default {
   NO_PROMPT_YET: "まだ今日の合図が来てないよ。もうちょっと待っててね!",
   NO_REALMOJI: "この顔のRealMojiをまだ撮ってないよ",
   OWN_MOMENT: "自分の瞬間にはリアクションできないよ",
+  PROMPT_ALREADY_SENT: "このエリアの今日の合図はもう出たよ(または出るところ)。また明日ね!",
   SAME_PICTURE: "外カメと内カメで別々の写真を撮ってね",
 } as const;

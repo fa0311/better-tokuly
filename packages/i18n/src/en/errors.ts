@@ -1104,5 +1104,7 @@ export default {
   NO_PROMPT_YET: "Today's moment hasn't come yet. Hang tight!",
   NO_REALMOJI: "You haven't taken a RealMoji for this face yet",
   OWN_MOMENT: "You can't react to your own moment",
+  PROMPT_ALREADY_SENT:
+    "Today's prompt for this region has already gone out (or is on its way). Try again tomorrow!",
   SAME_PICTURE: "Take two pictures: one with each camera",
 } as const;

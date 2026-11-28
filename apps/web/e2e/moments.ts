@@ -28,7 +28,8 @@ function sql(query: string): string {
  * The prompt of a day reaches `accounts`, `secondsAgo` ago. The prompt time is a secret drawn at
  * random, so the tests do not wait for it: each gets a region of its own (nobody else is in it,
  * and the planner never draws it) with a day already told, on today's date in Tokyo, where the
- * test accounts live. The window is the server's, from that moment.
+ * test accounts live. The window is the server's, from that moment. Not the staff call
+ * `SendPromptNow`: it wakes a real region once a day, before accounts made later exist.
  */
 export function promptReached(accounts: Account[], secondsAgo = 0): void {
   const region = `e2e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

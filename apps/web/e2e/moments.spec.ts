@@ -1,6 +1,15 @@
 import type { Page } from "@playwright/test";
 import { postMoment, promptReached } from "./moments";
-import { type Account, befriend, createAccount, expect, rpc, test } from "./support";
+import {
+  type Account,
+  adminAccount,
+  befriend,
+  createAccount,
+  expect,
+  rpc,
+  signInAs,
+  test,
+} from "./support";
 
 // Moments upload pairs of pictures and wait for the server to process them.
 test.describe.configure({ timeout: 120_000 });
@@ -22,6 +31,7 @@ test.use({
 });
 
 const MOMENTS = "tokuly.moments.v1.MomentService";
+const MOMENT_ADMIN = "tokuly.moments.v1.MomentAdminService";
 
 async function friendOf(request: Parameters<typeof befriend>[0], me: Account, name: string) {
   const friend = await createAccount(request, name);
@@ -173,4 +183,46 @@ test("the calendar keeps my own moments, and a deleted one keeps the day used", 
   await expect(page.getByText("今日の瞬間は削除したよ。また次の合図でね!")).toBeVisible();
   await page.goto("/moments/camera");
   await expect(page.getByText("今日の瞬間はもうシェアしたよ")).toBeVisible();
+});
+
+test("an admin sends a region's moment now from the console, once a day", async ({
+  page,
+  request,
+}, testInfo) => {
+  const admin = await adminAccount(request);
+  // A real region's prompt goes out once a day: take one that has not had it yet. Not Tokyo's,
+  // where the test accounts live (their days come from promptReached).
+  const { regions } = await rpc<{ regions: { region: string; sentAt?: string }[] }>(
+    request,
+    `${MOMENT_ADMIN}/ListPromptRegions`,
+    {},
+    admin,
+  );
+  const PLACES: Record<string, string> = {
+    "utc-11..-7": "ハワイ・アラスカ・アメリカ西部",
+    "utc-6..-2": "アメリカ中部・東部・南アメリカ",
+    "utc-1..+3": "ヨーロッパ・アフリカ・中東",
+    "utc+3:30..+6:30": "イラン・湾岸・インド",
+    "utc+12..+14": "ニュージーランド・フィジー・トンガ",
+  };
+  // The phone and desktop runs go at once: one takes the regions from the west, the other from the east.
+  const order = testInfo.project.name === "phone" ? [...regions].reverse() : regions;
+  const unsent = order.find((row) => !row.sentAt && PLACES[row.region]);
+  test.skip(!unsent, "every region other than Tokyo's had its prompt today on this stack");
+  const { region } = unsent as { region: string };
+  await signInAs(page, admin);
+
+  await page.goto("/admin/moments");
+  const row = page.getByRole("listitem", { name: PLACES[region] });
+  await row.getByRole("button", { name: "いまの瞬間をいま送る" }).click();
+  const dialog = page.getByRole("dialog", { name: `${PLACES[region]}にいま合図を送る?` });
+  await dialog.getByRole("button", { name: "送る!" }).click();
+  await expect(page.getByText(`${PLACES[region]}に合図を送ったよ!`)).toBeVisible();
+  await expect(row.getByText(/に送信済み/)).toBeVisible();
+  await expect(row.getByText("スタッフが送信")).toBeVisible();
+  await expect(row.getByRole("button", { name: "いまの瞬間をいま送る" })).toHaveCount(0);
+
+  await expect(
+    rpc(request, `${MOMENT_ADMIN}/SendPromptNow`, { region }, admin),
+  ).rejects.toMatchObject({ reason: "PROMPT_ALREADY_SENT" });
 });

@@ -4,7 +4,7 @@
 //! |---|---|
 //! | event consumer `moments` (see `cleanup`) | — |
 //! | planner: time zones to bands, days ahead, prompts due (see `days`) | `TOKULY_MOMENTS_WORKER_INTERVAL_SECONDS` (20 s) |
-//! | job `moments.prompt`: announce a day and tell its region | queued by the planner |
+//! | job `moments.prompt`: announce a day and tell its region | queued by the planner, or by an admin's `SendPromptNow` |
 //! | purge of what was kept for reports | hourly |
 //!
 //! Everything is safe to run in several processes at once: a day is

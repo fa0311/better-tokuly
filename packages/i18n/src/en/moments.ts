@@ -126,5 +126,32 @@ export default {
     label: "Friends' moments",
     open: "See {{name}}'s moment",
   },
+  staff: {
+    title: "Moments",
+    gate: {
+      title: "Only admins can open this page",
+      body: "Sending a prompt now takes the admin role.",
+    },
+    lead: "Each region gets one prompt a day at a random time. Here you can send today's prompt right away. Once per region and day, and it cannot be undone.",
+    regions: "Regions",
+    sentAt: "Sent at {{at}}",
+    byStaff: "Sent by staff",
+    byPlanner: "Automatic",
+    notYet: "Not yet",
+    sendNow: "Send today's moment now",
+    confirmTitle: "Send the prompt to {{place}} now?",
+    confirmBody:
+      "Everyone in this region gets the moments notification. It is the region's prompt for today and cannot be undone.",
+    confirm: "Send!",
+    sent: "Prompt sent to {{place}}!",
+    places: {
+      pacific: "Hawaii, Alaska, western US",
+      americas: "Central and eastern US, South America",
+      europe: "Europe, Africa, Middle East",
+      southAsia: "Iran, the Gulf, India",
+      eastAsia: "South-east Asia, China, Japan, Korea, eastern Australia",
+      oceania: "New Zealand, Fiji, Tonga",
+    },
+  },
   notFound: "You can't see this moment",
 } as const;

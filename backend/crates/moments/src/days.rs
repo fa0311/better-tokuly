@@ -194,23 +194,7 @@ impl Moments {
                 tracing::warn!(%day_id, %region, %date, overtaken, "moments prompt skipped");
                 return Ok(Sent::Skipped);
             }
-            sqlx::query("UPDATE moment_days SET announced_at = $2 WHERE id = $1")
-                .bind(day_id)
-                .bind(now)
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query("UPDATE moment_regions SET current_day_id = $1 WHERE region = $2")
-                .bind(day_id)
-                .bind(&region)
-                .execute(&mut *tx)
-                .await?;
-            events::emit(
-                &mut *tx,
-                PROMPT_SENT,
-                None,
-                &PromptSent { day_id, region: region.clone(), date, prompt_at: now },
-            )
-            .await?;
+            announce(&mut tx, day_id, &region, date, now, None).await?;
         }
         tx.commit().await?;
         let announced = DayRow { id: day_id, region, date, announced_at: announced_at.unwrap_or(now) };
@@ -357,4 +341,35 @@ impl Moments {
             ..Default::default()
         }
     }
+}
+
+/// Starts a day, on the transaction that holds its row lock: it is
+/// announced (by `sent_by` when an admin sent it now), becomes its region's
+/// current day and `moments.prompt.sent` goes out with it.
+pub(crate) async fn announce(
+    tx: &mut PgConnection,
+    day_id: Uuid,
+    region: &str,
+    date: NaiveDate,
+    now: Time,
+    sent_by: Option<Uuid>,
+) -> AppResult<()> {
+    sqlx::query("UPDATE moment_days SET announced_at = $2, sent_by = $3 WHERE id = $1")
+        .bind(day_id)
+        .bind(now)
+        .bind(sent_by)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE moment_regions SET current_day_id = $1 WHERE region = $2")
+        .bind(day_id)
+        .bind(region)
+        .execute(&mut *tx)
+        .await?;
+    events::emit(
+        &mut *tx,
+        PROMPT_SENT,
+        sent_by,
+        &PromptSent { day_id, region: region.to_owned(), date, prompt_at: now },
+    )
+    .await
 }

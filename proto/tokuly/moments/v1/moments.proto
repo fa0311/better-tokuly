@@ -110,6 +110,21 @@ service MomentReactionService {
   rpc DeleteRealmoji(DeleteRealmojiRequest) returns (DeleteRealmojiResponse);
 }
 
+// The prompt regions, for operators. Every RPC needs the `admin` role
+// (FORBIDDEN otherwise, SIGN_IN_REQUIRED when anonymous).
+service MomentAdminService {
+  // The six regions with their day of today: its date, and whether its
+  // prompt went out, when and on whose word. A prompt not yet sent keeps
+  // its drawn time to itself.
+  rpc ListPromptRegions(ListPromptRegionsRequest) returns (ListPromptRegionsResponse);
+  // Sends a region's prompt of today now instead of at its drawn time: the
+  // day starts as the planner's job starts it and the region is told in
+  // the background. Once per region and date, whoever sends it; a day that
+  // was skipped (workers were down) may still go out this way.
+  // Errors: REGION_NOT_FOUND, PROMPT_ALREADY_SENT.
+  rpc SendPromptNow(SendPromptNowRequest) returns (SendPromptNowResponse);
+}
+
 // Who sees a moment besides its owner. Always among friends.
 enum MomentAudience {
   MOMENT_AUDIENCE_UNSPECIFIED = 0;
@@ -348,6 +363,33 @@ message DeleteRealmojiRequest {
 }
 
 message DeleteRealmojiResponse {}
+
+// A region's day of today, as staff see it.
+message PromptRegion {
+  // e.g. "utc+7..+11".
+  string region = 1;
+  // Today's date in the region (YYYY-MM-DD).
+  string date = 2;
+  // When today's prompt went out; unset until then.
+  google.protobuf.Timestamp sent_at = 3;
+  // The admin who sent it with SendPromptNow; empty when the planner did.
+  string sent_by = 4;
+}
+
+message ListPromptRegionsRequest {}
+
+message ListPromptRegionsResponse {
+  // West to east.
+  repeated PromptRegion regions = 1;
+}
+
+message SendPromptNowRequest {
+  string region = 1;
+}
+
+message SendPromptNowResponse {
+  PromptRegion region = 1;
+}
 
 // Realtime pushes of this domain (tokuly.realtime.v1.Event).
 message MomentsEvent {
