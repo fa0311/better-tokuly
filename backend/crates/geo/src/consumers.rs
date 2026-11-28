@@ -84,9 +84,13 @@ impl Geo {
                 let removed: FriendRemoved = event.data()?;
                 self.stopped_being_friends(removed.user_id, removed.friend_id).await
             }
+            // A block between friends also ends the friendship
+            // (`social.friend.removed`), which pushes the removal. Pushing
+            // here too would tell a blocked friend that it was a block (two
+            // removals, not one), and a blocked stranger who blocked them.
             USER_BLOCKED => {
                 let blocked: BlockChanged = event.data()?;
-                self.stopped_being_friends(blocked.user_id, blocked.blocked_id).await
+                self.drop_between(blocked.user_id, blocked.blocked_id).await
             }
             BUMP_CREATED => self.bump_happened(event.data()?, event.occurred_at).await,
             CONTENT_REMOVED => {
@@ -118,6 +122,14 @@ impl Geo {
     /// A friendship ended (unfriended or blocked): the two disappear from
     /// each other's maps, and nothing they had set up about each other stays.
     async fn stopped_being_friends(&self, a: Uuid, b: Uuid) -> AppResult<()> {
+        self.drop_between(a, b).await?;
+        self.push_removed(&[a], b).await;
+        self.push_removed(&[b], a).await;
+        Ok(())
+    }
+
+    /// Drops everything the two had set up about each other.
+    async fn drop_between(&self, a: Uuid, b: Uuid) -> AppResult<()> {
         self.drop_ghost_overrides(a, b).await?;
         self.drop_alerts_between(a, b).await?;
         self.drop_trips_between(a, b).await?;
@@ -133,8 +145,6 @@ impl Geo {
         .execute(&self.core.db)
         .await?;
         self.invalidate_ctx(&[a, b]).await;
-        self.push_removed(&[a], b).await;
-        self.push_removed(&[b], a).await;
         Ok(())
     }
 

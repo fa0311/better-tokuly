@@ -202,7 +202,8 @@ Durable consumer `geo` (`Geo::handle_event`). Every handler is idempotent.
 | `identity.user.status_changed`, `identity.user.updated` | Rebuilds the cached context (status emoji, language) and re-pushes the pin to friends. |
 | `identity.user.banned` / `identity.user.unbanned` | Banned: `location_removed_user_id` to friends, off the geoindex, out of gatherings, samples ignored. Unbanned: pin pushed again. |
 | `social.friend.accepted` | Each of the two gets the other's pin at once. |
-| `social.friend.removed`, `social.user.blocked` | `location_removed_user_id` to both; drops ghost overrides, place alerts and trips between the two, takes each off the other's trip share lists and active SOS, un-saves each other's non-public places. |
+| `social.friend.removed` | `location_removed_user_id` to both; drops ghost overrides, place alerts and trips between the two, takes each off the other's trip share lists and active SOS, un-saves each other's non-public places. |
+| `social.user.blocked` | Drops the same, pushes nothing: a block between friends also ends the friendship (`social.friend.removed`), and a second removal would tell the blocked friend it was a block, a stranger who blocked them. |
 | `social.bump.created` | Records the bump (`geo_bumps`, for `GetStats.bump_count`) and calls `tokuly_social::bumps::set_bump_place` with a place both may know (a public place, or one of theirs shared with friends) or else the area name (Japanese first). |
 | `admin.content.removed` | `SUBJECT_TYPE_PLACE`: deletes the place (photo hold, search document, saved entries; visits keep the name). |
 | `media.asset.deleted` | Removes the reference from the place photo / day memo that used the asset. |

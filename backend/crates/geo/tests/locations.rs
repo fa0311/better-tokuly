@@ -749,11 +749,50 @@ async fn friendship_changes_show_and_remove_pins() {
     // New samples no longer reach the former friend.
     ctx.at(&aoi, offset(home, 0.0, 50.0)).await;
     assert!(pins(&mut rens, QUIET).await.is_empty());
+}
 
-    // A block does the same (delivered as its own event).
+/// To the blocked friend a block is an unfriend: one removal, one number.
+/// A blocked stranger is told nothing.
+#[tokio::test]
+async fn a_block_pushes_what_an_unfriend_does() {
+    let ctx = start().await;
+    let (aoi, ren, kai) = (ctx.app.user("aoi").await, ctx.app.user("ren").await, ctx.app.user("kai").await);
     ctx.befriend(&aoi, &ren).await;
+    let mut rens = ctx.open_app(&ren).await;
+    let mut kais = ctx.open_app(&kai).await;
+    async fn seen(ctx: &Ctx, viewer: &TestUser) -> i64 {
+        let response: ListFriendLocationsResponse =
+            ctx.location("ListFriendLocations", viewer, &ListFriendLocationsRequest::default()).await.unwrap();
+        response.removal_sequence
+    }
+    async fn block(ctx: &Ctx, user: &TestUser, target: &TestUser) {
+        let request = tokuly_proto::social::BlockUserRequest { user_id: target.id.to_string(), ..Default::default() };
+        let _: tokuly_proto::social::BlockUserResponse =
+            ctx.app.call("tokuly.social.v1.FriendService/BlockUser", Some(user), &request).await.expect("block");
+    }
+    let before = (seen(&ctx, &ren).await, seen(&ctx, &kai).await);
+
+    // Both events, as social emits them for a block between friends.
+    block(&ctx, &aoi, &ren).await;
+    ctx.deliver(
+        "social.friend.removed",
+        aoi.id,
+        serde_json::json!({ "user_id": aoi.id, "friend_id": ren.id, "blocked": true }),
+    )
+    .await;
     ctx.deliver("social.user.blocked", aoi.id, serde_json::json!({ "user_id": aoi.id, "blocked_id": ren.id })).await;
-    assert_eq!(removed(pushes(&mut rens, QUIET).await), Some(aoi.id.to_string()));
+    let removals: Vec<Push> = pushes(&mut rens, QUIET)
+        .await
+        .into_iter()
+        .filter(|event| matches!(event, Push::LocationRemovedUserId(id) if *id == aoi.id.to_string()))
+        .collect();
+    assert_eq!(removals.len(), 1, "one removal, as for an unfriend");
+    assert_eq!(seen(&ctx, &ren).await, before.0 + 1);
+
+    block(&ctx, &aoi, &kai).await;
+    ctx.deliver("social.user.blocked", aoi.id, serde_json::json!({ "user_id": aoi.id, "blocked_id": kai.id })).await;
+    assert!(pushes(&mut kais, QUIET).await.is_empty(), "a stranger is not told who blocked them");
+    assert_eq!(seen(&ctx, &kai).await, before.1);
 }
 
 /// A snapshot can answer after a removal pushed later than it was read: the
