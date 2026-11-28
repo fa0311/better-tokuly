@@ -69,7 +69,7 @@ found.
 | Notes: forgetting a person (W M) | journal, `pushToAll`; a look is `pushAfter` until its pill is tapped | — | |
 | Comments (W) | `onSubscribed` invalidates, `setQueriesData` | a removed comment comes back; replies are never read again | #521 |
 | Community (W M) | invalidate, `onSubscribed` on the community | a removed reply comes back | #522 |
-| Moments (W M) | `setQueryData`, every `Welcome` | a deleted moment, or an ex-friend's, comes back | #517 |
+| Moments (W M) | journal, every `Welcome` | — | |
 | Stories (W M) | journal, every `Welcome` | — | |
 | Plans (W M) | `setQueryData(null)` on removal, every `Welcome` | a plan the person was removed from, or a deleted poll, comes back | #518 |
 | Shorts (W M) | `resetQueries` on removal | — | |
