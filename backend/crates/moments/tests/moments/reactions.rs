@@ -203,3 +203,59 @@ async fn selfies_set_at_once_leave_one_held() {
     }
     assert_eq!(held, 1, "only the selfie in the library is held");
 }
+
+/// Two selfies set at the same moment, forced to overlap: both have read
+/// the empty library entry before either writes it. A table lock held by
+/// the test stops both at their write (reads still pass it) until both are
+/// waiting, so the race the per-entry lock prevents happens every time
+/// without it.
+#[tokio::test]
+async fn selfies_that_overlap_for_sure_leave_one_held() {
+    let ctx = start().await;
+    let a = ctx.app.user("あや").await;
+    let first = ctx.picture(&a, AssetPurpose::ASSET_PURPOSE_REALMOJI).await;
+    let second = ctx.picture(&a, AssetPurpose::ASSET_PURPOSE_REALMOJI).await;
+    let set = |asset_id: &str| SetRealmojiRequest {
+        emoji: RealmojiEmoji::REALMOJI_EMOJI_HEART_EYES.into(),
+        asset_id: asset_id.to_owned(),
+        ..Default::default()
+    };
+    let (one, two) = (set(&first), set(&second));
+
+    let db = &ctx.app.core.db;
+    let mut gate = db.begin().await.unwrap();
+    sqlx::query("LOCK TABLE moment_realmojis IN SHARE MODE").execute(&mut *gate).await.unwrap();
+    let calls = futures::future::join(
+        ctx.call::<_, SetRealmojiResponse>("SetRealmoji", &a, &one),
+        ctx.call::<_, SetRealmojiResponse>("SetRealmoji", &a, &two),
+    );
+    let open_gate = async {
+        // Both requests are stuck: at the write (the table lock) or, with
+        // the per-entry lock, one of them before it reads.
+        let started = std::time::Instant::now();
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_locks
+                 WHERE NOT granted AND (relation = 'moment_realmojis'::regclass OR locktype = 'advisory')",
+            )
+            .fetch_one(db)
+            .await
+            .unwrap();
+            if waiting >= 2 || started.elapsed() > SOON {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        gate.commit().await.unwrap();
+    };
+    let ((one, two), ()) = tokio::join!(calls, open_gate);
+    one.unwrap();
+    two.unwrap();
+
+    let library: ListRealmojisResponse = ctx.call("ListRealmojis", &a, &ListRealmojisRequest::default()).await.unwrap();
+    let kept = &library.realmojis[0].image.asset_id;
+    for asset_id in [&first, &second] {
+        let held = ctx.holders(asset_id).await;
+        assert_eq!(held, i64::from(asset_id == kept), "{asset_id}: only the selfie in the library is held");
+    }
+}
