@@ -156,6 +156,42 @@ describe("reads on their way", () => {
     expect(ids(queryClient)).toEqual(["r2"]);
   });
 
+  it("a thread removed while its page and the board are read stays gone", async () => {
+    const { boards, threads } = slowBoards();
+    const lists: ((items: community.Thread[]) => void)[] = [];
+    const client = {
+      ...(boards() as object),
+      listThreads: () =>
+        new Promise((resolve) =>
+          lists.push((items) => resolve({ pinned: [], threads: items, page: { nextCursor: "" } })),
+        ),
+    };
+    const board = () => client as never;
+    const queryClient = new QueryClient();
+    const options = { channelId: "", sort: 0, window: 0, tag: "" };
+    const page = queryClient.fetchQuery(communityQueries.thread(board, "t1-short"));
+    const list = queryClient.fetchInfiniteQuery(communityQueries.threads(board, "c1", options));
+    await vi.waitFor(() => expect(threads).toHaveLength(1));
+    await vi.waitFor(() => expect(lists).toHaveLength(1));
+    applyCommunityEvent(
+      queryClient,
+      {
+        case: "threadRemoved",
+        value: create(community.ThreadRemovedSchema, { communityId: "c1", threadId: "t1" }),
+      },
+      board,
+    );
+    // Both were answered before the removal; the reads that replace them, after.
+    threads[0]?.(thread);
+    lists[0]?.([thread]);
+    await vi.waitFor(() => expect(threads).toHaveLength(2));
+    await vi.waitFor(() => expect(lists).toHaveLength(2));
+    threads[1]?.(undefined as never);
+    lists[1]?.([]);
+    expect(await page).toBeNull();
+    expect((await list).pages[0]?.items).toEqual([]);
+  });
+
   it("counts pushed while a thread is first read under its short ID are kept", async () => {
     const { boards, threads } = slowBoards();
     const queryClient = new QueryClient();

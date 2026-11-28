@@ -157,17 +157,21 @@ export function applyCommunityEvent(
     case "threadCreated":
     case "threadRemoved": {
       const { communityId, threadId } = event.value;
-      void queryClient.invalidateQueries({ queryKey: keys.threadLists(communityId) });
-      void queryClient.invalidateQueries({ queryKey: keys.announcements(communityId) });
-      void queryClient.invalidateQueries({ queryKey: keys.channels(communityId) });
-      if (event.case === "threadRemoved") refreshThread(queryClient, threadId);
+      const removed = event.case === "threadRemoved";
+      // Replacing a read on its way: one answered before a removal would bring the thread back.
+      void reread(queryClient, [
+        keys.threadLists(communityId),
+        keys.announcements(communityId),
+        keys.channels(communityId),
+        ...(removed ? [keys.followed] : []),
+      ]);
+      if (removed) refreshThread(queryClient, threadId);
       break;
     }
     case "threadUpdated": {
       const { communityId, threadId } = event.value;
       refreshThread(queryClient, threadId);
-      void queryClient.invalidateQueries({ queryKey: keys.threadLists(communityId) });
-      void queryClient.invalidateQueries({ queryKey: keys.announcements(communityId) });
+      void reread(queryClient, [keys.threadLists(communityId), keys.announcements(communityId)]);
       break;
     }
     case "replyCreated":
@@ -265,13 +269,19 @@ export function rereadCommunity(queryClient: QueryClient, communityId: string): 
   ]);
 }
 
-/** Reads a thread again wherever it is open under an address (UUID or short ID). */
+/**
+ * Reads a thread again wherever it is open under an address (UUID or short
+ * ID), replacing a read on its way. A page still on its first read may be
+ * this thread under its short ID: it is read again too.
+ */
 function refreshThread(queryClient: QueryClient, threadUuid: string): void {
-  void queryClient.invalidateQueries({
-    queryKey: keys.threadsById,
-    predicate: (query) => {
+  const pages = queryClient
+    .getQueryCache()
+    .findAll({ queryKey: keys.threadsById })
+    .filter((query) => {
       const data = query.state.data as community.Thread | null | undefined;
-      return data?.id === threadUuid || query.queryKey[2] === threadUuid;
-    },
-  });
+      return data === undefined || data?.id === threadUuid || query.queryKey[2] === threadUuid;
+    })
+    .map((query) => query.queryKey);
+  void reread(queryClient, pages);
 }
