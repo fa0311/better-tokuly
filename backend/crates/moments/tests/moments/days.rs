@@ -182,3 +182,41 @@ async fn too_young_and_suspended_accounts_are_not_prompted() {
     assert!(ctx.notifications(&child, KIND_PROMPT).await.is_empty());
     assert!(ctx.notifications(&banned, KIND_PROMPT).await.is_empty());
 }
+
+#[tokio::test]
+async fn a_prompt_run_that_died_half_way_is_picked_up_where_it_stopped() {
+    let ctx = start().await;
+    let mut people = Vec::new();
+    for name in ["あや", "べに", "ちか"] {
+        people.push(ctx.app.user(name).await);
+    }
+    people.sort_by_key(|user| user.id);
+    let region = ctx.region(&people.iter().collect::<Vec<_>>()).await;
+    let day = ctx.due_day(&region).await;
+
+    // What a run leaves when it dies after announcing the day and telling
+    // the first page (here: the first account, in ID order).
+    let db = &ctx.app.core.db;
+    sqlx::query("UPDATE moment_days SET announced_at = now(), told_through = $2 WHERE id = $1")
+        .bind(day)
+        .bind(people[0].id)
+        .execute(db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE moment_regions SET current_day_id = $1 WHERE region = $2")
+        .bind(day)
+        .bind(&region)
+        .execute(db)
+        .await
+        .unwrap();
+
+    assert_eq!(ctx.moments.send_prompt(day).await.unwrap(), Sent::Told(2));
+    assert_eq!(ctx.moments.send_prompt(day).await.unwrap(), Sent::Told(0));
+    assert!(ctx.notifications(&people[0], KIND_PROMPT).await.is_empty(), "told by the run that died");
+    for user in &people[1..] {
+        assert_eq!(ctx.notifications(user, KIND_PROMPT).await.len(), 1, "{}", user.handle);
+    }
+    let announced =
+        ctx.app.events("moments.prompt.sent").await.into_iter().filter(|e| e.data["day_id"] == day.to_string()).count();
+    assert_eq!(announced, 0, "the day was announced by the run that died, not again");
+}
