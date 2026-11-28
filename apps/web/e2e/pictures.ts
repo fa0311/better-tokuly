@@ -115,11 +115,15 @@ export function blinkingGif(name: string, size = 32): TestFile {
   };
 }
 
-/** Uploads a picture for an emoji (purpose STAMP) and waits until it is processed. Returns the asset ID. */
+/**
+ * Uploads a picture (for an emoji unless `purpose` says otherwise) and waits until it is
+ * processed. Returns the asset ID.
+ */
 export async function uploadPicture(
   request: APIRequestContext,
   as: Account,
   file: TestFile,
+  purpose = "ASSET_PURPOSE_STAMP",
 ): Promise<string> {
   const created = await rpc<{
     assetId: string;
@@ -130,7 +134,7 @@ export async function uploadPicture(
     request,
     `${MEDIA}/CreateUpload`,
     {
-      purpose: "ASSET_PURPOSE_STAMP",
+      purpose,
       fileName: file.name,
       contentType: file.mimeType,
       sizeBytes: String(file.buffer.length),
