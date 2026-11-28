@@ -16,7 +16,7 @@ impl Dev {
     /// Holds one person to a number of consent requests per five minutes.
     /// Looking at a consent screen is cheap; approving writes a grant,
     /// announces it and mints a code, so it gets the smaller budget.
-    async fn limit_consent(&self, user_id: Uuid, what: &str, max: u32) -> AppResult<()> {
+    pub(crate) async fn limit_consent(&self, user_id: Uuid, what: &str, max: u32) -> AppResult<()> {
         self.core.cache.rate_limit(&format!("dev-consent-{what}:{user_id}"), max, CONSENT_WINDOW).await
     }
 }

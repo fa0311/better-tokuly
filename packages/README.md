@@ -8,6 +8,7 @@ Code that every Tokuly app (web, mobile, desktop) runs the same way.
 | `@tokuly/realtime` | the realtime connection (WebTransport, WebSocket fallback) and its frames             |
 | `@tokuly/i18n`     | the strings of the areas every app has (ja first, en), the language rules             |
 | `@tokuly/core`     | app logic without UI or platform: one entry point per area                            |
+| `@tokuly/miniapp`  | the mini-app bridge: its messages (`/protocol`) and the SDK mini apps run (`docs/miniapps.md`) |
 
 `@tokuly/core` has one entry point per area (`@tokuly/core/chat` is
 `core/src/chat/index.ts`), each with its own tests; what each holds is in

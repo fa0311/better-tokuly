@@ -18,6 +18,8 @@
 //! - **Webhooks** (`webhooks.rs` subscriptions and the event catalogue,
 //!   `fanout.rs` from domain events to deliveries, `delivery.rs` sending,
 //!   signing, retries and the guard against requests into private networks).
+//! - **Mini apps** (`mini_apps.rs`): an application's web page opened inside
+//!   Tokuly, its manifest, staff review and what each person granted it.
 //! - **API reference** (`reference.rs`, from the descriptor set the server
 //!   embeds) and usage statistics (`usage.rs`, from ClickHouse).
 //! - `cleanup.rs`: account bans and deletions, moderation takedowns, the
@@ -43,6 +45,7 @@ pub mod delivery;
 pub mod events;
 pub mod fanout;
 pub mod images;
+pub mod mini_apps;
 pub mod notices;
 mod oauth;
 mod oauth_http;
@@ -137,8 +140,8 @@ impl Dev {
     /// Registers this domain's RPC services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
         use tokuly_proto::dev::{
-            AppServiceExt, AuthorizationServiceExt, BotServiceExt, ReferenceServiceExt, TokenServiceExt,
-            UsageServiceExt, WebhookServiceExt,
+            AppServiceExt, AuthorizationServiceExt, BotServiceExt, MiniAppReviewServiceExt, MiniAppServiceExt,
+            ReferenceServiceExt, TokenServiceExt, UsageServiceExt, WebhookServiceExt,
         };
         let me = Arc::new(self.clone());
         let router = TokenServiceExt::register(me.clone(), router);
@@ -146,6 +149,8 @@ impl Dev {
         let router = AuthorizationServiceExt::register(me.clone(), router);
         let router = BotServiceExt::register(me.clone(), router);
         let router = WebhookServiceExt::register(me.clone(), router);
+        let router = MiniAppServiceExt::register(me.clone(), router);
+        let router = MiniAppReviewServiceExt::register(me.clone(), router);
         let router = ReferenceServiceExt::register(me.clone(), router);
         UsageServiceExt::register(me, router)
     }

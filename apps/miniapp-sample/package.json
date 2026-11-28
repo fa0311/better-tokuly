@@ -1,0 +1,19 @@
+{
+  "name": "@tokuly/miniapp-sample",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "割り勘: a sample mini app for development, served by its own small server. Never deployed.",
+  "license": "MIT",
+  "scripts": {
+    "start": "node serve.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tokuly/miniapp": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

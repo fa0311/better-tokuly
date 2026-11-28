@@ -22,6 +22,8 @@ export interface Deployment {
   media: string[];
   /** Where public media is served from when it is not this origin's `/media` (a CDN). */
   files: string[];
+  /** Development: a mini app may be served over `http` from a loopback address. */
+  loopbackMiniApps: boolean;
 }
 
 type Env = Record<string, string | undefined>;
@@ -48,7 +50,32 @@ export function deploymentFrom(env: Env): Deployment {
     playback,
     value("TOKULY_S3_PUBLIC_ENDPOINT", value("TOKULY_S3_ENDPOINT", "http://localhost:9000")),
   ];
-  return { connect: origins(connect), media: origins([hls, playback]), files };
+  return {
+    connect: origins(connect),
+    media: origins([hls, playback]),
+    files,
+    loopbackMiniApps: env.TOKULY_ENV !== "production",
+  };
+}
+
+/**
+ * The one other origin the mini-app page (`/miniapps/<id>?o=<origin>`) may
+ * frame: the approved origin it was opened for, as the address names it.
+ * The page frames a mini app only after the API confirmed that origin (and
+ * goes back to the right address when it differs), so a hand-made address
+ * allows a frame nothing ever loads. `undefined` for any other page and for
+ * anything that is not a bare `https` origin (`http` on a loopback address
+ * in development).
+ */
+export function miniAppFrameOrigin(deployment: Deployment, url: URL): string | undefined {
+  if (!/^\/miniapps\/[^/]+\/?$/.test(url.pathname)) return undefined;
+  const named = url.searchParams.get("o") ?? "";
+  const origin = parsed(named)?.origin;
+  if (!origin || origin !== named) return undefined;
+  const { protocol, hostname } = new URL(origin);
+  if (protocol === "https:") return origin;
+  const loopback = hostname === "127.0.0.1" || hostname === "[::1]";
+  return protocol === "http:" && loopback && deployment.loopbackMiniApps ? origin : undefined;
 }
 
 /**
@@ -74,11 +101,14 @@ function realtimeUrls(env: Env): string[] {
   return [webTransport, webSocket];
 }
 
-/** The `Content-Security-Policy` of a page. `embeddable` pages may be framed by any site. */
+/**
+ * The `Content-Security-Policy` of a page. `embeddable` pages may be framed by
+ * any site; `miniApp` is the one mini-app origin the page may frame.
+ */
 export function contentSecurityPolicy(
   deployment: Deployment,
   nonce: string,
-  { embeddable = false } = {},
+  { embeddable = false, miniApp }: { embeddable?: boolean; miniApp?: string } = {},
 ): string {
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
@@ -93,7 +123,7 @@ export function contentSecurityPolicy(
     "media-src": ["'self'", "blob:", ...deployment.media, ...deployment.files],
     "connect-src": ["'self'", ...deployment.connect, ...deployment.files],
     "worker-src": ["'self'", "blob:"],
-    "frame-src": EMBED_ORIGINS,
+    "frame-src": miniApp ? [...EMBED_ORIGINS, miniApp] : EMBED_ORIGINS,
     "object-src": ["'none'"],
     "base-uri": ["'self'"],
     "form-action": ["'self'"],

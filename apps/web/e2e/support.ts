@@ -322,6 +322,17 @@ export async function backOnline(page: Page): Promise<void> {
  */
 const policyViolations: string[] = [];
 
+/**
+ * Takes the violations matching `pattern` out of the current test's list: for
+ * a test that provokes a refusal on purpose (a hostile frame) and checks it.
+ */
+export function takePolicyViolations(pattern: RegExp): string[] {
+  const taken = policyViolations.filter((violation) => pattern.test(violation));
+  const kept = policyViolations.filter((violation) => !pattern.test(violation));
+  policyViolations.splice(0, policyViolations.length, ...kept);
+  return taken;
+}
+
 function guardPages(context: BrowserContext): void {
   // Chrome does not log every refusal to the console (a blocked frame, a WebRTC peer); the
   // event fires for all of them.

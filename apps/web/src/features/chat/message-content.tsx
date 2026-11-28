@@ -1,10 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import { type chat, media } from "@tokuly/api";
+import { readMiniAppLink } from "@tokuly/core/miniapps";
 import { CornerUpRight, MapPin, Play } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CommunityLinkCard } from "#/features/community";
 import { EmojiText } from "#/features/emoji";
+import { MiniAppLinkCard } from "#/features/miniapps";
 import { resolveTargetPath, useOpenTargetPath } from "#/features/notifications";
 import { cn } from "#/lib/cn";
 import { linkPreviewImage } from "#/lib/link-preview-image";
@@ -416,6 +418,29 @@ export function LinkPreviewCard({ preview, tone }: { preview: media.LinkPreview;
     return <CommunityLinkCard handle={community} onOpen={open} fallback={link} className="mt-2" />;
   }
   return link;
+}
+
+/**
+ * The card under a text message: a mini app it links to (`/miniapps/<id>`,
+ * opened with this conversation), or else the preview of its first link.
+ */
+export function MessageLinkCard({ message, tone }: { message: chat.Message; tone: Tone }) {
+  const preview = message.linkPreview && (
+    <LinkPreviewCard preview={message.linkPreview} tone={tone} />
+  );
+  const link = tokenize(message.text, [], false)
+    .flatMap((token) => (token.type === "link" ? [token.href] : []))
+    .map((href) => readMiniAppLink(href, window.location.origin))
+    .find((found) => found !== undefined);
+  if (!link) return preview;
+  return (
+    <MiniAppLinkCard
+      link={link}
+      conversationId={message.conversationId}
+      tone={tone}
+      fallback={preview}
+    />
+  );
 }
 
 function hostOf(url: string): string {

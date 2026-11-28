@@ -162,7 +162,7 @@ fn page_url(input: &str) -> AppResult<String> {
 
 /// Whether a host is a loopback address literal (not `localhost`, which a
 /// machine may resolve elsewhere: RFC 8252 section 8.3).
-fn is_loopback_literal(url: &url::Url) -> bool {
+pub(crate) fn is_loopback_literal(url: &url::Url) -> bool {
     match url.host() {
         Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
         Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
@@ -304,7 +304,8 @@ impl Dev {
         if let Ok(images) = self.images() {
             images.release(&mut tx, &app_icon_holder(app.id)).await?;
         }
-        // Authorizations and tokens go with the row.
+        self.release_mini_app_icons(&mut tx, app.id).await?;
+        // Authorizations, tokens and the mini app go with the row.
         sqlx::query("DELETE FROM dev_apps WHERE id = $1").bind(app.id).execute(&mut *tx).await?;
         events::emit(&mut *tx, "dev.app.deleted", actor, &AppEvent { app_id: app.id, owner_id: app.owner_id }).await?;
         outbound::subject_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_APP, app.id).await?;

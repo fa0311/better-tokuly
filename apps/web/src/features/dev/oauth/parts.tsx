@@ -6,12 +6,12 @@ import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { LogoMark } from "#/components/ui/logo";
 import { EmojiText } from "#/features/emoji";
+import { useArmed } from "#/lib/armed";
 import { useMe, useSessionStatus } from "#/stores/session";
 import type { dev } from "../api";
 import { SquareImage } from "../image-field";
 import { Notice } from "../parts";
 import { ScopeMeanings } from "../scope-picker";
-import { useArmed } from "./armed";
 import { isFramed } from "./redirect";
 
 const buttonLink =

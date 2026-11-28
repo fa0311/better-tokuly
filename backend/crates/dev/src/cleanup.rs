@@ -101,8 +101,9 @@ impl Dev {
     }
 
     /// Erases what this domain holds about a deleted account: its tokens,
-    /// applications (with every user's authorization of them), the
-    /// authorizations it gave, its webhooks and its bots.
+    /// applications (with every user's authorization of them and their
+    /// mini apps), the authorizations and mini-app grants it gave, its
+    /// webhooks and its bots.
     pub async fn on_user_deleted(&self, user_id: Uuid) -> AppResult<()> {
         self.forget_account_tokens(user_id).await?;
         let bots: Vec<Uuid> =
@@ -132,6 +133,7 @@ impl Dev {
             .await?;
         for table in [
             "dev_authorizations WHERE user_id",
+            "dev_mini_app_grants WHERE user_id",
             "dev_webhooks WHERE account_id",
             "dev_tokens WHERE user_id",
             "dev_tokens WHERE created_by",
@@ -239,6 +241,15 @@ impl DataExporter for DevExporter {
             "authorized_applications": section(
                 "SELECT jsonb_build_object('app_id', a.app_id, 'app_name', p.name, 'scopes', a.scopes, 'authorized_at', a.created_at, 'last_used_at', a.last_used_at)
                  FROM dev_authorizations a JOIN dev_apps p ON p.id = a.app_id WHERE a.user_id = $1 ORDER BY a.id"
+            ).await?,
+            "mini_apps": section(
+                "SELECT jsonb_build_object('app_id', m.app_id, 'name', m.name, 'launch_url', m.launch_url, 'scopes', m.scopes, 'review_state', m.review_state,
+                        'live_launch_url', m.live_launch_url, 'approved_at', m.approved_at)
+                 FROM dev_mini_apps m JOIN dev_apps p ON p.id = m.app_id WHERE p.owner_id = $1 ORDER BY m.app_id"
+            ).await?,
+            "mini_app_grants": section(
+                "SELECT jsonb_build_object('app_id', g.app_id, 'name', COALESCE(m.live_name, m.name), 'scopes', g.scopes, 'granted_at', g.created_at)
+                 FROM dev_mini_app_grants g JOIN dev_mini_apps m ON m.app_id = g.app_id WHERE g.user_id = $1 ORDER BY g.app_id"
             ).await?,
             "bots": section(
                 "SELECT jsonb_build_object('id', b.user_id, 'handle', u.handle::text, 'display_name', u.display_name, 'disabled_at', b.disabled_at, 'created_at', b.created_at,

@@ -20,6 +20,7 @@ import { API_PATH } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { appClient, dev, keys, nextCursorOf, PAGE_SIZE } from "./api";
 import { ImageField, SquareImage } from "./image-field";
+import { MiniAppSection } from "./mini-app";
 import {
   Ago,
   CopyButton,
@@ -499,6 +500,8 @@ function AppDetail({ app }: { app: dev.App }) {
           </form>
         </Card>
       </Section>
+
+      {!disabled && <MiniAppSection app={app} />}
 
       <Section title={t("apps.users")}>
         <AppUsers appId={app.id} />

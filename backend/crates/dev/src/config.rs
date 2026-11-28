@@ -186,6 +186,11 @@ pub struct DevConfig {
     #[arg(id = "dev_webhook_allow_private", long = "dev-webhook-allow-private", env = "TOKULY_DEV_WEBHOOK_ALLOW_PRIVATE", default_value_t = false, action = clap::ArgAction::Set)]
     pub webhook_allow_private: bool,
 
+    /// Development and tests: let a mini app's launch URL be `http://` on a
+    /// loopback address. Refused in production.
+    #[arg(id = "dev_mini_app_allow_loopback", long = "dev-mini-app-allow-loopback", env = "TOKULY_DEV_MINI_APP_ALLOW_LOOPBACK", default_value_t = false, action = clap::ArgAction::Set)]
+    pub mini_app_allow_loopback: bool,
+
     /// E-mail addresses of the accounts the demo simulator (`tokuly demo`)
     /// signs up to own its bots, comma-separated. Leave it unset unless the
     /// simulator runs against this server. Bots owned by these accounts may
@@ -241,6 +246,7 @@ impl Default for DevConfig {
             bot_record_days: 180,
             webhook_log_days: 30,
             webhook_allow_private: false,
+            mini_app_allow_loopback: false,
             demo_operators: Vec::new(),
             demo_password: String::new(),
         }
@@ -252,6 +258,10 @@ impl DevConfig {
         anyhow::ensure!(
             !(production && self.webhook_allow_private),
             "TOKULY_DEV_WEBHOOK_ALLOW_PRIVATE must not be set in production"
+        );
+        anyhow::ensure!(
+            !(production && self.mini_app_allow_loopback),
+            "TOKULY_DEV_MINI_APP_ALLOW_LOOPBACK must not be set in production"
         );
         anyhow::ensure!(
             self.demo_operators().next().is_none() || self.demo_password.chars().count() >= 16,
@@ -407,6 +417,9 @@ mod tests {
     #[test]
     fn private_webhook_targets_are_refused_in_production() {
         let cfg = DevConfig { webhook_allow_private: true, ..Default::default() };
+        assert!(cfg.validate(false).is_ok());
+        assert!(cfg.validate(true).is_err());
+        let cfg = DevConfig { mini_app_allow_loopback: true, ..Default::default() };
         assert!(cfg.validate(false).is_ok());
         assert!(cfg.validate(true).is_err());
         assert!(DevConfig::default().validate(true).is_ok());

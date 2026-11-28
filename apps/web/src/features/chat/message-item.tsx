@@ -36,9 +36,9 @@ import { useLive } from "./live";
 import { isVisual } from "./media-parts";
 import {
   ForwardedLabel,
-  LinkPreviewCard,
   LocationCard,
   MediaContent,
+  MessageLinkCard,
   MessageText,
   ReplyQuote,
 } from "./message-content";
@@ -510,7 +510,7 @@ function Bubble({
           {forwarded}
           {quote}
           <MessageText message={message} tone={tone} />
-          {message.linkPreview && <LinkPreviewCard preview={message.linkPreview} tone={tone} />}
+          <MessageLinkCard message={message} tone={tone} />
         </div>
       );
     }

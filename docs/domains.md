@@ -464,6 +464,10 @@ The whole API is open to the people who use it.
   a delivery log with replay, automatic disabling of dead endpoints.
 - An API reference generated from the proto files that the server itself
   serves, and per-token usage statistics.
+- Mini apps: an application's web page opened inside Tokuly from a chat
+  card, in a sandboxed frame with a small bridge (who you are, friends you
+  pick, a card back to the chat); staff review each manifest
+  ([`docs/miniapps.md`](miniapps.md)).
 
 ## Planned extensions of existing domains
 

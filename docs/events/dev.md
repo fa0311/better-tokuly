@@ -1,11 +1,13 @@
 # dev — events, jobs and configuration
 
-Crate `tokuly-dev`, migration `2400_dev.sql`, API `tokuly.dev.v1`
+Crate `tokuly-dev`, migrations `2400_dev.sql`, `2401_dev_mini_apps.sql`, API `tokuly.dev.v1`
 (`TokenService`, `AppService`, `AuthorizationService`, `BotService`,
-`WebhookService`, `ReferenceService`, `UsageService`). Depends on `identity`.
+`WebhookService`, `ReferenceService`, `UsageService`, `MiniAppService`,
+`MiniAppReviewService`). Depends on `identity`.
 
 The developer platform: personal access tokens, OAuth 2.1 applications,
-bots, webhooks, the API reference and usage statistics.
+bots, webhooks, the API reference, usage statistics, and mini apps
+(an application's web page opened inside Tokuly: [`docs/miniapps.md`](../miniapps.md)).
 
 ## How a token authenticates
 
@@ -90,7 +92,7 @@ No event is emitted in identity's name: a bot is not announced as `identity.user
 | `identity.user.unbanned` | `dev-accounts` | Nothing is restored; what was not revoked (the tokens of the account's applications) is judged afresh at once instead of when the cached refusal expires. |
 | `identity.user.password_changed` | `dev-accounts` | Revokes every personal and bot token the account created before the change (`occurred_at`). **Identity does not emit this yet**; until it does, the same happens when a token is next verified against the database (within 60 s of its next use): each token remembers a fingerprint of its creator's password hash, and the tokens made under another password than the current one are revoked. |
 | `identity.user.birthdate_given` | `dev-accounts` | The account's credentials are judged afresh at once: while it is under the minimum age (`Identity::too_young`, by the date in its time zone) its tokens, its bots' tokens, what it granted to applications and the tokens of the applications it owns are refused like revoked ones (an application learns nothing about the age), and its webhooks and its bots' receive nothing. Nothing is revoked: from that birthday on they work again. |
-| `identity.user.deleted` | `dev-accounts` | Deletes the account's tokens, applications (with every user's authorization of them), the authorizations it gave, its webhooks with their logs, and its bots (whose accounts are then deleted through identity). For a bot account: the record of who owned it is kept (see "Bots"). |
+| `identity.user.deleted` | `dev-accounts` | Deletes the account's tokens, applications (with every user's authorization of them and their mini apps), the authorizations and mini-app grants it gave, its webhooks with their logs, and its bots (whose accounts are then deleted through identity). For a bot account: the record of who owned it is kept (see "Bots"). |
 | `dev.bot.transferred` | `dev-accounts` | Its own event: every direct conversation of the bot gets the notice that it has a new owner (see "Handing a bot over"). Keyed on the event's ID, so a redelivery posts nothing new; one that arrives late is posted all the same. Nothing happens on a server without the chat bridge. |
 | `admin.content.removed` | `dev-accounts` | `SUBJECT_TYPE_APP`: the application is disabled (`AppStatus.DISABLED`, `reason` shown to its owner), its tokens stop working at once, its owner is notified. Other subject types are ignored. |
 | the webhook sources (below) | `dev-webhooks` | Stored as deliveries for the webhooks that subscribed. |
@@ -227,6 +229,7 @@ All are system notices (no actor), inbox + push.
 | `dev.app_authorized` | the user | They gave an application access for the first time. `data = { app_id, scopes }`. |
 | `dev.app_disabled` | the application's owner | Moderation disabled the application. Subject: the application. |
 | `dev.webhook_disabled` | the webhook's owner (a bot's owner) | Deliveries kept failing and the webhook was disabled. `data = { webhook_id }`. |
+| `dev.mini_app_reviewed` | the application's owner | Staff approved or rejected their mini app (the note says why). `data = { app_id, approved }`. |
 | `dev.bot_transfer_offered` | the person a bot is offered to | Somebody offers them a bot (`AcceptBotTransfer`). Actor: the owner. `data = { transfer_id, bot_id }`. |
 
 Security events written to the account's security log (through identity):
@@ -258,6 +261,8 @@ Besides the per-token request limit of the auth middleware (`RATE_LIMITED`):
 | Creating webhooks; editing; rotating a secret | 30 / hour; 120 / hour; 10 / hour per webhook |
 | Test pings; replays | 20 / min; 60 / hour per person |
 | Usage statistics | 60 / min per person |
+| Mini apps: writing a manifest; submitting; reviewing | 60 / hour per person; 10 / day per application; 30 / hour per application |
+| Opening a mini app; granting it scopes | the consent screen's limits (120 / 5 min; 30 / 5 min per person) |
 | API reference RPCs | 120 / min per address |
 
 The limits on tokens, applications, bots and webhooks per account are
@@ -338,6 +343,7 @@ tokuly_dev::webhooks::{EVENT_TYPES, event_type, EventType, Source}
 | `TOKULY_DEV_WEBHOOK_LOG_DAYS` | `30` | Retention of the delivery log |
 | `TOKULY_DEV_BOT_RECORD_DAYS` | `180` | How long the record of who owned a deleted bot, or a bot before it was handed over, is kept |
 | `TOKULY_DEV_WEBHOOK_ALLOW_PRIVATE` | `false` | Development/tests: allow `http://` and private addresses. Startup fails if set in production |
+| `TOKULY_DEV_MINI_APP_ALLOW_LOOPBACK` | `false` | Development/tests: let a mini app's launch URL be `http://` on a loopback address. Startup fails if set in production |
 
 Requests made with tokens are also subject to `TOKULY_RATE_LIMITS`
 (switching it off switches the per-token limit off).

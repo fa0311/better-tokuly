@@ -9,6 +9,7 @@ mod cleanup;
 mod common;
 mod concurrency;
 mod hardening;
+mod mini_apps;
 mod oauth;
 mod reference;
 mod secret_rotation;

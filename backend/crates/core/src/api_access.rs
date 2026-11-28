@@ -299,6 +299,21 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("GetDelivery", Read),
         ("ReplayDelivery", Session),
     ]),
+    // A mini app's manifest, review and grants: a person's consent and a moderator's decision are not for a token.
+    ("tokuly.dev.v1.MiniAppService", &[
+        ("ListMiniAppScopes", Any),
+        ("GetMiniAppReview", Session),
+        ("SetMiniAppManifest", Session),
+        ("SubmitMiniApp", Session),
+        ("DeleteMiniApp", Session),
+        ("GetMiniApp", Session),
+        ("GrantMiniApp", Session),
+        ("RevokeMiniAppGrant", Session),
+    ]),
+    ("tokuly.dev.v1.MiniAppReviewService", &[
+        ("ListMiniAppReviews", Session),
+        ("ReviewMiniApp", Session),
+    ]),
     ("tokuly.dev.v1.ReferenceService", &[
         ("ListServices", Any),
         ("GetMethod", Any),

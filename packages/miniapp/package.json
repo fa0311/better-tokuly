@@ -1,0 +1,21 @@
+{
+  "name": "@tokuly/miniapp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The mini-app bridge: the SDK a mini app runs inside Tokuly, and the messages it exchanges with Tokuly.",
+  "license": "MIT",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./protocol": "./src/protocol.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

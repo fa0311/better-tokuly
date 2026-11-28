@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { contentSecurityPolicy, deploymentFrom, permissionsPolicy } from "./security-headers";
+import {
+  contentSecurityPolicy,
+  deploymentFrom,
+  miniAppFrameOrigin,
+  permissionsPolicy,
+} from "./security-headers";
 
 function directive(policy: string, name: string): string[] {
   const found = policy.split("; ").find((part) => part.startsWith(`${name} `));
@@ -85,7 +90,12 @@ describe("deploymentFrom, the realtime gateway", () => {
 });
 
 describe("contentSecurityPolicy", () => {
-  const deployment = { connect: ["https://rt.tokuly.example:4433"], media: [], files: [] };
+  const deployment = {
+    connect: ["https://rt.tokuly.example:4433"],
+    media: [],
+    files: [],
+    loopbackMiniApps: false,
+  };
 
   it("runs scripts from this origin and with the nonce only", () => {
     const policy = contentSecurityPolicy(deployment, "abc");
@@ -102,6 +112,49 @@ describe("contentSecurityPolicy", () => {
     expect(
       directive(contentSecurityPolicy(deployment, "n", { embeddable: true }), "frame-ancestors"),
     ).toEqual(["*"]);
+  });
+});
+
+describe("miniAppFrameOrigin", () => {
+  const production = { connect: [], media: [], files: [], loopbackMiniApps: false };
+  const development = { ...production, loopbackMiniApps: true };
+  const page = (query: string, path = "/miniapps/0193b7a2-1c2d-7e3f-8a9b-0c1d2e3f4a5b") =>
+    new URL(`https://tokuly.example${path}?${query}`);
+
+  it("allows the one origin the mini-app page names", () => {
+    const origin = miniAppFrameOrigin(production, page("o=https%3A%2F%2Fwarikan.example"));
+    expect(origin).toBe("https://warikan.example");
+    const policy = contentSecurityPolicy(production, "n", { miniApp: origin });
+    expect(directive(policy, "frame-src")).toEqual([
+      "https://www.youtube-nocookie.com",
+      "https://open.spotify.com",
+      "https://warikan.example",
+    ]);
+    expect(directive(contentSecurityPolicy(production, "n"), "frame-src")).not.toContain(
+      "https://warikan.example",
+    );
+  });
+
+  it("allows nothing but a bare origin, on the mini-app page only", () => {
+    for (const query of [
+      "",
+      "o=https%3A%2F%2Fwarikan.example%2Fapp",
+      "o=https%3A%2F%2Fwarikan.example%20https%3A%2F%2Fevil.example",
+      "o=*",
+      "o=data%3Atext%2Fhtml%2Cx",
+      "o=http%3A%2F%2Fwarikan.example",
+      "o=http%3A%2F%2F127.0.0.1%3A5180",
+    ])
+      expect(miniAppFrameOrigin(production, page(query)), query).toBeUndefined();
+    expect(
+      miniAppFrameOrigin(production, page("o=https%3A%2F%2Fwarikan.example", "/chat")),
+    ).toBeUndefined();
+    expect(miniAppFrameOrigin(development, page("o=http%3A%2F%2F127.0.0.1%3A5180"))).toBe(
+      "http://127.0.0.1:5180",
+    );
+    expect(
+      miniAppFrameOrigin(development, page("o=http%3A%2F%2Flocalhost%3A5180")),
+    ).toBeUndefined();
   });
 });
 

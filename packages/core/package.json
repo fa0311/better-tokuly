@@ -21,6 +21,7 @@
     "./history": "./src/history/index.ts",
     "./map": "./src/map/index.ts",
     "./media": "./src/media/index.ts",
+    "./miniapps": "./src/miniapps/index.ts",
     "./moments": "./src/moments/index.ts",
     "./notes": "./src/notes/index.ts",
     "./notifications": "./src/notifications/index.ts",
@@ -56,6 +57,7 @@
     "@tanstack/query-core": "catalog:",
     "@tokuly/api": "workspace:*",
     "@tokuly/i18n": "workspace:*",
+    "@tokuly/miniapp": "workspace:*",
     "i18next": "catalog:"
   },
   "devDependencies": {

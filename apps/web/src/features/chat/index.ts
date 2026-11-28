@@ -19,5 +19,7 @@
 
 /** 「AI に自分のメッセージを使ってもいい」, for the privacy settings. */
 export { AiMessageConsentSwitch } from "./ai-consent-switch";
+/** Ticking friends from the caller's friend list (the mini-app friend picker). */
+export { FriendPicker } from "./friend-picker";
 export { openDirectChat } from "./navigation";
 export { ShareToChat, type ShareToChatProps } from "./share-to-chat";

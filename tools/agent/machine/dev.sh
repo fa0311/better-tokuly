@@ -65,7 +65,7 @@ case "${1:-}" in
     export TOKULY_PUBLIC_URL=http://localhost:53000 TOKULY_API_LISTEN=127.0.0.1:58081
     # The account with this handle becomes admin when it signs up (used by the browser tests).
     # Browser tests sign up many accounts from one address.
-    export TOKULY_ADMIN_USER=e2e-admin@e2e.tokuly.test TOKULY_RATE_LIMITS=false TOKULY_NEWS_ALLOW_LOOPBACK=true
+    export TOKULY_ADMIN_USER=e2e-admin@e2e.tokuly.test TOKULY_RATE_LIMITS=false TOKULY_NEWS_ALLOW_LOOPBACK=true TOKULY_DEV_MINI_APP_ALLOW_LOOPBACK=true
     export TOKULY_RT_WS_LISTEN=127.0.0.1:58082 TOKULY_RT_WT_LISTEN=0.0.0.0:54433
     export TOKULY_RT_PUBLIC_WT_URL=https://127.0.0.1:54433/rt TOKULY_RT_PUBLIC_WS_URL=ws://localhost:58082/rt/ws
     # Web engineers in their own checkouts run dev servers on 53010-53039 against this API.
@@ -98,7 +98,7 @@ case "${1:-}" in
     export TOKULY_VALKEY_URL="${TOKULY_VALKEY_URL%/}/$(( port % 14 + 2 ))"
     export TOKULY_NATS_PREFIX="${name//[^a-zA-Z0-9_]/_}" TOKULY_SEARCH_INDEX_PREFIX="${name//[^a-zA-Z0-9_]/_}_"
     export TOKULY_PUBLIC_URL="http://localhost:$webport" TOKULY_API_LISTEN="127.0.0.1:$port"
-    export TOKULY_ADMIN_USER=e2e-admin@e2e.tokuly.test TOKULY_RATE_LIMITS=false TOKULY_NEWS_ALLOW_LOOPBACK=true
+    export TOKULY_ADMIN_USER=e2e-admin@e2e.tokuly.test TOKULY_RATE_LIMITS=false TOKULY_NEWS_ALLOW_LOOPBACK=true TOKULY_DEV_MINI_APP_ALLOW_LOOPBACK=true
     export TOKULY_RT_WS_LISTEN="127.0.0.1:$((port + 1))" TOKULY_RT_WT_LISTEN="0.0.0.0:$((port + 2))"
     export TOKULY_RT_PUBLIC_WT_URL="https://127.0.0.1:$((port + 2))/rt" TOKULY_RT_PUBLIC_WS_URL="ws://localhost:$((port + 1))/rt/ws"
     [ -z "${TOKULY_MEDIAMTX_API_URL:-}" ] || pair_mediamtx "$name" "$port"

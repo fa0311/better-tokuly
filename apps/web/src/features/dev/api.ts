@@ -13,6 +13,7 @@ export const botClient = () => api().service(dev.BotService);
 export const webhookClient = () => api().service(dev.WebhookService);
 export const referenceClient = () => api().service(dev.ReferenceService);
 export const usageClient = () => api().service(dev.UsageService);
+export const miniAppClient = () => api().service(dev.MiniAppService);
 
 /**
  * Query keys of this area; all start with `dev`.

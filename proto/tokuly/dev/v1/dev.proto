@@ -1075,3 +1075,214 @@ message GetUsageResponse {
   // Busiest first; at most 100.
   repeated UsageMethod methods = 4;
 }
+
+// ───────────────────────────── mini apps ─────────────────────────────
+
+// Mini apps: an application's web page that people open inside Tokuly,
+// from a card in a conversation. It runs in a sandboxed frame and talks to
+// Tokuly only through a message bridge (`docs/miniapps.md`): who the person
+// is, friends they pick, a card shared back to the conversation.
+//
+// The owner writes a manifest on one of their applications and submits it;
+// staff review it (`MiniAppReviewService`). People open the approved copy,
+// so an edit is reviewed before anyone sees it. What the bridge hands over
+// is decided by mini-app scopes (`ListMiniAppScopes`), which a person grants
+// once per mini app; they are not API scopes and give the app no token.
+//
+// Session only, except `ListMiniAppScopes`.
+service MiniAppService {
+  // The mini-app scopes, in the words people agree to.
+  rpc ListMiniAppScopes(ListMiniAppScopesRequest) returns (ListMiniAppScopesResponse);
+  // The manifest and review state of an application the caller owns.
+  // Reasons: `APP_NOT_FOUND`, `MINI_APP_NOT_FOUND` (no manifest yet).
+  rpc GetMiniAppReview(GetMiniAppReviewRequest) returns (GetMiniAppReviewResponse);
+  // Writes the draft manifest of an application the caller owns. The draft
+  // goes back to `DRAFT` (a review under way is abandoned); an approved copy
+  // keeps running until the draft is approved. Reasons: `APP_NOT_FOUND`,
+  // `APP_DISABLED`, `MINI_APP_NAME_INVALID`, `LAUNCH_URL_INVALID`,
+  // `MINI_APP_SCOPE_UNKNOWN`, `ICONS_UNAVAILABLE`, plus the media reasons
+  // for a bad icon.
+  rpc SetMiniAppManifest(SetMiniAppManifestRequest) returns (SetMiniAppManifestResponse);
+  // Sends the draft to review. Submitting one that is already in review
+  // changes nothing. Reasons: `APP_NOT_FOUND`, `APP_DISABLED`,
+  // `MINI_APP_NOT_FOUND`, `MINI_APP_UNCHANGED` (approved or rejected as it
+  // is: change it first).
+  rpc SubmitMiniApp(SubmitMiniAppRequest) returns (SubmitMiniAppResponse);
+  // Takes the mini app out of Tokuly: the manifest, its approved copy and
+  // every person's grant. Reasons: `APP_NOT_FOUND`, `MINI_APP_NOT_FOUND`,
+  // `APP_DISABLED`.
+  rpc DeleteMiniApp(DeleteMiniAppRequest) returns (DeleteMiniAppResponse);
+  // An approved mini app, as people open it, and what the caller granted
+  // it. Reason: `MINI_APP_NOT_FOUND` (never approved, deleted, or its
+  // application is unavailable).
+  rpc GetMiniApp(GetMiniAppRequest) returns (GetMiniAppResponse);
+  // The caller grants scopes the approved copy asks for (added to what they
+  // granted before). Reasons: `MINI_APP_NOT_FOUND`, `MINI_APP_SCOPE_UNKNOWN`
+  // (a scope the approved copy does not ask for).
+  rpc GrantMiniApp(GrantMiniAppRequest) returns (GrantMiniAppResponse);
+  // Withdraws everything the caller granted a mini app. Not an error when
+  // there was nothing.
+  rpc RevokeMiniAppGrant(RevokeMiniAppGrantRequest) returns (RevokeMiniAppGrantResponse);
+}
+
+// Reviewing mini apps. Moderators only (`FORBIDDEN`); session only.
+service MiniAppReviewService {
+  // Manifests waiting for review, longest waiting first.
+  rpc ListMiniAppReviews(ListMiniAppReviewsRequest) returns (ListMiniAppReviewsResponse);
+  // Approves or rejects the revision of a draft the moderator looked at.
+  // Approving makes it the copy people open. The owner is notified.
+  // Reasons: `MINI_APP_NOT_FOUND`, `OWN_APP` (nobody reviews their own),
+  // `REVIEW_OUTDATED` (changed or withdrawn since, or already decided),
+  // `REVIEW_NOTE_REQUIRED` (rejecting needs a reason), `REVIEW_NOTE_TOO_LONG`.
+  rpc ReviewMiniApp(ReviewMiniAppRequest) returns (ReviewMiniAppResponse);
+}
+
+enum MiniAppReviewState {
+  MINI_APP_REVIEW_STATE_UNSPECIFIED = 0;
+  // Being edited; not submitted.
+  MINI_APP_REVIEW_STATE_DRAFT = 1;
+  MINI_APP_REVIEW_STATE_IN_REVIEW = 2;
+  // The draft is the approved copy.
+  MINI_APP_REVIEW_STATE_APPROVED = 3;
+  // `review_note` says why.
+  MINI_APP_REVIEW_STATE_REJECTED = 4;
+}
+
+// What a mini app is: reviewed as a whole.
+message MiniAppManifest {
+  // 1-30 characters, on cards and the frame's title bar.
+  string name = 1;
+  tokuly.common.v1.Image icon = 2;
+  // The page that is opened: https, without credentials or fragment (http
+  // on a loopback address only where the server allows it for development).
+  // Its origin is the only one the frame may show.
+  string launch_url = 3;
+  // Mini-app scopes the app asks people for.
+  repeated string scopes = 4;
+}
+
+message MiniAppScope {
+  // `profile`, `friends`.
+  string scope = 1;
+  // What the person hands over, in plain words.
+  tokuly.common.v1.LocalizedText description = 2;
+}
+
+// A mini app's manifest with its review, as the owner and staff see it.
+message MiniAppReview {
+  string app_id = 1;
+  // The application the manifest is on; `owner` is who registered it.
+  PublicApp app = 2;
+  MiniAppManifest draft = 3;
+  MiniAppReviewState state = 4;
+  // Grows with every change of the draft; a review names the one it read.
+  int32 revision = 5;
+  // Why staff rejected it; empty otherwise.
+  string review_note = 6;
+  google.protobuf.Timestamp submitted_at = 7;
+  google.protobuf.Timestamp reviewed_at = 8;
+  // The copy people open; unset until the first approval.
+  MiniAppManifest live = 9;
+  google.protobuf.Timestamp approved_at = 10;
+}
+
+// An approved mini app, as people open it.
+message MiniApp {
+  string app_id = 1;
+  string name = 2;
+  tokuly.common.v1.Image icon = 3;
+  string launch_url = 4;
+  // `scheme://host[:port]` of `launch_url`: the only origin the frame may show.
+  string origin = 5;
+  repeated MiniAppScope scopes = 6;
+  // Who registered the application.
+  tokuly.common.v1.UserSummary developer = 7;
+}
+
+message ListMiniAppScopesRequest {}
+
+message ListMiniAppScopesResponse {
+  repeated MiniAppScope scopes = 1;
+}
+
+message GetMiniAppReviewRequest {
+  string app_id = 1;
+}
+
+message GetMiniAppReviewResponse {
+  MiniAppReview review = 1;
+}
+
+message SetMiniAppManifestRequest {
+  string app_id = 1;
+  string name = 2;
+  // An image the caller uploaded. Unset keeps the icon, empty removes it.
+  optional string icon_asset_id = 3;
+  string launch_url = 4;
+  repeated string scopes = 5;
+}
+
+message SetMiniAppManifestResponse {
+  MiniAppReview review = 1;
+}
+
+message SubmitMiniAppRequest {
+  string app_id = 1;
+}
+
+message SubmitMiniAppResponse {
+  MiniAppReview review = 1;
+}
+
+message DeleteMiniAppRequest {
+  string app_id = 1;
+}
+
+message DeleteMiniAppResponse {}
+
+message GetMiniAppRequest {
+  string app_id = 1;
+}
+
+message GetMiniAppResponse {
+  MiniApp mini_app = 1;
+  // The scopes of `mini_app` the caller granted.
+  repeated string granted_scopes = 2;
+}
+
+message GrantMiniAppRequest {
+  string app_id = 1;
+  repeated string scopes = 2;
+}
+
+message GrantMiniAppResponse {
+  repeated string granted_scopes = 1;
+}
+
+message RevokeMiniAppGrantRequest {
+  string app_id = 1;
+}
+
+message RevokeMiniAppGrantResponse {}
+
+message ListMiniAppReviewsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListMiniAppReviewsResponse {
+  repeated MiniAppReview reviews = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ReviewMiniAppRequest {
+  string app_id = 1;
+  // `MiniAppReview.revision` as the moderator read it.
+  int32 revision = 2;
+  bool approve = 3;
+  // Shown to the owner; required to reject. At most 500 characters.
+  string note = 4;
+}
+
+message ReviewMiniAppResponse {
+  MiniAppReview review = 1;
+}
