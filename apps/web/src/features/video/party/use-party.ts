@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, type Timestamp, toMillis, video } from "@tokuly/api";
-import { journaled, pushTo, reread } from "@tokuly/core/query";
+import { journal, pushTo, reread } from "@tokuly/core/query";
 import { useEffect, useRef } from "react";
 import { API_PATH, api } from "#/lib/api";
 import { realtime } from "#/lib/realtime";
@@ -104,10 +104,10 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
   const { data: state } = useQuery({
     queryKey: key,
     // What was pushed while the party was read may be newer than the answer: it is applied again.
-    queryFn: journaled(async (): Promise<PartyRoomState> => {
+    queryFn: async ({ signal }): Promise<PartyRoomState> => {
       const held = () => queryClient.getQueryData<PartyRoomState>(key) ?? fromSession(initial);
       try {
-        const { session } = await partyClient().getParty({ partyId, guestToken });
+        const { session } = await partyClient().getParty({ partyId, guestToken }, { signal });
         return session?.party && session.self ? fromSession(session, held()) : held();
       } catch (error) {
         const reason = errorReason(error);
@@ -120,7 +120,8 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
           }));
         throw error;
       }
-    }),
+    },
+    persister: journal,
     initialData: () => fromSession(initial),
     // Read when asked (`reload`) and kept current by pushes and the heartbeat.
     staleTime: Number.POSITIVE_INFINITY,

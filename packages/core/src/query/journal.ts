@@ -1,11 +1,18 @@
-import { hashKey, type QueryClient, type QueryFunction, type QueryKey } from "@tanstack/query-core";
+import {
+  hashKey,
+  type QueryClient,
+  type QueryFunction,
+  type QueryFunctionContext,
+  type QueryKey,
+} from "@tanstack/query-core";
 import { pushesDuringReadByKey } from "./pushes";
 
 /**
- * Rule 2 of `docs/realtime-consistency.md` for a query: a push never loses
- * to an older read. A feature reads with `journaled(queryFn)` and changes
- * what a push changed with `pushTo(queryClient, key, update)`; nothing else
- * is wired by hand.
+ * Rule 2 of `docs/realtime-consistency.md`: a push never loses to an older
+ * read. A query reads with `{ ...options, persister: journal }`, plain or
+ * infinite, and every push goes through `pushTo` (or `pushToAll`); a read
+ * that is not the query's own and writes the cache goes through
+ * `pushAfter`. Nothing else is wired by hand.
  *
  * `pushTo` changes the cached data now, and keeps the update for every read
  * of that query in flight: its answer may have been made before the push,
@@ -14,13 +21,12 @@ import { pushesDuringReadByKey } from "./pushes";
  * a push took away. Updates must therefore be idempotent: add by ID (replace
  * what is there), remove by ID, keep the higher version.
  *
- * A query that holds `null` or `undefined` has nothing to change: updates
- * see the data only, and leave an empty answer as it is. An update may
- * return `null` (what the query held is gone: a revoked widget, a plan the
- * viewer was removed from), and an older read cannot bring it back.
- *
- * For plain queries only: an infinite query calls its query function once
- * per page, so a page's answer is not what `pushTo` updates.
+ * An update sees what the query holds: the value of a plain query, the
+ * `{ pages, pageParams }` of an infinite one. A query that holds `null` or
+ * `undefined` has nothing to change: updates see the data only, and leave an
+ * empty answer as it is. An update may return `null` (what the query held is
+ * gone: a revoked widget, a plan the viewer was removed from), and an older
+ * read cannot bring it back.
  */
 
 /** One journal per query client (each app has one; tests make their own), by query hash. */
@@ -36,35 +42,93 @@ function journalOf(queryClient: QueryClient) {
 }
 
 /** A pushed change: what the query holds next, or `null` when what it held is gone (where `T` allows it). */
-type Update<T> = (current: NonNullable<T>) => NonNullable<T> | Extract<T, null>;
+export type Update<T> = (current: NonNullable<T>) => NonNullable<T> | Extract<T, null>;
 
 const replay =
   <T>(update: Update<T>) =>
   (state: unknown) =>
     state === null || state === undefined ? state : update(state as NonNullable<T>);
 
-/** Wraps a query function so that what `pushTo` pushed while it ran is applied to its answer. */
-export function journaled<T, TKey extends QueryKey = QueryKey>(
-  queryFn: QueryFunction<T, TKey>,
-): QueryFunction<T, TKey> {
-  return async (context) => {
-    if ("pageParam" in context)
-      throw new Error(`journaled() reads a whole query, not a page: ${String(context.queryKey)}`);
-    const read = journalOf(context.client).begin(hashKey(context.queryKey));
-    let answer: T;
-    try {
-      answer = await queryFn(context);
-    } catch (error) {
-      read.cancel();
-      throw error;
-    }
-    return read.finish(answer) as T;
-  };
-}
+/**
+ * The read side, as a TanStack Query `persister`: `{ ...options, persister:
+ * journal }`. It wraps the whole read — a plain query's function, or every
+ * page an infinite query fetches (all of them again, or the one page
+ * `fetchNextPage` adds to what was held when it started) — so that what
+ * `pushTo` pushed meanwhile is applied to the answer.
+ *
+ * A read that is cancelled (replaced by `reread`, or its last observer
+ * left) stops collecting pushes at once. Pass the query's `signal` to the
+ * request too, so that the request ends as well. TanStack then cancels a
+ * read nobody watches any more instead of letting it finish: the query
+ * keeps what it held, marked as it was, and reads again when next shown.
+ */
+export const journal: QueryJournal = async (queryFn, context) => {
+  const read = journalOf(context.client).begin(hashKey(context.queryKey));
+  const signal = context.signal;
+  if (signal.aborted) read.cancel();
+  else signal.addEventListener("abort", () => read.cancel(), { once: true });
+  let answer: unknown;
+  try {
+    answer = await (queryFn as QueryFunction)(context);
+  } catch (error) {
+    read.cancel();
+    throw error;
+  }
+  return read.finish(answer) as never;
+};
+
+/**
+ * The type `persister` takes, written so that it adds nothing to what
+ * TanStack Query infers from `queryFn`: the answer passes through unchanged
+ * but for the pushes replayed on it.
+ */
+type QueryJournal = (
+  queryFn: (...args: never[]) => unknown,
+  context: QueryFunctionContext,
+) => Promise<never>;
 
 /** Applies a pushed change to the query under `key` (exactly that key) now and to every read of it in flight. */
 export function pushTo<T>(queryClient: QueryClient, key: QueryKey, update: Update<T>): void {
   const change = replay(update);
   journalOf(queryClient).record(hashKey(key), change);
   queryClient.setQueryData<T>(key, (current) => change(current) as T | undefined);
+}
+
+/**
+ * `pushTo` for every query under `prefix`: one list held under several keys
+ * (a filter, a source, a search). The queries under it must all hold the
+ * same kind of data. A query is in the cache from the moment its first read
+ * starts, so no read in flight is left out.
+ */
+export function pushToAll<T>(queryClient: QueryClient, prefix: QueryKey, update: Update<T>): void {
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: prefix }))
+    pushTo(queryClient, query.queryKey, update);
+}
+
+/**
+ * A read that is not the query's own but writes it: the comment fetched
+ * after `commentAdded`, the answer to a mutation. `read` returns the change
+ * its answer makes (or nothing). Pushes to `key` that arrive while it runs
+ * may be newer than that answer, so the change is pushed as "the answer,
+ * then what was pushed since": to the cache and, like any push, to the
+ * query's own reads in flight, where the pushes since are replayed after it
+ * again (a removal that followed the add stays a removal).
+ */
+export async function pushAfter<T>(
+  queryClient: QueryClient,
+  key: QueryKey,
+  read: () => Promise<Update<T> | undefined>,
+): Promise<void> {
+  const since = journalOf(queryClient).begin(hashKey(key));
+  let answer: Update<T> | undefined;
+  try {
+    answer = await read();
+  } finally {
+    // Stops collecting (before the push below, which would otherwise collect itself); what was
+    // collected stays, and `finish` applies it as often as the change is applied.
+    since.cancel();
+  }
+  if (!answer) return;
+  const update = answer;
+  pushTo<T>(queryClient, key, (current) => since.finish(update(current)) as ReturnType<Update<T>>);
 }

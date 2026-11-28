@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { common, school } from "@tokuly/api";
-import { journaled, pushTo } from "@tokuly/core/query";
+import { journal, pushTo } from "@tokuly/core/query";
 import { refreshSchool, schoolKeys, studyTime } from "@tokuly/core/school";
 import {
   DoorOpen,
@@ -62,11 +62,6 @@ interface Burst {
 
 let burstId = 0;
 
-/** Reads a room (`schoolKeys.room`), with the timer changes pushed meanwhile: they are newer. */
-const readRoom = journaled(
-  async ({ queryKey }) => (await roomClient().getStudyRoom({ roomId: String(queryKey[3]) })).room,
-);
-
 /**
  * A study room: the shared timer everyone follows, who is here and what
  * they study, the fixed reactions. The host runs the timer, invites and
@@ -87,11 +82,14 @@ export function RoomScreen({ roomId }: { roomId: string }) {
     isError,
   } = useQuery({
     queryKey: key,
-    queryFn: async (context) => {
-      const room = await readRoom(context);
+    queryFn: async ({ signal }) => {
+      const room = (await roomClient().getStudyRoom({ roomId }, { signal })).room;
+      // The clock follows the answer as it arrives; timer changes pushed meanwhile are newer and
+      // are applied to it by the journal.
       syncClock(room?.timer);
       return room;
     },
+    persister: journal,
     staleTime: 0,
   });
   const [closed, setClosed] = useState(false);
