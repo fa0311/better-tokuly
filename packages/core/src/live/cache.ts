@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/query-core";
 import { errorReason, live, type social } from "@tokuly/api";
-import { type ClientSource, pushesDuringReadByKey } from "../query";
+import { type ClientSource, journaled, pushTo } from "../query";
 import { liveKeys } from "./keys";
 import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from "./model";
 
@@ -103,34 +103,26 @@ export function refreshStream(queryClient: QueryClient, streamId: string): void 
  * under `liveKeys.chat`. A chat is read once and then kept current by pushes;
  * after a gap in the connection it is read again, and what pushes did while
  * that read was on its way (lines added, deleted, cleared) is applied to the
- * answer again (see `pushesDuringRead`). One per app.
+ * answer again (`journaled` / `pushTo`). One per app.
  */
 export class LiveChats {
-  private readonly duringRead = pushesDuringReadByKey<live.ChatMessage[]>();
-
   constructor(private readonly client: ClientSource<typeof live.LiveChatService>) {}
 
   /** Query options of a stream's chat: the latest page, then whatever is pushed. */
   query(streamId: string) {
     return {
       queryKey: liveKeys.chat(streamId),
-      queryFn: () => this.read(streamId),
+      queryFn: journaled(() => this.read(streamId)),
       // Pushes keep it current; reading it again would only drop what the page did not hold.
       staleTime: Number.POSITIVE_INFINITY,
       gcTime: 0,
     };
   }
 
-  /** Reads the latest page of a stream's chat, with what was pushed while it was read. */
-  async read(streamId: string): Promise<live.ChatMessage[]> {
-    const read = this.duringRead.begin(streamId);
-    try {
-      const { messages } = await this.client().listChatMessages({ streamId });
-      return read.finish(addChatMessages([], messages));
-    } catch (error) {
-      read.cancel();
-      throw error;
-    }
+  /** Reads the latest page of a stream's chat. */
+  private async read(streamId: string): Promise<live.ChatMessage[]> {
+    const { messages } = await this.client().listChatMessages({ streamId });
+    return addChatMessages([], messages);
   }
 
   /** Changes a stream's cached chat, and every read of it in flight. */
@@ -139,10 +131,7 @@ export class LiveChats {
     streamId: string,
     update: (messages: live.ChatMessage[]) => live.ChatMessage[],
   ): void {
-    this.duringRead.record(streamId, update);
-    queryClient.setQueryData<live.ChatMessage[]>(liveKeys.chat(streamId), (messages) =>
-      messages ? update(messages) : messages,
-    );
+    pushTo(queryClient, liveKeys.chat(streamId), update);
   }
 
   /** Adds a line the caller just sent (the push may come before or after the answer). */

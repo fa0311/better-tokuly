@@ -47,5 +47,5 @@ export function nextCursor(last: { page?: { nextCursor: string } }): string | un
   return last.page?.nextCursor || undefined;
 }
 
-export { type PushesDuringRead, pushesDuringRead, pushesDuringReadByKey } from "./pushes";
+export { journaled, pushTo } from "./journal";
 export { reread, rereadOnWelcome, type WelcomingConnection } from "./reread";

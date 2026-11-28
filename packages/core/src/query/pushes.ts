@@ -14,6 +14,8 @@
  * Replaying beats merging the snapshot into what the page holds: a line
  * deleted while the connection was down is gone from the snapshot and stays
  * gone, which a merge would not know.
+ *
+ * Features use it through `journaled` / `pushTo` (`./journal`), never directly.
  */
 export interface PushesDuringRead<S> {
   /** Applies a pushed update to what is held now (through `apply`) and keeps it for reads in flight. */

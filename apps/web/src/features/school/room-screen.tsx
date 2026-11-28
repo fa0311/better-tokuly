@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { common, school } from "@tokuly/api";
-import { pushesDuringReadByKey } from "@tokuly/core/query";
+import { journaled, pushTo } from "@tokuly/core/query";
 import { refreshSchool, schoolKeys, studyTime } from "@tokuly/core/school";
 import {
   DoorOpen,
@@ -62,8 +62,10 @@ interface Burst {
 
 let burstId = 0;
 
-/** Timer changes pushed while a room is being read (see `pushesDuringRead`). */
-const timerPushesDuringRead = pushesDuringReadByKey<school.StudyRoom>();
+/** Reads a room (`schoolKeys.room`), with the timer changes pushed meanwhile: they are newer. */
+const readRoom = journaled(
+  async ({ queryKey }) => (await roomClient().getStudyRoom({ roomId: String(queryKey[3]) })).room,
+);
 
 /**
  * A study room: the shared timer everyone follows, who is here and what
@@ -85,19 +87,10 @@ export function RoomScreen({ roomId }: { roomId: string }) {
     isError,
   } = useQuery({
     queryKey: key,
-    queryFn: async () => {
-      const read = timerPushesDuringRead.begin(roomId);
-      try {
-        const response = await roomClient().getStudyRoom({ roomId });
-        // A timer change pushed while the room was read is newer than the answer.
-        const room = response.room && read.finish(response.room);
-        read.cancel();
-        syncClock(room?.timer);
-        return room;
-      } catch (error) {
-        read.cancel();
-        throw error;
-      }
+    queryFn: async (context) => {
+      const room = await readRoom(context);
+      syncClock(room?.timer);
+      return room;
     },
     staleTime: 0,
   });
@@ -127,11 +120,10 @@ export function RoomScreen({ roomId }: { roomId: string }) {
       if (event.case === "roomTimer") {
         syncClock(event.value);
         const timer = event.value;
-        const update = (current: school.StudyRoom) => ({ ...current, timer });
-        timerPushesDuringRead.record(roomId, update);
-        queryClient.setQueryData<school.StudyRoom>(schoolKeys.room(roomId), (current) =>
-          current ? update(current) : current,
-        );
+        pushTo<school.StudyRoom>(queryClient, schoolKeys.room(roomId), (current) => ({
+          ...current,
+          timer,
+        }));
       }
       if (event.case === "roomReaction") {
         const reaction = REACTIONS.find((item) => item.reaction === event.value.reaction);
