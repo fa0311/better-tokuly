@@ -76,7 +76,7 @@ found.
 | Spaces: hangouts (W M) | `setQueryData`, every `Welcome` | a hangout the person was removed from comes back with who is inside | #519 |
 | Spaces: rooms (W M) | `onSubscribed` invalidates | an ended room shows LIVE again; someone who left is back on stage | #530 |
 | Live: chat (W M) | journal, `onSubscribed` | — | |
-| Live: stream page (W M) | `onSubscribed` reread, `setQueryData` | a deleted message comes back as the pin or a highlight; a pin change goes back | #523 |
+| Live: stream page (W M) | journal, `onSubscribed` reread | — | |
 | Live: overlay (W) | journal | a revoked widget comes back, frozen | #540 |
 | Watch party, video cards (W M) | party: journal + `sequence` | heartbeat playback lost to a reload; a pushed card overwritten | #539 |
 | School: room (W) | journal, `onSubscribed` | — | |
