@@ -29,6 +29,7 @@ listed in its `package.json`), each with its own tests:
 | `@tokuly/core/footprints`    | footprint keys and options, region names, explorer and region levels, readable percentages, new level-ups                                   |
 | `@tokuly/core/search`        | search kinds and their names, hit fields, where a hit leads, trend and recent-search keys and options, tag queries, suggestion lists        |
 | `@tokuly/core/stories`       | story keys and options, story cache edits                                                                                                   |
+| `@tokuly/core/moments`       | moment keys and options, the day's phase and countdown, what a locked moment shows, RealMoji faces, lateness, moment cache edits           |
 | `@tokuly/core/shorts`        | shorts keys, captions, feed contexts, the slide window                                                                                      |
 | `@tokuly/core/live`          | live keys and options, gift, chat and poll rules, a stream and its chat in the cache, pushed live events                                    |
 | `@tokuly/core/spaces`        | room and hangout keys and options, stage rules, pushed spaces events in the cache, why one is outside, who is heard, tag input              |
