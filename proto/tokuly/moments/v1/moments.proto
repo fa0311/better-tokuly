@@ -1,0 +1,372 @@
+syntax = "proto3";
+
+// Moments (いまの瞬間): once a day, everyone in a region is told at the same
+// random time to take a moment — the back and the front camera at once —
+// within two minutes.
+//
+// - A **region** is a time zone (the account's `time_zone`). Each region
+//   gets one prompt a day at a time drawn at random inside the local
+//   daytime window; the API never tells it before it goes out.
+// - A **day** lasts from one prompt of the region to the next. A moment
+//   belongs to the poster's current day; one per day. Posted within the
+//   window it is on time, later it carries how late it is ("3時間遅れ").
+// - Friends' moments of their current day are **locked** for whoever has
+//   not posted a moment of their own day yet: the pictures come as a
+//   blurred placeholder only (ThumbHash and colour), without caption,
+//   location or reactions.
+// - Reactions are **RealMoji** (a selfie making one of six faces, kept in
+//   the reactor's library) or stamps. One per person and moment.
+// - The **location** a moment was taken at is shown to a viewer only
+//   while that viewer sees the poster's precise live location on the map
+//   (ghost mode, see tokuly.geo.v1); everyone else gets none.
+// - Past days stay in the owner's calendar; friends see only the current
+//   day.
+//
+// Stories (tokuly.notes.v1) are free-form posts at any time for 24 hours;
+// POV requests (tokuly.chat.v1) are one friend asking another, in their
+// conversation. Moments are neither: the same moment for everyone, once a
+// day, and nothing to see until you share yours.
+package tokuly.moments.v1;
+
+import "google/protobuf/timestamp.proto";
+import "tokuly/common/v1/common.proto";
+
+// The daily moment, friends' moments, the map and the calendar.
+//
+// Every RPC needs a signed-in caller (SIGN_IN_REQUIRED). A moment the
+// caller may not see is MOMENT_NOT_FOUND: someone else's that is not of its
+// owner's current day, not shared with the caller (friends, or the owner's
+// close friends), or of an owner on either side of a block, suspended or
+// deleted. Everything is rate limited per caller (RATE_LIMITED).
+service MomentService {
+  // The caller's day: whether the prompt went out in their region, when,
+  // until when a moment is on time, their own moment and whether friends'
+  // moments are unlocked.
+  rpc GetToday(GetTodayRequest) returns (GetTodayResponse);
+  // Posts the caller's moment of their current day: the back and front
+  // pictures (uploads of ASSET_PURPOSE_MOMENT, ready), an optional caption
+  // and location, and how many times the caller retook it.
+  // Errors: NO_PROMPT_YET (the region has had no prompt yet), ALREADY_POSTED
+  // (one moment per day, a deleted one included), ASSET_NOT_FOUND /
+  // ASSET_WRONG_PURPOSE / ASSET_NOT_READY (the media domain's), SAME_PICTURE (front and back are
+  // one upload), INVALID_CAPTION (more than 100 characters, or a line
+  // break), INVALID_LOCATION, INVALID_RETAKES (not 0–99), INVALID_AUDIENCE,
+  // RATE_LIMITED.
+  rpc PostMoment(PostMomentRequest) returns (PostMomentResponse);
+  // Deletes one of the caller's moments. The day stays used: no second
+  // moment that day. Errors: MOMENT_NOT_FOUND (not the caller's).
+  rpc DeleteMoment(DeleteMomentRequest) returns (DeleteMomentResponse);
+  // One moment, as the caller sees it (locked or not).
+  // Errors: MOMENT_NOT_FOUND.
+  rpc GetMoment(GetMomentRequest) returns (GetMomentResponse);
+  // Friends' moments of their current day that the caller may see, newest
+  // first. Locked until the caller has posted (`unlocked`).
+  rpc ListFriendMoments(ListFriendMomentsRequest) returns (ListFriendMomentsResponse);
+  // Friends' moments of their current day with a location the caller may
+  // see, for the map; empty while locked. At most 500.
+  rpc ListMapMoments(ListMapMomentsRequest) returns (ListMapMomentsResponse);
+  // The caller's own moments of one month, one per day, by the day they
+  // belong to. Errors: INVALID_MONTH.
+  rpc GetCalendar(GetCalendarRequest) returns (GetCalendarResponse);
+  rpc GetMomentSettings(GetMomentSettingsRequest) returns (GetMomentSettingsResponse);
+  // Changes the caller's settings; unset fields stay as they are.
+  // Errors: INVALID_AUDIENCE, RATE_LIMITED.
+  rpc UpdateMomentSettings(UpdateMomentSettingsRequest) returns (UpdateMomentSettingsResponse);
+}
+
+// Reactions and the caller's RealMoji library.
+//
+// Reacting needs the moment to be visible and unlocked to the caller
+// (MOMENT_NOT_FOUND, MOMENT_LOCKED); the owner cannot react to their own
+// (OWN_MOMENT). Rate limited per caller (RATE_LIMITED).
+service MomentReactionService {
+  // Reacts to a moment, replacing the caller's earlier reaction. With a
+  // RealMoji the picture is the one in the caller's library at this
+  // moment (a later change of the library does not change the reaction);
+  // REALMOJI_EMOJI_INSTANT takes a picture taken just now (`asset_id`,
+  // ASSET_PURPOSE_REALMOJI) instead. The owner is told.
+  // Errors: MOMENT_NOT_FOUND, MOMENT_LOCKED, OWN_MOMENT, INVALID_REACTION
+  // (neither or an unknown emoji), NO_REALMOJI (none in the library for that
+  // emoji), ASSET_NOT_FOUND / ASSET_WRONG_PURPOSE / ASSET_NOT_READY,
+  // STAMP_NOT_USABLE, RATE_LIMITED.
+  rpc React(ReactRequest) returns (ReactResponse);
+  // Takes the caller's reaction back, whether or not they still see the
+  // moment. Nothing to take back succeeds.
+  rpc RemoveReaction(RemoveReactionRequest) returns (RemoveReactionResponse);
+  // Who reacted to a moment, newest first, without people on either side
+  // of a block with the caller. Errors: MOMENT_NOT_FOUND, MOMENT_LOCKED.
+  rpc ListReactions(ListReactionsRequest) returns (ListReactionsResponse);
+  // The caller's RealMoji library: at most one picture per emoji (not for
+  // REALMOJI_EMOJI_INSTANT).
+  rpc ListRealmojis(ListRealmojisRequest) returns (ListRealmojisResponse);
+  // Puts a selfie (ASSET_PURPOSE_REALMOJI, ready) into the library for an
+  // emoji, replacing the one before. Errors: INVALID_REACTION,
+  // ASSET_NOT_FOUND / ASSET_WRONG_PURPOSE / ASSET_NOT_READY, RATE_LIMITED.
+  rpc SetRealmoji(SetRealmojiRequest) returns (SetRealmojiResponse);
+  // Removes a library entry; reactions made with it keep their picture.
+  rpc DeleteRealmoji(DeleteRealmojiRequest) returns (DeleteRealmojiResponse);
+}
+
+// Who sees a moment besides its owner. Always among friends.
+enum MomentAudience {
+  MOMENT_AUDIENCE_UNSPECIFIED = 0;
+  MOMENT_AUDIENCE_FRIENDS = 1;
+  // The owner's close friends (tokuly.social.v1 circles).
+  MOMENT_AUDIENCE_CLOSE_FRIENDS = 2;
+}
+
+// The faces of a RealMoji.
+enum RealmojiEmoji {
+  REALMOJI_EMOJI_UNSPECIFIED = 0;
+  REALMOJI_EMOJI_THUMBS_UP = 1; // 👍
+  REALMOJI_EMOJI_SMILE = 2; // 😃
+  REALMOJI_EMOJI_SURPRISED = 3; // 😮
+  REALMOJI_EMOJI_HEART_EYES = 4; // 😍
+  REALMOJI_EMOJI_LAUGHING = 5; // 😂
+  // ⚡ A selfie taken on the spot for this one reaction; never in the library.
+  REALMOJI_EMOJI_INSTANT = 6;
+}
+
+// A region's day, as far as the caller may know it.
+message MomentDay {
+  // The local date of the prompt (YYYY-MM-DD) in the region.
+  string date = 1;
+  // The region: an IANA time zone.
+  string region = 2;
+  // When the prompt went out.
+  google.protobuf.Timestamp prompt_at = 3;
+  // Until when a moment counts as on time.
+  google.protobuf.Timestamp on_time_until = 4;
+}
+
+message Moment {
+  string id = 1;
+  tokuly.common.v1.UserSummary author = 2;
+  // The day it belongs to (in the owner's region of that day).
+  MomentDay day = 3;
+  google.protobuf.Timestamp posted_at = 4;
+  // 0 on time; otherwise how long after the window it was posted.
+  int64 late_seconds = 5;
+  // How many times the owner retook it before posting (counted by their app).
+  int32 retakes = 6;
+  // The back camera (the big picture) and the front camera (the inset).
+  // When `locked`: only width, height, thumbhash and dominant colour.
+  tokuly.common.v1.Image back = 7;
+  tokuly.common.v1.Image front = 8;
+  // Empty when locked.
+  string caption = 9;
+  // Where it was taken, only for viewers who see the owner's precise
+  // location right now (and never while locked).
+  tokuly.common.v1.LatLng location = 10;
+  // The caller has not posted their own moment of their day yet.
+  bool locked = 11;
+  // Reactions the caller may see (0 while locked).
+  int32 reaction_count = 12;
+  // The first few of them, newest first (none while locked).
+  repeated MomentReaction reactions = 13;
+  // The caller's own reaction.
+  MomentReaction my_reaction = 14;
+  bool mine = 15;
+  // Only on the owner's own moments.
+  MomentAudience audience = 16;
+}
+
+message MomentReaction {
+  string id = 1;
+  tokuly.common.v1.UserSummary user = 2;
+  oneof reaction {
+    Realmoji realmoji = 3;
+    tokuly.common.v1.StampRef stamp = 4;
+  }
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message Realmoji {
+  RealmojiEmoji emoji = 1;
+  tokuly.common.v1.Image image = 2;
+}
+
+message MomentSettings {
+  // Whether new moments carry the location by default (the camera's
+  // switch starts there). Off for accounts that started as minors.
+  bool share_location = 1;
+  MomentAudience audience = 2;
+  // Whether the daily prompt is sent to this account.
+  bool prompts = 3;
+}
+
+message GetTodayRequest {}
+
+message GetTodayResponse {
+  // The region's current day; unset before its first prompt.
+  MomentDay day = 1;
+  // The caller's moment of that day (unset if none, or deleted).
+  Moment mine = 2;
+  // A moment of that day was posted (also when deleted since): no other.
+  bool posted = 3;
+  // Friends' moments are unlocked for the caller.
+  bool unlocked = 4;
+  MomentSettings settings = 5;
+}
+
+message PostMomentRequest {
+  string back_asset_id = 1;
+  string front_asset_id = 2;
+  // ≤ 100 characters, one line.
+  string caption = 3;
+  // Where it was taken; leave unset to post without.
+  tokuly.common.v1.LatLng location = 4;
+  int32 retakes = 5;
+  // Unset: the caller's settings.
+  MomentAudience audience = 6;
+}
+
+message PostMomentResponse {
+  Moment moment = 1;
+}
+
+message DeleteMomentRequest {
+  string moment_id = 1;
+}
+
+message DeleteMomentResponse {}
+
+message GetMomentRequest {
+  string moment_id = 1;
+}
+
+message GetMomentResponse {
+  Moment moment = 1;
+}
+
+message ListFriendMomentsRequest {
+  tokuly.common.v1.PageRequest page = 1;
+}
+
+message ListFriendMomentsResponse {
+  repeated Moment moments = 1;
+  tokuly.common.v1.PageInfo page = 2;
+  bool unlocked = 3;
+}
+
+message ListMapMomentsRequest {}
+
+message ListMapMomentsResponse {
+  repeated Moment moments = 1;
+  bool unlocked = 2;
+}
+
+message GetCalendarRequest {
+  int32 year = 1;
+  // 1–12.
+  int32 month = 2;
+}
+
+message CalendarDay {
+  // YYYY-MM-DD, the date of the day's prompt in its region.
+  string date = 1;
+  string moment_id = 2;
+  // The back picture, for the grid.
+  tokuly.common.v1.Image back = 3;
+  int64 late_seconds = 4;
+}
+
+message GetCalendarResponse {
+  repeated CalendarDay days = 1;
+  // Moments posted that month, and how many of them on time.
+  int32 posted_count = 2;
+  int32 on_time_count = 3;
+}
+
+message GetMomentSettingsRequest {}
+
+message GetMomentSettingsResponse {
+  MomentSettings settings = 1;
+}
+
+message UpdateMomentSettingsRequest {
+  optional bool share_location = 1;
+  MomentAudience audience = 2;
+  optional bool prompts = 3;
+}
+
+message UpdateMomentSettingsResponse {
+  MomentSettings settings = 1;
+}
+
+message ReactRequest {
+  string moment_id = 1;
+  oneof reaction {
+    RealmojiEmoji realmoji = 2;
+    string stamp_id = 3;
+  }
+  // With REALMOJI_EMOJI_INSTANT: the selfie just taken.
+  string asset_id = 4;
+}
+
+message ReactResponse {
+  MomentReaction reaction = 1;
+}
+
+message RemoveReactionRequest {
+  string moment_id = 1;
+}
+
+message RemoveReactionResponse {}
+
+message ListReactionsRequest {
+  string moment_id = 1;
+  tokuly.common.v1.PageRequest page = 2;
+}
+
+message ListReactionsResponse {
+  repeated MomentReaction reactions = 1;
+  tokuly.common.v1.PageInfo page = 2;
+}
+
+message ListRealmojisRequest {}
+
+message ListRealmojisResponse {
+  repeated Realmoji realmojis = 1;
+}
+
+message SetRealmojiRequest {
+  RealmojiEmoji emoji = 1;
+  string asset_id = 2;
+}
+
+message SetRealmojiResponse {
+  Realmoji realmoji = 1;
+}
+
+message DeleteRealmojiRequest {
+  RealmojiEmoji emoji = 1;
+}
+
+message DeleteRealmojiResponse {}
+
+// Realtime pushes of this domain (tokuly.realtime.v1.Event).
+message MomentsEvent {
+  oneof event {
+    // 「いまの瞬間を撮ろう!」: the region's prompt went out. To everyone in
+    // the region who takes prompts.
+    MomentDay prompt = 1;
+    // A friend posted (to the audience of the moment); fetch it to see it
+    // as you may.
+    MomentRef friend_posted = 2;
+    // A moment the receiver could see was deleted.
+    MomentRef deleted = 3;
+    // The reactions on one of the receiver's moments changed.
+    ReactionsChanged reactions_changed = 4;
+  }
+}
+
+message MomentRef {
+  string moment_id = 1;
+  string author_id = 2;
+}
+
+message ReactionsChanged {
+  string moment_id = 1;
+  int32 reaction_count = 2;
+}

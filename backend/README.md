@@ -48,6 +48,7 @@ Domains and their migration numbers. The binary serves all of them
 | spaces | 2200 | social |
 | community | 2300 | social, media, stamp |
 | dev | 2400 | identity |
+| moments | 2500 | social, media, stamp |
 | realtime | — | — |
 
 A crate may only depend on crates listed for it (plus `core`, `proto`,

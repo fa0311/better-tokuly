@@ -109,6 +109,19 @@ const DOMAINS: &[Domain] = &[
         )),
     },
     Domain {
+        name: "moments",
+        // Photos of people and, for friends who may see it, where they were taken.
+        sensitive: true,
+        read: (
+            "あなたと友達の「いまの瞬間」（写真・リアクション・カレンダー）を見る。友達の撮影場所を見るには位置情報の許可も必要です",
+            "See your and your friends' moments (photos, reactions, calendar). Seeing where friends took theirs also takes the location permission",
+        ),
+        write: Some((
+            "あなたとして「いまの瞬間」を投稿・削除する、リアクションする、RealMojiや設定を変更する",
+            "Post and delete moments as you, react to them, change your RealMoji and settings",
+        )),
+    },
+    Domain {
         name: "spaces",
         sensitive: true,
         read: (

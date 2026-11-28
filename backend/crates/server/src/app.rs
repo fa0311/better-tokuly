@@ -17,6 +17,7 @@ use tokuly_geo::{Geo, GeoConfig};
 use tokuly_identity::{Identity, IdentityConfig};
 use tokuly_live::{Live, LiveConfig};
 use tokuly_media::{Media, MediaConfig};
+use tokuly_moments::{Moments, MomentsConfig};
 use tokuly_notes::{Notes, NotesConfig};
 use tokuly_notify::{Notify, NotifyConfig};
 use tokuly_plans::{Plans, PlansConfig};
@@ -83,6 +84,8 @@ pub struct DomainConfigs {
     #[command(flatten)]
     pub spaces: SpacesConfig,
     #[command(flatten)]
+    pub moments: MomentsConfig,
+    #[command(flatten)]
     pub community: CommunityConfig,
     #[command(flatten)]
     pub dev: DevConfig,
@@ -116,6 +119,7 @@ pub struct Domains {
     pub live: Live,
     pub shorts: Shorts,
     pub spaces: Spaces,
+    pub moments: Moments,
     pub community: Community,
     pub dev: Dev,
     pub engagement: Engagement,
@@ -147,6 +151,7 @@ impl Domains {
         let live = Live::new(core.clone(), identity.clone(), cfg.live, wallet.clone())?;
         let shorts = Shorts::new(core.clone(), identity.clone(), cfg.shorts)?;
         let spaces = Spaces::new(core.clone(), identity.clone(), cfg.spaces)?;
+        let moments = Moments::new(core.clone(), identity.clone(), cfg.moments)?;
         let community = Community::new(core.clone(), identity.clone(), cfg.community)?;
         // From here on `tkl_…` bearer tokens authenticate.
         let dev = Dev::new(core.clone(), identity.clone(), cfg.dev)?;
@@ -176,6 +181,7 @@ impl Domains {
             live,
             shorts,
             spaces,
+            moments,
             community,
             dev,
             engagement,
@@ -209,6 +215,7 @@ impl Domains {
         router = self.live.register(router);
         router = self.shorts.register(router);
         router = self.spaces.register(router);
+        router = self.moments.register(router);
         router = self.community.register(router);
         router = self.dev.register(router);
         router = self.engagement.register(router);
@@ -288,6 +295,7 @@ pub fn spawn_workers(core: &Core, domains: &Domains) {
     domains.live.spawn_workers();
     domains.shorts.spawn_workers();
     domains.spaces.spawn_workers();
+    domains.moments.spawn_workers();
     domains.community.spawn_workers();
     domains.dev.spawn_workers();
     domains.engagement.spawn_workers();

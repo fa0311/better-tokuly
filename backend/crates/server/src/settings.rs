@@ -20,6 +20,7 @@ use tokuly_geo::GeoConfig;
 use tokuly_identity::IdentityConfig;
 use tokuly_live::LiveConfig;
 use tokuly_media::MediaConfig;
+use tokuly_moments::MomentsConfig;
 use tokuly_notes::NotesConfig;
 use tokuly_notify::NotifyConfig;
 use tokuly_plans::PlansConfig;
@@ -148,6 +149,7 @@ pub fn sections() -> Vec<SectionSpec> {
         SectionSpec::new("live", LiveConfig::augment_args).editable(LiveConfig::CONSOLE_EDITABLE).check(check!(LiveConfig)),
         SectionSpec::new("shorts", ShortsConfig::augment_args).editable(ShortsConfig::CONSOLE_EDITABLE).check(check!(ShortsConfig)),
         SectionSpec::new("spaces", SpacesConfig::augment_args).editable(SpacesConfig::CONSOLE_EDITABLE).check(check!(SpacesConfig)),
+        SectionSpec::new("moments", MomentsConfig::augment_args).editable(MomentsConfig::CONSOLE_EDITABLE).check(check!(MomentsConfig)),
         SectionSpec::new("community", CommunityConfig::augment_args).editable(CommunityConfig::CONSOLE_EDITABLE).check(check!(CommunityConfig)),
         SectionSpec::new("dev", DevConfig::augment_args).editable(DevConfig::CONSOLE_EDITABLE).check(check!(DevConfig, production)),
         SectionSpec::new("engagement", EngagementConfig::augment_args).editable(EngagementConfig::CONSOLE_EDITABLE).empty_is_value(EngagementConfig::EMPTY_IS_A_VALUE),

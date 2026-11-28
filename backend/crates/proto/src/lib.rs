@@ -61,6 +61,8 @@ pub use tokuly::identity::v1 as identity;
 pub use tokuly::live::v1 as live;
 #[cfg(feature = "media")]
 pub use tokuly::media::v1 as media;
+#[cfg(feature = "moments")]
+pub use tokuly::moments::v1 as moments;
 #[cfg(feature = "notes")]
 pub use tokuly::notes::v1 as notes;
 #[cfg(feature = "notify")]

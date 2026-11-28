@@ -83,6 +83,18 @@ pub async fn mutually_precise(cache: &Cache, a: Uuid, b: Uuid) -> AppResult<bool
     Ok(of_a.is_none_or(|sight| sight.precise_for(b, now_ms)) && of_b.is_none_or(|sight| sight.precise_for(a, now_ms)))
 }
 
+/// Whether `viewer` sees `owner`'s precise location right now: the owner
+/// shares a position and no rule of theirs hides it from the viewer. For
+/// what a domain shows one user of where another was (a photo's place):
+/// the same rule as for the pin.
+pub async fn sees_precisely(cache: &Cache, owner: Uuid, viewer: Uuid) -> AppResult<bool> {
+    if get(cache, owner).await?.is_none() {
+        return Ok(false);
+    }
+    let sight: Option<Sight> = cache.get_json(&sight_key(owner)).await?;
+    Ok(sight.is_none_or(|sight| sight.precise_for(viewer, Utc::now().timestamp_millis())))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Position {
     pub lat: f64,

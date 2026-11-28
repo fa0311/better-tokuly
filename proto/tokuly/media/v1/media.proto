@@ -114,6 +114,11 @@ enum AssetPurpose {
   ASSET_PURPOSE_COMMUNITY_ICON = 23;
   // A community's banner: a still image.
   ASSET_PURPOSE_COMMUNITY_BANNER = 24;
+  // One picture of a moment's pair (back or front camera): a still image.
+  ASSET_PURPOSE_MOMENT = 25;
+  // A selfie reaction to a moment (RealMoji): a still image, small
+  // (`TOKULY_MEDIA_MAX_EMOJI_MB`), rendered up to 256 px.
+  ASSET_PURPOSE_REALMOJI = 26;
 }
 
 // What the uploaded bytes turned out to be (detected, never taken from the client).
