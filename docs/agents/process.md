@@ -9,11 +9,13 @@ worktrees. The other agent (`agent:mac`) works through issues and pull requests 
 - new issues and comments — check the author first; give each issue an owner label, a priority label and,
   if someone asked something, an answer;
 - pull requests ready for review — review (below), then `tools/agent/merge-pr.sh <pr>`;
-- failed runs on `main` — one issue per failure, fixed in batches;
+- failed runs on `main` — one issue per failure, fixed in batches; look at the pass rate of End to end over
+  its last finished runs, not only the latest: under half green, finding the causes comes first;
 - stuck agents — every running delegate thread whose last update is over 30 minutes old: read its last
   items; if it hangs on a command, restart it in its own thread (`t3_thread_send`, mode `restart`) with
   what to do next, instead of starting over;
-- idle capacity — fewer delegates running than the machine allows: start the next issues by priority.
+- idle capacity — fewer delegates running than the machine allows: start the next issues by priority,
+  at least half of them new features; no delegate running is never "nothing to do".
 
 ## Delegating
 
@@ -26,7 +28,8 @@ Briefs for the common kinds of work: [`delegate-brief.md`](delegate-brief.md).
 
 Every PR gets an independent review before merge ([`review.md`](review.md)); risky ones (auth, money,
 location, privacy, minors) by the strongest model available, with fixes committed onto the PR. A second,
-narrower re-check after fixes for those risky ones. Verify claims yourself where cheap (checksums, a test).
+narrower re-check after fixes for those risky ones. Verify claims yourself where cheap (checksums, a test), and
+first whatever the author's report says was not checked.
 
 ## Stacked pull requests
 

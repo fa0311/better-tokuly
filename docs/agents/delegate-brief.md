@@ -28,5 +28,9 @@ Copy the first rule into the brief word for word: a link to it is not enough, ag
   Do not wait for GitHub Actions.
 - **PR**: Draft with `agent:*` and area labels, `Fixes #n`; screenshots if the UI changed
   (`gh pr create --attach`, later `tools/agent/pr-images.sh`); when local checks pass, `gh pr ready` and `needs-review`.
+- **Fixing a bug**: look for the same pattern elsewhere and fix it there too, or list where. A client state
+  built from a fetched snapshot plus realtime pushes follows `docs/realtime-consistency.md` (once it exists);
+  extend the contract rather than patching one race. A flaky test is first suspected to be an app bug.
+- **Tests against what CI runs**: a changed browser test also passes against a production build like CI's.
 - **Report** (your last message, the lead reads only this): what changed, what you checked, what is not done
   and why; last line `PR <url>, head <sha>, checks and reviews <state>`.
