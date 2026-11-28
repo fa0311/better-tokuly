@@ -45,7 +45,7 @@ test("the theme editor recolours the app, checks contrast and saves to the accou
   const html = page.locator("html");
   const preview = page.getByTestId("theme-preview");
   const report = page.getByTestId("contrast-report");
-  await expect(report).toContainText("どの文字もちゃんと読めるよ");
+  await expect(report).toContainText("ぜんぶ読みやすいよ");
 
   // Soft text too pale to read: the whole app and the preview follow, and the check warns.
   const softText = page.getByRole("textbox", { name: "うすい文字のカラーコード" });
@@ -61,7 +61,14 @@ test("the theme editor recolours the app, checks contrast and saves to the accou
   // One token back to the theme's own colour.
   await press(page.getByRole("button", { name: "うすい文字を元に戻す" }));
   await expect.poll(() => token(html, "ink-soft")).toBe("#5d5778");
-  await expect(report).toContainText("どの文字もちゃんと読めるよ");
+  await expect(report).toContainText("ぜんぶ読みやすいよ");
+
+  // A background that text no longer reads on is marked too, not only the text.
+  await typeInto(page, page.getByRole("textbox", { name: "カードのカラーコード" }), "#5d5778");
+  await expect(page.locator('[data-token="surface"]')).toContainText("コントラスト低め");
+  await expect(page.locator('[data-token="ink-soft"]')).toContainText("コントラスト低め");
+  await press(page.getByRole("button", { name: "カードを元に戻す" }));
+  await expect(report).toContainText("ぜんぶ読みやすいよ");
 
   // The dark theme is edited in the preview while the app stays light.
   await press(page.getByRole("tab", { name: "ダーク" }));
@@ -148,6 +155,16 @@ test("an account's theme follows it to a new browser, and a new accent takes the
   await expect
     .poll(async () => (await appearanceOf(page.request, me)).customColors)
     .toEqual({ light: { bg: "#fff4e0" }, dark: { ink: "#ffe0f0" } });
+
+  // The next visit paints in them before the app has heard from the server.
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      const root = getComputedStyle(document.documentElement);
+      document.documentElement.dataset.bgAtLoad = root.getPropertyValue("--bg").trim();
+    });
+  });
+  await page.reload();
+  await expect(html).toHaveAttribute("data-bg-at-load", "#fff4e0");
 
   // The editor opens on the theme the app shows, with the accent's brand as its base.
   await page.goto("/settings/appearance/theme");

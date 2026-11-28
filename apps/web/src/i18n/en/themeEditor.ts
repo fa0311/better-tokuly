@@ -56,7 +56,8 @@ export default {
 
   contrast: {
     title: "Readability check",
-    ok: "All text is easy to read (passes WCAG AA).",
+    ok: "Every checked combination is easy to read (WCAG AA).",
+    unchecked: "“Faint text” is for hints and decoration and is not checked.",
     problems_one: "{{count}} combination is hard to read",
     problems_other: "{{count}} combinations are hard to read",
     problem: "“{{text}}” on “{{on}}”: {{ratio}}:1 (aim for {{min}}:1 or more)",

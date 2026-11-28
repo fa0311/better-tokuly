@@ -7,14 +7,15 @@ import {
   type ThemeName,
 } from "@tokuly/core/theme";
 import { type Colors, colors } from "@tokuly/core/tokens";
+import { COLORS_KEY, COLORS_STYLE_ID } from "#/lib/appearance";
 import { accentTokens, DEFAULT_ACCENT, isAccentColor } from "./accent";
 
 /**
  * The account's colours, applied on top of the theme: the brand tokens of
  * its accent colour, then what it recoloured in the theme editor. Both
  * redefine the tokens of `tokens.css` in one small stylesheet of our own, so
- * every `bg-brand` / `text-ink` in the app follows. The last applied colours
- * are kept for the next visit, so it starts in them.
+ * every `bg-brand` / `text-ink` in the app follows. The stylesheet is kept
+ * for the next visit, whose boot script applies it before the first paint.
  */
 export interface AccountColors {
   accent: string;
@@ -22,10 +23,6 @@ export interface AccountColors {
 }
 
 export const DEFAULT_COLORS: AccountColors = { accent: DEFAULT_ACCENT, custom: NO_CUSTOM_COLORS };
-
-const ACCENT_KEY = "tokuly.accent";
-const CUSTOM_KEY = "tokuly.customColors";
-const STYLE_ID = "tokuly-colors";
 
 function customColors(value: unknown): ThemeColors {
   const themes = (value && typeof value === "object" ? value : {}) as Partial<ThemeColors>;
@@ -71,35 +68,28 @@ export function cssVariables(theme: Colors): string {
     .join("");
 }
 
-/** Applies the account's colours to the whole app and remembers them for the next visit. */
-export function applyColors(look: AccountColors): void {
-  const existing = document.getElementById(STYLE_ID);
-  if (look.accent === DEFAULT_ACCENT && !hasCustomColors(look.custom)) {
-    existing?.remove();
-    window.localStorage.removeItem(ACCENT_KEY);
-    window.localStorage.removeItem(CUSTOM_KEY);
-    return;
-  }
-  const style =
-    existing ??
-    document.head.appendChild(Object.assign(document.createElement("style"), { id: STYLE_ID }));
-  // Every token in both rules: a colour changed for the light theme only must not reach the dark one.
-  style.textContent =
-    `:root{${cssVariables(themeColors(look, "light"))}}` +
-    `:root[data-theme="dark"]{${cssVariables(themeColors(look, "dark"))}}`;
-  window.localStorage.setItem(ACCENT_KEY, look.accent);
-  window.localStorage.setItem(CUSTOM_KEY, JSON.stringify(look.custom));
+/** The stylesheet of the account's colours: every token in both rules, so a colour changed for the light theme only does not reach the dark one. */
+export function colorsCss(look: AccountColors): string {
+  return (
+    `:root:root{${cssVariables(themeColors(look, "light"))}}` +
+    `:root:root[data-theme="dark"]{${cssVariables(themeColors(look, "dark"))}}`
+  );
 }
 
-/** The colours applied on the last visit (the defaults when none were chosen). */
-export function storedColors(): AccountColors {
-  const accent = window.localStorage.getItem(ACCENT_KEY);
-  let custom: unknown = null;
-  try {
-    custom = JSON.parse(window.localStorage.getItem(CUSTOM_KEY) ?? "null");
-  } catch {}
-  return {
-    accent: accent && isAccentColor(accent) ? accent : DEFAULT_ACCENT,
-    custom: customColors(custom),
-  };
+/** Applies the account's colours to the whole app and remembers them for the next visit. */
+export function applyColors(look: AccountColors): void {
+  const existing = document.getElementById(COLORS_STYLE_ID);
+  if (look.accent === DEFAULT_ACCENT && !hasCustomColors(look.custom)) {
+    existing?.remove();
+    window.localStorage.removeItem(COLORS_KEY);
+    return;
+  }
+  const css = colorsCss(look);
+  const style =
+    existing ??
+    document.head.appendChild(
+      Object.assign(document.createElement("style"), { id: COLORS_STYLE_ID }),
+    );
+  style.textContent = css;
+  window.localStorage.setItem(COLORS_KEY, css);
 }

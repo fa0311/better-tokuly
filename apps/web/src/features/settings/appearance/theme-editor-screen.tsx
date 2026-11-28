@@ -176,7 +176,9 @@ function Editor({ appearance }: { appearance: identity.AppearanceSettings }) {
                   name={name}
                   color={theme[name]}
                   changed={custom[editing][name] !== undefined}
-                  lowContrast={problems.some((problem) => problem.text === name)}
+                  lowContrast={problems.some(
+                    (problem) => problem.text === name || problem.on === name,
+                  )}
                   onChange={(color) => setToken(name, color)}
                   onReset={() => setToken(name, undefined)}
                 />
@@ -243,6 +245,7 @@ function ContrastReport({ problems }: { problems: ContrastProblem[] }) {
           ))}
         </ul>
       )}
+      <p className="mt-1.5 pl-6 text-xs">{t("contrast.unchecked")}</p>
     </section>
   );
 }

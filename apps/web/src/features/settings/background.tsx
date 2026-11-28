@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { api } from "#/lib/api";
 import { useMe } from "#/stores/session";
 import { isThemeSetting, setAppearance, useAppearance } from "./appearance/appearance-store";
-import { accountColors, applyColors, storedColors } from "./appearance/colors";
+import { accountColors, applyColors } from "./appearance/colors";
 import { PRIVATE_KEYS, useSettings } from "./data";
 
 /** Which account's look this browser last took over from the server (forgotten on sign-out). */
@@ -44,10 +44,12 @@ export default function SettingsBackground() {
     [queryClient],
   );
 
-  // Until the settings arrive, the colours of the last visit avoid a flash of the defaults.
+  // Until the settings arrive, the boot script has put up the colours of the last visit.
   // Compared by value: a save's answer repeats what the theme editor already shows.
-  const look = JSON.stringify(appearance ? accountColors(appearance) : storedColors());
-  useEffect(() => applyColors(JSON.parse(look)), [look]);
+  const look = appearance ? JSON.stringify(accountColors(appearance)) : undefined;
+  useEffect(() => {
+    if (look) applyColors(JSON.parse(look));
+  }, [look]);
 
   useEffect(() => {
     if (theme !== "system") return;
