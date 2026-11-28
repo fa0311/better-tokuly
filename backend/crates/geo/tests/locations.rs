@@ -868,6 +868,32 @@ async fn changes_to_who_is_on_the_map_are_numbered_against_the_snapshot() {
     assert_eq!(snapshot(&ctx, &aoi).await, 0, "only what a watching app is sent is numbered");
 }
 
+/// A viewer whose app is not open but who has a snapshot on its way is
+/// watching from the moment it is read: a removal after that read is
+/// numbered, or the late answer would bring the removed friend back.
+#[tokio::test]
+async fn a_snapshot_on_its_way_gets_its_removals_numbered() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    ctx.at(&aoi, somewhere()).await;
+    // Connected, but not marked online: only the snapshot makes ren watch.
+    let mut rens = ctx.app.listen_user(ren.id).await;
+    let read: ListFriendLocationsResponse =
+        ctx.location("ListFriendLocations", &ren, &ListFriendLocationsRequest::default()).await.unwrap();
+    assert_eq!(read.locations.len(), 1);
+
+    ctx.unfriend(&aoi, &ren).await;
+    let removal = loop {
+        let frame = rens.next(SOON).await.expect("removal pushed");
+        let Some(event) = frame.event::<GeoEvent>() else { continue };
+        if matches!(event.event, Some(Push::LocationRemovedUserId(ref id)) if *id == aoi.id.to_string()) {
+            break event.removal_sequence;
+        }
+    };
+    assert!(removal > read.removal_sequence, "numbered above the snapshot that may still list aoi");
+}
+
 #[tokio::test]
 async fn banned_and_deleted_accounts_disappear_from_the_map() {
     let ctx = start().await;
