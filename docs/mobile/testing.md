@@ -53,7 +53,9 @@ for the server's state, not for time. Each starts the app afresh through
 `subflows/launch.yaml`; its retry covers Android killing a quick relaunch while
 cleaning up the previous app process. What a flow taps it first scrolls into view
 (`subflows/tap-in-view.yaml`): screens grow, and a tap does not scroll. Android CI uses the
-same Pixel 6 as the local one (`tools/agent/android.sh`); a change to a
+same Pixel 6 as the local one (`tools/agent/android.sh`). Its build logs every tap the app
+takes (`src/lib/touch-log.ts`), and the run keeps the device's logcat: a tap that seems lost
+shows there whether it reached the app and the tab bar. A change to a
 layout also runs its flows on the smallest phone the app is laid out for,
 320x640 (`android.sh small <command…>`).
 

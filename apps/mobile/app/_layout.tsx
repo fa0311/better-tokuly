@@ -11,6 +11,7 @@ import { startSession } from "#/features/session/session";
 import { useSessionStore } from "#/features/session/store";
 import i18n from "#/lib/i18n";
 import { useTheme } from "#/lib/theme";
+import { touchLogProps } from "#/lib/touch-log";
 
 void SplashScreen.preventAutoHideAsync();
 void startSession();
@@ -32,7 +33,7 @@ export default function RootLayout() {
   if (status === "unknown") return null;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <View style={[{ flex: 1 }, theme.variables]}>
+      <View style={[{ flex: 1 }, theme.variables]} {...touchLogProps}>
         <SafeAreaProvider>
           <I18nextProvider i18n={i18n}>
             <AccountScope key={generation}>

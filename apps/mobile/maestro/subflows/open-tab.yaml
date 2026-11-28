@@ -1,8 +1,9 @@
 appId: app.tokuly.mobile
 name: Open a tab
 ---
-# TAB is the tab's id (`tab-<name>`). Right after signing in, the map can take
-# the tab back (seen on the emulator): the tab is tapped until it is the one shown.
+# TAB is the tab's id (`tab-<name>`). Right after signing in, a tap can be lost
+# while the first map draws on CI's emulator (#358): the tab is tapped until it is
+# the one shown. CI's logcat says how far each tap got (`[touch-log]`).
 - tapOn: { id: "${TAB}" }
 - repeat:
     while:
