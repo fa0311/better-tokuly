@@ -27,6 +27,13 @@ docker compose run --rm api dead-letters redrive notify  # only what failed in c
 A redriven event is handled only by the consumer it failed in (header
 `Tokuly-Redrive-For`); the others handled it long ago and ack it unread.
 
+How far behind the platform is, every half minute from each worker
+(OTLP metrics, `TOKULY_OTLP_ENDPOINT`): `tokuly.outbox.oldest_age`
+(seconds), `tokuly.consumer.pending` and `tokuly.consumer.unacknowledged`
+per `stream` and `consumer`, and `tokuly.dead_letters`. The worker's
+container is healthy while its outbox relay goes round
+(`http://127.0.0.1:8083/healthz`, `TOKULY_WORKER_HEALTH_LISTEN`).
+
 ## Changing a payload
 
 Events stay on the stream for 7 days and dead letters for up to 30, and a

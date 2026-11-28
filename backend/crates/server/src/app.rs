@@ -36,7 +36,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::settings::ApiConfig;
+use crate::settings::{ApiConfig, WorkerConfig};
 
 /// Domain-specific settings, flattened into the command line.
 #[derive(Args, Clone)]
@@ -271,6 +271,7 @@ pub async fn migrate(core: &Core, domains: &Domains) -> anyhow::Result<()> {
 /// Starts every background loop of the worker role.
 pub fn spawn_workers(core: &Core, domains: &Domains) {
     tokio::spawn(events::run_outbox_relay(core.db.clone(), core.bus.clone(), core.shutdown.clone()));
+    tokio::spawn(tokuly_core::backlog::report(core.db.clone(), core.bus.clone(), core.shutdown.clone()));
     let analytics = core.analytics.clone();
     let cancel = core.shutdown.clone();
     tokio::spawn(async move { analytics.run_sink(cancel).await });
@@ -369,6 +370,32 @@ async fn readyz(State(core): State<Core>) -> (StatusCode, Json<serde_json::Value
     (status, Json(serde_json::json!({ "ready": ready, "postgres": postgres, "valkey": valkey, "nats": nats })))
 }
 
+/// How long the relay may go without a round before the worker counts as unhealthy.
+const RELAY_STALE_AFTER: Duration = Duration::from_secs(30);
+
+/// The worker's health: is the outbox relay of this process running?
+async fn worker_healthz() -> (StatusCode, Json<serde_json::Value>) {
+    let relay = events::relay_running(RELAY_STALE_AFTER);
+    let status = if relay { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    (status, Json(serde_json::json!({ "relay": relay })))
+}
+
+pub fn worker_health_router() -> axum::Router {
+    axum::Router::new().route("/healthz", get(worker_healthz))
+}
+
+/// Serves the worker's health endpoint until shutdown.
+pub async fn serve_worker_health(core: Core, worker: WorkerConfig) -> anyhow::Result<()> {
+    let listen = worker.health_listen;
+    let listener = tokio::net::TcpListener::bind(listen)
+        .await
+        .map_err(|e| anyhow::anyhow!("cannot listen on {listen} (TOKULY_WORKER_HEALTH_LISTEN): {e}"))?;
+    tracing::info!(%listen, "worker health listening");
+    let shutdown = core.shutdown.clone();
+    axum::serve(listener, worker_health_router()).with_graceful_shutdown(async move { shutdown.cancelled().await }).await?;
+    Ok(())
+}
+
 pub fn api_router(core: Core, domains: &Domains, api: &ApiConfig) -> axum::Router {
     let connect = domains.connect_router();
     tracing::info!(methods = connect.methods().count(), "RPC methods registered");
@@ -432,6 +459,26 @@ mod tests {
         "0001", "0100", "0200", "0300", "0400", "0500", "0600", "0700", "0800", "0900", "1000", "1100", "1200", "1300",
         "1400", "1500", "1600", "1700", "1800", "1900", "2000", "2100", "2200", "2300", "2400",
     ];
+
+    /// The worker is healthy once its outbox relay goes round, and only then.
+    #[tokio::test]
+    async fn the_worker_is_healthy_while_its_relay_runs() {
+        use tower::ServiceExt as _;
+        let status = || async {
+            let request = axum::http::Request::get("/healthz").body(axum::body::Body::empty()).unwrap();
+            worker_health_router().oneshot(request).await.unwrap().status()
+        };
+        assert_eq!(status().await, StatusCode::SERVICE_UNAVAILABLE, "no relay yet");
+        let app = tokuly_testkit::TestApp::start(MIGRATIONS, |_, _, router| router).await;
+        let core = app.core.clone();
+        tokio::spawn(events::run_outbox_relay(core.db.clone(), core.bus.clone(), core.shutdown.clone()));
+        let started = std::time::Instant::now();
+        while status().await != StatusCode::OK {
+            assert!(started.elapsed() < Duration::from_secs(10), "the relay never went round");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        core.shutdown.cancel();
+    }
 
     /// The API's router holds callers to the overall limits of the settings:
     /// past the default for one address, any RPC is refused before it runs.

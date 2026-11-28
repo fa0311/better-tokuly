@@ -206,6 +206,13 @@
 # (TOKULY_API_REQUEST_TIMEOUT_SECONDS; restart: api)
 # request_timeout_seconds = 120
 
+[worker]
+
+# Address of the worker's health endpoint (`/healthz`: the outbox relay is running), for the
+# container health check.
+# (TOKULY_WORKER_HEALTH_LISTEN; restart: worker)
+# health_listen = "0.0.0.0:8083"
+
 [realtime]
 
 # UDP address of the WebTransport (HTTP/3) listener. Empty disables WebTransport.

@@ -37,6 +37,8 @@ struct Cli {
     #[command(flatten)]
     api: settings::ApiConfig,
     #[command(flatten)]
+    worker: settings::WorkerConfig,
+    #[command(flatten)]
     domains: app::DomainConfigs,
     #[command(subcommand)]
     command: Command,
@@ -322,7 +324,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Realtime => domains.gateway.run().await?,
         Command::Worker => {
             app::spawn_workers(&core, &domains);
-            core.shutdown.cancelled().await;
+            app::serve_worker_health(core, cli.worker).await?;
         }
         Command::All => {
             app::migrate(&core, &domains).await?;

@@ -205,6 +205,12 @@ services:
   worker:
     <<: *backend
     command: ["worker"]
+    # Healthy while the outbox relay goes round (docs/events.md).
+    healthcheck:
+      test: ["CMD", "tokuly", "healthcheck", "http://127.0.0.1:8083/healthz"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
     # FFmpeg runs in here: videos and live clips take the most.
     mem_limit: ${WORKER_MEM_LIMIT:-768m}
     # What the media server records: the worker cuts clips and archives from
