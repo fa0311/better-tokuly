@@ -15,9 +15,15 @@ import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
 import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
-import { commentClient, updateReplies, updateThread, useCommentIdentities } from "./api";
+import {
+  commentClient,
+  listedComment,
+  updateReplies,
+  updateThread,
+  useCommentIdentities,
+} from "./api";
 import { channelFace } from "./author";
-import { withComment, withPatched, withReply } from "./cache";
+import { withComment, withReply, withReplyCountMoved } from "./cache";
 import { formatClock } from "./clock";
 import { completeMention, mentionAtCaret } from "./text";
 import { useThread } from "./thread-context";
@@ -113,13 +119,14 @@ export function Composer({ replyTo, autoFocus, onCancel, onPosted }: ComposerPro
       if (!comment) return;
       const published = comment.status === engagement.CommentStatus.PUBLISHED;
       if (comment.parentId) {
-        updateReplies(queryClient, comment.parentId, (data) => withReply(data, comment, true));
-        if (published)
+        const { parentId } = comment;
+        updateReplies(queryClient, thread.subject, parentId, (data) =>
+          withReply(data, comment, true),
+        );
+        const parent = listedComment(queryClient, thread.subject, parentId);
+        if (published && parent)
           updateThread(queryClient, thread.subject, (data) =>
-            withPatched(data, comment.parentId, (parent) => ({
-              ...parent,
-              replyCount: parent.replyCount + 1,
-            })),
+            withReplyCountMoved(data, parentId, parent.replyCount, 1),
           );
       } else {
         updateThread(queryClient, thread.subject, (data) => withComment(data, comment, published));

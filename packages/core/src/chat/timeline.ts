@@ -34,7 +34,11 @@ function sorted(messages: chat.Message[]): chat.Message[] {
   return [...messages].sort((a, b) => (a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0));
 }
 
-/** Joins two stretches, the copy in `fresh` winning for messages in both. */
+/**
+ * Joins two stretches, the copy in `fresh` winning for messages in both. A
+ * page read before a message changed may hold its old copy: the changes
+ * pushed meanwhile are applied again after it (`pushAfter`, `MessagePager`).
+ */
 function union(held: chat.Message[], fresh: chat.Message[]): chat.Message[] {
   const byId = new Map(held.map((message) => [message.id, message]));
   for (const message of fresh) byId.set(message.id, message);
@@ -70,10 +74,12 @@ export function leavesGap(timeline: Timeline, message: chat.Message): boolean {
 /**
  * Adds a message that was just created. Nothing changes while the timeline
  * is not at the live end (the reader is somewhere in the history; the message
- * comes with the pages on the way back).
+ * comes with the pages on the way back), nor when messages between the
+ * newest one held and this one are missing (they are fetched, and it with
+ * them): the window stays one unbroken stretch.
  */
 export function withCreated(timeline: Timeline, message: chat.Message): Timeline {
-  if (timeline.hasNewer) return timeline;
+  if (timeline.hasNewer || leavesGap(timeline, message)) return timeline;
   const held = timeline.messages.find((candidate) => candidate.id === message.id);
   if (held)
     return {

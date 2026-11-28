@@ -1,13 +1,14 @@
-import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
 import {
   MessagePager,
   type Position,
   toggleReaction as sharedToggleReaction,
+  storeAnswer,
   storeCreated as storeCreatedIn,
   storeOwnRead,
-  storeUpdated,
 } from "@tokuly/core/chat";
+import { journal } from "@tokuly/core/query";
 import { chatKeys, conversationClient, messageClient } from "./api";
 import { applyUnread, unreadVersion } from "./conversations";
 import { useLive } from "./live";
@@ -25,8 +26,12 @@ const PAGE = 40;
 async function fetchPage(
   conversationId: string,
   position: Position,
+  signal?: AbortSignal,
 ): Promise<chat.ListMessagesResponse> {
-  const response = await messageClient().listMessages({ conversationId, limit: PAGE, position });
+  const response = await messageClient().listMessages(
+    { conversationId, limit: PAGE, position },
+    { signal },
+  );
   useLive.getState().setCursors(conversationId, response.readCursors);
   return response;
 }
@@ -40,13 +45,19 @@ export const pager = new MessagePager(fetchPage);
  * else at the newest. After that the timeline is kept current by the realtime
  * events and grown by `loadOlder` / `loadNewer`; it is never refetched whole.
  */
-export function useTimeline(conversationId: string, around?: string) {
-  return useQuery({
+export function timelineQuery(conversationId: string, around?: string) {
+  return queryOptions({
     queryKey: chatKeys.timeline(conversationId),
-    queryFn: () => pager.first(conversationId, around),
+    queryFn: ({ signal }) => pager.first(conversationId, around, signal),
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 10 * 60_000,
+    // An edit, an unsend or a new message pushed while the first page was on its way stays.
+    persister: journal,
   });
+}
+
+export function useTimeline(conversationId: string, around?: string) {
+  return useQuery(timelineQuery(conversationId, around));
 }
 
 export const loadOlder = (queryClient: QueryClient, conversationId: string) =>
@@ -94,19 +105,20 @@ export const toggleReaction = (queryClient: QueryClient, message: chat.Message, 
 export function useMessageActions() {
   const queryClient = useQueryClient();
   return {
-    edit: async (messageId: string, text: string) => {
-      const { message } = await messageClient().editMessage({ messageId, text });
-      if (message) storeUpdated(queryClient, message, false);
-    },
-    remove: async (messageId: string) => {
-      const { message } = await messageClient().deleteMessage({ messageId });
-      if (message) storeUpdated(queryClient, message, false);
-    },
+    edit: (message: chat.Message, text: string) =>
+      storeAnswer(queryClient, message.conversationId, () =>
+        messageClient().editMessage({ messageId: message.id, text }),
+      ),
+    remove: (message: chat.Message) =>
+      storeAnswer(queryClient, message.conversationId, () =>
+        messageClient().deleteMessage({ messageId: message.id }),
+      ),
     pin: async (message: chat.Message, pinned: boolean) => {
-      const response = pinned
-        ? await messageClient().pinMessage({ messageId: message.id })
-        : await messageClient().unpinMessage({ messageId: message.id });
-      if (response.message) storeUpdated(queryClient, response.message, false);
+      await storeAnswer<{ message?: chat.Message }>(queryClient, message.conversationId, () =>
+        pinned
+          ? messageClient().pinMessage({ messageId: message.id })
+          : messageClient().unpinMessage({ messageId: message.id }),
+      );
       void queryClient.invalidateQueries({ queryKey: chatKeys.pinned(message.conversationId) });
     },
     react: (message: chat.Message, emoji: string) => toggleReaction(queryClient, message, emoji),

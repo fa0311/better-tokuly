@@ -42,6 +42,23 @@ export function reread(
 }
 
 /**
+ * Rule 3 (a removed person leaves every feature) for queries that may hold
+ * their content: what nobody watches and nobody is reading loses what it
+ * holds, so that it is not shown again while it is read on its next showing;
+ * the rest is read again ({@link reread}: on screen at once, a read in flight
+ * replaced). A query on screen is never removed: its screen would go on
+ * showing what it held, and nothing would read it again.
+ */
+export function forgetQueries(queryClient: QueryClient, keys: readonly QueryKey[]): Promise<void> {
+  for (const queryKey of keys)
+    queryClient.removeQueries({
+      queryKey,
+      predicate: (query) => !query.isActive() && query.state.fetchStatus === "idle",
+    });
+  return reread(queryClient, keys);
+}
+
+/**
  * Calls {@link reread} for `keys` on every Welcome of `connection`, the
  * first one too: a read that started before the user's subscription was in
  * place may have missed a push, and pushes sent while the connection was

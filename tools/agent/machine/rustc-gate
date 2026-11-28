@@ -5,7 +5,7 @@
 # A dozen agents build at once here. Without a limit they start a hundred compilers on 16
 # cores, and the generated API crate alone takes 3-6 GB per compilation: the machine ran out
 # of memory and rebooted. With it, compilations beyond the limits wait their turn:
-#   - HEAVY_SLOTS at a time for the huge crates,
+#   - HEAVY_SLOTS at a time for the huge crates (the API crate takes up to 13 GB: one),
 #   - SLOTS at a time for everything else.
 # A slot is a flock(2) lock held by this process's `flock` child, so a build that is killed
 # frees its slot by itself; nothing can leak.
@@ -15,7 +15,7 @@ set -u
 REAL="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/libexec/sccache"
 SLOTS_DIR="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/run/rustc-slots"
 SLOTS=${RUSTC_GATE_SLOTS:-14}
-HEAVY_SLOTS=${RUSTC_GATE_HEAVY_SLOTS:-3}
+HEAVY_SLOTS=${RUSTC_GATE_HEAVY_SLOTS:-1}
 BUSY=222 # flock's exit code when a slot is taken; no compiler exits with it
 
 # sccache's own commands and cargo's version probes are not compilations.

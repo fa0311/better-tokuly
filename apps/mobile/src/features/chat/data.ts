@@ -6,7 +6,6 @@ import {
 } from "@tanstack/react-query";
 import { chat } from "@tokuly/api";
 import {
-  aheadOf,
   type ChatSync,
   capabilitiesOf,
   capabilitiesQuery,
@@ -17,15 +16,14 @@ import {
   type ListPage,
   MessagePager,
   NO_UNREAD,
-  putConversation,
-  putInLists,
-  readConversation,
+  putAnswer,
   toggleReaction as sharedToggleReaction,
+  storeAnswer,
   storeOwnRead,
-  storeUpdated,
   type Unread,
   UnreadTotals,
 } from "@tokuly/core/chat";
+import { journal } from "@tokuly/core/query";
 import { api } from "#/lib/api";
 import { useLive } from "./live";
 
@@ -47,28 +45,28 @@ const MESSAGE_PAGE = 40;
 export const unreadTotals = new UnreadTotals();
 
 /** The timelines are paged through this; every page also brings the read cursors. */
-export const pager = new MessagePager(async (conversationId, position) => {
-  const response = await messageClient().listMessages({
-    conversationId,
-    limit: MESSAGE_PAGE,
-    position,
-  });
+export const pager = new MessagePager(async (conversationId, position, signal) => {
+  const response = await messageClient().listMessages(
+    { conversationId, limit: MESSAGE_PAGE, position },
+    { signal },
+  );
   for (const cursor of response.readCursors)
     useLive.getState().moveCursor(conversationId, cursor.userId, cursor.readSeq);
   return response;
 });
 
-/** Fetches one conversation and stores it everywhere it is held (events may have moved it on meanwhile). */
+/** Fetches one conversation and stores it everywhere it is held, with what was pushed meanwhile (`putAnswer`). */
 export async function fetchConversation(
   queryClient: QueryClient,
   id: string,
+  signal?: AbortSignal,
 ): Promise<chat.Conversation> {
-  const response = await conversationClient().getConversation({ conversationId: id });
+  const response = await putAnswer(queryClient, id, () =>
+    conversationClient().getConversation({ conversationId: id }, { signal }),
+  );
   for (const cursor of response.readCursors)
     useLive.getState().moveCursor(id, cursor.userId, cursor.readSeq);
-  const conversation = aheadOf(response.conversation!, readConversation(queryClient, id));
-  putInLists(queryClient, conversation);
-  return conversation;
+  return response.conversation!;
 }
 
 export const chatSync: ChatSync = { totals: unreadTotals, pager, fetchConversation };
@@ -89,18 +87,20 @@ export function useConversationList(filter: ListFilter, { enabled = true } = {})
   return useInfiniteQuery({
     enabled,
     queryKey: chatKeys.list(filter),
-    queryFn: async ({ pageParam }): Promise<ListPage> => {
+    queryFn: async ({ pageParam, signal }): Promise<ListPage> => {
       const askedAt = unreadTotals.version();
-      const response = await conversationClient().listConversations({
-        filter: LIST_FILTERS[filter],
-        page: { cursor: pageParam, limit: LIST_PAGE },
-      });
+      const response = await conversationClient().listConversations(
+        { filter: LIST_FILTERS[filter], page: { cursor: pageParam, limit: LIST_PAGE } },
+        { signal },
+      );
       unreadTotals.apply(queryClient, response.unread, askedAt);
       return { conversations: response.conversations, nextCursor: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor || undefined,
     staleTime: Number.POSITIVE_INFINITY,
+    // A conversation removed, or a message pushed, while a page was on its way stays so.
+    persister: journal,
   });
 }
 
@@ -109,9 +109,10 @@ export function useConversation(id: string) {
   const queryClient = useQueryClient();
   return useQuery({
     queryKey: chatKeys.conversation(id),
-    queryFn: () => fetchConversation(queryClient, id),
+    queryFn: ({ signal }) => fetchConversation(queryClient, id, signal),
     placeholderData: () => findInLists(queryClient, id),
     staleTime: 60_000,
+    persister: journal,
   });
 }
 
@@ -122,9 +123,11 @@ export function useConversation(id: string) {
 export function useTimeline(conversationId: string, around?: string) {
   return useQuery({
     queryKey: chatKeys.timeline(conversationId),
-    queryFn: () => pager.first(conversationId, around),
+    queryFn: ({ signal }) => pager.first(conversationId, around, signal),
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 10 * 60_000,
+    // An edit, an unsend or a new message pushed while the first page was on its way stays.
+    persister: journal,
   });
 }
 
@@ -146,16 +149,21 @@ export const toggleReaction = (queryClient: QueryClient, message: chat.Message, 
 
 export async function editMessage(
   queryClient: QueryClient,
-  messageId: string,
+  message: chat.Message,
   text: string,
 ): Promise<void> {
-  const { message } = await messageClient().editMessage({ messageId, text });
-  if (message) storeUpdated(queryClient, message, false);
+  await storeAnswer(queryClient, message.conversationId, () =>
+    messageClient().editMessage({ messageId: message.id, text }),
+  );
 }
 
-export async function deleteMessage(queryClient: QueryClient, messageId: string): Promise<void> {
-  const { message } = await messageClient().deleteMessage({ messageId });
-  if (message) storeUpdated(queryClient, message, false);
+export async function deleteMessage(
+  queryClient: QueryClient,
+  message: chat.Message,
+): Promise<void> {
+  await storeAnswer(queryClient, message.conversationId, () =>
+    messageClient().deleteMessage({ messageId: message.id }),
+  );
 }
 
 /** Pins, mutes or archives a conversation for the viewer; the lists re-sort on the answer. */
@@ -164,11 +172,9 @@ export async function setPreferences(
   conversationId: string,
   change: Pick<chat.UpdatePreferencesRequest, "pinned" | "muted" | "archived">,
 ): Promise<void> {
-  const { conversation } = await conversationClient().updatePreferences({
-    conversationId,
-    ...change,
-  });
-  if (conversation) putConversation(queryClient, conversation);
+  await putAnswer(queryClient, conversationId, () =>
+    conversationClient().updatePreferences({ conversationId, ...change }),
+  );
   unreadTotals.refresh(queryClient);
 }
 
@@ -178,10 +184,8 @@ export async function respondToRequest(
   conversationId: string,
   accept: boolean,
 ): Promise<void> {
-  const { conversation } = await conversationClient().respondToRequest({
-    conversationId,
-    accept,
-  });
-  if (conversation) putConversation(queryClient, conversation);
+  await putAnswer(queryClient, conversationId, () =>
+    conversationClient().respondToRequest({ conversationId, accept }),
+  );
   unreadTotals.refresh(queryClient);
 }

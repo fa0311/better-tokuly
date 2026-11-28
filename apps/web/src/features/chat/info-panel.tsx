@@ -36,7 +36,7 @@ import { chatKeys, conversationClient } from "./api";
 import { ConversationAvatar } from "./conversation-avatar";
 import { useConversationContext } from "./conversation-context";
 import type { ConversationDialog } from "./conversation-dialogs";
-import { putConversation } from "./conversations";
+import { putAnswer } from "./conversations";
 import { errorMessage } from "./errors";
 import { FriendPicker } from "./friend-picker";
 import { GroupIconPicker } from "./group-icon";
@@ -173,11 +173,9 @@ function GroupIdentity() {
   const update = async (change: { name?: string; iconAssetId?: string }) => {
     setSaving(true);
     try {
-      const response = await conversationClient().updateGroup({
-        conversationId: conversation.id,
-        ...change,
-      });
-      if (response.conversation) putConversation(queryClient, response.conversation);
+      await putAnswer(queryClient, conversation.id, () =>
+        conversationClient().updateGroup({ conversationId: conversation.id, ...change }),
+      );
       setRenaming(false);
     } catch (error) {
       toast.error(errorMessage(error));
@@ -298,11 +296,12 @@ function Members() {
     }, done);
   const remove = (member: chat.Member) =>
     run(async () => {
-      const response = await conversationClient().removeMember({
-        conversationId: conversation.id,
-        userId: member.user!.id,
-      });
-      if (response.conversation) putConversation(queryClient, response.conversation);
+      await putAnswer(queryClient, conversation.id, () =>
+        conversationClient().removeMember({
+          conversationId: conversation.id,
+          userId: member.user!.id,
+        }),
+      );
     }, t("toast.memberRemoved"));
 
   const menuFor = (member: chat.Member): MenuAction[] => {
@@ -472,11 +471,12 @@ function AddMembersDialog({
   const add = async () => {
     setAdding(true);
     try {
-      const response = await conversationClient().addMembers({
-        conversationId: conversation.id,
-        userIds: chosen.map((user) => user.id),
-      });
-      if (response.conversation) putConversation(queryClient, response.conversation);
+      const response = await putAnswer(queryClient, conversation.id, () =>
+        conversationClient().addMembers({
+          conversationId: conversation.id,
+          userIds: chosen.map((user) => user.id),
+        }),
+      );
       toast.success(t("toast.membersAdded", { count: response.added.length }));
       setChosen([]);
       onAdded();

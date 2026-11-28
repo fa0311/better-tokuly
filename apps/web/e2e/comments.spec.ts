@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import type { APIRequestContext, Browser, Locator, Page } from "@playwright/test";
+import { holdAnswers } from "./answers";
 import { type Account, test as baseTest, createAccount, expect, rpc, signInAs } from "./support";
 
 const CHANNELS = "tokuly.video.v1.ChannelService";
@@ -362,6 +363,54 @@ test("a viewer comments; the owner replies, pins and hearts it; the viewer delet
   await expect(thread(page).getByTestId("comment-count")).toHaveText("0件");
   await expect(commentWith(ownerPage, text)).toHaveCount(0);
   await ownerPage.context().close();
+});
+
+test("a comment or reply removed while the thread is read stays removed", async ({
+  page,
+  me: _me,
+  request,
+}) => {
+  const { owner, video } = await makeCreator(request);
+  const fan = await createAccount(request, "fan");
+  const troll = await createAccount(request, "troll");
+  const kept = await writeComment(request, fan, video.id, `ずっと残る ${suffix()}`);
+  await writeComment(request, fan, video.id, `残る返信 ${suffix()}`, { parentId: kept.id });
+  const reply = await writeComment(request, fan, video.id, `消える返信 ${suffix()}`, {
+    parentId: kept.id,
+  });
+  const doomed = await writeComment(request, fan, video.id, `あとで消える ${suffix()}`);
+  const marker = await writeComment(request, fan, video.id, `目印 ${suffix()}`);
+  await writeComment(request, troll, video.id, `荒らしです ${suffix()}`);
+  const remove = (commentId: string) =>
+    rpc(request, `${COMMENTS}/DeleteComment`, { commentId }, fan);
+  await signInAs(page, owner);
+  await openThread(page, video.shortId);
+  await expect(commentWith(page, "荒らしです")).toBeVisible();
+
+  // The replies are being read when the reply is deleted; that answer was made before.
+  const replies = await holdAnswers(page, `${COMMENTS}/ListReplies`);
+  await commentWith(page, "ずっと残る").getByRole("button", { name: "返信 2件" }).click();
+  await expect.poll(replies.held).toBeGreaterThan(0);
+  await remove(reply.id);
+  // Pushes arrive in order: once the next removal shows, the reply's has arrived too.
+  await remove(marker.id);
+  await expect(commentWith(page, "目印")).toHaveCount(0);
+  await replies.release();
+  await expect(commentWith(page, "残る返信").last()).toBeVisible();
+  await expect(commentWith(page, "消える返信")).toHaveCount(0);
+
+  // Blocking the troll reads the thread again; a comment deleted meanwhile stays out of it.
+  const comments = await holdAnswers(page, `${COMMENTS}/ListComments`);
+  await commentWith(page, "荒らしです").getByRole("button", { name: "その他" }).first().click();
+  await page.getByRole("menuitem", { name: "コメントをブロック" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "コメントをブロック" }).click();
+  await expect.poll(comments.held).toBeGreaterThan(0);
+  await remove(doomed.id);
+  await expect(commentWith(page, "あとで消える")).toHaveCount(0);
+  await comments.release();
+  await expect(commentWith(page, "荒らしです")).toHaveCount(0);
+  await expect(commentWith(page, "あとで消える")).toHaveCount(0);
+  await expect(commentWith(page, "ずっと残る")).toBeVisible();
 });
 
 test("comments held for review wait in the owner's queue until approved", async ({

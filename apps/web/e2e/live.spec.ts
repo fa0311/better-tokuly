@@ -1,4 +1,5 @@
 import type { APIRequestContext, Browser, Page, TestInfo } from "@playwright/test";
+import { holdAnswers } from "./answers";
 import {
   type Account,
   expect as baseExpect,
@@ -457,6 +458,71 @@ test("a chat line sent while the room is still subscribing shows once the subscr
   // And from now on lines arrive live.
   await rpc(request, `${CHAT}/SendChatMessage`, { streamId: stream.id, text: "そのあと！" }, me);
   await expect(chatLines(page).filter({ hasText: "そのあと！" })).toBeVisible();
+});
+
+test("a pin moved or deleted while the stream is read again stays as pushed", async ({
+  page,
+  request,
+  me,
+}) => {
+  await createChannel(request, me);
+  const stream = await createStream(request, me);
+  const send = async (text: string) =>
+    (
+      await rpc<{ message: { id: string } }>(
+        request,
+        `${CHAT}/SendChatMessage`,
+        { streamId: stream.id, text },
+        me,
+      )
+    ).message.id;
+  const pin = (messageId: string) => rpc(request, `${CHAT}/PinChatMessage`, { messageId }, me);
+  const first = await send("さいしょのピン");
+  const second = await send("つぎのピン");
+  await pin(first);
+
+  await page.goto(`/live/${stream.shortId}`);
+  const pinned = page.getByTestId("pinned-message");
+  await expect(pinned).toContainText("さいしょのピン");
+  // Lines arrive live: the room is subscribed.
+  await send("つながった！");
+  await expect(chatLines(page).filter({ hasText: "つながった！" })).toBeVisible();
+
+  // New chat rules make the page read the stream again; that answer is slow.
+  const rules = (slowModeSeconds: number) =>
+    rpc(
+      request,
+      `${CHAT}/UpdateChatSettings`,
+      {
+        streamId: stream.id,
+        chat: {
+          enabled: true,
+          slowModeSeconds,
+          audience: "CHAT_AUDIENCE_EVERYONE",
+          linkPolicy: "LINK_POLICY_ALLOW",
+          stampsEnabled: true,
+        },
+      },
+      me,
+    );
+  let reads = await holdAnswers(page, `${STREAMS}/GetStream`);
+  await rules(30);
+  await expect.poll(reads.held).toBeGreaterThan(0);
+  // Pushed after that answer was made: the pin moves.
+  await pin(second);
+  await expect(pinned).toContainText("つぎのピン");
+  await reads.release();
+  await expect(pinned).toContainText("つぎのピン");
+
+  // Again, and this time the moderator deletes the pinned line.
+  reads = await holdAnswers(page, `${STREAMS}/GetStream`);
+  await rules(0);
+  await expect.poll(reads.held).toBeGreaterThan(0);
+  await rpc(request, `${CHAT}/DeleteChatMessage`, { messageId: second }, me);
+  await expect(pinned).toHaveCount(0);
+  await reads.release();
+  await expect(pinned).toHaveCount(0);
+  await expect(chatLines(page).filter({ hasText: "つぎのピン" })).toHaveCount(0);
 });
 
 // ───────────────────────────── Polls ─────────────────────────────

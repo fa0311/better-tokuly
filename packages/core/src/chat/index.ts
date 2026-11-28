@@ -20,8 +20,8 @@ export {
   type ListPage,
   listAfter,
   patchConversation,
+  putAnswer,
   putConversation,
-  putInLists,
   readConversation,
 } from "./conversation-cache";
 export { applyChatEvent, type ChatSync, type EventContext, resynchronize } from "./events";
@@ -29,6 +29,7 @@ export { chatKeys, LIST_FILTERS, type ListFilter } from "./keys";
 export {
   readTimeline,
   type Stored,
+  storeAnswer,
   storeCreated,
   storeOwnRead,
   storeReaction,
