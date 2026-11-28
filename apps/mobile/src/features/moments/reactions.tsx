@@ -278,6 +278,17 @@ export function MomentReactionPicker({ moment }: { moment: moments.Moment }) {
         })}
         {busy && <ActivityIndicator accessibilityLabel={t("react.sending")} />}
       </View>
+      {moment.myReaction && (
+        <Pressable
+          testID="moment-react-remove"
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={removeReaction}
+          className="self-start rounded-full px-3 py-2 active:bg-surface-2"
+        >
+          <Text className="text-sm font-bold text-ink-soft">{t("react.remove")}</Text>
+        </Pressable>
+      )}
       <Modal visible={taking !== null} animationType="slide" onRequestClose={() => setTaking(null)}>
         {taking !== null && (
           <CameraScreen
