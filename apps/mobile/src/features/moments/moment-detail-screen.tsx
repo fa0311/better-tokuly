@@ -3,16 +3,14 @@ import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
 import { MapPin } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
-import { Text, View } from "react-native";
+import { Linking, Platform, Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
 import { Button } from "#/components/button";
 import { EmptyState, ErrorNote, Page, Spinner } from "#/components/page";
-import { SERVER_URL } from "#/lib/config";
+import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
 import { useMoment } from "./data";
 import { lateLabel } from "./format";
-
-const absolute = (url: string) => (url.startsWith("/") ? `${SERVER_URL}${url}` : url);
 
 export function MomentDetailScreen() {
   const { momentId } = useLocalSearchParams<{ momentId: string }>();
@@ -33,7 +31,7 @@ export function MomentDetailScreen() {
       <Page testID="moment-detail">
         <ErrorNote>{t("friends.detailError")}</ErrorNote>
         <Button variant="secondary" onPress={() => void query.refetch()}>
-          {t("retry")}
+          {t("composer.retry")}
         </Button>
       </Page>
     );
@@ -59,6 +57,7 @@ export function MomentDetailScreen() {
       )
     : undefined;
   const lateSeconds = Number(moment.lateSeconds);
+  const location = moment.location;
 
   return (
     <Page testID="moment-detail">
@@ -78,8 +77,8 @@ export function MomentDetailScreen() {
       </View>
 
       <View className="flex-row gap-3">
-        <MomentPhoto url={moment.back?.url} alt={t("capture.back")} />
-        <MomentPhoto url={moment.front?.url} alt={t("capture.front")} />
+        <MomentPhoto url={moment.back?.url} alt={t("card.back")} />
+        <MomentPhoto url={moment.front?.url} alt={t("card.front")} />
       </View>
 
       {moment.caption ? (
@@ -88,32 +87,46 @@ export function MomentDetailScreen() {
         </View>
       ) : null}
 
-      {moment.location && (
-        <View className="flex-row items-center gap-3 rounded-card bg-surface p-4">
+      {moment.retakes > 0 ? (
+        <Text className="text-xs text-ink-faint">
+          {t("card.retakes", { count: moment.retakes })}
+        </Text>
+      ) : null}
+
+      {location && (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            const { lat, lng } = location;
+            const url =
+              Platform.OS === "android"
+                ? `geo:${lat},${lng}?q=${lat},${lng}`
+                : `https://maps.apple.com/?ll=${lat},${lng}`;
+            void Linking.openURL(url).catch(() => {});
+          }}
+          className="flex-row items-center gap-3 rounded-card bg-surface p-4 active:bg-surface-2"
+        >
           <MapPin size={20} color={colors.brand} />
-          <Text className="flex-1 text-sm font-bold text-ink">
-            {t("friends.location", {
-              lat: moment.location.lat.toFixed(4),
-              lng: moment.location.lng.toFixed(4),
-            })}
-          </Text>
-        </View>
+          <Text className="flex-1 text-sm font-bold text-ink">{t("card.place")}</Text>
+        </Pressable>
       )}
     </Page>
   );
 }
 
 function MomentPhoto({ url, alt }: { url?: string; alt: string }) {
-  return url ? (
-    <Image
-      accessibilityLabel={alt}
-      source={{ uri: absolute(url) }}
-      contentFit="cover"
-      className="aspect-[3/4] flex-1 rounded-card"
-    />
-  ) : (
-    <View className="aspect-[3/4] flex-1 items-center justify-center rounded-card bg-surface">
-      <Text className="text-xs text-ink-faint">{alt}</Text>
+  return (
+    <View className="aspect-[3/4] flex-1 items-center justify-center overflow-hidden rounded-card bg-surface">
+      {url ? (
+        <Image
+          accessibilityLabel={alt}
+          source={{ uri: mediaUrl(url) ?? url }}
+          contentFit="cover"
+          style={{ width: "100%", height: "100%" }}
+        />
+      ) : (
+        <Text className="text-xs text-ink-faint">{alt}</Text>
+      )}
     </View>
   );
 }

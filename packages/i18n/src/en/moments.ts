@@ -188,6 +188,5 @@ export default {
     lateMinutes: "{{count}} min",
     lateHours: "{{count}} hr",
     lateDays: "{{count}} d",
-    location: "Shared location: {{lat}}, {{lng}}",
   },
 } as const;

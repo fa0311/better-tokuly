@@ -8,38 +8,45 @@ import { Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
 import { Button } from "#/components/button";
 import { EmptyState, ErrorNote, Spinner } from "#/components/page";
-import { SERVER_URL } from "#/lib/config";
+import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
-import { useFriendMoments } from "./data";
+import { useFriendMoments, useMomentToday } from "./data";
 import { lateLabel } from "./format";
-
-const absolute = (url: string) => (url.startsWith("/") ? `${SERVER_URL}${url}` : url);
 
 export function MomentFriendsScreen() {
   const { t } = useTranslation("moments");
   const friends = useFriendMoments();
+  const today = useMomentToday();
   const items = friends.data?.pages.flatMap((page) => page.moments) ?? [];
-  const unlocked = friends.data?.pages[0]?.unlocked ?? false;
-  const shouldShowError = friends.isError && (!friends.data || unlocked);
+  const listUnlocked = friends.data?.pages[0]?.unlocked ?? false;
+  const unlocked = today.data?.unlocked ?? listUnlocked;
+  const relocking = listUnlocked && today.data?.unlocked !== true;
+  const shouldShowError =
+    (friends.isError && (!friends.data || relocking)) || (relocking && today.isError);
 
-  if (friends.isPending || (friends.isRefetching && unlocked)) {
+  if (shouldShowError) {
+    return (
+      <View className="flex-1 gap-4 bg-bg px-4 pt-4" testID="moment-friends">
+        <ErrorNote>{t("friends.loadError")}</ErrorNote>
+        <Button
+          variant="secondary"
+          onPress={() => {
+            void friends.refetch();
+            void today.refetch();
+          }}
+        >
+          {t("composer.retry")}
+        </Button>
+      </View>
+    );
+  }
+  if ((friends.isPending && !friends.data) || relocking) {
     return (
       <View className="flex-1 bg-bg" testID="moment-friends">
         <Spinner />
       </View>
     );
   }
-  if (shouldShowError) {
-    return (
-      <View className="flex-1 gap-4 bg-bg px-4 pt-4" testID="moment-friends">
-        <ErrorNote>{t("friends.loadError")}</ErrorNote>
-        <Button variant="secondary" onPress={() => void friends.refetch()}>
-          {t("retry")}
-        </Button>
-      </View>
-    );
-  }
-
   return (
     <View className="flex-1 bg-bg" testID="moment-friends">
       <FlashList
@@ -58,7 +65,6 @@ export function MomentFriendsScreen() {
         )}
         ListHeaderComponent={
           <View className="gap-2 px-4 pt-4 pb-1">
-            <Text className="text-xl font-black text-ink">{t("friends.title")}</Text>
             <Text className="text-sm text-ink-soft">
               {unlocked ? t("friends.unlocked") : t("friends.locked")}
             </Text>
@@ -78,7 +84,7 @@ export function MomentFriendsScreen() {
           ) : friends.isFetchNextPageError ? (
             <View className="p-4">
               <Button size="sm" variant="secondary" onPress={() => void friends.fetchNextPage()}>
-                {t("retry")}
+                {t("composer.retry")}
               </Button>
             </View>
           ) : null
@@ -152,13 +158,18 @@ function MomentCard({ moment, onPress }: { moment: moments.Moment; onPress(): vo
           {moment.caption}
         </Text>
       ) : null}
+      {!moment.locked && moment.retakes > 0 ? (
+        <Text className="text-xs text-ink-faint">
+          {t("card.retakes", { count: moment.retakes })}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
 
 function PhotoTile({ image, locked }: { image?: moments.Moment["back"]; locked: boolean }) {
   const { colors } = useTheme();
-  const url = !locked && image?.url ? absolute(image.url) : undefined;
+  const url = !locked && image?.url ? mediaUrl(image.url) : undefined;
   return (
     <View
       className="aspect-[3/4] flex-1 items-center justify-center overflow-hidden rounded-control"
@@ -169,7 +180,7 @@ function PhotoTile({ image, locked }: { image?: moments.Moment["back"]; locked: 
           source={{ uri: url }}
           placeholder={image?.thumbhash ? { thumbhash: image.thumbhash } : undefined}
           contentFit="cover"
-          className="h-full w-full"
+          style={{ width: "100%", height: "100%" }}
         />
       ) : locked ? (
         <LockKeyhole size={20} color={colors["ink-faint"]} />

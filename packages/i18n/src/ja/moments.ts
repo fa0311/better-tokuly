@@ -188,6 +188,5 @@ export default {
     lateMinutes: "{{count}}分",
     lateHours: "{{count}}時間",
     lateDays: "{{count}}日",
-    location: "撮影場所: {{lat}}, {{lng}}",
   },
 } as const;
