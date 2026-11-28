@@ -8,8 +8,8 @@ all-features = true
 ignore = [
   # chrono and chrono-tz are unmaintained, with no replacement yet in the crates that bring
   # them in (sqlx, clickhouse, buffa-types, webauthn-rs, feed-rs) and in our own code: moving
-  # to jiff is a change of its own. No vulnerability is known.
-  { id = "RUSTSEC-2026-0543", reason = "chrono: unmaintained, no known vulnerability; replaced in a change of its own" },
+  # to jiff is a change of its own (#141). No vulnerability is known.
+  { id = "RUSTSEC-2026-0543", reason = "chrono: unmaintained, no known vulnerability; replaced in #141" },
   { id = "RUSTSEC-2026-0555", reason = "chrono-tz: as chrono" },
   # The Marvin attack recovers an RSA private key from decryption timings. webauthn-rs uses
   # rsa only to verify the signatures of passkeys and attestations (public keys); no fixed
