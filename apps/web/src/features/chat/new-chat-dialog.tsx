@@ -13,6 +13,7 @@ import { EmojiText } from "#/features/emoji";
 import { profileClient } from "#/lib/api";
 import { useMe } from "#/stores/session";
 import { conversationClient, useCapabilities } from "./api";
+import { BotMark, TalkToBotRow } from "./bot";
 import { putConversation } from "./conversations";
 import { errorMessage } from "./errors";
 import { FriendPicker } from "./friend-picker";
@@ -97,8 +98,11 @@ function PersonRow({
     >
       <Avatar user={user} outlined />
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-bold">
-          <EmojiText text={displayName(user)} />
+        <span className="flex items-center gap-1.5 font-bold">
+          <span className="truncate">
+            <EmojiText text={displayName(user)} />
+          </span>
+          <BotMark user={user} />
         </span>
         <span className="block truncate text-sm text-ink-soft">
           {subtitle ?? `@${user.handle}`}
@@ -170,6 +174,7 @@ function StartDirect({
           <ChevronRight className="size-5 shrink-0 text-ink-faint" />
         </button>
       )}
+      {!debounced && <TalkToBotRow onOpen={onDone} />}
       {friends.isPending ? (
         <div className="flex flex-col gap-2">
           {[0, 1, 2].map((index) => (

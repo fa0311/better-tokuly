@@ -18,7 +18,7 @@
 //!
 //! After the commit, [`Chat::announce`] pushes the message to the members'
 //! devices and reports it to the other domains (best-friend ranking, stamp
-//! statistics, the link preview job, analytics).
+//! statistics, the link preview job, Tokuly Bot's answer, analytics).
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
@@ -438,7 +438,7 @@ impl Chat {
                 .props(serde_json::json!({ "kind": row.kind, "group": conv.is_group(), "forwarded": row.forwarded }));
             core.analytics.track(event).await;
         }
-        Ok(())
+        self.queue_bot_reply(conv, row, posted.reply_sender).await
     }
 
     /// Locks the conversation, stores one message and announces it: the

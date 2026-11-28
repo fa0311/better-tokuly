@@ -14,8 +14,8 @@ use tokuly_core::{
     egress::{self, HostAllowance, Policy},
     prelude::*,
 };
-use tokuly_proto::chat::{self as pb, AiProvider};
 use tokuly_identity::age;
+use tokuly_proto::chat::{self as pb, AiProvider};
 use url::Url;
 
 use crate::{Chat, ChatConfig};
@@ -225,6 +225,10 @@ pub(crate) struct UserSettings {
     pub allow_message_use: Option<bool>,
     /// The owner chose the consent setting themselves.
     pub message_use_chosen: bool,
+    /// 「Tokuly Bot と話す」; `None`: not stored yet (see [`Chat::bot_enabled_for`]).
+    pub bot_enabled: Option<bool>,
+    /// The owner chose `bot_enabled` themselves.
+    pub bot_chosen: bool,
 }
 
 /// A key a user brought, opened.
@@ -483,17 +487,30 @@ impl Chat {
     }
 
     pub(crate) async fn ai_user_settings(&self, user_id: Uuid) -> AppResult<UserSettings> {
-        let row: Option<(i16, bool, Option<bool>, bool)> = sqlx::query_as(
-            "SELECT provider, off, allow_message_use, message_use_chosen FROM chat_ai_user_settings WHERE user_id = $1",
+        let row: Option<(i16, bool, Option<bool>, bool, Option<bool>, bool)> = sqlx::query_as(
+            "SELECT provider, off, allow_message_use, message_use_chosen, bot_enabled, bot_chosen
+             FROM chat_ai_user_settings WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_optional(&self.core.db)
         .await?;
         Ok(match row {
-            Some((provider, off, allow_message_use, message_use_chosen)) => {
-                UserSettings { provider: provider_from(provider), off, allow_message_use, message_use_chosen }
-            }
-            None => UserSettings { provider: None, off: false, allow_message_use: None, message_use_chosen: false },
+            Some((provider, off, allow_message_use, message_use_chosen, bot_enabled, bot_chosen)) => UserSettings {
+                provider: provider_from(provider),
+                off,
+                allow_message_use,
+                message_use_chosen,
+                bot_enabled,
+                bot_chosen,
+            },
+            None => UserSettings {
+                provider: None,
+                off: false,
+                allow_message_use: None,
+                message_use_chosen: false,
+                bot_enabled: None,
+                bot_chosen: false,
+            },
         })
     }
 
@@ -539,6 +556,18 @@ impl Chat {
         Ok(())
     }
 
+    pub(crate) async fn save_bot_enabled(&self, user_id: Uuid, enabled: bool) -> AppResult<()> {
+        sqlx::query(
+            "INSERT INTO chat_ai_user_settings (user_id, bot_enabled, bot_chosen) VALUES ($1, $2, true)
+             ON CONFLICT (user_id) DO UPDATE SET bot_enabled = EXCLUDED.bot_enabled, bot_chosen = true, updated_at = now()",
+        )
+        .bind(user_id)
+        .bind(enabled)
+        .execute(&self.core.db)
+        .await?;
+        Ok(())
+    }
+
     pub(crate) async fn save_own_key(&self, user_id: Uuid, provider: AiProvider, key: &str) -> AppResult<()> {
         sqlx::query(
             "INSERT INTO chat_ai_user_keys (user_id, provider, key_sealed, last4) VALUES ($1, $2, $3, $4)
@@ -562,16 +591,18 @@ impl Chat {
         Ok(())
     }
 
-    /// Stores the consent default of new accounts: on for an adult, off
-    /// for a minor (`tokuly_identity::age::minor_on`: no birthdate counts as
-    /// one), judged by the age **when the account was created** — never by
-    /// today's date, so a minor turning 18 does not start sharing (and
-    /// nothing visible moves with a hidden birthday). A stored value, chosen
-    /// or default, always wins. Idempotent: used for `identity.user.created`
-    /// and for values a lost event left unstored. Today's birthdate stands
-    /// for the creation day's: sign-up asks for it, and the accounts from
-    /// before the question have the minors' value stored (migration 0601).
-    pub(crate) async fn store_message_use_default(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, bool>> {
+    /// Stores the age defaults of new accounts — the consent and
+    /// 「Tokuly Bot と話す」: on for an adult, off for a minor
+    /// (`tokuly_identity::age::minor_on`: no birthdate counts as one), judged
+    /// by the age **when the account was created** — never by today's date,
+    /// so a minor turning 18 does not start sharing (and nothing visible
+    /// moves with a hidden birthday). A stored value, chosen or default,
+    /// always wins. Idempotent: used for `identity.user.created` and for
+    /// values a lost event left unstored. Today's birthdate stands for the
+    /// creation day's: sign-up asks for it, and the accounts from before the
+    /// question have the minors' values stored (migrations 0601, 0602).
+    /// Returns what is stored: `(allow_message_use, bot_enabled)`.
+    pub(crate) async fn store_age_defaults(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, (bool, bool)>> {
         let accounts: Vec<(Uuid, Option<chrono::NaiveDate>, DateTime<Utc>)> =
             sqlx::query_as("SELECT id, birthdate, created_at FROM users WHERE id = ANY($1)")
                 .bind(user_ids)
@@ -581,30 +612,35 @@ impl Chat {
             .into_iter()
             .map(|(id, birthdate, created_at)| (id, !age::minor_on(birthdate, created_at.date_naive())))
             .unzip();
-        let rows: Vec<(Uuid, Option<bool>)> = sqlx::query_as(
-            "INSERT INTO chat_ai_user_settings (user_id, allow_message_use)
-             SELECT * FROM UNNEST($1::uuid[], $2::boolean[])
+        let rows: Vec<(Uuid, Option<bool>, Option<bool>)> = sqlx::query_as(
+            "INSERT INTO chat_ai_user_settings (user_id, allow_message_use, bot_enabled)
+             SELECT id, adult, adult FROM UNNEST($1::uuid[], $2::boolean[]) AS t (id, adult)
              ON CONFLICT (user_id) DO UPDATE
-                SET allow_message_use = COALESCE(chat_ai_user_settings.allow_message_use, EXCLUDED.allow_message_use)
-             RETURNING user_id, allow_message_use",
+                SET allow_message_use = COALESCE(chat_ai_user_settings.allow_message_use, EXCLUDED.allow_message_use),
+                    bot_enabled = COALESCE(chat_ai_user_settings.bot_enabled, EXCLUDED.bot_enabled)
+             RETURNING user_id, allow_message_use, bot_enabled",
         )
         .bind(&ids)
         .bind(&allow)
         .fetch_all(&self.core.db)
         .await?;
-        Ok(rows.into_iter().map(|(id, allow)| (id, allow.unwrap_or(false))).collect())
+        Ok(rows.into_iter().map(|(id, allow, bot)| (id, (allow.unwrap_or(false), bot.unwrap_or(false)))).collect())
     }
 
     /// A minor gave the birthdate after the account was made
     /// (`identity.user.birthdate_given`): other people's AI requests leave
-    /// their messages out from now, as they would have from sign-up, unless
-    /// the owner chose themselves. Idempotent.
-    pub(crate) async fn apply_minor_message_use(&self, user_id: Uuid) -> AppResult<()> {
+    /// their messages out and Tokuly Bot stops answering them from now, as
+    /// from sign-up, unless the owner chose themselves. Idempotent.
+    pub(crate) async fn apply_minor_defaults(&self, user_id: Uuid) -> AppResult<()> {
         sqlx::query(
-            "INSERT INTO chat_ai_user_settings (user_id, allow_message_use)
-             SELECT id, false FROM users WHERE id = $1 AND deleted_at IS NULL
-             ON CONFLICT (user_id) DO UPDATE SET allow_message_use = false, updated_at = now()
-             WHERE NOT chat_ai_user_settings.message_use_chosen AND chat_ai_user_settings.allow_message_use IS DISTINCT FROM false",
+            "INSERT INTO chat_ai_user_settings AS s (user_id, allow_message_use, bot_enabled)
+             SELECT id, false, false FROM users WHERE id = $1 AND deleted_at IS NULL
+             ON CONFLICT (user_id) DO UPDATE SET
+                allow_message_use = CASE WHEN s.message_use_chosen THEN s.allow_message_use ELSE false END,
+                bot_enabled = CASE WHEN s.bot_chosen THEN s.bot_enabled ELSE false END,
+                updated_at = now()
+             WHERE (NOT s.message_use_chosen AND s.allow_message_use IS DISTINCT FROM false)
+                OR (NOT s.bot_chosen AND s.bot_enabled IS DISTINCT FROM false)",
         )
         .bind(user_id)
         .execute(&self.core.db)
@@ -613,7 +649,7 @@ impl Chat {
     }
 
     /// Whether each of `user_ids` lets other people's AI requests use their
-    /// messages, as stored (see [`Self::store_message_use_default`]; what is
+    /// messages, as stored (see [`Self::store_age_defaults`]; what is
     /// not stored yet is stored now). Unknown users are left out.
     pub(crate) async fn ai_message_use_allowed(&self, user_ids: &[Uuid]) -> AppResult<HashMap<Uuid, bool>> {
         let rows: Vec<(Uuid, bool)> = sqlx::query_as(
@@ -626,9 +662,19 @@ impl Chat {
         let mut allowed: HashMap<Uuid, bool> = rows.into_iter().collect();
         let missing: Vec<Uuid> = user_ids.iter().copied().filter(|id| !allowed.contains_key(id)).collect();
         if !missing.is_empty() {
-            allowed.extend(self.store_message_use_default(&missing).await?);
+            allowed.extend(self.store_age_defaults(&missing).await?.into_iter().map(|(id, (allow, _))| (id, allow)));
         }
         Ok(allowed)
+    }
+
+    /// Whether Tokuly Bot answers `user_id`, as stored (see
+    /// [`Self::store_age_defaults`]; not stored yet: stored now). An
+    /// unknown account: no.
+    pub(crate) async fn bot_enabled_for(&self, user_id: Uuid) -> AppResult<bool> {
+        if let Some(enabled) = self.ai_user_settings(user_id).await?.bot_enabled {
+            return Ok(enabled);
+        }
+        Ok(self.store_age_defaults(&[user_id]).await?.get(&user_id).is_some_and(|(_, bot)| *bot))
     }
 
     /// The caller's settings as the API shows them.
@@ -660,6 +706,15 @@ impl Chat {
             })
             .collect();
         let effective = route(&instance, &user, &own_keys).ok();
+        let bot_enabled = match user.bot_enabled {
+            Some(enabled) => enabled,
+            None => self.bot_enabled_for(user_id).await?,
+        };
+        let bot = if self.bot_available(&instance) {
+            Some(tokuly_identity::summary(&self.core, self.bot_id().await?).await?)
+        } else {
+            None
+        };
         Ok(pb::AssistSettings {
             providers,
             chosen_provider: user.provider.unwrap_or(AiProvider::AI_PROVIDER_UNSPECIFIED).into(),
@@ -681,6 +736,9 @@ impl Chat {
                 .collect(),
             allow_message_use,
             allow_message_use_is_default: consent_default,
+            bot: bot.into(),
+            bot_enabled,
+            bot_enabled_is_default: !user.bot_chosen,
             ..Default::default()
         })
     }
@@ -704,7 +762,14 @@ mod tests {
     }
 
     fn user(provider: Option<AiProvider>) -> UserSettings {
-        UserSettings { provider, off: false, allow_message_use: None, message_use_chosen: false }
+        UserSettings {
+            provider,
+            off: false,
+            allow_message_use: None,
+            message_use_chosen: false,
+            bot_enabled: None,
+            bot_chosen: false,
+        }
     }
 
     const ANTHROPIC: AiProvider = AiProvider::AI_PROVIDER_ANTHROPIC;

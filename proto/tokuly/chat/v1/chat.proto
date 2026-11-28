@@ -51,7 +51,7 @@ service ConversationService {
   // When the two are not friends but the setting allows the caller, the
   // conversation starts as a message request on the other side.
   // An existing conversation is always returned, whatever the settings (it
-  // may be read-only).
+  // may be read-only). With Tokuly Bot it is AssistService.OpenBotConversation.
   // Errors: USER_NOT_FOUND (unknown or deleted user, or a block in either
   // direction when the two have no conversation yet), CANNOT_MESSAGE_SELF,
   // DM_NOT_ALLOWED (the other user's privacy), RATE_LIMITED.
@@ -79,10 +79,12 @@ service ConversationService {
   // Errors: CONVERSATION_NOT_FOUND.
   rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
   // Adds friends of the caller to a group. Any member may add their own
-  // friends; users who are already members are skipped. New members see the
-  // history from the moment they join.
+  // friends, and Tokuly Bot (AssistService.OpenBotConversation); users who
+  // are already members are skipped. New members see the history from the
+  // moment they join.
   // Errors: CONVERSATION_NOT_FOUND, NOT_A_GROUP, NO_MEMBERS, NOT_FRIENDS,
-  // TOO_MANY_MEMBERS.
+  // TOO_MANY_MEMBERS; for Tokuly Bot AI_DISABLED and BOT_TURNED_OFF (the
+  // caller's switch).
   rpc AddMembers(AddMembersRequest) returns (AddMembersResponse);
   // Removes a member from a group. The owner may remove anyone; admins may
   // remove plain members.
@@ -1337,9 +1339,30 @@ service AssistService {
   // Forgets the caller's own key for a provider. Errors: PROVIDER_INVALID.
   rpc RemoveOwnApiKey(RemoveOwnApiKeyRequest) returns (RemoveOwnApiKeyResponse);
   // 「AI に自分のメッセージを使ってもいい」: whether other people's reply
-  // suggestions and translations may send the caller's messages to the AI
-  // service.
+  // suggestions and translations, and Tokuly Bot's answers to them, may send
+  // the caller's messages to the AI service.
   rpc SetAiMessageConsent(SetAiMessageConsentRequest) returns (SetAiMessageConsentResponse);
+
+  // Tokuly Bot, the AI account of the server (`AssistSettings.bot`). It
+  // answers a message in its direct conversation, and in a group a message
+  // that mentions it (`@tokuly_bot`), with the AI provider of whoever wrote
+  // the message, as a reply to it, a few seconds later. What the AI service
+  // receives: the latest text messages of the conversation, labelled by
+  // speaker, without names, handles or IDs; in a group only those of
+  // members who allow AI use of their messages and are not in a block with
+  // the asker. It does not answer a member whose bot switch is off, past the
+  // hourly limits (it says so once), nor an account that is suspended.
+  //
+  // Opens (or creates) the caller's direct conversation with Tokuly Bot. To
+  // bring it into a group, add `bot.id` with ConversationService.AddMembers
+  // (no friendship needed). Errors: AI_DISABLED (no provider, or the bot is
+  // switched off on this server), BOT_TURNED_OFF (the caller's switch is
+  // off), the errors of the caller's provider route (AI_TURNED_OFF,
+  // AI_PROVIDER_UNAVAILABLE).
+  rpc OpenBotConversation(OpenBotConversationRequest) returns (OpenBotConversationResponse);
+  // 「Tokuly Bot と話す」: whether Tokuly Bot answers the caller. Off by
+  // default for a minor, on for an adult (stored when the account is made).
+  rpc SetBotEnabled(SetBotEnabledRequest) returns (SetBotEnabledResponse);
 }
 
 // The AI services the assistant can send text to.
@@ -1399,6 +1422,14 @@ message AssistSettings {
   // the account was created (off for a minor, on for an adult; turning 18
   // does not change it).
   bool allow_message_use_is_default = 8;
+  // Tokuly Bot's account; unset when the bot does not work on this server
+  // (no AI provider, or switched off by the operator).
+  tokuly.common.v1.UserSummary bot = 9;
+  // 「Tokuly Bot と話す」: the bot answers the caller.
+  bool bot_enabled = 10;
+  // True while the caller never chose (off for a minor, on for an adult,
+  // stored when the account was made).
+  bool bot_enabled_is_default = 11;
 }
 
 message GetAssistSettingsRequest {}
@@ -1440,6 +1471,20 @@ message SetAiMessageConsentRequest {
 }
 
 message SetAiMessageConsentResponse {
+  AssistSettings settings = 1;
+}
+
+message OpenBotConversationRequest {}
+
+message OpenBotConversationResponse {
+  Conversation conversation = 1;
+}
+
+message SetBotEnabledRequest {
+  bool enabled = 1;
+}
+
+message SetBotEnabledResponse {
   AssistSettings settings = 1;
 }
 

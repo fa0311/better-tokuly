@@ -973,6 +973,19 @@
 # (TOKULY_AI_TIMEOUT_SECONDS; console; restart: api, worker)
 # ai_timeout_seconds = 45
 
+# Tokuly Bot, the AI account that answers in chat (when an AI provider
+# is enabled). Off: it answers nobody and cannot be added anywhere.
+# (TOKULY_CHAT_BOT_ENABLED; console; restart: api, worker)
+# bot_enabled = true
+
+# Answers of Tokuly Bot one user may get per hour (all conversations).
+# (TOKULY_CHAT_BOT_HOURLY_LIMIT; console; restart: api, worker)
+# bot_hourly_limit = 30
+
+# Answers of Tokuly Bot one conversation may get per hour (all members).
+# (TOKULY_CHAT_BOT_CONVERSATION_HOURLY_LIMIT; console; restart: api, worker)
+# bot_conversation_hourly_limit = 60
+
 # Members a group may have.
 # (TOKULY_CHAT_MAX_GROUP_MEMBERS; console; restart: api, worker)
 # max_group_members = 100

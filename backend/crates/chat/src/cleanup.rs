@@ -15,8 +15,8 @@ use crate::{
     Chat, access,
     conversations::delete_conversation,
     events::{
-        ASSET_DELETED, ASSET_FAILED, ASSET_READY, AssetRef, CONTENT_REMOVED, ContentRemoved, FRIEND_ACCEPTED,
-        BIRTHDATE_GIVEN, USER_BLOCKED, USER_CREATED, USER_DELETED, USER_UNBLOCKED,
+        ASSET_DELETED, ASSET_FAILED, ASSET_READY, AssetRef, BIRTHDATE_GIVEN, CONTENT_REMOVED, ContentRemoved,
+        FRIEND_ACCEPTED, USER_BLOCKED, USER_CREATED, USER_DELETED, USER_UNBLOCKED,
     },
     model::{MSG, MessageRow, kind, msg},
 };
@@ -26,11 +26,11 @@ impl Chat {
     /// deliver events directly (no relay runs in tests).
     pub async fn handle_event(&self, event: &Event) -> AppResult<()> {
         match event.topic.as_str() {
-            // The consent default is fixed when the account is created.
-            USER_CREATED => self.store_message_use_default(&[event.data::<UserRef>()?.user_id]).await.map(drop),
+            // The age defaults (consent, Tokuly Bot) are fixed when the account is created.
+            USER_CREATED => self.store_age_defaults(&[event.data::<UserRef>()?.user_id]).await.map(drop),
             // ...or when a minor gives the birthdate later.
             BIRTHDATE_GIVEN => match event.data::<BirthdateGiven>()? {
-                BirthdateGiven { user_id, minor: true } => self.apply_minor_message_use(user_id).await,
+                BirthdateGiven { user_id, minor: true } => self.apply_minor_defaults(user_id).await,
                 BirthdateGiven { minor: false, .. } => Ok(()),
             },
             USER_DELETED => self.on_user_deleted(event.data::<UserRef>()?.user_id).await,

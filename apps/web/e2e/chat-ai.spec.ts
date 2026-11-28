@@ -1,6 +1,5 @@
-import http from "node:http";
-import type { AddressInfo } from "node:net";
 import type { APIRequestContext, Page } from "@playwright/test";
+import { holdAiProvider, STUB_HOST, startStub, withdrawStub } from "./local-ai";
 import {
   type Account,
   adminAccount,
@@ -18,73 +17,18 @@ import {
 // like LM Studio on the operator's network, reached through the operator's
 // private-host allowance.
 
-/**
- * Where the API reaches this machine: loopback when it runs here, the Compose
- * network's gateway when it runs in a container (set by the End to end
- * workflow). The stand-in listens on that address only.
- */
-const STUB_HOST = process.env.TOKULY_E2E_HOST_FROM_API ?? "127.0.0.1";
-
 const expect = baseExpect.configure({ timeout: 20_000 });
 test.describe.configure({ timeout: 120_000 });
 
 const ASSIST = "tokuly.chat.v1.AssistService";
-const ASSIST_ADMIN = "tokuly.chat.v1.AssistAdminService";
 
-interface Stub {
-  baseUrl: string;
-  requests: { body: Record<string, unknown> }[];
-  close(): Promise<void>;
-}
-
-/** A local OpenAI-compatible server answering by the system prompt, without schema support. */
-async function startStub(): Promise<Stub> {
-  const requests: Stub["requests"] = [];
-  const server = http.createServer((incoming, outgoing) => {
-    let raw = "";
-    incoming.on("data", (chunk) => {
-      raw += chunk;
-    });
-    incoming.on("end", () => {
-      const body = JSON.parse(raw || "{}") as Record<string, unknown>;
-      requests.push({ body });
-      outgoing.setHeader("content-type", "application/json");
-      if (body.response_format) {
-        outgoing.statusCode = 400;
-        outgoing.end(JSON.stringify({ error: "response_format is not supported" }));
-        return;
-      }
-      const messages = body.messages as { content: string }[];
-      const system = messages[0]?.content ?? "";
-      const answer = system.includes("rewrite")
-        ? { text: "ローカルAIで書きかえたよ！" }
-        : system.includes("quick replies")
-          ? { replies: ["いいね、行こう！", "何時にする？"] }
-          : { translation: "Good morning!", source_language: "ja" };
-      outgoing.end(
-        JSON.stringify({
-          choices: [
-            {
-              index: 0,
-              message: {
-                role: "assistant",
-                content: `\`\`\`json\n${JSON.stringify(answer)}\n\`\`\``,
-              },
-              finish_reason: "stop",
-            },
-          ],
-        }),
-      );
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, STUB_HOST, resolve));
-  const { port } = server.address() as AddressInfo;
-  return {
-    baseUrl: `http://${STUB_HOST}:${port}/v1`,
-    requests,
-    close: () => new Promise((resolve) => server.close(() => resolve())),
-  };
-}
+/** The stand-in's answers, by the system prompt; it has no schema support. */
+const answers = (system: string) =>
+  system.includes("rewrite")
+    ? { text: "ローカルAIで書きかえたよ！" }
+    : system.includes("quick replies")
+      ? { replies: ["いいね、行こう！", "何時にする？"] }
+      : { translation: "Good morning!", source_language: "ja" };
 
 async function directWith(request: APIRequestContext, a: Account, b: Account): Promise<string> {
   const { conversation } = await rpc<{ conversation: { id: string } }>(
@@ -105,7 +49,8 @@ test("an operator offers a local model, a person picks it, and other people's me
 }, testInfo) => {
   // The operator settings are one per server: one browser size changes them.
   test.skip(testInfo.project.name !== "desktop", "the operator settings are global");
-  const stub = await startStub();
+  const release = await holdAiProvider();
+  const stub = await startStub(answers, { schemas: false });
   const admin = await adminAccount(request);
   const adminPage = await page.context().browser()?.newPage({
     baseURL: testInfo.project.use.baseURL,
@@ -193,15 +138,10 @@ test("an operator offers a local model, a person picks it, and other people's me
     await expect(page.getByTestId("suggested-replies")).toContainText("OKしてない人のメッセージ");
     expect(stub.requests.length).toBe(before);
   } finally {
-    // Leave the server as it was: no compatible provider.
-    await rpc(
-      request,
-      `${ASSIST_ADMIN}/UpdateAssistProvider`,
-      { provider: "AI_PROVIDER_OPENAI_COMPATIBLE", enabled: false, model: "", baseUrl: "" },
-      admin,
-    ).catch(() => undefined);
+    await withdrawStub(request, admin);
     await adminPage.close();
     await stub.close();
+    await release();
   }
 });
 

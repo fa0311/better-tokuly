@@ -24,6 +24,7 @@ import { useMe } from "#/stores/session";
 import { useHideTabBar } from "#/stores/shell";
 import { messageClient, useCapabilities } from "./api";
 import { AssistConsent } from "./assist";
+import { BotOffBanner } from "./bot";
 import { Composer } from "./composer";
 import {
   ConversationBanners,
@@ -475,15 +476,20 @@ function OpenConversation({
           {pendingRequest ? (
             <RequestBar onDeclined={() => void navigate({ to: "/chat", search: {} })} />
           ) : (
-            <Composer
-              replyTo={replyTo}
-              onCancelReply={() => setReplyTo(undefined)}
-              editing={editing}
-              onCancelEdit={() => setEditing(undefined)}
-              onSent={afterSend}
-              onRequestPov={requestPov}
-              dropped={dropped}
-            />
+            <>
+              <BotOffBanner
+                peer={isGroup(conversation) ? undefined : peerOf(conversation, me.id)}
+              />
+              <Composer
+                replyTo={replyTo}
+                onCancelReply={() => setReplyTo(undefined)}
+                editing={editing}
+                onCancelEdit={() => setEditing(undefined)}
+                onSent={afterSend}
+                onRequestPov={requestPov}
+                dropped={dropped}
+              />
+            </>
           )}
 
           <div

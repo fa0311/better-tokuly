@@ -240,8 +240,14 @@ impl DataExporter for ChatExporter {
             // AI assistant settings; of own API keys only which exist (the
             // keys themselves never leave the server).
             "ai_settings": section(
-                "SELECT jsonb_build_object('provider', provider, 'off', off, 'allow_message_use', allow_message_use, 'updated_at', updated_at)
+                "SELECT jsonb_build_object('provider', provider, 'off', off, 'allow_message_use', allow_message_use,
+                        'bot_enabled', bot_enabled, 'updated_at', updated_at)
                  FROM chat_ai_user_settings WHERE user_id = $1"
+            ).await?,
+            // Which of the user's messages Tokuly Bot took up, and its answer.
+            "bot_replies": section(
+                "SELECT jsonb_build_object('message_id', r.message_id, 'reply_message_id', r.reply_message_id, 'at', r.created_at)
+                 FROM chat_bot_replies r JOIN chat_messages x ON x.id = r.message_id WHERE x.sender_id = $1 ORDER BY r.message_id"
             ).await?,
             "ai_own_keys": section(
                 "SELECT jsonb_build_object('provider', provider, 'last4', last4, 'set_at', created_at)

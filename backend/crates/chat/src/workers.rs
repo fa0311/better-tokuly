@@ -5,6 +5,7 @@
 //! | event consumer `chat` (other domains' events, see [`crate::cleanup`]) | — |
 //! | typing and co-presence fan-out (gateway signals, queue groups) | — |
 //! | `chat.link_preview` job | — |
+//! | `chat.bot_reply` job (Tokuly Bot's answers) | — |
 //! | co-presence sweep (members who went away silently) | 10 s |
 //! | ringing time-out of calls | 5 s |
 //! | reconciliation of live calls with LiveKit | 30 s |
@@ -22,9 +23,10 @@ use tokuly_core::{
 
 use crate::{
     Chat,
+    assist::bot::{BotReplyJob, JOB_BOT_REPLY},
     events::{
-        ASSET_DELETED, ASSET_FAILED, ASSET_READY, BIRTHDATE_GIVEN, CONTENT_REMOVED, FRIEND_ACCEPTED, USER_BLOCKED, USER_CREATED,
-        USER_DELETED, USER_UNBLOCKED,
+        ASSET_DELETED, ASSET_FAILED, ASSET_READY, BIRTHDATE_GIVEN, CONTENT_REMOVED, FRIEND_ACCEPTED, USER_BLOCKED,
+        USER_CREATED, USER_DELETED, USER_UNBLOCKED,
     },
     send::{JOB_LINK_PREVIEW, LinkPreviewJob},
     server_notices::{JOB_NOTICES, NoticeBatch},
@@ -86,6 +88,25 @@ impl Chat {
                     move |job: LinkPreviewJob| {
                         let chat = handler.clone();
                         async move { chat.resolve_link_preview(job.message_id).await }
+                    },
+                )
+                .await;
+        });
+
+        let chat = self.clone();
+        tokio::spawn(async move {
+            let handler = chat.clone();
+            chat.core
+                .jobs
+                .run(
+                    JOB_BOT_REPLY,
+                    // A retry does nothing once the message is claimed: only
+                    // a failure before that is tried again.
+                    JobOptions { concurrency: 8, lease: Duration::from_secs(120), max_deliver: 3 },
+                    chat.core.shutdown.clone(),
+                    move |job: BotReplyJob| {
+                        let chat = handler.clone();
+                        async move { chat.answer_as_bot(job.message_id).await }
                     },
                 )
                 .await;

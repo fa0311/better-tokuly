@@ -7,11 +7,14 @@
 //! ([`providers`]). Only the text a feature needs is sent — the draft; the
 //! last few text messages of a conversation labelled "me"/"other"; the
 //! text of one message — never names, handles, IDs or attachments. Nothing
-//! is sent unless a user calls one of the three RPCs.
+//! is sent unless a user calls one of the three RPCs (or talks to Tokuly Bot).
 //!
 //! Other people's messages are only sent when their author allows it
 //! ([`Chat::ai_message_use_allowed`]): suggestions leave the others out,
 //! translation refuses.
+//!
+//! Tokuly Bot, the AI account that answers in chat, is built on the same
+//! providers, consent and limits ([`bot`]).
 //!
 //! Text written by users is data, not instructions: it travels inside tags
 //! the system prompt declares as material to transform. Answers are
@@ -29,6 +32,7 @@ use crate::{
     model::{MSG, MessageRow, msg},
 };
 
+pub(crate) mod bot;
 pub(crate) mod providers;
 pub(crate) mod settings;
 mod svc;

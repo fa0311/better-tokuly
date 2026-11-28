@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
 import { useTheme } from "#/lib/theme";
+import { BotMark } from "./bot";
 import { listTime, previewText, titleOf } from "./text";
 
 /** The face of a conversation: the other person, or the group's icon (its name's initial without one). */
@@ -61,6 +62,7 @@ export function ConversationRow({
           <Text numberOfLines={1} className="shrink font-black text-ink">
             {title}
           </Text>
+          {!isGroup(conversation) && <BotMark user={peerOf(conversation, myId)} />}
           {viewer?.pinned && (
             <Pin size={13} color={colors["ink-faint"]} accessibilityLabel={t("list.pinned")} />
           )}

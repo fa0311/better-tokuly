@@ -166,6 +166,9 @@ bundled: purchases go through a pluggable provider interface, with a built-in
   join, leave, missed-call records; the service mints LiveKit access tokens.
 - AI assist (optional, when an Anthropic API key is configured): rewrite a
   draft in another tone, suggest replies, translate a message.
+- Tokuly Bot (with AI assist): an AI account (`@tokuly_bot`, bot badge) that
+  answers in its DM and in groups when mentioned, reading only the messages of
+  people who allow AI use; off by default for minors.
 - Realtime `ChatEvent`; push notifications collapsed per conversation.
 
 ## notes — ノート・ストーリー（記憶）

@@ -237,6 +237,9 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("SetOwnApiKey", Session),
         ("RemoveOwnApiKey", Session),
         ("SetAiMessageConsent", Session),
+        ("OpenBotConversation", Write),
+        // A minors' default, like the consent.
+        ("SetBotEnabled", Session),
     ]),
     ("tokuly.chat.v1.AssistAdminService", &[
         ("GetAssistInstance", Session),

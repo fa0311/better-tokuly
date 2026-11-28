@@ -501,8 +501,25 @@ export default {
   },
   aiConsent: {
     label: "AI に自分のメッセージを使ってもいい",
-    hint: "オンにすると、トーク相手の返信のヒントや翻訳で、あなたのメッセージがAIサービスに送られることがあるよ。18歳未満ははじめオフ、18歳以上ははじめオン。",
+    hint: "オンにすると、トーク相手の返信のヒントや翻訳、グループで Tokuly Bot に聞いたときに、あなたのメッセージがAIサービスに送られることがあるよ。18歳未満ははじめオフ、18歳以上ははじめオン。",
     defaultNote: "いまは年齢にあわせた初期設定だよ",
+  },
+  bot: {
+    badge: "Bot",
+    talk: "Tokuly Bot に話しかける",
+    talkLead: "なんでも聞いてみて！AIが答えてくれるよ🤖",
+    title: "Tokuly Bot",
+    lead: "DMで話しかけるか、グループで @tokuly_bot ってメンションすると答えてくれるAIだよ。話しかけたメッセージと、その前の会話（使ってもいいって言ってる人のぶんだけ）が、あなたのAIアシストの送り先に送られるよ。",
+    enabled: "Tokuly Bot と話す",
+    enabledHint:
+      "オフにすると、話しかけても答えないよ。18歳未満ははじめオフ、18歳以上ははじめオン。",
+    defaultNote: "いまは年齢にあわせた初期設定だよ",
+    invite: "Tokuly Bot を招待",
+    invited: "Tokuly Bot がグループに入ったよ！ @tokuly_bot で話しかけてね",
+    offTitle: "Tokuly Bot はオフになってるよ",
+    offBody: "オンにすると、ここで話しかけたら答えてくれるよ",
+    turnOn: "オンにする",
+    turnedOn: "Tokuly Bot をオンにしたよ！",
   },
   aiAdmin: {
     nav: "AIアシスト",
