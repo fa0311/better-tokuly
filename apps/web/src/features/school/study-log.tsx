@@ -10,7 +10,6 @@ import {
 } from "@tokuly/core/school";
 import { PenLine, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -19,6 +18,7 @@ import { TextField } from "#/components/ui/field";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { useAccountTimeZone } from "#/lib/account-time";
+import { useTranslation } from "#/lib/use-translation";
 import { studyClient, toastError } from "./api";
 
 import { Block, RowsSkeleton, SubjectPill } from "./parts";

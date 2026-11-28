@@ -13,8 +13,8 @@ import {
   PinOff,
   X,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import type { MenuAction } from "#/components/ui/menu";
+import { useTranslation } from "#/lib/use-translation";
 import { useConversationActions } from "./actions";
 import type { ConversationDialog } from "./conversation-dialogs";
 

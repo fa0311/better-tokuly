@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { errorReason, quest } from "@tokuly/api";
 import { questKeys, streakRuns } from "@tokuly/core/quest";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { streakClient, useLocalized, useQuestProfile, useStreakList } from "./api";
 import { LevelPill, TitlePill } from "./parts";
 

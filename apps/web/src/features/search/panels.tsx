@@ -3,13 +3,13 @@ import { Link } from "@tanstack/react-router";
 import { isKind, kindSlug } from "@tokuly/core/search";
 import { Clock, Flame, MoreHorizontal, Pause, Play, Trash2, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { Menu } from "#/components/ui/menu";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { submitSearch, useHistoryActions, useRecentSearches, useTrending } from "./api";
 import { ageLabel } from "./format";
 

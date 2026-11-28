@@ -17,7 +17,6 @@ import {
 } from "@tokuly/core/search";
 import { ArrowUpDown, Check, ChevronRight, Hash, RotateCw, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
@@ -25,6 +24,7 @@ import { Menu } from "#/components/ui/menu";
 import { profileClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import {
   refreshRecentSearches,
   searchClient,

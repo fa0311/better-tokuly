@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { common, school } from "@tokuly/api";
-import { pushesDuringReadByKey } from "@tokuly/core/query";
+import { journal, pushTo } from "@tokuly/core/query";
 import { refreshSchool, schoolKeys, studyTime } from "@tokuly/core/school";
 import {
   DoorOpen,
@@ -20,7 +20,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -34,6 +33,7 @@ import { EmojiText } from "#/features/emoji";
 import { ReportDialog } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { roomClient, toastError } from "./api";
 
@@ -62,9 +62,6 @@ interface Burst {
 
 let burstId = 0;
 
-/** Timer changes pushed while a room is being read (see `pushesDuringRead`). */
-const timerPushesDuringRead = pushesDuringReadByKey<school.StudyRoom>();
-
 /**
  * A study room: the shared timer everyone follows, who is here and what
  * they study, the fixed reactions. The host runs the timer, invites and
@@ -85,20 +82,14 @@ export function RoomScreen({ roomId }: { roomId: string }) {
     isError,
   } = useQuery({
     queryKey: key,
-    queryFn: async () => {
-      const read = timerPushesDuringRead.begin(roomId);
-      try {
-        const response = await roomClient().getStudyRoom({ roomId });
-        // A timer change pushed while the room was read is newer than the answer.
-        const room = response.room && read.finish(response.room);
-        read.cancel();
-        syncClock(room?.timer);
-        return room;
-      } catch (error) {
-        read.cancel();
-        throw error;
-      }
+    queryFn: async ({ signal }) => {
+      const room = (await roomClient().getStudyRoom({ roomId }, { signal })).room;
+      // The clock follows the answer as it arrives; timer changes pushed meanwhile are newer and
+      // are applied to it by the journal.
+      syncClock(room?.timer);
+      return room;
     },
+    persister: journal,
     staleTime: 0,
   });
   const [closed, setClosed] = useState(false);
@@ -127,11 +118,10 @@ export function RoomScreen({ roomId }: { roomId: string }) {
       if (event.case === "roomTimer") {
         syncClock(event.value);
         const timer = event.value;
-        const update = (current: school.StudyRoom) => ({ ...current, timer });
-        timerPushesDuringRead.record(roomId, update);
-        queryClient.setQueryData<school.StudyRoom>(schoolKeys.room(roomId), (current) =>
-          current ? update(current) : current,
-        );
+        pushTo<school.StudyRoom>(queryClient, schoolKeys.room(roomId), (current) => ({
+          ...current,
+          timer,
+        }));
       }
       if (event.case === "roomReaction") {
         const reaction = REACTIONS.find((item) => item.reaction === event.value.reaction);

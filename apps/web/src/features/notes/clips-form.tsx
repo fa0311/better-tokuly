@@ -1,12 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { notes } from "@tokuly/api";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { TextArea, TextField } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { CLIP_DESCRIPTION_MAX, CLIP_NAME_MAX, clipClient, storeClip } from "./clips-api";
 
 /** Name, description and audience of a clip: creates one, or edits `clip`. */

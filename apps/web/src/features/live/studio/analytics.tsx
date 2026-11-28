@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { errorReason, type live, toMillis } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Coins } from "#/components/ui/coins";
 import { EmptyState, Page } from "#/components/ui/page";
 import { PaneSpinner } from "#/components/ui/spinner";
 import { EmojiText } from "#/features/emoji";
 import { accountTimeZone } from "#/lib/account-time";
+import { useTranslation } from "#/lib/use-translation";
 import { analyticsClient, liveKeys } from "../api";
 import { formatCount, formatMoment } from "../parts";
 import { clock } from "../player/live-player";

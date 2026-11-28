@@ -1,12 +1,12 @@
 import { Camera, Mic, MicOff, MonitorUp, Radio, Square, VideoOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { streamClient } from "../api";
 import { type MediaSession, MediaSessionError, publishOverWhip } from "../player/webrtc";
 

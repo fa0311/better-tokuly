@@ -1,5 +1,6 @@
 import type Hls from "hls.js";
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { loadHls } from "#/lib/hls";
 import { scriptUrl } from "./media-url";
 
 /** One rung of the quality ladder, as the menu lists it. */
@@ -191,13 +192,14 @@ export function useMediaEngine(
         });
       begin();
     } else {
-      void import("hls.js").then(({ default: HlsPlayer }) => {
+      const playMp4Instead = () => {
         if (disposed) return;
-        if (!HlsPlayer.isSupported()) {
-          element.addEventListener("error", onNativeError);
-          playMp4();
-          return;
-        }
+        element.addEventListener("error", onNativeError);
+        playMp4();
+      };
+      loadHls().then(({ default: HlsPlayer }) => {
+        if (disposed) return;
+        if (!HlsPlayer.isSupported()) return playMp4Instead();
         const player = new HlsPlayer({
           startPosition: startAt > 0 ? startAt : -1,
           capLevelToPlayerSize: true,
@@ -238,7 +240,7 @@ export function useMediaEngine(
         });
         player.loadSource(scriptUrl(hlsUrl));
         player.attachMedia(element);
-      });
+      }, playMp4Instead);
     }
 
     return () => {

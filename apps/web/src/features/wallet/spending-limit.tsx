@@ -13,7 +13,6 @@ import {
 import type { TFunction } from "i18next";
 import { ChevronRight, ShieldCheck } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
@@ -21,6 +20,7 @@ import { TextField } from "#/components/ui/field";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage, reasonText } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { walletClient } from "./api";
 import { LinkButton, SectionTitle } from "./parts";
 

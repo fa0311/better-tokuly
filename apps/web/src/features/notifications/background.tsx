@@ -2,11 +2,14 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { type AnyRouter, useRouter } from "@tanstack/react-router";
 import type { notify } from "@tokuly/api";
 import { withRead, withReceived, withRemoved } from "@tokuly/core/notifications";
+import { reread } from "@tokuly/core/query";
 import { X } from "lucide-react";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { errorMessage } from "#/lib/errors";
+import { loadNow } from "#/lib/load-module";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { setBadge } from "#/stores/badges";
 import { useSessionStore } from "#/stores/session";
 import { applyInboxChange, applyUnread, notifyKeys, rereadInbox, useUnread } from "./api";
@@ -41,10 +44,11 @@ export default function NotificationsBackground() {
     const client = realtime();
 
     const announce = (entry: notify.Notification) => {
-      const open = () => {
-        toast.dismiss(toastId);
-        openNotification(queryClient, router, entry);
-      };
+      // A tap that opened nothing leaves the toast, to be tapped again.
+      const open = () =>
+        void openNotification(queryClient, router, entry).then(
+          (opened) => opened && toast.dismiss(toastId),
+        );
       // One toast per entry: a grouped entry that grows updates its toast instead of stacking.
       const toastId = toast.custom(
         () => (
@@ -60,7 +64,7 @@ export default function NotificationsBackground() {
     const offFrame = client.onFrame((frame) => {
       if (frame.body.case === "welcome") {
         // Whatever was sent while the connection was down (or not up yet) is caught up here.
-        void queryClient.invalidateQueries({ queryKey: notifyKeys.unread });
+        void reread(queryClient, [notifyKeys.unread]);
         rereadInbox(queryClient);
         return;
       }
@@ -122,7 +126,7 @@ export default function NotificationsBackground() {
       } | null;
       if (message?.type === "tokuly:notification-click") {
         event.ports[0]?.postMessage("ok");
-        openNotification(queryClient, router, {
+        void openNotification(queryClient, router, {
           id: message.id ?? "",
           kind: message.kind,
           path: message.path || INBOX_PATH,
@@ -143,14 +147,25 @@ export default function NotificationsBackground() {
   return null;
 }
 
-/** Opens what a notification is about; what knows every kind of target loads with the first. */
+/**
+ * Opens what a notification is about; what knows every kind of target loads
+ * with the first. When that does not arrive, a toast says so: the tap opened
+ * nothing (resolves to `false`).
+ */
 function openNotification(
   queryClient: QueryClient,
   router: AnyRouter,
   entry: { id: string; kind?: string; path: string },
-): void {
-  void import("./inbox-actions").then((actions) =>
-    actions.openNotification(queryClient, router, entry),
+): Promise<boolean> {
+  return loadNow(() => import("./inbox-actions")).then(
+    (actions) => {
+      actions.openNotification(queryClient, router, entry);
+      return true;
+    },
+    (error: unknown) => {
+      toast.error(errorMessage(error));
+      return false;
+    },
   );
 }
 

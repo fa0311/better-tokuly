@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { Button } from "./button";
 import { Dialog } from "./dialog";
 

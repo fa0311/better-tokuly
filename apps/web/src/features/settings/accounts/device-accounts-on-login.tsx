@@ -1,13 +1,13 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { deviceAccountsQuery } from "@tokuly/core/session";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { EmojiText } from "#/features/emoji";
 import { authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { enterAccount } from "./accounts-section";
 
 /**

@@ -1,5 +1,5 @@
 import { admin, type common } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { actionKey, actionTone, caseStatusKey, categoryKey, subjectTypeKey } from "../labels";
 import { ToneChip } from "../ui/tone";
 

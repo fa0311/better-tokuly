@@ -1,12 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { errorReason, type feed } from "@tokuly/api";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
+import { useTranslation } from "#/lib/use-translation";
 import { newsAdminClient, newsKeys } from "../api";
 import { MAX_TAGS, parseTags } from "./input";
 import { staffErrorMessage } from "./parts";

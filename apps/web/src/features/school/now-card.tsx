@@ -2,10 +2,10 @@ import { Link } from "@tanstack/react-router";
 import { toMillis } from "@tokuly/api";
 import { classWhen, clock, currentClass, inkOn, untilText } from "@tokuly/core/school";
 import { CalendarDays } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { useAccountNow } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useClassNow } from "./api";
 
 /**

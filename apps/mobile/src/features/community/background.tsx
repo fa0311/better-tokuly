@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { applyCommunityEvent, communityKeys } from "@tokuly/core/community";
-import { rereadListsAfterReconnect } from "@tokuly/core/query";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import { boardClient } from "./data";
@@ -21,10 +21,10 @@ export default function CommunityBackground() {
       if (frame.body.case === "community")
         applyCommunityEvent(queryClient, frame.body.value.event, boardClient);
     });
-    const stop = rereadListsAfterReconnect(
+    const stop = rereadOnWelcome(
       queryClient,
       client,
-      communityKeys.all,
+      [communityKeys.all],
       (key) => key[1] === "in" && client.isSubscribed(`community:${String(key[2])}`),
     );
     return () => {

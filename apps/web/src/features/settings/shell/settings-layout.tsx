@@ -1,5 +1,5 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { SETTINGS_SECTIONS } from "#/seams/settings";
 import { IdentityCard, SettingsNav, SignOutButton } from "./settings-nav";
 

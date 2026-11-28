@@ -24,7 +24,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Menu, type MenuAction } from "#/components/ui/menu";
@@ -32,6 +31,7 @@ import { EmojiPicker, EmojiSuggestBar } from "#/features/emoji";
 import { StampPicker } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { AssistButton, SuggestedReplies } from "./assist";
 import { describeFile, type OutgoingFile, releaseFiles } from "./attachments";
 import { useConversationContext } from "./conversation-context";

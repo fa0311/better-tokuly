@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { common, identity } from "@tokuly/api";
 import { Ban, ChevronRight } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { AiMessageConsentSwitch } from "#/features/chat";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { useChangeSettings, useSettings } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";

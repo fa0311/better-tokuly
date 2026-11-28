@@ -15,7 +15,6 @@ import {
 } from "@tokuly/core/history";
 import { ChevronLeft, ChevronRight, EllipsisVertical, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Menu } from "#/components/ui/menu";
@@ -25,6 +24,7 @@ import { GazetteerCredit, toLatLng } from "#/features/places";
 import { useAccountTimeZone, useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { compactDuration, formatDistance, kmh } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { historyClient } from "./api";
 import { DayMap, type DayStop } from "./day-map";
 import { DeleteHistoryDialog } from "./delete-history";

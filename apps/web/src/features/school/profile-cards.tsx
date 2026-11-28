@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { common, identity } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { CheerButton } from "./study-social";
 
 const STYLE: Record<string, { emoji: string; className: string }> = {

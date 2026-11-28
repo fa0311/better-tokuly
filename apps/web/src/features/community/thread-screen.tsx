@@ -32,7 +32,6 @@ import {
   Unlock,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
@@ -47,6 +46,7 @@ import { ReactionBar } from "#/features/engagement";
 import { StampImage, StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { boardClient, NS, useChannels, useReplies, useThread } from "./api";
 import { PostTextArea, ReplyComposer } from "./composer";
 import { useCurrentCommunity } from "./context";

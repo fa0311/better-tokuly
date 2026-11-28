@@ -3,9 +3,9 @@ import { type geo, toMillis } from "@tokuly/api";
 import { labelMeta, placeEmoji } from "@tokuly/core/places";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 
 /** The emoji of a place in its coloured sticker bubble. */
 export function PlaceBubble({

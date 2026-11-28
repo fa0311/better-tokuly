@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { common, type identity, toMillis } from "@tokuly/api";
 import { Globe, Laptop, Smartphone } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -10,6 +9,7 @@ import { Skeleton } from "#/components/ui/page";
 import { accountClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { keys } from "../data";
 import { Group, StateChip } from "../shell/settings-page";
 

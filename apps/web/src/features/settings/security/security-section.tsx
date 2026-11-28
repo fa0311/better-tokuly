@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronRight, MonitorSmartphone } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { useFreshMe } from "../data";
 import { SettingsPage } from "../shell/settings-page";

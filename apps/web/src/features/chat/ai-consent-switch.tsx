@@ -1,5 +1,5 @@
-import { useTranslation } from "react-i18next";
 import { SwitchRow } from "#/components/ui/switch";
+import { useTranslation } from "#/lib/use-translation";
 import { useAssistSettings, useAssistSettingsChange } from "./ai-settings";
 import { assistClient } from "./api";
 

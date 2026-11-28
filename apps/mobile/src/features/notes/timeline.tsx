@@ -1,15 +1,7 @@
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { useQueryClient } from "@tanstack/react-query";
 import type { notes } from "@tokuly/api";
-import {
-  countNewEntries,
-  entryKey,
-  notesKeys,
-  type TimelineData,
-  type TimelinePage,
-  type TimelineSource,
-  withFreshEntries,
-} from "@tokuly/core/notes";
+import { entryKey, lookForNewEntries, notesKeys, type TimelineSource } from "@tokuly/core/notes";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, View } from "react-native";
@@ -55,31 +47,71 @@ export function Timeline({ source, empty, header, testID }: TimelineProps) {
   const deleted = useDeletedNotes();
   const myId = useMe()?.user?.id ?? "";
   const list = useRef<FlashListRef<Row>>(null);
-  const [waiting, setWaiting] = useState<{ page: TimelinePage; count?: number } | null>(null);
+  // The look waiting behind the "new notes" pill: `take(true)` puts its notes on top.
+  const [waiting, setWaiting] = useState<{
+    count: number | undefined;
+    take: (yes: boolean) => void;
+  } | null>(null);
+  const pill = useRef<((yes: boolean) => void) | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   const key = notesKeys.timeline(source);
 
-  // Looks for new notes without moving what is on screen. One look at a time, and none before the timeline is there.
+  const behindPill = (count: number | undefined) =>
+    new Promise<boolean>((resolve) => {
+      const take = (yes: boolean) => {
+        if (pill.current !== take) return;
+        pill.current = undefined;
+        setWaiting(null);
+        resolve(yes);
+      };
+      pill.current = take;
+      setWaiting({ count, take });
+    });
+
+  // Looks for new notes without moving what is on screen. One look at a time, and none before the
+  // timeline is there: asked meanwhile, it looks again after, since either may have read too early.
   const looking = useRef(false);
+  const lookAgain = useRef(false);
   const lastLook = useRef(0);
   const look = async () => {
-    if (looking.current || !queryClient.getQueryData(key)) return;
+    if (looking.current || !queryClient.getQueryData(key)) {
+      lookAgain.current = true;
+      return;
+    }
     looking.current = true;
+    const read = async () => {
+      try {
+        return await freshPage(source);
+      } finally {
+        looking.current = false;
+        if (lookAgain.current) {
+          lookAgain.current = false;
+          setTimeout(() => void latestLook.current());
+        }
+      }
+    };
     try {
-      const page = await freshPage(source);
-      lastLook.current = Date.now();
-      const count = countNewEntries(queryClient.getQueryData<TimelineData>(key), page);
-      if (count !== 0) setWaiting({ page, count });
+      await lookForNewEntries(queryClient, source, read, (count) => {
+        lastLook.current = Date.now();
+        // A newer look replaces the one behind the pill.
+        pill.current?.(false);
+        return count !== 0 && behindPill(count);
+      });
     } catch {
       // Nobody asked: the next hint, or a pull, tries again.
-    } finally {
-      looking.current = false;
     }
   };
   const latestLook = useRef(look);
   useEffect(() => {
     latestLook.current = look;
   });
+  // The first page is there: look now if a hint came while it was on its way.
+  const loaded = timeline.isSuccess;
+  useEffect(() => {
+    if (!loaded || !lookAgain.current) return;
+    lookAgain.current = false;
+    void latestLook.current();
+  }, [loaded]);
   // A burst of hints (every count that moves on screen is one) leads to one look.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -96,15 +128,22 @@ export function Timeline({ source, empty, header, testID }: TimelineProps) {
     };
   }, []);
 
-  const putOnTop = (page: TimelinePage) => {
-    queryClient.setQueryData<TimelineData>(key, (current) => withFreshEntries(current, page));
-    setWaiting(null);
-    list.current?.scrollToOffset({ offset: 0, animated: true });
-  };
+  // A look still behind the pill ends with the screen.
+  useEffect(() => () => pill.current?.(false), []);
+
   const refresh = async () => {
     setRefreshing(true);
     try {
-      putOnTop(await freshPage(source));
+      await lookForNewEntries(
+        queryClient,
+        source,
+        () => freshPage(source),
+        () => {
+          pill.current?.(false);
+          return true;
+        },
+      );
+      list.current?.scrollToOffset({ offset: 0, animated: true });
     } catch (error) {
       Alert.alert(errorMessage(error, { namespace: "notes" }));
     } finally {
@@ -199,7 +238,10 @@ export function Timeline({ source, empty, header, testID }: TimelineProps) {
         <Pressable
           testID="timeline-new"
           accessibilityRole="button"
-          onPress={() => putOnTop(waiting.page)}
+          onPress={() => {
+            waiting.take(true);
+            list.current?.scrollToOffset({ offset: 0, animated: true });
+          }}
           className="absolute top-3 self-center rounded-full bg-brand px-4 py-2"
         >
           <Text className="font-black text-on-brand">

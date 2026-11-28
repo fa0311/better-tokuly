@@ -1,12 +1,12 @@
 import { live } from "@tokuly/api";
 import { authorName, mentionOf, tierByLevel } from "@tokuly/core/live";
 import { MoreHorizontal, Swords } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { CoinIcon } from "#/components/ui/coins";
 import { EmojiText } from "#/features/emoji";
 import { StampImage } from "#/features/stamps";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { ROLE_KEYS } from "../labels";
 import { tierStyle } from "../model";
 import { ChannelFace, formatCount } from "../parts";

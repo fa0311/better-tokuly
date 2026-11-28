@@ -19,7 +19,6 @@ import {
   UserRound,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -31,6 +30,7 @@ import { Menu, type MenuAction } from "#/components/ui/menu";
 import { Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { EmojiText } from "#/features/emoji";
+import { useTranslation } from "#/lib/use-translation";
 import { useConversationActions } from "./actions";
 import { chatKeys, conversationClient } from "./api";
 import { BotMark, InviteBotButton } from "./bot";

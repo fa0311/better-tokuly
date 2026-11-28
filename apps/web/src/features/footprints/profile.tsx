@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { formatPercent } from "@tokuly/core/footprints";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { type ProfileSection, type ProfileSectionProps, ProfileStat } from "#/seams/profile";
 
 /**

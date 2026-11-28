@@ -5,8 +5,10 @@ import type { APIRequestContext, Page } from "@playwright/test";
 import { create, identity } from "@tokuly/api";
 import {
   type Account,
+  backOnline,
   expect as baseExpect,
   createAccount,
+  failToLoadStrings,
   mailedVerificationToken,
   mailpitIsUp,
   PASSWORD,
@@ -131,6 +133,24 @@ test("the settings home lists every section and opens each of them", async ({ pa
     // Phones show one thing at a time; wide screens keep the list next to the section.
     if (!isWide(page)) await page.getByRole("link", { name: "back" }).click();
   }
+});
+
+test("a row whose strings cannot load shows no raw keys, and its words come once they arrive", async ({
+  page,
+  me,
+}) => {
+  // The licenses' strings fail to arrive, as when the connection drops right as settings open.
+  const letThrough = await failToLoadStrings(page, "licenses");
+  await page.goto(`/u/${me.handle}`);
+  await page.getByRole("link", { name: "設定" }).click();
+  const sections = page.getByRole("navigation", { name: "設定" });
+  await expect(sections.getByRole("link", { name: /^プロフィール/ })).toBeVisible();
+
+  await letThrough();
+  await expect(sections).not.toContainText("settingsRow");
+  await backOnline(page);
+  await expect(sections.getByRole("link", { name: /^ライセンス表記/ })).toBeVisible();
+  await expect(sections).not.toContainText("settingsRow");
 });
 
 test("the licenses credit the map and place data, each with its licence", async ({
@@ -880,9 +900,9 @@ test("the accent colour recolours the app and the other preferences are saved", 
     page.evaluate(() =>
       getComputedStyle(document.documentElement).getPropertyValue("--brand").trim(),
     );
-  expect(await brand()).toBe("#7c5cff");
+  expect(await brand()).toBe("#7859f7");
   await page.getByRole("radio", { name: "みどり" }).click();
-  await expect.poll(brand).toBe("#12a36b");
+  await expect.poll(brand).toBe("#0f8759");
 
   await page.getByRole("combobox", { name: "距離の単位" }).click();
   await page.getByRole("option", { name: /マイル/ }).click();
@@ -893,7 +913,7 @@ test("the accent colour recolours the app and the other preferences are saved", 
   expect((await getSettings(page.request, me)).appearance.autoplay ?? false).toBe(false);
 
   await page.reload();
-  await expect.poll(brand).toBe("#12a36b");
+  await expect.poll(brand).toBe("#0f8759");
   await expect(page.getByRole("radio", { name: "みどり" })).toBeChecked();
   await expect(page.getByRole("switch", { name: /動画の自動再生/ })).not.toBeChecked();
 });

@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { type common, quest } from "@tokuly/api";
 import { localized, questQueries } from "@tokuly/core/quest";
-import { useTranslation } from "react-i18next";
 import { api } from "#/lib/api";
+import { useTranslation } from "#/lib/use-translation";
 
 export const questClient = () => api().service(quest.QuestService);
 export const missionClient = () => api().service(quest.MissionService);

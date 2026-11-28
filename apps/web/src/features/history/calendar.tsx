@@ -11,12 +11,12 @@ import {
 } from "@tokuly/core/history";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { GazetteerCredit } from "#/features/places";
 import { useAccountTimeZone, useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { formatDistance } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { historyClient } from "./api";
 
 /** The month at a glance: active days stand out, and each leads to its diary page. */

@@ -69,6 +69,7 @@ same file.
 | `badges.ts`                    | `BadgeSources` (`#/seams/badges`)        | unread counts by key, shown by the tabs that name the key                     |
 | `background.tsx`               | a component (usually rendering nothing)  | runs on every screen while someone is signed in: realtime listeners, sync     |
 | `lifecycle.ts`                 | `AccountLifecycle` (`#/seams/lifecycle`) | what it owes an account that leaves this device (see below)                   |
+| `forget-user.ts`               | `ForgetUser` (`#/seams/forget-user`)     | a friendship ended: that person's content leaves the area's cache             |
 | `profile.tsx`                  | `ProfileSection[]` (`#/seams/profile`)   | what the area shows on a person's profile, by slot                            |
 
 - The tab bar holds six at most (`src/seams/__tests__/seams.test.ts`).

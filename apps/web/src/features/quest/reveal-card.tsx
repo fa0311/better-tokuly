@@ -1,9 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Coins } from "#/components/ui/coins";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocalized } from "./api";
 import { dismiss, type Shown } from "./celebrate";
 import { BadgeMedal, useBadgeName } from "./parts";

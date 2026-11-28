@@ -1,5 +1,6 @@
 import type { InfiniteData, QueryClient } from "@tanstack/query-core";
 import { create, notes } from "@tokuly/api";
+import { pushTo, pushToAll, reread } from "../query";
 import { notesKeys, type TimelineSource } from "./keys";
 import type { TimelineData } from "./timeline";
 
@@ -37,21 +38,17 @@ export function mapNotes<T>(value: T, update: (note: notes.Note) => notes.Note):
     : result;
 }
 
-/** Applies `update` to a note wherever it is cached: timelines, threads, quote lists, single notes, quote embeds. */
+/**
+ * Applies `update` to a note wherever it is cached: timelines, threads, quote
+ * lists, single notes, quote embeds — and to their reads in flight (`pushTo`).
+ */
 export function patchNote(
   queryClient: QueryClient,
   noteId: string,
   update: (note: notes.Note) => notes.Note,
 ): void {
   const apply = (note: notes.Note) => (note.id === noteId ? update(note) : note);
-  for (const query of queryClient.getQueryCache().findAll({ queryKey: notesKeys.all })) {
-    const data = query.state.data;
-    if (data === undefined) continue;
-    const next = mapNotes(data, apply);
-    // Keep the entry's age: a counter that moved does not make a page of notes fresh.
-    if (next !== data)
-      queryClient.setQueryData(query.queryKey, next, { updatedAt: query.state.dataUpdatedAt });
-  }
+  pushToAll<unknown>(queryClient, notesKeys.all, (data) => mapNotes(data, apply));
 }
 
 /** A note as it is cached right now, wherever it is cached; `undefined` when no list on screen holds it. */
@@ -111,11 +108,31 @@ export function withToggle(note: notes.Note, kind: "like" | "renote", on: boolea
   );
 }
 
+/** The timeline without the rows `drop` picks and without the pinned notes `unpin` picks; the same timeline when that is nothing. */
+function withoutEntries(
+  data: TimelineData,
+  drop: (entry: notes.TimelineEntry) => boolean,
+  unpin: (note: notes.Note) => boolean = () => false,
+): TimelineData {
+  if (!data.pages.some((page) => page.entries.some(drop) || page.pinnedNotes?.some(unpin)))
+    return data;
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      entries: page.entries.filter((entry) => !drop(entry)),
+      pinnedNotes: page.pinnedNotes?.filter((note) => !unpin(note)),
+    })),
+  };
+}
+
 /**
  * A friendship ended or a block went up: that person's notes (and the rows
- * their renotes put there) leave every timeline already loaded. Timelines
- * never refetch by themselves, so nothing else would take them out. Their
- * own timeline, threads and single notes are read again when next shown.
+ * their renotes put there) leave every timeline already loaded, and every
+ * page of one being read (`pushToAll`): a page read before the removal
+ * brings nothing back. Timelines never refetch by themselves, so nothing else
+ * would take them out. Their own timeline is thrown away; threads and single
+ * notes are read again (`reread`: a read in flight may be older).
  */
 export function forgetUserNotes(queryClient: QueryClient, userId: string): void {
   if (!userId) return;
@@ -123,34 +140,17 @@ export function forgetUserNotes(queryClient: QueryClient, userId: string): void 
     entry.note?.author?.id === userId ||
     entry.renote?.user?.id === userId ||
     entry.note?.quote?.note?.author?.id === userId;
+  pushToAll<TimelineData>(queryClient, notesKeys.timelines, (data) =>
+    withoutEntries(data, theirs, (note) => note.author?.id === userId),
+  );
   queryClient.removeQueries({ queryKey: notesKeys.userTimelines(userId) });
-  for (const query of queryClient.getQueryCache().findAll({ queryKey: notesKeys.timelines })) {
-    const data = query.state.data as TimelineData | undefined;
-    if (
-      !data?.pages.some(
-        (page) =>
-          page.entries.some(theirs) || page.pinnedNotes?.some((note) => note.author?.id === userId),
-      )
-    )
-      continue;
-    queryClient.setQueryData<TimelineData>(
-      query.queryKey,
-      {
-        ...data,
-        pages: data.pages.map((page) => ({
-          ...page,
-          entries: page.entries.filter((entry) => !theirs(entry)),
-          pinnedNotes: page.pinnedNotes?.filter((note) => note.author?.id !== userId),
-        })),
-      },
-      { updatedAt: query.state.dataUpdatedAt },
-    );
-  }
-  void queryClient.invalidateQueries({ queryKey: notesKeys.threads });
-  void queryClient.invalidateQueries({ queryKey: ["notes", "note"] });
-  void queryClient.invalidateQueries({ queryKey: ["notes", "quotes"] });
-  // The mixed home feed and the friends' log are read again as well.
-  void queryClient.invalidateQueries({ queryKey: ["feed"] });
+  void reread(queryClient, [
+    notesKeys.threads,
+    ["notes", "note"],
+    ["notes", "quotes"],
+    // The mixed home feed and the friends' log.
+    ["feed"],
+  ]);
 }
 
 /** Puts a note the viewer just posted on top of a cached timeline (if that timeline is cached at all). */
@@ -159,8 +159,8 @@ export function prependNote(
   source: TimelineSource,
   note: notes.Note,
 ): void {
-  queryClient.setQueryData<TimelineData>(notesKeys.timeline(source), (current) => {
-    if (!current || current.pages.length === 0) return current;
+  pushTo<TimelineData>(queryClient, notesKeys.timeline(source), (current) => {
+    if (current.pages.length === 0) return current;
     const entry = create(notes.TimelineEntrySchema, { note });
     return {
       ...current,
@@ -277,9 +277,9 @@ export function addPostedNote(
   if (parentId) {
     settleCounter(queryClient, parentId, "replyCount", before.replies, 1);
     // Replies are listed oldest first: the new one belongs at the end, which is only on screen once every page is.
-    queryClient.setQueryData<ThreadData>(notesKeys.thread(parentId), (thread) => {
-      const last = thread?.pages.at(-1);
-      if (!thread || !last || last.page?.nextCursor) return thread;
+    pushTo<ThreadData>(queryClient, notesKeys.thread(parentId), (thread) => {
+      const last = thread.pages.at(-1);
+      if (!last || last.page?.nextCursor) return thread;
       return {
         ...thread,
         pages: thread.pages.map((page) =>

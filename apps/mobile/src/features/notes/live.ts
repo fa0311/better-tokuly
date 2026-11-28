@@ -1,12 +1,7 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
 import { subjectTopic } from "@tokuly/core/engagement";
-import {
-  applyNotesEvent,
-  forgetUserNotes,
-  isNoteNotification,
-  patchNote,
-} from "@tokuly/core/notes";
+import { applyNotesEvent, isNoteNotification, putRefreshedNote } from "@tokuly/core/notes";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 import { realtime } from "#/lib/realtime";
@@ -17,7 +12,7 @@ import { markNoteDeleted, noteClient } from "./data";
  * listen and look. The connection has no event for a friend's new note, so
  * the hints come from what it does push (a notification about a note, a
  * reply, quote or renote count going up on a note on screen, the connection
- * coming back) and from the app returning to the front.
+ * opening) and from the app returning to the front.
  */
 const hintListeners = new Set<() => void>();
 
@@ -36,11 +31,7 @@ async function refreshNote(queryClient: QueryClient, noteId: string): Promise<vo
   const client = noteClient();
   try {
     const { note: fresh } = await client.getNote({ noteId });
-    if (fresh)
-      patchNote(queryClient, noteId, (note) => ({
-        ...fresh,
-        counters: note.counters ?? fresh.counters,
-      }));
+    if (fresh) putRefreshedNote(queryClient, fresh);
   } catch {
     // Gone or hidden meanwhile: the other pushes say so.
   }
@@ -51,18 +42,12 @@ export function useNotesSync(): void {
   const queryClient = useQueryClient();
   useEffect(() => {
     const client = realtime();
-    let connectedBefore = false;
     const off = client.onFrame((frame) => {
       const body = frame.body;
       if (body.case === "welcome") {
-        // Whatever was posted while the connection was down was not announced.
-        if (connectedBefore) hintTimelines();
-        connectedBefore = true;
-        return;
-      }
-      // A friendship ended, or the other side put up a block: their notes leave the timelines.
-      if (body.case === "social" && body.value.event.case === "friendRemovedUserId") {
-        forgetUserNotes(queryClient, body.value.event.value);
+        // Pushes arrive from `Welcome` on: whatever was posted before it — while a timeline was
+        // already loading or on screen, or while the connection was down — was not announced.
+        hintTimelines();
         return;
       }
       if (body.case === "notify") {

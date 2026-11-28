@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import type { notes } from "@tokuly/api";
 import { Hash } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 /** The dot of a channel's colour (the brand colour when it has none). */
 export function ChannelDot({ color, className }: { color: string; className?: string }) {

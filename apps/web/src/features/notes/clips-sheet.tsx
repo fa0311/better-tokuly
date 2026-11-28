@@ -3,7 +3,6 @@ import type { notes } from "@tokuly/api";
 import { clipKeys } from "@tokuly/core/notes";
 import { Check, Globe, Lock, Plus } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
@@ -11,6 +10,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { clipClient, storeClip, useClips } from "./clips-api";
 import { ClipForm } from "./clips-form";
 

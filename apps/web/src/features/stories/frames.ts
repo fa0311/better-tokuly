@@ -1,13 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { notes, social } from "@tokuly/api";
-import {
-  addStory,
-  forgetUserStories,
-  patchStory,
-  removeStory,
-  storyKeys,
-} from "@tokuly/core/stories";
-import { dropFromStoryViewer } from "./viewer-store";
+import type { notes } from "@tokuly/api";
+import { addStory, patchStory, removeStory, storyKeys } from "@tokuly/core/stories";
 
 /**
  * What the realtime connection says about stories, applied to the tray and the viewer: a friend
@@ -42,14 +35,4 @@ export function applyStoryEvent(
     default:
       break;
   }
-}
-
-/** A friendship ended, or the other side put up a block: their stories are no longer for this viewer. */
-export function applySocialEvent(
-  queryClient: QueryClient,
-  event: social.SocialEvent["event"],
-): void {
-  if (event.case !== "friendRemovedUserId") return;
-  forgetUserStories(queryClient, event.value);
-  dropFromStoryViewer(event.value);
 }

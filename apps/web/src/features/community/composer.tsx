@@ -3,7 +3,6 @@ import { type common, community, errorReason, fromDate } from "@tokuly/api";
 import { can, communityKeys, parseTags, pseudonymName, upsertReply } from "@tokuly/core/community";
 import { BarChart3, Plus, Smile, Sticker, Trash2, VenetianMask, X } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
@@ -14,6 +13,7 @@ import { EmojiPicker, EmojiSuggestBar, recordEmojiUse, shortcodesIn } from "#/fe
 import { StampImage, StampPicker } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { boardClient, NS } from "./api";
 import {
   ImageAttachmentRow,

@@ -1,4 +1,11 @@
+import { NetworkError } from "@tokuly/core/errors";
 import { reloadIfRedeployed } from "./deploy";
+
+/**
+ * Code split off the app's entry loads through here, or through what is built
+ * on it (`onDemand`, `onFramesLoading`): a bare `import()` has no way out of
+ * a failure, so it fails lint (`lint/no-bare-import.grit`).
+ */
 
 /**
  * Loads a piece of code split off the app's entry (a feature's chunk). A
@@ -41,4 +48,19 @@ export function loadModule<T>(load: () => Promise<T>, loaded: (module: T) => voi
   window.addEventListener("online", attempt);
   attempt();
   return stop;
+}
+
+/**
+ * Loads code something waits on right now: a player about to play, what a tap
+ * opens. A load that fails, after the check for a gone build
+ * (`reloadIfRedeployed`), rejects with a `NetworkError`, so `errorMessage`
+ * asks to check the connection; nothing keeps the failure, and the next call
+ * loads again. Code nobody waits on loads with `loadModule`, which tries
+ * again by itself.
+ */
+export function loadNow<T>(load: () => Promise<T>): Promise<T> {
+  return load().catch((error: unknown) => {
+    void reloadIfRedeployed();
+    throw new NetworkError("code failed to load", { cause: error });
+  });
 }

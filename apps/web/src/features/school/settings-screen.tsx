@@ -2,11 +2,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type MessageInitShape, school } from "@tokuly/api";
 import { refreshSchool, schoolKeys } from "@tokuly/core/school";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Panel } from "#/components/ui/card";
 import { TextField } from "#/components/ui/field";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
+import { useTranslation } from "#/lib/use-translation";
 import { settingsClient, toastError, useSchoolSettings } from "./api";
 import { Block, LoadFailed, RowsSkeleton, SchoolPage } from "./parts";
 

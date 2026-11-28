@@ -40,3 +40,42 @@ test("a received request names the friends both know, whatever the sender shows"
   await page.getByRole("tab", { name: /リクエスト/ }).click();
   await expect(page.getByText(/(Mio、Sora|Sora、Mio)と共通のともだち/)).toBeVisible();
 });
+
+test("a friend who unfriends or blocks me leaves my open list, a withdrawn request my badge", async ({
+  page,
+  me,
+  request,
+}) => {
+  const aoi = await createAccount(request, "Aoi");
+  const ren = await createAccount(request, "Ren");
+  await befriend(request, me, aoi);
+  await befriend(request, me, ren);
+  const sender = await createAccount(request, "Sender");
+  const sent = await rpc<{ request: { id: string } }>(
+    request,
+    "tokuly.social.v1.FriendService/SendFriendRequest",
+    { userId: me.userId },
+    sender,
+  );
+
+  await page.goto("/friends");
+  const list = page.getByRole("main");
+  await expect(list.getByText("Aoi", { exact: true })).toBeVisible();
+  await expect(list.getByText("Ren", { exact: true })).toBeVisible();
+  const requests = page.getByRole("tab", { name: /リクエスト/ });
+  await expect(requests).toHaveText(/1/);
+
+  // Both happen on the other side, while the screen is open: the realtime connection says so.
+  await rpc(request, "tokuly.social.v1.FriendService/RemoveFriend", { userId: me.userId }, aoi);
+  await rpc(request, "tokuly.social.v1.FriendService/BlockUser", { userId: me.userId }, ren);
+  await expect(list.getByText("Aoi", { exact: true })).toHaveCount(0);
+  await expect(list.getByText("Ren", { exact: true })).toHaveCount(0);
+
+  await rpc(
+    request,
+    "tokuly.social.v1.FriendService/CancelFriendRequest",
+    { requestId: sent.request.id },
+    sender,
+  );
+  await expect(requests).toHaveText("リクエスト");
+});

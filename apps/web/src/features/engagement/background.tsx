@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { engagementKeys } from "@tokuly/core/engagement/keys";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { onFramesLoading, realtime } from "#/lib/realtime";
 import { CollectionChooserHost } from "./collection-chooser-host";
@@ -17,14 +18,8 @@ export default function EngagementBackground() {
 
   useEffect(() => {
     const client = realtime();
-    let connectedBefore = false;
-    const offWelcome = client.onFrame((frame) => {
-      if (frame.body.case !== "welcome") return;
-      // Counters that changed while the connection was down were missed: read them again.
-      if (connectedBefore)
-        void queryClient.invalidateQueries({ queryKey: engagementKeys.subjects });
-      connectedBefore = true;
-    });
+    // Counters that changed before the connection was up, or while it was down, were missed.
+    const offWelcome = rereadOnWelcome(queryClient, client, [engagementKeys.subjects]);
     const offEvents = onFramesLoading("engagement", () =>
       import("./frames").then(
         ({ applyEngagementEvent }) =>

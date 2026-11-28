@@ -25,7 +25,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -36,6 +35,7 @@ import { imageUrl, isVideo, useVideoSource } from "#/features/notes";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { patchStory, removeStory, storyClient, storyKeys } from "./api";
 import { HighlightEditor, HighlightPicker, useDeleteHighlight } from "./highlights";

@@ -1,6 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type common, geo, social, toMillis } from "@tokuly/api";
 import { mapKeys } from "@tokuly/core/map";
+import { reread, rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
@@ -295,7 +296,6 @@ export function useMapSync(): void {
       }
     };
 
-    let welcomed = false;
     const offFrame = client.onFrame((frame) => {
       if (frame.topic) return; // Topic-scoped frames (a public share) belong to whoever subscribed.
       if (frame.body.case === "geo") applyGeoEvent(queryClient, frame.body.value, myId);
@@ -303,21 +303,17 @@ export function useMapSync(): void {
         applySocialEvent(queryClient, frame.body.value.event, myId);
       else if (frame.body.case === "presence")
         useLocations.getState().setOnline(frame.body.value.userId, frame.body.value.online);
-      else if (frame.body.case === "welcome") {
-        // Anything missed while disconnected is covered by a fresh look.
-        void loadSnapshot();
-        if (welcomed)
-          for (const queryKey of [
-            mapKeys.ghost,
-            mapKeys.gatherings,
-            mapKeys.trips,
-            mapKeys.sos,
-            mapKeys.alerts,
-          ])
-            void queryClient.invalidateQueries({ queryKey });
-        welcomed = true;
-      }
+      // Anything missed while disconnected is covered by a fresh look.
+      else if (frame.body.case === "welcome") void loadSnapshot();
     });
+    // Pushed before the connection was up, or while it was down: an SOS must not wait for a refetch.
+    const offWelcome = rereadOnWelcome(queryClient, client, [
+      mapKeys.ghost,
+      mapKeys.gatherings,
+      mapKeys.trips,
+      mapKeys.sos,
+      mapKeys.alerts,
+    ]);
     // Friends' pins are pushed only while the app is in front: back, look again.
     const offForeground = client.onForeground(() => void loadSnapshot());
     client.start();
@@ -325,6 +321,7 @@ export function useMapSync(): void {
     return () => {
       cancelled = true;
       offFrame();
+      offWelcome();
       offForeground();
     };
   }, [queryClient, myId]);
@@ -334,7 +331,8 @@ export function useMapSync(): void {
  * Runs on every page while someone is signed in, so that a position never
  * stays in memory longer than its reason for being there:
  * - someone who stops being visible to me (unfriended, blocked, banned)
- *   leaves the store at once, whatever page is open;
+ *   leaves the store at once, whatever page is open (an ended friendship:
+ *   `./forget-user.ts`);
  * - the store is emptied when the account signs out or another one signs in,
  *   so the next account never sees the previous one's friends.
  * It also keeps the server clock in step from the connection's welcome frame.
@@ -344,20 +342,15 @@ export function useFriendPositionsHousekeeping(): void {
   const myId = useMe()?.user?.id;
   useEffect(() => {
     const client = realtime();
-    const forget = (userId: string, removalSequence?: bigint) => {
+    const forget = (userId: string, removalSequence: bigint) => {
       useLocations.getState().remove(userId, removalSequence);
-      void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
+      void reread(queryClient, [mapKeys.friends]);
     };
     const offFrame = client.onFrame((frame) => {
       if (frame.topic) return;
       if (frame.body.case === "welcome") setServerTime(toMillis(frame.body.value.serverTime));
       else if (frame.body.case === "geo" && frame.body.value.event.case === "locationRemovedUserId")
         forget(frame.body.value.event.value, frame.body.value.removalSequence);
-      else if (
-        frame.body.case === "social" &&
-        frame.body.value.event.case === "friendRemovedUserId"
-      )
-        forget(frame.body.value.event.value);
     });
     client.start();
     return () => {

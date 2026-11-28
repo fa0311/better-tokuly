@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { planKeys } from "@tokuly/core/plans/keys";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { onFramesLoading, realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 
 /**
  * Runs while someone is signed in: keeps loaded plans, polls, counters and
@@ -21,13 +22,8 @@ export default function PlansBackground() {
     // waiting for their handler. This one stays and reads the current language.
     const t = i18n.getFixedT(null, "plans");
     const client = realtime();
-    let connectedBefore = false;
-    const offWelcome = client.onFrame((frame) => {
-      if (frame.body.case !== "welcome") return;
-      // Whatever changed while the connection was down was not announced.
-      if (connectedBefore) void queryClient.invalidateQueries({ queryKey: planKeys.all });
-      connectedBefore = true;
-    });
+    // Whatever changed before the connection was up, or while it was down, was not announced.
+    const offWelcome = rereadOnWelcome(queryClient, client, [planKeys.all]);
     const offEvents = onFramesLoading("plans", () =>
       import("./frames").then(({ applyPlansEvent, nameOf }) => ({ event }) => {
         applyPlansEvent(queryClient, event);

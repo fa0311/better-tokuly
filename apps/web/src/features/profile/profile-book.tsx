@@ -1,8 +1,8 @@
 import { identity } from "@tokuly/api";
 import { BadgeCheck, ExternalLink, Music } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Card, Chip } from "#/components/ui/card";
 import { EmojiText } from "#/features/emoji";
+import { useTranslation } from "#/lib/use-translation";
 import type { ProfileSectionProps } from "#/seams/profile";
 
 /** Only http(s) links leave the app from a profile. */

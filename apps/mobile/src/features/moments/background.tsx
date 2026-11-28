@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { applyMomentsEvent, forgetUserMoments, momentKeys } from "@tokuly/core/moments";
+import { applyMomentsEvent, momentKeys } from "@tokuly/core/moments";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { useMe } from "#/features/session/store";
 import { realtime } from "#/lib/realtime";
@@ -12,24 +13,19 @@ export function useMomentsSync(): void {
   useEffect(() => {
     if (!myId) return;
     const client = realtime();
-    let connectedBefore = false;
+    // Whatever happened before the connection was up, or while it was down, was not announced.
+    const offWelcome = rereadOnWelcome(queryClient, client, [momentKeys.all]);
     const off = client.onFrame((frame) => {
       if (frame.topic) return;
-      if (frame.body.case === "welcome") {
-        if (connectedBefore) void queryClient.invalidateQueries({ queryKey: momentKeys.all });
-        connectedBefore = true;
-        return;
-      }
-      if (frame.body.case === "social" && frame.body.value.event.case === "friendRemovedUserId") {
-        forgetUserMoments(queryClient, frame.body.value.event.value);
-        return;
-      }
       if (frame.body.case === "moments") {
         applyMomentsEvent(queryClient, frame.body.value.event);
       }
     });
     client.start();
-    return off;
+    return () => {
+      off();
+      offWelcome();
+    };
   }, [queryClient, myId]);
 }
 

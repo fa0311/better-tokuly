@@ -1,8 +1,8 @@
 import { communityHref } from "@tokuly/core/community";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { NS, useCommunity } from "./api";
 import { CommunityIcon } from "./parts";
 

@@ -1,6 +1,7 @@
 import { common, realtime as rt } from "@tokuly/api";
 import { RealtimeClient, type ServerFrame, type ServerFrameBody } from "@tokuly/realtime";
 import { api } from "#/lib/api";
+import { loadNow } from "#/lib/load-module";
 import { restartWhenSessionChanges } from "#/lib/realtime-identity";
 
 const DEVICE_ID_KEY = "tokuly.deviceId";
@@ -54,7 +55,8 @@ type FrameValue<Case extends FrameCase> = Extract<ServerFrameBody, { case: Case 
  * Hands the frames of one case (`"wallet"`, `"social"`) to what `load` returns, loaded with the
  * first of them: what reacts to a domain's events (its cache code, its API client, its schemas)
  * stays off the first page. Frames that arrive meanwhile wait and follow in the order they came;
- * a load that fails loses them and is tried again with the next frame. Returns the unsubscribe.
+ * a load that fails loses them and is tried again with the next frame (`loadNow`). Returns the
+ * unsubscribe.
  */
 export function onFramesLoading<Case extends FrameCase>(
   kind: Case,
@@ -72,7 +74,7 @@ export function onFramesLoading<Case extends FrameCase>(
     if (waiting) return void waiting.push(frame);
     const queue = [frame];
     waiting = queue;
-    load().then(
+    loadNow(load).then(
       (loaded) => {
         waiting = null;
         if (stopped) return;

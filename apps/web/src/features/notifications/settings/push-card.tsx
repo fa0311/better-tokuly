@@ -1,12 +1,12 @@
 import { common, notify, toMillis } from "@tokuly/api";
 import { BellOff, BellRing, Monitor, Send, Smartphone, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Card, Chip } from "#/components/ui/card";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { needsHomeScreenInstall } from "../push";
 import { type PushStatus, usePush } from "../use-push";
 import { formatWhen, useNow } from "../when";

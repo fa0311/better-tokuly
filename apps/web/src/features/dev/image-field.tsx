@@ -1,12 +1,12 @@
 import type { common, media } from "@tokuly/api";
 import { ImagePlus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 
 /** The square picture of an application or a bot: the image, or its initial. */
 export function SquareImage({

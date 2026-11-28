@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { formatCoins } from "@tokuly/core/wallet";
-import { useTranslation } from "react-i18next";
 import { Coins } from "#/components/ui/coins";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useBalance } from "./use-balance";
 
 /**

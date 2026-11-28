@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { admin, common } from "@tokuly/api";
 import { X } from "lucide-react";
 import { useId, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -11,6 +10,7 @@ import { TextArea, TextField } from "#/components/ui/field";
 import { Slider } from "#/components/ui/slider";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { flagClient } from "../api";
 import { UserPicker } from "../ui/user-picker";
 

@@ -10,7 +10,6 @@ import {
 } from "@tokuly/core/community";
 import { EyeOff, ImagePlus, Lock, Users, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Chip } from "#/components/ui/card";
@@ -22,6 +21,7 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import { NS } from "./api";
 
 // ───────────── Words for enums ─────────────

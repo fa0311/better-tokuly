@@ -14,13 +14,13 @@ import {
   Search,
   Video,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { CountBadge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useConversationActions } from "./actions";
 import { chatKeys, messageClient } from "./api";
 import { BotMark } from "./bot";

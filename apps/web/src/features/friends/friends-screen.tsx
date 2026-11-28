@@ -5,7 +5,6 @@ import { friendKeys, friendQueries, requestNote } from "@tokuly/core/friends";
 import { Check, ChevronRight, Copy, Radar, Star, UserPlus, X } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
@@ -19,6 +18,7 @@ import {
 } from "#/features/map/own-location";
 import { api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocations } from "#/stores/locations";
 import { useFollowRequestCount } from "./follow-data";
 import { FollowRequests } from "./follow-requests";

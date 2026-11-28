@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { walletKeys } from "@tokuly/core/wallet/keys";
 import { useEffect } from "react";
 import { onFramesLoading, realtime } from "#/lib/realtime";
@@ -14,7 +15,6 @@ export default function WalletBackground() {
 
   useEffect(() => {
     const client = realtime();
-    let connectedBefore = client.connectionStatus === "connected";
     const offEvents = onFramesLoading("wallet", () =>
       import("./frames").then(
         ({ applyWalletEvent }) =>
@@ -22,17 +22,8 @@ export default function WalletBackground() {
             applyWalletEvent(queryClient, event),
       ),
     );
-    const offWelcome = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // Pushes sent while there was no connection are lost: ask again. The
-        // balance is cheap and matters most, so it is checked on every
-        // connection; the lists only after a reconnect.
-        void queryClient.invalidateQueries({
-          queryKey: connectedBefore ? walletKeys.all : walletKeys.balance,
-        });
-        connectedBefore = true;
-      }
-    });
+    // Pushes sent before the connection was up, or while it was down, are lost: ask again.
+    const offWelcome = rereadOnWelcome(queryClient, client, [walletKeys.all]);
     client.start();
 
     // The cache belongs to one account: forget it when that account leaves,

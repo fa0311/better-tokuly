@@ -14,13 +14,17 @@
  * Replaying beats merging the snapshot into what the page holds: a line
  * deleted while the connection was down is gone from the snapshot and stays
  * gone, which a merge would not know.
+ *
+ * Features use it through `journal`, `pushTo` and `pushAfter` (`./journal`), never directly.
  */
 export interface PushesDuringRead<S> {
   /** Applies a pushed update to what is held now (through `apply`) and keeps it for reads in flight. */
   record(update: (state: S) => S): void;
   /**
    * Starts a read. `finish` applies to the snapshot every update recorded
-   * since, in order; a read that is abandoned calls `cancel`.
+   * since, in order; a read that is abandoned calls `cancel`. Either stops
+   * the recording; `finish` may be called again, also after `cancel`, and
+   * applies what was recorded until then.
    */
   begin(): { finish(snapshot: S): S; cancel(): void };
 }

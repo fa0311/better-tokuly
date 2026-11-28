@@ -1,7 +1,7 @@
 import { ChevronLeft, X } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useSyncExternalStore } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useMapUi } from "./ui-store";
 
 const WIDE_QUERY = "(min-width: 768px)";

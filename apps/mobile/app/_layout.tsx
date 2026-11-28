@@ -6,6 +6,7 @@ import { I18nextProvider } from "react-i18next";
 import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { RootError, ScreenError } from "#/components/screen-error";
 import { AccountScope } from "#/features/session/account-scope";
 import { startSession } from "#/features/session/session";
 import { useSessionStore } from "#/features/session/store";
@@ -22,6 +23,9 @@ void startSession();
  * lands is `routeFor` (`features/session/routing.ts`): `/` and the group
  * layouts redirect by it, so a signed-in account sees `(app)`, everyone else
  * `(auth)`, whatever link opened the app.
+ *
+ * A screen that throws while rendering shows `ScreenError` in its place: every
+ * navigator under this stack inherits it, so the tabs and the other screens stay.
  */
 export default function RootLayout() {
   const theme = useTheme();
@@ -40,6 +44,7 @@ export default function RootLayout() {
               <StatusBar style={theme.dark ? "light" : "dark"} />
               <Stack
                 key={generation}
+                unstable_screenErrorBoundary={ScreenError}
                 screenOptions={{
                   headerShown: false,
                   contentStyle: { backgroundColor: theme.colors.bg },
@@ -57,3 +62,6 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+/** What throws above the screens (this layout, a group's) shows `RootError` instead of a blank app. */
+export const ErrorBoundary = RootError;

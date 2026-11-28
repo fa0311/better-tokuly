@@ -15,13 +15,13 @@ import {
   Wrench,
 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Coins } from "#/components/ui/coins";
 import { Dialog } from "#/components/ui/dialog";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { Fact, StatusChip } from "./parts";
 
 /** The icon and colour of a movement: by what it was for when we know it, by its kind otherwise. */

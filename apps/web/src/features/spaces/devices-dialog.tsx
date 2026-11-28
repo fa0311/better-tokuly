@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
 import { Dialog } from "#/components/ui/dialog";
 import { SelectField } from "#/components/ui/select";
 import { PaneSpinner } from "#/components/ui/spinner";
+import { useTranslation } from "#/lib/use-translation";
 import { chooseAudioDevice, listAudioDevices } from "./session";
 
 const DEVICES = ["spaces", "devices"] as const;

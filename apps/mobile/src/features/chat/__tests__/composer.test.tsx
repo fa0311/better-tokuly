@@ -2,6 +2,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { create, emoji } from "@tokuly/api";
 import { EMPTY_CATALOG } from "@tokuly/core/emoji";
+import * as ImagePicker from "expo-image-picker";
+import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { syncCatalog, useCatalogStore } from "#/features/emoji/catalog";
 import { api } from "#/lib/api";
@@ -16,6 +18,13 @@ jest.mock("../data", () => ({
   useCapabilities: () => ({ maxTextLength: 12, maxAttachments: 4 }),
 }));
 jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
+jest.mock("expo-image-picker", () => ({
+  UIImagePickerPreferredAssetRepresentationMode: { Compatible: "compatible" },
+  requestCameraPermissionsAsync: jest.fn(async () => ({ granted: true })),
+  requestMediaLibraryPermissionsAsync: jest.fn(async () => ({ granted: true })),
+  launchCameraAsync: jest.fn(),
+  launchImageLibraryAsync: jest.fn(),
+}));
 
 async function openComposer() {
   const service = {
@@ -74,5 +83,18 @@ describe("Composer", () => {
     await fireEvent.press(screen.getByTestId("composer-emoji"));
     await fireEvent.press(await screen.findByTestId("emoji-neko"));
     expect(screen.getByTestId("composer-input").props.value).toBe("1234567");
+  });
+
+  // An emulator has no camera; an iCloud photo may not download: the tap says so instead of nothing.
+  it.each([
+    ["camera", ImagePicker.launchCameraAsync],
+    ["library", ImagePicker.launchImageLibraryAsync],
+  ] as const)("says the %s could not open the photo", async (source, launch) => {
+    jest.mocked(launch).mockRejectedValueOnce(new Error("no camera available"));
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    await openComposer();
+    await fireEvent.press(screen.getByTestId("composer-photo"));
+    await fireEvent.press(screen.getByTestId(`sheet-${source}`));
+    expect(alert).toHaveBeenCalledWith("ファイルを読み込めなかったよ。もう一度えらんでね");
   });
 });

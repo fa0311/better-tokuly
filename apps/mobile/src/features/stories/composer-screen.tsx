@@ -80,13 +80,17 @@ export function StoryComposerScreen() {
     );
   };
   const pick = async () => {
-    const result = await pickFromLibrary({
-      kinds: ["images", "videos"],
-      limit: MAX_ITEMS - items.length,
-    });
-    if (!result) return;
-    if ("denied" in result) return Alert.alert(tm("chat.photoDenied"));
-    await add(result.media);
+    try {
+      const result = await pickFromLibrary({
+        kinds: ["images", "videos"],
+        limit: MAX_ITEMS - items.length,
+      });
+      if (!result) return;
+      if ("denied" in result) return Alert.alert(tm("chat.photoDenied"));
+      await add(result.media);
+    } catch (error) {
+      Alert.alert(errorMessage(error, { namespace: "stories" }));
+    }
   };
 
   const post = async () => {

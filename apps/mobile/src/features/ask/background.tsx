@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { applyAskEvent, askKeys } from "@tokuly/core/ask";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 
@@ -12,17 +13,16 @@ export default function AskBackground() {
   const queryClient = useQueryClient();
   useEffect(() => {
     const client = realtime();
-    let welcomed = false;
     const off = client.onFrame((frame) => {
       if (frame.body.case === "ask") applyAskEvent(queryClient, frame.body.value.event);
-      else if (frame.body.case === "welcome") {
-        // Pushes sent while the connection was down are lost: what is loaded is read again.
-        if (welcomed) void queryClient.invalidateQueries({ queryKey: askKeys.all });
-        welcomed = true;
-      }
     });
+    // Pushes sent before the connection was up, or while it was down, are lost: read again.
+    const offWelcome = rereadOnWelcome(queryClient, client, [askKeys.all]);
     client.start();
-    return off;
+    return () => {
+      off();
+      offWelcome();
+    };
   }, [queryClient]);
   return null;
 }

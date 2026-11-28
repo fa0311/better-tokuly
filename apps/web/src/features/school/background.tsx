@@ -1,11 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { errorReason, school } from "@tokuly/api";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { refreshSchool, schoolKeys } from "@tokuly/core/school";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { studyClient } from "./api";
 import {
   loadActiveSession,
@@ -29,17 +30,17 @@ export default function SchoolBackground() {
   const roomId = useActiveSession((state) => state.session?.roomId);
   const heartbeatSeconds = useActiveSession((state) => state.heartbeatSeconds);
 
-  // The timer as the server has it: on sign-in, and whenever the connection comes back.
+  // The timer as the server has it: on sign-in, and on every Welcome of the connection.
   useEffect(() => {
     const t = i18n.getFixedT(null, "school");
     const load = () => loadActiveSession(() => studyClient().getCurrentStudySession({}));
     void load();
-    let connectedBefore = false;
     const client = realtime();
+    // Friends who started or stopped studying before the connection was up, or while it was down.
+    const offWelcome = rereadOnWelcome(queryClient, client, [schoolKeys.studying]);
     const off = client.onFrame((frame) => {
       if (frame.body.case === "welcome") {
-        if (connectedBefore) void load();
-        connectedBefore = true;
+        void load();
         return;
       }
       if (frame.body.case !== "school") return;
@@ -105,7 +106,10 @@ export default function SchoolBackground() {
       }
     });
     client.start();
-    return off;
+    return () => {
+      off();
+      offWelcome();
+    };
   }, [queryClient, router, i18n]);
 
   // Whoever is in a room hears its timer wherever they are in the app.

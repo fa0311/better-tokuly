@@ -1,5 +1,5 @@
-import { useTranslation } from "react-i18next";
 import { TextField } from "#/components/ui/field";
+import { useTranslation } from "#/lib/use-translation";
 
 /** What people can say about a stamp, as typed in the form. */
 export interface StampMeta {

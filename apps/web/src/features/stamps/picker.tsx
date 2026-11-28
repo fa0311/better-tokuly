@@ -13,9 +13,9 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { libraryClient, useLibrary, usePack } from "./api";
 import { PersonalStampMaker } from "./editor/stamp-maker";
 import { PackCover, SearchField } from "./parts";

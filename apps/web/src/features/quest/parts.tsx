@@ -10,12 +10,12 @@ import {
 } from "@tokuly/core/quest";
 import { Lock } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Chip } from "#/components/ui/card";
 import { Coins } from "#/components/ui/coins";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocalized } from "./api";
 
 /** The sections of the quest area, as a row of links under every page's header. */

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
 import { EmojiText } from "#/features/emoji";
+import { useTranslation } from "#/lib/use-translation";
 import type { ProfileSection, ProfileSectionProps } from "#/seams/profile";
 import { NS, useUserCommunities } from "./api";
 import { CommunityIcon } from "./parts";

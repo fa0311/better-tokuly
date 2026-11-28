@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { geo, social } from "@tokuly/api";
 import { mapKeys } from "@tokuly/core/map";
+import { reread, rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { api } from "#/lib/api";
 import { realtime } from "#/lib/realtime";
@@ -46,7 +47,8 @@ export const useGhostSettings = () =>
  * Keeps friends' pins in step with the server while someone is signed in:
  * a snapshot when the connection (re)establishes, then the pushed events.
  * Someone who stops being visible (unfriended, blocked, banned) leaves the
- * map at once; everything is dropped when the account changes.
+ * map at once (an ended friendship: `./forget-user.ts`); everything is
+ * dropped when the account changes.
  */
 export function useMapSync(): void {
   const queryClient = useQueryClient();
@@ -64,20 +66,18 @@ export function useMapSync(): void {
         // The live stream still delivers updates; the next reconnect retries.
       }
     };
-    const forget = (userId: string, removalSequence?: bigint) => {
+    const forget = (userId: string, removalSequence: bigint) => {
       useLocations.getState().remove(userId, removalSequence);
-      void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
+      void reread(queryClient, [mapKeys.friends]);
     };
 
-    let welcomed = false;
+    // The ghost settings may have changed on another device before the connection was up, or while it was down.
+    const offWelcome = rereadOnWelcome(queryClient, client, [mapKeys.ghost]);
     const offFrame = client.onFrame((frame) => {
       if (frame.topic) return; // Topic-scoped frames belong to whoever subscribed.
       const body = frame.body;
-      if (body.case === "welcome") {
-        void loadSnapshot();
-        if (welcomed) void queryClient.invalidateQueries({ queryKey: mapKeys.ghost });
-        welcomed = true;
-      } else if (body.case === "presence") {
+      if (body.case === "welcome") void loadSnapshot();
+      else if (body.case === "presence") {
         locations.setOnline(body.value.userId, body.value.online);
       } else if (body.case === "geo") {
         const event = body.value.event;
@@ -85,11 +85,8 @@ export function useMapSync(): void {
           useLocations.getState().upsert(event.value, body.value.removalSequence);
         else if (event.case === "locationRemovedUserId")
           forget(event.value, body.value.removalSequence);
-      } else if (body.case === "social") {
-        const event = body.value.event;
-        if (event.case === "friendRemovedUserId") forget(event.value);
-        else if (event.case === "friendRequestAccepted")
-          void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
+      } else if (body.case === "social" && body.value.event.case === "friendRequestAccepted") {
+        void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
       }
     });
     // A new friend (whichever side accepted, from whichever screen): their pin may be there to see.
@@ -109,6 +106,7 @@ export function useMapSync(): void {
     return () => {
       cancelled = true;
       offFrame();
+      offWelcome();
       offForeground();
       offCache();
       useLocations.getState().clear();

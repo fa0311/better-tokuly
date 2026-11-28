@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { Fragment, type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import {
   fieldsOf,
   nestedRef,

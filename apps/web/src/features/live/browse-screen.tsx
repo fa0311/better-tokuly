@@ -1,15 +1,16 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { live, video } from "@tokuly/api";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { Gift, Search, Video, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { BalancePill } from "#/features/wallet";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { liveKeys, nextCursor, streamClient, useFriendStreams } from "./api";
 import { CATEGORIES } from "./labels";
 import { StreamCard, StreamCardSkeleton, StreamGrid } from "./parts";
@@ -240,17 +241,8 @@ export function BrowseLiveScreen({
 }) {
   const { t } = useTranslation("live");
   const queryClient = useQueryClient();
-  // Lists are read again when the connection returns from a gap: streams start and end all the time.
-  useEffect(() => {
-    const client = realtime();
-    let welcomed = false;
-    const off = client.onFrame((frame) => {
-      if (frame.body.case !== "welcome") return;
-      if (welcomed) void queryClient.invalidateQueries({ queryKey: liveKeys.lists });
-      welcomed = true;
-    });
-    return off;
-  }, [queryClient]);
+  // Lists are read again on every Welcome: streams start and end all the time.
+  useEffect(() => rereadOnWelcome(queryClient, realtime(), [liveKeys.lists]), [queryClient]);
   return (
     <Page
       title={t("browse.title")}

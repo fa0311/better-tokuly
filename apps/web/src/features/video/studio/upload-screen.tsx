@@ -3,7 +3,6 @@ import { Link, useBlocker, useNavigate } from "@tanstack/react-router";
 import { media } from "@tokuly/api";
 import { CircleCheck, FileVideo, Plus, UploadCloud, X } from "lucide-react";
 import { type DragEvent, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -12,6 +11,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadFile } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import { videoClient, videoKeys } from "../api";
 import { ChannelPicker, FormSection, selectStudioChannel, useStudioChannel } from "./shared";
 

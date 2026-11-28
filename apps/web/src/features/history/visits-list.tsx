@@ -4,7 +4,6 @@ import { toDate } from "@tokuly/api";
 import { dayRange, formatDay, historyQueries } from "@tokuly/core/history";
 import { placeEmoji, placeQueries } from "@tokuly/core/places";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { TextField } from "#/components/ui/field";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
@@ -18,6 +17,7 @@ import {
   useAccountToday,
   zonedMoment,
 } from "#/lib/account-time";
+import { useTranslation } from "#/lib/use-translation";
 import { historyClient } from "./api";
 import { VisitCard } from "./visit-card";
 

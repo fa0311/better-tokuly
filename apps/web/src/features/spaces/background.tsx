@@ -1,12 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { spaces } from "@tokuly/api";
-import { rereadListsAfterReconnect } from "@tokuly/core/query";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { ELSEWHERE_WINDOW_MS, exitReasonOf, onStage, spacesKeys } from "@tokuly/core/spaces";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 
 import { EndCallPrompt } from "./end-call-prompt";
@@ -116,10 +116,10 @@ export default function SpacesBackground() {
     // What changed while the connection was down was not announced: the lists on screen
     // (hangouts, rooms live and upcoming, friends in rooms) are read again. A followed room reads
     // itself and its participants again when its topic is back (`useSpaceTopic`).
-    const stop = rereadListsAfterReconnect(
+    const stop = rereadOnWelcome(
       queryClient,
       client,
-      spacesKeys.all,
+      [spacesKeys.all],
       (key) =>
         (key[1] === "space" || key[1] === "participants") &&
         client.isSubscribed(`space:${String(key[2])}`),

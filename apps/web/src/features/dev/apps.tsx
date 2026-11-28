@@ -3,7 +3,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { media } from "@tokuly/api";
 import { ChevronRight, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -18,6 +17,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { EmojiText } from "#/features/emoji";
 import { API_PATH } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { appClient, dev, keys, nextCursorOf, PAGE_SIZE } from "./api";
 import { ImageField, SquareImage } from "./image-field";
 import {

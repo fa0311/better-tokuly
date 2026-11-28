@@ -3,11 +3,11 @@ import type { shorts } from "@tokuly/api";
 import { soundTitle } from "@tokuly/core/shorts";
 import { Music2, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { TextField } from "#/components/ui/field";
 import { ListRow } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { compactCount } from "#/features/engagement";
+import { useTranslation } from "#/lib/use-translation";
 import { discoveryClient, shortKeys } from "../api";
 import { ChoiceChips } from "../sort-chips";
 

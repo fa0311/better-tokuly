@@ -468,6 +468,11 @@ test("the offer to install waits for a calm page, and one tap opens the browser'
 
   await mainNav(page).getByRole("link", { name: "じぶん" }).click();
   await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
+  // The hub's tiles arrive with their code, after the heading: the page is complete once the
+  // last section is there.
+  await expect(
+    page.getByRole("main").getByRole("region", { name: "アカウント", exact: true }),
+  ).toBeVisible();
   // It floats above the page: nothing moves when it comes.
   const placed = () =>
     page.evaluate(() =>

@@ -1,10 +1,10 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { Slider } from "#/components/ui/slider";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { type CropFrame, type CropView, clampView, renderCrop, visibleRegion } from "./crop";
 
 const MAX_ZOOM = 4;

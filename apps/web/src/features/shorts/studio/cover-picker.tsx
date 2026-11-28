@@ -1,9 +1,9 @@
 import { clock } from "@tokuly/core/shorts";
 import { ImagePlus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Slider } from "#/components/ui/slider";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { ChoiceChips } from "../sort-chips";
 import { captureFrames } from "./video-tools";
 

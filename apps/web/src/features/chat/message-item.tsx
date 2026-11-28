@@ -20,7 +20,6 @@ import {
   Trash2,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Menu, type MenuAction } from "#/components/ui/menu";
@@ -28,6 +27,7 @@ import { Spinner } from "#/components/ui/spinner";
 import { EmojiText } from "#/features/emoji";
 import { StampImage } from "#/features/stamps";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { TranslationBlock, toggleTranslation, useIsTranslated } from "./assist";
 import { BotMark } from "./bot";
 import { useConversationContext } from "./conversation-context";

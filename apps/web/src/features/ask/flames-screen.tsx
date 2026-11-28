@@ -4,7 +4,6 @@ import { type ask, toMillis } from "@tokuly/api";
 import { askKeys } from "@tokuly/core/ask";
 import { Lightbulb, MoreHorizontal, ShieldBan } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -18,6 +17,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { BalancePill, useBalance } from "#/features/wallet";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import {
   boxClient,

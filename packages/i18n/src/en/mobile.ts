@@ -9,6 +9,10 @@ export default {
     inbox: "Inbox",
     me: "Me",
   },
+  failed: {
+    title: "Something went wrong",
+    body: "This screen ran into an error. Trying again often fixes it!",
+  },
   welcome: {
     signUp: "Get started",
     signIn: "Sign in",

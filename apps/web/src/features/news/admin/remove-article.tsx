@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { TextField } from "#/components/ui/field";
+import { useTranslation } from "#/lib/use-translation";
 import { dropArticle, newsAdminClient, newsClient, newsKeys } from "../api";
 import { PublishedAt, SourceIcon } from "../parts";
 import { articleIdFrom } from "./input";

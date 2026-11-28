@@ -1,6 +1,6 @@
 import { Suspense, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { onDemand } from "#/components/on-demand";
+import { useTranslation } from "#/lib/use-translation";
 import { answerCallPrompt, useCallPrompt } from "./session";
 
 const ConfirmDialog = onDemand(

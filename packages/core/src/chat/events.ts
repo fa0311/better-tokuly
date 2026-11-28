@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/query-core";
 import { chat } from "@tokuly/api";
+import { reread } from "../query";
 import {
   dropConversation,
   patchConversation,
@@ -230,14 +231,13 @@ export function applyChatEvent(
 }
 
 /**
- * After the realtime connection (re)opened: events may have been missed, so
- * the lists and counts are read again, the timelines on screen catch up and
- * the others are forgotten (they load fresh when opened).
+ * On every Welcome of the realtime connection, the first one too: events may
+ * have been missed, so the lists and counts are read again (a first load in
+ * flight is replaced), the timelines on screen catch up and the others are
+ * forgotten (they load fresh when opened).
  */
 export function resynchronize(queryClient: QueryClient, sync: ChatSync): void {
-  void queryClient.invalidateQueries({ queryKey: chatKeys.lists });
-  sync.totals.refresh(queryClient);
-  void queryClient.invalidateQueries({ queryKey: chatKeys.conversations });
+  void reread(queryClient, [chatKeys.lists, chatKeys.unread, chatKeys.conversations]);
   for (const query of queryClient.getQueryCache().findAll({ queryKey: chatKeys.timelines })) {
     const conversationId = query.queryKey[2] as string;
     const timeline = query.state.data as Timeline | undefined;

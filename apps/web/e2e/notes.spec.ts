@@ -184,6 +184,55 @@ test("new notes wait behind a pill while the reader is further down", async ({
   await expect(pill).toHaveCount(0);
 });
 
+test("an ex-friend's notes do not come back with a page read before the friendship ended", async ({
+  page,
+  me,
+  request,
+}) => {
+  const friend = await friendOf(request, me);
+  await agree(request, me);
+  const friendsOnly = (text: string) =>
+    post(request, friend, { text, visibility: "VISIBILITY_FRIENDS" });
+  const before = `e2e まえから ${tag()}`;
+  await friendsOnly(before);
+  await page.goto("/notes?tab=home");
+  await expect(card(page, before)).toBeVisible();
+  // The realtime connection is up once a note it announces (through its mention) arrives by itself.
+  const announced = `e2e つながった ${tag()}`;
+  await friendsOnly(`${announced} @${me.handle}`);
+  await expect(card(page, announced)).toBeVisible({ timeout: 30_000 });
+
+  const later = `e2e あとから ${tag()}`;
+  await friendsOnly(later);
+  const mine = `e2e じぶんの ${tag()}`;
+  await post(request, me, { text: mine });
+  // The next look at the timeline is answered now, while they are still friends, and lands later.
+  let answered = () => {};
+  const read = new Promise<void>((resolve) => (answered = resolve));
+  let release = () => {};
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let looks = 0;
+  await page.route(`**/api/${NOTES}/GetHomeTimeline`, async (route) => {
+    if (looks++ > 0) {
+      await released;
+      return route.continue();
+    }
+    const response = await route.fetch();
+    answered();
+    await released;
+    await route.fulfill({ response });
+  });
+  await page.getByRole("button", { name: "更新する" }).click();
+  await read;
+
+  await rpc(request, "tokuly.social.v1.FriendService/RemoveFriend", { userId: me.userId }, friend);
+  await expect(card(page, before)).toHaveCount(0, { timeout: 30_000 });
+  release();
+  // The look is in: what it read of my own is on top, and nothing of theirs came back with it.
+  await expect(card(page, mine)).toBeVisible();
+  for (const text of [before, announced, later]) await expect(card(page, text)).toHaveCount(0);
+});
+
 test("the home tab mixes notes with what else friends did", async ({ page, me, request }) => {
   const friend = await friendOf(request, me);
   const text = `e2e フィードのノート ${tag()}`;

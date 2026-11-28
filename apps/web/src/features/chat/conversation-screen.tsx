@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -20,6 +19,7 @@ import { ReportDialog } from "#/features/engagement";
 import { StampSheet } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { useHideTabBar } from "#/stores/shell";
 import { messageClient, useCapabilities } from "./api";

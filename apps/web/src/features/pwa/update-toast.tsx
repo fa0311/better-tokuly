@@ -1,8 +1,8 @@
 import { Sparkles, X } from "lucide-react";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
+import { useTranslation } from "#/lib/use-translation";
 import { applyUpdate, pageIsBehind, useWorker } from "./service-worker";
 
 const TOAST_ID = "pwa:update";

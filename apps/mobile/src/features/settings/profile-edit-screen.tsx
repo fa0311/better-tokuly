@@ -11,6 +11,7 @@ import { Avatar } from "#/components/avatar";
 import { Button } from "#/components/button";
 import { Page, Section } from "#/components/page";
 import { TextField } from "#/components/text-field";
+import { fromPicker } from "#/features/media/pick";
 import {
   type Account,
   AccountChanged,
@@ -70,7 +71,7 @@ function ProfileImages({ me }: { me: identity.Me }) {
       if (!account) return null;
       let assetId = "";
       if (!remove) {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        const permission = await fromPicker(ImagePicker.requestMediaLibraryPermissionsAsync);
         if (!permission.granted) {
           Alert.alert(t("mobile:chat.photoDenied"), undefined, [
             { text: t("common:actions.cancel"), style: "cancel" },
@@ -78,17 +79,19 @@ function ProfileImages({ me }: { me: identity.Me }) {
           ]);
           return null;
         }
-        const picked = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ["images"],
-          // iOS crops to a square only: there the banner is shown as it is, centred.
-          allowsEditing: slot === "avatar" || Platform.OS === "android",
-          aspect: slot === "avatar" ? [1, 1] : [3, 1],
-          quality: 0.9,
-          exif: false,
-          // An uncropped iPhone photo would be HEIC, which the server does not decode.
-          preferredAssetRepresentationMode:
-            ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-        });
+        const picked = await fromPicker(() =>
+          ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ["images"],
+            // iOS crops to a square only: there the banner is shown as it is, centred.
+            allowsEditing: slot === "avatar" || Platform.OS === "android",
+            aspect: slot === "avatar" ? [1, 1] : [3, 1],
+            quality: 0.9,
+            exif: false,
+            // An uncropped iPhone photo would be HEIC, which the server does not decode.
+            preferredAssetRepresentationMode:
+              ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+          }),
+        );
         const image = picked.canceled ? undefined : picked.assets[0];
         if (!image) return null;
         const file = await fitToFrame(image, slot === "avatar" ? AVATAR_FRAME : BANNER_FRAME);

@@ -1,13 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notes } from "@tokuly/api";
-import {
-  addStory,
-  forgetUserStories,
-  patchStory,
-  removeStory,
-  storyKeys,
-  storyQueries,
-} from "@tokuly/core/stories";
+import { rereadOnWelcome } from "@tokuly/core/query";
+import { addStory, patchStory, removeStory, storyKeys, storyQueries } from "@tokuly/core/stories";
 import { useEffect } from "react";
 import { useMe } from "#/features/session/store";
 import { api } from "#/lib/api";
@@ -40,8 +34,8 @@ export function useStoryViewers(storyId: string, enabled: boolean) {
 
 /**
  * Stories stay current while someone is signed in: a friend posted or
- * deleted one, someone watched or reacted to one of the viewer's own, a
- * friendship ended; a new connection reads the tray again.
+ * deleted one, someone watched or reacted to one of the viewer's own; a new
+ * connection reads the tray again.
  */
 export function useStoriesSync(): void {
   const queryClient = useQueryClient();
@@ -49,18 +43,10 @@ export function useStoriesSync(): void {
   useEffect(() => {
     if (!myId) return;
     const client = realtime();
-    let connectedBefore = false;
+    // Stories posted before the connection was up, or while it was down, were not announced.
+    const offWelcome = rereadOnWelcome(queryClient, client, [storyKeys.tray]);
     const off = client.onFrame((frame) => {
       if (frame.topic) return;
-      if (frame.body.case === "welcome") {
-        if (connectedBefore) void queryClient.invalidateQueries({ queryKey: storyKeys.tray });
-        connectedBefore = true;
-        return;
-      }
-      if (frame.body.case === "social" && frame.body.value.event.case === "friendRemovedUserId") {
-        forgetUserStories(queryClient, frame.body.value.event.value);
-        return;
-      }
       if (frame.body.case !== "notes") return;
       const event = frame.body.value.event;
       switch (event.case) {
@@ -85,6 +71,9 @@ export function useStoriesSync(): void {
       }
     });
     client.start();
-    return off;
+    return () => {
+      off();
+      offWelcome();
+    };
   }, [queryClient, myId]);
 }

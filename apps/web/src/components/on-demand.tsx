@@ -1,9 +1,9 @@
 import { type ComponentType, use, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import i18n from "#/lib/i18n";
 import { loadModule } from "#/lib/load-module";
+import { useTranslation } from "#/lib/use-translation";
 
 /** What a part shows when its code did not arrive (see `onDemand`). */
 export type WhenFailed =

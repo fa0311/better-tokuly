@@ -1,7 +1,6 @@
 import type { common } from "@tokuly/api";
 import { Check, Plus, Search, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
@@ -9,6 +8,7 @@ import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { nameOf, useFriends } from "./api";
 
 export interface FriendPickerProps {

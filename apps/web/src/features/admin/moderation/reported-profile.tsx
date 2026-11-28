@@ -1,10 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
 import { type admin, common, create, identity } from "@tokuly/api";
 import { BookHeart } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { ProfileBook } from "#/features/profile";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { moderationClient } from "../api";
 import { Section } from "../ui/console-page";
 

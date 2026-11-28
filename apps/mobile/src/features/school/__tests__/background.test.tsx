@@ -7,7 +7,7 @@ import { type Account, currentAccount, isActive } from "#/features/session/accou
 import { cancelReminder, scheduleReminder } from "#/platform/notifications";
 import { testQueryClient } from "#/testing/query";
 import SchoolBackground from "../background";
-import { reminderFor, takeSession } from "../session";
+import { followAccount, loadSession, reminderFor, takeSession, useStudyTimer } from "../session";
 
 jest.mock("#/features/session/account", () => ({ currentAccount: jest.fn(), isActive: jest.fn() }));
 jest.mock("#/lib/realtime", () => ({
@@ -205,5 +205,31 @@ describe("when the reminder comes", () => {
       seconds: 780,
       key: "mobile:school.idleReminder",
     });
+  });
+});
+
+describe("asking the server for the timer", () => {
+  it("lets a question asked again replace the one before, even when the older answer comes last", async () => {
+    type Answer = { session?: school.StudySession; heartbeatIntervalSeconds: number };
+    const answers: ((value: Answer) => void)[] = [];
+    const service = {
+      getCurrentStudySession: () => new Promise<Answer>((resolve) => answers.push(resolve)),
+    };
+    const account: Account = {
+      sessionId: "s1",
+      userId: "u1",
+      api: { service: () => service } as never,
+    };
+    jest.mocked(isActive).mockReturnValue(true);
+    followAccount(account);
+    // On start, then on the first Welcome; meanwhile the server stopped the idle timer.
+    const start = loadSession(account);
+    const welcome = loadSession(account);
+    answers[1]?.({ heartbeatIntervalSeconds: 60 });
+    await welcome;
+    answers[0]?.({ session: session(RUNNING), heartbeatIntervalSeconds: 60 });
+    await start;
+    expect(useStudyTimer.getState().session).toBeUndefined();
+    expect(useStudyTimer.getState().loaded).toBe(true);
   });
 });

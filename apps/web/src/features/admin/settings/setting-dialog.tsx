@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { admin, errorReason, isApiError } from "@tokuly/api";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -10,6 +9,7 @@ import { TextArea, TextField } from "#/components/ui/field";
 import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { serverSettingsClient } from "../api";
 import { formatDateTime } from "../format";
 import { ErrorState, RowsSkeleton } from "../ui/states";

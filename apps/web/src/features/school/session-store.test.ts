@@ -102,4 +102,20 @@ describe("the active study session", () => {
     await loading;
     expect(stored()?.id).toBe("a");
   });
+
+  it("lets a question asked again replace the one before, even when the older answer comes last", async () => {
+    type Answer = { session?: school.StudySession; heartbeatIntervalSeconds: number };
+    const answers: ((value: Answer) => void)[] = [];
+    const ask = () =>
+      loadActiveSession(() => new Promise<Answer>((resolve) => answers.push(resolve)));
+    // On mount, then on the first Welcome; meanwhile the server stopped the idle timer.
+    const mount = ask();
+    const welcome = ask();
+    answers[1]?.({ heartbeatIntervalSeconds: 60 });
+    await welcome;
+    answers[0]?.({ session: session("a", RUNNING, T0), heartbeatIntervalSeconds: 60 });
+    await mount;
+    expect(stored()).toBeUndefined();
+    expect(useActiveSession.getState().loaded).toBe(true);
+  });
 });
