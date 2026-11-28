@@ -199,6 +199,7 @@ async fn relay_batch(db: &PgPool, bus: &Bus) -> AppResult<usize> {
     rows.sort_by_key(|r| r.id);
     let count = rows.len();
     let max_payload = bus.client.server_info().max_payload;
+    let mut messages = Vec::with_capacity(count);
     for row in rows {
         let event = Event {
             id: row.id,
@@ -220,14 +221,11 @@ async fn relay_batch(db: &PgPool, bus: &Bus) -> AppResult<usize> {
             );
             continue;
         }
-        // If publishing fails the transaction rolls back and the rows are retried.
-        bus.publish_durable(
-            format!("evt.{}", event.topic),
-            payload,
-            Some(&event.id.to_string()),
-        )
-        .await?;
+        messages.push((format!("evt.{}", event.topic), payload.into(), event.id.to_string()));
     }
+    // One round trip for the batch: the rows stay locked only that long. If
+    // publishing fails the transaction rolls back and the rows are retried.
+    bus.publish_durable_all(messages).await?;
     tx.commit().await?;
     Ok(count)
 }

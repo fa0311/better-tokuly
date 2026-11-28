@@ -254,6 +254,33 @@ impl Bus {
         Ok(())
     }
 
+    /// [`Self::publish_durable`] for many messages at once, each with its
+    /// deduplication ID: sends them all, then waits for JetStream to have
+    /// stored every one, so a batch costs one round trip rather than one per
+    /// message. On an error some may have been stored; sending the batch
+    /// again stores none of them twice.
+    pub async fn publish_durable_all(
+        &self,
+        messages: impl IntoIterator<Item = (String, Bytes, String)>,
+    ) -> AppResult<()> {
+        let unavailable = |e: String| {
+            AppError::unavailable("BUS_UNAVAILABLE", format!("durable publish failed: {e}"))
+        };
+        let mut acks = Vec::new();
+        for (subject, payload, dedupe_id) in messages {
+            let mut headers = async_nats::HeaderMap::new();
+            headers.insert("Nats-Msg-Id", dedupe_id.as_str());
+            let ack = self
+                .js
+                .publish_with_headers(self.subject(&subject), headers, payload)
+                .await
+                .map_err(|e| unavailable(e.to_string()))?;
+            acks.push(ack);
+        }
+        futures::future::try_join_all(acks.into_iter().map(std::future::IntoFuture::into_future)).await.map_err(|e| unavailable(e.to_string()))?;
+        Ok(())
+    }
+
     /// A durable pull consumer on `stream_name`. It is created if missing,
     /// starting at `start`, and brought up to date if it exists with other
     /// settings: a consumer keeps its position, so a release that subscribes
