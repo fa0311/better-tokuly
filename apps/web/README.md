@@ -73,17 +73,17 @@ touching the same file.
 | `admin-section.ts`             | `AdminSection` (`#/seams/admin`)        | an entry of the staff console's navigation                                            |
 | `channel-tab.tsx`              | `ChannelTab` (`features/video`)         | a tab on every channel page                                                           |
 | `forget-user.ts`               | `ForgetUser` (`#/seams/forget-user`)    | after an unfriend or a block: that person's content leaves the area's cached queries  |
-| `sign-out.ts`                  | `SignOutCleanup` (`#/seams/sign-out`)   | the account's storage entries and in-memory state, removed when its session ends      |
+| `sign-out.ts`                  | `SignOutCleanup` (`#/seams/sign-out`)   | the account's in-memory state, forgotten when its session ends                        |
 
 - A new area needs a `hub.tsx` to be reachable, and a `nav.ts` when its
   routes belong under a primary item (map, chat, notes, watch).
 - Unfriending and blocking call `forgetUser(queryClient, userId)`
   (`#/seams/forget-user`): a feature that caches other people's content
   takes theirs out in its `forget-user.ts`, or drops its lists.
-- Whatever a feature keeps of the account outside the query cache
-  (`localStorage`, `sessionStorage`, stores) goes in its `sign-out.ts`;
-  `src/seams/sign-out.test.ts` fails on a storage key that is neither there
-  nor kept on purpose.
+- When a session ends, every `tokuly` storage entry goes except those
+  `KEPT_STORAGE` (`#/seams/sign-out`) lists as the browser's own; what a
+  feature keeps of the account in memory (stores, timers) goes in its
+  `sign-out.ts`.
 - A page that needs the phone's whole height calls `useHideTabBar()`
   (`#/stores/shell`) instead of covering the tab bar. Toasts are not moved
   per screen.

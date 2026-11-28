@@ -10,7 +10,7 @@ import { ChannelAvatar } from "../video-card";
 
 const { ProcessingState, VideoStatus } = video;
 
-export const CHANNEL_KEY = "tokuly.studio.channel";
+const CHANNEL_KEY = "tokuly.studio.channel";
 
 /** The channel the studio is showing; remembered between visits. */
 const useSelection = create<{ channelId: string }>(() => ({

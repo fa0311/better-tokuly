@@ -85,7 +85,10 @@ test("after a deploy, a badge whose code is gone reloads the page once, into the
 
   // The app is deployed while the page is open: the badge's next try fails, and its build is gone.
   const deploy = await deployWhileOpen(page, "reload");
+  // The next page must have loaded before anything runs in it.
+  const reloaded = page.waitForEvent("load");
   await backOnline(page);
+  await reloaded;
   await expect.poll(deploy.loads).toBe(1);
 
   await letThrough();

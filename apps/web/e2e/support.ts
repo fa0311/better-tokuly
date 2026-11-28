@@ -327,7 +327,9 @@ async function blockCode(
       return route.abort("internetdisconnected");
     }
     if (!learn || !path.startsWith("/assets/")) return route.fallback();
-    const response = await route.fetch();
+    const response = await route.fetch().catch(() => null);
+    // A connection the server dropped: the browser asks again by itself.
+    if (!response) return route.fallback();
     const body = await response.text();
     learn(body);
     return route.fulfill({ response, body });
