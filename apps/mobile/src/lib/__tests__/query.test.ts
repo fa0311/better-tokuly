@@ -1,6 +1,7 @@
 import { focusManager, onlineManager, QueryObserver } from "@tanstack/react-query";
 import { addNetworkStateListener } from "expo-network";
 import { AppState, type AppStateStatus } from "react-native";
+import { journal } from "@tokuly/core/query";
 import { createQueryClient } from "../query";
 
 /** What the phone tells the app, as the app listens for it. */
@@ -59,5 +60,14 @@ describe("the query cache follows the phone", () => {
     expect(onlineManager.isOnline()).toBe(true);
     off();
     queryClient.clear();
+  });
+
+  it("lets a journaled query wait for the network like any other", () => {
+    const options = createQueryClient().defaultQueryOptions({
+      queryKey: ["journaled"],
+      queryFn: () => 1,
+      persister: journal,
+    });
+    expect(options.networkMode).toBe("online");
   });
 });
