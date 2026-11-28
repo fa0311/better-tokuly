@@ -95,6 +95,8 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
   );
   const key = notesKeys.timeline(source);
   const checking = useRef(false);
+  // Asked to look while a look was on its way, which may have read the timeline too early.
+  const checkAgain = useRef(false);
   const lastCheck = useRef(0);
 
   const apply = (page: TimelinePage) => {
@@ -103,7 +105,11 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
   };
 
   const check = async (force: boolean) => {
-    if (checking.current || !queryClient.getQueryData(key)) return;
+    if (!queryClient.getQueryData(key)) return;
+    if (checking.current) {
+      checkAgain.current = true;
+      return;
+    }
     checking.current = true;
     try {
       const page = await fetchTimeline(source, "");
@@ -116,6 +122,10 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
       if (force) toast.error(errorMessage(error, { namespace: "notes" }));
     } finally {
       checking.current = false;
+    }
+    if (checkAgain.current) {
+      checkAgain.current = false;
+      void latestCheck.current(false);
     }
   };
   const latestCheck = useRef(check);
