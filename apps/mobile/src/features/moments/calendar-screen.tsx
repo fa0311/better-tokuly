@@ -2,7 +2,7 @@ import { type Month, monthGrid, monthOf, monthOfDay, shiftMonth } from "@tokuly/
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, ChevronRight } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, Text, View } from "react-native";
 import { Button } from "#/components/button";
@@ -39,11 +39,25 @@ export function MomentCalendarScreen() {
   );
   const todayDate = today.data?.day?.date;
   const currentMonth = todayDate ? monthOfDay(todayDate) : monthOf(new Date());
+  const hasManuallySelectedMonth = useRef(false);
 
   useEffect(() => {
-    if (hasRouteMonth) setMonth({ year: routeYear, month: routeMonth });
-    else if (todayDate) setMonth(monthOfDay(todayDate));
-  }, [hasRouteMonth, routeMonth, routeYear, todayDate]);
+    if (hasRouteMonth) {
+      setMonth({ year: routeYear, month: routeMonth });
+    }
+    hasManuallySelectedMonth.current = false;
+  }, [hasRouteMonth, routeMonth, routeYear]);
+
+  useEffect(() => {
+    if (!hasRouteMonth && todayDate && !hasManuallySelectedMonth.current) {
+      const todayMonth = monthOfDay(todayDate);
+      setMonth((current) =>
+        current.year === todayMonth.year && current.month === todayMonth.month
+          ? current
+          : todayMonth,
+      );
+    }
+  }, [hasRouteMonth, todayDate]);
 
   const query = useMomentCalendar(month, !today.isPending);
   const entries = query.data?.days ?? [];
@@ -79,7 +93,10 @@ export function MomentCalendarScreen() {
             testID="moment-calendar-previous"
             label={t("calendar.previous")}
             icon={<ChevronLeft size={20} color={colors.ink} />}
-            onPress={() => setMonth(shiftMonth(month, -1))}
+            onPress={() => {
+              hasManuallySelectedMonth.current = true;
+              setMonth(shiftMonth(month, -1));
+            }}
           />
           <Text accessibilityLiveRegion="polite" className="text-lg font-black text-ink">
             {title}
@@ -89,7 +106,12 @@ export function MomentCalendarScreen() {
               testID="moment-calendar-next"
               label={t("calendar.next")}
               icon={<ChevronRight size={20} color={colors.ink} />}
-              onPress={() => !isCurrent && setMonth(shiftMonth(month, 1))}
+              onPress={() => {
+                if (!isCurrent) {
+                  hasManuallySelectedMonth.current = true;
+                  setMonth(shiftMonth(month, 1));
+                }
+              }}
             />
           </View>
         </View>
