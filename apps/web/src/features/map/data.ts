@@ -1,7 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type common, geo, social, toMillis } from "@tokuly/api";
 import { mapKeys } from "@tokuly/core/map";
-import { rereadOnWelcome } from "@tokuly/core/query";
+import { reread, rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
@@ -331,7 +331,8 @@ export function useMapSync(): void {
  * Runs on every page while someone is signed in, so that a position never
  * stays in memory longer than its reason for being there:
  * - someone who stops being visible to me (unfriended, blocked, banned)
- *   leaves the store at once, whatever page is open;
+ *   leaves the store at once, whatever page is open (an ended friendship:
+ *   `./forget-user.ts`);
  * - the store is emptied when the account signs out or another one signs in,
  *   so the next account never sees the previous one's friends.
  * It also keeps the server clock in step from the connection's welcome frame.
@@ -341,20 +342,15 @@ export function useFriendPositionsHousekeeping(): void {
   const myId = useMe()?.user?.id;
   useEffect(() => {
     const client = realtime();
-    const forget = (userId: string, removalSequence?: bigint) => {
+    const forget = (userId: string, removalSequence: bigint) => {
       useLocations.getState().remove(userId, removalSequence);
-      void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
+      void reread(queryClient, [mapKeys.friends]);
     };
     const offFrame = client.onFrame((frame) => {
       if (frame.topic) return;
       if (frame.body.case === "welcome") setServerTime(toMillis(frame.body.value.serverTime));
       else if (frame.body.case === "geo" && frame.body.value.event.case === "locationRemovedUserId")
         forget(frame.body.value.event.value, frame.body.value.removalSequence);
-      else if (
-        frame.body.case === "social" &&
-        frame.body.value.event.case === "friendRemovedUserId"
-      )
-        forget(frame.body.value.event.value);
     });
     client.start();
     return () => {

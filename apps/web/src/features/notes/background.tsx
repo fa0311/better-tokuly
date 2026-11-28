@@ -21,8 +21,8 @@ void import("#/features/engagement").then(({ registerSubjectCard }) =>
 /**
  * Runs while someone is signed in: keeps cached notes current from the
  * realtime connection (counters, deletions, link previews), tells timelines
- * when to look for new notes, drops the notes of someone who stopped being a
- * friend, and hosts the composer so any page can open it. When the session
+ * when to look for new notes, and hosts the composer so any page can open
+ * it. (Someone who stops being a friend: `./forget-user.ts`.) When the session
  * ends, what this browser kept for the account (drafts, reported views, the
  * notes known to be deleted) goes with it.
  */
@@ -44,14 +44,6 @@ export default function NotesBackground() {
       );
     const offNotes = onFramesLoading("notes", applyFrame);
     const offNotify = onFramesLoading("notify", applyFrame);
-    // A friendship ended, or the other side put up a block.
-    const offSocial = onFramesLoading("social", () =>
-      import("./live").then(
-        ({ applySocialEvent }) =>
-          ({ event }) =>
-            applySocialEvent(queryClient, event),
-      ),
-    );
     client.start();
     const onVisible = () => {
       if (document.visibilityState === "visible") hintTimelines();
@@ -61,7 +53,6 @@ export default function NotesBackground() {
       offWelcome();
       offNotes();
       offNotify();
-      offSocial();
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [queryClient]);

@@ -72,13 +72,14 @@ touching the same file.
 | `settings-section.ts`          | `SettingsSection` (`#/seams/settings`)  | a row of `/settings`                                                                  |
 | `admin-section.ts`             | `AdminSection` (`#/seams/admin`)        | an entry of the staff console's navigation                                            |
 | `channel-tab.tsx`              | `ChannelTab` (`features/video`)         | a tab on every channel page                                                           |
-| `forget-user.ts`               | `ForgetUser` (`#/seams/forget-user`)    | after an unfriend or a block: that person's content leaves the area's cached queries  |
+| `forget-user.ts`               | `ForgetUser` (`#/seams/forget-user`)    | a friendship ended (either side, a block too): that person's content leaves the area's cached queries |
 | `sign-out.ts`                  | `SignOutCleanup` (`#/seams/sign-out`)   | the account's in-memory state, forgotten when its session ends                        |
 
 - A new area needs a `hub.tsx` to be reachable, and a `nav.ts` when its
   routes belong under a primary item (map, chat, notes, watch).
 - Unfriending and blocking call `forgetUser(queryClient, userId)`
-  (`#/seams/forget-user`): a feature that caches other people's content
+  (`#/seams/forget-user`), and so does the other side's (the
+  `friendRemovedUserId` push): a feature that caches other people's content
   takes theirs out in its `forget-user.ts`, or drops its lists.
 - When a session ends, every `tokuly` storage entry goes except those
   `KEPT_STORAGE` (`#/seams/sign-out`) lists as the browser's own; what a

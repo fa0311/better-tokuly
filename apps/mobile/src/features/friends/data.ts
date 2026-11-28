@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { social } from "@tokuly/api";
-import { followKeys, friendKeys, friendQueries } from "@tokuly/core/friends";
+import { FRIEND_PUSHES, followKeys, friendKeys, friendQueries } from "@tokuly/core/friends";
+import { reread, rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { Alert } from "react-native";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import i18n from "#/lib/i18n";
 import { realtime } from "#/lib/realtime";
+import { forgetUser } from "#/seams/forget-user";
 
 export const friendClient = () => api().service(social.FriendService);
 export const followClient = () => api().service(social.FollowService);
@@ -76,23 +78,28 @@ export const useSendRequest = () =>
     () => t("toast.sent"),
   );
 
-/** Requests arrive and are answered while the app is open: the lists follow the pushes. */
+/**
+ * Requests arrive and are answered while the app is open: the lists follow
+ * the pushes, and a new connection reads them again. A friendship that ended
+ * (unfriended, blocked, or the account was deleted, by either side) takes
+ * that person out of every feature at once (`#/seams/forget-user`).
+ */
 export function useFriendsSync(): void {
   const queryClient = useQueryClient();
   useEffect(() => {
     const client = realtime();
+    // What changed before the connection was up, or while it was down, was not announced.
+    const offWelcome = rereadOnWelcome(queryClient, client, [friendKeys.all]);
     const off = client.onFrame((frame) => {
       if (frame.topic || frame.body.case !== "social") return;
-      const event = frame.body.value.event.case;
-      if (
-        event === "friendRequestReceived" ||
-        event === "friendRequestAccepted" ||
-        event === "friendRequestCancelledId" ||
-        event === "friendRemovedUserId"
-      )
-        void queryClient.invalidateQueries({ queryKey: friendKeys.all });
+      const event = frame.body.value.event;
+      if (event.case === "friendRemovedUserId") forgetUser(queryClient, event.value);
+      else if (FRIEND_PUSHES.has(event.case ?? "")) void reread(queryClient, [friendKeys.all]);
     });
     client.start();
-    return off;
+    return () => {
+      off();
+      offWelcome();
+    };
   }, [queryClient]);
 }

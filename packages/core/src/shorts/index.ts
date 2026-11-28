@@ -6,7 +6,7 @@
  * load, and labels.
  * The player, gestures, studio and feeds' query wiring stay in each app.
  */
-export { patchShortEverywhere, patchViewer, removeShortEverywhere } from "./cache";
+export { forgetShorts, patchShortEverywhere, patchViewer, removeShortEverywhere } from "./cache";
 export { shortKeys } from "./keys";
 export {
   type FeedEntry,
