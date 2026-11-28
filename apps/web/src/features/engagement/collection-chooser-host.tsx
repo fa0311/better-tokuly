@@ -1,9 +1,11 @@
 import type { Subject } from "@tokuly/core/engagement";
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 import { create } from "zustand";
+import { onDemand } from "#/components/on-demand";
 
-const CollectionChooser = lazy(() =>
-  import("./collection-chooser").then((module) => ({ default: module.CollectionChooser })),
+const CollectionChooser = onDemand(
+  () => import("./collection-chooser").then((module) => module.CollectionChooser),
+  "toast",
 );
 
 const useChooser = create<{ subject: Subject | null }>(() => ({ subject: null }));

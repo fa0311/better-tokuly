@@ -1,13 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
 import type { ServerFrame } from "@tokuly/realtime";
-import { lazy, useEffect } from "react";
+import { useEffect } from "react";
+import { onDemand } from "#/components/on-demand";
 import { onFramesLoading, realtime } from "#/lib/realtime";
 import { ComposeHost } from "./compose-host";
 import { hintTimelines } from "./timeline-hints";
 
-const NoteSubjectCard = lazy(() =>
-  import("./subject-card").then((module) => ({ default: module.NoteSubjectCard })),
+const NoteSubjectCard = onDemand(
+  () => import("./subject-card").then((module) => module.NoteSubjectCard),
+  "notice",
 );
 
 // Saved and reacted-to notes are drawn as notes on `/bookmarks`. Registered once engagement has

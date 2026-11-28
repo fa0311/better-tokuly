@@ -99,7 +99,7 @@ Examples, badges and navigation: [`docs/web/seams.md`](../../docs/web/seams.md).
   `useSubjectMenu(subject)` adds "send in chat", "copy link" and "report";
   a header without a menu: `<SubjectMoreButton>` (`features/engagement`);
 - a map: `<MapView>` / `<MapFrame>`, a picture of a place:
-  `<StaticMapPreview>` (`features/map`; import it with `lazy()` outside map
+  `<StaticMapPreview>` (`features/map`; import it with `onDemand()` outside map
   screens, the map library is large);
 - "today" and "now": `#/lib/account-time` (the account's time zone), never the
   device's calendar, for anything compared with the API's dates;
@@ -159,6 +159,9 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
 - Accessibility: real buttons/links, labels on icon buttons (`aria-label`),
   visible focus (built in), no information by colour alone.
 - No manual `useMemo`/`useCallback`/`memo`: the React Compiler memoizes.
+- A component loaded in its own chunk comes from `onDemand(load, whenFailed)`
+  (`#/components/on-demand`), never `React.lazy` (a lint rule): code that
+  fails to arrive leaves only its part off, and loads again.
 
 **Security headers**
 

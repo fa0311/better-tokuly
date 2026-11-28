@@ -51,6 +51,7 @@ export default {
     endOfList: "You're all caught up",
     offline: "You're offline",
     reconnecting: "Reconnecting...",
+    notLoaded: "Couldn't load this. Try again once you're connected.",
   },
   time: {
     now: "NOW",

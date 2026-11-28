@@ -52,6 +52,10 @@ function entryUrl(): string | undefined {
   return document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src;
 }
 
+/**
+ * Asks the server itself: a `HEAD` is never answered by the service worker
+ * (`public/sw.js` handles GET only), and `no-store` skips the HTTP cache.
+ */
 async function gone(url: string): Promise<boolean> {
   const response = await fetch(url, { method: "HEAD", cache: "no-store" }).catch(() => undefined);
   return response?.status === 404;

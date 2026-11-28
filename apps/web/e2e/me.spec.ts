@@ -1,6 +1,7 @@
 import { test as base } from "@playwright/test";
 import {
   adminAccount,
+  asReturningVisitor,
   backOnline,
   createAccount,
   deployWhileOpen,
@@ -78,13 +79,17 @@ test("after a deploy, a badge whose code is gone reloads the page once, into the
     { userId: me.userId },
     sender,
   );
-  // The count's code is not there, and neither is the build this page runs.
   const letThrough = await failToLoad(page, "badges.ts");
-  const deploy = await deployWhileOpen(page, "reload");
-
   await page.goto("/me");
+  await asReturningVisitor(page);
+
+  // The app is deployed while the page is open: the badge's next try fails, and its build is gone.
+  const deploy = await deployWhileOpen(page, "reload");
+  await backOnline(page);
+  await expect.poll(deploy.loads).toBe(1);
+
   await letThrough();
-  await expect.poll(deploy.loads).toBe(2);
+  await backOnline(page);
   await expect(page.getByRole("main").getByRole("link", { name: /ともだち/ })).toHaveAccessibleName(
     "1 ともだち",
   );
@@ -95,15 +100,40 @@ test("a build that stays gone after the reload is not reloaded again", async ({
   me: _me,
 }) => {
   await failToLoad(page, "badges.ts");
-  const deploy = await deployWhileOpen(page, "never");
-
   await page.goto("/me");
-  await expect.poll(deploy.loads).toBe(2);
+  await asReturningVisitor(page);
+
+  const deploy = await deployWhileOpen(page, "never");
+  await backOnline(page);
+  await expect.poll(deploy.loads).toBe(1);
   await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
-  // The badge is tried again when the device is back online: still gone, still no reload.
+  // The badge fails again on the reloaded page and once more when back online: no second reload.
   await backOnline(page);
   await page.waitForTimeout(2_000);
-  expect(deploy.loads()).toBe(2);
+  expect(deploy.loads()).toBe(1);
+});
+
+test("a hub card whose code cannot load says so in its place, and shows once tried again", async ({
+  page,
+  me: _me,
+}) => {
+  // The card's code fails to arrive, as when the connection drops right as the hub opens.
+  const letThrough = await failToLoad(page, "hub-card.tsx", "quest");
+
+  await page.goto("/me");
+  const main = page.getByRole("main");
+  await expect(
+    main.getByText("うまく読み込めなかった… つながったらもう一度ためしてね!"),
+  ).toBeVisible();
+  await expect(main.getByRole("link", { name: "ともだち" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "うまくいきませんでした" })).toHaveCount(0);
+
+  await letThrough();
+  await main.getByRole("button", { name: "もう一度" }).click();
+  await expect(main.getByRole("link", { name: "クエスト" })).toBeVisible();
+  await expect(
+    main.getByText("うまく読み込めなかった… つながったらもう一度ためしてね!"),
+  ).toHaveCount(0);
 });
 
 test("signing out returns to the landing page and locks the app again", async ({

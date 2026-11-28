@@ -1,10 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { onDemand } from "#/components/on-demand";
 import { onFramesLoading, realtime } from "#/lib/realtime";
 import { useSaveTarget } from "./save-target";
 
-const SaveDialogHost = lazy(() =>
-  import("./save-dialog").then((module) => ({ default: module.SaveDialogHost })),
+const SaveDialogHost = onDemand(
+  () => import("./save-dialog").then((module) => module.SaveDialogHost),
+  "toast",
 );
 
 /**
