@@ -319,7 +319,7 @@ test("a paint or an erase can be undone, and a tap the server refuses is taken b
   );
   await page.getByRole("radio", { name: "理科" }).click();
   await grid.getByRole("button", { name: `${second} 空き` }).click();
-  await expect(page.getByText("通信できませんでした。接続を確認してね")).toBeVisible();
+  await expect(page.getByText("通信できなかったよ。接続を確認してね!")).toBeVisible();
   await expect(grid.getByRole("button", { name: `${second} 空き` })).toBeVisible();
   await grid.getByRole("button", { name: `${first} 国語` }).click();
   await expect(grid.getByRole("button", { name: `${first} 国語` })).toBeVisible();

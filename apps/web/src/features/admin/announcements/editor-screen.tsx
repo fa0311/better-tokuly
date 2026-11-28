@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { admin, type common, fromDate, isApiError, isNotFound, media } from "@tokuly/api";
+import { admin, type common, fromDate, isNotFound, media } from "@tokuly/api";
 import { CalendarClock, ExternalLink, ImagePlus, Save, Send, Trash2, Undo2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -372,14 +372,10 @@ function HeaderImage({
         purpose: media.AssetPurpose.THUMBNAIL,
         onProgress: setProgress,
       });
-      if (!asset.image?.url) throw new Error("the upload is not an image");
-      onChange(asset.image);
+      if (asset.image?.url) onChange(asset.image);
+      else toast.error(t("announcements.image.failed"));
     } catch (error) {
-      toast.error(
-        isApiError(error)
-          ? errorMessage(error, { namespace: "admin" })
-          : t("announcements.image.failed"),
-      );
+      toast.error(errorMessage(error, { namespace: "admin" }));
     } finally {
       setProgress(null);
     }

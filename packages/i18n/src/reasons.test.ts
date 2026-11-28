@@ -38,7 +38,11 @@ function documentedReasons(): Set<string> {
   return reasons;
 }
 
-/** The reasons the backend raises by name: `AppError::<kind>("REASON", …)` and `ensure!(…, kind, "REASON", …)`. */
+/**
+ * The reasons the backend raises by name: `AppError::<kind>("REASON", …)`,
+ * `ensure!(…, kind, "REASON", …)` and the media processor's
+ * `ProcessError::rejected("REASON", …)`.
+ */
 function raisedReasons(): Set<string> {
   const reasons = new Set<string>();
   for (const file of files(join(repo, "backend/crates"), ".rs")) {
@@ -49,6 +53,8 @@ function raisedReasons(): Set<string> {
     ))
       reasons.add(reason ?? "");
     for (const [, reason] of code.matchAll(/ensure!\([^;]*?,\s*\w+,\s*"([A-Z][A-Z0-9_]*)"/g))
+      reasons.add(reason ?? "");
+    for (const [, reason] of code.matchAll(/ProcessError::rejected\(\s*"([A-Z][A-Z0-9_]*)"/g))
       reasons.add(reason ?? "");
   }
   return reasons;
