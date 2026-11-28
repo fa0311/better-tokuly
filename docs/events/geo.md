@@ -132,6 +132,12 @@ What follows from the rule, path by path:
   the stand-in when what they see changes (another cell, the battery, the
   paused flag, a new ten-minute step of `recorded_at`, which is rounded down
   for them), not whenever the person moves. A frozen viewer is sent nothing.
+- **Pins are pushed to those watching.** A pin update goes to the friends
+  with the app in the foreground, a `WatchFriendLocations` stream open, or a
+  `ListFriendLocations` answered in the last 90 s; everyone else loads the
+  snapshot when they come back. What a blurred viewer was last shown is
+  kept up to date while they are away, so that coming back tells them
+  nothing about movement inside the cell.
 - **Gathering shape.** A viewer's gathering is a group of members they see
   that holds together by itself (each within reach of another of the
   group). Two visible people connected only through someone the viewer does
@@ -296,6 +302,7 @@ No job-queue jobs. `Geo::spawn_workers` starts:
 | `geo:gathering:announced:<lo>:<hi>` | marker, 3 h | Throttles "A and B are together". |
 | `geo:pos:sight:<user>` | JSON (`tokuly_core::geoindex`) | Who sees the user precisely, for questions other domains ask the position index about pairs. |
 | `geo:pin:shown:<user>` | hash viewer → view, 7 days | What each blurred viewer was last sent of the user's pin. |
+| `geo:watching:<viewer>` | marker, 90 s | The viewer loaded friends' pins and is pushed their updates (set by `ListFriendLocations`, kept by a `WatchFriendLocations` stream). |
 | `geo:gathering:shown:<gathering>` | hash viewer → view, 7 days | What each viewer was last shown of a gathering: updates are pushed only when it changes, the end only to viewers in here. |
 | `geo:history:deleted:<user>` | JSON, 6 h | Ranges of raw history the user deleted: every process drops matching points still waiting in its buffer. |
 | `geo:share:seen:<share>:<ip>` | marker, 1 h | Counts each visitor of a share link once. |
