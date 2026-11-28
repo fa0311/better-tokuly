@@ -289,8 +289,13 @@ impl Geo {
         Ok(())
     }
 
-    /// Removes everything this domain holds about a deleted account.
+    /// Removes everything this domain holds about a deleted account and
+    /// takes its pin off its friends' maps.
     async fn forget_user(&self, user_id: Uuid) -> AppResult<()> {
+        // The friends before anything else: the social domain erases the
+        // friendships on the same event, possibly first. Then its own
+        // `friend_removed_user_id` is the only removal they get.
+        let friends = tokuly_social::graph::friend_ids(&self.core, user_id).await?;
         // First the cached context: from here on the pipeline finds the
         // account gone and accepts nothing more for it. Then the rest under
         // the account's pipeline lock, so a sample that was already being
@@ -299,7 +304,11 @@ impl Geo {
         let lock = self.lock_user(user_id).await?;
         let forgotten = self.forget_user_locked(user_id).await;
         self.unlock_user(lock).await;
-        forgotten
+        forgotten?;
+        // Numbered as for an unfriend, now that no snapshot shows the pin:
+        // one read before it, answering late, does not bring it back.
+        self.push_removed(&friends, user_id).await;
+        Ok(())
     }
 
     async fn forget_user_locked(&self, user_id: Uuid) -> AppResult<()> {

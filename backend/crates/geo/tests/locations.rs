@@ -894,6 +894,51 @@ async fn a_snapshot_on_its_way_gets_its_removals_numbered() {
     assert!(removal > read.removal_sequence, "numbered above the snapshot that may still list aoi");
 }
 
+/// A deleted account leaves its friends' maps as an unfriend does: one
+/// removal, numbered above a snapshot that may still list it for a friend who
+/// watches, unnumbered for one who does not.
+#[tokio::test]
+async fn a_deleted_account_is_taken_off_its_friends_maps() {
+    let ctx = start().await;
+    let (aoi, ren, kai) = (ctx.app.user("aoi").await, ctx.app.user("ren").await, ctx.app.user("kai").await);
+    ctx.befriend(&aoi, &ren).await;
+    ctx.befriend(&aoi, &kai).await;
+    ctx.at(&aoi, somewhere()).await;
+    let mut rens = ctx.open_app(&ren).await;
+    // Connected, but neither online nor holding a snapshot.
+    let mut kais = ctx.app.listen_user(kai.id).await;
+    let read: ListFriendLocationsResponse =
+        ctx.location("ListFriendLocations", &ren, &ListFriendLocationsRequest::default()).await.unwrap();
+    assert_eq!(read.locations.len(), 1);
+
+    // As identity erases the account; the friendships are still there.
+    sqlx::query("UPDATE users SET deleted_at = now() WHERE id = $1")
+        .bind(aoi.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.deliver("identity.user.deleted", aoi.id, serde_json::json!({ "user_id": aoi.id })).await;
+    let removals = async |listener: &mut FrameListener| -> Vec<i64> {
+        let mut found = Vec::new();
+        while let Some(frame) = listener.next(QUIET).await {
+            let Some(event) = frame.event::<GeoEvent>() else { continue };
+            if matches!(event.event, Some(Push::LocationRemovedUserId(ref id)) if *id == aoi.id.to_string()) {
+                found.push(event.removal_sequence);
+            }
+        }
+        found
+    };
+    let ren_removals = removals(&mut rens).await;
+    assert_eq!(ren_removals.len(), 1, "one removal, as for an unfriend");
+    assert!(ren_removals[0] > read.removal_sequence, "numbered above the snapshot that may still list aoi");
+    assert_eq!(removals(&mut kais).await, vec![0], "unnumbered for a friend who does not watch");
+
+    let after: ListFriendLocationsResponse =
+        ctx.location("ListFriendLocations", &ren, &ListFriendLocationsRequest::default()).await.unwrap();
+    assert!(after.locations.is_empty(), "no snapshot shows the deleted account");
+    assert_eq!(after.removal_sequence, ren_removals[0], "a snapshot read after the removal counts it");
+}
+
 #[tokio::test]
 async fn banned_and_deleted_accounts_disappear_from_the_map() {
     let ctx = start().await;
