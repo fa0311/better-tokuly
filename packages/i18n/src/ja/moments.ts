@@ -117,12 +117,19 @@ export default {
   },
   calendar: {
     title: "瞬間カレンダー",
+    open: "自分のカレンダーを見る",
     lead: "過去の瞬間は自分だけが見られるよ",
     previous: "前の月",
     next: "次の月",
+    emptyDay: "{{date}}（投稿なし）",
+    lateMark: "遅",
     summary: "{{posted}}日シェア・時間内 {{onTime}}回",
     day: "{{date}}の瞬間",
     empty: "この月の瞬間はまだないよ",
+    emptyState: {
+      title: "この月はまだ投稿がないよ",
+      body: "今日の瞬間を投稿すると、写真がここに並ぶよ。",
+    },
   },
   settings: {
     title: "いまの瞬間の設定",

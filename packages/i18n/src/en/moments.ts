@@ -117,12 +117,19 @@ export default {
   },
   calendar: {
     title: "Moments calendar",
+    open: "See your calendar",
     lead: "Only you can see your past moments",
     previous: "Previous month",
     next: "Next month",
+    emptyDay: "{{date}}, no Moment",
+    lateMark: "Late",
     summary: "Shared on {{posted}} days · {{onTime}} on time",
     day: "Moment of {{date}}",
     empty: "No moments this month yet",
+    emptyState: {
+      title: "No Moments this month",
+      body: "The Moments you post will show up here.",
+    },
   },
   settings: {
     title: "Moments settings",

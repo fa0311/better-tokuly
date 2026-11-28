@@ -3,6 +3,7 @@ import type { ScreenEntry } from "#/seams/screens";
 
 export default [
   { name: "moments/index", options: () => ({ title: i18n.t("moments:title") }) },
+  { name: "moments/calendar", options: () => ({ title: i18n.t("moments:calendar.title") }) },
   { name: "moments/friends/index", options: () => ({ title: i18n.t("moments:today.friends") }) },
   {
     name: "moments/friends/[momentId]",
