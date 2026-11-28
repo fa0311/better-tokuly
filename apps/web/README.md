@@ -181,6 +181,10 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
   (`#/lib/i18n`). The namespaces of the
   areas every app has are in `packages/i18n/src/{ja,en}/` (listed in its
   `index.ts`).
+- `t` is new whenever any namespace loads, so an effect never lists it (a lint
+  rule, `lint/no-t-in-effect-deps.grit`): it reads its strings with
+  `i18n.getFixedT(null, "<namespace>")`, or keeps keys and translates where
+  they are shown.
 
 **Checks**
 

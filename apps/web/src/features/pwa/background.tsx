@@ -22,8 +22,7 @@ const InstallGuide = lazy(() =>
  * the bars around the page, the offline pill, and the offer to install.
  */
 export default function PwaBackground() {
-  const { t } = useTranslation("pwa");
-  const justInstalled = useInstall((state) => state.justInstalled);
+  const { i18n } = useTranslation("pwa");
   // The guide loads the first time it opens, and stays mounted so it can animate out.
   const guideOpen = useInstall((state) => state.guideOpen);
   const [guideOpened, setGuideOpened] = useState(false);
@@ -35,9 +34,14 @@ export default function PwaBackground() {
   useUpdateToast();
   useProtocolWatch();
 
+  // Said once, when it happens: not again when the language changes.
   useEffect(() => {
-    if (justInstalled) toast.success(t("install.installedToast"));
-  }, [justInstalled, t]);
+    const t = i18n.getFixedT(null, "pwa");
+    return useInstall.subscribe((state, previous) => {
+      if (state.justInstalled && !previous.justInstalled)
+        toast.success(t("install.installedToast"));
+    });
+  }, [i18n]);
 
   return (
     <>

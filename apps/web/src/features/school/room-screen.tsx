@@ -52,10 +52,12 @@ const REACTIONS: { reaction: school.RoomReaction; emoji: string; key: string }[]
   { reaction: school.RoomReaction.WAVE, emoji: "👋", key: "wave" },
 ];
 
+/** A reaction floating up: translated where it is shown, so the live effect does not need `t`. */
 interface Burst {
   id: number;
   emoji: string;
-  text: string;
+  from: string;
+  key: string;
 }
 
 let burstId = 0;
@@ -137,7 +139,8 @@ export function RoomScreen({ roomId }: { roomId: string }) {
           const burst = {
             id: ++burstId,
             emoji: reaction.emoji,
-            text: `${event.value.from?.displayName ?? ""}: ${t(`rooms.reactions.${reaction.key}`)}`,
+            from: event.value.from?.displayName ?? "",
+            key: reaction.key,
           };
           setBursts((current) => [...current.slice(-4), burst]);
           window.setTimeout(
@@ -156,7 +159,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
       off();
       release();
     };
-  }, [roomId, queryClient, t]);
+  }, [roomId, queryClient]);
 
   const leaveToList = () => {
     refreshSchool(queryClient, "rooms", "study");
@@ -330,7 +333,7 @@ export function RoomScreen({ roomId }: { roomId: string }) {
                 className="sticker-sm animate-pop-in flex items-center gap-1.5 rounded-full bg-sun px-3 py-1 text-sm font-black text-[#17122b]"
               >
                 <span className="text-lg">{burst.emoji}</span>
-                {burst.text}
+                {`${burst.from}: ${t(`rooms.reactions.${burst.key}`)}`}
               </li>
             ))}
           </ul>

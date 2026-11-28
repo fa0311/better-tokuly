@@ -22,7 +22,7 @@ import {
  * (a cheer, an invitation to a room, being out of a room).
  */
 export default function SchoolBackground() {
-  const { t } = useTranslation("school");
+  const { i18n } = useTranslation("school");
   const queryClient = useQueryClient();
   const router = useRouter();
   const sessionId = useActiveSession((state) => state.session?.id);
@@ -31,6 +31,7 @@ export default function SchoolBackground() {
 
   // The timer as the server has it: on sign-in, and whenever the connection comes back.
   useEffect(() => {
+    const t = i18n.getFixedT(null, "school");
     const load = () => loadActiveSession(() => studyClient().getCurrentStudySession({}));
     void load();
     let connectedBefore = false;
@@ -105,7 +106,7 @@ export default function SchoolBackground() {
     });
     client.start();
     return off;
-  }, [queryClient, router, t]);
+  }, [queryClient, router, i18n]);
 
   // Whoever is in a room hears its timer wherever they are in the app.
   useEffect(() => {
@@ -118,6 +119,7 @@ export default function SchoolBackground() {
   // "Still here": the server counts study time up to the last heartbeat only.
   useEffect(() => {
     if (!sessionId) return;
+    const t = i18n.getFixedT(null, "school");
     let stopped = false;
     const beat = async () => {
       try {
@@ -146,7 +148,7 @@ export default function SchoolBackground() {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [sessionId, heartbeatSeconds, queryClient, t]);
+  }, [sessionId, heartbeatSeconds, queryClient, i18n]);
 
   return null;
 }

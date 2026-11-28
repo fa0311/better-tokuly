@@ -23,7 +23,7 @@ import { putOutside, roleChanged, useAudioSession } from "./session";
 export default function SpacesBackground() {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { t } = useTranslation("spaces");
+  const { i18n } = useTranslation("spaces");
   const myId = useMe()?.user?.id ?? "";
   const activeSpaceId = useAudioSession((state) =>
     state.active?.kind === "space" ? state.active.id : undefined,
@@ -33,6 +33,7 @@ export default function SpacesBackground() {
 
   useEffect(() => {
     if (!myId) return;
+    const t = i18n.getFixedT(null, "spaces");
     const client = realtime();
     /** When this person was last seen entering a room or hangout other than this session's. */
     let enteredElsewhereAt = 0;
@@ -128,20 +129,19 @@ export default function SpacesBackground() {
       off();
       stop();
     };
-  }, [queryClient, router, t, myId]);
+  }, [queryClient, router, i18n, myId]);
 
   // Being put outside is said wherever the person is; the venue's page then shows the details.
-  useEffect(
-    () =>
-      useAudioSession.subscribe((state, previous) => {
-        const exit = state.exit;
-        if (!exit || (previous.exit?.kind === exit.kind && previous.exit.id === exit.id)) return;
-        toast(t(`exit.${exit.reason}.title`), {
-          description: t(`exit.${exit.reason}.body`),
-        });
-      }),
-    [t],
-  );
+  useEffect(() => {
+    const t = i18n.getFixedT(null, "spaces");
+    return useAudioSession.subscribe((state, previous) => {
+      const exit = state.exit;
+      if (!exit || (previous.exit?.kind === exit.kind && previous.exit.id === exit.id)) return;
+      toast(t(`exit.${exit.reason}.title`), {
+        description: t(`exit.${exit.reason}.body`),
+      });
+    });
+  }, [i18n]);
 
   return (
     <>
