@@ -4,6 +4,7 @@ import {
   test as base,
   expect,
   type Page,
+  type Route,
 } from "@playwright/test";
 
 export { expect };
@@ -262,6 +263,57 @@ export async function letHoveredToastsGo(page: Page): Promise<void> {
     },
     { noWaitAfter: true },
   );
+}
+
+/**
+ * Makes the code the app splits off for `features/<area>/<file>` fail to
+ * arrive, as when the connection drops right as it is needed (`area`
+ * defaults to every area). The development server serves the file under its
+ * own path; a build gives it a chunk whose name says nothing (and other
+ * chunks share that name), so the chunk is found where the app's glob map
+ * imports it, in the code the page loads before it. Returns what lets the
+ * code through again, once the app has tried to load it and failed.
+ */
+export async function failToLoad(
+  page: Page,
+  file: string,
+  area = '[^/"]+',
+): Promise<() => Promise<void>> {
+  const name = file.replaceAll(".", "\\.");
+  const source = new RegExp(`/src/features/${area}/${name}(\\?|$)`);
+  const globEntry = new RegExp(
+    `"\\.\\./features/${area}/${name}":[^\`"']*[\`"']\\./([^\`"']+\\.js)[\`"']`,
+    "g",
+  );
+  const chunks = new Set<string>();
+  let failed = 0;
+  const handler = async (route: Route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (source.test(path) || chunks.has(path)) {
+      failed += 1;
+      return route.abort("internetdisconnected");
+    }
+    if (!path.startsWith("/assets/")) return route.fallback();
+    const response = await route.fetch();
+    const body = await response.text();
+    for (const [, chunk] of body.matchAll(globEntry)) chunks.add(`/assets/${chunk}`);
+    return route.fulfill({ response, body });
+  };
+  await page.route(/\.(js|ts|tsx)(\?|$)/, handler);
+  return async () => {
+    await expect.poll(() => failed, { message: `the app asks for ${file}` }).toBeGreaterThan(0);
+    await page.unroute(/\.(js|ts|tsx)(\?|$)/, handler);
+  };
+}
+
+/**
+ * What a device says when its connection comes back: the `online` event.
+ * Not `context.setOffline(false)`: that reaches the service worker a moment
+ * after the page, so what the page loads right on the event can still fail
+ * there.
+ */
+export async function backOnline(page: Page): Promise<void> {
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
 }
 
 /**
