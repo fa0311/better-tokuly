@@ -1,7 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type common, geo, social, toMillis } from "@tokuly/api";
 import { mapKeys } from "@tokuly/core/map";
-import { reread, rereadOnWelcome } from "@tokuly/core/query";
+import { journal, pushTo, reread, rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "#/lib/api";
@@ -68,18 +68,27 @@ export const useGhostSettings = () =>
     staleTime: 60_000,
   });
 
+/**
+ * The gatherings the caller sees, with where their members are. Pushes reach
+ * it through `pushTo` (`docs/realtime-consistency.md`, rule 2): a read made
+ * before a gathering ended, or a member left, does not bring them back.
+ */
 export const useGatherings = () =>
   useQuery({
     queryKey: mapKeys.gatherings,
-    queryFn: async () => (await locationClient().listGatherings({})).gatherings,
+    queryFn: async ({ signal }) =>
+      (await locationClient().listGatherings({}, { signal })).gatherings,
     staleTime: 60_000,
+    persister: journal,
   });
 
+/** The trips under way the caller sees, theirs and friends'; pushes reach it like the gatherings. */
 export const useActiveTrips = () =>
   useQuery({
     queryKey: mapKeys.trips,
-    queryFn: async () => (await tripClient().listActiveTrips({})).trips,
+    queryFn: async ({ signal }) => (await tripClient().listActiveTrips({}, { signal })).trips,
     staleTime: 60_000,
+    persister: journal,
   });
 
 export const useActiveSos = () =>
@@ -110,12 +119,24 @@ export const useMapViews = () =>
     staleTime: 60_000,
   });
 
-function upsertById<T extends { id: string }>(list: T[] | undefined, item: T): T[] {
-  const rest = (list ?? []).filter((entry) => entry.id !== item.id);
-  return [...rest, item];
+function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
+  return [...withoutId(list, item.id), item];
 }
 
-function applyGeoEvent(
+function withoutId<T extends { id: string }>(list: T[], id: string): T[] {
+  return list.filter((entry) => entry.id !== id);
+}
+
+/** A trip as it is now: on the list while under way, off it once over. */
+export function pushTrip(queryClient: QueryClient, trip: geo.Trip): void {
+  const active = trip.status === geo.TripStatus.ACTIVE;
+  pushTo<geo.Trip[]>(queryClient, mapKeys.trips, (list) =>
+    active ? upsertById(list, trip) : withoutId(list, trip.id),
+  );
+}
+
+/** Brings the map's cached queries and pins in line with a pushed `GeoEvent`. */
+export function applyGeoEvent(
   queryClient: QueryClient,
   { event, removalSequence }: geo.GeoEvent,
   myId: string | undefined,
@@ -125,22 +146,23 @@ function applyGeoEvent(
     case "location":
       locations.upsert(event.value, removalSequence);
       break;
-    case "gatheringUpdated":
-      queryClient.setQueryData<geo.Gathering[]>(mapKeys.gatherings, (list) =>
-        upsertById(list, event.value),
+    case "gatheringUpdated": {
+      const gathering = event.value;
+      pushTo<geo.Gathering[]>(queryClient, mapKeys.gatherings, (list) =>
+        upsertById(list, gathering),
       );
       break;
-    case "gatheringEndedId":
-      queryClient.setQueryData<geo.Gathering[]>(mapKeys.gatherings, (list) =>
-        (list ?? []).filter((gathering) => gathering.id !== event.value),
+    }
+    case "gatheringEndedId": {
+      const gatheringId = event.value;
+      pushTo<geo.Gathering[]>(queryClient, mapKeys.gatherings, (list) =>
+        withoutId(list, gatheringId),
       );
       break;
+    }
     case "tripUpdated": {
       const trip = event.value;
-      const active = trip.status === geo.TripStatus.ACTIVE;
-      queryClient.setQueryData<geo.Trip[]>(mapKeys.trips, (list) =>
-        active ? upsertById(list, trip) : (list ?? []).filter((entry) => entry.id !== trip.id),
-      );
+      pushTrip(queryClient, trip);
       if (trip.status === geo.TripStatus.ARRIVED) {
         const mine = trip.user?.id === myId;
         toast.success(
