@@ -1,5 +1,6 @@
-import type { InfiniteData, QueryClient } from "@tanstack/query-core";
+import type { InfiniteData, QueryClient, QueryKey } from "@tanstack/query-core";
 import { plans } from "@tokuly/api";
+import { pushTo, reread } from "../query";
 import { planKeys as keys } from "./keys";
 
 /** One page of who is free as it is cached; `mine` (the caller's own status) comes with the first page only. */
@@ -9,22 +10,18 @@ export interface FreeBoardPage {
   nextCursor: string;
 }
 
-/** Rewrites the loaded statuses of friends, page by page (the first page has index 0). */
+/**
+ * Rewrites the loaded statuses of friends, page by page (the first page has
+ * index 0), and those of a read in flight when it lands (`pushTo`).
+ */
 export function patchFreeStatuses(
   queryClient: QueryClient,
   patch: (statuses: plans.FreeStatus[], pageIndex: number) => plans.FreeStatus[],
 ): void {
-  queryClient.setQueryData<InfiniteData<FreeBoardPage, string>>(
-    keys.freeFriends,
-    (board) =>
-      board && {
-        ...board,
-        pages: board.pages.map((page, index) => ({
-          ...page,
-          statuses: patch(page.statuses, index),
-        })),
-      },
-  );
+  pushTo<InfiniteData<FreeBoardPage, string>>(queryClient, keys.freeFriends, (board) => ({
+    ...board,
+    pages: board.pages.map((page, index) => ({ ...page, statuses: patch(page.statuses, index) })),
+  }));
 }
 
 /** Sets (or clears) the caller's own status in what is loaded. */
@@ -83,10 +80,14 @@ export function showMyRsvp(
 /**
  * Applies a pushed `PlansEvent` to what is loaded. Events carry IDs and
  * counters, never names or comments, so most of them only say "this changed":
- * the checklist and the free statuses are patched in place, the rest is read
- * again.
+ * the checklist, the counts and the free statuses are patched in place, the
+ * rest is read again. Both go by `docs/realtime-consistency.md`, rule 2:
+ * patches and removals through `pushTo`, so that a read made before them
+ * cannot undo them, and reading again through `reread`, which replaces a read
+ * in flight instead of joining it.
  */
 export function applyPlansEvent(queryClient: QueryClient, event: plans.PlansEvent["event"]): void {
+  const readAgain = (...queryKeys: QueryKey[]) => void reread(queryClient, queryKeys);
   switch (event.case) {
     case "freeStatusChanged": {
       const { userId, status } = event.value;
@@ -94,78 +95,67 @@ export function applyPlansEvent(queryClient: QueryClient, event: plans.PlansEven
         const others = statuses.filter((existing) => existing.user?.id !== userId);
         return status && pageIndex === 0 ? [status, ...others] : others;
       });
-      queryClient.setQueryData(keys.freeStatus(userId), status ?? null);
-      // The server's order (running first, then by start) comes with the next read.
-      void queryClient.invalidateQueries({ queryKey: keys.freeFriends });
+      // The server's order (running first, then by start) comes with the next read, and so does a
+      // status where none was held.
+      readAgain(keys.freeFriends, keys.freeStatus(userId));
       break;
     }
     case "freeAnswer":
-      void queryClient.invalidateQueries({ queryKey: keys.free });
+      readAgain(keys.free);
       break;
     case "planChanged": {
       const { planId, change } = event.value;
       if (change === plans.PlanChange.REMOVED) {
-        queryClient.setQueryData(keys.plan(planId), null);
+        pushTo<plans.Plan | null>(queryClient, keys.plan(planId), () => null);
         queryClient.removeQueries({ queryKey: keys.expenses(planId) });
         queryClient.removeQueries({ queryKey: keys.split(planId) });
-      } else {
-        void queryClient.invalidateQueries({ queryKey: keys.plan(planId) });
-      }
-      void queryClient.invalidateQueries({ queryKey: keys.planLists });
-      void queryClient.invalidateQueries({ queryKey: keys.calendars });
+        readAgain(keys.planLists, keys.calendars);
+      } else readAgain(keys.plan(planId), keys.planLists, keys.calendars);
       break;
     }
     case "planRsvpChanged": {
       const { planId, counts } = event.value;
       // The counts are right at once; names, comments and the waitlist order follow.
-      queryClient.setQueryData<plans.Plan | null>(keys.plan(planId), (plan) =>
-        plan && counts ? { ...plan, counts } : plan,
-      );
-      void queryClient.invalidateQueries({ queryKey: keys.plan(planId) });
-      void queryClient.invalidateQueries({ queryKey: keys.planLists });
+      if (counts)
+        pushTo<plans.Plan | null>(queryClient, keys.plan(planId), (plan) => ({ ...plan, counts }));
       // Who may hold a share of an expense follows who is going.
-      void queryClient.invalidateQueries({ queryKey: keys.split(planId) });
+      readAgain(keys.plan(planId), keys.planLists, keys.split(planId));
       break;
     }
     case "checklistChanged": {
       const { planId, item, removedItemId } = event.value;
-      queryClient.setQueryData<plans.Plan | null>(
-        keys.plan(planId),
-        (plan) =>
-          plan && { ...plan, checklist: mergeChecklist(plan.checklist, item, removedItemId) },
-      );
-      void queryClient.invalidateQueries({ queryKey: keys.planLists });
+      pushTo<plans.Plan | null>(queryClient, keys.plan(planId), (plan) => ({
+        ...plan,
+        checklist: mergeChecklist(plan.checklist, item, removedItemId),
+      }));
+      readAgain(keys.planLists);
       break;
     }
     case "expensesChanged": {
       const { planId } = event.value;
-      void queryClient.invalidateQueries({ queryKey: keys.expenses(planId) });
-      void queryClient.invalidateQueries({ queryKey: keys.split(planId) });
-      void queryClient.invalidateQueries({ queryKey: keys.plan(planId) });
+      readAgain(keys.expenses(planId), keys.split(planId), keys.plan(planId));
       break;
     }
     case "pollChanged": {
       const changed = event.value;
-      const isIt = (poll: plans.Poll | null | undefined) => poll?.id === changed.pollId;
-      for (const [key, poll] of queryClient.getQueriesData<plans.Poll | null>({
-        queryKey: ["plans", "poll"],
-      })) {
-        if (!isIt(poll)) continue;
-        if (changed.deleted) queryClient.setQueryData(key, null);
-        else {
-          queryClient.setQueryData(key, applyTallies(poll as plans.Poll, changed));
-          // Who answered what (the grid) is not in the event.
-          void queryClient.invalidateQueries({ queryKey: key });
-        }
+      const isIt = (poll: plans.Poll) => poll.id === changed.pollId;
+      // A poll is held under its ID and under the short ID of its link, and a first read does not
+      // say which poll it is until it lands: the change goes to every read in flight too, and
+      // looks at the poll there.
+      for (const query of queryClient.getQueryCache().findAll({ queryKey: keys.everyPoll })) {
+        const held = query.state.data as plans.Poll | null | undefined;
+        if (held === null || (held && !isIt(held))) continue;
+        pushTo<plans.Poll | null>(queryClient, query.queryKey, (poll) =>
+          !isIt(poll) ? poll : changed.deleted ? null : applyTallies(poll, changed),
+        );
+        // Who answered what (the grid) is not in the event.
+        if (held && !changed.deleted) readAgain(query.queryKey);
       }
-      void queryClient.invalidateQueries({ queryKey: keys.polls });
-      void queryClient.invalidateQueries({ queryKey: keys.calendars });
-      if (changed.planId) void queryClient.invalidateQueries({ queryKey: keys.planLists });
+      readAgain(keys.polls, keys.calendars, ...(changed.planId ? [keys.planLists] : []));
       break;
     }
     case "anniversaryChanged":
-      void queryClient.invalidateQueries({ queryKey: keys.anniversaries });
-      void queryClient.invalidateQueries({ queryKey: keys.calendars });
+      readAgain(keys.anniversaries, keys.calendars);
       break;
     default:
       break;

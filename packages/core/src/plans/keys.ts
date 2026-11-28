@@ -16,6 +16,7 @@ export const planKeys = {
   expenses: (planId: string) => ["plans", "expenses", planId] as const,
   split: (planId: string) => ["plans", "split", planId] as const,
   polls: ["plans", "polls"] as const,
+  everyPoll: ["plans", "poll"] as const,
   /** `pollId` is whatever the address names: the ID or the short ID of the link. */
   poll: (pollId: string) => ["plans", "poll", pollId] as const,
   countdowns: ["plans", "countdowns"] as const,

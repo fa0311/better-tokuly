@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { plans, toDate } from "@tokuly/api";
+import { planQueries } from "@tokuly/core/plans";
 import { CalendarPlus, ChevronRight, Download, Hourglass } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -12,7 +13,7 @@ import { useOpenTargetPath } from "#/features/notifications";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { useTranslation } from "#/lib/use-translation";
-import { keys, planClient, useCalendar } from "../api";
+import { planClient, useCalendar } from "../api";
 import { CountdownDialog } from "../countdown/countdown-dialog";
 import { localized } from "../countdown/model";
 import { formatDay, formatMonth, formatTime, monthOf, planTimeZone, todayYmd } from "../dates";
@@ -74,11 +75,7 @@ export function CalendarScreen({
       const loaded = await Promise.all(
         planIds.map((planId) =>
           queryClient
-            .fetchQuery({
-              queryKey: keys.plan(planId),
-              queryFn: async () => (await planClient().getPlan({ planId })).plan ?? null,
-              staleTime: 30_000,
-            })
+            .fetchQuery({ ...planQueries.plan(planClient, planId), staleTime: 30_000 })
             // A plan that cannot be read is written from its entry.
             .catch(() => null),
         ),
