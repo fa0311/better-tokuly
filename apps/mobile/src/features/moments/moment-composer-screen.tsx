@@ -11,7 +11,8 @@ import {
 import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { Camera, RotateCcw } from "lucide-react-native";
+import { router } from "expo-router";
+import { Camera, RotateCcw, Users } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Linking, Modal, Pressable, Text, View } from "react-native";
@@ -51,6 +52,7 @@ function momentDate(date: string, language: string): string {
 
 export function MomentComposerScreen() {
   const { t, i18n } = useTranslation("moments");
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const accountAtCapture = currentAccount();
   const today = useMomentToday();
@@ -310,6 +312,9 @@ export function MomentComposerScreen() {
     return (
       <Page testID="moment-composer">
         <EmptyState emoji="⏳" title={t("today.waitingTitle")} body={t("today.waitingBody")} />
+        <Button variant="secondary" onPress={() => router.push("/moments/friends")}>
+          {t("friends.open")}
+        </Button>
       </Page>
     );
   }
@@ -337,6 +342,9 @@ export function MomentComposerScreen() {
             ) : null}
           </View>
         )}
+        <Button variant="secondary" onPress={() => router.push("/moments/friends")}>
+          {t("friends.open")}
+        </Button>
       </Page>
     );
   }
@@ -409,6 +417,13 @@ export function MomentComposerScreen() {
           onPress={() => void post()}
         >
           {t("camera.post")}
+        </Button>
+        <Button
+          variant="secondary"
+          icon={<Users size={16} color={colors.ink} />}
+          onPress={() => router.push("/moments/friends")}
+        >
+          {t("friends.open")}
         </Button>
       </Page>
 

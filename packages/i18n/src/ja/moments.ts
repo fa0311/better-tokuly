@@ -165,4 +165,13 @@ export default {
     },
   },
   notFound: "この瞬間は見られないよ",
+  friends: {
+    open: "ともだちの瞬間を見る",
+    loadError: "ともだちの瞬間を読み込めなかったよ。",
+    someone: "ともだち",
+    lockedCard: "{{name}}さんのロック中の瞬間",
+    openCard: "{{name}}さんの瞬間を見る",
+    lockedCardHint: "自分もシェアすると、写真とひとことが見られるよ。",
+    detailError: "この瞬間を読み込めなかったよ。",
+  },
 } as const;
