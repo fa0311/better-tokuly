@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/query-core";
 import { errorReason, live, type social } from "@tokuly/api";
-import { type ClientSource, journal, pushTo } from "../query";
+import { type ClientSource, journal, pushTo, pushToAll, reread } from "../query";
 import { liveKeys } from "./keys";
 import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from "./model";
 
@@ -9,7 +9,9 @@ const { ChatMessageKind } = live;
 /**
  * Live streams in the query cache: a stream page under whichever ID it was
  * opened with (the UUID or the short ID), its chat, and what a pushed
- * `LiveEvent` does to both.
+ * `LiveEvent` does to both. Both are read through the journal and changed
+ * through `pushTo`, so a read on its way cannot undo a push (a deleted line
+ * back as the pin, a pin change gone back: `docs/realtime-consistency.md`).
  */
 
 /** Query options of the live domain. Each app adds `enabled` and its hooks around them. */
@@ -20,14 +22,15 @@ export const liveQueries = {
    */
   stream: (client: ClientSource<typeof live.LiveStreamService>, streamId: string) => ({
     queryKey: liveKeys.stream(streamId),
-    queryFn: async (): Promise<live.Stream | null> => {
+    queryFn: async ({ signal }: { signal: AbortSignal }): Promise<live.Stream | null> => {
       try {
-        return (await client().getStream({ streamId })).stream ?? null;
+        return (await client().getStream({ streamId }, { signal })).stream ?? null;
       } catch (error) {
         if (errorReason(error) === "STREAM_NOT_FOUND") return null;
         throw error;
       }
     },
+    persister: journal,
   }),
 
   /** The gift ladder. It never changes while the app is open. */
@@ -60,42 +63,53 @@ export const liveQueries = {
   }),
 };
 
-/** Changes the cached page of a stream, under whichever ID it was opened with. */
+/**
+ * Changes the cached page of a stream, under whichever ID it was opened with,
+ * and every read of it in flight: one still on its way under a short ID is
+ * only known to be this stream once it answers, so the patch goes to every
+ * stream page and applies to this one.
+ */
 export function patchStream(
   queryClient: QueryClient,
   streamId: string,
   patch: (stream: live.Stream) => live.Stream,
 ): void {
-  for (const [key, stream] of queryClient.getQueriesData<live.Stream | null>({
-    queryKey: liveKeys.streams,
-  })) {
-    if (!stream?.summary) continue;
-    if (stream.summary.id !== streamId && stream.summary.shortId !== streamId) continue;
-    queryClient.setQueryData(key, patch(stream));
-  }
+  pushToAll<live.Stream | null>(queryClient, liveKeys.streams, (stream) =>
+    isStream(stream, streamId) ? patch(stream) : stream,
+  );
 }
 
-/** Puts an answer of the server (create, update, start, end) into the cache under both IDs. */
+/**
+ * Puts an answer of the server (create, update, start, end) into the cache
+ * under both IDs. A read on its way may be older: it answers with this too.
+ */
 export function storeStream(queryClient: QueryClient, stream: live.Stream | undefined): void {
   if (!stream?.summary) return;
-  queryClient.setQueryData(liveKeys.stream(stream.summary.id), stream);
-  queryClient.setQueryData(liveKeys.stream(stream.summary.shortId), stream);
+  for (const key of [liveKeys.stream(stream.summary.id), liveKeys.stream(stream.summary.shortId)]) {
+    // Held now, also where nothing was held yet, and what a read in flight answers with.
+    queryClient.setQueryData(key, stream);
+    pushTo<live.Stream | null>(queryClient, key, () => stream);
+  }
   void queryClient.invalidateQueries({ queryKey: liveKeys.lists });
 }
 
-/** Reads a stream's page again, under whichever ID it was opened with. */
+/** Reads a stream's page again, under whichever ID it was opened with; a read in flight is replaced. */
 export function refreshStream(queryClient: QueryClient, streamId: string): void {
-  void queryClient.invalidateQueries({
-    queryKey: liveKeys.streams,
-    predicate: (query) => {
-      const stream = query.state.data as live.Stream | null | undefined;
-      return (
+  const keys = queryClient
+    .getQueryCache()
+    .findAll({ queryKey: liveKeys.streams })
+    .filter(
+      (query) =>
         query.queryKey[2] === streamId ||
-        stream?.summary?.id === streamId ||
-        stream?.summary?.shortId === streamId
-      );
-    },
-  });
+        isStream(query.state.data as live.Stream | null | undefined, streamId),
+    )
+    .map((query) => query.queryKey);
+  void reread(queryClient, keys);
+}
+
+function isStream(stream: live.Stream | null | undefined, streamId: string): stream is live.Stream {
+  const summary = stream?.summary;
+  return summary !== undefined && (summary.id === streamId || summary.shortId === streamId);
 }
 
 /**

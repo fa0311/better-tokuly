@@ -1,8 +1,10 @@
+import type { Client } from "@connectrpc/connect";
 import { QueryClient } from "@tanstack/query-core";
 import { create, fromDate, notes } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
 import { addStory, forgetUserStories, patchStory, removeStory } from "./cache";
 import { storyKeys } from "./keys";
+import { storyQueries } from "./queries";
 
 const ME = "me";
 const user = (id: string) => ({ id, handle: id, displayName: id });
@@ -58,5 +60,61 @@ describe("story cache", () => {
     forgetUserStories(queryClient, "ren");
     expect(tray(queryClient)).toEqual([]);
     expect(queryClient.getQueryData(storyKeys.story("r1"))).toBeUndefined();
+  });
+});
+
+/** A server whose story tray and reels the test hands out, one answer per read. */
+function server() {
+  const trays: ((reels: notes.StoryReel[]) => void)[] = [];
+  const reels: ((stories: notes.Story[]) => void)[] = [];
+  const client = () =>
+    ({
+      getStoryTray: () =>
+        new Promise((resolve) => trays.push((value) => resolve({ reels: value }))),
+      listUserStories: () =>
+        new Promise((resolve) => reels.push((value) => resolve({ stories: value }))),
+    }) as unknown as Client<typeof notes.StoryService>;
+  return {
+    client,
+    tray: (read: number, value: notes.StoryReel[]) => trays[read]?.(value),
+    reel: (read: number, value: notes.Story[]) => reels[read]?.(value),
+  };
+}
+
+describe("a read in flight when a story or a person goes", () => {
+  it("does not bring a deleted story back into the tray", async () => {
+    const queryClient = withTray(reel("aoi", [story("a1", "aoi", 1), story("a2", "aoi", 2)]));
+    const api = server();
+    // The tray is read again (a Welcome); the story is deleted before the answer, made earlier, lands.
+    const reading = queryClient.fetchQuery({ ...storyQueries.tray(api.client), staleTime: 0 });
+    removeStory(queryClient, "a1");
+    api.tray(0, [reel("aoi", [story("a1", "aoi", 1), story("a2", "aoi", 2)])]);
+    await reading;
+    expect(tray(queryClient)[0]?.stories.map((item) => item.id)).toEqual(["a2"]);
+  });
+
+  it("does not bring a forgotten person's reel back, in the tray or on their profile", async () => {
+    const queryClient = new QueryClient();
+    const api = server();
+    const reading = queryClient.fetchQuery(storyQueries.tray(api.client));
+    const theirs = queryClient.fetchQuery(storyQueries.user(api.client, "ren"));
+    forgetUserStories(queryClient, "ren");
+    api.tray(0, [reel(ME, [story("m1", ME, 1)]), reel("ren", [story("r1", "ren", 2)])]);
+    api.reel(0, [story("r1", "ren", 2)]);
+    await reading;
+    expect(tray(queryClient).map((item) => item.user?.id)).toEqual([ME]);
+    // Their reel is thrown away, and its read with it.
+    await expect(theirs).rejects.toThrow();
+    expect(queryClient.getQueryData(storyKeys.user("ren"))).toBeUndefined();
+  });
+
+  it("keeps a story posted while the tray was read", async () => {
+    const queryClient = withTray();
+    const api = server();
+    const reading = queryClient.fetchQuery({ ...storyQueries.tray(api.client), staleTime: 0 });
+    addStory(queryClient, story("a1", "aoi", 10), ME);
+    api.tray(0, []);
+    await reading;
+    expect(tray(queryClient).map((item) => item.user?.id)).toEqual(["aoi"]);
   });
 });

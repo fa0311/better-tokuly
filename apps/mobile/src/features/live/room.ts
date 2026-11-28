@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, live } from "@tokuly/api";
 import { LiveChats, liveKeys, patchStream, refreshStream } from "@tokuly/core/live";
+import { reread } from "@tokuly/core/query";
 import { useEffect, useRef, useState } from "react";
 import { type Account, currentAccount, isActive } from "#/features/session/account";
 import { realtime } from "#/lib/realtime";
@@ -56,10 +57,7 @@ export function useLiveRoom(stream: live.Stream): live.Raid | null {
       // In effect (first, or back after a gap): what was read before may lack what was pushed in between.
       onSubscribed: () => {
         refreshStream(queryClient, streamId);
-        void queryClient.invalidateQueries({
-          queryKey: liveKeys.chat(streamId),
-          refetchType: "all",
-        });
+        void reread(queryClient, [liveKeys.chat(streamId)]);
       },
       // Blocked by the streamer, unfriended, narrowed to members, deleted: the screen reads the
       // stream again and lands where a stranger would.

@@ -81,17 +81,40 @@ export function withPatched(
   );
 }
 
-/** Drops a comment; `removedCount` (itself plus its public replies) comes off the subject's count. */
+/**
+ * Drops a comment; `removedCount` (itself plus its public replies) comes off
+ * the subject's count. A comment that is not listed changes nothing.
+ */
 export function withoutComment(
   data: ThreadPages,
   commentId: string,
   removedCount: number,
 ): ThreadPages {
+  if (!findComment(data, commentId)) return data;
   return mapThread(
     data,
     (comments) => comments.filter((item) => item.id !== commentId),
     (count) => clampCount(count - BigInt(removedCount)),
   );
+}
+
+/**
+ * One reply more (`by` 1) or less (-1) under a listed comment that had
+ * `from` replies when it happened. The count becomes at least (at most)
+ * `from + by`, so applying it again, or to a list read after it, changes
+ * nothing.
+ */
+export function withReplyCountMoved(
+  data: ThreadPages,
+  commentId: string,
+  from: number,
+  by: 1 | -1,
+): ThreadPages {
+  const to = Math.max(0, from + by);
+  return withPatched(data, commentId, (comment) => ({
+    ...comment,
+    replyCount: by > 0 ? Math.max(comment.replyCount, to) : Math.min(comment.replyCount, to),
+  }));
 }
 
 /** Moves the pin: at most one comment is pinned, and it leads the first page. */

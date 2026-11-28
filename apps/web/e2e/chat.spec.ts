@@ -1,6 +1,13 @@
 import zlib from "node:zlib";
-import { create, toBinary } from "@bufbuild/protobuf";
-import type { APIRequestContext, Browser, Locator, Page, TestInfo } from "@playwright/test";
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import type {
+  APIRequestContext,
+  Browser,
+  Locator,
+  Page,
+  TestInfo,
+  WebSocketRoute,
+} from "@playwright/test";
 import { chat } from "@tokuly/api";
 import {
   type Account,
@@ -257,6 +264,66 @@ async function browserOf(browser: Browser, testInfo: TestInfo, account: Account)
   return page;
 }
 
+/**
+ * Stands between the page and the realtime gateway (on WebSocket, which
+ * Playwright can stand in). `drop()` ends the connection; the one the page
+ * opens next reaches the gateway only at `reconnect()`, and its Welcome makes
+ * the page read again. What was sent in between was never pushed.
+ */
+async function realtimeLine(page: Page) {
+  let held: (() => void)[] | null = null;
+  let open: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(globalThis, "WebTransport");
+  });
+  await page.routeWebSocket(/\/rt\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    open = { page: ws, server };
+    ws.onMessage((message) => {
+      if (held) held.push(() => server.send(message));
+      else server.send(message);
+    });
+  });
+  return {
+    async drop() {
+      held = [];
+      await open?.server.close();
+      await open?.page.close();
+    },
+    reconnect() {
+      for (const send of held ?? []) send();
+      held = null;
+    },
+  };
+}
+
+/**
+ * Holds back the answer to the next request for `procedure` that `matches`:
+ * the server answers when it is asked (`asked`), the page gets that answer
+ * only at `release()`.
+ */
+async function holdAnswer(
+  page: Page,
+  procedure: string,
+  matches: (body: Buffer) => boolean = () => true,
+) {
+  let release: () => void = () => {};
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let asked: () => void = () => {};
+  const wasAsked = new Promise<void>((resolve) => (asked = resolve));
+  let holding = true;
+  await page.route(`**/api/${procedure}`, async (route) => {
+    if (!holding || !matches(route.request().postDataBuffer() ?? Buffer.alloc(0)))
+      return route.fallback();
+    holding = false;
+    const response = await route.fetch();
+    asked();
+    await released;
+    await route.fulfill({ response });
+  });
+  return { asked: wasAsked, release };
+}
+
 // ───────────────────────────── Messages ─────────────────────────────
 
 test("a profile's message link opens the direct conversation, and text goes both ways live", async ({
@@ -472,6 +539,49 @@ test("a message is answered, reacted to, edited and unsent", async ({ page, requ
   );
 });
 
+test("a message edited or unsent while its page was on its way shows as it is now", async ({
+  page,
+  request,
+  me,
+}) => {
+  const { friend, conversationId } = await withFriend(request, me);
+  const question = await sendText(request, friend, conversationId, "あした空いてる？");
+  const line = await realtimeLine(page);
+  await openConversation(page, conversationId);
+
+  // The connection drops: what is sent meanwhile comes with the page read to catch up.
+  await line.drop();
+  const meeting = await sendText(request, friend, conversationId, "集合は駅前で");
+  const oops = await sendText(request, friend, conversationId, "ごめん今のなし");
+  const newer = await holdAnswer(
+    page,
+    `${MESSAGES}/ListMessages`,
+    (body) => fromBinary(chat.ListMessagesRequestSchema, body).position.case === "after",
+  );
+  line.reconnect();
+  // The page is read on the Welcome, with both messages as they were…
+  await newer.asked;
+  // …and one is edited, the other unsent, before it arrives.
+  await rpc(
+    request,
+    `${MESSAGES}/EditMessage`,
+    { messageId: meeting.id, text: "集合は改札で！" },
+    friend,
+  );
+  await rpc(request, `${MESSAGES}/DeleteMessage`, { messageId: oops.id }, friend);
+  // A reaction pushed after both: once it shows, so have they.
+  await rpc(request, `${MESSAGES}/AddReaction`, { messageId: question.id, emoji: "👍" }, friend);
+  await expect(bubble(page, "あした空いてる？").getByTestId("reactions")).toContainText("👍");
+
+  newer.release();
+  await expect(bubble(page, "集合は改札で！")).toContainText("編集済み");
+  await expect(
+    page.getByTestId("message").filter({ hasText: "メッセージの送信を取り消しました" }),
+  ).toBeVisible();
+  await expect(bubble(page, "集合は駅前で")).toHaveCount(0);
+  await expect(bubble(page, "ごめん今のなし")).toHaveCount(0);
+});
+
 test("a message that could not be sent stays with a way to try again", async ({
   page,
   request,
@@ -650,6 +760,51 @@ test("a conversation is pinned, muted and hidden from its menu", async ({ page, 
   await expect(rows).toHaveCount(1);
   await sendText(request, other, otherId, "ただいま！");
   await expect(rows.filter({ hasText: "ren" })).toContainText("ただいま！");
+});
+
+test("a group the person was removed from stays gone when a list read before the removal answers late", async ({
+  page,
+  request,
+  me,
+}) => {
+  const { friend, conversationId } = await withFriend(request, me);
+  await sendText(request, friend, conversationId, "やっほー");
+  const { conversation: group } = await rpc<{ conversation: { id: string } }>(
+    request,
+    `${CONVERSATIONS}/CreateGroup`,
+    { name: "放課後クラブ", memberIds: [me.userId] },
+    friend,
+  );
+  const line = await realtimeLine(page);
+  await page.goto("/chat");
+  const rows = page.getByTestId("conversation-row");
+  await expect(rows.filter({ hasText: "放課後クラブ" })).toBeVisible();
+
+  // The connection drops: a message sent meanwhile is only in what the list reads next.
+  await line.drop();
+  await sendText(request, friend, conversationId, "まだいる？");
+  const answer = await holdAnswer(
+    page,
+    `${CONVERSATIONS}/ListConversations`,
+    (body) =>
+      fromBinary(chat.ListConversationsRequestSchema, body).filter ===
+      chat.ConversationFilter.INBOX,
+  );
+  line.reconnect();
+  // Read again on the Welcome; the server's answer still has the group…
+  await answer.asked;
+  // …and the person is removed from it before that answer arrives.
+  await rpc(
+    request,
+    `${CONVERSATIONS}/RemoveMember`,
+    { conversationId: group.id, userId: me.userId },
+    friend,
+  );
+  await expect(rows.filter({ hasText: "放課後クラブ" })).toHaveCount(0);
+
+  answer.release();
+  await expect(rows.filter({ hasText: "まだいる？" })).toBeVisible();
+  await expect(rows.filter({ hasText: "放課後クラブ" })).toHaveCount(0);
 });
 
 // ───────────────────────────── POV ─────────────────────────────

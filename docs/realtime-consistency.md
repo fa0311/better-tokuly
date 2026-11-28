@@ -40,6 +40,7 @@ The helpers, in `@tokuly/core/query`:
 |---|---|
 | `rereadOnWelcome(queryClient, connection, keys)` | rule 1 on every `Welcome`. Register it before `client.start()` |
 | `reread(queryClient, keys)` | rule 1 once (an `onSubscribed`): cancel what is in flight, read again |
+| `forgetQueries(queryClient, keys)` | rule 3: drop what is off screen, `reread` the rest (an area's forgetter) |
 | `{ ...options, persister: journal }` | rule 2, the read side of a query, plain or infinite (`fetchNextPage` too); pass `signal` to the request |
 | `pushTo(queryClient, key, update)` | every push, removals included; `update` may return `null` (gone) |
 | `pushToAll(queryClient, prefix, update)` | the same for one list held under several keys (filters, sources) |
@@ -58,24 +59,24 @@ found.
 | Map: friends' pins (W M) | snapshot tickets, `removalSequence`, sample time | presence pushed during a snapshot is lost | #538 |
 | Map: gatherings, trips (W) | `setQueryData`, every `Welcome` | an ended gathering or trip, or a member who left, comes back with positions | #520 |
 | Map: SOS, alerts (W) | invalidate, every `Welcome` | — | |
-| Chat: conversations list (W M) | every `Welcome`, `aheadOf` by `lastSeq` | a conversation left, removed from or hidden comes back; a row's preview and unread go back | #513, #532 |
-| Chat: timeline (W M) | `seq`, union by ID, catch-up by `lastSeq` | an unsent or edited message comes back from a page read before | #514 |
+| Chat: conversations list (W M) | journal, every `Welcome`, `aheadOf` by `lastSeq` | — | |
+| Chat: timeline (W M) | journal, `seq`, union by ID, catch-up by `lastSeq` | — | |
 | Chat: unread totals, read cursors, typing, calls (W M) | version counter, forward-only cursors, `asOf` | — | |
 | Notifications: inbox, badge (W M) | cancel + reread, every `Welcome` | the list's own read overwrites a newer pushed unread count | #533 |
 | Friends (W M) | reread on pushes, every `Welcome`; forgetters on removal | — | |
 | Notes: timelines (W M) | hints on every `Welcome`, a look after the first page | — | |
 | Notes: card topic (W M) | no read on `onSubscribed` | a note deleted or edited before its topic took effect stays as it was | #526 |
 | Notes: forgetting a person (W M) | journal, `pushToAll`; a look is `pushAfter` until its pill is tapped | — | |
-| Comments (W) | `onSubscribed` invalidates, `setQueriesData` | a removed comment comes back; replies are never read again | #521 |
+| Comments (W) | journal, `onSubscribed` reread, replies too | — | |
 | Community (W M) | journal, `onSubscribed` rereads the community, its open threads and events | — | |
-| Moments (W M) | `setQueryData`, every `Welcome` | a deleted moment, or an ex-friend's, comes back | #517 |
-| Stories (W M) | `setQueryData`, every `Welcome` | a deleted story, or an ex-friend's reel, comes back in the tray | #516 |
+| Moments (W M) | journal, every `Welcome` | — | |
+| Stories (W M) | journal, every `Welcome` | — | |
 | Plans (W M) | `setQueryData(null)` on removal, every `Welcome` | a plan the person was removed from, or a deleted poll, comes back | #518 |
 | Shorts (W M) | `resetQueries` on removal | — | |
 | Spaces: hangouts (W M) | `setQueryData`, every `Welcome` | a hangout the person was removed from comes back with who is inside | #519 |
 | Spaces: rooms (W M) | `onSubscribed` invalidates | an ended room shows LIVE again; someone who left is back on stage | #530 |
 | Live: chat (W M) | journal, `onSubscribed` | — | |
-| Live: stream page (W M) | `onSubscribed` reread, `setQueryData` | a deleted message comes back as the pin or a highlight; a pin change goes back | #523 |
+| Live: stream page (W M) | journal, `onSubscribed` reread | — | |
 | Live: overlay (W) | journal | a revoked widget comes back, frozen | #540 |
 | Watch party, video cards (W M) | party: journal + `sequence` | heartbeat playback lost to a reload; a pushed card overwritten | #539 |
 | School: room (W) | journal, `onSubscribed` | — | |
@@ -94,8 +95,10 @@ found.
    that reads again on `Welcome` (#524); notes timelines look after a hint
    during the first load on both platforms (#525).
 2. Topic reads replace a read in flight: notes cards, emoji (#526, #537).
-3. Done: one removal path on both platforms (#527, #528, #529). Areas that
-   still keep an ex-friend's content: #576.
+3. Done: one removal path on both platforms (#527, #528, #529), and a
+   forgetter in every area that shows friends-only content. What only a
+   block hides (community posts, search, comments) is not forgotten on the
+   push: to the blocked person a block looks like an unfriend.
 4. `journal` / `pushTo` (done; used by live chat, the live overlay, the
    watch party and the school room), then each area that writes with
    `setQueryData`, privacy first: chat, notes, stories, moments, plans,

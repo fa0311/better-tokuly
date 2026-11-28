@@ -1,7 +1,8 @@
 import type { QueryClient } from "@tanstack/query-core";
 import type { chat } from "@tokuly/api";
+import { pushAfter } from "../query";
 import { chatKeys } from "./keys";
-import { readTimeline, writeTimeline } from "./message-cache";
+import { readTimeline } from "./message-cache";
 import { type Timeline, timelineOf, withNewer, withOlder } from "./timeline";
 
 /** Where a page of messages starts (`ListMessagesRequest.position`). */
@@ -10,10 +11,12 @@ export type Position = chat.ListMessagesRequest["position"];
 /**
  * Fetches one page of a conversation's messages. The app's own: it also
  * keeps what the answer says beside the messages (the read cursors).
+ * `signal` ends the request when the read is given up.
  */
 export type FetchPage = (
   conversationId: string,
   position: Position,
+  signal?: AbortSignal,
 ) => Promise<chat.ListMessagesResponse>;
 
 /**
@@ -21,6 +24,11 @@ export type FetchPage = (
  * (`chatKeys.timeline`): the first window, older and newer pages as the
  * reader scrolls, catching up after missed events, and jumps. The same page
  * is never asked for twice at once.
+ *
+ * The first window is the timeline query's own read (`queryFn`, with
+ * `persister: journal`); every later page is stored with `pushAfter`, so
+ * that what was pushed while it was on its way (an edit, an unsend, a
+ * reaction) is applied again after the page's older copies.
  */
 export class MessagePager {
   private readonly loading = new Set<string>();
@@ -33,16 +41,30 @@ export class MessagePager {
    * A message to open on that is gone (deleted, from before the viewer
    * joined) opens the conversation normally.
    */
-  async first(conversationId: string, around?: string): Promise<Timeline> {
+  async first(conversationId: string, around?: string, signal?: AbortSignal): Promise<Timeline> {
     const unread: Position = { case: "aroundUnread", value: true };
-    if (!around) return timelineOf(await this.fetchPage(conversationId, unread));
+    if (!around) return timelineOf(await this.fetchPage(conversationId, unread, signal));
     try {
       return timelineOf(
-        await this.fetchPage(conversationId, { case: "aroundMessageId", value: around }),
+        await this.fetchPage(conversationId, { case: "aroundMessageId", value: around }, signal),
       );
-    } catch {
-      return timelineOf(await this.fetchPage(conversationId, unread));
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return timelineOf(await this.fetchPage(conversationId, unread, signal));
     }
+  }
+
+  /** Fetches a page and stores what `change` makes of it, then what was pushed meanwhile. */
+  private store(
+    queryClient: QueryClient,
+    conversationId: string,
+    position: Position,
+    change: (timeline: Timeline, page: chat.ListMessagesResponse) => Timeline,
+  ): Promise<void> {
+    return pushAfter<Timeline>(queryClient, chatKeys.timeline(conversationId), async () => {
+      const page = await this.fetchPage(conversationId, position);
+      return (timeline) => change(timeline, page);
+    });
   }
 
   private async once(key: string, work: () => Promise<void>): Promise<void> {
@@ -60,11 +82,12 @@ export class MessagePager {
     return this.once(`older:${conversationId}`, async () => {
       const timeline = readTimeline(queryClient, conversationId);
       if (!timeline?.hasOlder) return;
-      const page = await this.fetchPage(conversationId, {
-        case: "before",
-        value: timeline.olderCursor,
-      });
-      writeTimeline(queryClient, conversationId, (current) => withOlder(current, page));
+      await this.store(
+        queryClient,
+        conversationId,
+        { case: "before", value: timeline.olderCursor },
+        withOlder,
+      );
     });
   }
 
@@ -73,11 +96,12 @@ export class MessagePager {
     return this.once(`newer:${conversationId}`, async () => {
       const timeline = readTimeline(queryClient, conversationId);
       if (!timeline) return;
-      const page = await this.fetchPage(conversationId, {
-        case: "after",
-        value: timeline.newerCursor,
-      });
-      writeTimeline(queryClient, conversationId, (current) => withNewer(current, page));
+      await this.store(
+        queryClient,
+        conversationId,
+        { case: "after", value: timeline.newerCursor },
+        withNewer,
+      );
     });
   }
 
@@ -97,8 +121,9 @@ export class MessagePager {
   /** Replaces the timeline with the newest messages ("jump to latest"). */
   showNewest(queryClient: QueryClient, conversationId: string): Promise<void> {
     return this.once(`newest:${conversationId}`, async () => {
-      const page = await this.fetchPage(conversationId, { case: undefined });
-      queryClient.setQueryData<Timeline>(chatKeys.timeline(conversationId), timelineOf(page));
+      await this.store(queryClient, conversationId, { case: undefined }, (_, page) =>
+        timelineOf(page),
+      );
     });
   }
 
@@ -113,10 +138,11 @@ export class MessagePager {
     messageId: string,
   ): Promise<void> {
     if (readTimeline(queryClient, conversationId)?.messages.some((m) => m.id === messageId)) return;
-    const page = await this.fetchPage(conversationId, {
-      case: "aroundMessageId",
-      value: messageId,
-    });
-    queryClient.setQueryData<Timeline>(chatKeys.timeline(conversationId), timelineOf(page));
+    await this.store(
+      queryClient,
+      conversationId,
+      { case: "aroundMessageId", value: messageId },
+      (_, page) => timelineOf(page),
+    );
   }
 }

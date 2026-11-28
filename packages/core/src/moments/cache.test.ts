@@ -1,4 +1,5 @@
-import { QueryClient } from "@tanstack/query-core";
+import type { Client } from "@connectrpc/connect";
+import { InfiniteQueryObserver, QueryClient } from "@tanstack/query-core";
 import { create, type MessageInitShape, moments } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
 import { make } from "../testing/make";
@@ -10,6 +11,7 @@ import {
   setMyReaction,
 } from "./cache";
 import { momentKeys } from "./keys";
+import { momentQueries } from "./queries";
 
 const user = (id: string) => ({ id, handle: id, displayName: id });
 const moment = (
@@ -131,5 +133,71 @@ describe("moment cache", () => {
     expect(queryClient.getQueryData(momentKeys.reactions("a1"))).toBeUndefined();
     expect(queryClient.getQueryData(momentKeys.reactions("a2"))).toBeUndefined();
     expect(queryClient.getQueryData(momentKeys.reactions("r1"))).toBeDefined();
+  });
+});
+
+/** A server whose friends' list and map the test hands out, one answer per read. */
+function server() {
+  const lists: ((list: moments.Moment[], nextCursor?: string) => void)[] = [];
+  const maps: ((list: moments.Moment[]) => void)[] = [];
+  const client = () =>
+    ({
+      listFriendMoments: () =>
+        new Promise((resolve) =>
+          lists.push((list, nextCursor = "") =>
+            resolve(
+              create(moments.ListFriendMomentsResponseSchema, {
+                moments: list,
+                page: { nextCursor },
+              }),
+            ),
+          ),
+        ),
+      listMapMoments: () =>
+        new Promise((resolve) =>
+          maps.push((list) =>
+            resolve(create(moments.ListMapMomentsResponseSchema, { moments: list })),
+          ),
+        ),
+    }) as unknown as Client<typeof moments.MomentService>;
+  return {
+    client,
+    list: (read: number, list: moments.Moment[], nextCursor?: string) =>
+      lists[read]?.(list, nextCursor),
+    map: (read: number, list: moments.Moment[]) => maps[read]?.(list),
+  };
+}
+
+describe("a read in flight when a moment or a person goes", () => {
+  it("does not bring a deleted moment back to the friends' list or the map", async () => {
+    const queryClient = new QueryClient();
+    const api = server();
+    const list = queryClient.fetchInfiniteQuery(momentQueries.friends(api.client));
+    const map = queryClient.fetchQuery(momentQueries.map(api.client));
+    applyMomentsEvent(queryClient, {
+      case: "deleted",
+      value: create(moments.MomentRefSchema, { momentId: "a1", authorId: "aoi" }),
+    });
+    // Both were answered before the deletion.
+    api.list(0, [moment("a1", "aoi"), moment("r1", "ren")]);
+    api.map(0, [moment("a1", "aoi")]);
+    await Promise.all([list, map]);
+    expect(friendIds(queryClient)).toEqual(["r1"]);
+    expect(mapIds(queryClient)).toEqual([]);
+  });
+
+  it("keeps a forgotten person out of the next page, even moments that were not cached yet", async () => {
+    const queryClient = new QueryClient();
+    const api = server();
+    const observer = new InfiniteQueryObserver(queryClient, momentQueries.friends(api.client));
+    const unsubscribe = observer.subscribe(() => {});
+    api.list(0, [moment("r1", "ren")], "next");
+    await observer.refetch();
+    const next = observer.fetchNextPage();
+    forgetUserMoments(queryClient, "aoi");
+    api.list(1, [moment("a1", "aoi"), moment("r0", "ren")]);
+    await next;
+    expect(friendIds(queryClient)).toEqual(["r1", "r0"]);
+    unsubscribe();
   });
 });
