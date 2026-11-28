@@ -3,7 +3,7 @@ import { type chat, fromDate } from "@tokuly/api";
 import { toast } from "sonner";
 import { useTranslation } from "#/lib/use-translation";
 import { conversationClient } from "./api";
-import { dropConversation, putConversation, refreshUnread } from "./conversations";
+import { dropConversation, putAnswer, refreshUnread } from "./conversations";
 import { errorMessage } from "./errors";
 import { markRead } from "./messages";
 
@@ -37,14 +37,15 @@ export function useConversationActions() {
     done?: string,
   ) =>
     attempt(async () => {
-      const response = await conversationClient().updatePreferences({
-        conversationId: conversation.id,
-        pinned: change.pinned,
-        muted: change.muted,
-        mutedUntil: change.mutedUntil ? fromDate(change.mutedUntil) : undefined,
-        archived: change.archived,
-      });
-      if (response.conversation) putConversation(queryClient, response.conversation);
+      await putAnswer(queryClient, conversation.id, () =>
+        conversationClient().updatePreferences({
+          conversationId: conversation.id,
+          pinned: change.pinned,
+          muted: change.muted,
+          mutedUntil: change.mutedUntil ? fromDate(change.mutedUntil) : undefined,
+          archived: change.archived,
+        }),
+      );
       // Muting and archiving move messages in and out of the totals.
       if (change.muted !== undefined || change.archived !== undefined) refreshUnread(queryClient);
     }, done);
@@ -86,12 +87,13 @@ export function useConversationActions() {
     respond: (conversation: chat.Conversation, accept: boolean) =>
       attempt(
         async () => {
-          const response = await conversationClient().respondToRequest({
-            conversationId: conversation.id,
-            accept,
-          });
-          if (accept && response.conversation) putConversation(queryClient, response.conversation);
-          else dropConversation(queryClient, conversation.id);
+          const respond = () =>
+            conversationClient().respondToRequest({ conversationId: conversation.id, accept });
+          if (accept) await putAnswer(queryClient, conversation.id, respond);
+          else {
+            await respond();
+            dropConversation(queryClient, conversation.id);
+          }
           refreshUnread(queryClient);
         },
         accept ? t("toast.requestAccepted") : t("toast.requestDeclined"),

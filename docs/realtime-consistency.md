@@ -58,7 +58,7 @@ found.
 | Map: friends' pins (W M) | snapshot tickets, `removalSequence`, sample time | presence pushed during a snapshot is lost | #538 |
 | Map: gatherings, trips (W) | `setQueryData`, every `Welcome` | an ended gathering or trip, or a member who left, comes back with positions | #520 |
 | Map: SOS, alerts (W) | invalidate, every `Welcome` | — | |
-| Chat: conversations list (W M) | every `Welcome`, `aheadOf` by `lastSeq` | a conversation left, removed from or hidden comes back; a row's preview and unread go back | #513, #532 |
+| Chat: conversations list (W M) | journal, every `Welcome`, `aheadOf` by `lastSeq` | — | |
 | Chat: timeline (W M) | `seq`, union by ID, catch-up by `lastSeq` | an unsent or edited message comes back from a page read before | #514 |
 | Chat: unread totals, read cursors, typing, calls (W M) | version counter, forward-only cursors, `asOf` | — | |
 | Notifications: inbox, badge (W M) | cancel + reread, every `Welcome` | the list's own read overwrites a newer pushed unread count | #533 |

@@ -3,7 +3,6 @@ import type { chat } from "@tokuly/api";
 import type { ClientSource } from "../query";
 import { patchConversation } from "./conversation-cache";
 import { chatKeys } from "./keys";
-import { laterSeq } from "./model";
 import {
   leavesGap,
   reactionsAfter,
@@ -37,18 +36,40 @@ export function writeTimeline(
   );
 }
 
-/** The conversation's list preview after a message was added. */
+/** What a new message adds to the viewer's unread counts (an event from someone else). */
+export interface Unseen {
+  /** It mentions the viewer. */
+  mention: boolean;
+}
+
+/**
+ * The conversation after a message was added: its list preview and, for a
+ * message the viewer has not seen, the unread counts. A copy that already
+ * has the message (`lastSeq`) only takes its newer version.
+ */
 function conversationWith(
   conversation: chat.Conversation,
   message: chat.Message,
+  unseen: Unseen | undefined,
 ): chat.Conversation {
-  if (message.seq <= conversation.lastSeq && conversation.lastMessage?.id !== message.id)
-    return conversation;
+  if (message.seq <= conversation.lastSeq)
+    return conversation.lastMessage?.id === message.id
+      ? { ...conversation, lastMessage: message }
+      : conversation;
+  const viewer = conversation.viewer;
   return {
     ...conversation,
     lastMessage: message,
-    lastSeq: laterSeq(message.seq, conversation.lastSeq),
+    lastSeq: message.seq,
     lastActivityAt: message.createdAt ?? conversation.lastActivityAt,
+    viewer:
+      viewer && unseen
+        ? {
+            ...viewer,
+            unreadCount: viewer.unreadCount + 1,
+            unreadMentionCount: viewer.unreadMentionCount + (unseen.mention ? 1 : 0),
+          }
+        : viewer,
   };
 }
 
@@ -65,15 +86,20 @@ export interface Stored {
 
 /**
  * Stores a message that was just created — one this client sent (from the
- * response) or one announced by an event.
+ * response) or one announced by an event; `unseen` when it adds to the
+ * viewer's unread counts.
  */
-export function storeCreated(queryClient: QueryClient, message: chat.Message): Stored {
+export function storeCreated(
+  queryClient: QueryClient,
+  message: chat.Message,
+  unseen?: Unseen,
+): Stored {
   const timeline = readTimeline(queryClient, message.conversationId);
   const missed = Boolean(timeline && !timeline.hasNewer && leavesGap(timeline, message));
   if (!missed)
     writeTimeline(queryClient, message.conversationId, (current) => withCreated(current, message));
   const known = patchConversation(queryClient, message.conversationId, (conversation) =>
-    conversationWith(conversation, message),
+    conversationWith(conversation, message, unseen),
   );
   return { known, missed };
 }
@@ -113,13 +139,13 @@ export function storeOwnRead(
 ): void {
   patchConversation(queryClient, conversationId, (conversation) => {
     const viewer = conversation.viewer;
-    if (!viewer || (viewer.readSeq >= readSeq && viewer.unreadCount === unreadCount))
-      return conversation;
+    // A copy read after this read (or a later one) knows better.
+    if (!viewer || viewer.readSeq >= readSeq) return conversation;
     return {
       ...conversation,
       viewer: {
         ...viewer,
-        readSeq: laterSeq(readSeq, viewer.readSeq),
+        readSeq,
         unreadCount,
         unreadMentionCount: unreadCount === 0 ? 0 : viewer.unreadMentionCount,
       },

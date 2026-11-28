@@ -2,7 +2,14 @@ import type { DescMessage, MessageShape } from "@bufbuild/protobuf";
 import { QueryClient } from "@tanstack/query-core";
 import { chat, create, fromDate, type MessageInitShape } from "@tokuly/api";
 import { afterEach, describe, expect, it } from "vitest";
-import { type ListPage, readConversation } from "./conversation-cache";
+import { journal } from "../query";
+import {
+  findInLists,
+  type ListData,
+  type ListPage,
+  putAnswer,
+  readConversation,
+} from "./conversation-cache";
 import { applyChatEvent, type ChatSync } from "./events";
 import { chatKeys } from "./keys";
 import { MessagePager } from "./pager";
@@ -313,5 +320,107 @@ describe("chat events", () => {
     expect(readConversation(queryClient, "c1")?.activeCallId).toBe("call1");
     applyChatEvent(queryClient, call(chat.CallState.ENDED), context, sync);
     expect(readConversation(queryClient, "c1")?.activeCallId).toBe("");
+  });
+});
+
+// ───────────────────────────── Reads made before a change ─────────────────────────────
+
+/**
+ * The inbox read again (a Welcome) through the journal, answered by the test:
+ * `answer` hands out what the server said when the read was made.
+ */
+function readingInbox(queryClient: QueryClient) {
+  let answer: (conversations: chat.Conversation[]) => void = () => {};
+  const read = queryClient.fetchInfiniteQuery({
+    queryKey: chatKeys.list("inbox"),
+    queryFn: () =>
+      new Promise<ListPage>((resolve) => {
+        answer = (conversations) => resolve({ conversations, nextCursor: "" });
+      }),
+    persister: journal,
+    initialPageParam: "",
+    getNextPageParam: () => undefined,
+    staleTime: 0,
+  });
+  return {
+    answer: async (conversations: chat.Conversation[]) => {
+      await Promise.resolve();
+      answer(conversations);
+      await read;
+    },
+  };
+}
+
+const removed = (conversationId: string): chat.ChatEvent["event"] => ({
+  case: "conversationRemoved",
+  value: create(chat.ConversationRemovedSchema, {
+    conversationId,
+    reason: chat.ConversationRemovalReason.REMOVED,
+  }),
+});
+const inbox = (queryClient: QueryClient) =>
+  queryClient
+    .getQueryData<ListData>(chatKeys.list("inbox"))
+    ?.pages.flatMap((page) => page.conversations.map((item) => item.id));
+
+describe("a read made before a change", () => {
+  it("does not bring back a conversation the viewer was removed from", async () => {
+    const queryClient = client([conversation("c1"), conversation("c2")]);
+    const reading = readingInbox(queryClient);
+    applyChatEvent(queryClient, removed("c1"), context, sync);
+    expect(inbox(queryClient)).toEqual(["c2"]);
+    // The list was read before the removal.
+    await reading.answer([conversation("c1"), conversation("c2")]);
+    expect(inbox(queryClient)).toEqual(["c2"]);
+  });
+
+  it("does not bring back a conversation hidden on another device", async () => {
+    const queryClient = client([conversation("c1"), conversation("c2")]);
+    const reading = readingInbox(queryClient);
+    applyChatEvent(
+      queryClient,
+      {
+        case: "conversationUpdated",
+        value: create(chat.ConversationUpdatedSchema, {
+          conversation: conversation("c1", { hidden: true }),
+        }),
+      },
+      context,
+      sync,
+    );
+    await reading.answer([conversation("c1"), conversation("c2")]);
+    expect(inbox(queryClient)).toEqual(["c2"]);
+  });
+
+  it("does not put back a conversation fetched on its own before it was left", async () => {
+    const queryClient = client([conversation("c1"), conversation("c2")]);
+    let answer: (conversation: chat.Conversation) => void = () => {};
+    const fetching = putAnswer(queryClient, "c1", async () => ({
+      conversation: await new Promise<chat.Conversation>((resolve) => (answer = resolve)),
+    }));
+    applyChatEvent(queryClient, removed("c1"), context, sync);
+    answer(conversation("c1"));
+    await fetching;
+    expect(inbox(queryClient)).toEqual(["c2"]);
+    expect(findInLists(queryClient, "c1")).toBeUndefined();
+  });
+
+  it("keeps a row's preview and unread count from a message pushed while the list was read", async () => {
+    const queryClient = client([conversation("c1")]);
+    const reading = readingInbox(queryClient);
+    applyChatEvent(queryClient, created(message(3, "aoi", { text: "いまどこ？" })), context, sync);
+    // Read before the message…
+    await reading.answer([conversation("c1")]);
+    const row = findInLists(queryClient, "c1");
+    expect(row?.lastMessage?.text).toBe("いまどこ？");
+    expect(row?.viewer?.unreadCount).toBe(1);
+
+    // …or after it: the answer has it counted already, and it is not counted twice.
+    const again = readingInbox(queryClient);
+    applyChatEvent(queryClient, created(message(4, "aoi")), context, sync);
+    await again.answer([
+      conversation("c1", { unreadCount: 2 }, { lastSeq: 4n, lastMessage: message(4, "aoi") }),
+    ]);
+    expect(findInLists(queryClient, "c1")?.viewer?.unreadCount).toBe(2);
   });
 });
