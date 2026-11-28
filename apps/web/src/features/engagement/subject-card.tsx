@@ -18,11 +18,12 @@ const useRegistry = create<Partial<Record<common.SubjectType, ComponentType<Subj
 /**
  * Tells the lists of saved and reacted-to subjects how to draw one type of
  * content. Each content feature registers its own card once, when its module
- * loads (its `background.tsx` is a good place), as a `lazy` component so the
- * card's code loads with the first list that draws one:
+ * loads (its `background.tsx` is a good place), as an `onDemand` component so
+ * the card's code loads with the first list that draws one:
  *
- *   const VideoSubjectCard = lazy(() =>
- *     import("./subject-card").then((module) => ({ default: module.VideoSubjectCard })),
+ *   const VideoSubjectCard = onDemand(
+ *     () => import("./subject-card").then((module) => module.VideoSubjectCard),
+ *     "notice",
  *   );
  *   registerSubjectCard(common.SubjectType.VIDEO, VideoSubjectCard);
  *

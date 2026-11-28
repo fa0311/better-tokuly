@@ -5,8 +5,11 @@
  * namespace, used when it names itself (`errorMessage(error, { namespace })`).
  */
 export default {
-  generic: "Something went wrong. Please try again",
-  network: "Couldn't reach Tokuly. Check your connection",
+  generic: "Something went wrong… Please try again",
+  network: "Couldn't reach Tokuly. Check your connection!",
+  uploadTooLarge: "The file is too large to upload",
+  uploadRefused: "The upload wasn't accepted. Please try again",
+  fileUnreadable: "Couldn't read the file. Pick it again",
   LOCATION_NOT_VERIFIED: "We couldn't confirm where you are. Turn on location and try again.",
   LOCATION_TOO_COARSE: "Turn on precise location and try again.",
   INVALID_CREDENTIALS: "Wrong email, handle or password",
@@ -835,7 +838,9 @@ export default {
   HASHTAG_INVALID: "That tag can't be used",
   HASHTAG_NOT_FOUND: "No shorts with this tag yet",
   PIN_LIMIT_REACHED: "You can pin up to 3 shorts",
-  PROCESSING_FAILED: "The video couldn't be processed. Try another file",
+  PROCESSING_FAILED: "The file couldn't be processed. Try another file",
+  NO_AUDIO: "This file has no sound. Try another one",
+  NOT_A_VIDEO: "This doesn't look like a video. Pick a video",
   REMIX_KIND_INVALID: "Choose a kind of remix",
   REMIX_NOT_ALLOWED: "This short doesn't allow remixes",
   REMIX_NOT_FOUND: "The short to remix was not found",

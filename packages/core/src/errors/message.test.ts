@@ -1,9 +1,17 @@
 import { Code, ConnectError } from "@tokuly/api";
 import { ja } from "@tokuly/i18n";
 import { createInstance } from "i18next";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { testI18n } from "../testing/i18n";
-import { AssetFailedError, durationLimit, errorMessage, reasonText } from "./index";
+import {
+  AssetFailedError,
+  durationLimit,
+  errorMessage,
+  LocalFileError,
+  NetworkError,
+  reasonText,
+  TransferError,
+} from "./index";
 
 /** An API error carrying a reason, as the server sends it. */
 const failure = (reason: string, code = Code.FailedPrecondition) =>
@@ -15,6 +23,15 @@ const i18n = testI18n("ja", {
     alpha: { errors: { SHARED_ONLY_HERE: "alpha の文", ASSET_NOT_READY: "alpha の準備中" } },
     zulu: { errors: { SHARED_ONLY_HERE: "zulu の文" } },
   },
+});
+
+// What falls back to the generic text is logged: kept out of the test output, counted where it matters.
+let logs: MockInstance<typeof console.error>;
+beforeEach(() => {
+  logs = vi.spyOn(console, "error").mockImplementation(() => {});
+});
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("errorMessage", () => {
@@ -56,12 +73,56 @@ describe("errorMessage", () => {
 
   it("says something useful without a known reason", () => {
     expect(errorMessage(i18n, failure("SOMETHING_NEW"))).toBe(i18n.t("generic", { ns: "errors" }));
-    expect(errorMessage(i18n, new TypeError("fetch failed"))).toBe(
-      i18n.t("network", { ns: "errors" }),
-    );
     expect(errorMessage(i18n, failure("", Code.ResourceExhausted))).toBe(
       i18n.t("RATE_LIMITED", { ns: "errors" }),
     );
+    expect(logs).toHaveBeenCalledTimes(1);
+  });
+
+  it("blames the connection only when the request got no answer", () => {
+    const network = i18n.t("network", { ns: "errors" });
+    for (const message of [
+      "fetch failed",
+      "Failed to fetch",
+      "Load failed",
+      "Network request failed",
+    ])
+      expect(errorMessage(i18n, new TypeError(message)), message).toBe(network);
+    // A fetch that failed, as Connect throws it.
+    const lost = new ConnectError(
+      "fetch failed",
+      Code.Unknown,
+      undefined,
+      undefined,
+      new TypeError("Failed to fetch"),
+    );
+    expect(errorMessage(i18n, lost)).toBe(network);
+    expect(errorMessage(i18n, new ConnectError("down", Code.Unavailable))).toBe(network);
+    expect(errorMessage(i18n, new ConnectError("slow", Code.DeadlineExceeded))).toBe(network);
+    expect(errorMessage(i18n, new NetworkError())).toBe(network);
+  });
+
+  it("says what went wrong with an upload or a file on the device", () => {
+    expect(errorMessage(i18n, new TransferError(413))).toBe(
+      i18n.t("uploadTooLarge", { ns: "errors" }),
+    );
+    expect(errorMessage(i18n, new TransferError(500))).toBe(
+      i18n.t("uploadRefused", { ns: "errors" }),
+    );
+    expect(errorMessage(i18n, new LocalFileError())).toBe(
+      i18n.t("fileUnreadable", { ns: "errors" }),
+    );
+  });
+
+  it("calls a bug a bug, and logs it once", () => {
+    const generic = i18n.t("generic", { ns: "errors" });
+    const bug = new TypeError("cannot read properties of undefined");
+    expect(errorMessage(i18n, bug)).toBe(generic);
+    expect(errorMessage(i18n, bug)).toBe(generic);
+    expect(errorMessage(i18n, new RangeError("invalid time zone"))).toBe(generic);
+    expect(errorMessage(i18n, new ConnectError("panic", Code.Unknown))).toBe(generic);
+    expect(errorMessage(i18n, new ConnectError("oops", Code.Internal))).toBe(generic);
+    expect(logs).toHaveBeenCalledTimes(4);
   });
 
   it("says how long a refused recording may be", () => {
@@ -70,6 +131,15 @@ describe("errorMessage", () => {
     );
     expect(errorMessage(i18n, new AssetFailedError("MEDIA_TOO_LONG"))).toBe(
       i18n.t("MEDIA_TOO_LONG", { ns: "errors" }),
+    );
+  });
+
+  it("says a file was refused when the reason has no text", () => {
+    expect(errorMessage(i18n, new AssetFailedError("SOMETHING_NEW"))).toBe(
+      i18n.t("ASSET_FAILED", { ns: "errors" }),
+    );
+    expect(errorMessage(i18n, new AssetFailedError("SOMETHING_NEW"), { namespace: "stamps" })).toBe(
+      i18n.t("errors.ASSET_FAILED", { ns: "stamps" }),
     );
   });
 });

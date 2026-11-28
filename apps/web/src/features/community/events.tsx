@@ -3,9 +3,10 @@ import { Link } from "@tanstack/react-router";
 import { community, fromDate, media } from "@tokuly/api";
 import { can, communityKeys, imageUrl, placesLeft } from "@tokuly/core/community";
 import { CalendarPlus, MapPin, Video } from "lucide-react";
-import { lazy, Suspense, useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { onDemand } from "#/components/on-demand";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
 import { Dialog } from "#/components/ui/dialog";
@@ -23,7 +24,10 @@ import { eventClient, NS, useEvents } from "./api";
 import { useWhen } from "./parts";
 import type { LatLng } from "./place-picker";
 
-const PlacePicker = lazy(() => import("./place-picker"));
+const PlacePicker = onDemand(
+  () => import("./place-picker").then((module) => module.default),
+  "notice",
+);
 const A = community.AttendanceStatus;
 
 /** "行く" / "キャンセル待ち 2番目" … the viewer's own answer as a chip; nothing when they have not answered. */

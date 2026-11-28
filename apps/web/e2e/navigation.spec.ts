@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { befriend, createAccount, expect, PASSWORD, rpc, test } from "./support";
+import { befriend, createAccount, expect, failToLoadPage, PASSWORD, rpc, test } from "./support";
 
 /**
  * The frame every feature lives in: the tab bar and the rail, the hub and
@@ -198,4 +198,23 @@ test("a redirect that would leave the app is ignored", async ({ page }) => {
   await expect(page).toHaveURL(/\/signup$/);
   await page.goto("/login?redirect=https://example.com/");
   await expect(page).toHaveURL(/\/login$/);
+});
+
+test("a page whose code cannot load says so inside the app, with the navigation, and loads when tried again", async ({
+  page,
+  me: _me,
+}) => {
+  await page.goto("/me");
+  await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
+  // The page's code fails to arrive, as when the connection drops right as it is opened.
+  const letThrough = await failToLoadPage(page, "announcements.index.tsx");
+
+  await page.getByRole("main").getByRole("link", { name: "アップデート情報" }).click();
+  await expect(page.getByRole("heading", { name: "うまくいきませんでした" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "main" })).toBeVisible();
+
+  await letThrough();
+  await page.getByRole("button", { name: "もう一度ためす" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "アップデート情報" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "うまくいきませんでした" })).toHaveCount(0);
 });

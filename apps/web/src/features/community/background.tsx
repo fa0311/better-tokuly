@@ -2,11 +2,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
 import { communityKeys } from "@tokuly/core/community/keys";
 import { rereadOnWelcome } from "@tokuly/core/query";
-import { lazy, useEffect } from "react";
+import { useEffect } from "react";
+import { onDemand } from "#/components/on-demand";
 import { onFramesLoading, realtime } from "#/lib/realtime";
 
-const CommunitySubjectCard = lazy(() =>
-  import("./subject-card").then((module) => ({ default: module.CommunitySubjectCard })),
+const CommunitySubjectCard = onDemand(
+  () => import("./subject-card").then((module) => module.CommunitySubjectCard),
+  "notice",
 );
 
 // Saved and reacted-to community pages open at this app's addresses for them. Registered once

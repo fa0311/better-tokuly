@@ -359,8 +359,16 @@ async fn a_deleted_account_leaves_nothing_behind() {
         data: serde_json::json!({ "user_id": leaver.id }),
     };
     let mut friend_devices = ctx.app.listen_user(friend.id).await;
+    let removals_before = ctx.app.events_by("social.friend.removed", leaver.id).await.len();
     ctx.social.handle_event(&deleted).await.unwrap();
     assert_eq!(rows_about(&ctx, leaver.id).await, 0);
+    // Each friendship ends as an unfriend by the account would.
+    let removals = ctx.app.events_by("social.friend.removed", leaver.id).await;
+    assert_eq!(
+        removals[removals_before..].iter().map(|event| event.data.clone()).collect::<Vec<_>>(),
+        vec![serde_json::json!({ "user_id": leaver.id, "friend_id": friend.id, "blocked": false })],
+        "one social.friend.removed per friend"
+    );
     assert!(
         graph::friend_ids(&ctx.app.core, friend.id).await.unwrap().is_empty(),
         "cached friend lists forget the account too"
@@ -375,6 +383,11 @@ async fn a_deleted_account_leaves_nothing_behind() {
     );
 
     ctx.social.handle_event(&deleted).await.unwrap(); // redelivery is harmless
+    assert_eq!(
+        ctx.app.events_by("social.friend.removed", leaver.id).await.len(),
+        removals_before + 1,
+        "a redelivery announces nothing again"
+    );
     // Events this domain does not care about are ignored.
     let unrelated = Event { topic: "identity.user.updated".into(), ..deleted };
     ctx.social.handle_event(&unrelated).await.unwrap();

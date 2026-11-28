@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { onDemand } from "#/components/on-demand";
 import { dopamineFactor } from "#/lib/appearance";
 
 const DEFAULT_GLYPHS = ["🎉", "✨", "👣", "🗺️", "⭐"];
@@ -30,7 +31,7 @@ export interface Shower {
   pieces: Piece[];
 }
 
-const Falling = lazy(() => import("./falling").then((module) => ({ default: module.Falling })));
+const Falling = onDemand(() => import("./falling").then((module) => module.Falling));
 
 /** Where `celebrate()` draws. Mounted once for the signed-in app. */
 export function CelebrationLayer() {

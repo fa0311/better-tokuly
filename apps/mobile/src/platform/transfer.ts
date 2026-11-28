@@ -1,3 +1,4 @@
+import { LocalFileError, NetworkError, TransferError } from "@tokuly/core/errors";
 import { Directory, File, Paths } from "expo-file-system";
 
 /**
@@ -17,16 +18,24 @@ function folder(postId: string): Directory {
   return directory;
 }
 
-/** Copies a picked or recorded file into the post's folder; resolves to the kept copy's URI and size. */
+/**
+ * Copies a picked or recorded file into the post's folder; resolves to the
+ * kept copy's URI and size, or rejects with a `LocalFileError` when the file
+ * cannot be copied (one the OS took back, or a folder it refused).
+ */
 export async function keepFile(
   postId: string,
   uri: string,
   name: string,
 ): Promise<{ uri: string; size: number }> {
-  const kept = new File(folder(postId), name);
-  if (kept.exists) kept.delete();
-  await new File(uri).copy(kept);
-  return { uri: kept.uri, size: kept.size };
+  try {
+    const kept = new File(folder(postId), name);
+    if (kept.exists) kept.delete();
+    await new File(uri).copy(kept);
+    return { uri: kept.uri, size: kept.size };
+  } catch (error) {
+    throw new LocalFileError(`cannot keep ${name}`, { cause: error });
+  }
 }
 
 /** Throws away everything kept for a post (posted, or given up). */
@@ -83,17 +92,10 @@ export function deleteFile(uri: string): void {
   if (file.exists) file.delete();
 }
 
-/** Thrown when a PUT was answered with something other than 2xx. */
-export class TransferError extends Error {
-  constructor(readonly status: number) {
-    super(`upload failed (${status})`);
-  }
-}
-
 /**
  * PUTs a file as the request body. Resolves once the store took it; rejects
  * with a `TransferError` for a refusal, with an `AbortError` when `signal`
- * fired, and with the network's error otherwise.
+ * fired, and with a `NetworkError` otherwise.
  */
 export async function putFile(
   url: string,
@@ -109,10 +111,14 @@ export async function putFile(
     onProgress: ({ bytesSent }) => onProgress(bytesSent),
     signal,
   });
+  let result: Awaited<ReturnType<typeof task.uploadAsync>>;
   try {
-    const result = await task.uploadAsync();
-    if (result.status < 200 || result.status >= 300) throw new TransferError(result.status);
+    result = await task.uploadAsync();
+  } catch (error) {
+    if (signal.aborted) throw error;
+    throw new NetworkError("upload failed (network)", { cause: error });
   } finally {
     task.release();
   }
+  if (result.status < 200 || result.status >= 300) throw new TransferError(result.status);
 }

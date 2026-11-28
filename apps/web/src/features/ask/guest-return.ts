@@ -10,7 +10,7 @@
  * kept when nothing was written, and it is removed when it was used and
  * whenever someone signs out.
  */
-export const KEY = "tokuly.ask.return";
+const KEY = "tokuly.ask.return";
 const LIFETIME_MS = 15 * 60_000;
 
 export interface PendingAsk {
