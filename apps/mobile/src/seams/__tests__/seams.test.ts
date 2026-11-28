@@ -100,6 +100,8 @@ describe("the features on the seams", () => {
       "licenses",
       "live/[id]",
       "live/index",
+      "moments/friends/[momentId]",
+      "moments/friends/index",
       "moments/index",
       "more",
       "new-chat",
