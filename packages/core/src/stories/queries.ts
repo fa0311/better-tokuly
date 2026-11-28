@@ -1,22 +1,29 @@
 import type { notes } from "@tokuly/api";
-import { type ClientSource, nextCursor } from "../query";
+import { type ClientSource, journal, nextCursor } from "../query";
 import { storyKeys } from "./keys";
 
 type Stories = ClientSource<typeof notes.StoryService>;
 
-/** Query options of stories. Each app adds `enabled` and its hooks around them. */
+/**
+ * Query options of stories. Each app adds `enabled` and its hooks around them.
+ * The lists realtime changes read through the journal (`pushTo` in `./cache`).
+ */
 export const storyQueries = {
   /** The story tray: the viewer's own reel first, then friends with something unseen, then the rest. */
   tray: (client: Stories) => ({
     queryKey: storyKeys.tray,
-    queryFn: async () => (await client().getStoryTray({})).reels,
+    queryFn: async ({ signal }: { signal: AbortSignal }) =>
+      (await client().getStoryTray({}, { signal })).reels,
+    persister: journal,
     staleTime: 60_000,
   }),
 
   /** The live stories of one person that the viewer may see, oldest first. */
   user: (client: Stories, userId: string) => ({
     queryKey: storyKeys.user(userId),
-    queryFn: async () => (await client().listUserStories({ userId })).stories,
+    queryFn: async ({ signal }: { signal: AbortSignal }) =>
+      (await client().listUserStories({ userId }, { signal })).stories,
+    persister: journal,
     staleTime: 60_000,
   }),
 
@@ -43,10 +50,11 @@ export const storyQueries = {
   /** The viewer's own stories, live and archived, newest first; `date` (`YYYY-MM-DD`) narrows to one day. */
   archive: (client: Stories, date: string) => ({
     queryKey: storyKeys.archive(date),
-    queryFn: ({ pageParam }: { pageParam: string }) =>
-      client().listArchivedStories({ date, page: { cursor: pageParam, limit: 30 } }),
+    queryFn: ({ pageParam, signal }: { pageParam: string; signal: AbortSignal }) =>
+      client().listArchivedStories({ date, page: { cursor: pageParam, limit: 30 } }, { signal }),
     initialPageParam: "",
     getNextPageParam: nextCursor,
+    persister: journal,
   }),
 
   /** The highlights on a profile that hold something the viewer may see. */
