@@ -141,7 +141,7 @@ high delivery priority: the window is two minutes).
 
 ## Rate limits (`rl:moments-*`)
 
-Per person: post 10/h, delete 30/h, react 60 per 10 min, RealMoji library
+Per person: post 10/h, delete 30/h, react or take a reaction back 60 per 10 min, RealMoji library
 30/h, settings 30/h, reads 240/min. Per pair: reaction notifications 10/h
 per reactor → owner.
 
