@@ -220,11 +220,11 @@ function EntryDialog({
           </Fact>
         ))}
         <Fact stack label={t("entry.id")}>
-          <span className="break-all font-mono text-xs font-medium text-ink-soft">{entry.id}</span>
+          <span className="break-all font-mono text-xs font-normal text-ink-soft">{entry.id}</span>
         </Fact>
         {entry.refundOfEntryId && (
           <Fact stack label={t("entry.refundOf")}>
-            <span className="break-all font-mono text-xs font-medium text-ink-soft">
+            <span className="break-all font-mono text-xs font-normal text-ink-soft">
               {entry.refundOfEntryId}
             </span>
           </Fact>

@@ -107,7 +107,7 @@ export function SearchBox({
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          className="h-full min-w-0 flex-1 bg-transparent text-[17px] font-bold outline-none placeholder:font-medium placeholder:text-ink-faint"
+          className="h-full min-w-0 flex-1 bg-transparent text-[17px] font-bold outline-none placeholder:font-normal placeholder:text-ink-faint"
         />
         {loading && open && <Spinner className="size-5 shrink-0 text-ink-faint" />}
         {text && (

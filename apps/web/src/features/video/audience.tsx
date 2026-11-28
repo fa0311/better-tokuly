@@ -86,7 +86,7 @@ export function CircleField({
   }, [autoPick, onChange]);
   if (circles.isSuccess && list.length === 0) {
     return (
-      <p role="alert" className="text-sm font-medium text-danger">
+      <p role="alert" className="text-sm font-normal text-danger">
         {emptyText}
       </p>
     );
@@ -103,7 +103,7 @@ export function CircleField({
         }))}
       />
       {choice.missing && (
-        <p role="alert" className="text-sm font-medium text-danger" data-testid="circle-missing">
+        <p role="alert" className="text-sm font-normal text-danger" data-testid="circle-missing">
           {missingText}
         </p>
       )}

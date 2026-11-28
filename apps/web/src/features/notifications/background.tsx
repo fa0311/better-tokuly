@@ -188,7 +188,7 @@ function NotificationToast({
         <span className="min-w-0 flex-1">
           <span className="block truncate font-black">{entry.title}</span>
           {entry.body && (
-            <span className="line-clamp-2 text-sm font-medium text-ink-soft">{entry.body}</span>
+            <span className="line-clamp-2 text-sm font-normal text-ink-soft">{entry.body}</span>
           )}
         </span>
       </button>

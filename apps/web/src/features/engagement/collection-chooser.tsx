@@ -151,7 +151,7 @@ export function CollectionChooser({ subject, onClose }: { subject: Subject; onCl
             maxLength={COLLECTION_NAME_MAX}
             placeholder={t("bookmarks.newCollection")}
             aria-label={t("bookmarks.newCollection")}
-            className="min-w-0 flex-1 bg-transparent font-bold outline-none placeholder:font-medium placeholder:text-ink-faint"
+            className="min-w-0 flex-1 bg-transparent font-bold outline-none placeholder:font-normal placeholder:text-ink-faint"
           />
         </label>
         <Button

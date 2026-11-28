@@ -326,7 +326,7 @@ function StreamTable({ stream }: { stream: admin.StreamStats }) {
               <tr key={consumer.name} className="hover:bg-surface-2">
                 <th
                   scope="row"
-                  className="max-w-0 truncate px-4 py-1 text-left font-medium text-ink-soft"
+                  className="max-w-0 truncate px-4 py-1 text-left font-normal text-ink-soft"
                 >
                   {consumer.name}
                 </th>

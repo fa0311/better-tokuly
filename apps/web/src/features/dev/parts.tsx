@@ -193,7 +193,7 @@ export function Fact({ label, children }: { label: string; children: ReactNode }
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-1.5">
       <dt className="w-32 shrink-0 text-sm font-bold text-ink-soft">{label}</dt>
-      <dd className="min-w-0 flex-1 break-words text-sm font-medium">{children}</dd>
+      <dd className="min-w-0 flex-1 break-words text-sm font-normal">{children}</dd>
     </div>
   );
 }

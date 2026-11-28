@@ -191,7 +191,7 @@ export function SourceDialog({
           onChange={setEnabled}
         />
         {failed && !failed.field && (
-          <p role="alert" className="px-1 text-sm font-medium text-danger">
+          <p role="alert" className="px-1 text-sm font-normal text-danger">
             {failed.message}
           </p>
         )}

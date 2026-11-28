@@ -31,7 +31,7 @@ export function PushPrompt() {
       </span>
       <div className="min-w-0 flex-1">
         <p className="font-black leading-snug">{t("push.prompt.title")}</p>
-        <p className="mt-0.5 text-sm font-medium leading-snug">{t("push.prompt.body")}</p>
+        <p className="mt-0.5 text-sm font-normal leading-snug">{t("push.prompt.body")}</p>
         <Button
           size="sm"
           className="mt-3"

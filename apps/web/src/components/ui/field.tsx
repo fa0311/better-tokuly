@@ -36,7 +36,7 @@ function FieldShell({
       )}
       {children}
       {error ? (
-        <p id={`${id}-error`} role="alert" className="px-1 text-sm font-medium text-danger">
+        <p id={`${id}-error`} role="alert" className="px-1 text-sm font-normal text-danger">
           {error}
         </p>
       ) : (

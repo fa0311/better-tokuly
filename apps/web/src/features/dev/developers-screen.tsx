@@ -37,7 +37,7 @@ export function DevelopersScreen() {
     <Page title={t("title")} back="/me" wide>
       <div className="sticker rounded-card bg-brand p-5 text-on-brand">
         <p className="text-2xl leading-snug font-black">{t("home.hero")}</p>
-        <p className="mt-1.5 max-w-xl text-sm leading-relaxed font-medium opacity-90">
+        <p className="mt-1.5 max-w-xl text-sm leading-relaxed font-normal opacity-90">
           {t("home.lead")}
         </p>
       </div>
