@@ -12,13 +12,7 @@ import { Toaster } from "sonner";
 import { PWA_LINKS, PWA_META } from "#/features/pwa/head";
 import { BOOT_SCRIPT } from "#/lib/appearance";
 import { watchForRedeploy } from "#/lib/deploy";
-import i18n, {
-  createI18n,
-  type Language,
-  loadAllStrings,
-  normalizeLanguage,
-  stopSuspendingForStrings,
-} from "#/lib/i18n";
+import i18n, { createI18n, type Language, loadAllStrings, normalizeLanguage } from "#/lib/i18n";
 import { getRequestLanguage } from "#/lib/request-language";
 import { startSession } from "#/stores/session";
 import appCss from "../styles.css?url";
@@ -118,7 +112,6 @@ function useIsPhone(): boolean {
 function RootComponent() {
   const phone = useIsPhone();
   useEffect(() => {
-    stopSuspendingForStrings();
     startSession();
     return watchForRedeploy();
   }, []);
@@ -129,9 +122,13 @@ function RootComponent() {
         On phones a toast at the top would lie on the page header (back, title, menu) for
         seconds, so it rises from the bottom instead and stops above the tab bar. Wide screens
         have room next to the header's controls: there it stays at the top.
+        Toasts stack with the newest in front, and a pointer opens the stack by resting on it.
+        A finger cannot: on phones they are always spread out, so a toast that just came (a
+        mission cleared by the check-in) never hides the button of the one before it.
       */}
       <Toaster
         position={phone ? "bottom-center" : "top-center"}
+        expand={phone}
         offset={phone ? { bottom: ABOVE_TAB_BAR } : undefined}
         mobileOffset={{ bottom: ABOVE_TAB_BAR, left: 12, right: 12 }}
         toastOptions={{

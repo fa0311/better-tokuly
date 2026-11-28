@@ -4,10 +4,10 @@ import type { stamp } from "@tokuly/api";
 import { stampQueries } from "@tokuly/core/stamps";
 import { BadgeCheck, ChevronRight, LibraryBig, Palette } from "lucide-react";
 import { type ComponentType, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { BalancePill } from "#/features/wallet";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { storeClient } from "./api";
 import { PackCard, PackRow, SearchField, SectionHeading, TagLink } from "./parts";
 

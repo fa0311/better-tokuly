@@ -7,12 +7,12 @@ import {
 import { Link } from "@tanstack/react-router";
 import { social } from "@tokuly/api";
 import { Check, Settings } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { Page } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { followClient, followKeys, refreshFollows } from "./follow-data";
 import { RowsSkeleton, SectionTitle, UserRow } from "./parts";
 

@@ -3,7 +3,6 @@ import { geo, toMillis } from "@tokuly/api";
 import { ghostRuleFor, ghostSummary } from "@tokuly/core/map";
 import { Ghost, Search } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { TextField } from "#/components/ui/field";
@@ -11,6 +10,7 @@ import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactDuration } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import {
   friendName,
   locationClient,

@@ -1,7 +1,6 @@
 import { common, toMillis, video } from "@tokuly/api";
 import { Flag, SendHorizontal, Smile } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -10,6 +9,7 @@ import { ReportDialog } from "#/features/engagement";
 import { StampImage, StampPicker } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import type { PartyNotice, PartyRoom } from "./use-party";
 
 const { PartyRole } = video;

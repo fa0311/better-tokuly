@@ -8,9 +8,9 @@ import {
   studyTime,
   weekdayOf,
 } from "@tokuly/core/school";
-import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { studyClient } from "./api";
 
 const LEVELS = ["bg-surface-3", "bg-brand/25", "bg-brand/50", "bg-brand/75", "bg-brand"];

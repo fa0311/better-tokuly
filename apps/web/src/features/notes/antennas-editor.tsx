@@ -4,7 +4,6 @@ import { type common, notes } from "@tokuly/api";
 import { charCount, listKeys, notesKeys } from "@tokuly/core/notes";
 import { Plus, X } from "lucide-react";
 import { useEffect, useId, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -14,6 +13,7 @@ import { ListRow } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { ANTENNA_LIMITS, antennaClient, useLists, useUserSearch } from "./lists-api";
 import { LISTS_NS } from "./lists-editor";
 

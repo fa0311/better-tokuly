@@ -11,13 +11,13 @@ import {
 } from "@tokuly/core/school";
 import { Undo2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { SelectField } from "#/components/ui/select";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { timetableClient, toastError } from "./api";
 
 import { Segmented } from "./parts";

@@ -4,7 +4,6 @@ import { school, toDate } from "@tokuly/api";
 import { phaseKey, refreshSchool, schoolKeys, studyTime, timerText } from "@tokuly/core/school";
 import { DoorOpen, Pause, Play, RotateCw, SkipForward, Square } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -13,6 +12,7 @@ import { TextField } from "#/components/ui/field";
 import { Skeleton } from "#/components/ui/page";
 import { useAccountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { studyClient, toastError, useSchoolSettings } from "./api";
 
 import { Segmented, SubjectPill, useNow } from "./parts";

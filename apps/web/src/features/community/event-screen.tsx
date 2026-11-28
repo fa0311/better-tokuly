@@ -30,7 +30,6 @@ import {
   X,
 } from "lucide-react";
 import { Suspense, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { onDemand } from "#/components/on-demand";
 import { Avatar } from "#/components/ui/avatar";
@@ -48,6 +47,7 @@ import { EmojiText } from "#/features/emoji";
 import { ReactionBar } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { eventClient, NS, useAttendees, useEvent } from "./api";
 import { useCurrentCommunity } from "./context";
 import { EventFormDialog, MyAnswerChip } from "./events";

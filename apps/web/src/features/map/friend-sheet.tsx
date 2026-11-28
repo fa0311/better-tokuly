@@ -23,7 +23,6 @@ import {
   Zap,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/page";
@@ -33,6 +32,7 @@ import { ReportDialog } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactAge, compactDuration, formatDistance, kmh } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocations } from "#/stores/locations";
 import { useMe } from "#/stores/session";
 import { tryBump } from "./bump";

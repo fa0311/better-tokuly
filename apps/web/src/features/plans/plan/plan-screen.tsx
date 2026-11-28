@@ -24,7 +24,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { Suspense, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { onDemand } from "#/components/on-demand";
 import { Button } from "#/components/ui/button";
@@ -38,6 +37,7 @@ import { ShareToChat } from "#/features/chat";
 import { CommentThread } from "#/features/comments";
 import { ReportDialog } from "#/features/engagement";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { nameOf, planClient, rememberPlan, usePlan } from "../api";
 import { formatDay, planTimeZone, ymd } from "../dates";
 import { buildIcs, downloadIcs } from "../ics";

@@ -1,10 +1,10 @@
 import { type common, spaces } from "@tokuly/api";
 import { nameOf } from "@tokuly/core/spaces";
 import { Globe, Lock, Users } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 /** The red "LIVE" pill of a room that is on right now. */
 export function LiveBadge({ className }: { className?: string }) {

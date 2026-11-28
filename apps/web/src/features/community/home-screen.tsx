@@ -1,9 +1,9 @@
 import { isMember } from "@tokuly/core/community";
-import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { EmojiText } from "#/features/emoji";
+import { useTranslation } from "#/lib/use-translation";
 import { Facts, Rules } from "./about";
 import { NS, useAnnouncements } from "./api";
 import { Boards } from "./boards";

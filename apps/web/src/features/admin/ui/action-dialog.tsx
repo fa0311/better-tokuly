@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { TextArea } from "#/components/ui/field";
+import { useTranslation } from "#/lib/use-translation";
 
 /** Limits of the API for the texts staff attach to an action. */
 export const REASON_MAX = 500;

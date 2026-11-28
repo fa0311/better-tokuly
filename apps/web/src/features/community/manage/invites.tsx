@@ -4,7 +4,6 @@ import { communityKeys, inviteHref } from "@tokuly/core/community";
 import { Copy, Plus, QrCode, Trash2 } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
@@ -16,6 +15,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { copyText } from "#/features/engagement";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { communityClient, NS, useInvites } from "../api";
 import { Notice, useDurationLabel, useWhen } from "../parts";
 

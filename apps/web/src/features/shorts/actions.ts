@@ -1,10 +1,10 @@
 import { type QueryKey, useMutation, useQueryClient } from "@tanstack/react-query";
 import { engagement, shorts } from "@tokuly/api";
 import { shortSubject } from "@tokuly/core/shorts";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { copyText, useEngagement, useReact } from "#/features/engagement";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import {
   feedClient,
   patchShortEverywhere,

@@ -1,11 +1,11 @@
 import type { stamp } from "@tokuly/api";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Coins } from "#/components/ui/coins";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea, TextField } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
+import { useTranslation } from "#/lib/use-translation";
 import { parseKeywords } from "./stamp-meta";
 
 /** A pack's listing as edited in the form. */

@@ -4,7 +4,6 @@ import { stamp, toDate } from "@tokuly/api";
 import { stampKeys } from "@tokuly/core/stamps";
 import { BadgeCheck, Check, Download, Pencil, Share2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -12,6 +11,7 @@ import { Chip } from "#/components/ui/card";
 import { CoinIcon } from "#/components/ui/coins";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
+import { useTranslation } from "#/lib/use-translation";
 import { formatCount, storeClient, useInstallPack, usePack, useUninstallPack } from "./api";
 import {
   AnimatedMark,

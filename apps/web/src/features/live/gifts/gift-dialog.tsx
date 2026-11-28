@@ -12,7 +12,6 @@ import {
   tierFor,
 } from "@tokuly/core/live";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Coins } from "#/components/ui/coins";
@@ -21,6 +20,7 @@ import { TextArea, TextField } from "#/components/ui/field";
 import { useBalance } from "#/features/wallet";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { giftClient, liveKeys, useGiftTiers } from "../api";
 import { GiftBubble } from "../chat/chat-line";

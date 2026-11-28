@@ -20,7 +20,6 @@ import {
   Upload,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Menu, type MenuAction } from "#/components/ui/menu";
 import {
   compactCount,
@@ -30,6 +29,7 @@ import {
   useSubjectLive,
 } from "#/features/engagement";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useNotInterested, useSaveShort, useShareShort, useShortLike } from "../actions";
 import { RemixesDialog } from "../remixes-dialog";
 

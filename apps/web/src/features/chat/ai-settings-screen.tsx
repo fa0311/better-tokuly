@@ -2,11 +2,11 @@ import { Link } from "@tanstack/react-router";
 import { chat } from "@tokuly/api";
 import { KeyRound, Send, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { providerName, useAssistSettings, useAssistSettingsChange } from "./ai-settings";
 import { assistClient } from "./api";
 

@@ -1,11 +1,11 @@
 import type { chat } from "@tokuly/api";
 import { isGroup } from "@tokuly/core/chat";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { Dialog } from "#/components/ui/dialog";
 import { ListRow } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
+import { useTranslation } from "#/lib/use-translation";
 import { type MuteFor, useConversationActions } from "./actions";
 import { titleOf } from "./people";
 

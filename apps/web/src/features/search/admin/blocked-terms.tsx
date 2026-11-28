@@ -2,13 +2,13 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 import { searchKeys } from "@tokuly/core/search";
 import { Ban, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 import { searchAdminClient } from "../api";
 import { formatDateTime, Pane, staffErrorMessage } from "./parts";
 

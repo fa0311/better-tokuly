@@ -2,11 +2,11 @@ import { useMutation } from "@tanstack/react-query";
 import type { identity } from "@tokuly/api";
 import { PackageOpen } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { accountClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { Group } from "../shell/settings-page";
 
 /** The download link in the mail works for this long. */

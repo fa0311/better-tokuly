@@ -1,7 +1,7 @@
 import { Map as MapLibreMap } from "maplibre-gl";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useIsDark } from "./map-view";
 import { buildMapStyle } from "./tiles";
 

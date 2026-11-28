@@ -9,7 +9,7 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import type { SettingsSection } from "#/seams/settings";
 import { useMe } from "#/stores/session";
 

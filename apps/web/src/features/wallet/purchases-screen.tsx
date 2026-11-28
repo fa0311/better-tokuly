@@ -4,13 +4,13 @@ import { toDate, wallet } from "@tokuly/api";
 import { formatMoney, uniqueById, walletKeys, walletQueries } from "@tokuly/core/wallet";
 import { ChevronRight, ShoppingBag } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
 import { Coins } from "#/components/ui/coins";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { PAGE_SIZE, walletClient } from "./api";
 import { Fact, LinkButton } from "./parts";
 import {

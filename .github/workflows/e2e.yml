@@ -33,11 +33,13 @@ on:
       - .github/actions/**
       - tools/ci/use-images.sh
 
-# A newer push replaces the run of the same branch, on main too: only the newest commit's
-# result matters before a release (docs/agents/rules.md), and the runners stay free.
+# One run per branch at a time. On main the running one finishes and only the newest push
+# waits (the ones between are dropped): merges come faster than a run takes, and a run that is
+# always cancelled leaves main's pass rate unknown (docs/agents/process.md). Elsewhere a newer
+# push replaces the run.
 concurrency:
   group: e2e-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read

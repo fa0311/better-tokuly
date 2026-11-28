@@ -1,7 +1,7 @@
 import { useRouterState } from "@tanstack/react-router";
 import { WifiOff } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useOnline } from "./online";
 
 /**

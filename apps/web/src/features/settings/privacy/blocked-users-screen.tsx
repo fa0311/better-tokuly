@@ -7,7 +7,6 @@ import {
 import type { common, social } from "@tokuly/api";
 import { profileKeys } from "@tokuly/core/profile";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -15,6 +14,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, ListRow, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { friendClient, keys } from "../data";
 import { SettingsPage } from "../shell/settings-page";
 

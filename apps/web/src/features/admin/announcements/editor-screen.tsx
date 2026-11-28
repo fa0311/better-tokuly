@@ -3,7 +3,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { admin, type common, fromDate, isNotFound, media } from "@tokuly/api";
 import { CalendarClock, ExternalLink, ImagePlus, Save, Send, Trash2, Undo2 } from "lucide-react";
 import { useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -21,6 +20,7 @@ import {
 } from "#/features/announcements";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import { announcementAdminClient } from "../api";
 import { formatDateTime, fromLocalInput } from "../format";
 import { ConsolePage, Fact, Section } from "../ui/console-page";

@@ -20,7 +20,6 @@ import {
   Volume2,
 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -32,6 +31,7 @@ import { Spinner } from "#/components/ui/spinner";
 import { EmojiText } from "#/features/emoji";
 import { useSubjectMenu } from "#/features/engagement";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useHideTabBar } from "#/stores/shell";
 import { spaceClient, useParticipants, useSpacesConfig } from "../api";
 import { DevicesDialog } from "../devices-dialog";

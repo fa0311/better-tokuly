@@ -3,12 +3,12 @@ import type { community } from "@tokuly/api";
 import { patchThread, votePercent } from "@tokuly/core/community";
 import { Check } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { boardClient, NS } from "./api";
 import { useWhen } from "./parts";
 

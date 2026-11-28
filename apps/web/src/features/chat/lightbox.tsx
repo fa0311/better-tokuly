@@ -2,10 +2,10 @@ import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { media } from "@tokuly/api";
 import { ChevronLeft, ChevronRight, Download, MessageSquareShare, X } from "lucide-react";
 import { type PointerEvent, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
 import { loadHls } from "#/lib/hls";
 import { loadModule } from "#/lib/load-module";
+import { useTranslation } from "#/lib/use-translation";
 import { pictureOf } from "./media-parts";
 
 /** One picture or video shown full screen. */

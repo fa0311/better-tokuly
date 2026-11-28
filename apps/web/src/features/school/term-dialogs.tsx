@@ -14,7 +14,6 @@ import {
 import type { TFunction } from "i18next";
 import { Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -24,6 +23,7 @@ import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { timetableClient, toastError } from "./api";
 
 import { FriendPicker, Segmented } from "./parts";

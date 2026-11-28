@@ -1,7 +1,6 @@
 import { chat } from "@tokuly/api";
 import { ShieldAlert } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
@@ -9,6 +8,7 @@ import { SelectField } from "#/components/ui/select";
 import { SwitchRow } from "#/components/ui/switch";
 import { useStaffAccess } from "#/features/admin";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import {
   AI_PROVIDERS,
   assistAdminClient,

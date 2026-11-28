@@ -9,11 +9,11 @@ import {
   SquarePlus,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { closeInstallGuide, useInstall, useInstallWay } from "./install";
 
 /**

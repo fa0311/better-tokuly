@@ -1,7 +1,7 @@
 import type { notify } from "@tokuly/api";
 import { BellRing, Inbox, Lock } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Card } from "#/components/ui/card";
+import { useTranslation } from "#/lib/use-translation";
 import { CategoryIcon } from "../category";
 import { usePreferenceActions } from "../preferences";
 import { Toggle } from "../toggle";

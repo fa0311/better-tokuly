@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { emoji as emojiApi } from "@tokuly/api";
 import { GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
@@ -11,6 +10,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Sortable } from "#/components/ui/sortable";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { categoriesKey, emojiAdminClient, useAdminRefresh, useCategories } from "./shared";
 
 /** The categories of the picker: add, rename, drag into order, delete (moving their emoji elsewhere). */

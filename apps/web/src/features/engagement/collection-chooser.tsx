@@ -3,13 +3,13 @@ import type { engagement } from "@tokuly/api";
 import type { Subject } from "@tokuly/core/engagement";
 import { BookmarkX, Check, FolderPlus } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import {
   bookmarkClient,
   engagementKeys,

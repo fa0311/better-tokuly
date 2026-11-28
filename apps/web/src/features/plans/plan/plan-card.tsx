@@ -2,9 +2,9 @@ import { Link } from "@tanstack/react-router";
 import { plans } from "@tokuly/api";
 import { planTimeText, rsvpKey, untilText } from "@tokuly/core/plans";
 import { CheckSquare, MapPin, MessageCircle, Receipt } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { planTimeZone } from "../dates";
 import { AvatarStack } from "../parts";
 

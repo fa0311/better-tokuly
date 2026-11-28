@@ -4,12 +4,12 @@ import type { shorts } from "@tokuly/api";
 import { type FeedContext, imageUrl, searchOfContext } from "@tokuly/core/shorts";
 import { Pin, Play } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { compactCount } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { type ListOptions, listQuery } from "./lists";
 
 export interface ShortTileProps {

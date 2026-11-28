@@ -12,13 +12,13 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { type ComponentType, type PointerEvent, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Slider } from "#/components/ui/slider";
 import { PaneSpinner } from "#/components/ui/spinner";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import {
   addOutline,
   applyMask,

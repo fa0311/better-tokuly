@@ -4,13 +4,13 @@ import { imageUrl, type SlideLoad, shortSubject, soundTitle } from "@tokuly/core
 import type { TFunction } from "i18next";
 import { Heart, Music2, Play, Shuffle, Volume2 } from "lucide-react";
 import { useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Dialog } from "#/components/ui/dialog";
 import { Spinner } from "#/components/ui/spinner";
 import { CommentThread } from "#/features/comments";
 import { EmojiText } from "#/features/emoji";
 import { ChannelAvatar, ChannelName, SubscribeButton } from "#/features/video";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useShortLike } from "../actions";
 import { Caption } from "../caption";
 import type { FeedEntry } from "../lists";

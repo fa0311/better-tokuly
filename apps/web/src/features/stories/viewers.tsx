@@ -1,12 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import { toMillis } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useStoryViewers } from "./api";
 import { closeStoryViewer } from "./viewer-store";
 

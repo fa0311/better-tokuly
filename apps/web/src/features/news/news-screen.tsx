@@ -1,12 +1,12 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Heart, Megaphone, RotateCw, Rss, SlidersHorizontal, X } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { newsClient, newsKeys, useNewsSources, useNewsTags } from "./api";
 import { ArticleCard, ArticleSkeleton } from "./article-card";
 import type { NewsParams } from "./params";

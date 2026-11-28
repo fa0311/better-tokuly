@@ -5,11 +5,11 @@ import { withRead, withReceived, withRemoved } from "@tokuly/core/notifications"
 import { reread } from "@tokuly/core/query";
 import { X } from "lucide-react";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { errorMessage } from "#/lib/errors";
 import { loadNow } from "#/lib/load-module";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { setBadge } from "#/stores/badges";
 import { useSessionStore } from "#/stores/session";
 import { applyInboxChange, applyUnread, notifyKeys, rereadInbox, useUnread } from "./api";

@@ -1,12 +1,12 @@
 import type { chat } from "@tokuly/api";
 import { ExternalLink, LocateFixed, Send } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { onDemand } from "#/components/on-demand";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { PaneSpinner } from "#/components/ui/spinner";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocations } from "#/stores/locations";
 
 const LocationMap = onDemand(

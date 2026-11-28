@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import type { community } from "@tokuly/api";
 import { VISIBILITY_KEYS } from "@tokuly/core/community";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmojiText } from "#/features/emoji";
+import { useTranslation } from "#/lib/use-translation";
 import { NS } from "./api";
 import { useWhen } from "./parts";
 

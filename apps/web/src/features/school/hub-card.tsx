@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { classWhen, clock, currentClass } from "@tokuly/core/school";
 import { ChevronRight } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { useAccountNow } from "#/lib/account-time";
+import { useTranslation } from "#/lib/use-translation";
 import { useClassNow } from "./api";
 
 /**

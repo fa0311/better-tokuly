@@ -1,8 +1,8 @@
 import type { school } from "@tokuly/api";
 import { clock, inkOn, layoutWeekdays, weekdayOf } from "@tokuly/core/school";
-import { useTranslation } from "react-i18next";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 import { cellName, entryColor, type GridEntry, type Slot, slotKey, slots } from "./grid-model";
 

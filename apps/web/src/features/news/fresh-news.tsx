@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { feed } from "@tokuly/api";
 import { ChevronRight, Newspaper } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { newsClient, newsKeys } from "./api";
 import { ArticlePicture, PublishedAt, SourceIcon } from "./parts";
 

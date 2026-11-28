@@ -2,12 +2,12 @@ import { Link } from "@tanstack/react-router";
 import { latenessText } from "@tokuly/core/moments";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Page, Skeleton } from "#/components/ui/page";
 import { imageUrl } from "#/features/notes";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useMomentCalendar } from "./api";
 
 const pad = (value: number) => String(value).padStart(2, "0");

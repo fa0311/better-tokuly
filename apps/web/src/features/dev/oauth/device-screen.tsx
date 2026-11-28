@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { authorizationClient } from "../api";
 import { Notice } from "../parts";
 import { AnswerButtons, ConsentDetails, OAuthPage } from "./parts";

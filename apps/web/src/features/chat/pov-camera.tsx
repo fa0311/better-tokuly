@@ -1,12 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Circle, ImagePlus, RefreshCcw, Send, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { describeFile, type OutgoingFile, releaseFiles } from "./attachments";
 import { useConversationContext } from "./conversation-context";
 import { send } from "./outbox";

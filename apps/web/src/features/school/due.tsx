@@ -13,7 +13,6 @@ import {
 } from "@tokuly/core/school";
 import { BellOff, Check, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -24,6 +23,7 @@ import { EmptyState } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { useAccountTimeZone, useAccountToday, zonedMoment } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { assignmentClient, toastError, useAssignments, useExams } from "./api";
 
 import { RowsSkeleton, SubjectPill } from "./parts";

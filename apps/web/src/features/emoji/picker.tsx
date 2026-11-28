@@ -19,8 +19,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useDeck, useRecentEmoji } from "./api";
 import { useCatalog } from "./catalog";
 import { EmojiImage } from "./emoji";

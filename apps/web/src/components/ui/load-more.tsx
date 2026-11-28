@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { Spinner } from "./spinner";
 
 /** The part of a TanStack `useInfiniteQuery` result that paging needs. */

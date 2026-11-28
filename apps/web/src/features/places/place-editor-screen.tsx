@@ -12,7 +12,6 @@ import {
 } from "@tokuly/core/places";
 import { Crosshair, ImagePlus, LocateFixed, SmilePlus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
@@ -34,6 +33,7 @@ import {
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import {
   currentPosition,
   DEFAULT_CENTER,

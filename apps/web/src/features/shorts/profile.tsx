@@ -2,7 +2,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { FeedContext } from "@tokuly/core/shorts";
 import { ChevronRight } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import type { ProfileSection, ProfileSectionProps } from "#/seams/profile";
 import { listQuery } from "./lists";
 import { ShortTile } from "./short-tile";

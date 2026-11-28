@@ -1,10 +1,10 @@
 import type { identity } from "@tokuly/api";
 import { isTooYoung, tooYoungUntil, watchTooYoung } from "@tokuly/core/session";
 import { type ReactNode, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Button } from "#/components/ui/button";
 import { api } from "#/lib/api";
+import { useTranslation } from "#/lib/use-translation";
 import { signOut, useMe } from "#/stores/session";
 import { DeletionDialog, DeletionScheduled } from "../your-data/deletion-card";
 

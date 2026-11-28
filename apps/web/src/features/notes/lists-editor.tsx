@@ -3,13 +3,13 @@ import { useNavigate } from "@tanstack/react-router";
 import type { notes } from "@tokuly/api";
 import { charCount, listKeys } from "@tokuly/core/notes";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea, TextField } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { LIST_LIMITS, listClient, resetListTimeline, storeList } from "./lists-api";
 
 export const LISTS_NS = { namespace: "notelists" };

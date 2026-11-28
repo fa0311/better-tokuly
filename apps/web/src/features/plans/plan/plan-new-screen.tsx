@@ -8,11 +8,11 @@ import {
   toCreateRequest,
 } from "@tokuly/core/plans";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { planClient, rememberPlan, useFriends } from "../api";
 import { planTimeZone } from "../dates";
 import { type PlanDraft, takePlanDraft } from "../draft";
