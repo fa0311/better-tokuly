@@ -129,6 +129,27 @@ describe("journaled reads and pushes", () => {
     expect(queryClient.getQueryData(key)).toBeNull();
   });
 
+  it("keeps the query's age and its mark to be read again: a push is not a read", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData<Line[]>(key, [{ id: "a", version: 1 }], { updatedAt: 1_000 });
+    void queryClient.invalidateQueries({ queryKey: key });
+    pushTo<Line[]>(queryClient, key, add({ id: "b", version: 1 }));
+    const state = queryClient.getQueryState(key);
+    expect(state?.dataUpdatedAt).toBe(1_000);
+    expect(state?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryData(key)).toHaveLength(2);
+  });
+
+  it("leaves a query alone when the push changes nothing", () => {
+    const queryClient = new QueryClient();
+    const lines: Line[] = [{ id: "a", version: 2 }];
+    queryClient.setQueryData(key, lines);
+    const before = queryClient.getQueryState(key)?.dataUpdateCount;
+    pushTo<Line[]>(queryClient, key, add({ id: "a", version: 1 }));
+    expect(queryClient.getQueryData(key)).toBe(lines);
+    expect(queryClient.getQueryState(key)?.dataUpdateCount).toBe(before);
+  });
+
   it("releases a read that was replaced, and tells its request to stop", async () => {
     const queryClient = new QueryClient();
     const api = server();
@@ -257,6 +278,13 @@ describe("a read that is not the query's own", () => {
       { id: "old", version: 1 },
       { id: "mine", version: 1 },
     ]);
+  });
+
+  it("makes the query as new as its answer: it is a read", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData<Line[]>(key, [], { updatedAt: 1_000 });
+    await pushAfter<Line[]>(queryClient, key, async () => add({ id: "a", version: 1 }));
+    expect(queryClient.getQueryState(key)?.dataUpdatedAt).toBeGreaterThan(1_000);
   });
 
   it("changes nothing when the read has nothing to add, or fails", async () => {

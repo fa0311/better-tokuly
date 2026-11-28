@@ -37,7 +37,12 @@ export {
   withViewer,
 } from "./cache";
 export { clipKeys, listKeys, notesKeys, type TimelineSource } from "./keys";
-export { applyNotesEvent, isNoteNotification, type NotesEventEffect } from "./live";
+export {
+  applyNotesEvent,
+  isNoteNotification,
+  type NotesEventEffect,
+  putRefreshedNote,
+} from "./live";
 export {
   canVote,
   newPoll,
@@ -64,9 +69,11 @@ export {
   countNewEntries,
   entryKey,
   loadTimelinePage,
+  lookForNewEntries,
   PAGE_SIZE,
   type TimelineClients,
   type TimelineData,
   type TimelinePage,
+  timelineQuery,
   withFreshEntries,
 } from "./timeline";

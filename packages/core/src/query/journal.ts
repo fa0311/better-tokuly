@@ -87,11 +87,30 @@ type QueryJournal = (
   context: QueryFunctionContext,
 ) => Promise<never>;
 
-/** Applies a pushed change to the query under `key` (exactly that key) now and to every read of it in flight. */
+/**
+ * Applies a pushed change to the query under `key` (exactly that key) now and to every read of it in flight.
+ * A push is not a read: the query keeps its age and, when it was marked to be read again, stays marked.
+ */
 export function pushTo<T>(queryClient: QueryClient, key: QueryKey, update: Update<T>): void {
   const change = replay(update);
   journalOf(queryClient).record(hashKey(key), change);
-  queryClient.setQueryData<T>(key, (current) => change(current) as T | undefined);
+  write(queryClient, key, change, "pushed");
+}
+
+/** Writes `change` into the cached query: `read` makes it as new as a read would, `pushed` keeps its age. */
+function write(
+  queryClient: QueryClient,
+  key: QueryKey,
+  change: (state: unknown) => unknown,
+  as: "read" | "pushed",
+): void {
+  const query = queryClient.getQueryCache().find({ queryKey: key, exact: true });
+  if (!query) return;
+  const { data, dataUpdatedAt, isInvalidated } = query.state;
+  const next = change(data);
+  if (next === data) return;
+  queryClient.setQueryData(key, next, as === "pushed" ? { updatedAt: dataUpdatedAt } : undefined);
+  if (isInvalidated) query.invalidate();
 }
 
 /**
@@ -112,7 +131,8 @@ export function pushToAll<T>(queryClient: QueryClient, prefix: QueryKey, update:
  * may be newer than that answer, so the change is pushed as "the answer,
  * then what was pushed since": to the cache and, like any push, to the
  * query's own reads in flight, where the pushes since are replayed after it
- * again (a removal that followed the add stays a removal).
+ * again (a removal that followed the add stays a removal). Being a read, it
+ * makes the query as new as its answer.
  */
 export async function pushAfter<T>(
   queryClient: QueryClient,
@@ -130,5 +150,7 @@ export async function pushAfter<T>(
   }
   if (!answer) return;
   const update = answer;
-  pushTo<T>(queryClient, key, (current) => since.finish(update(current)) as ReturnType<Update<T>>);
+  const change = replay<T>((current) => since.finish(update(current)) as ReturnType<Update<T>>);
+  journalOf(queryClient).record(hashKey(key), change);
+  write(queryClient, key, change, "read");
 }

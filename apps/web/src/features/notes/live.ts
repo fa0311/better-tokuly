@@ -4,7 +4,7 @@ import {
   applyNotesEvent,
   forgetUserNotes,
   isNoteNotification,
-  patchNote,
+  putRefreshedNote,
 } from "@tokuly/core/notes";
 import type { ServerFrame } from "@tokuly/realtime";
 import { markNoteDeleted, noteClient } from "./api";
@@ -14,11 +14,7 @@ import { hintTimelines } from "./timeline-hints";
 export async function refreshNote(queryClient: QueryClient, noteId: string): Promise<void> {
   try {
     const fresh = (await noteClient().getNote({ noteId })).note;
-    if (fresh)
-      patchNote(queryClient, noteId, (note) => ({
-        ...fresh,
-        counters: note.counters ?? fresh.counters,
-      }));
+    if (fresh) putRefreshedNote(queryClient, fresh);
   } catch {
     // Gone or hidden meanwhile: the other pushes say so.
   }

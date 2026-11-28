@@ -1,5 +1,4 @@
 import {
-  infiniteQueryOptions,
   type QueryClient,
   useInfiniteQuery,
   useQuery,
@@ -15,6 +14,7 @@ import {
   PAGE_SIZE,
   type TimelineClients,
   type TimelineSource,
+  timelineQuery,
 } from "@tokuly/core/notes";
 import { nextCursor } from "@tokuly/core/query";
 import { api } from "#/lib/api";
@@ -38,23 +38,11 @@ const timelineClients: TimelineClients = {
   antennas: antennaClient,
 };
 
-export function timelineQuery(source: TimelineSource) {
-  return infiniteQueryOptions({
-    queryKey: notesKeys.timeline(source),
-    queryFn: ({ pageParam }) => loadTimelinePage(timelineClients, source, pageParam),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.nextCursor || undefined,
-    // A timeline never refetches by itself (that would read every page again):
-    // new notes go on top instead (`withFreshEntries`).
-    staleTime: Number.POSITIVE_INFINITY,
-  });
-}
-
 /** The newest page of a timeline, read now: what goes on top of the one on screen. */
 export const freshPage = (source: TimelineSource) => loadTimelinePage(timelineClients, source, "");
 
 export function useTimeline(source: TimelineSource) {
-  return useInfiniteQuery(timelineQuery(source));
+  return useInfiniteQuery(timelineQuery(timelineClients, source));
 }
 
 /** A note in its conversation: the notes it answers, itself, and its replies oldest first (paged). */
