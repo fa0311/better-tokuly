@@ -36,13 +36,30 @@ async function loadNamespace(language: Language, namespace: string) {
 /** What every page shows: the app's own words and the error texts. */
 const ALWAYS = ["common", "errors"];
 
+/** Namespaces whose strings did not arrive, by language: loaded again once the device is back online. */
+const notArrived = new Set<string>();
+
+/**
+ * A chunk that does not arrive (the connection dropped right then) is tried
+ * again a few times (`done(error, true)`). After the last try i18next leaves
+ * the namespace unloaded rather than failed, so the next lookup into it loads
+ * it again (`parseMissingKeyHandler`), and so does the device coming back
+ * online.
+ */
 const backend: BackendModule = {
   type: "backend",
   init() {},
   read(language, namespace, done) {
+    const name = `${language}|${namespace}`;
     loadNamespace(normalizeLanguage(language), namespace).then(
-      (strings) => done(null, strings),
-      (error: Error) => done(error, false),
+      (strings) => {
+        notArrived.delete(name);
+        done(null, strings);
+      },
+      (error: Error) => {
+        notArrived.add(name);
+        done(error, true);
+      },
     );
   },
 };
@@ -106,7 +123,9 @@ function createServerI18n(language: Language, resources: Resource): I18n {
  * component) shows nothing, starts loading it, and every `useTranslation`
  * renders again once it is there, with a new `t`: the React Compiler keeps
  * what a component showed until `t` changes, so a `t` that stayed would keep
- * the empty text. Effects therefore never depend on `t` (`lint/`).
+ * the empty text. Effects therefore never depend on `t` (`lint/`). A
+ * namespace whose strings did not arrive shows nothing the same way, and
+ * loads again (`backend`).
  */
 function createBrowserI18n(language: Language): I18n {
   const instance = createInstance();
@@ -126,13 +145,20 @@ function createBrowserI18n(language: Language): I18n {
       parseMissingKeyHandler(missing, defaultValue) {
         const separator = missing.indexOf(":");
         const namespace = missing.slice(0, separator);
-        if (!instance.hasLoadedNamespace(namespace)) {
+        // Not `hasLoadedNamespace`: that also counts a namespace whose strings did not arrive.
+        if (!instance.hasResourceBundle(instance.language, namespace)) {
           void instance.loadNamespaces(namespace);
           return "";
         }
         return defaultValue ?? missing.slice(separator + 1);
       },
     });
+  window.addEventListener("online", () => {
+    for (const name of notArrived) {
+      const [missingLanguage = "", namespace = ""] = name.split("|");
+      if (missingLanguage === instance.language) void instance.loadNamespaces(namespace);
+    }
+  });
   return instance;
 }
 
