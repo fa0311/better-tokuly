@@ -52,11 +52,9 @@ describe("error messages", () => {
   });
 
   it("say something useful without a known reason", () => {
-    expect(errorMessage(failure("SOMETHING_NEW"))).toBe(
-      "うまくいきませんでした。もう一度ためしてね",
-    );
+    expect(errorMessage(failure("SOMETHING_NEW"))).toBe("うまくいかなかったよ…もう一度ためしてね");
     expect(errorMessage(new TypeError("fetch failed"))).toBe(
-      "通信できませんでした。接続を確認してね",
+      "通信できなかったよ。接続を確認してね!",
     );
     expect(errorMessage(failure("", Code.ResourceExhausted))).toBe(
       "ちょっと待ってから、もう一度ためしてね",

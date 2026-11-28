@@ -1,4 +1,5 @@
 import { ConnectError, common, media, notes, shorts } from "@tokuly/api";
+import { AssetFailedError, TransferError } from "@tokuly/core/errors";
 import { randomUUID } from "expo-crypto";
 import { create } from "zustand";
 import {
@@ -114,7 +115,9 @@ const running = new Map<string, { controller: AbortController; done: Promise<voi
 /** Errors that will not go away by sending again: the server's answer, shown as it gave it. */
 function isRefusal(error: unknown): boolean {
   if (error instanceof ConnectError) return Boolean(error.metadata.get("x-tokuly-error"));
-  return error instanceof Error && error.name === "AssetFailedError";
+  // A file too large for the store stays too large.
+  if (error instanceof TransferError) return error.status === 413;
+  return error instanceof AssetFailedError;
 }
 
 /**

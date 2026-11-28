@@ -1,5 +1,5 @@
 import { media } from "@tokuly/api";
-import { AssetFailedError } from "@tokuly/core/errors";
+import { AssetFailedError, NetworkError, TransferError } from "@tokuly/core/errors";
 import * as uploads from "@tokuly/core/media";
 import { api } from "#/lib/api";
 
@@ -30,8 +30,8 @@ function put(
     request.onload = () =>
       request.status >= 200 && request.status < 300
         ? resolve()
-        : reject(new Error(`upload failed (${request.status})`));
-    request.onerror = () => reject(new Error("upload failed (network)"));
+        : reject(new TransferError(request.status));
+    request.onerror = () => reject(new NetworkError("upload failed (network)"));
     request.onabort = () => reject(new DOMException("upload aborted", "AbortError"));
     signal?.addEventListener("abort", () => request.abort(), { once: true });
     request.send(body);
