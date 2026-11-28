@@ -4,21 +4,23 @@
 # (`api`, `realtime`, `worker`, `migrate`); compose picks the role per service.
 # Build context: the repository root.
 
-ARG RUST_VERSION=1.100.0
 ARG BUF_VERSION=1.75.0
 ARG CARGO_CHEF_VERSION=0.1.78
 
 FROM bufbuild/buf:${BUF_VERSION} AS buf
 
-FROM rust:${RUST_VERSION}-slim-trixie AS toolchain
+# Any Rust image for rustup: the version is backend/rust-toolchain.toml's.
+FROM rust:1-slim-trixie AS toolchain
 ARG CARGO_CHEF_VERSION
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential cmake pkg-config clang perl \
  && rm -rf /var/lib/apt/lists/*
+WORKDIR /src/backend
+COPY backend/rust-toolchain.toml ./
+RUN rustup toolchain install && rustc --version
 RUN cargo install cargo-chef --version "${CARGO_CHEF_VERSION}" --locked
 # The proto crate shells out to `buf build` at compile time.
 COPY --from=buf /usr/local/bin/buf /usr/local/bin/buf
-WORKDIR /src/backend
 
 # The build is split into layers that change at different rates, so that a
 # layer cache (CI keeps one in the registry) skips what did not change:

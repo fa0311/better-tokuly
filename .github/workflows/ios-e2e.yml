@@ -90,7 +90,7 @@ jobs:
       - uses: bufbuild/buf-action@v1
         with:
           setup_only: true
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/setup-rust
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: backend
