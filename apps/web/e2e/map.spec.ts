@@ -1,5 +1,6 @@
 import type { APIRequestContext, Browser, Locator, Page } from "@playwright/test";
 import { postMoment, promptReached } from "./moments";
+import { holdAnswers, pushes } from "./races";
 import { type Account, befriend, createAccount, expect, PASSWORD, rpc, test } from "./support";
 
 /** Where the browser is (the Playwright config's geolocation): Shibuya crossing. */
@@ -1307,4 +1308,116 @@ test("when the browser cannot save the choice, sharing still starts and says it 
   await page.reload();
   await expect(notice).toContainText("いまどこ？をシェアしよう！", { timeout: 30_000 });
   await expect(page.getByTestId("own-pin")).toHaveCount(0);
+});
+
+// A read answered before a push and landing after it does not undo the push
+// (`docs/realtime-consistency.md`, rule 2): what ended does not come back with
+// where the people in it are.
+
+/** Two friends of `me`, friends with each other, side by side long enough to be a gathering. */
+async function gatheringOf(
+  request: APIRequestContext,
+  me: Account,
+  names: [string, string],
+  north: number,
+) {
+  const [first, second] = await Promise.all(names.map((name) => createAccount(request, name)));
+  if (!first || !second) throw new Error("two accounts");
+  await befriend(request, me, first);
+  await befriend(request, me, second);
+  await befriend(request, first, second);
+  for (const minutesAgo of [4.5, 3.5, 2.5, 1.5, 0.5]) {
+    await report(request, first, sample(HERE.lat + north, HERE.lng - 0.002, minutesAgo));
+    await report(
+      request,
+      second,
+      sample(HERE.lat + north + 0.00003, HERE.lng - 0.00197, minutesAgo - 0.3),
+    );
+  }
+  return [first, second] as const;
+}
+
+test("a gathering that ends while the map loads does not come back with where its members are", async ({
+  page,
+  me,
+  request,
+}) => {
+  const [, kai] = await gatheringOf(request, me, ["Hina", "Kai"], 0.003);
+  // Another one that goes on: the map has its answer once this one shows.
+  await gatheringOf(request, me, ["Sora", "Mei"], -0.003);
+  const gatherings = async () =>
+    (
+      await rpc<{ gatherings?: { id: string; members: { user: { id: string } }[] }[] }>(
+        request,
+        "tokuly.geo.v1.LocationService/ListGatherings",
+        {},
+        me,
+      )
+    ).gatherings ?? [];
+  await expect.poll(async () => (await gatherings()).length, { timeout: 20_000 }).toBe(2);
+  const ending = (await gatherings()).find((gathering) =>
+    gathering.members.some((member) => member.user.id === kai.userId),
+  );
+  if (!ending) throw new Error("the gathering with Kai");
+  const connected = await pushes(page);
+  const aboutTheGathering = await pushes(page, ending.id);
+  const read = await holdAnswers(page, "tokuly.geo.v1.LocationService/ListGatherings");
+
+  await openMap(page);
+  await expect.poll(connected).toBeGreaterThan(0);
+  await expect.poll(read.answered).toBe(true);
+  // Kai stops sharing: the gathering is down to one, and over.
+  await rpc(request, "tokuly.geo.v1.LocationService/StopSharing", {}, kai);
+  await expect.poll(aboutTheGathering).toBeGreaterThan(0);
+
+  await read.release();
+  await expect(page.getByTestId("gathering-pin")).toHaveCount(1);
+  await page.getByTestId("gathering-pin").click();
+  const sheet = page.getByTestId("gathering-sheet");
+  await expect(sheet.getByText("Sora", { exact: true })).toBeVisible();
+  await expect(sheet.getByText("Kai", { exact: true })).toHaveCount(0);
+});
+
+test("a friend's trip that ends while the map loads does not come back", async ({
+  page,
+  me,
+  request,
+}) => {
+  const travellers = [
+    await friendAt(request, me, "Aoi", 0.004, 0.003),
+    await friendAt(request, me, "Ren", -0.004, 0.003),
+  ];
+  const trips = await Promise.all(
+    travellers.map(async (traveller) => {
+      const { trip } = await rpc<{ trip: { id: string } }>(
+        request,
+        "tokuly.geo.v1.TripService/StartTrip",
+        {
+          destination: { position: { lat: HERE.lat + 0.01, lng: HERE.lng }, name: "代々木公園" },
+          mode: "TRAVEL_MODE_WALK",
+        },
+        traveller,
+      );
+      return trip;
+    }),
+  );
+  const [aoi] = travellers;
+  const [ending] = trips;
+  if (!aoi || !ending) throw new Error("Aoi's trip");
+  const connected = await pushes(page);
+  const aboutTheTrip = await pushes(page, ending.id);
+  const read = await holdAnswers(page, "tokuly.geo.v1.TripService/ListActiveTrips");
+
+  await openMap(page);
+  await expect.poll(connected).toBeGreaterThan(0);
+  await expect.poll(read.answered).toBe(true);
+  await rpc(request, "tokuly.geo.v1.TripService/EndTrip", { tripId: ending.id }, aoi);
+  await expect.poll(aboutTheTrip).toBeGreaterThan(0);
+
+  await read.release();
+  await openFromMore(page, "おでかけ");
+  const cards = page.getByTestId("trips-panel").getByTestId("trip-card");
+  // Ren's trip goes on, so the answer is in; Aoi's ended.
+  await expect(cards.filter({ hasText: "Ren" })).toHaveCount(1);
+  await expect(cards.filter({ hasText: "Aoi" })).toHaveCount(0);
 });

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { geo, toMillis } from "@tokuly/api";
 import { decodePolyline } from "@tokuly/core/map";
+import { pushAfter } from "@tokuly/core/query";
 import { Bike, Car, Footprints, Navigation, Plus, Search, TrainFront } from "lucide-react";
 import { type ComponentType, useState } from "react";
 import { toast } from "sonner";
@@ -20,6 +21,7 @@ import { useMe } from "#/stores/session";
 import {
   mapKeys,
   placeClient,
+  pushTrip,
   tripClient,
   tripDestinationName,
   useActiveTrips,
@@ -137,16 +139,21 @@ export function StartTripDialog({
   });
 
   const start = useMutation({
-    mutationFn: (target: TripDestination) =>
-      tripClient().startTrip({ destination: toDestination(target), mode, notifyOnArrival: notify }),
-    onSuccess: (response) => {
-      if (response.trip) {
-        const trip = response.trip;
-        queryClient.setQueryData<geo.Trip[]>(mapKeys.trips, (list) => [
-          ...(list ?? []).filter((entry) => entry.user?.id !== trip.user?.id),
-          trip,
-        ]);
-      }
+    mutationFn: async (target: TripDestination) => {
+      // The new trip replaces the caller's last one; what was pushed meanwhile (it ended already)
+      // comes after it.
+      await pushAfter<geo.Trip[]>(queryClient, mapKeys.trips, async () => {
+        const { trip } = await tripClient().startTrip({
+          destination: toDestination(target),
+          mode,
+          notifyOnArrival: notify,
+        });
+        return (
+          trip && ((list) => [...list.filter((entry) => entry.user?.id !== trip.user?.id), trip])
+        );
+      });
+    },
+    onSuccess: () => {
       toast.success(t("trips.started"));
       onOpenChange(false);
       setPicked(null);
@@ -389,9 +396,8 @@ export function TripsPanel() {
   const end = useMutation({
     mutationFn: (trip: geo.Trip) => tripClient().endTrip({ tripId: trip.id }),
     onSuccess: (_response, trip) => {
-      queryClient.setQueryData<geo.Trip[]>(mapKeys.trips, (list) =>
-        (list ?? []).filter((entry) => entry.id !== trip.id),
-      );
+      // Over: off the list, and off a read of it in flight when that lands.
+      pushTrip(queryClient, { ...trip, status: geo.TripStatus.CANCELLED });
       toast.success(t("trips.ended"));
       setEnding(null);
     },
