@@ -216,7 +216,7 @@ impl World {
             // Frozen for Ren before she ever reported anything: there is no pin he could compare.
             ctx.ghost(aoi, &[ren], GhostMode::GHOST_MODE_FROZEN, 0).await.expect("freeze");
         }
-        let mut rens_devices = ctx.app.listen_user(ren.id).await;
+        let mut rens_devices = ctx.open_app(&ren).await;
         ctx.at(ren, ren_at).await;
         ctx.at(aoi, truth).await;
 

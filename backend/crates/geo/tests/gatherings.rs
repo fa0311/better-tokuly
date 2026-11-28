@@ -56,8 +56,8 @@ async fn friends_in_the_same_spot_form_a_gathering_their_friends_can_see() {
     ctx.befriend(&mio, &ren).await;
     let spot = somewhere();
     let t = Utc::now();
-    let mut mios = ctx.app.listen_user(mio.id).await;
-    let mut aois = ctx.app.listen_user(aoi.id).await;
+    let mut mios = ctx.open_app(&mio).await;
+    let mut aois = ctx.open_app(&aoi).await;
 
     // Passing each other is not a gathering: a minute in, nothing yet.
     seen_at(&ctx, &aoi, spot, t, &[300, 270, 240]).await;
@@ -196,7 +196,7 @@ async fn two_gatherings_whose_members_meet_become_the_older_one() {
         sorted(&[&aoi, &ren]),
         "Kai is with someone Ren cannot see"
     );
-    let mut mios = ctx.app.listen_user(mio.id).await;
+    let mut mios = ctx.open_app(&mio).await;
 
     // Kai and Mio walk over and stand with the others. Two minutes next to Ren make it one gathering.
     let kais = offset(spot, 270.0, 10.0);
@@ -233,7 +233,7 @@ async fn ghost_mode_hides_people_from_gatherings() {
     let spot = somewhere();
     // Aoi is blurred for Mio: a gathering would give the true position away.
     ctx.ghost(&aoi, &[&mio], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
-    let mut mios = ctx.app.listen_user(mio.id).await;
+    let mut mios = ctx.open_app(&mio).await;
     meet(&ctx, &aoi, &ren, spot, Utc::now()).await;
 
     assert_eq!(gatherings(&ctx, &ren).await.len(), 1, "the people in it see it");

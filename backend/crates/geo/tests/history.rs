@@ -94,7 +94,7 @@ async fn a_stay_becomes_a_visit_at_the_matching_place() {
     let place =
         create_place(&ctx, &aoi, "カフェ モカ", PlaceLabel::PLACE_LABEL_CUSTOM, cafe, Visibility::VISIBILITY_FRIENDS)
             .await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     // Four minutes: not a stay yet.
     let arrived = minutes_ago(12);

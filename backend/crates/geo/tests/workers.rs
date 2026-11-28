@@ -36,7 +36,7 @@ async fn workers_run_the_pipeline_the_event_consumer_and_the_housekeeping() {
     tokio::spawn(events::run_outbox_relay(core.db.clone(), core.bus.clone(), core.shutdown.clone()));
     let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
     ctx.befriend(&aoi, &ren).await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     // The location stream: the gateway submits samples, the friend gets the pins in order.
     let home = somewhere();

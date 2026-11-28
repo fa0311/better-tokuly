@@ -11,13 +11,55 @@ use tokuly_proto::{
 };
 
 #[tokio::test]
+async fn a_friend_away_from_the_app_is_not_pushed_to_and_finds_the_pin_on_opening_it() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let mut away = ctx.app.listen_user(ren.id).await;
+
+    let home = somewhere();
+    ctx.report(&aoi, vec![sample(home, seconds_ago(5))]).await;
+    assert!(pins(&mut away, QUIET).await.is_empty(), "no push while the app is closed");
+
+    let mut rens = ctx.open_app(&ren).await;
+    let listed = ctx.friend_locations(&ren).await;
+    assert_eq!(listed.len(), 1);
+    assert_at!(pin_point(&listed[0]), home);
+
+    let park = offset(home, 90.0, 2_000.0);
+    ctx.report(&aoi, vec![sample(park, seconds_ago(1))]).await;
+    let pushed = next_pin(&mut rens).await.expect("pushed now that the app is open");
+    assert_at!(pin_point(&pushed), park);
+}
+
+/// Back in the app, the snapshot is asked for before the gateway has marked
+/// the person online: what changes after the snapshot must still reach them.
+#[tokio::test]
+async fn nothing_is_lost_between_the_snapshot_and_being_marked_online() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let home = somewhere();
+    ctx.report(&aoi, vec![sample(home, seconds_ago(5))]).await;
+
+    // Ren's connection is there, the online mark not yet.
+    let mut rens = ctx.app.listen_user(ren.id).await;
+    assert_eq!(ctx.friend_locations(&ren).await.len(), 1);
+
+    let park = offset(home, 90.0, 2_000.0);
+    ctx.report(&aoi, vec![sample(park, seconds_ago(1))]).await;
+    let pushed = next_pin(&mut rens).await.expect("pushed to whoever just loaded the pins");
+    assert_at!(pin_point(&pushed), park);
+}
+
+#[tokio::test]
 async fn a_friend_sees_my_pin_and_nobody_else_does() {
     let ctx = start().await;
     let (aoi, ren, stranger) = (ctx.app.user("aoi").await, ctx.app.user("ren").await, ctx.app.user("stranger").await);
     ctx.befriend(&aoi, &ren).await;
     let home = somewhere();
-    let mut rens = ctx.app.listen_user(ren.id).await;
-    let mut strangers = ctx.app.listen_user(stranger.id).await;
+    let mut rens = ctx.open_app(&ren).await;
+    let mut strangers = ctx.open_app(&stranger).await;
 
     let recorded_at = seconds_ago(5);
     let reading = LocationSample {
@@ -130,7 +172,7 @@ async fn ingest_processes_a_gateway_report_directly() {
     let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
     ctx.befriend(&aoi, &ren).await;
     let here = somewhere();
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
     // What the realtime gateway puts on the LOCATIONS stream.
     let report = presence::LocationReport {
         user_id: aoi.id,
@@ -167,7 +209,7 @@ async fn a_blurred_friend_gets_a_stand_in_position() {
     );
     let reading = LocationSample { battery_percent: Some(40), speed_mps: Some(1.2), ..sample(home, seconds_ago(20)) };
     ctx.report(&aoi, vec![reading]).await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     let settings = ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
     assert_eq!(settings.everyone.as_option().unwrap().mode, GhostMode::GHOST_MODE_PRECISE);
@@ -211,7 +253,7 @@ async fn a_frozen_pin_stays_put_and_nothing_is_pushed() {
     let frozen_at = seconds_ago(90);
     ctx.report(&aoi, vec![LocationSample { battery_percent: Some(71), ..sample(home, frozen_at) }]).await;
     let before = ctx.seen_by(&ren, &aoi).await.unwrap();
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     let settings = ctx.ghost(&aoi, &[], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
     let everyone = settings.everyone.as_option().unwrap();
@@ -302,7 +344,7 @@ async fn timed_ghost_rules_end_by_themselves() {
         .execute(&ctx.app.core.db)
         .await
         .unwrap();
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
     assert!(ctx.geo.expire_ghost_rules().await.unwrap() >= 1);
     assert_at!(pin_point(&next_pin(&mut rens).await.expect("the live pin when the rule ends")), moved);
     let settings: GetGhostSettingsResponse =
@@ -345,7 +387,7 @@ async fn stop_sharing_pauses_the_pin_where_it_is() {
     ctx.befriend(&aoi, &ren).await;
     let home = somewhere();
     ctx.at(&aoi, home).await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &StopSharingRequest::default()).await.unwrap();
     let paused = next_pin(&mut rens).await.expect("friends learn at once");
@@ -375,7 +417,7 @@ async fn a_sample_still_on_its_way_when_sharing_stopped_does_not_resume_it() {
     ctx.befriend(&aoi, &ren).await;
     let home = somewhere();
     ctx.at(&aoi, home).await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     // The device takes a fix, the user stops sharing, and only then does the fix reach the server.
     let in_flight = sample(offset(home, 0.0, 60.0), next_fix_time(aoi.id));
@@ -405,7 +447,7 @@ async fn a_sample_on_its_way_at_a_stop_does_not_resume_sharing_when_the_clock_we
     let home = somewhere();
     let numbered = |point, at, sequence| LocationSample { sequence, ..sample(point, at) };
     assert_eq!(ctx.report(&aoi, vec![numbered(home, next_fix_time(aoi.id), 1)]).await.accepted_count, 1);
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     // The device takes a fix, its clock is set an hour back, the user stops
     // sharing, and only then does the fix reach the server: by the clock it
@@ -442,7 +484,7 @@ async fn a_stop_counts_only_for_the_samples_of_its_own_device() {
     let stopped_at = Utc::now() - Duration::seconds(1);
     let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(stopped_at), sequence: 50, ..Default::default() };
     let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
     let fix = LocationSample { sequence: 1, ..sample(home, next_fix_time(aoi.id)) };
     assert_eq!(ctx.report(&tablet, vec![fix]).await.accepted_count, 1, "the tablet shares");
     assert!(!next_pin(&mut rens).await.unwrap().sharing_paused);
@@ -461,7 +503,7 @@ async fn a_stop_overtaken_by_another_devices_fix_does_not_pause_sharing() {
     // goes on sharing, reports a fix taken after it.
     let stopped_at = next_fix_time(aoi.id);
     ctx.at(&tablet, offset(home, 0.0, 60.0)).await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
     let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(stopped_at), ..Default::default() };
     let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
 
@@ -485,7 +527,7 @@ async fn a_stop_from_the_device_of_the_newest_fix_pauses_whatever_the_clocks_say
     // here the first runs half a minute ahead of the second.
     let fixed_at = Utc::now() + Duration::seconds(30);
     assert_eq!(ctx.report(&aoi, vec![sample(home, fixed_at)]).await.accepted_count, 1);
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(Utc::now()), ..Default::default() };
     let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
@@ -508,7 +550,7 @@ async fn a_stop_is_not_overtaken_by_a_fix_whose_device_is_unknown() {
         sample: sample(somewhere(), next_fix_time(aoi.id)),
     };
     ctx.geo.ingest(report).await.unwrap();
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(stopped_at), ..Default::default() };
     let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &stop).await.unwrap();
@@ -523,7 +565,7 @@ async fn a_stop_timed_with_the_newest_fix_wins_over_it() {
     let home = somewhere();
     let fixed_at = next_fix_time(aoi.id);
     assert_eq!(ctx.report(&aoi, vec![sample(home, fixed_at)]).await.accepted_count, 1);
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     // The fix was recorded at, not after, the stop: it does not keep sharing on.
     let stop = StopSharingRequest { stopped_at: tokuly_core::time::ts(fixed_at), ..Default::default() };
@@ -541,7 +583,7 @@ async fn a_stop_without_a_time_pauses_even_a_clock_running_ahead() {
     // The phone's clock is a minute ahead of the server's.
     let ahead = Utc::now() + Duration::minutes(1);
     assert_eq!(ctx.report(&aoi, vec![sample(home, ahead)]).await.accepted_count, 1);
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     let _: StopSharingResponse = ctx.location("StopSharing", &aoi, &StopSharingRequest::default()).await.unwrap();
     assert!(next_pin(&mut rens).await.unwrap().sharing_paused, "a stop the server cannot order still stops");
@@ -572,7 +614,7 @@ async fn privacy_settings_withhold_battery_activity_and_the_online_halo() {
     assert_eq!(seen.activity, Activity::ACTIVITY_CYCLING, "the device's own activity wins over inference");
     assert!(seen.online);
 
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
     ctx.set_privacy(&aoi, |privacy| {
         privacy.share_battery = false;
         privacy.share_activity = false;
@@ -598,7 +640,7 @@ async fn the_status_emoji_rides_on_the_pin() {
     ctx.befriend(&aoi, &ren).await;
     ctx.at(&aoi, somewhere()).await;
     assert!(ctx.seen_by(&ren, &aoi).await.unwrap().status.as_option().is_none());
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
     let _: SetStatusResponse = ctx
         .app
         .call(
@@ -675,8 +717,8 @@ async fn friendship_changes_show_and_remove_pins() {
     let (home, office) = (somewhere(), somewhere());
     ctx.at(&aoi, home).await;
     ctx.at(&ren, office).await;
-    let mut aois = ctx.app.listen_user(aoi.id).await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut aois = ctx.open_app(&aoi).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     // Becoming friends: each gets the other's pin without waiting for a sample.
     ctx.befriend(&aoi, &ren).await;
@@ -726,7 +768,7 @@ async fn banned_and_deleted_accounts_disappear_from_the_map() {
         .execute(&ctx.app.core.db)
         .await
         .unwrap();
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
     ctx.deliver("identity.user.banned", aoi.id, serde_json::json!({ "user_id": aoi.id })).await;
     assert!(matches!(next_push(&mut rens).await, Some(Push::LocationRemovedUserId(id)) if id == aoi.id.to_string()));
     assert!(ctx.seen_by(&ren, &aoi).await.is_none());

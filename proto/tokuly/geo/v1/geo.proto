@@ -39,7 +39,9 @@ service LocationService {
   // device goes on sharing and nothing is paused.
   rpc StopSharing(StopSharingRequest) returns (StopSharingResponse);
 
-  // Snapshot of every friend the caller is allowed to see.
+  // Snapshot of every friend the caller is allowed to see. Updates are
+  // pushed only to an app in the foreground (and for a short while after
+  // this call): back in the foreground, call it again.
   rpc ListFriendLocations(ListFriendLocationsRequest) returns (ListFriendLocationsResponse);
   // Server-streaming fallback for clients without WebTransport/WebSocket.
   rpc WatchFriendLocations(WatchFriendLocationsRequest) returns (stream WatchFriendLocationsResponse);

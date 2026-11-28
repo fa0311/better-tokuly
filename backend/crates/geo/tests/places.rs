@@ -576,7 +576,7 @@ async fn a_check_in_tells_friends_who_see_the_pin() {
     ctx.befriend(&aoi, &mio).await;
     let spot = somewhere();
     let cafe = create(&ctx, &aoi, new_place("カフェ モカ", spot, Visibility::VISIBILITY_PUBLIC)).await;
-    let mut mios = ctx.app.listen_user(mio.id).await;
+    let mut mios = ctx.open_app(&mio).await;
 
     let request = CheckInRequest {
         r#where: Some(Where::PlaceId(cafe.id.clone())),

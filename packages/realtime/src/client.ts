@@ -172,6 +172,7 @@ export class RealtimeClient {
   private readonly statusListeners = new Set<StatusListener>();
   private readonly outdatedListeners = new Set<() => void>();
   private readonly revokedListeners = new Set<RevokedListener>();
+  private readonly foregroundListeners = new Set<() => void>();
   private outdated = false;
   /** topic → the components that follow it in this app. */
   private readonly topics = new Map<string, TopicInterest>();
@@ -225,6 +226,17 @@ export class RealtimeClient {
   onRevoked(listener: RevokedListener): () => void {
     this.revokedListeners.add(listener);
     return () => this.revokedListeners.delete(listener);
+  }
+
+  /**
+   * Hears the app come back to the foreground on an open connection. Some
+   * pushes (friends' pins) go only to apps in the foreground: what was not
+   * sent meanwhile has to be loaded again. (A connection made anew says
+   * so with its Welcome instead.) Returns an unsubscribe function.
+   */
+  onForeground(listener: () => void): () => void {
+    this.foregroundListeners.add(listener);
+    return () => this.foregroundListeners.delete(listener);
   }
 
   /** Whether the app currently follows `topic` (it was subscribed and not revoked). */
@@ -657,7 +669,9 @@ export class RealtimeClient {
     if (this.foreground === foreground) return;
     this.foreground = foreground;
     this.sendFrame({ case: "appState", value: create(realtime.AppStateSchema, { foreground }) });
-    if (foreground) this.checkConnection();
+    if (!foreground) return;
+    if (this.status === "connected") for (const listener of this.foregroundListeners) listener();
+    this.checkConnection();
   }
 
   private checkConnection(): void {

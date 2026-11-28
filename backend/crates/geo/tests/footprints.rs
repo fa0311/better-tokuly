@@ -147,7 +147,7 @@ async fn moving_uncovers_cells_at_three_resolutions() {
     let ctx = start().await;
     let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
     let from = somewhere();
-    let mut aois = ctx.app.listen_user(aoi.id).await;
+    let mut aois = ctx.open_app(&aoi).await;
     ride(&ctx, &aoi, from, 2000.0, minutes_ago(10)).await;
 
     // Finest resolution at street zoom.
@@ -445,7 +445,7 @@ async fn real_boundaries_attribute_cells_and_new_prefectures_are_news() {
 
     // Yokohama, Kanagawa: a new prefecture.
     let yokohama = (35.4660, 139.6223);
-    let mut aois = ctx.app.listen_user(aoi.id).await;
+    let mut aois = ctx.open_app(&aoi).await;
     ride(&ctx, &aoi, yokohama, 300.0, minutes_ago(10)).await;
     let news = ctx.notifications_for(aoi.id, "geo.new_region").await;
     assert_eq!(news.len(), 1);
