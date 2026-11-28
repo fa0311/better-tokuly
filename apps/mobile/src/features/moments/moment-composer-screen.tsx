@@ -79,7 +79,10 @@ export function MomentComposerScreen() {
       ? "closeFriends"
       : "friends";
   const day = today.data?.day;
-  const audience = audienceOverride?.date === day?.date ? audienceOverride.value : savedAudience;
+  const audience =
+    audienceOverride && audienceOverride.date === day?.date
+      ? audienceOverride.value
+      : savedAudience;
   const phase = momentPhase(today.data, now);
   const cleanedCaption = cleanCaption(caption);
 
