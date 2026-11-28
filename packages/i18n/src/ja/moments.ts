@@ -70,8 +70,18 @@ export default {
     stamp: "スタンプ",
     remove: "リアクションを取り消す",
     sent: "リアクションしたよ!",
+    sending: "送信中…",
+    failed: "リアクションできなかったよ。もう一度試してね。",
     needSelfie: "この顔のRealMojiをまだ撮ってないよ。いま撮ろう!",
     own: "自分の瞬間にはリアクションできないよ",
+  },
+  report: {
+    confirmTitle: "この瞬間を通報する?",
+    confirmBody: "理由は「{{reason}}」で合ってる?",
+    confirmSend: "通報する",
+    cancel: "キャンセル",
+    sent: "通報を受け付けたよ。教えてくれてありがとう!",
+    failed: "通報を送れなかったよ。もう一度試してね。",
   },
   camera: {
     title: "いまの瞬間を撮る",

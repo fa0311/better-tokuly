@@ -12,6 +12,7 @@ import { EmptyState, ErrorNote, Spinner } from "#/components/page";
 import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
 import { useFriendMoments, useMomentToday } from "./data";
+import { MomentReactionStrip } from "./reactions";
 
 export function MomentFriendsScreen() {
   const { t } = useTranslation("moments");
@@ -178,6 +179,7 @@ function MomentCard({ moment, onPress }: { moment: moments.Moment; onPress(): vo
           {moment.caption}
         </Text>
       ) : null}
+      {!moment.locked && <MomentReactionStrip moment={moment} />}
       {!moment.locked && moment.retakes > 0 ? (
         <Text className="text-xs text-ink-faint">
           {t("card.retakes", { count: moment.retakes })}

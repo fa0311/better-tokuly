@@ -70,8 +70,18 @@ export default {
     stamp: "Stamp",
     remove: "Take my reaction back",
     sent: "Reacted!",
+    sending: "Sending…",
+    failed: "Couldn't react. Please try again.",
     needSelfie: "No RealMoji for this face yet. Take one now!",
     own: "You can't react to your own moment",
+  },
+  report: {
+    confirmTitle: "Report this Moment?",
+    confirmBody: "Report it for “{{reason}}”?",
+    confirmSend: "Report",
+    cancel: "Cancel",
+    sent: "Report received. Thanks for letting us know!",
+    failed: "Couldn't send the report. Please try again.",
   },
   camera: {
     title: "Capture the moment",
