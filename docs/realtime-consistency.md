@@ -67,7 +67,7 @@ found.
 | Notes: timelines (W M) | hints on every `Welcome`, a look after the first page | — | |
 | Notes: card topic (W M) | no read on `onSubscribed` | a note deleted or edited before its topic took effect stays as it was | #526 |
 | Notes: forgetting a person (W M) | journal, `pushToAll`; a look is `pushAfter` until its pill is tapped | — | |
-| Comments (W) | `onSubscribed` invalidates, `setQueriesData` | a removed comment comes back; replies are never read again | #521 |
+| Comments (W) | journal, `onSubscribed` reread, replies too | — | |
 | Community (W M) | invalidate, `onSubscribed` on the community | a removed reply comes back | #522 |
 | Moments (W M) | journal, every `Welcome` | — | |
 | Stories (W M) | journal, every `Welcome` | — | |

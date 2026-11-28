@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { common, create, engagement, toMillis } from "@tokuly/api";
+import { journal } from "@tokuly/core/query";
 import {
   Ban,
   ChevronDown,
@@ -38,6 +39,7 @@ import { useTranslation } from "#/lib/use-translation";
 import {
   commentClient,
   commentKeys,
+  listedComment,
   moderationClient,
   reactionClient,
   type SubjectKey,
@@ -51,6 +53,7 @@ import {
   withPatched,
   withPatchedReply,
   withPinned,
+  withReplyCountMoved,
   withUpdated,
   withUpdatedReply,
 } from "./cache";
@@ -70,7 +73,7 @@ function patchComment(
   patch: (comment: Comment) => Comment,
 ): void {
   if (comment.parentId)
-    updateReplies(queryClient, comment.parentId, (data) =>
+    updateReplies(queryClient, subject, comment.parentId, (data) =>
       withPatchedReply(data, comment.id, patch),
     );
   else updateThread(queryClient, subject, (data) => withPatched(data, comment.id, patch));
@@ -79,7 +82,9 @@ function patchComment(
 /** Stores the server's version of a comment after a change. */
 function putComment(queryClient: QueryClient, subject: SubjectKey, comment: Comment): void {
   if (comment.parentId)
-    updateReplies(queryClient, comment.parentId, (data) => withUpdatedReply(data, comment));
+    updateReplies(queryClient, subject, comment.parentId, (data) =>
+      withUpdatedReply(data, comment),
+    );
   else updateThread(queryClient, subject, (data) => withUpdated(data, comment));
 }
 
@@ -92,13 +97,12 @@ function dropComment(
 ): void {
   const counted = comment.status === CommentStatus.PUBLISHED;
   if (comment.parentId) {
-    updateReplies(queryClient, comment.parentId, (data) => withoutReply(data, comment.id));
-    if (counted)
+    const { parentId } = comment;
+    updateReplies(queryClient, subject, parentId, (data) => withoutReply(data, comment.id));
+    const parent = listedComment(queryClient, subject, parentId);
+    if (counted && parent)
       updateThread(queryClient, subject, (data) =>
-        withPatched(data, comment.parentId, (parent) => ({
-          ...parent,
-          replyCount: Math.max(0, parent.replyCount - 1),
-        })),
+        withReplyCountMoved(data, parentId, parent.replyCount, -1),
       );
   } else {
     updateThread(queryClient, subject, (data) =>
@@ -190,7 +194,15 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
         }));
     },
     onError: (error, _kind, context) => {
-      if (context) patchComment(queryClient, thread.subject, comment, () => context.previous);
+      // Back to the thumb and the counts from before the tap; whatever else changed meanwhile stays.
+      const previous = context?.previous;
+      if (previous)
+        patchComment(queryClient, thread.subject, comment, (current) => ({
+          ...current,
+          likeCount: previous.likeCount,
+          dislikeCount: previous.dislikeCount,
+          viewer: current.viewer && { ...current.viewer, reaction: previous.viewer?.reaction },
+        }));
       onError(error);
     },
   });
@@ -248,6 +260,7 @@ export function CommentItem({ comment, focused, focusReply, onReply }: CommentIt
       setConfirming(null);
       // Everything they wrote here is hidden now: read the thread again.
       void queryClient.invalidateQueries({ queryKey: commentKeys.subject(thread.subject) });
+      void queryClient.invalidateQueries({ queryKey: commentKeys.repliesOf(thread.subject) });
       void queryClient.invalidateQueries({ queryKey: commentKeys.blocked });
       toast.success(t("toast.blocked", { name: authorName(comment.author) }));
     },
@@ -731,10 +744,16 @@ function Replies({
   onReply(comment: Comment): void;
 }) {
   const { t } = useTranslation("comments");
+  const thread = useThread();
   const query = useInfiniteQuery({
-    queryKey: commentKeys.replies(parent.id),
-    queryFn: ({ pageParam }) =>
-      commentClient().listReplies({ commentId: parent.id, page: { limit: 20, cursor: pageParam } }),
+    queryKey: commentKeys.replies(thread.subject, parent.id),
+    queryFn: ({ pageParam, signal }) =>
+      commentClient().listReplies(
+        { commentId: parent.id, page: { limit: 20, cursor: pageParam } },
+        { signal },
+      ),
+    // Pushes made while a page is read apply to its answer too (`updateReplies`).
+    persister: journal,
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });

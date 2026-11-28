@@ -11,6 +11,7 @@ import {
   withPatched,
   withPinned,
   withReply,
+  withReplyCountMoved,
   withTotal,
   withUpdated,
 } from "./cache";
@@ -91,6 +92,19 @@ describe("comment thread cache", () => {
     expect(ids(next)).toEqual([["b"]]);
     expect(next.pages[0]?.totalCount).toBe(2n);
     expect(withoutComment(thread([[comment("a")]], 1n), "a", 4).pages[0]?.totalCount).toBe(0n);
+    // Applied again, or to a list read after the removal: nothing more comes off.
+    expect(withoutComment(next, "a", 3).pages[0]?.totalCount).toBe(2n);
+  });
+
+  it("moves a reply count once, however often the change is applied", () => {
+    const data = thread([[comment("a", { replyCount: 2 })]]);
+    const count = (next: ThreadPages) => findComment(next, "a")?.replyCount;
+    const added = withReplyCountMoved(data, "a", 2, 1);
+    expect(count(added)).toBe(3);
+    expect(count(withReplyCountMoved(added, "a", 2, 1))).toBe(3);
+    const removed = withReplyCountMoved(added, "a", 3, -1);
+    expect(count(removed)).toBe(2);
+    expect(count(withReplyCountMoved(removed, "a", 3, -1))).toBe(2);
   });
 
   it("moves the pin: one pinned comment, leading the first page", () => {

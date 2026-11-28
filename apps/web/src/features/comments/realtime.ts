@@ -1,18 +1,22 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { type engagement, isNotFound } from "@tokuly/api";
+import { pushTo, reread } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 import {
   commentClient,
   commentKeys,
+  dropFocused,
+  listedComment,
   type SubjectKey,
   subjectTopic,
   updateReplies,
+  updateRepliesAfter,
   updateThread,
+  updateThreadAfter,
   viewerStateFor,
 } from "./api";
 import {
-  findComment,
   type ReplyPages,
   type ThreadPages,
   withComment,
@@ -42,27 +46,135 @@ async function eventComment(
   }
 }
 
+/** A comment as cached: in its parent's replies, or in any sort order of the thread. */
 function listed(
   queryClient: QueryClient,
   subject: SubjectKey,
   commentId: string,
+  parentId: string,
 ): Comment | undefined {
-  for (const [, data] of queryClient.getQueriesData<ThreadPages>({
-    queryKey: commentKeys.subject(subject),
-  })) {
-    const found = findComment(data, commentId);
-    if (found) return found;
-  }
-  return undefined;
+  if (parentId)
+    return queryClient
+      .getQueryData<ReplyPages>(commentKeys.replies(subject, parentId))
+      ?.pages.flatMap((page) => page.replies)
+      .find((reply) => reply.id === commentId);
+  return listedComment(queryClient, subject, commentId);
 }
 
-function listedReply(
+/** Puts what `read` answers where the comment is listed, after what was pushed meanwhile. */
+function placeAfter(
   queryClient: QueryClient,
+  key: SubjectKey,
   parentId: string,
-  replyId: string,
-): Comment | undefined {
-  const data = queryClient.getQueryData<ReplyPages>(commentKeys.replies(parentId));
-  return data?.pages.flatMap((page) => page.replies).find((reply) => reply.id === replyId);
+  read: () => Promise<Comment | undefined>,
+  inThread: (data: ThreadPages, comment: Comment) => ThreadPages,
+  inReplies: (data: ReplyPages, comment: Comment) => ReplyPages,
+): Promise<void> {
+  return parentId
+    ? updateRepliesAfter(queryClient, key, parentId, async () => {
+        const comment = await read();
+        return comment && ((data) => inReplies(data, comment));
+      })
+    : updateThreadAfter(queryClient, key, async () => {
+        const comment = await read();
+        return comment && ((data) => inThread(data, comment));
+      });
+}
+
+/**
+ * Applies one pushed event of a subject's topic to its cached thread and
+ * replies. Every change goes through the read journal (`updateThread`, and
+ * `updateThreadAfter` where a comment is fetched first), so neither a read on
+ * its way nor a fetch that answers late brings back a removed comment.
+ */
+export async function applyThreadEvent(
+  queryClient: QueryClient,
+  key: SubjectKey,
+  canModerate: boolean,
+  event: engagement.EngagementEvent["event"],
+): Promise<void> {
+  switch (event.case) {
+    case "commentAdded": {
+      const { commentId, parentId } = event.value;
+      const carried = event.value.comment;
+      return placeAfter(
+        queryClient,
+        key,
+        parentId,
+        async () => {
+          const comment = await eventComment(carried, commentId);
+          if (!comment) return undefined;
+          // Pushes carry no viewer state. A comment the cache already holds keeps the state it has
+          // (it may be the viewer's own, just approved); a new one is someone else's.
+          const known = listed(queryClient, key, commentId, parentId);
+          return known || comment.viewer
+            ? comment
+            : { ...comment, viewer: viewerStateFor(canModerate) };
+        },
+        (data, comment) => withComment(data, comment, false),
+        (data, comment) => withReply(data, comment),
+      );
+    }
+    case "commentUpdated": {
+      const { commentId, parentId } = event.value;
+      const carried = event.value.comment;
+      return placeAfter(
+        queryClient,
+        key,
+        parentId,
+        () => eventComment(carried, commentId),
+        withUpdated,
+        withUpdatedReply,
+      );
+    }
+    case "commentRemoved": {
+      const { commentId, parentId } = event.value;
+      const remove = () => {
+        if (parentId)
+          updateReplies(queryClient, key, parentId, (data) => withoutReply(data, commentId));
+        // Counts follow with `countersChanged`.
+        else updateThread(queryClient, key, (data) => withoutComment(data, commentId, 0));
+        dropFocused(queryClient, commentId);
+      };
+      if (!listed(queryClient, key, commentId, parentId)?.viewer?.isAuthor) return remove();
+      // The viewer's own comment may only have been hidden or held again: they keep seeing it,
+      // with its state.
+      let kept = false;
+      await placeAfter(
+        queryClient,
+        key,
+        parentId,
+        async () => {
+          const comment = await eventComment(undefined, commentId);
+          kept = comment !== undefined;
+          return comment;
+        },
+        withUpdated,
+        withUpdatedReply,
+      );
+      if (!kept) remove();
+      return;
+    }
+    case "commentPinned": {
+      const { commentId, pinned } = event.value;
+      updateThread(queryClient, key, (data) => withPinned(data, commentId, pinned));
+      if (!pinned || listed(queryClient, key, commentId, "")) return;
+      // The pinned comment sits on a page that is not loaded: bring it in, pinned.
+      return updateThreadAfter(queryClient, key, async () => {
+        const comment = await eventComment(undefined, commentId);
+        return (
+          comment && ((data) => withPinned(withComment(data, comment, false), commentId, true))
+        );
+      });
+    }
+    case "countersChanged": {
+      const total = event.value.commentCount;
+      updateThread(queryClient, key, (data) => withTotal(data, total));
+      return;
+    }
+    default:
+      return;
+  }
 }
 
 /**
@@ -85,86 +197,19 @@ export function useThreadRealtime(
     const client = realtime();
     const topic = subjectTopic(type, uuid);
 
-    const apply = async (event: engagement.EngagementEvent["event"]) => {
-      switch (event.case) {
-        case "commentAdded": {
-          const carried = await eventComment(event.value.comment, event.value.commentId);
-          if (!carried) return;
-          // Pushes carry no viewer state. A comment the cache already holds keeps the state it has (it may be
-          // the viewer's own, just approved); a new one is someone else's.
-          const known = carried.parentId
-            ? listedReply(queryClient, carried.parentId, carried.id)
-            : listed(queryClient, key, carried.id);
-          const comment =
-            known || carried.viewer ? carried : { ...carried, viewer: viewerStateFor(canModerate) };
-          if (comment.parentId)
-            updateReplies(queryClient, comment.parentId, (data) => withReply(data, comment));
-          else updateThread(queryClient, key, (data) => withComment(data, comment, false));
-          return;
-        }
-        case "commentUpdated": {
-          const comment = await eventComment(event.value.comment, event.value.commentId);
-          if (!comment) return;
-          if (comment.parentId)
-            updateReplies(queryClient, comment.parentId, (data) => withUpdatedReply(data, comment));
-          else updateThread(queryClient, key, (data) => withUpdated(data, comment));
-          return;
-        }
-        case "commentRemoved": {
-          const { commentId, parentId } = event.value;
-          // The viewer's own comment may only have been hidden or held again: they keep seeing it, with its state.
-          const cached = parentId
-            ? listedReply(queryClient, parentId, commentId)
-            : listed(queryClient, key, commentId);
-          if (cached?.viewer?.isAuthor) {
-            const comment = await eventComment(undefined, commentId);
-            if (comment) {
-              if (comment.parentId)
-                updateReplies(queryClient, comment.parentId, (data) =>
-                  withUpdatedReply(data, comment),
-                );
-              else updateThread(queryClient, key, (data) => withUpdated(data, comment));
-              return;
-            }
-          }
-          if (parentId)
-            updateReplies(queryClient, parentId, (data) => withoutReply(data, commentId));
-          // Counts follow with `countersChanged`.
-          else updateThread(queryClient, key, (data) => withoutComment(data, commentId, 0));
-          return;
-        }
-        case "commentPinned": {
-          const { commentId, pinned } = event.value;
-          if (pinned && !listed(queryClient, key, commentId)) {
-            // The pinned comment sits on a page that is not loaded: bring it in.
-            const comment = await eventComment(undefined, commentId);
-            if (comment)
-              updateThread(queryClient, key, (data) => withComment(data, comment, false));
-          }
-          updateThread(queryClient, key, (data) => withPinned(data, commentId, pinned));
-          return;
-        }
-        case "countersChanged":
-          updateThread(queryClient, key, (data) => withTotal(data, event.value.commentCount));
-          return;
-        default:
-          return;
-      }
-    };
-
     const offFrame = client.onFrame((frame) => {
       if (frame.body.case !== "engagement") return;
       const event = frame.body.value;
       if (event.subject?.type !== type || event.subject.id !== uuid) return;
-      void apply(event.event).catch(() => {
-        // A failed catch-up read only delays the update until the next refetch.
+      void applyThreadEvent(queryClient, key, canModerate, event.event).catch(() => {
+        // A failed catch-up read only delays the update until the next read.
       });
     });
     const { release } = client.subscribe(topic, {
       // In effect (first, or back after a gap): whatever happened before, including while the
-      // comments were first being read, is caught up by reading again.
+      // comments were first being read, is caught up by reading again, replies too.
       onSubscribed: () =>
-        void queryClient.invalidateQueries({ queryKey: commentKeys.subject(key) }),
+        void reread(queryClient, [commentKeys.subject(key), commentKeys.repliesOf(key)]),
     });
     client.start();
     return () => {
@@ -185,10 +230,8 @@ export function useReviewQueueRealtime(): void {
     const offFrame = client.onFrame((frame) => {
       if (frame.body.case !== "engagement" || frame.body.value.event.case !== "reviewQueueChanged")
         return;
-      queryClient.setQueryData(
-        commentKeys.heldCount,
-        Number(frame.body.value.event.value.heldCount),
-      );
+      const held = Number(frame.body.value.event.value.heldCount);
+      pushTo<number>(queryClient, commentKeys.heldCount, () => held);
       void queryClient.invalidateQueries({ queryKey: commentKeys.received });
     });
     client.start();

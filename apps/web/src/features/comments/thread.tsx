@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type common, engagement } from "@tokuly/api";
+import { journal } from "@tokuly/core/query";
 import { MessageSquareOff, Settings2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LoadMore } from "#/components/ui/load-more";
@@ -64,12 +65,17 @@ export function CommentThread({
 
   const query = useInfiniteQuery({
     queryKey: commentKeys.thread(key, sort === "top" ? CommentSort.TOP : CommentSort.NEWEST),
-    queryFn: ({ pageParam }) =>
-      commentClient().listComments({
-        subject: key,
-        sort: sort === "top" ? CommentSort.TOP : CommentSort.NEWEST,
-        page: { limit: 20, cursor: pageParam },
-      }),
+    queryFn: ({ pageParam, signal }) =>
+      commentClient().listComments(
+        {
+          subject: key,
+          sort: sort === "top" ? CommentSort.TOP : CommentSort.NEWEST,
+          page: { limit: 20, cursor: pageParam },
+        },
+        { signal },
+      ),
+    // Pushes made while a page is read apply to its answer too (`updateThread`).
+    persister: journal,
     initialPageParam: "",
     getNextPageParam: (last) => last.page?.nextCursor || undefined,
   });
@@ -78,9 +84,12 @@ export function CommentThread({
   const commentsEnabled = first?.commentsEnabled ?? true;
   const total = Number(first?.totalCount ?? 0n);
 
-  const focus = useQuery({
+  // `null` once the comment left public view (`dropFocused`).
+  const focus = useQuery<engagement.GetCommentResponse | null>({
     queryKey: commentKeys.focused(focusCommentId ?? ""),
-    queryFn: () => commentClient().getComment({ commentId: focusCommentId ?? "" }),
+    queryFn: ({ signal }) =>
+      commentClient().getComment({ commentId: focusCommentId ?? "" }, { signal }),
+    persister: journal,
     enabled: Boolean(focusCommentId),
     retry: false,
   });
