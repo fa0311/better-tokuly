@@ -1,7 +1,7 @@
-import type { InfiniteData } from "@tanstack/query-core";
+import type { InfiniteData, QueryClient } from "@tanstack/query-core";
 import type { notes } from "@tokuly/api";
-import type { ClientSource } from "../query";
-import type { TimelineSource } from "./keys";
+import { type ClientSource, journal, pushAfter } from "../query";
+import { notesKeys, type TimelineSource } from "./keys";
 
 /** One page of any timeline, in one shape. */
 export interface TimelinePage {
@@ -29,33 +29,33 @@ export async function loadTimelinePage(
   clients: TimelineClients,
   source: TimelineSource,
   cursor: string,
-  limit = PAGE_SIZE,
+  signal?: AbortSignal,
 ): Promise<TimelinePage> {
-  const page = { cursor, limit };
+  const page = { cursor, limit: PAGE_SIZE };
+  const options = { signal };
   const client = clients.notes();
   switch (source.kind) {
     case "home": {
-      const response = await client.getHomeTimeline({ page });
+      const response = await client.getHomeTimeline({ page }, options);
       return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
     }
     case "following": {
-      const response = await client.getFollowingTimeline({ page });
+      const response = await client.getFollowingTimeline({ page }, options);
       return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
     }
     case "global": {
-      const response = await client.getGlobalTimeline({ page });
+      const response = await client.getGlobalTimeline({ page }, options);
       return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
     }
     case "mentions": {
-      const response = await client.getMentionsTimeline({ page });
+      const response = await client.getMentionsTimeline({ page }, options);
       return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
     }
     case "user": {
-      const response = await client.getUserTimeline({
-        userId: source.userId,
-        filter: source.filter,
-        page,
-      });
+      const response = await client.getUserTimeline(
+        { userId: source.userId, filter: source.filter, page },
+        options,
+      );
       return {
         entries: response.entries,
         nextCursor: response.page?.nextCursor ?? "",
@@ -63,7 +63,7 @@ export async function loadTimelinePage(
       };
     }
     case "hashtag": {
-      const response = await client.getHashtagTimeline({ tag: source.tag, page });
+      const response = await client.getHashtagTimeline({ tag: source.tag, page }, options);
       return {
         entries: response.entries,
         nextCursor: response.page?.nextCursor ?? "",
@@ -71,16 +71,63 @@ export async function loadTimelinePage(
       };
     }
     case "list": {
-      const response = await clients.lists().getListTimeline({ listId: source.listId, page });
+      const response = await clients
+        .lists()
+        .getListTimeline({ listId: source.listId, page }, options);
       return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
     }
     case "antenna": {
       const response = await clients
         .antennas()
-        .getAntennaTimeline({ antennaId: source.antennaId, page });
+        .getAntennaTimeline({ antennaId: source.antennaId, page }, options);
       return { entries: response.entries, nextCursor: response.page?.nextCursor ?? "" };
     }
   }
+}
+
+/**
+ * The query of a timeline, newest first, paged. It never goes stale by
+ * itself: a refetch would read every loaded page again. New notes are put on
+ * top instead (`lookForNewEntries`). Its reads go through the journal, so a
+ * push made while a page is read is applied to it (`docs/realtime-consistency.md`).
+ */
+export function timelineQuery(clients: TimelineClients, source: TimelineSource) {
+  return {
+    queryKey: notesKeys.timeline(source),
+    queryFn: ({ pageParam, signal }: { pageParam: string; signal: AbortSignal }) =>
+      loadTimelinePage(clients, source, pageParam, signal),
+    initialPageParam: "",
+    getNextPageParam: (last: TimelinePage) => last.nextCursor || undefined,
+    staleTime: Number.POSITIVE_INFINITY,
+    persister: journal,
+  };
+}
+
+/**
+ * Reads the newest page of a timeline and puts its new rows on top
+ * (`withFreshEntries`) once `take` agrees: at once (`true`), not at all
+ * (`false`), or when the promise it returns settles (the "new notes" pill).
+ * `take` is called as soon as the page is read, with how many of its rows are
+ * new (`countNewEntries`).
+ *
+ * A look is a read that writes the timeline (`pushAfter`): what was pushed
+ * from its start until its rows go on top — a person forgotten, a note's
+ * counters — is applied after them again, so a page read before a removal
+ * brings nothing back.
+ */
+export function lookForNewEntries(
+  queryClient: QueryClient,
+  source: TimelineSource,
+  read: () => Promise<TimelinePage>,
+  take: (count: number | undefined) => boolean | Promise<boolean>,
+): Promise<void> {
+  const key = notesKeys.timeline(source);
+  return pushAfter<TimelineData>(queryClient, key, async () => {
+    const page = await read();
+    const count = countNewEntries(queryClient.getQueryData<TimelineData>(key), page);
+    if (!(await take(count))) return undefined;
+    return (current) => withFreshEntries(current, page);
+  });
 }
 
 /** Identity of a timeline row: the note, plus the renote that put it there. */

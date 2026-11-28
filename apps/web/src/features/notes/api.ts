@@ -5,8 +5,8 @@ import {
   notesKeys,
   PAGE_SIZE,
   type TimelineClients,
-  type TimelinePage,
   type TimelineSource,
+  timelineQuery,
 } from "@tokuly/core/notes";
 import { create as createStore } from "zustand";
 import { api } from "#/lib/api";
@@ -21,30 +21,12 @@ const timelineClients: TimelineClients = {
   antennas: () => api().service(notes.AntennaService),
 };
 
-/** Reads one page of a timeline. */
-export function fetchTimeline(
-  source: TimelineSource,
-  cursor: string,
-  limit = PAGE_SIZE,
-): Promise<TimelinePage> {
-  return loadTimelinePage(timelineClients, source, cursor, limit);
-}
+/** Reads the newest page of a timeline: what goes on top of the one on screen. */
+export const freshPage = (source: TimelineSource) => loadTimelinePage(timelineClients, source, "");
 
-/**
- * A timeline, newest first, paged. It never goes stale by itself: a refetch
- * would read every loaded page again. New notes are put on top instead
- * (`withFreshEntries`), which is what the timeline component does when it
- * returns to the screen, is refreshed, or is told that something was posted.
- */
+/** A timeline, newest first, paged (`timelineQuery`). */
 export function useTimeline(source: TimelineSource, enabled = true) {
-  return useInfiniteQuery({
-    queryKey: notesKeys.timeline(source),
-    queryFn: ({ pageParam }) => fetchTimeline(source, pageParam),
-    initialPageParam: "",
-    getNextPageParam: (last) => last.nextCursor || undefined,
-    enabled,
-    staleTime: Number.POSITIVE_INFINITY,
-  });
+  return useInfiniteQuery({ ...timelineQuery(timelineClients, source), enabled });
 }
 
 /** A note in its conversation: the notes it answers, itself, and its replies oldest first (paged). */

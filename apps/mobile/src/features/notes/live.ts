@@ -5,7 +5,7 @@ import {
   applyNotesEvent,
   forgetUserNotes,
   isNoteNotification,
-  patchNote,
+  putRefreshedNote,
 } from "@tokuly/core/notes";
 import { useEffect } from "react";
 import { AppState } from "react-native";
@@ -36,11 +36,7 @@ async function refreshNote(queryClient: QueryClient, noteId: string): Promise<vo
   const client = noteClient();
   try {
     const { note: fresh } = await client.getNote({ noteId });
-    if (fresh)
-      patchNote(queryClient, noteId, (note) => ({
-        ...fresh,
-        counters: note.counters ?? fresh.counters,
-      }));
+    if (fresh) putRefreshedNote(queryClient, fresh);
   } catch {
     // Gone or hidden meanwhile: the other pushes say so.
   }
