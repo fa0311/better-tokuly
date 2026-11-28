@@ -1,15 +1,17 @@
 import { toMillis } from "@tokuly/api";
 import { ringsFor } from "@tokuly/core/chat";
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { onDemand } from "#/components/on-demand";
 import { useMe } from "#/stores/session";
 import { useLive } from "../live";
 import { useCallSession } from "./session";
 
-const IncomingCall = lazy(() =>
-  import("./incoming-call").then((module) => ({ default: module.IncomingCall })),
+const IncomingCall = onDemand(() =>
+  import("./incoming-call").then((module) => module.IncomingCall),
 );
-const CallScreen = lazy(() =>
-  import("./call-screen").then((module) => ({ default: module.CallScreen })),
+const CallScreen = onDemand(
+  () => import("./call-screen").then((module) => module.CallScreen),
+  "toast",
 );
 
 /**

@@ -1,6 +1,6 @@
 import type { chat } from "@tokuly/api";
 
-export const CONSENT_KEY = "tokuly.chat.assistConsent";
+const CONSENT_KEY = "tokuly.chat.assistConsent";
 
 /**
  * Where the agreement to the assistant's terms is remembered: per provider

@@ -1,14 +1,18 @@
 import type { chat } from "@tokuly/api";
 import { ExternalLink, LocateFixed, Send } from "lucide-react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { onDemand } from "#/components/on-demand";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { PaneSpinner } from "#/components/ui/spinner";
 import { useLocations } from "#/stores/locations";
 
-const LocationMap = lazy(() => import("./location-map"));
+const LocationMap = onDemand(
+  () => import("./location-map").then((module) => module.default),
+  "notice",
+);
 
 /** Shibuya crossing: where the map opens when the device will not say where it is. */
 const FALLBACK = { lat: 35.6595, lng: 139.7005 };

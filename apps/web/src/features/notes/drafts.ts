@@ -15,7 +15,7 @@ export interface Draft {
 
 /** Drafts kept per account: the new-note draft plus one per note being answered or quoted. */
 const MAX_DRAFTS = 20;
-export const DRAFTS_PREFIX = "tokuly.notes.drafts.";
+const DRAFTS_PREFIX = "tokuly.notes.drafts.";
 const storageKey = (userId: string) => `${DRAFTS_PREFIX}${userId}`;
 
 /** Which draft a composer context writes to: one for new notes, one per note answered or quoted. */

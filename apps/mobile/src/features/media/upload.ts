@@ -1,9 +1,9 @@
 import type { Client } from "@connectrpc/connect";
 import { ConnectError, media } from "@tokuly/api";
-import { AssetFailedError } from "@tokuly/core/errors";
+import { AssetFailedError, TransferError } from "@tokuly/core/errors";
 import { type Account, ensureActive } from "#/features/session/account";
 import { SERVER_URL } from "#/lib/config";
-import { deleteFile, putFile, slicePart, TransferError } from "#/platform/transfer";
+import { deleteFile, putFile, slicePart } from "#/platform/transfer";
 import { learnLimit } from "./limits";
 
 /**

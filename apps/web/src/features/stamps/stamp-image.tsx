@@ -1,17 +1,10 @@
 import { common } from "@tokuly/api";
 import { ImageOff } from "lucide-react";
-import {
-  type CSSProperties,
-  lazy,
-  type RefObject,
-  Suspense,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type CSSProperties, type RefObject, Suspense, useEffect, useRef, useState } from "react";
+import { onDemand } from "#/components/on-demand";
 import { cn } from "#/lib/cn";
 
-const LottiePlayer = lazy(() => import("./lottie/player"));
+const LottiePlayer = onDemand(() => import("./lottie/player").then((module) => module.default));
 
 export interface StampImageProps {
   /** The stamp to show: the `StampRef` every domain embeds (messages, comments, notes, reactions). */

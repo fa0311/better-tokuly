@@ -4,9 +4,12 @@ import type { APIRequestContext, Browser, Locator, Page, TestInfo } from "@playw
 import { chat } from "@tokuly/api";
 import {
   type Account,
+  backOnline,
   expect as baseExpect,
   befriend,
   createAccount,
+  failToLoad,
+  failToLoadPart,
   rpc,
   signInAs,
   test,
@@ -789,6 +792,29 @@ test("a place is picked on the map and shared", async ({ page, request, me }) =>
   await expect(page.getByRole("dialog").getByRole("heading", { name: "ハチ公前" })).toBeVisible();
 });
 
+test("a map whose code cannot load says so in the dialog, and shows once the device is back online", async ({
+  page,
+  request,
+  me,
+}) => {
+  const { conversationId } = await withFriend(request, me);
+  await openConversation(page, conversationId);
+  // The map's code fails to arrive, as when the connection drops right as the place is opened.
+  const letThrough = await failToLoadPart(page, "chat", "location-map.tsx");
+
+  await page.getByRole("button", { name: "追加する" }).click();
+  await page.getByRole("menuitem", { name: "位置情報" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByText("うまく読み込めなかった… つながったらもう一度ためしてね!"),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "うまくいきませんでした" })).toHaveCount(0);
+
+  await letThrough();
+  await backOnline(page);
+  await expect(dialog.getByTestId("location-map")).toBeVisible();
+});
+
 test("a message is forwarded to another conversation and to a friend without one", async ({
   page,
   request,
@@ -1261,45 +1287,54 @@ test("the microphone is let go when recording is abandoned before it began", asy
   await expect.poll(live).toEqual([false, false]);
 });
 
-test("what one account typed or failed to send is gone for the next one on the same browser", async ({
-  page,
-  request,
-  me,
-}) => {
-  const ren = await createAccount(request, "ren");
-  await befriend(request, me, ren);
-  const { conversation } = await rpc<{ conversation: { id: string } }>(
+for (const blocked of [false, true])
+  test(`what one account typed or failed to send is gone for the next one on the same browser${blocked ? ", also when the chat's cleanup cannot load" : ""}`, async ({
+    page,
     request,
-    `${CONVERSATIONS}/CreateGroup`,
-    { name: "共有グループ", memberIds: [ren.userId] },
     me,
-  );
-  await openConversation(page, conversation.id);
+  }) => {
+    // The chat's cleanup fails to arrive, as when the connection drops right at the sign-out.
+    const letThrough = blocked ? await failToLoad(page, "sign-out.ts", "chat") : undefined;
+    const ren = await createAccount(request, "ren");
+    await befriend(request, me, ren);
+    const { conversation } = await rpc<{ conversation: { id: string } }>(
+      request,
+      `${CONVERSATIONS}/CreateGroup`,
+      { name: "共有グループ", memberIds: [ren.userId] },
+      me,
+    );
+    await openConversation(page, conversation.id);
 
-  // A draft, and a message the server never got.
-  await page.route("**/api/tokuly.chat.v1.MessageService/SendMessage", (route) =>
-    route.abort("connectionfailed"),
-  );
-  await send(page, "これは届かない");
-  await expect(bubble(page, "これは届かない")).toHaveAttribute("data-pending", "failed");
-  await composer(page).fill("ひみつの下書き");
-  await page.waitForTimeout(700);
-  await page.unroute("**/api/tokuly.chat.v1.MessageService/SendMessage");
+    // A draft, and a message the server never got.
+    await page.route("**/api/tokuly.chat.v1.MessageService/SendMessage", (route) =>
+      route.abort("connectionfailed"),
+    );
+    await send(page, "これは届かない");
+    await expect(bubble(page, "これは届かない")).toHaveAttribute("data-pending", "failed");
+    await composer(page).fill("ひみつの下書き");
+    await page.waitForTimeout(700);
+    await page.unroute("**/api/tokuly.chat.v1.MessageService/SendMessage");
 
-  await page.goto("/me");
-  await page.getByRole("button", { name: "ログアウト" }).click();
-  await expect(page).toHaveURL(/\/$/);
-  expect(
-    await page.evaluate(() => Object.keys(localStorage).filter((key) => key.includes("draft"))),
-  ).toEqual([]);
+    await page.goto("/me");
+    // What this page holds in memory: it goes with the page when the cleanup of it cannot load.
+    await page.evaluate(() => Object.assign(window, { heldInMemory: true }));
+    await page.getByRole("button", { name: "ログアウト" }).click();
+    await expect(page).toHaveURL(/\/$/);
+    expect(
+      await page.evaluate(() => Object.keys(localStorage).filter((key) => key.includes("draft"))),
+    ).toEqual([]);
+    if (letThrough) {
+      await letThrough();
+      await expect.poll(() => page.evaluate(() => "heldInMemory" in window)).toBe(false);
+    }
 
-  // The other member of the group signs in on this browser.
-  await signInAs(page, ren);
-  await openConversation(page, conversation.id);
-  await expect(composer(page)).toHaveValue("");
-  await expect(page.getByTestId("message").filter({ hasText: "これは届かない" })).toHaveCount(0);
-  await expect(page.getByText("ひみつの下書き")).toHaveCount(0);
-});
+    // The other member of the group signs in on this browser.
+    await signInAs(page, ren);
+    await openConversation(page, conversation.id);
+    await expect(composer(page)).toHaveValue("");
+    await expect(page.getByTestId("message").filter({ hasText: "これは届かない" })).toHaveCount(0);
+    await expect(page.getByText("ひみつの下書き")).toHaveCount(0);
+  });
 
 test("only what was on screen counts as read", async ({ page, request, me }) => {
   const { friend, conversationId } = await withFriend(request, me);

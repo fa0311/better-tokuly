@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { isApiError, stamp } from "@tokuly/api";
+import { stamp } from "@tokuly/api";
 import {
   markUninstalled,
   patchPack,
@@ -81,23 +81,6 @@ export function useToggleFavorite() {
         queryClient.invalidateQueries({ queryKey: stampKeys.libraryHome }),
       ]),
   });
-}
-
-// ───────────────────────────── Uploads ─────────────────────────────
-
-/**
- * What to tell someone whose stamp upload failed. An upload the server
- * accepted but could not process fails with a plain error named after the
- * asset's failure code (`ANIMATION_TOO_LARGE`…), which gets its own wording.
- */
-export function uploadErrorMessage(error: unknown): string {
-  if (error instanceof Error && !isApiError(error) && /^[A-Z_]+$/.test(error.message)) {
-    const key = `uploadErrors.${error.message}`;
-    return i18n.t(i18n.exists(key, { ns: "stamps" }) ? key : "uploadErrors.generic", {
-      ns: "stamps",
-    });
-  }
-  return errorMessage(error, { namespace: "stamps" });
 }
 
 // ───────────────────────────── Formatting ─────────────────────────────

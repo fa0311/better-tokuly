@@ -7,7 +7,7 @@ import { isThemeSetting, setAppearance, useAppearance } from "./appearance/appea
 import { PRIVATE_KEYS, useSettings } from "./data";
 
 /** Which account's look this browser last took over from the server (forgotten on sign-out). */
-export const OWNER_KEY = "tokuly.appearanceOwner";
+const OWNER_KEY = "tokuly.appearanceOwner";
 
 /**
  * Keeps the look of the app in line with the account while someone is signed

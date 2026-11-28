@@ -8,8 +8,9 @@ import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { cn } from "#/lib/cn";
+import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
-import { libraryClient, uploadErrorMessage } from "../api";
+import { libraryClient } from "../api";
 import {
   EMPTY_META,
   nameFromFile,
@@ -97,7 +98,7 @@ export function StampMaker({ open, onOpenChange, title, submitLabel, onSubmit }:
       });
       onOpenChange(false);
     } catch (error) {
-      toast.error(uploadErrorMessage(error));
+      toast.error(errorMessage(error, { namespace: "stamps" }));
     } finally {
       setProgress(null);
     }

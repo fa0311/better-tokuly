@@ -5,8 +5,11 @@
  * namespace, used when it names itself (`errorMessage(error, { namespace })`).
  */
 export default {
-  generic: "うまくいきませんでした。もう一度ためしてね",
-  network: "通信できませんでした。接続を確認してね",
+  generic: "うまくいかなかったよ…もう一度ためしてね",
+  network: "通信できなかったよ。接続を確認してね!",
+  uploadTooLarge: "ファイルが大きすぎてアップロードできなかったよ",
+  uploadRefused: "アップロードを受け付けてもらえなかったよ。もう一度ためしてね",
+  fileUnreadable: "ファイルを読み込めなかったよ。もう一度えらんでね",
   LOCATION_NOT_VERIFIED: "今いる場所を確認できなかったよ!位置情報をオンにしてね",
   LOCATION_TOO_COARSE: "正確な位置情報をオンにしてね!",
   INVALID_CREDENTIALS: "メールアドレス、ハンドル、またはパスワードがちがいます",
@@ -834,7 +837,9 @@ export default {
   HASHTAG_INVALID: "このタグは使えないよ",
   HASHTAG_NOT_FOUND: "このタグのショートはまだないよ",
   PIN_LIMIT_REACHED: "固定できるのは3本までだよ",
-  PROCESSING_FAILED: "動画を処理できなかったよ。別のファイルでためしてね",
+  PROCESSING_FAILED: "ファイルを処理できなかったよ。別のファイルでためしてね",
+  NO_AUDIO: "音声が入っていないファイルだよ。別のファイルでためしてね",
+  NOT_A_VIDEO: "動画ファイルじゃないみたい。動画をえらんでね",
   REMIX_KIND_INVALID: "リミックスの種類をえらんでね",
   REMIX_NOT_ALLOWED: "このショートはリミックスできないよ",
   REMIX_NOT_FOUND: "リミックス元のショートが見つかりません",

@@ -15,7 +15,6 @@ jest.mock("#/platform/transfer", () => ({
   slicePart: jest.fn(async (_uri: string, offset: number) => `part@${offset}`),
   deleteFile: jest.fn(),
   putFile: jest.fn(async () => {}),
-  TransferError: class TransferError extends Error {},
 }));
 jest.mock("#/lib/api", () => ({ api: jest.fn(), apiWith: jest.fn(), authClient: jest.fn() }));
 

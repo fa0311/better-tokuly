@@ -63,9 +63,11 @@ transaction as the change they describe.
 
 `source` is `tokuly.social.v1.FriendSource` as its number.
 
-Account deletion does not emit one `social.friend.removed` per friend (nor
-`social.follow.removed` per follow): every domain already reacts to
-`identity.user.deleted` itself.
+Account deletion ends each friendship as an unfriend by the account would:
+one `social.friend.removed` per friend (`user_id` the deleted account), so a
+domain that takes two friends apart does it the same way then (the geo domain
+numbers the removal from the map). Follows end without `social.follow.removed`:
+every domain reacts to `identity.user.deleted` itself.
 
 ## Events consumed
 
@@ -74,7 +76,7 @@ Durable consumer `social`. Every handler is idempotent.
 | Topic | Reaction |
 |---|---|
 | `identity.user.created` | Stores `locked = true` follow settings for an account of a minor (its `minor`; unless it has settings already). If `invite_code` belongs to someone: records the intro, suggests the two to each other, and sends a friend request from the newcomer to the inviter (source `INVITE_LINK`; the inviter's "who may send me requests" audience does not apply, since they handed out the link). |
-| `identity.user.deleted` | Deletes every row about the user (friendships, requests, blocks, suggestions, invite, intros, shared history, bumps, map reactions, map views, follows, follow requests, follow settings, dismissed follow suggestions, their circles and their memberships in others'), drops cached lists, and pushes `friend_removed_user_id` to their former friends. |
+| `identity.user.deleted` | Deletes every row about the user (friendships, requests, blocks, suggestions, invite, intros, shared history, bumps, map reactions, map views, follows, follow requests, follow settings, dismissed follow suggestions, their circles and their memberships in others'), drops cached lists, emits `social.friend.removed` per friendship it deleted (in the same transaction, so a redelivery emits none), and pushes `friend_removed_user_id` to their former friends. |
 | `identity.user.birthdate_given` | Stores `locked = true` follow settings when `minor` (unless the account has settings already). |
 | `identity.user.privacy_changed` | Re-syncs friends' view of the user's online state with `share_online_status`: hidden → pushed as offline (no "last seen"); shown again while online → pushed as online. With `nearby_discoverable` off, ends the user's open nearby session and takes them off the nearby map at once. |
 | `social.friend.accepted`, `social.friend.removed`, `social.friend.prefs_changed`, `social.user.blocked`, `social.user.unblocked`, `social.follow.created`, `social.follow.removed`, `social.circle.members_changed`, `social.circle.deleted` | Our own: drops the cached lists they changed, in case the request that made the change was cut off before doing so. |

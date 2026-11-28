@@ -8,9 +8,7 @@ import { readDeviceMemory, writeDeviceMemory } from "#/lib/device-memory";
  * answer is remembered on this device: per account, as fingerprints rather
  * than coordinates, and only for as long as the spot is still suggested.
  */
-export const PREFIX = "tokuly.places.dismissed.";
-/** The device-wide list of coordinates an earlier version kept: removed wherever it is still found. */
-export const LEGACY_KEY = "tokuly.places.dismissedSuggestions";
+const PREFIX = "tokuly.places.dismissed.";
 
 export function readDismissed(userId: string): string[] {
   const stored = readDeviceMemory<unknown>(PREFIX + userId);
