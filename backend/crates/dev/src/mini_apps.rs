@@ -126,7 +126,8 @@ struct MiniAppRow {
     approved_at: Option<Time>,
 }
 
-const SELECT: &str = "SELECT app_id, name, icon, launch_url, scopes, revision, review_state, review_note, submitted_at, reviewed_at,
+const SELECT: &str =
+    "SELECT app_id, name, icon, launch_url, scopes, revision, review_state, review_note, submitted_at, reviewed_at,
         live_name, live_icon, live_launch_url, live_scopes, approved_at FROM dev_mini_apps";
 
 impl MiniAppRow {
@@ -182,7 +183,8 @@ impl Dev {
     }
 
     async fn review_for_owner(&self, app: &AppRow) -> AppResult<MiniAppReview> {
-        let row = self.mini_app_row(app.id).await?.or_not_found("MINI_APP_NOT_FOUND", "this application has no mini app")?;
+        let row =
+            self.mini_app_row(app.id).await?.or_not_found("MINI_APP_NOT_FOUND", "this application has no mini app")?;
         let owner = tokuly_identity::summary(&self.core, app.owner_id).await?;
         Ok(row.to_review(app.to_public(owner)))
     }
@@ -200,7 +202,8 @@ impl Dev {
         let app_id = Uuid::parse_str(app_id).map_err(|_| not_found())?;
         let app = self.find_app(app_id).await?.filter(|app| app.is_usable(&self.identity)).ok_or_else(not_found)?;
         let live = self.mini_app_row(app_id).await?.and_then(|row| row.live()).ok_or_else(not_found)?;
-        let origin = url::Url::parse(&live.launch_url).map(|url| url.origin().ascii_serialization()).unwrap_or_default();
+        let origin =
+            url::Url::parse(&live.launch_url).map(|url| url.origin().ascii_serialization()).unwrap_or_default();
         let developer = tokuly_identity::summary(&self.core, app.owner_id).await?;
         let mini_app = MiniApp {
             app_id: app_id.to_string(),
@@ -296,7 +299,11 @@ impl MiniAppService for Dev {
             .execute(&mut *tx)
             .await?;
             if let Some(icon) = icon.apply(self, &mut tx, &icon_holder(app.id)).await? {
-                sqlx::query("UPDATE dev_mini_apps SET icon = $2 WHERE app_id = $1").bind(app.id).bind(icon).execute(&mut *tx).await?;
+                sqlx::query("UPDATE dev_mini_apps SET icon = $2 WHERE app_id = $1")
+                    .bind(app.id)
+                    .bind(icon)
+                    .execute(&mut *tx)
+                    .await?;
             }
             tx.commit().await?;
             ok(SetMiniAppManifestResponse { review: self.review_for_owner(&app).await?.into(), ..Default::default() })
@@ -312,11 +319,17 @@ impl MiniAppService for Dev {
         handle(async {
             let owner = ctx.require_session()?.user_id;
             let app = self.active_owned_app(request.app_id, owner).await?;
-            let row = self.mini_app_row(app.id).await?.or_not_found("MINI_APP_NOT_FOUND", "this application has no mini app")?;
+            let row = self
+                .mini_app_row(app.id)
+                .await?
+                .or_not_found("MINI_APP_NOT_FOUND", "this application has no mini app")?;
             match row.review_state.as_str() {
                 "in_review" => {}
                 "draft" => {
-                    self.core.cache.rate_limit(&format!("dev-mini-app-submit:{}", app.id), 10, Duration::from_secs(86_400)).await?;
+                    self.core
+                        .cache
+                        .rate_limit(&format!("dev-mini-app-submit:{}", app.id), 10, Duration::from_secs(86_400))
+                        .await?;
                     // Only the revision just read: an edit in between is a draft of its own.
                     sqlx::query(
                         "UPDATE dev_mini_apps SET review_state = 'in_review', submitted_at = now()
@@ -344,7 +357,8 @@ impl MiniAppService for Dev {
             // What moderation took down stays on record, its mini app included.
             let app = self.active_owned_app(request.app_id, owner).await?;
             let mut tx = self.core.db.begin().await?;
-            let deleted = sqlx::query("DELETE FROM dev_mini_apps WHERE app_id = $1").bind(app.id).execute(&mut *tx).await?;
+            let deleted =
+                sqlx::query("DELETE FROM dev_mini_apps WHERE app_id = $1").bind(app.id).execute(&mut *tx).await?;
             ensure!(deleted.rows_affected() == 1, not_found, "MINI_APP_NOT_FOUND", "this application has no mini app");
             self.release_mini_app_icons(&mut tx, app.id).await?;
             tx.commit().await?;
@@ -443,8 +457,7 @@ impl MiniAppReviewService for Dev {
             let info = page.finish(&mut rows, |row| (row.submitted_at.unwrap_or_default(), row.app_id));
             let app_ids: Vec<Uuid> = rows.iter().map(|row| row.app_id).collect();
             let mut apps = self.public_apps(&app_ids).await?;
-            let reviews =
-                rows.iter().filter_map(|row| Some(row.to_review(apps.remove(&row.app_id)?))).collect();
+            let reviews = rows.iter().filter_map(|row| Some(row.to_review(apps.remove(&row.app_id)?))).collect();
             ok(ListMiniAppReviewsResponse { reviews, page: info.into(), ..Default::default() })
         })
         .await
@@ -461,7 +474,12 @@ impl MiniAppReviewService for Dev {
             let note = clean_text(request.note, 500, "REVIEW_NOTE_TOO_LONG", "the note")?;
             ensure!(request.approve || !note.is_empty(), invalid, "REVIEW_NOTE_REQUIRED", "say why it is rejected");
             let app = self.find_app(app_id).await?.or_not_found("MINI_APP_NOT_FOUND", "mini app not found")?;
-            ensure!(app.owner_id != moderator, denied, "OWN_APP", "a mini app is reviewed by somebody else than its owner");
+            ensure!(
+                app.owner_id != moderator,
+                denied,
+                "OWN_APP",
+                "a mini app is reviewed by somebody else than its owner"
+            );
             self.core.cache.rate_limit(&format!("dev-mini-app-review:{app_id}"), 30, Duration::from_secs(3600)).await?;
             let mut tx = self.core.db.begin().await?;
             // Only the revision the moderator read, and only while it waits.
@@ -483,9 +501,12 @@ impl MiniAppReviewService for Dev {
             .bind(moderator)
             .fetch_optional(&mut *tx)
             .await?;
-            let (name, icon) =
-                decided.ok_or_else(|| AppError::precondition("REVIEW_OUTDATED", "the manifest changed or was decided since"))?;
-            if request.approve && let Ok(images) = self.images() {
+            let (name, icon) = decided.ok_or_else(|| {
+                AppError::precondition("REVIEW_OUTDATED", "the manifest changed or was decided since")
+            })?;
+            if request.approve
+                && let Ok(images) = self.images()
+            {
                 // The approved copy keeps its icon whatever the draft does next.
                 match image(&icon).and_then(|icon| Uuid::parse_str(&icon.asset_id).ok()) {
                     Some(asset_id) => images.hold(&mut tx, asset_id, &live_icon_holder(app_id)).await?,
@@ -506,8 +527,14 @@ impl MiniAppReviewService for Dev {
                     Localized::new(format!("「{name}」: {note}"), format!("\"{name}\": {note}")),
                 )
             };
-            let notice = NotificationRequest::new(app.owner_id, "dev.mini_app_reviewed", title, body, format!("/developers/apps/{app_id}"))
-                .data(serde_json::json!({ "app_id": app_id, "approved": request.approve }));
+            let notice = NotificationRequest::new(
+                app.owner_id,
+                "dev.mini_app_reviewed",
+                title,
+                body,
+                format!("/developers/apps/{app_id}"),
+            )
+            .data(serde_json::json!({ "app_id": app_id, "approved": request.approve }));
             outbound::notify(&mut *tx, &notice).await?;
             tx.commit().await?;
             ok(ReviewMiniAppResponse { review: self.review_for_owner(&app).await?.into(), ..Default::default() })
