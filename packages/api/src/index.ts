@@ -21,6 +21,7 @@ export * as geo from "./gen/tokuly/geo/v1/geo_pb.js";
 export * as identity from "./gen/tokuly/identity/v1/identity_pb.js";
 export * as live from "./gen/tokuly/live/v1/live_pb.js";
 export * as media from "./gen/tokuly/media/v1/media_pb.js";
+export * as moments from "./gen/tokuly/moments/v1/moments_pb.js";
 export * as notes from "./gen/tokuly/notes/v1/notes_pb.js";
 export * as notify from "./gen/tokuly/notify/v1/notify_pb.js";
 export * as plans from "./gen/tokuly/plans/v1/plans_pb.js";

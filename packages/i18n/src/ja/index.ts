@@ -16,6 +16,7 @@ import history from "./history";
 import live from "./live";
 import map from "./map";
 import mobile from "./mobile";
+import moments from "./moments";
 import notelists from "./notelists";
 import notes from "./notes";
 import notifications from "./notifications";
@@ -39,6 +40,7 @@ export default {
   auth,
   accounts,
   map,
+  moments,
   friends,
   follows,
   chat,

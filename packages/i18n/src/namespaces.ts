@@ -19,6 +19,7 @@ export const NAMESPACES = [
   "live",
   "map",
   "mobile",
+  "moments",
   "notelists",
   "notes",
   "notifications",
