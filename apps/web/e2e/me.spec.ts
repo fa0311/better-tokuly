@@ -1,5 +1,14 @@
 import { test as base } from "@playwright/test";
-import { adminAccount, createAccount, expect, rpc, signInAs, test } from "./support";
+import {
+  adminAccount,
+  backOnline,
+  createAccount,
+  expect,
+  failToLoad,
+  rpc,
+  signInAs,
+  test,
+} from "./support";
 
 test("the hub shows who is signed in and leads to their profile", async ({ page, me }) => {
   await page.goto("/me");
@@ -33,7 +42,6 @@ test("the hub links to every personal area, and the admin console only for staff
 
 test("a badge whose count cannot load leaves the hub alone, and counts once the device is back online", async ({
   page,
-  context,
   request,
   me,
 }) => {
@@ -45,17 +53,15 @@ test("a badge whose count cannot load leaves the hub alone, and counts once the 
     sender,
   );
   // The count's code fails to arrive, as when the connection drops right as the hub opens.
-  const badgeSources = /\/(features\/[^/]+\/badges\.ts|assets\/badges-[^/]+\.js)(\?|$)/;
-  await page.route(badgeSources, (route) => route.abort("internetdisconnected"));
+  const letThrough = await failToLoad(page, "badges.ts");
 
   await page.goto("/me");
   const friends = page.getByRole("main").getByRole("link", { name: /ともだち/ });
   await expect(friends).toHaveAccessibleName("ともだち");
   await expect(page.getByRole("heading", { name: "うまくいきませんでした" })).toHaveCount(0);
 
-  await page.unroute(badgeSources);
-  await context.setOffline(true);
-  await context.setOffline(false);
+  await letThrough();
+  await backOnline(page);
   await expect(friends).toHaveAccessibleName("1 ともだち");
 });
 
