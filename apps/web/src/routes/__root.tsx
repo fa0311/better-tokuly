@@ -11,6 +11,7 @@ import { I18nextProvider } from "react-i18next";
 import { Toaster } from "sonner";
 import { PWA_LINKS, PWA_META } from "#/features/pwa/head";
 import { BOOT_SCRIPT } from "#/lib/appearance";
+import { watchForRedeploy } from "#/lib/deploy";
 import i18n, {
   createI18n,
   type Language,
@@ -52,37 +53,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   }),
   shellComponent: RootDocument,
   component: RootComponent,
-  errorComponent: RootError,
   notFoundComponent: NotFound,
 });
-
-/** Last-resort screen when a route throws: never a blank page. */
-function RootError({ error, reset }: { error: unknown; reset(): void }) {
-  // The map needs WebGL2; say so plainly instead of a generic failure.
-  const noWebGl = error instanceof Error && /WebGL/i.test(error.message);
-  return (
-    <main className="grid min-h-dvh place-items-center p-6 text-center">
-      <div className="max-w-sm">
-        <div className="text-6xl">{noWebGl ? "🗺️" : "😵‍💫"}</div>
-        <h1 className="mt-4 text-2xl font-black">
-          {noWebGl ? "このブラウザでは地図を表示できません" : "うまくいきませんでした"}
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-          {noWebGl
-            ? "WebGL2 に対応したブラウザ、またはハードウェアアクセラレーションを有効にしてお試しください。"
-            : "ページを読み込み直すと直ることがあります。"}
-        </p>
-        <button
-          type="button"
-          onClick={reset}
-          className="pressable sticker mt-6 inline-flex h-12 items-center rounded-full bg-brand px-6 font-black text-on-brand"
-        >
-          もう一度ためす
-        </button>
-      </div>
-    </main>
-  );
-}
 
 function NotFound() {
   return (
@@ -148,6 +120,7 @@ function RootComponent() {
   useEffect(() => {
     stopSuspendingForStrings();
     startSession();
+    return watchForRedeploy();
   }, []);
   return (
     <>

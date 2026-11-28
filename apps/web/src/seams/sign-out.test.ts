@@ -33,6 +33,7 @@ const KEPT: Record<string, string> = {
   "tokuly.player.muted": "this device's player",
   "tokuly.player.captions": "this device's player",
   "tokuly.emoji": "the emoji catalogue, the same for everyone",
+  "tokuly.reloadedFor": "this tab's one reload into a newer build",
 };
 
 /** The storage keys (or how they start) named by the app's code that touches browser storage. */

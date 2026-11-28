@@ -1,8 +1,10 @@
 import { test as base } from "@playwright/test";
 import {
   adminAccount,
+  asReturningVisitor,
   backOnline,
   createAccount,
+  deployWhileOpen,
   expect,
   failToLoad,
   rpc,
@@ -63,6 +65,52 @@ test("a badge whose count cannot load leaves the hub alone, and counts once the 
   await letThrough();
   await backOnline(page);
   await expect(friends).toHaveAccessibleName("1 ともだち");
+});
+
+test("after a deploy, a badge whose code is gone reloads the page once, into the new build", async ({
+  page,
+  request,
+  me,
+}) => {
+  const sender = await createAccount(request, "sender");
+  await rpc(
+    request,
+    "tokuly.social.v1.FriendService/SendFriendRequest",
+    { userId: me.userId },
+    sender,
+  );
+  const letThrough = await failToLoad(page, "badges.ts");
+  await page.goto("/me");
+  await asReturningVisitor(page);
+
+  // The app is deployed while the page is open: the badge's next try fails, and its build is gone.
+  const deploy = await deployWhileOpen(page, "reload");
+  await backOnline(page);
+  await expect.poll(deploy.loads).toBe(1);
+
+  await letThrough();
+  await backOnline(page);
+  await expect(page.getByRole("main").getByRole("link", { name: /ともだち/ })).toHaveAccessibleName(
+    "1 ともだち",
+  );
+});
+
+test("a build that stays gone after the reload is not reloaded again", async ({
+  page,
+  me: _me,
+}) => {
+  await failToLoad(page, "badges.ts");
+  await page.goto("/me");
+  await asReturningVisitor(page);
+
+  const deploy = await deployWhileOpen(page, "never");
+  await backOnline(page);
+  await expect.poll(deploy.loads).toBe(1);
+  await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
+  // The badge fails again on the reloaded page and once more when back online: no second reload.
+  await backOnline(page);
+  await page.waitForTimeout(2_000);
+  expect(deploy.loads()).toBe(1);
 });
 
 test("a hub card whose code cannot load says so in its place, and shows once tried again", async ({
