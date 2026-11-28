@@ -1,7 +1,15 @@
-import { Camera, type CameraRef, Map as MapLibre, Marker } from "@maplibre/maplibre-react-native";
+import {
+  Camera,
+  type CameraRef,
+  GeoJSONSource,
+  Layer,
+  Map as MapLibre,
+  Marker,
+} from "@maplibre/maplibre-react-native";
 import type { geo } from "@tokuly/api";
-import { Ghost, LocateFixed, X } from "lucide-react-native";
-import { useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import { Camera as CameraIcon, Ghost, LocateFixed, X } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,6 +24,8 @@ import { FriendList } from "./friend-list";
 import { CrowdPin, FriendPin, OwnDot } from "./friend-pin";
 import { GhostPanel, ghostChipText } from "./ghost";
 import { useLocations } from "./locations-store";
+import { useMapMoments } from "./moments-data";
+import { MomentMapPanel } from "./moments-layer";
 import { SharingCard } from "./sharing-card";
 
 /** Tokyo, until this device or a friend says where to look. */
@@ -24,6 +34,7 @@ const DEFAULT_ZOOM = 11;
 
 type Panel =
   | { kind: "friend"; userId: string }
+  | { kind: "moment"; momentId: string }
   | { kind: "list"; crowd?: Crowd }
   | { kind: "ghost" }
   | { kind: "sharing" }
@@ -53,6 +64,14 @@ export function MapScreen() {
   const { data: ghost } = useGhostSettings();
   const [panel, setPanel] = useState<Panel>(null);
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  const [layer, setLayer] = useState<"friends" | "moments">("friends");
+  const momentsQuery = useMapMoments(layer === "moments");
+
+  useFocusEffect(
+    useCallback(() => {
+      if (layer === "moments") void momentsQuery.refetch();
+    }, [layer, momentsQuery.refetch]),
+  );
 
   const mapStyle = useMapStyle();
   const pins = Object.values(locations).filter((location) => location.position);
@@ -60,6 +79,35 @@ export function MapScreen() {
   const selected = panel?.kind === "friend" ? panel.userId : null;
   const crowds = crowdsAt(pins, zoom, selected);
   const crowded = new Set(crowds.flatMap((crowd) => crowd.members.map((member) => member.userId)));
+  const visibleMoments = useMemo(
+    () =>
+      layer === "moments" &&
+      momentsQuery.data?.unlocked &&
+      !momentsQuery.isFetching &&
+      !momentsQuery.isError
+        ? momentsQuery.data.moments.filter((moment) => moment.location)
+        : [],
+    [layer, momentsQuery.data, momentsQuery.isError, momentsQuery.isFetching],
+  );
+
+  useEffect(() => {
+    if (layer !== "moments" || visibleMoments.length === 0) return;
+    const locations = visibleMoments.flatMap((moment) =>
+      moment.location ? [[moment.location.lng, moment.location.lat] as const] : [],
+    );
+    const west = Math.min(...locations.map(([lng]) => lng));
+    const east = Math.max(...locations.map(([lng]) => lng));
+    const south = Math.min(...locations.map(([, lat]) => lat));
+    const north = Math.max(...locations.map(([, lat]) => lat));
+    if (west === east && south === north)
+      camera.current?.easeTo({ center: [west, south], zoom: 14, duration: 600 });
+    else {
+      camera.current?.fitBounds([west, south, east, north], {
+        padding: { top: 140, right: 70, bottom: 320, left: 70 },
+        duration: 600,
+      });
+    }
+  }, [layer, visibleMoments]);
 
   const focus = (lng: number, lat: number) =>
     camera.current?.easeTo({ center: [lng, lat], zoom: 15, duration: 600 });
@@ -93,38 +141,83 @@ export function MapScreen() {
         onRegionDidChange={(event) => setZoom(Math.round(event.nativeEvent.zoom * 4) / 4)}
       >
         <Camera ref={camera} initialViewState={{ center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM }} />
-        {own && (
+        {layer === "moments" && visibleMoments.length > 0 && (
+          <GeoJSONSource
+            id="moment-points"
+            data={{
+              type: "FeatureCollection",
+              features: visibleMoments.flatMap((moment) =>
+                moment.location
+                  ? [
+                      {
+                        type: "Feature" as const,
+                        id: moment.id,
+                        properties: { momentId: moment.id },
+                        geometry: {
+                          type: "Point" as const,
+                          coordinates: [moment.location.lng, moment.location.lat],
+                        },
+                      },
+                    ]
+                  : [],
+              ),
+            }}
+            onPress={(event) => {
+              event.stopPropagation();
+              const momentId = event.nativeEvent.features[0]?.properties?.momentId;
+              if (typeof momentId !== "string") return;
+              const moment = visibleMoments.find((item) => item.id === momentId);
+              if (!moment?.location) return;
+              setPanel({ kind: "moment", momentId });
+              focus(moment.location.lng, moment.location.lat);
+            }}
+          >
+            <Layer
+              id="moment-points-layer"
+              type="circle"
+              paint={{
+                "circle-color": theme.colors.ink,
+                "circle-radius": 9,
+                "circle-stroke-color": theme.colors.surface,
+                "circle-stroke-width": 3,
+              }}
+            />
+          </GeoJSONSource>
+        )}
+        {layer === "friends" && own && (
           <Marker id="own" lngLat={[own.lng, own.lat]}>
             <OwnDot />
           </Marker>
         )}
-        {crowds.map((crowd) => (
-          <Marker key={crowd.key} id={`crowd-${crowd.key}`} lngLat={[crowd.lng, crowd.lat]}>
-            <CrowdPin
-              members={crowd.members.map((member) => friends[member.userId])}
-              label={t("cluster.label", { count: crowd.members.length })}
-              onPress={() => openCrowd(crowd)}
-            />
-          </Marker>
-        ))}
-        {pins
-          .filter((location) => !crowded.has(location.userId))
-          .map((location) => (
-            <Marker
-              key={location.userId}
-              id={`friend-${location.userId}`}
-              lngLat={[location.position?.lng ?? 0, location.position?.lat ?? 0]}
-              anchor="bottom"
-            >
-              <FriendPin
-                friend={friends[location.userId]}
-                location={location}
-                online={Boolean(online[location.userId])}
-                now={now}
-                onPress={() => openFriend(location)}
+        {layer === "friends" &&
+          crowds.map((crowd) => (
+            <Marker key={crowd.key} id={`crowd-${crowd.key}`} lngLat={[crowd.lng, crowd.lat]}>
+              <CrowdPin
+                members={crowd.members.map((member) => friends[member.userId])}
+                label={t("cluster.label", { count: crowd.members.length })}
+                onPress={() => openCrowd(crowd)}
               />
             </Marker>
           ))}
+        {layer === "friends" &&
+          pins
+            .filter((location) => !crowded.has(location.userId))
+            .map((location) => (
+              <Marker
+                key={location.userId}
+                id={`friend-${location.userId}`}
+                lngLat={[location.position?.lng ?? 0, location.position?.lat ?? 0]}
+                anchor="bottom"
+              >
+                <FriendPin
+                  friend={friends[location.userId]}
+                  location={location}
+                  online={Boolean(online[location.userId])}
+                  now={now}
+                  onPress={() => openFriend(location)}
+                />
+              </Marker>
+            ))}
       </MapLibre>
 
       <View
@@ -146,16 +239,40 @@ export function MapScreen() {
           icon={<Text>{own ? "🟢" : "⚪️"}</Text>}
           onPress={() => setPanel({ kind: "sharing" })}
         />
+        <Chip
+          testID="map-moments-chip"
+          label={t("moments.layer")}
+          active={layer === "moments"}
+          icon={
+            <CameraIcon
+              size={16}
+              color={layer === "moments" ? theme.colors.surface : theme.colors.ink}
+            />
+          }
+          onPress={() => {
+            setLayer("moments");
+            setPanel(null);
+          }}
+        />
         <Pressable
           testID="map-friends-chip"
           accessibilityRole="button"
-          disabled={pins.length === 0}
-          onPress={() => setPanel({ kind: "list" })}
-          className="ml-auto h-9 justify-center rounded-full bg-surface px-3"
+          disabled={layer === "friends" && pins.length === 0}
+          onPress={() => {
+            if (layer === "moments") {
+              setLayer("friends");
+              setPanel(null);
+            } else setPanel({ kind: "list" });
+          }}
+          className={`ml-auto h-9 justify-center rounded-full px-3 ${layer === "friends" ? "bg-ink" : "bg-surface"}`}
           style={sticker(theme.colors, "sm")}
         >
-          <Text className="text-xs font-black text-ink">
-            {tm("map.friendsOnMap", { count: pins.length })}
+          <Text
+            className={`text-xs font-black ${layer === "friends" ? "text-surface" : "text-ink"}`}
+          >
+            {layer === "moments"
+              ? t("moments.friendsLayer")
+              : tm("map.friendsOnMap", { count: pins.length })}
           </Text>
         </Pressable>
       </View>
@@ -172,7 +289,17 @@ export function MapScreen() {
           </View>
         )}
         <Sheet panel={panel} onClose={() => setPanel(null)}>
-          {panel?.kind === "friend" && selected ? (
+          {layer === "moments" ? (
+            <MomentMapPanel
+              query={momentsQuery}
+              selected={
+                panel?.kind === "moment"
+                  ? visibleMoments.find((moment) => moment.id === panel.momentId)
+                  : undefined
+              }
+              onRetry={() => void momentsQuery.refetch()}
+            />
+          ) : panel?.kind === "friend" && selected ? (
             <FriendCard
               friend={friends[selected]}
               location={locations[selected]}
