@@ -24,8 +24,9 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
-import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from "react";
+import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { onDemand } from "#/components/on-demand";
 import { Avatar } from "#/components/ui/avatar";
 import { Menu } from "#/components/ui/menu";
 import { cn } from "#/lib/cn";
@@ -69,8 +70,8 @@ import { TripChips, TripLayer, TripsPanel } from "./trips";
 import { useFocusedUserId, useMapUi } from "./ui-store";
 
 // Friends' moments of today: their own data and pictures, not in the map's first download.
-const MomentsOnMap = lazy(() =>
-  import("#/features/moments").then((module) => ({ default: module.MomentsOnMap })),
+const MomentsOnMap = onDemand(() =>
+  import("#/features/moments").then((module) => module.MomentsOnMap),
 );
 
 /** Pins closer than this on screen are drawn as one stack. */

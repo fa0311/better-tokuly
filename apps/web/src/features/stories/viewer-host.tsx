@@ -1,8 +1,10 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { onDemand } from "#/components/on-demand";
 import { useStoryViewer } from "./viewer-store";
 
-const StoryViewer = lazy(() =>
-  import("./viewer").then((module) => ({ default: module.StoryViewer })),
+const StoryViewer = onDemand(
+  () => import("./viewer").then((module) => module.StoryViewer),
+  "toast",
 );
 
 /** The viewer, mounted once with the stories background; it loads the first time a story opens. */

@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { onDemand } from "#/components/on-demand";
 import { useAppBadge } from "./app-badge";
 import { useInstall } from "./install";
 import { InstallBanner } from "./install-banner";
@@ -11,8 +12,9 @@ import "./standalone.css";
 import { useThemeColor } from "./theme-color";
 import { useUpdateToast } from "./update-toast";
 
-const InstallGuide = lazy(() =>
-  import("./install-guide").then((module) => ({ default: module.InstallGuide })),
+const InstallGuide = onDemand(
+  () => import("./install-guide").then((module) => module.InstallGuide),
+  "toast",
 );
 
 /**

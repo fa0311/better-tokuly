@@ -65,6 +65,29 @@ test("a badge whose count cannot load leaves the hub alone, and counts once the 
   await expect(friends).toHaveAccessibleName("1 ともだち");
 });
 
+test("a hub card whose code cannot load says so in its place, and shows once tried again", async ({
+  page,
+  me: _me,
+}) => {
+  // The card's code fails to arrive, as when the connection drops right as the hub opens.
+  const letThrough = await failToLoad(page, "hub-card.tsx", "quest");
+
+  await page.goto("/me");
+  const main = page.getByRole("main");
+  await expect(
+    main.getByText("うまく読み込めなかった… つながったらもう一度ためしてね!"),
+  ).toBeVisible();
+  await expect(main.getByRole("link", { name: "ともだち" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "うまくいきませんでした" })).toHaveCount(0);
+
+  await letThrough();
+  await main.getByRole("button", { name: "もう一度" }).click();
+  await expect(main.getByRole("link", { name: "クエスト" })).toBeVisible();
+  await expect(
+    main.getByText("うまく読み込めなかった… つながったらもう一度ためしてね!"),
+  ).toHaveCount(0);
+});
+
 test("signing out returns to the landing page and locks the app again", async ({
   page,
   me: _me,

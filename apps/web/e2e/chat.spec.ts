@@ -4,9 +4,11 @@ import type { APIRequestContext, Browser, Locator, Page, TestInfo } from "@playw
 import { chat } from "@tokuly/api";
 import {
   type Account,
+  backOnline,
   expect as baseExpect,
   befriend,
   createAccount,
+  failToLoadPart,
   rpc,
   signInAs,
   test,
@@ -787,6 +789,29 @@ test("a place is picked on the map and shared", async ({ page, request, me }) =>
   // Tapping the card shows the place on a map.
   await page.getByTestId("location-card").click();
   await expect(page.getByRole("dialog").getByRole("heading", { name: "ハチ公前" })).toBeVisible();
+});
+
+test("a map whose code cannot load says so in the dialog, and shows once the device is back online", async ({
+  page,
+  request,
+  me,
+}) => {
+  const { conversationId } = await withFriend(request, me);
+  await openConversation(page, conversationId);
+  // The map's code fails to arrive, as when the connection drops right as the place is opened.
+  const letThrough = await failToLoadPart(page, "chat", "location-map.tsx");
+
+  await page.getByRole("button", { name: "追加する" }).click();
+  await page.getByRole("menuitem", { name: "位置情報" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByText("うまく読み込めなかった… つながったらもう一度ためしてね!"),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "うまくいきませんでした" })).toHaveCount(0);
+
+  await letThrough();
+  await backOnline(page);
+  await expect(dialog.getByTestId("location-map")).toBeVisible();
 });
 
 test("a message is forwarded to another conversation and to a friend without one", async ({

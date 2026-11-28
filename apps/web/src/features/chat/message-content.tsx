@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { type chat, media } from "@tokuly/api";
 import { CornerUpRight, MapPin, Play } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { onDemand } from "#/components/on-demand";
 import { CommunityLinkCard } from "#/features/community";
 import { EmojiText } from "#/features/emoji";
 import { resolveTargetPath, useOpenTargetPath } from "#/features/notifications";
@@ -15,8 +16,8 @@ import { replyText } from "./preview";
 import { tokenize } from "./text";
 
 // The map library is big: it loads with the first location a conversation shows.
-const StaticMapPreview = lazy(() =>
-  import("#/features/map").then((module) => ({ default: module.StaticMapPreview })),
+const StaticMapPreview = onDemand(() =>
+  import("#/features/map").then((module) => module.StaticMapPreview),
 );
 
 /** What goes inside a message: its text, pictures, quote, preview… one component per part. */

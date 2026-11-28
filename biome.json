@@ -50,7 +50,24 @@
   "overrides": [
     {
       "includes": ["apps/web/src/**"],
-      "plugins": ["./apps/web/lint/no-t-in-effect-deps.grit"]
+      "plugins": ["./apps/web/lint/no-t-in-effect-deps.grit"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "react": {
+                    "importNames": ["lazy"],
+                    "message": "A lazy component whose code fails to arrive takes the app to its error screen, and never loads again. Use `onDemand` from `#/components/on-demand`."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }
