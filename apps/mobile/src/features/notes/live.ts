@@ -1,11 +1,16 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
 import { subjectTopic } from "@tokuly/core/engagement";
-import { applyNotesEvent, isNoteNotification, putRefreshedNote } from "@tokuly/core/notes";
+import {
+  applyNotesEvent,
+  isNoteNotification,
+  putRefreshedNote,
+  readNoteAgain,
+} from "@tokuly/core/notes";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 import { realtime } from "#/lib/realtime";
-import { markNoteDeleted, noteClient } from "./data";
+import { loadNote, markNoteDeleted, noteClient } from "./data";
 
 /**
  * "Something new may belong on top of a timeline": timelines on screen
@@ -86,19 +91,31 @@ const followed = new Map<string, number>();
 /**
  * Follows a note's realtime topic while the calling card is mounted, so its
  * counters, edits, poll and deletion arrive live. Several cards may follow
- * the same note.
+ * the same note. Whenever the topic takes effect (again after a reconnect),
+ * or is refused (the viewer may no longer see the note), the note is read
+ * again: it may have changed in between (`readNoteAgain`).
  */
 export function useNoteTopic(noteId: string, enabled = true): void {
+  const queryClient = useQueryClient();
   useEffect(() => {
     if (!noteId || !enabled) return;
     const topic = subjectTopic(common.SubjectType.NOTE, noteId);
+    const readAgain = () =>
+      readNoteAgain(queryClient, loadNote, noteId).then(
+        (gone) => gone && markNoteDeleted(queryClient, noteId),
+        // Not read: the next push, or the next time the topic takes effect, tries again.
+        () => {},
+      );
     let release: (() => void) | undefined;
     const timer = setTimeout(() => {
       const count = followed.get(topic) ?? 0;
       if (count === 0 && followed.size >= TOPIC_BUDGET) return;
       followed.set(topic, count + 1);
       const client = realtime();
-      const subscription = client.subscribe(topic);
+      const subscription = client.subscribe(topic, {
+        onSubscribed: readAgain,
+        onRevoked: readAgain,
+      });
       client.start();
       release = () => {
         subscription.release();
@@ -111,5 +128,5 @@ export function useNoteTopic(noteId: string, enabled = true): void {
       clearTimeout(timer);
       release?.();
     };
-  }, [noteId, enabled]);
+  }, [noteId, enabled, queryClient]);
 }

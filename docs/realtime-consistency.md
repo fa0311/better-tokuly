@@ -64,7 +64,7 @@ found.
 | Notifications: inbox, badge (W M) | cancel + reread, every `Welcome` | the list's own read overwrites a newer pushed unread count | #533 |
 | Friends (W M) | reread on pushes, every `Welcome`; forgetters on removal | — | |
 | Notes: timelines (W M) | hints on every `Welcome`, a look after the first page | — | |
-| Notes: card topic (W M) | no read on `onSubscribed` | a note deleted or edited before its topic took effect stays as it was | #526 |
+| Notes: card topic (W M) | read again on `onSubscribed` and on refusal, batched | — | |
 | Notes: forgetting a person (W M) | journal, `pushToAll`; a look is `pushAfter` until its pill is tapped | — | |
 | Comments (W) | `onSubscribed` invalidates, `setQueriesData` | a removed comment comes back; replies are never read again | #521 |
 | Community (W M) | invalidate, `onSubscribed` on the community | a removed reply comes back | #522 |

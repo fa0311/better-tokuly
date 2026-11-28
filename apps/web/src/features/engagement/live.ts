@@ -1,5 +1,5 @@
 import { type Subject, subjectTopic } from "@tokuly/core/engagement";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { realtime } from "#/lib/realtime";
 import { useEngagement } from "./api";
 
@@ -19,13 +19,21 @@ const followed = new Map<string, number>();
  * Follows a subject's realtime topic for as long as the calling component is
  * mounted, so its counters (and, for notes, its own events) arrive live.
  * Several components may follow the same subject. `uuid` must be the
- * subject's UUID; nothing happens while it is empty.
+ * subject's UUID; nothing happens while it is empty. `readAgain` is called
+ * whenever the topic takes effect (again after a reconnect) and when it is
+ * refused (the viewer may no longer see the subject): what the caller shows
+ * of the subject may have changed in between (`docs/realtime-consistency.md`, rule 1).
  */
 export function useSubjectTopic(
   type: Subject["type"],
   uuid: string | undefined,
   enabled = true,
+  readAgain?: () => void,
 ): void {
+  const latestReadAgain = useRef(readAgain);
+  useEffect(() => {
+    latestReadAgain.current = readAgain;
+  });
   useEffect(() => {
     if (!uuid || !enabled) return;
     const topic = subjectTopic(type, uuid);
@@ -34,9 +42,12 @@ export function useSubjectTopic(
       const count = followed.get(topic) ?? 0;
       if (count === 0 && followed.size >= TOPIC_BUDGET) return;
       followed.set(topic, count + 1);
-      // No read after it is in effect: every card would read its numbers twice, and the
+      // The engagement is not read again: every card would read its numbers twice, and the
       // counters a card missed meanwhile come right with the next push.
-      const subscription = realtime().subscribe(topic);
+      const subscription = realtime().subscribe(topic, {
+        onSubscribed: () => latestReadAgain.current?.(),
+        onRevoked: () => latestReadAgain.current?.(),
+      });
       realtime().start();
       release = () => {
         subscription.release();

@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { common, type media, type notes, toMillis } from "@tokuly/api";
 import { EyeOff, MapPin, Pin, Play, Repeat2 } from "lucide-react";
@@ -10,7 +11,7 @@ import { cn } from "#/lib/cn";
 import { linkPreviewImage } from "#/lib/link-preview-image";
 import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
-import { useIsDeleted } from "./api";
+import { readCardAgain, useIsDeleted } from "./api";
 import { ChannelChip } from "./channels-chip";
 import { attachmentImage, ImageGrid, imageUrl, isVideo, NoteVideo } from "./media";
 import { NoteActions, NoteMenu, noteSubject } from "./note-actions";
@@ -56,10 +57,13 @@ export function NoteCard({
   const { t, i18n } = useTranslation("notes");
   const navigate = useNavigate();
   const me = useMe();
+  const queryClient = useQueryClient();
   const card = useRef<HTMLElement>(null);
   const deleted = useIsDeleted(note.id);
   useClock();
-  useSubjectTopic(common.SubjectType.NOTE, note.id, !deleted);
+  useSubjectTopic(common.SubjectType.NOTE, note.id, !deleted, () =>
+    readCardAgain(queryClient, note.id),
+  );
   useRecordView(card, note.id, !deleted && variant === "list" && note.author?.id !== me?.user?.id);
 
   const author = note.author;
