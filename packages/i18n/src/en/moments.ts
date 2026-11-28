@@ -1,5 +1,16 @@
 export default {
   title: "Moments",
+  composer: {
+    loading: "Checking today's prompt…",
+    retry: "Try again",
+    captionTooLong: "Keep the caption to 100 characters or fewer.",
+    captureFailed: "Couldn't save the photo. Please try again.",
+    photoPermission: "Allow access to your photos to choose a picture.",
+    postFailed: "Couldn't post your Moment.",
+    postedBody: "Your friends' moments are unlocked now.",
+    continueWithoutLocation: "Continue without location",
+    openSettings: "Open Settings",
+  },
   tile: "Moments",
   lateness: {
     onTime: "On time!",

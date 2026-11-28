@@ -1,5 +1,16 @@
 export default {
   title: "いまの瞬間",
+  composer: {
+    loading: "今日の合図を確認中…",
+    retry: "もう一度",
+    captionTooLong: "ひとことは100文字までにしてね。",
+    captureFailed: "写真を保存できなかったよ。もう一度試してね。",
+    photoPermission: "写真をえらぶには、写真へのアクセスを許可してね。",
+    postFailed: "シェアできなかったよ。",
+    postedBody: "ともだちの瞬間も見られるようになったよ!",
+    continueWithoutLocation: "位置情報なしで続ける",
+    openSettings: "設定をひらく",
+  },
   tile: "いまの瞬間",
   lateness: {
     onTime: "時間内!",

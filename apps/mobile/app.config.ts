@@ -103,7 +103,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
           photosPermission:
             "トークで送る写真や、記憶・ショートにする写真と動画をえらぶために使います。/ Lets you pick photos and videos for chats, stories and shorts.",
           cameraPermission:
-            "トークの写真や、記憶・ショートを撮るために使います。/ Lets you take photos and videos for chats, stories and shorts.",
+            "トークの写真や、記憶・ショート・いまの瞬間を撮るために使います。/ Lets you take photos and videos for chats, stories, shorts and Moments.",
           microphonePermission:
             "ルームやたまり場で話すときと、記憶やショートの動画に音を入れるときに使うよ！/ Lets you talk in rooms and hangouts, and records sound with the videos of your stories and shorts.",
         },
@@ -112,13 +112,13 @@ export default ({ config }: ConfigContext): ExpoConfig =>
         "expo-location",
         {
           locationWhenInUsePermission:
-            "ともだちのマップにあなたのいまを出すために使います。/ Shows where you are on your friends' map.",
+            "ともだちのマップにあなたのいまを表示したり、いまの瞬間を撮った場所をシェアしたりするために使います。/ Shows where you are on your friends' map and lets you share where you took a Moment.",
           locationAlwaysAndWhenInUsePermission:
             "アプリを閉じている間も、ともだちにいまを届けるために使います。/ Keeps your friends up to date while the app is closed.",
           locationAlwaysPermission:
             "アプリを閉じている間も、ともだちにいまを届けるために使います。/ Keeps your friends up to date while the app is closed.",
           locationFullAccuracyPermission:
-            "ともだちのマップにあなたのいまをぴったり出すために使います!/ Shows your friends exactly where you are.",
+            "ともだちのマップにあなたのいまを正確に表示したり、いまの瞬間を撮った場所をシェアしたりするために使います。/ Shows your friends exactly where you are and lets you share where you took a Moment.",
           // The background task pauses while the phone stays still.
           motionUsagePermission:
             "止まっている間は位置の送信をお休みして、電池を長持ちさせるために使います。/ Pauses location updates while you stay still, to save battery.",
