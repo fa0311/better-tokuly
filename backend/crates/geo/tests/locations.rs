@@ -894,9 +894,11 @@ async fn a_snapshot_on_its_way_gets_its_removals_numbered() {
     assert!(removal > read.removal_sequence, "numbered above the snapshot that may still list aoi");
 }
 
-/// A deleted account leaves its friends' maps as an unfriend does: one
-/// removal, numbered above a snapshot that may still list it for a friend who
-/// watches, unnumbered for one who does not.
+/// A deleted account leaves its friends' maps as an unfriend does: the social
+/// domain ends each friendship with `social.friend.removed`, and each friend
+/// gets one removal, numbered above a snapshot that may still list the
+/// account when they watch, unnumbered when they do not. Whichever of the two
+/// domains handles the deletion first.
 #[tokio::test]
 async fn a_deleted_account_is_taken_off_its_friends_maps() {
     let ctx = start().await;
@@ -911,13 +913,25 @@ async fn a_deleted_account_is_taken_off_its_friends_maps() {
         ctx.location("ListFriendLocations", &ren, &ListFriendLocationsRequest::default()).await.unwrap();
     assert_eq!(read.locations.len(), 1);
 
-    // As identity erases the account; the friendships are still there.
+    // As identity erases the account; the social domain gets there first.
     sqlx::query("UPDATE users SET deleted_at = now() WHERE id = $1")
         .bind(aoi.id)
         .execute(&ctx.app.core.db)
         .await
         .unwrap();
-    ctx.deliver("identity.user.deleted", aoi.id, serde_json::json!({ "user_id": aoi.id })).await;
+    let deleted = tokuly_core::events::Event {
+        id: uuid::Uuid::now_v7(),
+        topic: "identity.user.deleted".into(),
+        actor_id: Some(aoi.id),
+        occurred_at: Utc::now(),
+        data: serde_json::json!({ "user_id": aoi.id }),
+    };
+    ctx.social.handle_event(&deleted).await.unwrap();
+    for event in ctx.app.events_by("social.friend.removed", aoi.id).await {
+        ctx.geo.handle_event(&event).await.unwrap();
+    }
+    ctx.geo.handle_event(&deleted).await.unwrap();
+    ctx.geo.handle_event(&deleted).await.unwrap(); // delivered twice
     let removals = async |listener: &mut FrameListener| -> Vec<i64> {
         let mut found = Vec::new();
         while let Some(frame) = listener.next(QUIET).await {

@@ -169,10 +169,6 @@ impl Social {
     /// makes the account disappear from its former friends' apps.
     async fn forget_user(&self, user_id: Uuid) -> AppResult<()> {
         let core = &self.core;
-        let friends: Vec<Uuid> = sqlx::query_scalar("SELECT friend_id FROM friendships WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_all(&core.db)
-            .await?;
         let in_a_block: Vec<Uuid> = sqlx::query_scalar(
             "SELECT blocked_id FROM user_blocks WHERE blocker_id = $1 UNION SELECT blocker_id FROM user_blocks WHERE blocked_id = $1",
         )
@@ -203,7 +199,6 @@ impl Social {
         // Each statement removes the rows in which the user is either party.
         // (`friend_interaction_days` goes with `friend_pairs`.)
         const DELETES: &[&str] = &[
-            "DELETE FROM friendships WHERE user_id = $1 OR friend_id = $1",
             "DELETE FROM friend_requests WHERE from_user_id = $1 OR to_user_id = $1",
             "DELETE FROM user_blocks WHERE blocker_id = $1 OR blocked_id = $1",
             "DELETE FROM friend_suggestions WHERE user_id = $1 OR suggested_id = $1",
@@ -222,6 +217,23 @@ impl Social {
             "DELETE FROM circles WHERE owner_id = $1",
         ];
         let mut tx = core.db.begin().await?;
+        // Each friendship ends as an unfriend by the account would, so every
+        // domain takes the two apart as it does then (the geo domain numbers
+        // the removal from the map). Taken from the rows deleted, in the same
+        // transaction: a redelivery finds none and announces nothing again.
+        let mut friends: Vec<Uuid> = sqlx::query_scalar(
+            "DELETE FROM friendships WHERE user_id = $1 OR friend_id = $1
+             RETURNING CASE WHEN user_id = $1 THEN friend_id ELSE user_id END",
+        )
+        .bind(user_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        friends.sort_unstable();
+        friends.dedup();
+        for friend_id in &friends {
+            let removed = FriendRemoved { user_id, friend_id: *friend_id, blocked: false };
+            events::emit(&mut *tx, FRIEND_REMOVED, Some(user_id), &removed).await?;
+        }
         for delete in DELETES {
             sqlx::query(*delete).bind(user_id).execute(&mut *tx).await?;
         }
