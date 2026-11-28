@@ -129,9 +129,13 @@ function RootComponent() {
         On phones a toast at the top would lie on the page header (back, title, menu) for
         seconds, so it rises from the bottom instead and stops above the tab bar. Wide screens
         have room next to the header's controls: there it stays at the top.
+        Toasts stack with the newest in front, and a pointer opens the stack by resting on it.
+        A finger cannot: on phones they are always spread out, so a toast that just came (a
+        mission cleared by the check-in) never hides the button of the one before it.
       */}
       <Toaster
         position={phone ? "bottom-center" : "top-center"}
+        expand={phone}
         offset={phone ? { bottom: ABOVE_TAB_BAR } : undefined}
         mobileOffset={{ bottom: ABOVE_TAB_BAR, left: 12, right: 12 }}
         toastOptions={{
