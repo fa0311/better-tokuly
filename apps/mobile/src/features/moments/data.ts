@@ -5,6 +5,7 @@ import { momentKeys, momentQueries } from "@tokuly/core/moments";
 import { api } from "#/lib/api";
 
 export const momentClient = () => api().service(moments.MomentService);
+const reactionClient = () => api().service(moments.MomentReactionService);
 
 export { momentKeys };
 
@@ -14,6 +15,10 @@ export function useMomentToday() {
 
 export function useFriendMoments() {
   return useInfiniteQuery(momentQueries.friends(momentClient));
+}
+
+export function useMomentRealmojis() {
+  return useQuery(momentQueries.realmojis(reactionClient));
 }
 
 export function useMoment(momentId: string) {

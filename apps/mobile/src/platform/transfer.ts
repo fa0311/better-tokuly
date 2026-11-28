@@ -11,9 +11,10 @@ import { Directory, File, Paths } from "expo-file-system";
 const ROOT = new Directory(Paths.document, "uploads");
 
 function folder(postId: string): Directory {
-  if (!ROOT.exists) ROOT.create({ idempotent: true });
   const directory = new Directory(ROOT, postId);
-  if (!directory.exists) directory.create({ idempotent: true });
+  // Android's file copier requires the destination parent to exist. Create
+  // the full path recursively in case an earlier cleanup removed the root.
+  directory.create({ idempotent: true, intermediates: true });
   return directory;
 }
 
@@ -23,7 +24,12 @@ export async function keepFile(
   uri: string,
   name: string,
 ): Promise<{ uri: string; size: number }> {
-  const kept = new File(folder(postId), name);
+  // Some Android document providers return a display name containing path
+  // separators. Treat it as a filename so copy never targets an uncreated
+  // nested directory.
+  const basename = name.split(/[\\/]/).pop();
+  const filename = basename && basename !== "." && basename !== ".." ? basename : "upload";
+  const kept = new File(folder(postId), filename);
   if (kept.exists) kept.delete();
   await new File(uri).copy(kept);
   return { uri: kept.uri, size: kept.size };

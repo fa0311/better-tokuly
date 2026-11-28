@@ -2,8 +2,8 @@ import { toMillis } from "@tokuly/api";
 import { latenessText } from "@tokuly/core/moments";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
-import { MapPin } from "lucide-react-native";
-import { useEffect } from "react";
+import { Flag, MapPin } from "lucide-react-native";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, Platform, Pressable, Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
@@ -11,13 +11,16 @@ import { Button } from "#/components/button";
 import { EmptyState, ErrorNote, Page, Spinner } from "#/components/page";
 import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
+import { MomentReportSheet } from "./actions";
 import { useMoment, useMomentToday } from "./data";
+import { MomentReactionPicker, MomentReactionStrip } from "./reactions";
 
 export function MomentDetailScreen() {
   const { momentId } = useLocalSearchParams<{ momentId: string }>();
   const { t, i18n } = useTranslation("moments");
   const navigation = useNavigation();
   const { colors } = useTheme();
+  const [reporting, setReporting] = useState(false);
   const query = useMoment(momentId);
   const today = useMomentToday();
   const moment = query.data;
@@ -100,6 +103,9 @@ export function MomentDetailScreen() {
         </View>
       ) : null}
 
+      <MomentReactionStrip moment={moment} />
+      {!moment.mine && <MomentReactionPicker moment={moment} />}
+
       {moment.retakes > 0 ? (
         <Text className="text-xs text-ink-faint">
           {t("card.retakes", { count: moment.retakes })}
@@ -123,6 +129,20 @@ export function MomentDetailScreen() {
           <Text className="flex-1 text-sm font-bold text-ink">{t("card.place")}</Text>
         </Pressable>
       )}
+
+      {!moment.mine && (
+        <Button
+          variant="secondary"
+          icon={<Flag size={16} color={colors.brand} />}
+          onPress={() => setReporting(true)}
+        >
+          {t("card.report")}
+        </Button>
+      )}
+      <MomentReportSheet
+        momentId={reporting && !moment.mine ? moment.id : null}
+        onClose={() => setReporting(false)}
+      />
     </Page>
   );
 }

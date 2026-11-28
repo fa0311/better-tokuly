@@ -12,12 +12,18 @@ import { EmptyState, ErrorNote, Spinner } from "#/components/page";
 import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
 import { useFriendMoments, useMomentToday } from "./data";
+import { MomentReactionStrip } from "./reactions";
 
 export function MomentFriendsScreen() {
   const { t } = useTranslation("moments");
   const friends = useFriendMoments();
   const today = useMomentToday();
-  const items = friends.data?.pages.flatMap((page) => page.moments) ?? [];
+  const mine = today.data?.mine;
+  const friendItems = friends.data?.pages.flatMap((page) => page.moments) ?? [];
+  const items = [
+    ...(mine ? [mine] : []),
+    ...friendItems.filter((moment) => moment.id !== mine?.id),
+  ];
   const listUnlocked = friends.data?.pages[0]?.unlocked ?? false;
   const unlocked = today.data?.unlocked ?? listUnlocked;
   const relocking = listUnlocked && today.data?.unlocked !== true;
@@ -91,6 +97,12 @@ export function MomentFriendsScreen() {
                 {t("composer.retry")}
               </Button>
             </View>
+          ) : mine && friendItems.length === 0 ? (
+            <EmptyState
+              emoji="🌤️"
+              title={t("today.friendsEmpty")}
+              body={t("today.friendsEmptyBody")}
+            />
           ) : null
         }
         onEndReached={() => {
@@ -122,7 +134,9 @@ function MomentCard({ moment, onPress }: { moment: moments.Moment; onPress(): vo
       accessibilityLabel={
         moment.locked
           ? t("friends.lockedCard", { name: author?.displayName ?? author?.handle ?? "" })
-          : t("friends.openCard", { name: author?.displayName ?? author?.handle ?? "" })
+          : moment.mine
+            ? t("friends.ownCard")
+            : t("friends.openCard", { name: author?.displayName ?? author?.handle ?? "" })
       }
       disabled={moment.locked}
       onPress={onPress}
@@ -134,12 +148,17 @@ function MomentCard({ moment, onPress }: { moment: moments.Moment; onPress(): vo
           <Text numberOfLines={1} className="font-black text-ink">
             {author?.displayName || author?.handle || t("friends.someone")}
           </Text>
-          {posted && !moment.locked && (
-            <Text className="text-xs text-ink-faint">
-              {posted}
-              {lateSeconds > 0 ? ` · ${latenessText(i18n, moment.lateSeconds)}` : ""}
-            </Text>
-          )}
+          <View className="flex-row items-center gap-2">
+            {posted && !moment.locked && (
+              <Text className="text-xs text-ink-faint">
+                {posted}
+                {lateSeconds > 0 ? ` · ${latenessText(i18n, moment.lateSeconds)}` : ""}
+              </Text>
+            )}
+            {moment.mine && (
+              <Text className="text-xs font-bold text-brand">{t("friends.yours")}</Text>
+            )}
+          </View>
         </View>
         {moment.locked ? (
           <LockKeyhole size={18} color={colors["ink-faint"]} />
@@ -160,6 +179,7 @@ function MomentCard({ moment, onPress }: { moment: moments.Moment; onPress(): vo
           {moment.caption}
         </Text>
       ) : null}
+      {!moment.locked && <MomentReactionStrip moment={moment} />}
       {!moment.locked && moment.retakes > 0 ? (
         <Text className="text-xs text-ink-faint">
           {t("card.retakes", { count: moment.retakes })}
