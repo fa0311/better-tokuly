@@ -11,7 +11,11 @@
 //! Topics are dotted lowercase names `<domain>.<entity>.<verb>`, e.g.
 //! `social.friend.accepted`. The payload is JSON; the producing crate exposes
 //! the payload struct in its `events` module. See `docs/events.md`.
-use std::{future::Future, time::Duration};
+use std::{
+    future::Future,
+    sync::atomic::{AtomicI64, Ordering},
+    time::Duration,
+};
 
 use async_nats::jetstream::{self, AckKind};
 use chrono::{DateTime, Utc};
@@ -28,6 +32,19 @@ use crate::{
 };
 
 const OUTBOX_CHANNEL: &str = "tokuly_outbox";
+
+/// When this process's relay last got through a round (Unix milliseconds;
+/// 0 before the first): a round that finds nothing to move counts, one
+/// that fails does not.
+static RELAY_ROUND_AT: AtomicI64 = AtomicI64::new(0);
+
+/// Whether the outbox relay of this process got through a round within
+/// `within` (the worker's health check). An idle relay goes round every
+/// two seconds.
+pub fn relay_running(within: Duration) -> bool {
+    let at = RELAY_ROUND_AT.load(Ordering::Relaxed);
+    at > 0 && Utc::now().timestamp_millis() - at <= within.as_millis() as i64
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
@@ -108,7 +125,11 @@ pub async fn run_outbox_relay(db: PgPool, bus: Bus, cancel: CancellationToken) {
     };
     tracing::info!("outbox relay started");
     loop {
-        match relay_batch(&db, &bus).await {
+        let round = relay_batch(&db, &bus).await;
+        if round.is_ok() {
+            RELAY_ROUND_AT.store(Utc::now().timestamp_millis(), Ordering::Relaxed);
+        }
+        match round {
             Ok(n) if n >= BATCH => continue, // more waiting
             Ok(_) => {}
             Err(e) => {
@@ -383,6 +404,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_relay_runs_while_its_rounds_are_recent() {
+        let now = Utc::now().timestamp_millis();
+        RELAY_ROUND_AT.store(now - 5_000, Ordering::Relaxed);
+        assert!(relay_running(Duration::from_secs(30)));
+        RELAY_ROUND_AT.store(now - 60_000, Ordering::Relaxed);
+        assert!(!relay_running(Duration::from_secs(30)), "stuck or failing for a minute");
+    }
 
     #[test]
     fn a_failing_event_is_retried_for_about_twenty_minutes() {

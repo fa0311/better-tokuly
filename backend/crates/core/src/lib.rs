@@ -13,6 +13,7 @@ pub mod analytics;
 pub mod api_access;
 pub mod api_tokens;
 pub mod auth;
+pub mod backlog;
 pub mod bus;
 pub mod cache;
 pub mod config;

@@ -64,6 +64,21 @@ impl Default for ApiConfig {
     }
 }
 
+/// Settings of the worker process.
+#[derive(Args, Clone, Debug)]
+pub struct WorkerConfig {
+    /// Address of the worker's health endpoint (`/healthz`: the outbox
+    /// relay is running), for the container health check.
+    #[arg(long = "worker-health-listen", id = "worker_health_listen", env = "TOKULY_WORKER_HEALTH_LISTEN", default_value = "0.0.0.0:8083")]
+    pub health_listen: std::net::SocketAddr,
+}
+
+impl Default for WorkerConfig {
+    fn default() -> Self {
+        Self { health_listen: ([0, 0, 0, 0], 8083).into() }
+    }
+}
+
 impl ApiConfig {
     /// How long calls may run. A client may ask for less, down to a second:
     /// a deadline shorter than that is a way to have a handler dropped
@@ -123,6 +138,7 @@ pub fn sections() -> Vec<SectionSpec> {
     vec![
         SectionSpec::new("core", Config::augment_args).processes(ALL).editable(Config::CONSOLE_EDITABLE).empty_is_value(Config::EMPTY_IS_A_VALUE).check(check!(Config)),
         SectionSpec::new("api", ApiConfig::augment_args).processes(&[Process::Api]),
+        SectionSpec::new("worker", WorkerConfig::augment_args).processes(&[Process::Worker]),
         SectionSpec::new("realtime", RealtimeConfig::augment_args)
             .env_prefix("RT")
             .processes(&[Process::Realtime])
