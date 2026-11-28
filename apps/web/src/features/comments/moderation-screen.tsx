@@ -169,6 +169,7 @@ function Received({ queue }: { queue?: boolean }) {
     void queryClient.invalidateQueries({ queryKey: commentKeys.heldCount });
     // Threads on screen elsewhere show the change the next time they are read.
     void queryClient.invalidateQueries({ queryKey: [...commentKeys.all, "thread"] });
+    void queryClient.invalidateQueries({ queryKey: [...commentKeys.all, "replies"] });
   };
   const onError = (error: unknown) => toast.error(errorMessage(error, { namespace: "comments" }));
 
@@ -457,6 +458,7 @@ function MyComments() {
             : data,
       );
       void queryClient.invalidateQueries({ queryKey: [...commentKeys.all, "thread"] });
+      void queryClient.invalidateQueries({ queryKey: [...commentKeys.all, "replies"] });
       toast.success(t("toast.deleted"));
     },
     onError: (error) => {
