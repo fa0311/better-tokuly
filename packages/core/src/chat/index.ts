@@ -20,8 +20,8 @@ export {
   type ListPage,
   listAfter,
   patchConversation,
+  putAnswer,
   putConversation,
-  putInLists,
   readConversation,
 } from "./conversation-cache";
 export { applyChatEvent, type ChatSync, type EventContext, resynchronize } from "./events";
