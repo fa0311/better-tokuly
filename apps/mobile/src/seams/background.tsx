@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { create } from "zustand";
+import { FailsAlone } from "#/components/fails-alone";
 import backgrounds from "#/generated/seams/background";
 
 /**
@@ -23,10 +24,17 @@ import backgrounds from "#/generated/seams/background";
  * ahead of its screen — waits for `useAfterFirstScreen()`, and only one that
  * reads: what sends for the account (sharing, push, uploads) starts at once,
  * so it never starts while the account is leaving.
+ *
+ * One that throws while rendering stops alone (`FailsAlone`): the screens
+ * and the other background features go on.
  */
 export function BackgroundFeatures() {
   useFirstScreenGate();
-  return backgrounds.map((Background, index) => <Background key={index} />);
+  return backgrounds.map((Background, index) => (
+    <FailsAlone key={index}>
+      <Background />
+    </FailsAlone>
+  ));
 }
 
 /**

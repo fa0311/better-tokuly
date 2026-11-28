@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { create } from "zustand";
+import { FailsAlone } from "#/components/fails-alone";
 import badges from "#/generated/seams/badges";
 import { useAfterFirstScreen } from "./background";
 import { HUB_BADGE, waitingInHub } from "./hub";
@@ -40,10 +41,12 @@ function Source({ badge, useCount }: { badge: string; useCount: () => number }) 
   return null;
 }
 
-/** Runs every badge source; mounted once inside the signed-in layout. */
+/** Runs every badge source, each failing alone; mounted once inside the signed-in layout. */
 export function BadgeSourceRunner() {
   if (!useAfterFirstScreen()) return null;
   return SOURCES.map(([badge, useCount]) => (
-    <Source key={badge} badge={badge} useCount={useCount} />
+    <FailsAlone key={badge}>
+      <Source badge={badge} useCount={useCount} />
+    </FailsAlone>
   ));
 }
