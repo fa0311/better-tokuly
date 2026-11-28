@@ -1,6 +1,7 @@
 import { Tabs } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "#/lib/theme";
+import { tabLogListeners } from "#/lib/touch-log";
 import { useBadges } from "#/seams/badges";
 import { TABS } from "#/seams/tabs";
 
@@ -16,6 +17,7 @@ export default function TabsLayout() {
   const badges = useBadges();
   return (
     <Tabs
+      screenListeners={tabLogListeners}
       screenOptions={{
         tabBarActiveTintColor: colors.brand,
         tabBarInactiveTintColor: colors["ink-faint"],

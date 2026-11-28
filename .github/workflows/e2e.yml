@@ -311,7 +311,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/apk
-          key: android-apk-${{ hashFiles('apps/mobile/**', 'packages/**', 'proto/**', 'pnpm-lock.yaml', 'package.json', 'pnpm-workspace.yaml') }}-localhost-8080
+          key: android-apk-${{ hashFiles('apps/mobile/**', 'packages/**', 'proto/**', 'pnpm-lock.yaml', 'package.json', 'pnpm-workspace.yaml') }}-localhost-8080-touch-log
 
       - if: steps.apk.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-js
@@ -323,12 +323,14 @@ jobs:
       # Gradle's own dependencies and build cache (written on main, read everywhere).
       - if: steps.apk.outputs.cache-hit != 'true'
         uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
-      # A release build carries its JS bundle, built for the address the emulator sees.
+      # A release build carries its JS bundle, built for the address the emulator sees. It logs
+      # every tap it takes (src/lib/touch-log.ts): a flow's lost tap shows in logcat how far it got.
       - name: Build the Android app
         if: steps.apk.outputs.cache-hit != 'true'
         working-directory: apps/mobile
         env:
           EXPO_PUBLIC_TOKULY_URL: ${{ env.SERVER }}
+          EXPO_PUBLIC_TOUCH_LOG: "1"
           GRADLE_OPTS: -Xmx3g -Dorg.gradle.workers.max=2
         run: |
           pnpm exec expo prebuild --platform android --no-install
@@ -412,8 +414,11 @@ jobs:
             adb install "$RUNNER_TEMP/apk/tokuly.apk"
             # The emulator's localhost is the runner's: the edge, uploads to storage, LiveKit.
             for port in 8080 9000 7880 7881; do adb reverse tcp:$port tcp:$port || exit 1; done
-            # On failure, also what the device shows and logged (a crash at launch shows only there).
-            maestro test apps/mobile/maestro --env SERVER=${{ env.SERVER }} --test-output-dir "$RUNNER_TEMP/mobile-screenshots" --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro" || { adb exec-out screencap -p > "$RUNNER_TEMP/maestro-screen.png"; adb logcat -d > "$RUNNER_TEMP/maestro-logcat.txt"; exit 1; }
+            # What the device logged is kept for every run, room for all of it: the app's taps
+            # ([touch-log]) and skipped frames (Choreographer), a crash at launch. On failure,
+            # also what the device shows.
+            adb logcat -G 32M
+            maestro test apps/mobile/maestro --env SERVER=${{ env.SERVER }} --test-output-dir "$RUNNER_TEMP/mobile-screenshots" --format junit --output "$RUNNER_TEMP/maestro.xml" --debug-output "$RUNNER_TEMP/maestro"; status=$?; adb logcat -d -v threadtime > "$RUNNER_TEMP/maestro-logcat.txt"; [ $status -eq 0 ] || { adb exec-out screencap -p > "$RUNNER_TEMP/maestro-screen.png"; exit 1; }
 
       - name: Keep the Maestro output
         if: always()
