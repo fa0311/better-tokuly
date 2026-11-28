@@ -6,11 +6,9 @@ import { Text, View } from "react-native";
 import { Avatar } from "#/components/avatar";
 import { Button } from "#/components/button";
 import { EmptyState, ErrorNote, Spinner } from "#/components/page";
-import { SERVER_URL } from "#/lib/config";
+import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
 import type { useMapMoments } from "./moments-data";
-
-const absolute = (url: string) => (url.startsWith("/") ? `${SERVER_URL}${url}` : url);
 
 export function MomentMapPanel({
   query,
@@ -69,7 +67,7 @@ export function MomentMapPanel({
 
   if (selected) {
     const image = selected.back;
-    const imageUrl = image?.url ? absolute(image.url) : undefined;
+    const imageUrl = image?.url ? mediaUrl(image.url) : undefined;
     const name = selected.author?.displayName || selected.author?.handle || t("moments.someone");
 
     return (
@@ -85,8 +83,12 @@ export function MomentMapPanel({
             source={{ uri: imageUrl }}
             placeholder={image?.thumbhash ? { thumbhash: image.thumbhash } : undefined}
             contentFit="cover"
-            className="h-36 w-full rounded-control"
-            style={{ backgroundColor: image?.dominantColor || colors["surface-2"] }}
+            style={{
+              width: "100%",
+              height: 144,
+              borderRadius: 12,
+              backgroundColor: image?.dominantColor || colors["surface-2"],
+            }}
           />
         ) : null}
         <Text numberOfLines={2} className="text-sm text-ink-soft">
