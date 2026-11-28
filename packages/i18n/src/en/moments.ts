@@ -90,6 +90,7 @@ export default {
     locationHint: "Only friends who see your precise location on the map see it",
     locationFailed: "Couldn't get your location, sharing without it",
     audience: "Who sees it",
+    audienceHint: "Only for this Moment. Your usual audience won't change.",
     friends: "Friends",
     closeFriends: "Close friends",
     post: "Share!",

@@ -90,6 +90,7 @@ export default {
     locationHint: "地図で正確な位置が見えるともだちにだけ表示されるよ",
     locationFailed: "位置情報が取れなかったから、場所なしでシェアするね",
     audience: "見せる相手",
+    audienceHint: "今回の投稿だけに適用されるよ。いつもの公開範囲は変わらないよ。",
     friends: "ともだち",
     closeFriends: "親しい友達",
     post: "シェアする!",

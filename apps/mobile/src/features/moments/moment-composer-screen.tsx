@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Linking, Modal, Pressable, Text, View } from "react-native";
 import { Button } from "#/components/button";
-import { SwitchRow } from "#/components/form-rows";
+import { ChoiceRow, SwitchRow } from "#/components/form-rows";
 import { EmptyState, ErrorNote, Page, Spinner } from "#/components/page";
 import { TextField } from "#/components/text-field";
 import { CameraScreen } from "#/features/media/camera-screen";
@@ -32,6 +32,7 @@ import { forgetFiles, keepFile } from "#/platform/transfer";
 import { useMomentToday } from "./data";
 
 type Side = "back" | "front";
+type MomentAudienceChoice = "friends" | "closeFriends";
 
 interface CapturedPhoto {
   media: LocalMedia;
@@ -59,6 +60,7 @@ export function MomentComposerScreen() {
   const [photos, setPhotos] = useState<Photos>({});
   const [retakes, setRetakes] = useState(0);
   const [caption, setCaption] = useState("");
+  const [audienceOverride, setAudienceOverride] = useState<MomentAudienceChoice>();
   const [locationChoice, setLocationChoice] = useState<boolean | undefined>();
   const [cameraFor, setCameraFor] = useState<Side | null>(null);
   const [savingCapture, setSavingCapture] = useState(false);
@@ -70,6 +72,11 @@ export function MomentComposerScreen() {
   const posting = useRef(false);
   const draftId = useRef(randomUUID()).current;
   const includeLocation = locationChoice ?? today.data?.settings?.shareLocation ?? false;
+  const savedAudience =
+    today.data?.settings?.audience === moments.MomentAudience.CLOSE_FRIENDS
+      ? "closeFriends"
+      : "friends";
+  const audience = audienceOverride ?? savedAudience;
   const day = today.data?.day;
   const phase = momentPhase(today.data, now);
   const cleanedCaption = cleanCaption(caption);
@@ -251,7 +258,10 @@ export function MomentComposerScreen() {
           caption: cleanedCaption,
           location,
           retakes,
-          audience: today.data?.settings?.audience ?? moments.MomentAudience.UNSPECIFIED,
+          audience:
+            audience === "closeFriends"
+              ? moments.MomentAudience.CLOSE_FRIENDS
+              : moments.MomentAudience.FRIENDS,
         },
         { signal: abort.signal },
       );
@@ -387,6 +397,20 @@ export function MomentComposerScreen() {
           editable={!busy}
           returnKeyType="done"
         />
+
+        <View pointerEvents={busy ? "none" : "auto"} className={busy ? "opacity-50" : ""}>
+          <ChoiceRow<MomentAudienceChoice>
+            testID="moment-audience"
+            label={t("camera.audience")}
+            hint={t("camera.audienceHint")}
+            value={audience}
+            choices={[
+              { value: "friends", label: t("camera.friends") },
+              { value: "closeFriends", label: t("camera.closeFriends") },
+            ]}
+            onChange={setAudienceOverride}
+          />
+        </View>
 
         <SwitchRow
           label={t("camera.location")}
