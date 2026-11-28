@@ -47,41 +47,75 @@ const FACE_KEYS: Record<moments.RealmojiEmoji, string> = {
 const CHOICES = [...REALMOJI_FACES, moments.RealmojiEmoji.INSTANT];
 
 /** The newest RealMoji faces and the total reaction count for a Moment. */
-export function MomentReactionStrip({ moment }: { moment: moments.Moment }) {
+export function MomentReactionStrip({
+  moment,
+  onPress,
+}: {
+  moment: moments.Moment;
+  onPress?: () => void;
+}) {
   const { t } = useTranslation("moments");
   if (moment.reactionCount === 0) return null;
-
-  return (
-    <View
-      accessibilityLabel={t("card.reactions", { count: moment.reactionCount })}
-      className="flex-row items-center gap-2"
-    >
+  const label = t("card.reactions", { count: moment.reactionCount });
+  const contents = (
+    <>
       <View className="flex-row">
         {moment.reactions.slice(0, 5).map((reaction, index) => (
-          <ReactionFace key={reaction.id} reaction={reaction} index={index} />
+          <MomentReactionFace key={reaction.id} reaction={reaction} index={index} />
         ))}
       </View>
-      <Text className="text-xs font-bold text-ink-soft">
-        {t("card.reactions", { count: moment.reactionCount })}
-      </Text>
+      <Text className="text-xs font-bold text-ink-soft">{label}</Text>
+      {onPress ? <Text className="text-xs font-bold text-brand">{t("card.seeAll")}</Text> : null}
+    </>
+  );
+
+  if (onPress) {
+    return (
+      <Pressable
+        testID="moment-reactions-open"
+        accessibilityRole="button"
+        accessibilityLabel={t("reactions.open", { count: moment.reactionCount })}
+        onPress={onPress}
+        className="flex-row items-center gap-2"
+      >
+        {contents}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View accessibilityLabel={label} className="flex-row items-center gap-2">
+      {contents}
     </View>
   );
 }
 
-function ReactionFace({ reaction, index }: { reaction: moments.MomentReaction; index: number }) {
+export function MomentReactionFace({
+  reaction,
+  index,
+  size = 36,
+}: {
+  reaction: moments.MomentReaction;
+  index?: number;
+  size?: number;
+}) {
   const value = reaction.reaction;
   const imageUrl = value.case === "realmoji" ? mediaUrl(value.value.image?.url) : undefined;
   return (
     <View
-      style={{ marginLeft: index === 0 ? 0 : -6, width: 36, height: 36 }}
+      style={{ marginLeft: index === undefined || index === 0 ? 0 : -6, width: size, height: size }}
       className="relative items-center justify-center overflow-hidden rounded-full border-2 border-surface bg-surface-2"
     >
       {value.case === "stamp" ? (
-        <StampImage stamp={value.value} size={30} />
+        <StampImage stamp={value.value} size={size - 6} />
       ) : imageUrl ? (
-        <Image source={{ uri: imageUrl }} contentFit="cover" style={{ width: 36, height: 36 }} />
+        <Image
+          source={{ uri: imageUrl }}
+          contentFit="cover"
+          style={{ width: size, height: size }}
+        />
       ) : (
-        <Avatar user={reaction.user} size="sm" />
+        <Avatar user={reaction.user} size={size > 36 ? "md" : "sm"} />
       )}
       {value.case === "realmoji" && (
         <Text className="absolute -right-0.5 -bottom-1 text-xs">

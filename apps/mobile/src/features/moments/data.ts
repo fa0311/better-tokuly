@@ -26,3 +26,12 @@ export function useMoment(momentId: string) {
     enabled: Boolean(momentId),
   });
 }
+
+export function useMomentReactions(momentId: string, enabled = true) {
+  return useInfiniteQuery({
+    ...momentQueries.reactions(reactionClient, momentId),
+    enabled: enabled && Boolean(momentId),
+    // Recheck visibility and the daily unlock whenever the sheet is reopened.
+    staleTime: 0,
+  });
+}

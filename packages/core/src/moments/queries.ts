@@ -50,8 +50,8 @@ export const momentQueries = {
   /** Who reacted to a moment, newest first. */
   reactions: (client: Reactions, momentId: string) => ({
     queryKey: momentKeys.reactions(momentId),
-    queryFn: ({ pageParam }: { pageParam: string }) =>
-      client().listReactions({ momentId, page: { cursor: pageParam, limit: 30 } }),
+    queryFn: ({ pageParam, signal }: { pageParam: string; signal: AbortSignal }) =>
+      client().listReactions({ momentId, page: { cursor: pageParam, limit: 30 } }, { signal }),
     initialPageParam: "",
     getNextPageParam: nextCursor,
   }),

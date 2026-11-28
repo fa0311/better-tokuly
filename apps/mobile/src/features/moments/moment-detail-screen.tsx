@@ -14,6 +14,7 @@ import { useTheme } from "#/lib/theme";
 import { MomentReportSheet } from "./actions";
 import { useMoment, useMomentToday } from "./data";
 import { MomentReactionPicker, MomentReactionStrip } from "./reactions";
+import { MomentReactionsSheet } from "./reactions-list";
 
 export function MomentDetailScreen() {
   const { momentId } = useLocalSearchParams<{ momentId: string }>();
@@ -21,6 +22,7 @@ export function MomentDetailScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
   const [reporting, setReporting] = useState(false);
+  const [reactionsVisible, setReactionsVisible] = useState(false);
   const query = useMoment(momentId);
   const today = useMomentToday();
   const moment = query.data;
@@ -103,8 +105,13 @@ export function MomentDetailScreen() {
         </View>
       ) : null}
 
-      <MomentReactionStrip moment={moment} />
+      <MomentReactionStrip moment={moment} onPress={() => setReactionsVisible(true)} />
       {!moment.mine && <MomentReactionPicker moment={moment} />}
+      <MomentReactionsSheet
+        moment={moment}
+        visible={reactionsVisible}
+        onClose={() => setReactionsVisible(false)}
+      />
 
       {moment.retakes > 0 ? (
         <Text className="text-xs text-ink-faint">
