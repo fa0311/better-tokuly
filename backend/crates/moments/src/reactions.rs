@@ -43,9 +43,15 @@ struct Cursor {
 }
 
 impl Moments {
+    /// Reacting and taking reactions back share one budget: both write and
+    /// tell the owner.
+    async fn limit_reactions(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.rate_limit(&format!("moments-react:{user_id}"), 60, Duration::from_secs(600)).await
+    }
+
     pub(crate) async fn react(&self, user_id: Uuid, request: ReactRequest) -> AppResult<MomentReaction> {
         let core = &self.core;
-        core.cache.rate_limit(&format!("moments-react:{user_id}"), 60, Duration::from_secs(600)).await?;
+        self.limit_reactions(user_id).await?;
         let moment = self.require_visible(user_id, parse_id(&request.moment_id)?).await?;
         ensure!(moment.user_id != user_id, precondition, "OWN_MOMENT", "you cannot react to your own moment");
         ensure!(self.unlocked(user_id).await?, precondition, "MOMENT_LOCKED", "post your own moment first");
@@ -134,6 +140,7 @@ impl Moments {
     /// Takes the caller's reaction back, whether or not they still see the
     /// moment.
     pub(crate) async fn remove_reaction(&self, user_id: Uuid, moment_id: Uuid) -> AppResult<()> {
+        self.limit_reactions(user_id).await?;
         let owner: Option<Uuid> = sqlx::query_scalar(
             "UPDATE moment_reactions r SET removed_at = now() FROM moments m
              WHERE r.moment_id = $1 AND r.user_id = $2 AND r.removed_at IS NULL AND m.id = r.moment_id

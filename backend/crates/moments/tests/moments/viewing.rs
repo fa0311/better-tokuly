@@ -38,6 +38,12 @@ async fn friends_moments_stay_blurred_until_you_post() {
     let shown = &open.moments[0];
     assert!(!shown.locked && !shown.back.url.is_empty() && shown.caption == "放課後🍦");
     assert!(shown.location.is_set(), "b shares their location with a");
+    // The region would tell roughly where b is, ghost mode or not: b's own only.
+    let day = shown.day.as_option().unwrap();
+    assert!(day.region.is_empty() && !day.date.is_empty() && day.prompt_at.is_set());
+    assert!(locked.moments[0].day.as_option().unwrap().region.is_empty());
+    assert_eq!(ctx.get(b, &theirs.id).await.unwrap().day.as_option().unwrap().region, region);
+    assert_eq!(mine.day.as_option().unwrap().region, region);
     let map: ListMapMomentsResponse = ctx.call("ListMapMoments", a, &ListMapMomentsRequest::default()).await.unwrap();
     assert_eq!(map.moments.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), [theirs.id.as_str()]);
 
@@ -85,7 +91,14 @@ async fn the_location_follows_the_ghost_rules_of_the_map() {
     assert!(listed.moments.iter().all(|m| !m.location.is_set()));
     let map: ListMapMomentsResponse = ctx.call("ListMapMoments", b, &ListMapMomentsRequest::default()).await.unwrap();
     assert!(map.moments.iter().all(|m| m.id != moment.id), "not on the map either");
+
+    // One list, each owner judged on their own: c shares, a hides.
+    geoindex::set(cache, c.id, 35.67, 139.71, chrono::Utc::now()).await.unwrap();
+    let map: ListMapMomentsResponse = ctx.call("ListMapMoments", b, &ListMapMomentsRequest::default()).await.unwrap();
+    let authors: Vec<String> = map.moments.iter().map(|m| m.author.as_option().unwrap().id.clone()).collect();
+    assert_eq!(authors, [c.id.to_string()]);
     geoindex::remove(cache, a.id).await.unwrap();
+    geoindex::remove(cache, c.id).await.unwrap();
 }
 
 #[tokio::test]
@@ -219,4 +232,27 @@ async fn a_locked_moment_lends_its_caption_to_no_bookmark_or_report() {
 
     ctx.post(a).await;
     assert!(titles(a.id).await.iter().all(|title| title == "放課後🍦"), "unlocked, the caption is theirs to see");
+}
+
+#[tokio::test]
+async fn the_location_goes_once_the_live_position_is_old() {
+    let ctx = start().await;
+    let users = ctx.circle_of(&["あや", "べに"]).await;
+    let (a, b) = (&users[0], &users[1]);
+    let region = ctx.region(&[a, b]).await;
+    ctx.prompt(&region).await;
+    ctx.post(b).await;
+    let moment = ctx.post(a).await;
+    let cache = &ctx.app.core.cache;
+    let minutes_ago = |minutes| chrono::Utc::now() - chrono::Duration::minutes(minutes);
+
+    geoindex::set(cache, a.id, 35.66, 139.70, minutes_ago(4)).await.unwrap();
+    assert!(ctx.get(b, &moment.id).await.unwrap().location.is_set(), "four minutes old: still live");
+    // The phone stopped reporting: the pin is history now, and so is the place.
+    geoindex::set(cache, a.id, 35.66, 139.70, minutes_ago(6)).await.unwrap();
+    assert!(!ctx.get(b, &moment.id).await.unwrap().location.is_set());
+    let map: ListMapMomentsResponse = ctx.call("ListMapMoments", b, &ListMapMomentsRequest::default()).await.unwrap();
+    assert!(map.moments.iter().all(|m| m.id != moment.id));
+    assert!(ctx.get(a, &moment.id).await.unwrap().location.is_set(), "the owner keeps theirs");
+    geoindex::remove(cache, a.id).await.unwrap();
 }

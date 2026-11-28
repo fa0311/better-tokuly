@@ -414,13 +414,14 @@ Discord-style voice room for a friend group.
 BeReal's daily photo, with the map: everyone is told at the same moment,
 nobody can prepare, and you see your friends only once you shared yours.
 
-- Once a day per region (a time zone) at a time drawn at random inside the
-  local daytime window, every account there is told 「いまの瞬間を撮ろう!」;
-  the time stays secret until then. A moment is the back and the front
+- Once a day per region (one of six bands of UTC offsets) at a time drawn
+  at random inside the daytime window the band shares, every account there
+  is told 「いまの瞬間を撮ろう!」; the time stays secret until then. A moment is the back and the front
   camera taken at once, an optional one-line caption, the location if the
   poster keeps it on, and how often it was retaken (counted by the app).
   Posted within two minutes it is on time, later it shows how late ("3時間遅れ").
-  One per day; a day lasts until the region's next prompt.
+  One prompt and one moment per day and person: a day lasts until the next
+  prompt that reaches them, and a new time zone counts from the next day.
 - Friends' moments of their current day are blurred until you posted yours;
   only friends (or close friends) see them, never across a block. The
   location shows only to friends who see the poster's precise live position

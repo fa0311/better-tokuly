@@ -2,14 +2,13 @@
 //!
 //! All tests of the binary share a database and run at once, and a prompt
 //! goes to a whole region. So every test puts its people into a region of
-//! its own ([`Ctx::region`]: a time zone no other test uses) and sends the
-//! prompts of that region only ([`Ctx::prompt`]).
+//! its own ([`Ctx::region`]: a region outside the bands, with a time zone of
+//! its own mapped to it) and sends the prompts of that region only
+//! ([`Ctx::prompt`]). The bands themselves are only drawn, for dates far
+//! ahead, never prompted.
 #![allow(dead_code)]
 
-use std::{
-    sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
-};
+use std::time::Duration;
 
 use serde::{Serialize, de::DeserializeOwned};
 use tokuly_core::events::Event;
@@ -59,17 +58,6 @@ pub async fn start_with(cfg: MomentsConfig) -> Ctx {
     Ctx { app, moments: domain.expect("register ran") }
 }
 
-/// A time zone no other test of this binary uses.
-fn fresh_region() -> String {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let zones: Vec<&str> = chrono_tz::TZ_VARIANTS
-        .iter()
-        .map(|tz| tz.name())
-        .filter(|name| name.contains('/') && !name.starts_with("Etc/") && *name != "Asia/Tokyo")
-        .collect();
-    zones[NEXT.fetch_add(1, Ordering::Relaxed) % zones.len()].to_owned()
-}
-
 pub fn id(value: &str) -> Uuid {
     value.parse().expect("an ID")
 }
@@ -92,13 +80,22 @@ impl Ctx {
         self.app.call(&format!("tokuly.moments.v1.{service}/{method}"), Some(user), request).await
     }
 
-    /// A region of the test's own, with `users` living in it.
+    /// A region of the test's own, with `users` living in it. The region
+    /// and its one time zone share the name.
     pub async fn region(&self, users: &[&TestUser]) -> String {
-        let region = fresh_region();
+        let region = format!("test/{}", Uuid::now_v7().simple());
+        let db = &self.app.core.db;
+        sqlx::query("INSERT INTO moment_regions (region) VALUES ($1)").bind(&region).execute(db).await.expect("region");
+        sqlx::query("INSERT INTO moment_zones (time_zone, region) VALUES ($1, $1)")
+            .bind(&region)
+            .execute(db)
+            .await
+            .expect("zone");
         self.move_to(&region, users).await;
         region
     }
 
+    /// Moves `users` to the time zone of a region made by [`Self::region`].
     pub async fn move_to(&self, region: &str, users: &[&TestUser]) {
         let ids: Vec<Uuid> = users.iter().map(|user| user.id).collect();
         sqlx::query("UPDATE users SET time_zone = $2 WHERE id = ANY($1)")
@@ -112,11 +109,6 @@ impl Ctx {
     /// A day of `region` due now (the date after its last one).
     pub async fn due_day(&self, region: &str) -> Uuid {
         let db = &self.app.core.db;
-        sqlx::query("INSERT INTO moment_regions (region) VALUES ($1) ON CONFLICT DO NOTHING")
-            .bind(region)
-            .execute(db)
-            .await
-            .expect("region");
         sqlx::query_scalar(
             "INSERT INTO moment_days (region, date, prompt_at)
              SELECT $1, coalesce(max(date) + 1, DATE '2026-01-01'), now() - interval '1 second'

@@ -19,7 +19,8 @@ use crate::{
 const PICTURE: &[AssetPurpose] = &[AssetPurpose::ASSET_PURPOSE_MOMENT];
 
 impl Moments {
-    /// Posts the caller's moment of their region's current day.
+    /// Posts the caller's moment of their day (fixing it if the region's
+    /// prompt has not reached them yet).
     pub(crate) async fn post(&self, user_id: Uuid, request: PostMomentRequest) -> AppResult<MomentRow> {
         let core = &self.core;
         core.cache.rate_limit(&format!("moments-post:{user_id}"), 10, Duration::from_secs(3600)).await?;
@@ -37,12 +38,12 @@ impl Moments {
         // Everything read through the pool is read before the transaction.
         let back = assets::require_image_json(core, back_id, user_id, PICTURE).await?;
         let front = assets::require_image_json(core, front_id, user_id, PICTURE).await?;
-        let region = self.region_of(user_id).await?;
 
         let mut tx = core.db.begin().await?;
-        let day = self.current_day(&mut *tx, &region).await?.ok_or_else(|| {
-            AppError::precondition("NO_PROMPT_YET", "the first prompt of your region has not gone out yet")
-        })?;
+        let day = self
+            .fix_today(&mut tx, user_id)
+            .await?
+            .ok_or_else(|| AppError::precondition("NO_PROMPT_YET", "no prompt has reached you yet"))?;
         let late_seconds = rules::late_seconds(
             rules::on_time_until(day.announced_at, self.cfg.window_seconds),
             now(),

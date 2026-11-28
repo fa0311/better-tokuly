@@ -259,3 +259,22 @@ async fn selfies_that_overlap_for_sure_leave_one_held() {
         assert_eq!(held, i64::from(asset_id == kept), "{asset_id}: only the selfie in the library is held");
     }
 }
+
+#[tokio::test]
+async fn taking_reactions_back_shares_the_budget_of_reacting() {
+    let ctx = start().await;
+    let (a, _b, moment) = setup(&ctx).await;
+    let instant = || Reaction::Realmoji(RealmojiEmoji::REALMOJI_EMOJI_INSTANT.into());
+    let selfie = ctx.picture(&a, AssetPurpose::ASSET_PURPOSE_REALMOJI).await;
+    react(&ctx, &a, &moment.id, instant(), &selfie).await.unwrap();
+    // Every take-back writes and tells the owner: 60 in 10 minutes, with
+    // the reactions, whether or not there is one to take back.
+    let remove = RemoveReactionRequest { moment_id: moment.id.clone(), ..Default::default() };
+    for _ in 1..60 {
+        let _: RemoveReactionResponse = ctx.call("RemoveReaction", &a, &remove).await.unwrap();
+    }
+    let refused = ctx.call::<_, RemoveReactionResponse>("RemoveReaction", &a, &remove).await.unwrap_err();
+    assert_eq!(refused.reason, "RATE_LIMITED");
+    let refused = react(&ctx, &a, &moment.id, instant(), &selfie).await.unwrap_err();
+    assert_eq!(refused.reason, "RATE_LIMITED", "one budget for both");
+}

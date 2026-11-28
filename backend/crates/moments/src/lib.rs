@@ -2,13 +2,16 @@
 //! random time to take a moment — back and front camera at once — within
 //! two minutes; friends' moments stay blurred until you post yours.
 //!
-//! A **region** is a time zone (`users.time_zone`). Its days are drawn a
-//! day ahead (`moment_days`, a random time inside the local window) and go
-//! out exactly once, through the `moments.prompt` job: the announcement
-//! starts the day, the fan-out tells the region page by page, each page
-//! committed with its cursor. A moment belongs to its owner's current day
-//! (one per day); friends see each other's moments of their current days
-//! only, locked until they posted their own. Past days stay in the owner's
+//! A **region** is a band of UTC offsets (`rules::BANDS`), the one of the
+//! account's time zone. Its days are drawn a day ahead (`moment_days`, a
+//! random time inside the window the band shares) and go out exactly once,
+//! through the `moments.prompt` job: the announcement starts the day, the
+//! fan-out moves the region's accounts to it page by page, each page
+//! committed with its cursor. Every account has a day of its own
+//! (`moment_people`): the latest prompt that reached it, of a later date
+//! than the one before, so one prompt and one moment per date whatever the
+//! time zone does. Friends see each other's moments of their own days only,
+//! locked until they posted their own. Past days stay in the owner's
 //! calendar.
 //!
 //! # For other domains
@@ -21,9 +24,9 @@
 //!
 //! | module | what lives there |
 //! |---|---|
-//! | [`rules`] | everything free of I/O: prompt times, lateness, validation, placeholders |
+//! | [`rules`] | everything free of I/O: the bands, prompt times, lateness, validation, placeholders |
 //! | `model` | database rows, stored numbers, media holds |
-//! | `days` | drawing days ahead, the prompt job, the current day of a region |
+//! | `days` | the bands' days drawn ahead, the prompt job, everyone's own day |
 //! | `posting` | posting and deleting moments |
 //! | `viewing` | who sees which moment, locked or not, with which location; rendering |
 //! | `reactions` | RealMoji and stamp reactions, the RealMoji library |
@@ -71,7 +74,7 @@ pub struct MomentsInner {
     pub core: Core,
     pub identity: Identity,
     pub cfg: MomentsConfig,
-    /// When the planner last looked for new regions (see `days`).
+    /// When the planner last mapped the time zones to their bands (see `days`).
     regions_refreshed: Mutex<Option<Instant>>,
 }
 

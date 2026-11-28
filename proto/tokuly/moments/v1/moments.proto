@@ -4,12 +4,15 @@ syntax = "proto3";
 // random time to take a moment — the back and the front camera at once —
 // within two minutes.
 //
-// - A **region** is a time zone (the account's `time_zone`). Each region
-//   gets one prompt a day at a time drawn at random inside the local
-//   daytime window; the API never tells it before it goes out.
-// - A **day** lasts from one prompt of the region to the next. A moment
-//   belongs to the poster's current day; one per day. Posted within the
-//   window it is on time, later it carries how late it is ("3時間遅れ").
+// - A **region** is a band of UTC offsets (the offset of the account's
+//   `time_zone`; six bands around the world). Each region gets one prompt
+//   a day at a time drawn at random inside the daytime window it shares;
+//   the API never tells it before it goes out.
+// - A **day** is the caller's own: the latest prompt that reached them,
+//   until the next one. One prompt and one moment per date: a new time
+//   zone counts from the next prompt that reaches them there. Posted
+//   within the window a moment is on time, later it carries how late it
+//   is ("3時間遅れ").
 // - Friends' moments of their current day are **locked** for whoever has
 //   not posted a moment of their own day yet: the pictures come as a
 //   blurred placeholder only (ThumbHash and colour), without caption,
@@ -46,7 +49,7 @@ service MomentService {
   // Posts the caller's moment of their current day: the back and front
   // pictures (uploads of ASSET_PURPOSE_MOMENT, ready), an optional caption
   // and location, and how many times the caller retook it.
-  // Errors: NO_PROMPT_YET (the region has had no prompt yet), ALREADY_POSTED
+  // Errors: NO_PROMPT_YET (no prompt has reached the caller yet), ALREADY_POSTED
   // (one moment per day, a deleted one included), ASSET_NOT_FOUND /
   // ASSET_WRONG_PURPOSE / ASSET_NOT_READY (the media domain's), SAME_PICTURE (front and back are
   // one upload), INVALID_CAPTION (more than 100 characters, or a line
@@ -131,7 +134,8 @@ enum RealmojiEmoji {
 message MomentDay {
   // The local date of the prompt (YYYY-MM-DD) in the region.
   string date = 1;
-  // The region: an IANA time zone.
+  // The region, e.g. "utc+7..+11". Only on the caller's own days and
+  // moments: someone else's would say roughly where they are.
   string region = 2;
   // When the prompt went out.
   google.protobuf.Timestamp prompt_at = 3;
@@ -142,7 +146,7 @@ message MomentDay {
 message Moment {
   string id = 1;
   tokuly.common.v1.UserSummary author = 2;
-  // The day it belongs to (in the owner's region of that day).
+  // The day it belongs to (the owner's day when they posted it).
   MomentDay day = 3;
   google.protobuf.Timestamp posted_at = 4;
   // 0 on time; otherwise how long after the window it was posted.
@@ -198,7 +202,7 @@ message MomentSettings {
 message GetTodayRequest {}
 
 message GetTodayResponse {
-  // The region's current day; unset before its first prompt.
+  // The caller's day; unset before any prompt reached them.
   MomentDay day = 1;
   // The caller's moment of that day (unset if none, or deleted).
   Moment mine = 2;
@@ -349,7 +353,7 @@ message DeleteRealmojiResponse {}
 message MomentsEvent {
   oneof event {
     // 「いまの瞬間を撮ろう!」: the region's prompt went out. To everyone in
-    // the region who takes prompts.
+    // the region who takes prompts and has no day of that date yet.
     MomentDay prompt = 1;
     // A friend posted (to the audience of the moment); fetch it to see it
     // as you may.

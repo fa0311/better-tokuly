@@ -12,7 +12,7 @@
 //! about a *pair* ([`distance_between`]) it says only when each of the two
 //! sees the other's precise location. Anything else a caller derives from
 //! true positions for one user about another must apply the same rule.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -83,16 +83,44 @@ pub async fn mutually_precise(cache: &Cache, a: Uuid, b: Uuid) -> AppResult<bool
     Ok(of_a.is_none_or(|sight| sight.precise_for(b, now_ms)) && of_b.is_none_or(|sight| sight.precise_for(a, now_ms)))
 }
 
+/// How long a position counts as where its owner is now: older ones stay in
+/// the index but are history (the geo domain's live window).
+pub const LIVE_WINDOW: chrono::Duration = chrono::Duration::minutes(5);
+
 /// Whether `viewer` sees `owner`'s precise location right now: the owner
-/// shares a position and no rule of theirs hides it from the viewer. For
-/// what a domain shows one user of where another was (a photo's place):
-/// the same rule as for the pin.
+/// shares a live position (recorded within [`LIVE_WINDOW`]) and no rule of
+/// theirs hides it from the viewer. For what a domain shows one user of
+/// where another was (a photo's place): the same rule as for the pin.
 pub async fn sees_precisely(cache: &Cache, owner: Uuid, viewer: Uuid) -> AppResult<bool> {
-    if get(cache, owner).await?.is_none() {
-        return Ok(false);
+    Ok(seen_precisely(cache, &[owner], viewer).await?.contains(&owner))
+}
+
+/// The owners among `owners` whose precise location `viewer` sees right now
+/// ([`sees_precisely`] for each), in one round trip.
+pub async fn seen_precisely(cache: &Cache, owners: &[Uuid], viewer: Uuid) -> AppResult<HashSet<Uuid>> {
+    if owners.is_empty() {
+        return Ok(HashSet::new());
     }
-    let sight: Option<Sight> = cache.get_json(&sight_key(owner)).await?;
-    Ok(sight.is_none_or(|sight| sight.precise_for(viewer, Utc::now().timestamp_millis())))
+    let members: Vec<String> = owners.iter().map(|owner| owner.simple().to_string()).collect();
+    let sights: Vec<String> = owners.iter().map(|owner| sight_key(*owner)).collect();
+    let mut conn = cache.conn();
+    // A position's time is there exactly when the position is (`set`, `remove`).
+    let (recorded, rules): (Vec<Option<i64>>, Vec<Option<Vec<u8>>>) = redis::pipe()
+        .cmd("HMGET").arg(TIMESTAMPS).arg(&members)
+        .cmd("MGET").arg(&sights)
+        .query_async(&mut conn)
+        .await?;
+    let now = Utc::now();
+    let (now_ms, live_from) = (now.timestamp_millis(), (now - LIVE_WINDOW).timestamp_millis());
+    Ok(owners
+        .iter()
+        .zip(recorded.iter().zip(&rules))
+        .filter(|(_, (recorded, rule))| {
+            let sight = rule.as_deref().and_then(|bytes| serde_json::from_slice::<Sight>(bytes).ok());
+            recorded.is_some_and(|ms| ms >= live_from) && sight.is_none_or(|sight| sight.precise_for(viewer, now_ms))
+        })
+        .map(|(owner, _)| *owner)
+        .collect())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
