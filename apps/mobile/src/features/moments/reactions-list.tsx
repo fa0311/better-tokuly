@@ -1,4 +1,5 @@
 import { FlashList } from "@shopify/flash-list";
+import { useQueryClient } from "@tanstack/react-query";
 import { errorReason, type moments } from "@tokuly/api";
 import { realmojiGlyph } from "@tokuly/core/moments";
 import { X } from "lucide-react-native";
@@ -10,7 +11,7 @@ import { Button } from "#/components/button";
 import { EmptyState, ErrorNote, Spinner } from "#/components/page";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
-import { useMomentReactions } from "./data";
+import { momentKeys, useMomentReactions } from "./data";
 import { MomentReactionFace } from "./reactions";
 
 const ACCESS_ERRORS = new Set(["MOMENT_LOCKED", "MOMENT_NOT_FOUND"]);
@@ -26,9 +27,14 @@ export function MomentReactionsSheet({
   onClose(): void;
 }) {
   const { t } = useTranslation("moments");
+  const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const reactions = useMomentReactions(moment.id, visible && !moment.locked);
+  const close = () => {
+    void queryClient.cancelQueries({ queryKey: momentKeys.reactions(moment.id), exact: true });
+    onClose();
+  };
   const rows = reactions.data?.pages.flatMap((page) => page.reactions) ?? [];
   const accessRevoked = ACCESS_ERRORS.has(errorReason(reactions.error) ?? "");
   const hideCachedRows = accessRevoked || (reactions.isError && !reactions.isFetchNextPageError);
@@ -51,8 +57,8 @@ export function MomentReactionsSheet({
   ) : null;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable accessibilityRole="none" className="flex-1 bg-black/40" onPress={onClose} />
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
+      <Pressable accessibilityRole="none" className="flex-1 bg-black/40" onPress={close} />
       <View
         testID="moment-reactions-sheet"
         className="h-[68%] rounded-t-3xl bg-surface pt-4"
@@ -71,7 +77,7 @@ export function MomentReactionsSheet({
             testID="moment-reactions-close"
             accessibilityRole="button"
             accessibilityLabel={t("reactions.close")}
-            onPress={onClose}
+            onPress={close}
             className="items-center justify-center rounded-full bg-surface-2 p-2"
           >
             <X size={20} color={colors.ink} />
