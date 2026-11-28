@@ -21,7 +21,7 @@ export function MomentDetailScreen() {
   const query = useMoment(momentId);
   const moment = query.data;
 
-  if (query.isPending) {
+  if (query.isPending || query.isFetching) {
     return (
       <Page testID="moment-detail">
         <Spinner />

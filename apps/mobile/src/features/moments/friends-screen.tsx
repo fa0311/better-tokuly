@@ -20,15 +20,16 @@ export function MomentFriendsScreen() {
   const friends = useFriendMoments();
   const items = friends.data?.pages.flatMap((page) => page.moments) ?? [];
   const unlocked = friends.data?.pages[0]?.unlocked ?? false;
+  const shouldShowError = friends.isError && (!friends.data || unlocked);
 
-  if (friends.isPending) {
+  if (friends.isPending || (friends.isRefetching && unlocked)) {
     return (
       <View className="flex-1 bg-bg" testID="moment-friends">
         <Spinner />
       </View>
     );
   }
-  if (friends.isError && !friends.data) {
+  if (shouldShowError) {
     return (
       <View className="flex-1 gap-4 bg-bg px-4 pt-4" testID="moment-friends">
         <ErrorNote>{t("friends.loadError")}</ErrorNote>
