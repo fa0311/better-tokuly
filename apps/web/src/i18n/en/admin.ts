@@ -12,6 +12,7 @@ export default {
     search: "Search",
     news: "News",
     emoji: "Emoji",
+    moments: "Moments",
     settings: "Server settings",
   },
   gate: {

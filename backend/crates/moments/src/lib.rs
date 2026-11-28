@@ -32,6 +32,7 @@
 //! | `reactions` | RealMoji and stamp reactions, the RealMoji library |
 //! | `settings` | per-account settings and the defaults by age group |
 //! | `calendar` | the owner's month |
+//! | `staff` | admins' view of the regions, a prompt sent now |
 //! | `cleanup` | other domains' events, the purge after the evidence period |
 //! | `subjects` | subject resolvers and the personal data export |
 //! | `copy` | notification texts |
@@ -52,6 +53,7 @@ pub mod config;
 pub mod events;
 pub mod rules;
 
+mod admin_svc;
 mod calendar;
 mod cleanup;
 mod copy;
@@ -62,6 +64,7 @@ mod posting;
 mod reaction_svc;
 mod reactions;
 mod settings;
+mod staff;
 mod subjects;
 mod viewing;
 mod workers;
@@ -101,12 +104,13 @@ impl Moments {
         Ok(moments)
     }
 
-    /// Registers the two services on the Connect router.
+    /// Registers the three services on the Connect router.
     pub fn register(&self, router: connectrpc::Router) -> connectrpc::Router {
-        use tokuly_proto::moments::{MomentReactionServiceExt, MomentServiceExt};
+        use tokuly_proto::moments::{MomentAdminServiceExt, MomentReactionServiceExt, MomentServiceExt};
         let me = Arc::new(self.clone());
         let router = MomentServiceExt::register(me.clone(), router);
-        MomentReactionServiceExt::register(me, router)
+        let router = MomentReactionServiceExt::register(me.clone(), router);
+        MomentAdminServiceExt::register(me, router)
     }
 
     /// Pushes a moments event to every connected device of the given users.

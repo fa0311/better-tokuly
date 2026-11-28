@@ -1391,6 +1391,11 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         ("SetRealmoji", Write),
         ("DeleteRealmoji", Write),
     ]),
+    // Staff powers: wakes a whole region.
+    ("tokuly.moments.v1.MomentAdminService", &[
+        ("ListPromptRegions", Session),
+        ("SendPromptNow", Session),
+    ]),
     ("tokuly.spaces.v1.HangoutService", &[
         ("CreateHangout", Write),
         ("UpdateHangout", Write),

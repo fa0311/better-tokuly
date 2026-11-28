@@ -1,8 +1,9 @@
 # moments — events, jobs and configuration
 
-Crate `tokuly-moments`, migrations `2500_moments.sql` and
-`2501_moments_bands.sql`, API `tokuly.moments.v1`
-(`MomentService`, `MomentReactionService`, realtime `MomentsEvent`).
+Crate `tokuly-moments`, migrations `2500_moments.sql` to
+`2502_moments_sent_by.sql`, API `tokuly.moments.v1`
+(`MomentService`, `MomentReactionService`, `MomentAdminService`, realtime
+`MomentsEvent`).
 Pictures are uploads of `ASSET_PURPOSE_MOMENT` (the pair) and
 `ASSET_PURPOSE_REALMOJI` (selfie reactions).
 
@@ -49,6 +50,14 @@ The prompt goes out once, through the job `moments.prompt`:
    processes at once tells nobody twice; the planner queues the job again
    until `told_at` is set.
 
+An admin may send a band's prompt of today **now** (`MomentAdminService.SendPromptNow`,
+the console's 「いまの瞬間をいま送る」): step 1 at once, with the admin as the
+event's actor and `moment_days.sent_by`, then the job tells the region as
+above. Once per band and date: refused (`PROMPT_ALREADY_SENT`) when the day
+went out or its time has come; a day that was skipped may still go out. Tests
+do not use it to start their days (it wakes a real region once a day): the
+crate's tests and the browser tests give their accounts regions of their own.
+
 An account's **day** is its own: the latest prompt that reached it, until
 the next one. Its date only moves forward, so a date brings one prompt and
 one moment, wherever the time zone moves: after a change the account keeps
@@ -82,7 +91,7 @@ location.
 
 | Topic | Payload | When |
 |---|---|---|
-| `moments.prompt.sent` | `{ day_id, region, date, prompt_at }` | A region's day began. Once per region (a band, see "Days") and date. No actor. |
+| `moments.prompt.sent` | `{ day_id, region, date, prompt_at }` | A region's day began. Once per region (a band, see "Days") and date. Actor: the admin who sent it now, otherwise none. |
 | `moments.moment.posted` | `{ moment_id, owner_id, day_id, date, late_seconds, audience }` | A moment was posted. `audience` is `MomentAudience` as its number. Actor: the owner. |
 | `moments.moment.deleted` | `{ moment_id, owner_id, reason }` | Deleted: `owner`, `moderation` (actor: the moderator), `media_deleted`, `account_deleted` (no actor). |
 | `subject.deleted` | `{ subject_type, subject_id }` | A moment (`SUBJECT_TYPE_MOMENT`) or reaction (`SUBJECT_TYPE_MOMENT_REACTION`) went for good: purged after the evidence period, or with an erased account. |
@@ -136,7 +145,7 @@ high delivery priority: the window is two minutes).
 |---|---|---|
 | event consumer | on events | see above |
 | planner (`Moments::plan`) | `TOKULY_MOMENTS_WORKER_INTERVAL_SECONDS` | Maps every time zone to its band (every 10 minutes), draws today and tomorrow of each band, queues `moments.prompt` for every due day not fully told. |
-| job `moments.prompt` | payload `PromptJob { day_id }`, concurrency 2, 20 attempts | `Moments::send_prompt`, see "Days". |
+| job `moments.prompt` | payload `PromptJob { day_id }`, concurrency 2, 20 attempts; also queued by `SendPromptNow` | `Moments::send_prompt`, see "Days". |
 | purge (`Moments::purge`) | hourly | Deletes for good what was kept for reports past `TOKULY_MOMENTS_EVIDENCE_DAYS`: deleted moments with their reactions, replaced or taken back reactions; uploads released, `subject.deleted` emitted. |
 
 ## Rate limits (`rl:moments-*`)
@@ -170,5 +179,6 @@ moments.handle_event(&event), erase_account(user_id), purge()
 
 - `UNIQUE (user_id, day_id)` makes one moment per day; a deleted one keeps its row (and the day) until the purge. One per date follows from `moment_people.date`, which only moves forward (conditional upsert).
 - One live reaction per person and moment: a partial unique index, with a per-pair advisory lock around replacing it.
+- `moment_days.sent_by`: the admin who sent the day's prompt now (NULL: the planner); kept when that account is erased, like the admin audit log's actor.
 - `moment_days` and the region's current day change only under the day's row lock (`FOR NO KEY UPDATE`, so moments and accounts can refer to the day while it is told).
 - Regions from before the bands (time zones) keep their past days and moments; nothing draws them any more.
