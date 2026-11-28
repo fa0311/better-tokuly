@@ -89,11 +89,12 @@ export const AA_TEXT = 4.5;
 /**
  * Text on the backgrounds it is set on, each at the WCAG AA ratio it needs.
  * Every pair carries small text somewhere, so every pair needs 4.5:1:
- * `ink` and `ink-soft` everywhere; `on-brand` on `brand` in buttons, badges
- * and the selected navigation label; `brand` on `surface` in links, chips
- * and 10–14px labels. AA's 3:1 is for text at 18.66px bold / 24px and for
- * icons only, and no pair here is used only that way. `ink-faint` is for
- * placeholders and decoration and is not checked.
+ * `ink` and `ink-soft` everywhere; `ink-faint` (times, counts, hints,
+ * placeholders) on the page, cards and fields, while on `surface-3` it is
+ * only icons; `on-brand` on `brand` in buttons, badges and the selected
+ * navigation label; `brand` on `surface` in links, chips and 10–14px
+ * labels. AA's 3:1 is for text at 18.66px bold / 24px and for icons only,
+ * and no pair here is used only that way.
  */
 export const CONTRAST_CHECKS = [
   ...(["ink", "ink-soft"] as const).flatMap((text) =>
@@ -103,6 +104,11 @@ export const CONTRAST_CHECKS = [
       min: AA_TEXT,
     })),
   ),
+  ...(["bg", "surface", "surface-2"] as const).map((on) => ({
+    text: "ink-faint" as const,
+    on,
+    min: AA_TEXT,
+  })),
   { text: "on-brand", on: "brand", min: AA_TEXT },
   { text: "brand", on: "surface", min: AA_TEXT },
 ] as const satisfies readonly { text: ColorName; on: ColorName; min: number }[];

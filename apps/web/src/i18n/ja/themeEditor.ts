@@ -58,7 +58,6 @@ export default {
   contrast: {
     title: "読みやすさチェック",
     ok: "チェックした組み合わせは、ぜんぶ読みやすいよ！（WCAG AA）",
-    unchecked: "「もっとうすい文字」はヒントや飾り用なので、チェックしていないよ。",
     problems: "読みにくい組み合わせが{{count}}つあるよ",
     problem: "「{{text}}」と「{{on}}」: {{ratio}}:1（{{min}}:1 以上がおすすめ）",
     low: "コントラスト低め",

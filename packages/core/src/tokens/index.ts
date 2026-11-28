@@ -12,7 +12,8 @@ const light = {
   "surface-3": "#e4def5",
   ink: "#17122b",
   "ink-soft": "#5d5778",
-  "ink-faint": "#9993ad",
+  // The faintest text (times, counts, hints): 4.5:1 on the page, cards and fields.
+  "ink-faint": "#6e6788",
   line: "#ddd6ee",
   shadow: "#17122b",
   // Deep enough for white text on it, and for it as text on white (4.5:1).
@@ -43,7 +44,7 @@ const dark: Colors = {
   "surface-3": "#2d274c",
   ink: "#f6f3ff",
   "ink-soft": "#b4adcf",
-  "ink-faint": "#7a7397",
+  "ink-faint": "#8983a3",
   line: "#322b52",
   shadow: "#000000",
   brand: "#9a82ff",

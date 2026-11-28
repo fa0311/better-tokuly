@@ -245,7 +245,6 @@ function ContrastReport({ problems }: { problems: ContrastProblem[] }) {
           ))}
         </ul>
       )}
-      <p className="mt-1.5 pl-6 text-xs">{t("contrast.unchecked")}</p>
     </section>
   );
 }
