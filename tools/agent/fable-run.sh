@@ -26,6 +26,9 @@ switched=$(git -C "$wt" reflog --format=%gs | grep -c '^checkout: moving' || tru
 if [ "$switched" -gt 0 ]; then
   echo "NOTE: the run switched branches; nothing pushed by the runner (the task pushes its own branches)"
 elif [ -n "$(git -C "$wt" log --oneline "origin/$branch..HEAD" 2>/dev/null || git -C "$wt" log --oneline "$base..HEAD")" ]; then
+  # The run committed unsigned (claude-api.sh): sign its commits here, where signing works.
+  upstream=$(git -C "$wt" rev-parse -q --verify "origin/$branch" || git -C "$wt" rev-parse "$base")
+  git -C "$wt" rebase -q --force-rebase "$upstream"
   git -C "$wt" push -q origin "HEAD:refs/heads/$branch" 2>&1 | grep -v '^remote:' || true
 fi
 [ -n "$(git -C "$wt" status --porcelain | grep -v '^??')" ] && echo "NOTE: $wt has uncommitted changes"

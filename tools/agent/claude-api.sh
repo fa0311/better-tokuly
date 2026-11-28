@@ -15,7 +15,9 @@ out=$(mktemp)
 cd "$dir"
 # A clean environment: inside a T3/Claude Code session the CLAUDE_CODE_* variables route a child
 # claude through the parent's login, which ignores the API key ("Credit balance is too low").
+# No signing secret goes in: the run commits unsigned, and fable-run.sh signs before it pushes.
 env -i HOME="$HOME" PATH="$PATH" TERM=dumb LANG=C.UTF-8 GITHUB_TOKEN="${GITHUB_TOKEN:-}" GH_TOKEN="${GITHUB_TOKEN:-}" \
+  GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false GIT_CONFIG_KEY_1=tag.gpgsign GIT_CONFIG_VALUE_1=false \
   ${RUSTUP_HOME:+RUSTUP_HOME="$RUSTUP_HOME"} ${CARGO_HOME:+CARGO_HOME="$CARGO_HOME"} TOKULY_DEV_HOME="${TOKULY_DEV_HOME:-$HOME/tokuly-dev}" \
   ANTHROPIC_API_KEY="$(cat "${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/secrets/anthropic-api-key")" \
   claude -p --model "$model" --max-budget-usd "$budget" --permission-mode bypassPermissions \
