@@ -51,6 +51,12 @@ function momentDate(date: string, language: string): string {
   );
 }
 
+function promptKey(day: moments.MomentDay | undefined): string | undefined {
+  if (!day) return undefined;
+  const promptAt = day.promptAt;
+  return promptAt ? `${day.date}:${promptAt.seconds}:${promptAt.nanos}` : day.date;
+}
+
 export function MomentComposerScreen() {
   const { t, i18n } = useTranslation("moments");
   const { colors } = useTheme();
@@ -61,7 +67,7 @@ export function MomentComposerScreen() {
   const [retakes, setRetakes] = useState(0);
   const [caption, setCaption] = useState("");
   const [audienceOverride, setAudienceOverride] = useState<
-    { date: string; value: MomentAudienceChoice } | undefined
+    { promptKey: string; value: MomentAudienceChoice } | undefined
   >();
   const [locationChoice, setLocationChoice] = useState<boolean | undefined>();
   const [cameraFor, setCameraFor] = useState<Side | null>(null);
@@ -79,8 +85,9 @@ export function MomentComposerScreen() {
       ? "closeFriends"
       : "friends";
   const day = today.data?.day;
+  const currentPromptKey = promptKey(day);
   const audience =
-    audienceOverride && audienceOverride.date === day?.date
+    audienceOverride && audienceOverride.promptKey === currentPromptKey
       ? audienceOverride.value
       : savedAudience;
   const phase = momentPhase(today.data, now);
@@ -212,14 +219,14 @@ export function MomentComposerScreen() {
   };
 
   const post = async () => {
-    const submittedDay = day?.date;
+    const submittedPromptKey = currentPromptKey;
     if (
       posting.current ||
       savingCapture ||
       !photos.back ||
       !photos.front ||
       cleanedCaption === null ||
-      !submittedDay
+      !submittedPromptKey
     )
       return;
     const account = currentAccount();
@@ -258,9 +265,10 @@ export function MomentComposerScreen() {
         }
       }
 
-      const currentDay = queryClient.getQueryData<moments.GetTodayResponse>(momentKeys.today)?.day
-        ?.date;
-      if (currentDay !== submittedDay) {
+      const latestPromptKey = promptKey(
+        queryClient.getQueryData<moments.GetTodayResponse>(momentKeys.today)?.day,
+      );
+      if (latestPromptKey !== submittedPromptKey) {
         Alert.alert(t("camera.promptChangedTitle"), t("camera.promptChangedBody"));
         return;
       }
@@ -422,7 +430,9 @@ export function MomentComposerScreen() {
               { value: "friends", label: t("camera.friends") },
               { value: "closeFriends", label: t("camera.closeFriends") },
             ]}
-            onChange={(value) => setAudienceOverride({ date: day.date, value })}
+            onChange={(value) => {
+              if (currentPromptKey) setAudienceOverride({ promptKey: currentPromptKey, value });
+            }}
           />
         </View>
 
