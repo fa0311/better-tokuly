@@ -1,6 +1,6 @@
 import { type Month, monthGrid, monthOf, monthOfDay, shiftMonth } from "@tokuly/core/history";
 import { Image } from "expo-image";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, ChevronRight } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -24,13 +24,26 @@ export function MomentCalendarScreen() {
   const { t, i18n } = useTranslation("moments");
   const { colors } = useTheme();
   const today = useMomentToday();
-  const [month, setMonth] = useState<Month>(() => monthOf(new Date()));
+  const params = useLocalSearchParams<{ year?: string; month?: string }>();
+  const routeYear = Number(params.year);
+  const routeMonth = Number(params.month);
+  const hasRouteMonth =
+    Number.isInteger(routeYear) &&
+    Number.isInteger(routeMonth) &&
+    routeYear >= 1970 &&
+    routeYear <= 9999 &&
+    routeMonth >= 1 &&
+    routeMonth <= 12;
+  const [month, setMonth] = useState<Month>(() =>
+    hasRouteMonth ? { year: routeYear, month: routeMonth } : monthOf(new Date()),
+  );
   const todayDate = today.data?.day?.date;
   const currentMonth = todayDate ? monthOfDay(todayDate) : monthOf(new Date());
 
   useEffect(() => {
-    if (todayDate) setMonth(monthOfDay(todayDate));
-  }, [todayDate]);
+    if (hasRouteMonth) setMonth({ year: routeYear, month: routeMonth });
+    else if (todayDate) setMonth(monthOfDay(todayDate));
+  }, [hasRouteMonth, routeMonth, routeYear, todayDate]);
 
   const query = useMomentCalendar(month, !today.isPending);
   const entries = query.data?.days ?? [];
@@ -186,6 +199,9 @@ export function MomentCalendarScreen() {
               onTime: query.data?.onTimeCount ?? 0,
             })}
           </Text>
+          <Button variant="secondary" size="sm" onPress={() => router.push("/moments/recap")}>
+            {t("calendar.recap")}
+          </Button>
         </View>
       )}
     </Page>

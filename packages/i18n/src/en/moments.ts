@@ -130,6 +130,23 @@ export default {
       title: "No Moments this month",
       body: "The Moments you post will show up here.",
     },
+    recap: "See the year recap",
+  },
+  recap: {
+    title: "Year in Moments",
+    previousYear: "Previous year",
+    nextYear: "Next year",
+    posted: "Posted",
+    onTime: "On time",
+    activeMonths: "Active months",
+    loadError: "Couldn't load this year's Moments.",
+    monthSummary: "{{month}}, {{posted}} Moments, {{onTime}} on time",
+    upcomingMonth: "{{month}}, not yet",
+    soon: "Later",
+    empty: {
+      title: "No Moments this year",
+      body: "The Moments you post will fill this year with memories.",
+    },
   },
   settings: {
     title: "Moments settings",

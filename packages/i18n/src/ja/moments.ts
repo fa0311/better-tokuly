@@ -130,6 +130,23 @@ export default {
       title: "この月はまだ投稿がないよ",
       body: "今日の瞬間を投稿すると、写真がここに並ぶよ。",
     },
+    recap: "年まとめを見る",
+  },
+  recap: {
+    title: "Momentの一年",
+    previousYear: "前の年",
+    nextYear: "次の年",
+    posted: "投稿数",
+    onTime: "時間内",
+    activeMonths: "投稿した月",
+    loadError: "一年分のMomentを読み込めなかったよ。",
+    monthSummary: "{{month}}：{{posted}}件、時間内{{onTime}}件",
+    upcomingMonth: "{{month}}：これから",
+    soon: "—",
+    empty: {
+      title: "今年のMomentはまだないよ",
+      body: "投稿したMomentが、この一年の思い出になっていくよ。",
+    },
   },
   settings: {
     title: "いまの瞬間の設定",
