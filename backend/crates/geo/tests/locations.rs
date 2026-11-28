@@ -897,8 +897,7 @@ async fn a_snapshot_on_its_way_gets_its_removals_numbered() {
 /// A deleted account leaves its friends' maps as an unfriend does: the social
 /// domain ends each friendship with `social.friend.removed`, and each friend
 /// gets one removal, numbered above a snapshot that may still list the
-/// account when they watch, unnumbered when they do not. Whichever of the two
-/// domains handles the deletion first.
+/// account when they watch, unnumbered when they do not.
 #[tokio::test]
 async fn a_deleted_account_is_taken_off_its_friends_maps() {
     let ctx = start().await;
@@ -913,7 +912,7 @@ async fn a_deleted_account_is_taken_off_its_friends_maps() {
         ctx.location("ListFriendLocations", &ren, &ListFriendLocationsRequest::default()).await.unwrap();
     assert_eq!(read.locations.len(), 1);
 
-    // As identity erases the account; the social domain gets there first.
+    // As identity erases the account.
     sqlx::query("UPDATE users SET deleted_at = now() WHERE id = $1")
         .bind(aoi.id)
         .execute(&ctx.app.core.db)
@@ -926,12 +925,14 @@ async fn a_deleted_account_is_taken_off_its_friends_maps() {
         occurred_at: Utc::now(),
         data: serde_json::json!({ "user_id": aoi.id }),
     };
+    // Geo handles the deletion before the friendships end and again after
+    // (delivered twice): neither sends a removal of its own.
+    ctx.geo.handle_event(&deleted).await.unwrap();
     ctx.social.handle_event(&deleted).await.unwrap();
     for event in ctx.app.events_by("social.friend.removed", aoi.id).await {
         ctx.geo.handle_event(&event).await.unwrap();
     }
     ctx.geo.handle_event(&deleted).await.unwrap();
-    ctx.geo.handle_event(&deleted).await.unwrap(); // delivered twice
     let removals = async |listener: &mut FrameListener| -> Vec<i64> {
         let mut found = Vec::new();
         while let Some(frame) = listener.next(QUIET).await {
