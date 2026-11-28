@@ -2,13 +2,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type common, media, type notes } from "@tokuly/api";
 import { Check, ImagePlus, X } from "lucide-react";
 import { useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { TextArea, TextField } from "#/components/ui/field";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import {
   CHANNEL_COLORS,
   CHANNEL_DESCRIPTION_MAX,

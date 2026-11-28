@@ -12,7 +12,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
@@ -22,6 +21,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { accountClient, api, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { adoptMe } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";

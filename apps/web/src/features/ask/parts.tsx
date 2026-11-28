@@ -3,7 +3,6 @@ import { ask, type common, media } from "@tokuly/api";
 import { charCount } from "@tokuly/core/ask";
 import { ImagePlus, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Spinner } from "#/components/ui/spinner";
@@ -13,6 +12,7 @@ import { StampImage } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 
 /** Shows API failures in this feature's own words. */
 export const askError = (error: unknown): string => errorMessage(error, { namespace: "ask" });

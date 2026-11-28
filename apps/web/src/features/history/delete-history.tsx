@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { create, fromDate, geo } from "@tokuly/api";
 import { DELETED_HISTORY_KEYS, dayRange } from "@tokuly/core/history";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { TextField } from "#/components/ui/field";
@@ -10,6 +9,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
 import { accountTimeZone, useAccountToday } from "#/lib/account-time";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { historyClient, historyKeys } from "./api";
 
 type Scope = "range" | "all";

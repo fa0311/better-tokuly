@@ -16,7 +16,6 @@ import {
   Users,
 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
@@ -26,6 +25,7 @@ import { Menu } from "#/components/ui/menu";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { timetableClient, toastError, useSubjects, useTerm, useTerms } from "./api";
 
 import { TimetableGrid } from "./grid";

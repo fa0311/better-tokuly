@@ -2,9 +2,9 @@ import type { common, moments } from "@tokuly/api";
 import { momentPicture } from "@tokuly/core/moments";
 import { Lock } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { imageUrl } from "#/features/notes";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { blurUrl } from "./blur";
 
 /**

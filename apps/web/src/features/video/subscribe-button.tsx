@@ -2,11 +2,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type common, video } from "@tokuly/api";
 import { Bell, BellOff, BellRing, ChevronDown, UserMinus } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button, type ButtonProps } from "#/components/ui/button";
 import { Menu } from "#/components/ui/menu";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { channelClient, videoKeys } from "./api";
 
 const { NotificationLevel } = video;

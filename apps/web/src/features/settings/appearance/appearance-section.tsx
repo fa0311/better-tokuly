@@ -1,12 +1,12 @@
 import type { identity } from "@tokuly/api";
 import { Check } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Slider } from "#/components/ui/slider";
 import { SwitchRow } from "#/components/ui/switch";
 import type { ThemeSetting } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useChangeSettings, useSettings } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";
 import { ACCENTS, accentTokens, isAccentColor } from "./accent";

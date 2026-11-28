@@ -21,12 +21,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { fetchTimeline, useDeletedNotes, useTimeline } from "./api";
 import { NoteCard } from "./note-card";
 import { useScroller } from "./shell";

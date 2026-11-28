@@ -10,10 +10,10 @@ import {
   VolumeX,
 } from "lucide-react";
 import { type ReactNode, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { useTranslation } from "#/lib/use-translation";
 import { openCompose } from "./compose-store";
 import { useHomeFeed } from "./feed/api";
 import { HomeFeed, hasMoreThanNotes } from "./feed/home-feed";

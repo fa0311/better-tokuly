@@ -1,7 +1,7 @@
 import type { shorts } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
 import { Dialog } from "#/components/ui/dialog";
 import { EmptyState } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 import { ShortList } from "./short-tile";
 
 /** The public remixes and duets made of a short. */

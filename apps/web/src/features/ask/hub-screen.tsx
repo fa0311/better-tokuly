@@ -4,12 +4,12 @@ import type { ask } from "@tokuly/api";
 import { askKeys } from "@tokuly/core/ask";
 import { Flame, Inbox, MessagesSquare, Send, Settings, Share2, Sparkles, Vote } from "lucide-react";
 import { type ComponentType, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { CountBadge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Page, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import {
   boxClient,

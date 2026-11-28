@@ -1,9 +1,9 @@
 import { normalizeHashtag } from "@tokuly/core/notes";
 import { Hash } from "lucide-react";
 import { useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { EmptyState } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 import { useTimeline } from "./api";
 import { openCompose } from "./compose-store";
 import { ComposeButton, NotesPage } from "./shell";

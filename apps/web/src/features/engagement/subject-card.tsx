@@ -1,8 +1,8 @@
 import { common, type engagement } from "@tokuly/api";
 import { ChevronRight } from "lucide-react";
 import { type ComponentType, Suspense } from "react";
-import { useTranslation } from "react-i18next";
 import { create } from "zustand";
+import { useTranslation } from "#/lib/use-translation";
 import { useOpenPath } from "./open-path";
 
 export interface SubjectCardProps {

@@ -4,7 +4,6 @@ import { community } from "@tokuly/api";
 import { CATEGORIES, handleOfPath, inviteCodeOf, refreshMembership } from "@tokuly/core/community";
 import { KeyRound, Plus, Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -16,6 +15,7 @@ import { SelectField } from "#/components/ui/select";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import {
   communityClient,
   NS,

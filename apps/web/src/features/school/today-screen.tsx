@@ -14,11 +14,11 @@ import {
 } from "@tokuly/core/school";
 import { ChevronLeft, ChevronRight, Timer } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Skeleton } from "#/components/ui/page";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { timetableClient, useProgress } from "./api";
 
 import { DayView } from "./day-view";

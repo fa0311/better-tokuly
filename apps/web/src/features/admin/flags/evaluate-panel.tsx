@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { CircleCheck, CircleMinus, X } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 import { flagClient } from "../api";
 import { decisionKey } from "../labels";
 import { Section } from "../ui/console-page";

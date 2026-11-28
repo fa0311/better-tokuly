@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { localized, profileQuest } from "@tokuly/core/quest";
 import { ChevronRight } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import type { ProfileSection, ProfileSectionProps } from "#/seams/profile";
 import { BadgeMedal, LevelPill, TitlePill, useBadgeName } from "./parts";
 

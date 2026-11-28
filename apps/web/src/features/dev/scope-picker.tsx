@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { MapPin } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { type dev, localized, scopesQuery } from "./api";
 import { Notice } from "./parts";
 import {

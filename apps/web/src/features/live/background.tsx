@@ -1,8 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { onFramesLoading, realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 
 /**
  * Runs for as long as someone is signed in: what the live domain tells one

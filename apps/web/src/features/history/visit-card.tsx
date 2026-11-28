@@ -2,9 +2,9 @@ import { Link } from "@tanstack/react-router";
 import type { geo } from "@tokuly/api";
 import { visitEmoji, visitName, visitTimes } from "@tokuly/core/history";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { accountTimeZone } from "#/lib/account-time";
+import { useTranslation } from "#/lib/use-translation";
 
 /** "17:16–17:25・9分", "17:33〜 いまここ" or just the time of a check-in, on the account's clock. */
 export function useVisitTimes(): (visit: geo.Visit) => string {

@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import type { common } from "@tokuly/api";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 /** A titled block of the staff page: quieter and denser than the app's sticker cards. */
 export function Pane({

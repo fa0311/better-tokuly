@@ -9,9 +9,9 @@ import {
   Webhook,
 } from "lucide-react";
 import type { ComponentType } from "react";
-import { useTranslation } from "react-i18next";
 import { Page } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 const INK = "text-[#17122b]";
 

@@ -1,8 +1,8 @@
 import { notes } from "@tokuly/api";
 import { POLL_DURATIONS, POLL_MAX_CHOICES, type PollDraft } from "@tokuly/core/notes";
 import { Plus, X } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 const FIELD =
   "h-9 min-w-0 rounded-xl border-2 border-line bg-surface px-3 text-sm font-bold outline-none focus:border-ink";

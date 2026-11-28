@@ -13,9 +13,9 @@ import {
   UserPlus,
 } from "lucide-react";
 import type { ComponentType } from "react";
-import { useTranslation } from "react-i18next";
 import { CountBadge } from "#/components/ui/badge";
 import { EmptyState, Page } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 import { NS } from "../api";
 import { useCurrentCommunity } from "../context";
 import { BansSection } from "./bans";

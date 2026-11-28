@@ -2,8 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { admin, type common, type Timestamp, toDate } from "@tokuly/api";
 import { CalendarDays, Megaphone, PartyPopper, Pin, Sparkles, Wrench } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { categoryKey } from "./api";
 import { Markdown } from "./markdown-view";
 

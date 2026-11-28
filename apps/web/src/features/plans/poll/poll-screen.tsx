@@ -17,7 +17,6 @@ import {
   UserPlus,
 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -33,6 +32,7 @@ import { EmojiText } from "#/features/emoji";
 import { copyText, EmojiPicker } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { keys, nameOf, pollClient, rememberPlan, rememberPoll, usePoll } from "../api";
 import { formatDay, formatTime, fromDateTimeInput, toDateTimeInput, ymd } from "../dates";

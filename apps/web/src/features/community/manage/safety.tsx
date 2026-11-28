@@ -3,13 +3,13 @@ import type { community } from "@tokuly/api";
 import { communityKeys } from "@tokuly/core/community";
 import { X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
 import { Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { moderationClient, NS, useChannels, useSafetySettings } from "../api";
 import { Notice, SectionTitle, useDurationLabel } from "../parts";
 

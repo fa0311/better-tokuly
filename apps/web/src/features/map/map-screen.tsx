@@ -25,12 +25,12 @@ import {
   Users,
 } from "lucide-react";
 import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { onDemand } from "#/components/on-demand";
 import { Avatar } from "#/components/ui/avatar";
 import { Menu } from "#/components/ui/menu";
 import { cn } from "#/lib/cn";
 import { formatDistance } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocations } from "#/stores/locations";
 import { useMe } from "#/stores/session";
 import { useShakeToBump } from "./bump";

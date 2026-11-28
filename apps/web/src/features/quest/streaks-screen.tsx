@@ -13,7 +13,6 @@ import {
 } from "@tokuly/core/quest";
 import { MessageCircle } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -27,6 +26,7 @@ import { BalancePill, useBalance } from "#/features/wallet";
 import { useAccountNow, useAccountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { streakClient } from "./api";
 import { ProgressBar, QuestNav, SectionTitle, useRemainingText } from "./parts";
 

@@ -1,8 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { kindFromSlug } from "@tokuly/core/search";
-import { useTranslation } from "react-i18next";
 import { Page } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 import { submitSearch } from "./api";
 import { Explore } from "./explore";
 import { useHasKeyboard } from "./hooks";

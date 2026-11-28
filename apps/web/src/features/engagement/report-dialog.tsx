@@ -4,13 +4,13 @@ import { engagement } from "@tokuly/api";
 import type { Subject } from "@tokuly/core/engagement";
 import { Flag } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
 import { TextArea } from "#/components/ui/field";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { engagementKeys, reportClient } from "./api";
 
 /** The longest report text the server takes. */

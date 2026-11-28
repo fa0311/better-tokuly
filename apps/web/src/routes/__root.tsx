@@ -12,13 +12,7 @@ import { Toaster } from "sonner";
 import { PWA_LINKS, PWA_META } from "#/features/pwa/head";
 import { BOOT_SCRIPT } from "#/lib/appearance";
 import { watchForRedeploy } from "#/lib/deploy";
-import i18n, {
-  createI18n,
-  type Language,
-  loadAllStrings,
-  normalizeLanguage,
-  stopSuspendingForStrings,
-} from "#/lib/i18n";
+import i18n, { createI18n, type Language, loadAllStrings, normalizeLanguage } from "#/lib/i18n";
 import { getRequestLanguage } from "#/lib/request-language";
 import { startSession } from "#/stores/session";
 import appCss from "../styles.css?url";
@@ -118,7 +112,6 @@ function useIsPhone(): boolean {
 function RootComponent() {
   const phone = useIsPhone();
   useEffect(() => {
-    stopSuspendingForStrings();
     startSession();
     return watchForRedeploy();
   }, []);

@@ -1,8 +1,8 @@
 import { Check } from "lucide-react";
 import type { CSSProperties } from "react";
-import { useTranslation } from "react-i18next";
 import type { ThemeSetting } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 /**
  * The colours of each theme, for drawing a miniature of it next to the other

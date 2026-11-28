@@ -4,9 +4,9 @@ import { spaces } from "@tokuly/api";
 import { rereadListsAfterReconnect } from "@tokuly/core/query";
 import { ELSEWHERE_WINDOW_MS, exitReasonOf, onStage, spacesKeys } from "@tokuly/core/spaces";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 
 import { EndCallPrompt } from "./end-call-prompt";

@@ -1,7 +1,7 @@
 import { toMillis } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { compactDuration } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { useGatherings, useNow } from "./data";
 import { ReactionBar } from "./reaction-bar";

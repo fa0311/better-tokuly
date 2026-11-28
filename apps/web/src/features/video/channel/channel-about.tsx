@@ -1,7 +1,7 @@
 import { toDate, type video } from "@tokuly/api";
 import { CalendarDays, ExternalLink, Eye, Film, Users } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { formatCount } from "../format";
 
 /** The channel's about tab: what it says about itself, its links and its numbers. */

@@ -3,7 +3,6 @@ import { community, media } from "@tokuly/api";
 import { CATEGORIES, imageUrl, parseTags, VISIBILITY_KEYS } from "@tokuly/core/community";
 import { Check, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { TextArea, TextField } from "#/components/ui/field";
@@ -11,6 +10,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import { communityClient, NS } from "./api";
 import { SectionTitle } from "./parts";
 

@@ -1,5 +1,5 @@
-import { useTranslation } from "react-i18next";
 import { Page } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 import { CREDIT_GROUPS, type Credit, LICENSES } from "./credits";
 
 /** `/settings/licenses`: who made the data, fonts, icons and libraries, and under which licence. */

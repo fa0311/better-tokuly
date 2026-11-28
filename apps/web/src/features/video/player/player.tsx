@@ -30,9 +30,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { formatClock } from "../format";
 import { useMediaEngine } from "./engine";
 import { scriptUrl } from "./media-url";

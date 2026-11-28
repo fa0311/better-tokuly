@@ -2,8 +2,8 @@ import { errorReason, live } from "@tokuly/api";
 import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from "@tokuly/core/live";
 import { pushesDuringRead } from "@tokuly/core/query";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { giftClient, overlayClient } from "../api";
 import { AlertWidget, ChatBoxWidget, GoalWidget, PollWidget, WIDGET_BASE_CSS } from "./widgets";
 

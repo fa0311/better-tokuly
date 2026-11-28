@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { admin } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { formatDateTime } from "../format";
 import { UserCell } from "../ui/user";
 import { ActionChip } from "./parts";

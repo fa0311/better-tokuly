@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 import { ChannelAnalytics, type RangeDays, RangePicker } from "./analytics";
 import { ChannelPicker, selectStudioChannel, useStudioChannel } from "./shared";
 

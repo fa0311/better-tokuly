@@ -1,9 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
 import { LogOut } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
+import { useTranslation } from "#/lib/use-translation";
 import { signOut as signOutOfApp, useMe } from "#/stores/session";
 import { useFreshMe } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";

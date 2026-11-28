@@ -4,7 +4,6 @@ import { ask, toMillis } from "@tokuly/api";
 import { askKeys } from "@tokuly/core/ask";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -12,6 +11,7 @@ import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { boxClient, useAskedQuestions } from "./api";
 import { Picture, toastError } from "./parts";
 

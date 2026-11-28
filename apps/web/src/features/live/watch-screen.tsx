@@ -12,7 +12,6 @@ import {
   Swords,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -26,6 +25,7 @@ import { LikeButton, ShareButton, useBurst, useSubjectMenu } from "#/features/en
 import { type PlayerHandle, SubscribeButton } from "#/features/video";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useHideTabBar } from "#/stores/shell";
 import { giftClient, liveKeys, refreshStream, streamClient, useStream } from "./api";
 import { ArchiveStage, ChatReplay } from "./archive";

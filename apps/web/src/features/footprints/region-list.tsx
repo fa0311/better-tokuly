@@ -2,10 +2,10 @@ import { geo } from "@tokuly/api";
 import { formatPercent, regionLevel } from "@tokuly/core/footprints";
 import { Trophy } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { regionName } from "./api";
 import { flagEmoji, Meter } from "./meter";
 

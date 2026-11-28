@@ -10,7 +10,6 @@ import {
 } from "@tokuly/core/places";
 import { MapPinCheck, Plus, Search } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -20,6 +19,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { errorMessage } from "#/lib/errors";
 import { compactDuration, formatDistance } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { currentPosition, type LatLng, placeClient, placeKeys, toLatLng } from "./api";
 import { CheckInDialog, type CheckInTarget } from "./check-in-dialog";

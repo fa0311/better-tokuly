@@ -5,7 +5,6 @@ import { graphemes } from "@tokuly/core/format";
 import { profileKeys } from "@tokuly/core/profile";
 import { Check, X } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { TextArea, TextField } from "#/components/ui/field";
@@ -13,6 +12,7 @@ import { Skeleton } from "#/components/ui/page";
 import { Spinner } from "#/components/ui/spinner";
 import { accountClient, authClient, profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { adoptMe, keys } from "../data";
 import { Group } from "../shell/settings-page";
 

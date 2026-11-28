@@ -2,7 +2,6 @@ import { Link } from "@tanstack/react-router";
 import { common, feed, toMillis } from "@tokuly/api";
 import { ChevronRight, Globe, Lock, UsersRound } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
@@ -15,6 +14,7 @@ import {
   useOpenPath,
 } from "#/features/engagement";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useIsDeleted, useNote } from "../api";
 import { NoteCard } from "../note-card";
 import { noteAge, useClock } from "../time";

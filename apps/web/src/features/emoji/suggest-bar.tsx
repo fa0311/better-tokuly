@@ -1,6 +1,6 @@
 import { shortcodePrefixAt } from "@tokuly/core/emoji";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { EmojiImage } from "./emoji";
 import { useEmojiSuggest } from "./suggest";
 import { recordEmojiUse } from "./use";

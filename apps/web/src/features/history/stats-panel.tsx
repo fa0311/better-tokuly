@@ -3,12 +3,12 @@ import { geo } from "@tokuly/api";
 import { activityMeta, historyQueries } from "@tokuly/core/history";
 import { placeQueries } from "@tokuly/core/places";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { PlaceRow, placeClient } from "#/features/places";
 import { shiftDate, useAccountTimeZone, useAccountToday, zonedMoment } from "#/lib/account-time";
 import { compactDuration, formatDistance, kmh } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { historyClient } from "./api";
 
 type Period = "week" | "month" | "year" | "all";

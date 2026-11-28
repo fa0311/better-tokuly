@@ -1,9 +1,9 @@
 import { toDate, type wallet } from "@tokuly/api";
 import { formatCoins } from "@tokuly/core/wallet";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Card } from "#/components/ui/card";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { niceCeiling } from "./format";
 
 /**

@@ -1,7 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import type { admin } from "@tokuly/api";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
@@ -9,6 +8,7 @@ import { TextArea } from "#/components/ui/field";
 import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { userAdminClient } from "../api";
 import { roleKey } from "../labels";
 import { STAFF_ROLES } from "../roles";

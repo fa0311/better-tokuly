@@ -1,7 +1,7 @@
 import type { notify } from "@tokuly/api";
 import { UserRound } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
+import { useTranslation } from "#/lib/use-translation";
 import { CategoryIcon } from "./category";
 
 /**

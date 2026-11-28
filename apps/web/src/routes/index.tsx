@@ -1,10 +1,10 @@
 import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { Clapperboard, Footprints, MapPinned, MessageCircleHeart } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Backdrop } from "#/components/auth-layout";
 import { Logo } from "#/components/ui/logo";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useSessionStatus } from "#/stores/session";
 
 export const Route = createFileRoute("/")({ component: Landing });

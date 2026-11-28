@@ -2,7 +2,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type feed, fromDate, toMillis } from "@tokuly/api";
 import { Ellipsis, EyeOff, Sparkles, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -15,6 +14,7 @@ import { Tabs } from "#/components/ui/tabs";
 import { ReportsList } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { ActivityCardView, ActivityRow } from "./activity-card";
 import type { ActivityTab } from "./activity-search";
 import {

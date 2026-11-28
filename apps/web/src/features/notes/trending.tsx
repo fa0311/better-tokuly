@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { notesKeys } from "@tokuly/core/notes";
 import { TrendingUp } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { noteClient, useTrendingHashtags } from "./api";
 import { NoteCard } from "./note-card";
 

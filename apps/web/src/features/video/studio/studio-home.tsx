@@ -15,7 +15,6 @@ import {
   Upload,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { CountBadge } from "#/components/ui/badge";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -25,6 +24,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { useHeldCount } from "#/features/comments";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import {
   channelClient,
   nextCursor,

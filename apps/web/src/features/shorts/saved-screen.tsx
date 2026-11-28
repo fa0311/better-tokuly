@@ -1,6 +1,6 @@
-import { useTranslation } from "react-i18next";
 import { EmptyState, Page } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
+import { useTranslation } from "#/lib/use-translation";
 import { ShortList } from "./short-tile";
 
 export type SavedTab = "saved" | "liked";

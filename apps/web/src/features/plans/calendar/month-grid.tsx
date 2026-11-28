@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { addMonths, formatMonth, monthGrid, monthOf, todayYmd, weekdayLabels } from "../dates";
 
 export interface DayCell {

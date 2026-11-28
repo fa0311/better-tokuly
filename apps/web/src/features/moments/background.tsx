@@ -2,9 +2,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { momentKeys } from "@tokuly/core/moments/keys";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { onFramesLoading, realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 
 /**
  * Runs while someone is signed in: keeps today, friends' moments and the

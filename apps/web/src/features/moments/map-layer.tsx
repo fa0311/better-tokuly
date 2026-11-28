@@ -1,8 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { MapPin } from "#/features/map";
 import { imageUrl } from "#/features/notes";
+import { useTranslation } from "#/lib/use-translation";
 import { useMapMoments } from "./api";
 
 /**

@@ -1,11 +1,11 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRight, LogOut } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { SETTINGS_NAMESPACES, SETTINGS_SECTIONS, type SettingsSection } from "#/seams/settings";
 import { signOut as signOutOfApp, useMe } from "#/stores/session";
 

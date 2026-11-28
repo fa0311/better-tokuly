@@ -3,9 +3,9 @@ import { useRouter } from "@tanstack/react-router";
 import { errorReason, school } from "@tokuly/api";
 import { refreshSchool, schoolKeys } from "@tokuly/core/school";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { studyClient } from "./api";
 import {
   loadActiveSession,

@@ -1,8 +1,8 @@
 import type { video } from "@tokuly/api";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import type { MediaState } from "./engine";
 import { RATES } from "./shortcuts";
 

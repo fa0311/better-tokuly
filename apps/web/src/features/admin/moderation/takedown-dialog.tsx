@@ -1,10 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { TextField } from "#/components/ui/field";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { moderationClient } from "../api";
 import { SUBJECT_TYPES } from "../filter-values";
 import { subjectTypeKey } from "../labels";

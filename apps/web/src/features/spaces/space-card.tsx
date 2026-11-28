@@ -2,11 +2,11 @@ import { Link } from "@tanstack/react-router";
 import { spaces, toMillis } from "@tokuly/api";
 import { Bell, Headphones } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmojiText } from "#/features/emoji";
 import { useAccountTimeZone, useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { AudienceLabel, Faces, LiveBadge, PersonName, TagList } from "./parts";
 import { formatWhen } from "./when";
 

@@ -8,9 +8,9 @@ import { decodePolyline } from "@tokuly/core/map";
 import mapWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { buildMapStyle, type MapStyleId } from "./tiles";
 
 setWorkerUrl(mapWorkerUrl);

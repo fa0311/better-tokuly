@@ -1,7 +1,6 @@
 import type { ask } from "@tokuly/api";
 import { Download, Link2, Send, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
@@ -9,6 +8,7 @@ import { Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { ShareToChat } from "#/features/chat";
 import { copyText } from "#/features/engagement";
+import { useTranslation } from "#/lib/use-translation";
 import type { Card } from "./card-image";
 import { answerShareUrl, boxShareUrl } from "./model";
 

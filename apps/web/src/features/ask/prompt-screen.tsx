@@ -4,7 +4,6 @@ import { ask, common, toMillis } from "@tokuly/api";
 import { askKeys, PAGE_SIZE } from "@tokuly/core/ask";
 import { Flag, Lock, MoreHorizontal, ShieldBan, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -16,6 +15,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { ReportButton, ReportDialog } from "#/features/engagement";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import {
   boxClient,

@@ -8,8 +8,8 @@ import {
 } from "@tokuly/core/video";
 import { ChevronDown, ChevronUp, Gamepad2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 /** A creator's free text with its web addresses and clock times (`1:23`) made tappable. */
 function linked(text: string, onSeek?: (seconds: number) => void): ReactNode[] {

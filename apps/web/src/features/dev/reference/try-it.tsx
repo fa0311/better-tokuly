@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { Play } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
 import { TextField } from "#/components/ui/field";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { Notice } from "../parts";
 import { CodeBlock } from "./code-block";
 import { methodUrl } from "./data";

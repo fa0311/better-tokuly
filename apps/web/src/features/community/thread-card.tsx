@@ -10,11 +10,11 @@ import {
   Pin,
   ShieldQuestion,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { EmojiText } from "#/features/emoji";
 import { compactCount } from "#/features/engagement";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { NS } from "./api";
 import { PostAuthor } from "./parts";
 

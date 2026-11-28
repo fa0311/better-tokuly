@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Lock } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
+import { useTranslation } from "#/lib/use-translation";
 import type { ProfileSection, ProfileSectionProps } from "#/seams/profile";
 import { ProfileStat } from "#/seams/profile";
 import { FollowButton } from "./follow-button";
