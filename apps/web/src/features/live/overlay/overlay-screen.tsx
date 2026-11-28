@@ -1,6 +1,7 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, live } from "@tokuly/api";
 import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from "@tokuly/core/live";
-import { pushesDuringRead } from "@tokuly/core/query";
+import { journaled, pushTo, reread } from "@tokuly/core/query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { realtime } from "#/lib/realtime";
@@ -32,6 +33,22 @@ function toState(response: live.GetOverlayResponse): WidgetState | null {
   };
 }
 
+/** The widget as read and kept current by pushes; `null` once it is gone. */
+const widgetKey = (token: string) => ["live", "widget", token] as const;
+
+/** A busy or restarting server: the widget keeps what it shows and asks again, less often each time. */
+const widgetQuery = (token: string) => ({
+  queryKey: widgetKey(token),
+  // What pushes changed while the widget was being read is applied to the answer again.
+  queryFn: journaled(async () => toState(await overlayClient().getOverlay({ token }))),
+  retry: (_failures: number, error: unknown) => errorReason(error) !== "OVERLAY_NOT_FOUND",
+  retryDelay: (failures: number) => Math.min(1000 * 2 ** failures, 30_000),
+  // Offline or not, it keeps asking: nobody looks at an OBS source to press "retry".
+  networkMode: "always" as const,
+  staleTime: Number.POSITIVE_INFINITY,
+  structuralSharing: false,
+});
+
 function alertSettings(overlay: live.Overlay): live.AlertBoxSettings | undefined {
   return overlay.settings?.widget.case === "alertBox" ? overlay.settings.widget.value : undefined;
 }
@@ -54,48 +71,14 @@ function wanted(alert: live.Alert, settings: live.AlertBoxSettings | undefined):
  */
 export function OverlayScreen({ token }: { token: string }) {
   const { t } = useTranslation("live");
-  const [state, setState] = useState<WidgetState | null>(null);
-  const [gone, setGone] = useState(false);
+  const queryClient = useQueryClient();
+  const widget = useQuery(widgetQuery(token));
+  const gone = widget.data === null || errorReason(widget.error) === "OVERLAY_NOT_FOUND";
+  const state = gone ? null : (widget.data ?? null);
   const [tiers, setTiers] = useState<live.GiftTier[]>([]);
   const [alert, setAlert] = useState<live.Alert | null>(null);
   const queue = useRef<live.Alert[]>([]);
   const showing = useRef(false);
-  /** Changing it reads the widget again (its configuration or its stream changed). */
-  const [version, setVersion] = useState(0);
-  /** What pushes changed while the widget is being read: the answer may predate it. */
-  const [duringRead] = useState(() => pushesDuringRead<WidgetState>());
-
-  useEffect(() => {
-    let cancelled = false;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    const load = async (delay: number) => {
-      const read = duringRead.begin();
-      try {
-        const answer = toState(await overlayClient().getOverlay({ token }));
-        const next = answer && read.finish(answer);
-        read.cancel();
-        if (cancelled) return;
-        setState(next);
-        setGone(next === null);
-      } catch (error) {
-        read.cancel();
-        if (cancelled) return;
-        if (errorReason(error) === "OVERLAY_NOT_FOUND") {
-          setState(null);
-          setGone(true);
-          return;
-        }
-        // A busy or restarting server: the widget keeps what it shows and asks again.
-        retry = setTimeout(() => void load(Math.min(delay * 2, 30_000)), delay);
-      }
-    };
-    void load(2000);
-    return () => {
-      cancelled = true;
-      clearTimeout(retry);
-    };
-  }, [token, version, duringRead]);
-
   useEffect(() => {
     giftClient()
       .getGiftTiers({})
@@ -114,6 +97,10 @@ export function OverlayScreen({ token }: { token: string }) {
   useEffect(() => {
     if (!topic) return;
     const client = realtime();
+    const key = widgetKey(token);
+    // Its configuration or its stream changed: the widget is read again.
+    const readAgain = () => void reread(queryClient, [key]);
+    const close = () => queryClient.setQueryData(key, null);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const next = () => {
       const upcoming = queue.current.shift();
@@ -133,10 +120,8 @@ export function OverlayScreen({ token }: { token: string }) {
     const offFrame = client.onFrame((frame) => {
       if (frame.body.case !== "live" || frame.topic !== topic) return;
       const event = frame.body.value.event;
-      const patch = (update: (current: WidgetState) => WidgetState) => {
-        duringRead.record(update);
-        setState((current) => (current ? update(current) : current));
-      };
+      const patch = (update: (current: WidgetState) => WidgetState) =>
+        pushTo<WidgetState | null>(queryClient, key, update);
       switch (event.case) {
         case "chatMessage":
           patch((current) => ({
@@ -171,13 +156,11 @@ export function OverlayScreen({ token }: { token: string }) {
           break;
         case "streamUpdated":
           // Another broadcast began (or this one ended): its chat and poll are read afresh.
-          if (event.value.id !== latest.current.state?.streamId) setVersion((value) => value + 1);
+          if (event.value.id !== latest.current.state?.streamId) readAgain();
           break;
         case "overlayChanged":
-          if (event.value.revoked) {
-            setState(null);
-            setGone(true);
-          } else setVersion((value) => value + 1);
+          if (event.value.revoked) close();
+          else readAgain();
           break;
         default:
           break;
@@ -187,12 +170,9 @@ export function OverlayScreen({ token }: { token: string }) {
       // The server has the subscription in place (the first time, or back after a gap):
       // whatever was pushed before that, including while the widget was first being read,
       // is read in one go.
-      onSubscribed: () => setVersion((value) => value + 1),
+      onSubscribed: readAgain,
       // The widget was deleted or its token renewed while this page was not listening.
-      onRevoked: () => {
-        setState(null);
-        setGone(true);
-      },
+      onRevoked: close,
     });
     client.start();
     return () => {
@@ -202,7 +182,7 @@ export function OverlayScreen({ token }: { token: string }) {
       offFrame();
       release();
     };
-  }, [topic, duringRead]);
+  }, [topic, token, queryClient]);
 
   if (!state)
     return gone ? (

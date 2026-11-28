@@ -16,9 +16,9 @@ at most once. This page is the client's half, and where the apps stand on it
    started before the subscription. `reread` (`@tokuly/core/query`)
    replaces it; `rereadOnWelcome` calls it on every `Welcome`.
 2. **A push never loses to an older read.** A push either only invalidates
-   (cancel, read again), or goes through the read journal
-   (`@tokuly/core/query`, `pushesDuringRead`): recorded while a read of that
-   query is in flight and replayed on its answer. Removals replay too, so a
+   (cancel, read again: `reread`), or goes through the read journal
+   (`@tokuly/core/query`, `journaled` / `pushTo`): recorded while a read of
+   that query is in flight and replayed on its answer. Removals replay too, so a
    read made before a removal cannot bring the thing back. An answer to a
    mutation that writes the cache, and an add that first fetches what it adds
    (`getComment` after `commentAdded`), are reads too. Updates must be
@@ -34,9 +34,11 @@ at most once. This page is the client's half, and where the apps stand on it
    catalogue's `version`. Where it exists, compare it on pushes and on reads.
 
 Shared helpers in `@tokuly/core/query`: `rereadOnWelcome(queryClient,
-connection, keys)` for rule 1, which cancels and refetches, and (to add) a
-`journaled(queryFn)` / `pushTo(queryClient, key, update)` pair for rule 2, so a
-feature never wires `begin` / `finish` by hand.
+connection, keys)` for rule 1, which cancels and refetches, and for rule 2
+`journaled(queryFn)` (the query's reads) with `pushTo(queryClient, key, update)`
+(every push, removals included), so a feature never wires `begin` / `finish`
+by hand. State a feature keeps for a screen lives in the query cache too (the
+live overlay, the watch party), so that it can use them.
 
 ## Where the apps stand
 
@@ -86,6 +88,7 @@ found.
 2. Topic reads replace a read in flight: notes cards, emoji (#526, #537).
 3. The missing removal handlers: web moments, mobile shorts, web friends
    (#527, #528, #529).
-4. `journaled` / `pushTo`, then each area that writes with `setQueryData`,
-   privacy first: chat, notes, stories, moments, plans, hangouts, gatherings,
-   comments, community, live pins; counters last.
+4. `journaled` / `pushTo` (done; used by live chat, the live overlay, the
+   watch party and the school room), then each area that writes with
+   `setQueryData`, privacy first: chat, notes, stories, moments, plans,
+   hangouts, gatherings, comments, community, live pins; counters last.
