@@ -1,5 +1,5 @@
 import type { geo } from "@tokuly/api";
-import { fromSnapshot, type OwnPosition, withLocation, withoutFriend } from "@tokuly/core/map";
+import { type OwnPosition, withLocation, withoutFriend, withSnapshot } from "@tokuly/core/map";
 import { create } from "zustand";
 
 export type { OwnPosition } from "@tokuly/core/map";
@@ -24,7 +24,7 @@ export const useLocations = create<LocationsStore>((set) => ({
   online: {},
   own: null,
   ownError: null,
-  setSnapshot: (locations) => set(fromSnapshot(locations)),
+  setSnapshot: (locations) => set((state) => withSnapshot(state, locations)),
   upsert: (location) => set((state) => withLocation(state, location)),
   remove: (userId) => set((state) => ({ friends: withoutFriend(state.friends, userId) })),
   setOnline: (userId, online) =>
