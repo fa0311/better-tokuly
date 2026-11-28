@@ -1,5 +1,6 @@
 import type { Room } from "livekit-client";
 import type { StoreApi } from "zustand";
+import { loadNow } from "./load-module";
 
 /**
  * What chat calls and audio rooms (spaces) share about holding one LiveKit
@@ -8,9 +9,12 @@ import type { StoreApi } from "zustand";
  * that lets the browser play sound.
  */
 
-/** The LiveKit client, loaded the first time a call or a room needs it: it is large. */
+/**
+ * The LiveKit client, loaded the first time a call or a room needs it: it is
+ * large. Rejects when its code does not arrive (`loadNow`).
+ */
 export function loadLiveKit(): Promise<typeof import("livekit-client")> {
-  return import("livekit-client");
+  return loadNow(() => import("livekit-client"));
 }
 
 /** A store holding at most one session in progress, whose views redraw when `revision` moves. */

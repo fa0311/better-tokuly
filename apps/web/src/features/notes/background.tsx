@@ -3,6 +3,7 @@ import { common } from "@tokuly/api";
 import type { ServerFrame } from "@tokuly/realtime";
 import { useEffect } from "react";
 import { onDemand } from "#/components/on-demand";
+import { loadModule, loadNow } from "#/lib/load-module";
 import { onFramesLoading, realtime } from "#/lib/realtime";
 import { ComposeHost } from "./compose-host";
 import { hintTimelines } from "./timeline-hints";
@@ -14,8 +15,9 @@ const NoteSubjectCard = onDemand(
 
 // Saved and reacted-to notes are drawn as notes on `/bookmarks`. Registered once engagement has
 // loaded, off the way of the first page: a list drawn before then draws again.
-void import("#/features/engagement").then(({ registerSubjectCard }) =>
-  registerSubjectCard(common.SubjectType.NOTE, NoteSubjectCard),
+loadModule(
+  () => import("#/features/engagement"),
+  ({ registerSubjectCard }) => registerSubjectCard(common.SubjectType.NOTE, NoteSubjectCard),
 );
 
 /**
@@ -37,7 +39,7 @@ export default function NotesBackground() {
       if (frame.body.case === "welcome") hintTimelines();
     });
     const applyFrame = () =>
-      import("./live").then(
+      loadNow(() => import("./live")).then(
         ({ applyNotesFrame }) =>
           (_: unknown, frame: ServerFrame) =>
             applyNotesFrame(queryClient, frame),

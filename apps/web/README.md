@@ -161,7 +161,10 @@ Primitives in `components/ui`: `Button`, `TextField` / `TextArea`,
 - No manual `useMemo`/`useCallback`/`memo`: the React Compiler memoizes.
 - A component loaded in its own chunk comes from `onDemand(load, whenFailed)`
   (`#/components/on-demand`), never `React.lazy` (a lint rule): code that
-  fails to arrive leaves only its part off, and loads again.
+  fails to arrive leaves only its part off, and loads again. Other code
+  split off loads through `loadNow` (something waits on it: it rejects, for
+  `errorMessage`) or `loadModule` (it tries again online) from
+  `#/lib/load-module`, never a bare `import()` (`lint/no-bare-import.grit`).
 
 **Security headers**
 

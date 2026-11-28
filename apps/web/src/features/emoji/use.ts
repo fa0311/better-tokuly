@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { emojiKeys } from "@tokuly/core/emoji";
 import { useEffect, useState } from "react";
+import { loadModule, loadNow } from "#/lib/load-module";
 import { emojiClient } from "./api";
 import type { UnicodeEmoji, UnicodeGroup } from "./unicode-data";
 
@@ -56,24 +57,31 @@ export interface UnicodeTable {
 let table: UnicodeTable | undefined;
 let loading: Promise<UnicodeTable> | undefined;
 
+/** Loads the table once; a load that failed is forgotten, so the next call loads again. */
 export function loadUnicodeTable(): Promise<UnicodeTable> {
-  loading ??= import("./unicode-data").then((module) => {
-    table = { groups: module.UNICODE_GROUPS, all: module.UNICODE_EMOJI };
-    return table;
-  });
+  loading ??= loadNow(() => import("./unicode-data")).then(
+    (module) => {
+      table = { groups: module.UNICODE_GROUPS, all: module.UNICODE_EMOJI };
+      return table;
+    },
+    (error: unknown) => {
+      loading = undefined;
+      throw error;
+    },
+  );
   return loading;
 }
 
-/** The Unicode emoji with their search words; `undefined` for the instant it takes to load them. */
+/**
+ * The Unicode emoji with their search words; `undefined` for the instant it
+ * takes to load them, or until the device is back online when they did not
+ * arrive (`loadModule`).
+ */
 export function useUnicodeTable(enabled = true): UnicodeTable | undefined {
   const [loaded, setLoaded] = useState(table);
   useEffect(() => {
     if (!enabled || loaded) return;
-    let live = true;
-    void loadUnicodeTable().then((value) => live && setLoaded(value));
-    return () => {
-      live = false;
-    };
+    return loadModule(loadUnicodeTable, setLoaded);
   }, [enabled, loaded]);
   return loaded;
 }

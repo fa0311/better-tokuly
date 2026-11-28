@@ -15,6 +15,7 @@ import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef, useSt
 import { useTranslation } from "react-i18next";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
+import { loadHls } from "#/lib/hls";
 import { type MediaSession, watchOverWhep } from "./webrtc";
 
 /** What other code can ask of a mounted live player. */
@@ -181,36 +182,40 @@ export function LivePlayer({
           else again(true);
         });
     } else {
-      void import("hls.js").then(({ default: HlsPlayer }) => {
-        if (abort.signal.aborted) return;
-        if (!HlsPlayer.isSupported()) {
-          // Browsers that play HLS themselves (iPhones).
-          element.src = urls.hlsUrl;
-          element.addEventListener("error", () => again(true), { once: true });
-          start();
-          return;
-        }
-        const player = new HlsPlayer({ lowLatencyMode: true, backBufferLength: 30 });
-        hls = player;
-        player.on(HlsPlayer.Events.MANIFEST_PARSED, start);
-        player.on(HlsPlayer.Events.ERROR, (_event, data) => {
-          // Refused by the media server: the viewer may have lost access (unfriended, blocked,
-          // the stream made private). The page reads the stream again to find out.
-          const status = data.response?.code ?? 0;
-          const refused = status === 401 || status === 403;
-          if (!data.fatal && !refused) return;
-          player.destroy();
-          hls = null;
-          // The playlist of a stream that just went on air takes a moment to exist: a plain
-          // network error is retried, anything else asks the page.
-          again(refused || data.type !== HlsPlayer.ErrorTypes.NETWORK_ERROR);
-        });
-        player.loadSource(urls.hlsUrl);
-        player.attachMedia(element);
-        latencyTimer = setInterval(() => {
-          if (Number.isFinite(player.latency) && player.latency > 0) setLatency(player.latency);
-        }, 1000);
-      });
+      loadHls().then(
+        ({ default: HlsPlayer }) => {
+          if (abort.signal.aborted) return;
+          if (!HlsPlayer.isSupported()) {
+            // Browsers that play HLS themselves (iPhones).
+            element.src = urls.hlsUrl;
+            element.addEventListener("error", () => again(true), { once: true });
+            start();
+            return;
+          }
+          const player = new HlsPlayer({ lowLatencyMode: true, backBufferLength: 30 });
+          hls = player;
+          player.on(HlsPlayer.Events.MANIFEST_PARSED, start);
+          player.on(HlsPlayer.Events.ERROR, (_event, data) => {
+            // Refused by the media server: the viewer may have lost access (unfriended, blocked,
+            // the stream made private). The page reads the stream again to find out.
+            const status = data.response?.code ?? 0;
+            const refused = status === 401 || status === 403;
+            if (!data.fatal && !refused) return;
+            player.destroy();
+            hls = null;
+            // The playlist of a stream that just went on air takes a moment to exist: a plain
+            // network error is retried, anything else asks the page.
+            again(refused || data.type !== HlsPlayer.ErrorTypes.NETWORK_ERROR);
+          });
+          player.loadSource(urls.hlsUrl);
+          player.attachMedia(element);
+          latencyTimer = setInterval(() => {
+            if (Number.isFinite(player.latency) && player.latency > 0) setLatency(player.latency);
+          }, 1000);
+          // The player's code did not arrive: tried again a moment later, like a lost stream.
+        },
+        () => again(false),
+      );
     }
 
     return () => {

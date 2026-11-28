@@ -1,0 +1,14 @@
+// A bare `import()` has no way out of a failure: code that does not arrive (the connection dropped
+// right then, a deploy took the chunk away) is an unhandled rejection, and what waits for it waits
+// forever. Code split off the entry loads through `#/lib/load-module` or what is built on it.
+language js
+
+`import($source)` as $call where {
+  not $call <: within or {
+    `loadNow($_)`,
+    `loadModule($_, $_)`,
+    `onDemand($...)`,
+    `onFramesLoading($_, $_)`
+  },
+  register_diagnostic(span=$call, message="A bare `import()` that fails leaves what waits for it waiting, and never loads again. Load through `loadNow` (something waits on it: it rejects, with a text for `errorMessage`) or `loadModule` (nobody waits: it tries again online) from `#/lib/load-module`, or `onDemand` for a component.", severity="error")
+}

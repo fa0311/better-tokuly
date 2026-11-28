@@ -1,5 +1,6 @@
+import { NetworkError } from "@tokuly/core/errors";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadModule } from "./load-module";
+import { loadModule, loadNow } from "./load-module";
 
 /** The browser's `online` event, on a stand-in window. */
 const device = new EventTarget();
@@ -53,5 +54,18 @@ describe("loading a chunk", () => {
     await settle();
     backOnline();
     expect(attempts).toHaveLength(1);
+  });
+});
+
+describe("loading a chunk something waits on", () => {
+  it("rejects with a network error, and loads again on the next call", async () => {
+    const { load, attempts } = chunk();
+    const first = loadNow(load);
+    attempts[0]?.reject();
+    await expect(first).rejects.toBeInstanceOf(NetworkError);
+
+    const second = loadNow(load);
+    attempts[1]?.resolve("module");
+    await expect(second).resolves.toBe("module");
   });
 });

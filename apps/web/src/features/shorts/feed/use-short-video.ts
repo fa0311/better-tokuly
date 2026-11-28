@@ -2,6 +2,7 @@ import type { media } from "@tokuly/api";
 import type Hls from "hls.js";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
+import { loadHls } from "#/lib/hls";
 import { StayMeter } from "../stay";
 
 const MUTED_KEY = "tokuly.shorts.muted";
@@ -87,7 +88,7 @@ export function useShortVideo(
     } else if (element.canPlayType("application/vnd.apple.mpegurl")) {
       element.src = hlsUrl;
     } else {
-      void import("hls.js").then(({ default: HlsPlayer }) => {
+      loadHls().then(({ default: HlsPlayer }) => {
         if (disposed) return;
         if (!HlsPlayer.isSupported()) return fail();
         player = new HlsPlayer({ capLevelToPlayerSize: true, maxBufferLength: 10 });
@@ -99,7 +100,7 @@ export function useShortVideo(
         });
         player.loadSource(hlsUrl);
         player.attachMedia(element);
-      });
+      }, fail);
     }
     return () => {
       disposed = true;

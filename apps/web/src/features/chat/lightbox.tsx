@@ -4,6 +4,8 @@ import { ChevronLeft, ChevronRight, Download, MessageSquareShare, X } from "luci
 import { type PointerEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { loadHls } from "#/lib/hls";
+import { loadModule } from "#/lib/load-module";
 import { pictureOf } from "./media-parts";
 
 /** One picture or video shown full screen. */
@@ -192,17 +194,18 @@ function LightboxVideo({ attachment }: { attachment: media.Attachment }) {
       video.src = stream;
       return;
     }
-    let cancelled = false;
     let player: { destroy(): void } | undefined;
-    void import("hls.js").then(({ default: Hls }) => {
-      if (cancelled || !Hls.isSupported()) return;
+    // There is no plain file to fall back to: the player's code is asked for again once the
+    // device is back online.
+    const stop = loadModule(loadHls, ({ default: Hls }) => {
+      if (!Hls.isSupported()) return;
       const hls = new Hls();
       hls.loadSource(stream);
       hls.attachMedia(video);
       player = hls;
     });
     return () => {
-      cancelled = true;
+      stop();
       player?.destroy();
     };
   }, [stream]);

@@ -9,6 +9,7 @@ import { Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { ShareToChat } from "#/features/chat";
 import { copyText } from "#/features/engagement";
+import { loadNow } from "#/lib/load-module";
 import type { Card } from "./card-image";
 import { answerShareUrl, boxShareUrl } from "./model";
 
@@ -47,7 +48,7 @@ export function ShareSheet({
     let url: string | undefined;
     setFailed(false);
     // The canvas code (and the QR encoder) is only loaded when someone shares.
-    import("./card-image")
+    loadNow(() => import("./card-image"))
       .then(({ renderCard }) => renderCard(JSON.parse(spec) as Card))
       .then((blob) => {
         if (!current) return;
