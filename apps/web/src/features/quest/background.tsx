@@ -19,9 +19,12 @@ type QuestCelebrations = typeof import("./frames").questCelebrations;
 export default function QuestBackground() {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { t, i18n } = useTranslation("quest");
+  const { i18n } = useTranslation("quest");
 
   useEffect(() => {
+    // The hook's `t` is new whenever any namespace loads; resubscribing then would drop the frames
+    // waiting for their handler. This one stays and reads the current language.
+    const t = i18n.getFixedT(null, "quest");
     const client = realtime();
     let connectedBefore = client.connectionStatus === "connected";
     const offWelcome = client.onFrame((frame) => {
@@ -57,7 +60,7 @@ export default function QuestBackground() {
       offEvents();
       offSession();
     };
-  }, [queryClient, router, t, i18n]);
+  }, [queryClient, router, i18n]);
 
   return <RevealLayer />;
 }

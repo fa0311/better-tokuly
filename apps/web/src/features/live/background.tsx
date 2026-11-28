@@ -11,9 +11,12 @@ import { onFramesLoading, realtime } from "#/lib/realtime";
 export default function LiveBackground() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { t } = useTranslation("live");
+  const { i18n } = useTranslation("live");
 
   useEffect(() => {
+    // The hook's `t` is new whenever any namespace loads; resubscribing then would drop the frames
+    // waiting for their handler. This one stays and reads the current language.
+    const t = i18n.getFixedT(null, "live");
     const openClip = (clipId: string) => void navigate({ to: "/clip/$clipId", params: { clipId } });
     const off = onFramesLoading("live", () =>
       import("./frames").then(({ applyOwnLiveEvent }) => ({ event }, frame) => {
@@ -23,7 +26,7 @@ export default function LiveBackground() {
     );
     realtime().start();
     return off;
-  }, [queryClient, navigate, t]);
+  }, [queryClient, navigate, i18n]);
 
   return null;
 }

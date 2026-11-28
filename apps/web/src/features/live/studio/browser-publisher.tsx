@@ -12,6 +12,8 @@ import { type MediaSession, MediaSessionError, publishOverWhip } from "../player
 
 type Source = "camera" | "screen";
 type Phase = "idle" | "connecting" | "publishing";
+/** Why there is no picture; translated where it is shown, so the capture never depends on `t`. */
+type MediaError = "" | "publish.denied" | "publish.noDevice" | "publish.captureFailed";
 
 const DEFAULT_DEVICE = "default";
 
@@ -35,7 +37,7 @@ export function BrowserPublisher({
   const [microphoneId, setMicrophoneId] = useState(DEFAULT_DEVICE);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [media, setMedia] = useState<MediaStream | null>(null);
-  const [mediaError, setMediaError] = useState("");
+  const [mediaError, setMediaError] = useState<MediaError>("");
   const [micMuted, setMicMuted] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const session = useRef<MediaSession | null>(null);
@@ -50,7 +52,8 @@ export function BrowserPublisher({
     Boolean(navigator.mediaDevices?.getUserMedia) &&
     typeof RTCPeerConnection !== "undefined";
 
-  // The capture follows the chosen source and devices. A screen is asked for with a tap (the
+  // The capture follows the chosen source and devices, and nothing else: opening it again
+  // stops the tracks a running broadcast sends. A screen is asked for with a tap (the
   // browser demands a gesture), the camera as soon as the panel opens.
   const [screenAsked, setScreenAsked] = useState(0);
   useEffect(() => {
@@ -98,10 +101,10 @@ export function BrowserPublisher({
         const name = error instanceof DOMException ? error.name : "";
         setMediaError(
           name === "NotAllowedError"
-            ? t("publish.denied")
+            ? "publish.denied"
             : name === "NotFoundError" || name === "OverconstrainedError"
-              ? t("publish.noDevice")
-              : t("publish.captureFailed"),
+              ? "publish.noDevice"
+              : "publish.captureFailed",
         );
         if (source === "screen") setScreenAsked(0);
       });
@@ -109,7 +112,7 @@ export function BrowserPublisher({
       cancelled = true;
       if (opened) for (const track of opened.getTracks()) track.stop();
     };
-  }, [supported, source, cameraId, microphoneId, screenAsked, t]);
+  }, [supported, source, cameraId, microphoneId, screenAsked]);
 
   useEffect(() => {
     if (preview.current) preview.current.srcObject = media;
@@ -234,7 +237,7 @@ export function BrowserPublisher({
             ) : (
               <div className="flex max-w-xs flex-col items-center gap-2">
                 <VideoOff className="size-8" />
-                <p className="text-sm font-bold">{mediaError || t("publish.opening")}</p>
+                <p className="text-sm font-bold">{t(mediaError || "publish.opening")}</p>
                 {source === "screen" && (
                   <Button
                     variant="secondary"
