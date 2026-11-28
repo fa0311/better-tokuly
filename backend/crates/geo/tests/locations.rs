@@ -32,6 +32,26 @@ async fn a_friend_away_from_the_app_is_not_pushed_to_and_finds_the_pin_on_openin
     assert_at!(pin_point(&pushed), park);
 }
 
+/// Back in the app, the snapshot is asked for before the gateway has marked
+/// the person online: what changes after the snapshot must still reach them.
+#[tokio::test]
+async fn nothing_is_lost_between_the_snapshot_and_being_marked_online() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let home = somewhere();
+    ctx.report(&aoi, vec![sample(home, seconds_ago(5))]).await;
+
+    // Ren's connection is there, the online mark not yet.
+    let mut rens = ctx.app.listen_user(ren.id).await;
+    assert_eq!(ctx.friend_locations(&ren).await.len(), 1);
+
+    let park = offset(home, 90.0, 2_000.0);
+    ctx.report(&aoi, vec![sample(park, seconds_ago(1))]).await;
+    let pushed = next_pin(&mut rens).await.expect("pushed to whoever just loaded the pins");
+    assert_at!(pin_point(&pushed), park);
+}
+
 #[tokio::test]
 async fn a_friend_sees_my_pin_and_nobody_else_does() {
     let ctx = start().await;

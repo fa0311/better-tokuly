@@ -28,8 +28,10 @@ fn shown_key(owner: Uuid) -> String {
     format!("geo:pin:shown:{}", owner.simple())
 }
 
-/// How long a `WatchFriendLocations` stream counts as watching without a
-/// refresh (it refreshes at a third of this).
+/// How long someone who loaded friends' pins (`ListFriendLocations`, a
+/// `WatchFriendLocations` stream) counts as watching without a refresh (the
+/// stream refreshes at a third of this). Longer than the gateway takes to
+/// mark an app that came back as open.
 pub(crate) const WATCHING_TTL: std::time::Duration = std::time::Duration::from_secs(90);
 
 fn watching_key(viewer: Uuid) -> String {
@@ -73,14 +75,14 @@ impl Geo {
         Box::new(move |data| core.keys.mac(BLUR_KEY, data))
     }
 
-    /// Marks `viewer` as watching friends' pins through a stream, which then
-    /// receives pushes as an open app does.
+    /// Marks `viewer` as watching friends' pins: they loaded the snapshot
+    /// and receive pushes from now on, as an open app does.
     pub(crate) async fn mark_watching(&self, viewer: Uuid) -> AppResult<()> {
         self.core.cache.set_string(&watching_key(viewer), "1", Some(WATCHING_TTL)).await
     }
 
-    /// Those of `friends` who see pins live: the app open, or a
-    /// `WatchFriendLocations` stream.
+    /// Those of `friends` who see pins live: the app open, or the pins
+    /// loaded a moment ago (a `WatchFriendLocations` stream keeps saying so).
     async fn watching(&self, friends: &[Uuid]) -> AppResult<HashSet<Uuid>> {
         let mut watching: HashSet<Uuid> = presence::online_among(&self.core.cache, friends).await?.into_iter().collect();
         let keys: Vec<String> = friends.iter().map(|id| watching_key(*id)).collect();
@@ -140,7 +142,7 @@ impl Geo {
     /// does not move — unless `refresh` is set, which re-sends everyone their
     /// current view (after a change to ghost rules, privacy or status).
     ///
-    /// Only friends who watch (the app open, or `WatchFriendLocations`) get a
+    /// Only friends who watch (the app open, or the pins just loaded) get a
     /// push: the others load every pin when they open it (`ListFriendLocations`).
     pub(crate) async fn fan_out(
         &self,

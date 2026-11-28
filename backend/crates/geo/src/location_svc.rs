@@ -84,6 +84,10 @@ impl LocationService for Geo {
     ) -> ServiceResult<ListFriendLocationsResponse> {
         handle(async {
             let viewer = ctx.user_id()?;
+            // Whoever loads the pins is about to watch them: marked before
+            // the snapshot is taken, so that no update falls between it and
+            // the gateway marking the app open.
+            self.mark_watching(viewer).await?;
             ok(ListFriendLocationsResponse {
                 locations: self.friend_locations(viewer).await?,
                 server_time: ts(Utc::now()),
