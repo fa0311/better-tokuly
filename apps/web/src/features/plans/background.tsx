@@ -14,9 +14,12 @@ import { onFramesLoading, realtime } from "#/lib/realtime";
 export default function PlansBackground() {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { t } = useTranslation("plans");
+  const { i18n } = useTranslation("plans");
 
   useEffect(() => {
+    // The hook's `t` is new whenever any namespace loads; resubscribing then would drop the frames
+    // waiting for their handler. This one stays and reads the current language.
+    const t = i18n.getFixedT(null, "plans");
     const client = realtime();
     let connectedBefore = false;
     const offWelcome = client.onFrame((frame) => {
@@ -44,7 +47,7 @@ export default function PlansBackground() {
       offWelcome();
       offEvents();
     };
-  }, [queryClient, router, t]);
+  }, [queryClient, router, i18n]);
 
   return null;
 }
