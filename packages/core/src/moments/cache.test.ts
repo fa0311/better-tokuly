@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/query-core";
 import { create, type MessageInitShape, moments } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
+import { make } from "../testing/make";
 import {
   applyMomentsEvent,
   forgetUserMoments,
@@ -8,16 +9,21 @@ import {
   removeMoment,
   setMyReaction,
 } from "./cache";
-import { make } from "../testing/make";
 import { momentKeys } from "./keys";
 
 const user = (id: string) => ({ id, handle: id, displayName: id });
-const moment = (id: string, author: string, extra: MessageInitShape<typeof moments.MomentSchema> = {}) =>
-  make(moments.MomentSchema, { id, author: user(author) }, extra);
+const moment = (
+  id: string,
+  author: string,
+  extra: MessageInitShape<typeof moments.MomentSchema> = {},
+) => make(moments.MomentSchema, { id, author: user(author) }, extra);
 const reaction = (id: string, by: string) =>
   create(moments.MomentReactionSchema, { id, user: user(by) });
 
-function withCache(friends: moments.Moment[], today: MessageInitShape<typeof moments.GetTodayResponseSchema> = {}) {
+function withCache(
+  friends: moments.Moment[],
+  today: MessageInitShape<typeof moments.GetTodayResponseSchema> = {},
+) {
   const queryClient = new QueryClient();
   queryClient.setQueryData(momentKeys.friends, {
     pages: [create(moments.ListFriendMomentsResponseSchema, { moments: friends })],
