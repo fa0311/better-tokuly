@@ -48,4 +48,4 @@ export function nextCursor(last: { page?: { nextCursor: string } }): string | un
 }
 
 export { journal, pushAfter, pushTo, pushToAll, type Update } from "./journal";
-export { reread, rereadOnWelcome, type WelcomingConnection } from "./reread";
+export { forgetQueries, reread, rereadOnWelcome, type WelcomingConnection } from "./reread";

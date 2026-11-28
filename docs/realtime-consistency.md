@@ -40,6 +40,7 @@ The helpers, in `@tokuly/core/query`:
 |---|---|
 | `rereadOnWelcome(queryClient, connection, keys)` | rule 1 on every `Welcome`. Register it before `client.start()` |
 | `reread(queryClient, keys)` | rule 1 once (an `onSubscribed`): cancel what is in flight, read again |
+| `forgetQueries(queryClient, keys)` | rule 3: drop what is off screen, `reread` the rest (an area's forgetter) |
 | `{ ...options, persister: journal }` | rule 2, the read side of a query, plain or infinite (`fetchNextPage` too); pass `signal` to the request |
 | `pushTo(queryClient, key, update)` | every push, removals included; `update` may return `null` (gone) |
 | `pushToAll(queryClient, prefix, update)` | the same for one list held under several keys (filters, sources) |
@@ -94,8 +95,10 @@ found.
    that reads again on `Welcome` (#524); notes timelines look after a hint
    during the first load on both platforms (#525).
 2. Topic reads replace a read in flight: notes cards, emoji (#526, #537).
-3. Done: one removal path on both platforms (#527, #528, #529). Areas that
-   still keep an ex-friend's content: #576.
+3. Done: one removal path on both platforms (#527, #528, #529), and a
+   forgetter in every area that shows friends-only content. What only a
+   block hides (community posts, search, comments) is not forgotten on the
+   push: to the blocked person a block looks like an unfriend.
 4. `journal` / `pushTo` (done; used by live chat, the live overlay, the
    watch party and the school room), then each area that writes with
    `setQueryData`, privacy first: chat, notes, stories, moments, plans,
