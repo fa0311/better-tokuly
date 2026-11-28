@@ -1,16 +1,17 @@
-import type { moments } from "@tokuly/api";
-import { monthOf, monthOfDay } from "@tokuly/core/history";
+import { toDate, type moments } from "@tokuly/api";
+import { monthOfDay } from "@tokuly/core/history";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { ChevronLeft, ChevronRight } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Button } from "#/components/button";
 import { IconButton } from "#/components/icon-button";
 import { EmptyState, ErrorNote, Page, Spinner } from "#/components/page";
 import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
+import { useMe } from "#/features/session/store";
 import { useMomentToday } from "./data";
 import { useMomentYear } from "./year-data";
 
@@ -26,37 +27,54 @@ function utcDate(year: number, month = 0): Date {
 export function MomentYearRecapScreen() {
   const { t, i18n } = useTranslation("moments");
   const { colors } = useTheme();
+  const me = useMe();
   const today = useMomentToday();
-  const currentMonth = today.data?.day?.date
-    ? monthOfDay(today.data.day.date)
-    : monthOf(new Date());
-  const [year, setYear] = useState(currentMonth.year);
+  const currentMonth = today.data?.day?.date ? monthOfDay(today.data.day.date) : undefined;
+  const currentYear = currentMonth?.year;
+  const accountCreatedYear = toDate(me?.createdAt)?.getUTCFullYear();
+  const minimumYear =
+    currentYear === undefined
+      ? FIRST_SUPPORTED_YEAR
+      : Math.min(accountCreatedYear ?? currentYear, currentYear);
+  const [year, setYear] = useState<number | null>(null);
+  const selectedYear = year ?? currentYear ?? accountCreatedYear ?? FIRST_SUPPORTED_YEAR;
 
   useEffect(() => {
-    setYear(currentMonth.year);
-  }, [currentMonth.year]);
+    if (currentYear === undefined) return;
+    setYear((value) =>
+      value === null ? currentYear : Math.max(minimumYear, Math.min(value, currentYear)),
+    );
+  }, [currentYear, minimumYear]);
 
   const monthCount =
-    !today.data || today.isError
+    !currentMonth || !today.data || today.isError
       ? 0
-      : year < currentMonth.year
+      : selectedYear < currentMonth.year
         ? 12
-        : year === currentMonth.year
+        : selectedYear === currentMonth.year
           ? currentMonth.month
           : 0;
-  const months = useMomentYear(year, monthCount);
-  const allPending = today.isPending || months.some((month) => month.isPending);
-  const error = today.isError || months.some((month) => month.isError);
+  const months = useMomentYear(selectedYear, monthCount);
+  const monthsReady =
+    months.length === monthCount &&
+    months.every((month) => month.data !== undefined && !month.isPending && !month.isError);
+  const monthError = months.some((month) => month.isError);
   const responses = months.flatMap((month) => (month.data ? [month.data] : []));
-  const posted = responses.reduce((total, month) => total + month.postedCount, 0);
-  const onTime = responses.reduce((total, month) => total + month.onTimeCount, 0);
-  const activeMonths = responses.filter((month) => month.postedCount > 0).length;
+  const posted = monthsReady
+    ? responses.reduce((total, month) => total + month.postedCount, 0)
+    : null;
+  const onTime = monthsReady
+    ? responses.reduce((total, month) => total + month.onTimeCount, 0)
+    : null;
+  const activeMonths = monthsReady
+    ? responses.filter((month) => month.postedCount > 0).length
+    : null;
   const title = new Intl.DateTimeFormat(i18n.language, {
     year: "numeric",
     timeZone: "UTC",
-  }).format(utcDate(year));
+  }).format(utcDate(selectedYear));
 
-  if (allPending) {
+  if (today.isPending) {
     return (
       <Page testID="moment-year-recap">
         <Spinner />
@@ -64,43 +82,62 @@ export function MomentYearRecapScreen() {
     );
   }
 
-  if (error) {
+  if (today.isError) {
     return (
       <Page testID="moment-year-recap">
         <ErrorNote>{t("recap.loadError")}</ErrorNote>
-        <Button
-          variant="secondary"
-          onPress={() => {
-            void today.refetch();
-            for (const query of months) void query.refetch();
-          }}
-        >
+        <Button variant="secondary" onPress={() => void today.refetch()}>
           {t("composer.retry")}
         </Button>
       </Page>
     );
   }
 
+  if (!currentMonth) {
+    return (
+      <Page testID="moment-year-recap">
+        <EmptyState emoji="⏳" title={t("recap.notReady.title")} body={t("recap.notReady.body")} />
+      </Page>
+    );
+  }
+
   return (
     <Page testID="moment-year-recap">
+      {monthError && (
+        <>
+          <ErrorNote>{t("recap.loadError")}</ErrorNote>
+          <Button
+            variant="secondary"
+            onPress={() => {
+              for (const query of months) {
+                if (query.isError) void query.refetch();
+              }
+            }}
+          >
+            {t("composer.retry")}
+          </Button>
+        </>
+      )}
       <View className="flex-row items-center justify-between rounded-card bg-surface p-3">
         <IconButton
           testID="moment-recap-previous-year"
           label={t("recap.previousYear")}
           icon={<ChevronLeft size={20} color={colors.ink} />}
-          disabled={year <= FIRST_SUPPORTED_YEAR}
-          onPress={() => setYear((value) => Math.max(value - 1, FIRST_SUPPORTED_YEAR))}
+          disabled={selectedYear <= minimumYear}
+          onPress={() => setYear((value) => Math.max((value ?? selectedYear) - 1, minimumYear))}
         />
         <Text accessibilityLiveRegion="polite" className="text-lg font-black text-ink">
           {title}
         </Text>
-        <View className={year >= currentMonth.year ? "opacity-30" : ""}>
+        <View className={selectedYear >= currentMonth.year ? "opacity-30" : ""}>
           <IconButton
             testID="moment-recap-next-year"
             label={t("recap.nextYear")}
             icon={<ChevronRight size={20} color={colors.ink} />}
-            disabled={year >= currentMonth.year}
-            onPress={() => setYear((value) => Math.min(value + 1, currentMonth.year))}
+            disabled={selectedYear >= currentMonth.year}
+            onPress={() =>
+              setYear((value) => Math.min((value ?? selectedYear) + 1, currentMonth.year))
+            }
           />
         </View>
       </View>
@@ -111,36 +148,45 @@ export function MomentYearRecapScreen() {
         <SummaryStat label={t("recap.activeMonths")} value={activeMonths} />
       </View>
 
-      {posted === 0 && (
+      {monthsReady && posted === 0 && (
         <EmptyState emoji="📷" title={t("recap.empty.title")} body={t("recap.empty.body")} />
       )}
 
       <View className="flex-row flex-wrap justify-between gap-y-3">
         {Array.from({ length: 12 }, (_, index) => {
           const month = index + 1;
-          const response = months[month - 1]?.data;
+          const query = months[month - 1];
+          const response = query?.data;
           const available = month <= monthCount;
+          const loading = available && query?.isPending === true;
+          const failed = available && query?.isError === true;
           const label = new Intl.DateTimeFormat(i18n.language, {
             month: "long",
             timeZone: "UTC",
-          }).format(utcDate(year, month - 1));
-          const accessibilityLabel = available
-            ? t("recap.monthSummary", {
-                month: label,
-                posted: response?.postedCount ?? 0,
-                onTime: response?.onTimeCount ?? 0,
-              })
-            : t("recap.upcomingMonth", { month: label });
+          }).format(utcDate(selectedYear, month - 1));
+          const accessibilityLabel = loading
+            ? t("recap.loadingMonth", { month: label })
+            : failed
+              ? t("recap.monthLoadError", { month: label })
+            : available
+              ? t("recap.monthSummary", {
+                  month: label,
+                  posted: response?.postedCount ?? 0,
+                  onTime: response?.onTimeCount ?? 0,
+                })
+              : t("recap.upcomingMonth", { month: label });
 
           return (
             <MonthTile
               key={month}
-              year={year}
+              year={selectedYear}
               month={month}
               label={label}
               days={response?.days ?? []}
               count={response?.postedCount ?? 0}
               available={available}
+              loading={loading}
+              failed={failed}
               accessibilityLabel={accessibilityLabel}
             />
           );
@@ -150,10 +196,10 @@ export function MomentYearRecapScreen() {
   );
 }
 
-function SummaryStat({ label, value }: { label: string; value: number }) {
+function SummaryStat({ label, value }: { label: string; value: number | null }) {
   return (
     <View className="min-w-0 flex-1 items-center gap-1 rounded-card bg-surface p-3">
-      <Text className="text-xl font-black text-ink">{value}</Text>
+      <Text className="text-xl font-black text-ink">{value ?? "—"}</Text>
       <Text numberOfLines={1} className="text-center text-xs font-bold text-ink-soft">
         {label}
       </Text>
@@ -168,6 +214,8 @@ function MonthTile({
   days,
   count,
   available,
+  loading,
+  failed,
   accessibilityLabel,
 }: {
   year: number;
@@ -176,9 +224,12 @@ function MonthTile({
   days: moments.CalendarDay[];
   count: number;
   available: boolean;
+  loading: boolean;
+  failed: boolean;
   accessibilityLabel: string;
 }) {
   const { t } = useTranslation("moments");
+  const { colors } = useTheme();
   const representatives = sampleDays(days, 4);
   return (
     <Pressable
@@ -200,13 +251,17 @@ function MonthTile({
           {label}
         </Text>
         <Text className="text-[10px] font-bold text-ink-soft">
-          {available ? count : t("recap.soon")}
+          {loading || failed ? "—" : available ? count : t("recap.soon")}
         </Text>
       </View>
       <View className="flex-1 flex-row flex-wrap gap-1">
-        {representatives.map((day) => (
-          <DayThumbnail key={day.date} day={day} />
-        ))}
+        {loading ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator color={colors.brand} />
+          </View>
+        ) : (
+          representatives.map((day) => <DayThumbnail key={day.date} day={day} />)
+        )}
       </View>
     </Pressable>
   );
