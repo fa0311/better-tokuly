@@ -209,8 +209,10 @@ export function applySpacesEvent(
       return;
     case "hangoutPresence": {
       const presence = event.value;
+      // When it was pushed, also when it is replayed on a read that lands later.
+      const now = fromDate(new Date());
       patchHangout(queryClient, presence.hangoutId, (hangout) =>
-        withPresence(hangout, presence, myId, fromDate(new Date())),
+        withPresence(hangout, presence, myId, now),
       );
       void reread(queryClient, [spacesKeys.friendsInRooms]);
       return;

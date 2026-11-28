@@ -1,7 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { QueryClient } from "@tanstack/query-core";
 import { spaces } from "@tokuly/api";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applySpacesEvent } from "./cache";
 import { spacesKeys } from "./keys";
 import { type HangoutBoard, spacesQueries } from "./queries";
@@ -143,5 +143,42 @@ describe("hangouts pushed during a read", () => {
     const read = queryClient.getQueryData<spaces.Hangout>(spacesKeys.hangout("h1"));
     expect(read?.insideCount).toBe(0);
     expect(read?.members.filter((member) => member.inside)).toEqual([]);
+  });
+
+  it("someone entering the voice room during a read is inside since the push", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-29T10:00:00Z") });
+    try {
+      const queryClient = new QueryClient();
+      const api = server<spaces.GetHangoutResponse>();
+      const client = () => ({ getHangout: api.request }) as never;
+      const loading = queryClient.fetchQuery(spacesQueries.hangout(client, "h1"));
+      const outside = create(spaces.HangoutSchema, {
+        id: "h1",
+        members: [{ user: { id: "friend" }, state: spaces.HangoutMemberState.MEMBER }],
+      });
+      applySpacesEvent(
+        queryClient,
+        {
+          case: "hangoutPresence",
+          value: create(spaces.HangoutPresenceSchema, {
+            hangoutId: "h1",
+            user: { id: "friend" },
+            inside: true,
+            insideCount: 1,
+          }),
+        },
+        "me",
+      );
+      // The answer lands a minute later; the push is replayed on it then.
+      vi.setSystemTime(new Date("2026-11-29T10:01:00Z"));
+      api.answer(0, create(spaces.GetHangoutResponseSchema, { hangout: outside }));
+      await loading;
+      const read = queryClient.getQueryData<spaces.Hangout>(spacesKeys.hangout("h1"));
+      const [member] = read?.members ?? [];
+      expect(member?.inside).toBe(true);
+      expect(Number(member?.insideSince?.seconds)).toBe(Date.parse("2026-11-29T10:00:00Z") / 1000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
