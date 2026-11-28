@@ -603,7 +603,7 @@ function PublishDialog({
           />
         )}
         {blocked && (
-          <p role="alert" className="text-sm font-medium text-danger">
+          <p role="alert" className="text-sm font-normal text-danger">
             {t("studio.publish.fixFirst")}
           </p>
         )}

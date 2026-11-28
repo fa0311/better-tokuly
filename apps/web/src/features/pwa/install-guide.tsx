@@ -171,7 +171,7 @@ function OpenInSafari() {
   return (
     <section className="sticker mb-5 rounded-card bg-sun p-4 text-[#17122b]">
       <p className="font-black leading-snug">{t("guide.inApp.title")}</p>
-      <p className="mt-1 text-sm font-medium leading-relaxed">{t("guide.inApp.body")}</p>
+      <p className="mt-1 text-sm font-normal leading-relaxed">{t("guide.inApp.body")}</p>
       <Button
         variant="secondary"
         size="sm"

@@ -196,7 +196,7 @@ function NoteFace({ hit, extra }: FaceProps) {
             className="line-clamp-3 text-[15px] leading-snug break-words"
           />
         ) : (
-          <Title hit={hit} className="line-clamp-3 text-[15px] leading-snug font-medium" />
+          <Title hit={hit} className="line-clamp-3 text-[15px] leading-snug font-normal" />
         )}
         {hidden && (
           <span className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-xs font-bold text-ink-soft">

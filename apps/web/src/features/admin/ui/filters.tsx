@@ -91,7 +91,7 @@ export function FilterInput({
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className={cn(control, "px-3 font-medium")}
+        className={cn(control, "px-3 font-normal")}
       />
     </div>
   );
@@ -135,7 +135,7 @@ export function FilterTextInput({
         onBlur={commit}
         onKeyDown={(event) => event.key === "Enter" && commit()}
         placeholder={placeholder}
-        className={cn(control, "px-3 font-medium placeholder:text-ink-faint")}
+        className={cn(control, "px-3 font-normal placeholder:text-ink-faint")}
         autoCapitalize="none"
         spellCheck={false}
       />

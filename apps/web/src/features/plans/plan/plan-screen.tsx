@@ -236,7 +236,7 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
                   date: cancelledAt ? formatDay(ymd(cancelledAt), i18n.language) : "",
                 })}
                 {plan.cancelReason && (
-                  <span className="mt-1 block font-medium">「{plan.cancelReason}」</span>
+                  <span className="mt-1 block font-normal">「{plan.cancelReason}」</span>
                 )}
               </p>
             )}

@@ -185,7 +185,7 @@ export function PurchaseScreen({ purchaseId, proof }: { purchaseId: string; proo
                 </Fact>
               )}
               <Fact stack label={t("purchases.receipt.id")}>
-                <span className="break-all font-mono text-xs font-medium text-ink-soft">
+                <span className="break-all font-mono text-xs font-normal text-ink-soft">
                   {purchase.id}
                 </span>
               </Fact>

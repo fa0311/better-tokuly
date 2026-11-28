@@ -831,7 +831,7 @@ function PlaceForm({ onSave, onCancel }: { onSave(place: PlaceDraft): void; onCa
               save();
             }
           }}
-          className="min-w-0 flex-1 bg-transparent font-bold outline-none placeholder:font-medium placeholder:text-ink-faint"
+          className="min-w-0 flex-1 bg-transparent font-bold outline-none placeholder:font-normal placeholder:text-ink-faint"
         />
       </label>
       <p className="mt-1.5 px-1 text-xs text-ink-faint">{t("compose.placeHint")}</p>

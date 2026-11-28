@@ -142,7 +142,7 @@ export function PayoutScreen({ payoutId }: { payoutId: string }) {
                 </Fact>
               )}
               <Fact stack label={t("payout.id")}>
-                <span className="break-all font-mono text-xs font-medium text-ink-soft">
+                <span className="break-all font-mono text-xs font-normal text-ink-soft">
                   {payout.id}
                 </span>
               </Fact>

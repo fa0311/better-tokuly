@@ -83,7 +83,7 @@ export function InstallBanner() {
         />
         <div className="min-w-0 flex-1 [word-break:auto-phrase]">
           <p className="font-black leading-snug">{t("banner.title")}</p>
-          <p className="text-[13px] font-medium leading-snug text-ink-soft">
+          <p className="text-[13px] font-normal leading-snug text-ink-soft">
             {way === "ios-in-app" ? t("banner.inAppBody") : t("banner.body")}
           </p>
         </div>

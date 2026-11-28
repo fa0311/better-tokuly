@@ -27,7 +27,7 @@ export function AuthLayout({
           <div className="mt-6">{children}</div>
         </section>
         {footer && (
-          <div className="mt-5 text-center text-sm font-medium text-ink-soft">{footer}</div>
+          <div className="mt-5 text-center text-sm font-normal text-ink-soft">{footer}</div>
         )}
       </div>
     </main>

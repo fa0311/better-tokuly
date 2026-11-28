@@ -397,7 +397,7 @@ function ChaptersField({
                 </Button>
               </div>
               {error && (
-                <p role="alert" className="mt-1 px-1 text-sm font-medium text-danger">
+                <p role="alert" className="mt-1 px-1 text-sm font-normal text-danger">
                   {t(`studio.chapters.errors.${error}`)}
                 </p>
               )}
