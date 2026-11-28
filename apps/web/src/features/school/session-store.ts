@@ -71,23 +71,31 @@ export function setActiveTimer(roomId: string, timer: school.TimerSnapshot): voi
   useActiveSession.setState({ session: { ...state.session, timer }, revision: state.revision + 1 });
 }
 
+/** Counts the questions `loadActiveSession` asked: only the latest one's answer counts. */
+let loads = 0;
+
 /**
- * Asks the server for the caller's session (after a reload, when the
- * connection comes back, on "try again"). An answer of "none" that was
- * overtaken by a change made in the meantime is dropped; a failure is
+ * Asks the server for the caller's session (after a reload, on every
+ * Welcome of the connection, on "try again"). A question asked again
+ * replaces the one before: an older answer, even one with a session, may
+ * predate a stop the newer one knows of. An answer of "none" that was
+ * overtaken by a change made in the meantime is dropped too; a failure is
  * remembered so the timer can say so instead of waiting forever.
  */
 export async function loadActiveSession(
   fetchCurrent: () => Promise<{ session?: school.StudySession; heartbeatIntervalSeconds: number }>,
 ): Promise<void> {
+  const load = ++loads;
   const before = useActiveSession.getState().revision;
   try {
     const response = await fetchCurrent();
+    if (load !== loads) return;
     if (!response.session && useActiveSession.getState().revision !== before) return;
     setActiveSession(response.session, response.heartbeatIntervalSeconds);
   } catch {
     // Something known beats a failed question; only a timer that knows nothing says it could not load.
-    if (!useActiveSession.getState().loaded) useActiveSession.setState({ failed: true });
+    if (load === loads && !useActiveSession.getState().loaded)
+      useActiveSession.setState({ failed: true });
   }
 }
 
