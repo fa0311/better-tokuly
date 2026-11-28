@@ -1,5 +1,5 @@
 import type { APIRequestContext, Browser, Page, TestInfo } from "@playwright/test";
-import { holdAnswers, pushes } from "./races";
+import { droppableConnection, holdAnswers, pushes } from "./races";
 import { type Account, befriend, createAccount, expect, rpc, signInAs, test } from "./support";
 
 // Rooms and hangouts carry sound over LiveKit. Chrome's fake microphone (a beep) stands in for a
@@ -423,6 +423,52 @@ test("the host ends the room: listeners land on its summary", async ({
   await page.getByRole("button", { name: "削除" }).last().click();
   await expect(page).toHaveURL(/\/spaces$/);
   await theirs.context().close();
+});
+
+test("a room that ends while it is read again does not show LIVE again", async ({
+  page,
+  request,
+  me: _me,
+}) => {
+  const host = await createAccount(request, "host");
+  const space = await liveRoom(request, host, { title: `すぐおわる会 ${Date.now()}` });
+  const connection = await droppableConnection(page);
+  await page.goto(`/spaces/${space.id}`);
+  await expect(page.getByTestId("join-room")).toBeVisible({ timeout: 20_000 });
+
+  // The connection drops; once the room's topic is back, the room is read again. That read is
+  // answered now, while the room is live, and lands only after it ended.
+  const reconnected = await connection.drop();
+  let answered = () => {};
+  const read = new Promise<void>((resolve) => (answered = resolve));
+  let release = () => {};
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/${SPACES}/GetSpace`, async (route) => {
+    if (!reconnected()) return route.continue();
+    const response = await route.fetch();
+    answered();
+    await released;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await read;
+  await rpc(request, `${SPACES}/EndSpace`, { spaceId: space.id }, host);
+  await expect(page.getByTestId("join-room")).toHaveCount(0, { timeout: 30_000 });
+
+  // From now on the page notes whether the way in is ever drawn again, however briefly.
+  await page.evaluate(() => {
+    const seen = window as { joinBack?: boolean };
+    new MutationObserver(() => {
+      if (document.querySelector('[data-testid="join-room"]')) seen.joinBack = true;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  const landed = page.waitForEvent("requestfinished", (finished) =>
+    finished.url().endsWith(`${SPACES}/GetSpace`),
+  );
+  release();
+  await landed;
+  await page.waitForTimeout(1000);
+  expect(await page.evaluate(() => (window as { joinBack?: boolean }).joinBack)).toBe(undefined);
+  await expect(page.getByTestId("join-room")).toHaveCount(0);
 });
 
 test("a scheduled room: a friend sets a reminder and is taken along when it starts", async ({

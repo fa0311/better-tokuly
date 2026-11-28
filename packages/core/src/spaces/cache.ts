@@ -1,6 +1,6 @@
 import type { InfiniteData, QueryClient } from "@tanstack/query-core";
 import { fromDate, spaces } from "@tokuly/api";
-import { pushTo, reread } from "../query";
+import { pushTo, pushToAll, reread } from "../query";
 import { spacesKeys } from "./keys";
 import {
   mergeHangout,
@@ -10,47 +10,67 @@ import {
   withParticipant,
   withPresence,
 } from "./model";
-import type { HangoutBoard, SpacePage } from "./queries";
+import type { HangoutBoard, ParticipantPage, SpacePage } from "./queries";
 
 /**
  * Rooms and hangouts in the query cache: a room on its own page and on every
  * list that shows it, a hangout on its page and on the board, and what a
- * pushed `SpacesEvent` changes in them. Hangouts go by
+ * pushed `SpacesEvent` changes in them. Both go by
  * `docs/realtime-consistency.md`, rule 2: their pushes go through `pushTo`,
- * so that a read made before a push cannot undo it (a hangout the person was
- * taken out of does not come back with who is inside).
+ * so that a read made before a push cannot undo it (an ended room does not
+ * show LIVE again, someone who left is not back on stage, a hangout the
+ * person was taken out of does not come back with who is inside). What only
+ * has to be read again is `reread`.
  */
 
-/** Rewrites a room wherever it is loaded: its own page and every list that shows it. */
+/** Rewrites a room wherever it is loaded, and in a read of it in flight when it lands. */
 export function patchSpace(
   queryClient: QueryClient,
   spaceId: string,
   patch: (space: spaces.Space) => spaces.Space,
 ): void {
-  queryClient.setQueryData<spaces.Space | null>(spacesKeys.space(spaceId), (space) =>
-    space ? patch(space) : space,
-  );
-  queryClient.setQueriesData<InfiniteData<SpacePage, string>>(
-    { queryKey: spacesKeys.lists },
-    (list) =>
-      list && {
-        ...list,
-        pages: list.pages.map((page) => ({
-          ...page,
-          spaces: page.spaces.map((space) => (space.id === spaceId ? patch(space) : space)),
-        })),
-      },
-  );
+  pushTo<spaces.Space | null>(queryClient, spacesKeys.space(spaceId), patch);
+  pushToAll<InfiniteData<SpacePage, string>>(queryClient, spacesKeys.lists, (list) => {
+    if (!list.pages.some((page) => page.spaces.some((space) => space.id === spaceId))) return list;
+    return {
+      ...list,
+      pages: list.pages.map((page) => ({
+        ...page,
+        spaces: page.spaces.map((space) => (space.id === spaceId ? patch(space) : space)),
+      })),
+    };
+  });
 }
 
 /** Stores a room the server just returned (with the caller's `viewer`). */
 export function rememberSpace(queryClient: QueryClient, space: spaces.Space | undefined): void {
   if (!space) return;
-  queryClient.setQueryData(spacesKeys.space(space.id), space);
+  // Not loaded yet: this is the first the cache holds of it.
+  if (!queryClient.getQueryData(spacesKeys.space(space.id)))
+    queryClient.setQueryData(spacesKeys.space(space.id), space);
   patchSpace(queryClient, space.id, (loaded) => ({
     ...space,
     friendsInside: loaded.friendsInside,
   }));
+}
+
+/** Takes someone who left out of the room's lists of people, and out of a page of them in flight. */
+function withoutPerson(queryClient: QueryClient, spaceId: string, userId: string): void {
+  pushToAll<InfiniteData<ParticipantPage, string>>(
+    queryClient,
+    spacesKeys.everyParticipants(spaceId),
+    (list) => {
+      if (!list.pages.some((page) => page.participants.some((entry) => entry.user?.id === userId)))
+        return list;
+      return {
+        ...list,
+        pages: list.pages.map((page) => ({
+          ...page,
+          participants: page.participants.filter((entry) => entry.user?.id !== userId),
+        })),
+      };
+    },
+  );
 }
 
 /** Rewrites a hangout wherever it is loaded, and in a read of it in flight when it lands. */
@@ -112,7 +132,7 @@ function refreshPeople(queryClient: QueryClient, spaceId: string): void {
     spaceId,
     setTimeout(() => {
       timers.delete(spaceId);
-      void queryClient.invalidateQueries({ queryKey: spacesKeys.everyParticipants(spaceId) });
+      void reread(queryClient, [spacesKeys.everyParticipants(spaceId)]);
     }, 1200),
   );
 }
@@ -136,8 +156,7 @@ export function applySpacesEvent(
       patchSpace(queryClient, pushed.id, (space) => mergeSpace(space, pushed, myId));
       if (changedState) {
         // It moved between "upcoming", "live" and "over": the lists it is on changed.
-        void queryClient.invalidateQueries({ queryKey: spacesKeys.lists });
-        void queryClient.invalidateQueries({ queryKey: spacesKeys.friendsInRooms });
+        void reread(queryClient, [spacesKeys.lists, spacesKeys.friendsInRooms]);
         refreshPeople(queryClient, pushed.id);
       }
       return;
@@ -152,11 +171,12 @@ export function applySpacesEvent(
     case "participantLeft": {
       const { spaceId, userId } = event.value;
       patchSpace(queryClient, spaceId, (space) => withoutParticipant(space, userId, myId));
+      withoutPerson(queryClient, spaceId, userId);
       refreshPeople(queryClient, spaceId);
       if (userId === myId && event.value.reason === spaces.SpaceLeaveReason.BANNED) {
         // The room no longer exists for a banned person.
-        queryClient.setQueryData(spacesKeys.space(spaceId), null);
-        void queryClient.invalidateQueries({ queryKey: spacesKeys.lists });
+        pushTo<spaces.Space | null>(queryClient, spacesKeys.space(spaceId), () => null);
+        void reread(queryClient, [spacesKeys.lists]);
       }
       return;
     }
@@ -184,9 +204,10 @@ export function applySpacesEvent(
       return;
     }
     case "spaceInvitation":
-      void queryClient.invalidateQueries({ queryKey: spacesKeys.lists });
-      if (event.value.space)
-        void queryClient.invalidateQueries({ queryKey: spacesKeys.space(event.value.space.id) });
+      void reread(queryClient, [
+        spacesKeys.lists,
+        ...(event.value.space ? [spacesKeys.space(event.value.space.id)] : []),
+      ]);
       return;
     case "hangoutUpdated": {
       const pushed = event.value.hangout;

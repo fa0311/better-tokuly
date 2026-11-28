@@ -1,5 +1,6 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import type { spaces } from "@tokuly/api";
+import { reread } from "@tokuly/core/query";
 import { applySpacesEvent as applyToCache, spacesKeys } from "@tokuly/core/spaces";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
@@ -16,17 +17,16 @@ const followedRooms = new Map<string, { holders: number; release(): void }>();
 function followRoom(queryClient: QueryClient, spaceId: string): () => void {
   let room = followedRooms.get(spaceId);
   if (!room) {
-    const reread = () => {
-      void queryClient.invalidateQueries({ queryKey: spacesKeys.space(spaceId) });
-      void queryClient.invalidateQueries({ queryKey: spacesKeys.everyParticipants(spaceId) });
-    };
+    // A read already in flight may have been answered before: it is replaced, not joined.
+    const readAgain = () =>
+      void reread(queryClient, [spacesKeys.space(spaceId), spacesKeys.everyParticipants(spaceId)]);
     const { release } = realtime().subscribe(`space:${spaceId}`, {
       // In effect (first, or again after a gap): the room as read before may lack what was
       // pushed in between.
-      onSubscribed: reread,
+      onSubscribed: readAgain,
       // Banned, removed, blocked, the room deleted: reading it again shows what is left to see
       // (for a ban, "not found").
-      onRevoked: reread,
+      onRevoked: readAgain,
     });
     room = { holders: 0, release };
     followedRooms.set(spaceId, room);

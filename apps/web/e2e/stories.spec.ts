@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
-import type { APIRequestContext, Browser, Page, WebSocketRoute } from "@playwright/test";
+import type { APIRequestContext, Browser, Page } from "@playwright/test";
+import { droppableConnection } from "./races";
 import { type Account, befriend, createAccount, expect, rpc, signInAs, test } from "./support";
 
 // These tests upload pictures, wait for the server to process them, and use two browsers.
@@ -456,35 +457,6 @@ test("when a friend ends the friendship, their notes and their story leave the o
   await expect(page.getByTestId("story-reel")).toHaveCount(0);
   await expect(note).toHaveCount(0);
 });
-
-/**
- * Keeps the page's realtime connection on WebSocket, which Playwright can stand in. `drop()`
- * closes it; what it returns says whether the connection after it was welcomed yet.
- */
-async function droppableConnection(page: Page) {
-  await page.addInitScript(() => {
-    Reflect.deleteProperty(globalThis, "WebTransport");
-  });
-  const sockets: { ws: WebSocketRoute; welcomed: boolean }[] = [];
-  await page.routeWebSocket(/\/rt\/ws/, (ws) => {
-    const socket = { ws, welcomed: false };
-    sockets.push(socket);
-    const server = ws.connectToServer();
-    ws.onMessage((message) => server.send(message));
-    server.onMessage((message) => {
-      socket.welcomed = true;
-      ws.send(message);
-    });
-  });
-  return {
-    async drop() {
-      await expect.poll(() => sockets.at(-1)?.welcomed).toBe(true);
-      const next = sockets.length;
-      await sockets.at(-1)?.ws.close();
-      return () => sockets[next]?.welcomed === true;
-    },
-  };
-}
 
 test("a story deleted while the tray was read again does not come back with that read", async ({
   page,
