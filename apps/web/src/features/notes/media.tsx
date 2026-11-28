@@ -3,6 +3,7 @@ import { type common, media, type notes } from "@tokuly/api";
 import { ChevronLeft, ChevronRight, Play, Volume2, VolumeX, X } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { cn } from "#/lib/cn";
+import { loadHls } from "#/lib/hls";
 import { useTranslation } from "#/lib/use-translation";
 
 /** The smallest stored rendition that still covers `cssPixels` on this screen. */
@@ -306,12 +307,13 @@ export function useVideoSource(
     }
     let cancelled = false;
     let destroy: (() => void) | undefined;
-    void import("hls.js").then(({ default: Hls }) => {
+    // Without the player (or its code), the plain file.
+    const playMp4 = () => {
+      if (!cancelled) target.src = mp4Url;
+    };
+    loadHls().then(({ default: Hls }) => {
       if (cancelled) return;
-      if (!Hls.isSupported()) {
-        target.src = mp4Url;
-        return;
-      }
+      if (!Hls.isSupported()) return playMp4();
       const hls = new Hls({ capLevelToPlayerSize: true, startLevel: -1 });
       hls.on(Hls.Events.ERROR, (_event, data) => {
         // A stream that cannot be played falls back to the plain file.
@@ -323,7 +325,7 @@ export function useVideoSource(
       hls.loadSource(hlsUrl);
       hls.attachMedia(target);
       destroy = () => hls.destroy();
-    });
+    }, playMp4);
     return () => {
       cancelled = true;
       destroy?.();

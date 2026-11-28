@@ -72,6 +72,10 @@
           }
         }
       }
+    },
+    {
+      "includes": ["apps/web/src/**", "!apps/web/src/**/*.test.ts", "!apps/web/src/**/*.test.tsx"],
+      "plugins": ["./apps/web/lint/no-bare-import.grit"]
     }
   ]
 }
