@@ -1,7 +1,7 @@
 import { focusManager, onlineManager, QueryObserver } from "@tanstack/react-query";
+import { journal } from "@tokuly/core/query";
 import { addNetworkStateListener } from "expo-network";
 import { AppState, type AppStateStatus } from "react-native";
-import { journal } from "@tokuly/core/query";
 import { createQueryClient } from "../query";
 
 /** What the phone tells the app, as the app listens for it. */
