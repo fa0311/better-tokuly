@@ -45,47 +45,47 @@ W = web, M = mobile. "Reconnect only" means the first `Welcome` is skipped
 
 | Area | Ordering today | What goes wrong | Issue |
 |---|---|---|---|
-| Map: friends' pins (W M) | snapshot tickets, `removalSequence`, sample time | presence pushed during a snapshot is lost | #L8 |
-| Map: gatherings, trips (W) | `setQueryData`, reconnect only | an ended gathering or trip, or a member who left, comes back with positions | #H8 |
-| Map: SOS, alerts (W) | invalidate, reconnect only | an SOS sent before the first `Welcome` waits for a refetch | #M1 |
-| Chat: conversations list (W M) | every `Welcome`, `aheadOf` by `lastSeq` | a conversation left, removed from or hidden comes back; a row's preview and unread go back | #H1, #L2 |
-| Chat: timeline (W M) | `seq`, union by ID, catch-up by `lastSeq` | an unsent or edited message comes back from a page read before | #H2 |
+| Map: friends' pins (W M) | snapshot tickets, `removalSequence`, sample time | presence pushed during a snapshot is lost | #538 |
+| Map: gatherings, trips (W) | `setQueryData`, reconnect only | an ended gathering or trip, or a member who left, comes back with positions | #520 |
+| Map: SOS, alerts (W) | invalidate, reconnect only | an SOS sent before the first `Welcome` waits for a refetch | #524 |
+| Chat: conversations list (W M) | every `Welcome`, `aheadOf` by `lastSeq` | a conversation left, removed from or hidden comes back; a row's preview and unread go back | #513, #532 |
+| Chat: timeline (W M) | `seq`, union by ID, catch-up by `lastSeq` | an unsent or edited message comes back from a page read before | #514 |
 | Chat: unread totals, read cursors, typing, calls (W M) | version counter, forward-only cursors, `asOf` | — | |
-| Notifications: inbox, badge (W M) | cancel + reread, every `Welcome` | the list's own read overwrites a newer pushed unread count | #L3 |
-| Friends (W M) | invalidate only, no `Welcome` handling | W: an ex-friend or a blocker stays in the list, a withdrawn request in the badge | #M4 |
-| Notes: timelines (W M) | hints on every `Welcome` (W), reconnect only (M) | a note posted before the first `Welcome` is missed | #M2 |
-| Notes: card topic (W M) | no read on `onSubscribed` | a note deleted or edited before its topic took effect stays as it was | #M3 |
-| Notes: forgetting a person (W M) | `setQueryData`, no journal | an ex-friend's or a blocker's notes come back from a page read before | #H3 |
-| Comments (W) | `onSubscribed` invalidates, `setQueriesData` | a removed comment comes back; replies are never read again | #H9 |
-| Community (W M) | invalidate, `onSubscribed` on the community | a removed reply comes back | #H10 |
-| Moments (W M) | `setQueryData`, reconnect only | a deleted moment, or an ex-friend's, comes back; W never forgets a person who unfriends | #H5, #M5 |
-| Stories (W M) | `setQueryData`, reconnect only | a deleted story, or an ex-friend's reel, comes back in the tray | #H4 |
-| Plans (W M) | `setQueryData(null)` on removal, reconnect only | a plan the person was removed from, or a deleted poll, comes back | #H6 |
-| Shorts (W M) | W `resetQueries` | M: an ex-friend's friends-only shorts keep playing | #M6 |
-| Spaces: hangouts (W M) | `setQueryData`, reconnect only | a hangout the person was removed from comes back with who is inside | #H7 |
-| Spaces: rooms (W M) | `onSubscribed` invalidates | an ended room shows LIVE again; someone who left is back on stage | #M7 |
+| Notifications: inbox, badge (W M) | cancel + reread, every `Welcome` | the list's own read overwrites a newer pushed unread count | #533 |
+| Friends (W M) | invalidate only, no `Welcome` handling | W: an ex-friend or a blocker stays in the list, a withdrawn request in the badge | #527 |
+| Notes: timelines (W M) | hints on every `Welcome` (W), reconnect only (M) | a note posted before the first `Welcome` is missed | #525 |
+| Notes: card topic (W M) | no read on `onSubscribed` | a note deleted or edited before its topic took effect stays as it was | #526 |
+| Notes: forgetting a person (W M) | `setQueryData`, no journal | an ex-friend's or a blocker's notes come back from a page read before | #515 |
+| Comments (W) | `onSubscribed` invalidates, `setQueriesData` | a removed comment comes back; replies are never read again | #521 |
+| Community (W M) | invalidate, `onSubscribed` on the community | a removed reply comes back | #522 |
+| Moments (W M) | `setQueryData`, reconnect only | a deleted moment, or an ex-friend's, comes back; W never forgets a person who unfriends | #517, #528 |
+| Stories (W M) | `setQueryData`, reconnect only | a deleted story, or an ex-friend's reel, comes back in the tray | #516 |
+| Plans (W M) | `setQueryData(null)` on removal, reconnect only | a plan the person was removed from, or a deleted poll, comes back | #518 |
+| Shorts (W M) | W `resetQueries` | M: an ex-friend's friends-only shorts keep playing | #529 |
+| Spaces: hangouts (W M) | `setQueryData`, reconnect only | a hangout the person was removed from comes back with who is inside | #519 |
+| Spaces: rooms (W M) | `onSubscribed` invalidates | an ended room shows LIVE again; someone who left is back on stage | #530 |
 | Live: chat (W M) | journal, `onSubscribed` | — | |
-| Live: stream page (W M) | `onSubscribed` reread, `setQueryData` | a deleted message comes back as the pin or a highlight; a pin change goes back | #H11 |
-| Live: overlay (W) | journal | a revoked widget comes back, frozen | #L10 |
-| Watch party, video cards (W M) | party: journal + `sequence` | heartbeat playback lost to a reload; a pushed card overwritten | #L9 |
+| Live: stream page (W M) | `onSubscribed` reread, `setQueryData` | a deleted message comes back as the pin or a highlight; a pin change goes back | #523 |
+| Live: overlay (W) | journal | a revoked widget comes back, frozen | #540 |
+| Watch party, video cards (W M) | party: journal + `sequence` | heartbeat playback lost to a reload; a pushed card overwritten | #539 |
 | School: room (W) | journal, `onSubscribed` | — | |
-| School: own session (W M) | timer `serverTime` | a stopped session comes back until the heartbeat fails | #L1 |
+| School: own session (W M) | timer `serverTime` | a stopped session comes back until the heartbeat fails | #531 |
 | Wallet: balance (W M) | `revision`, every `Welcome` | — | |
-| Wallet: ledger, purchases, payouts (W M) | `setQueryData`, reconnect only | a new entry or status is overwritten by an older page | #L4 |
-| Ask (W M) | `setQueryData`; every `Welcome` (W), reconnect only (M) | a new question drops out of the inbox and badge | #L5 |
-| Quest (W M) | write + invalidate, reconnect only | a level up goes back to the old level | #L6 |
-| Emoji catalogue (W M) | `version`, `onSubscribed` sync | the sync on `onSubscribed` joins one read before it | #L7 |
-| Engagement, counters (W) | `setQueryData`, reconnect only | counts go back to an older read | #L11 |
+| Wallet: ledger, purchases, payouts (W M) | `setQueryData`, reconnect only | a new entry or status is overwritten by an older page | #534 |
+| Ask (W M) | `setQueryData`; every `Welcome` (W), reconnect only (M) | a new question drops out of the inbox and badge | #535 |
+| Quest (W M) | write + invalidate, reconnect only | a level up goes back to the old level | #536 |
+| Emoji catalogue (W M) | `version`, `onSubscribed` sync | the sync on `onSubscribed` joins one read before it | #537 |
+| Engagement, counters (W) | `setQueryData`, reconnect only | counts go back to an older read | #541 |
 | Footprints, history (W) | invalidate / `resetQueries` | — | |
 
 ## Adopting it, smallest steps first
 
 1. `rereadOnWelcome` in `@tokuly/core/query`; every `connectedBefore`,
-   `afterReconnect` and `rereadListsAfterReconnect` caller moves to it (#M1),
-   and mobile notes gets #486 (#M2).
-2. Topic reads replace a read in flight: notes cards, emoji (#M3, #L7).
+   `afterReconnect` and `rereadListsAfterReconnect` caller moves to it (#524),
+   and mobile notes gets #486 (#525).
+2. Topic reads replace a read in flight: notes cards, emoji (#526, #537).
 3. The missing removal handlers: web moments, mobile shorts, web friends
-   (#M4, #M5, #M6).
+   (#527, #528, #529).
 4. `journaled` / `pushTo`, then each area that writes with `setQueryData`,
    privacy first: chat, notes, stories, moments, plans, hangouts, gatherings,
    comments, community, live pins; counters last.
