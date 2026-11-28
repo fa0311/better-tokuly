@@ -655,6 +655,16 @@ message AppearanceSettings {
   string distance_unit = 7;
   // Autoplay videos in feeds.
   bool autoplay = 8;
+  // Colours of the theme editor, over the app's own and accent_color. Empty:
+  // the app's colours.
+  ThemeColors custom_colors = 9;
+}
+
+// Design tokens recoloured, per theme: a token name ("bg", "ink-soft", ...)
+// to #rrggbb, at most 64 per theme. A client ignores names it does not know.
+message ThemeColors {
+  map<string, string> light = 1;
+  map<string, string> dark = 2;
 }
 
 message Settings {

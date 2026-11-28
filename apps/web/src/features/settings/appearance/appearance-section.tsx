@@ -1,5 +1,7 @@
+import { Link } from "@tanstack/react-router";
 import type { identity } from "@tokuly/api";
-import { Check } from "lucide-react";
+import { withoutBrand } from "@tokuly/core/theme";
+import { Check, ChevronRight, Paintbrush } from "lucide-react";
 import { Skeleton } from "#/components/ui/page";
 import { SelectField } from "#/components/ui/select";
 import { Slider } from "#/components/ui/slider";
@@ -11,6 +13,7 @@ import { useChangeSettings, useSettings } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";
 import { ACCENTS, accentTokens, isAccentColor } from "./accent";
 import { MAX_LEVEL, setAppearance, useAppearance } from "./appearance-store";
+import { accountColors, customColorsMessage } from "./colors";
 import { DopaminePreview } from "./dopamine-preview";
 import { ThemePicker } from "./theme-picker";
 
@@ -81,8 +84,15 @@ export function AppearanceSection() {
           <Group title={t("appearance.accent.title")} lead={t("appearance.accent.lead")}>
             <AccentPicker
               value={settings.accentColor}
-              onChange={(accentColor) => save({ accentColor })}
+              // The brand tokens follow the new accent, also where the theme editor had changed them.
+              onChange={(accentColor) =>
+                save({
+                  accentColor,
+                  customColors: customColorsMessage(withoutBrand(accountColors(settings).custom)),
+                })
+              }
             />
+            <ThemeEditorLink />
           </Group>
 
           <Group title={t("appearance.map.title")} flush>
@@ -138,6 +148,26 @@ export function AppearanceSection() {
         <Skeleton className="mt-7 h-64" />
       )}
     </SettingsPage>
+  );
+}
+
+/** The way to the theme editor, for more than an accent. */
+function ThemeEditorLink() {
+  const { t } = useTranslation("themeEditor");
+  return (
+    <Link
+      to="/settings/appearance/theme"
+      className="-mx-2 mt-4 -mb-2 flex items-center gap-3 rounded-2xl border-t-2 border-line px-2 pt-3 pb-2 hover:bg-surface-2"
+    >
+      <span className="grid size-10 shrink-0 place-items-center rounded-full border-2 border-ink bg-sun text-[#17122b]">
+        <Paintbrush className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-black">{t("entry.title")}</span>
+        <span className="block text-sm text-ink-soft">{t("entry.hint")}</span>
+      </span>
+      <ChevronRight className="size-5 shrink-0 text-ink-soft" />
+    </Link>
   );
 }
 

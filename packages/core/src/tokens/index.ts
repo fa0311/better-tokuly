@@ -15,7 +15,8 @@ const light = {
   "ink-faint": "#9993ad",
   line: "#ddd6ee",
   shadow: "#17122b",
-  brand: "#7c5cff",
+  // Deep enough for white text on it, and for it as text on white (4.5:1).
+  brand: "#7859f7",
   "brand-strong": "#5f3df0",
   "brand-soft": "#e9e3ff",
   "on-brand": "#ffffff",

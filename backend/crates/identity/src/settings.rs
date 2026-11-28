@@ -12,7 +12,7 @@
 use tokuly_core::prelude::*;
 use tokuly_proto::{
     common::Visibility,
-    identity::{AppearanceSettings, Audience, PrivacySettings, Settings},
+    identity::{AppearanceSettings, Audience, PrivacySettings, Settings, ThemeColors},
 };
 
 pub fn default_privacy() -> PrivacySettings {
@@ -260,10 +260,7 @@ pub fn validate_appearance(a: &AppearanceSettings) -> AppResult<()> {
         "SETTINGS_INVALID",
         "invalid map style"
     );
-    let color_ok = a.accent_color.len() == 7
-        && a.accent_color.starts_with('#')
-        && a.accent_color[1..].bytes().all(|b| b.is_ascii_hexdigit());
-    ensure!(color_ok, invalid, "SETTINGS_INVALID", "accent_color must be #rrggbb");
+    ensure!(is_hex_color(&a.accent_color), invalid, "SETTINGS_INVALID", "accent_color must be #rrggbb");
     ensure!((0..=5).contains(&a.dopamine_level), invalid, "SETTINGS_INVALID", "dopamine_level must be 0-5");
     ensure!(
         matches!(a.distance_unit.as_str(), "km" | "mi"),
@@ -271,6 +268,41 @@ pub fn validate_appearance(a: &AppearanceSettings) -> AppResult<()> {
         "SETTINGS_INVALID",
         "distance_unit must be km or mi"
     );
+    if let Some(colors) = a.custom_colors.as_option() {
+        validate_theme_colors(colors)?;
+    }
+    Ok(())
+}
+
+/// Most tokens one theme of the theme editor may recolour (the apps have 22).
+const MAX_THEME_COLORS: usize = 64;
+
+fn is_hex_color(value: &str) -> bool {
+    value.len() == 7 && value.starts_with('#') && value[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Token names stay short kebab-case names; which ones exist is the apps' business.
+fn is_token_name(name: &str) -> bool {
+    (1..=32).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+fn validate_theme_colors(colors: &ThemeColors) -> AppResult<()> {
+    for theme in [&colors.light, &colors.dark] {
+        ensure!(
+            theme.len() <= MAX_THEME_COLORS,
+            invalid,
+            "SETTINGS_INVALID",
+            "at most {MAX_THEME_COLORS} custom colours per theme"
+        );
+        for (name, color) in theme {
+            ensure!(
+                is_token_name(name) && is_hex_color(color),
+                invalid,
+                "SETTINGS_INVALID",
+                "custom colours map token names to #rrggbb"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -329,6 +361,29 @@ mod tests {
         assert!(validate_privacy(&p).is_ok());
         p.friend_requests_from = Audience::AUDIENCE_UNSPECIFIED.into();
         assert!(validate_privacy(&p).is_err());
+    }
+
+    #[test]
+    fn custom_colors_are_token_names_to_hex_colors_and_survive_json() {
+        let mut a = default_appearance();
+        let mut colors = ThemeColors::default();
+        colors.light.insert("ink-soft".into(), "#334455".into());
+        colors.dark.insert("bg".into(), "#000000".into());
+        a.custom_colors = colors.clone().into();
+        assert!(validate_appearance(&a).is_ok());
+        let back = appearance_from_json(&serde_json::to_value(&a).unwrap());
+        assert_eq!(back.custom_colors.as_option(), Some(&colors));
+
+        for (name, color) in [("ink", "red"), ("Ink", "#334455"), ("", "#334455"), ("a;b", "#334455")] {
+            let mut bad = ThemeColors::default();
+            bad.light.insert(name.into(), color.into());
+            a.custom_colors = bad.into();
+            assert!(validate_appearance(&a).is_err(), "{name}: {color}");
+        }
+        let mut many = ThemeColors::default();
+        many.dark = (0..=MAX_THEME_COLORS).map(|i| (format!("t{i}"), "#000000".to_string())).collect();
+        a.custom_colors = many.into();
+        assert!(validate_appearance(&a).is_err());
     }
 
     #[test]

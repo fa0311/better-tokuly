@@ -1,7 +1,6 @@
 /**
- * The accent colour of the account, applied on top of the theme: the brand
- * tokens of `styles.css` are redefined for both themes in a small stylesheet
- * of our own, so every `bg-brand` / `text-brand` in the app follows.
+ * The accent colour of the account: the brand tokens it gives each theme
+ * (`colors.ts` applies them).
  */
 
 /** The colour the design ships with; choosing it removes the override. */
@@ -18,9 +17,6 @@ export const ACCENTS = [
   { id: "blue", color: "#2f7df6" },
   { id: "ink", color: "#4a4266" },
 ] as const;
-
-const ACCENT_KEY = "tokuly.accent";
-const STYLE_ID = "tokuly-accent";
 
 type Rgb = [number, number, number];
 
@@ -52,7 +48,8 @@ function luminance(rgb: Rgb): number {
 
 const WHITE: Rgb = [255, 255, 255];
 const BLACK: Rgb = [0, 0, 0];
-const INK = "#17122b";
+/** A colour at most this light has a 4.5:1 contrast with white: white text on it, and it as text on white. */
+const LIGHT_THEME_MAX_LUMINANCE = 1.05 / 4.5 - 0.05;
 /** The dark theme's page background. */
 const NIGHT: Rgb = [13, 11, 20];
 /** A colour at least this light has a 4.5:1 contrast against the dark theme's surfaces. */
@@ -66,9 +63,10 @@ export interface AccentTokens {
 }
 
 /**
- * The brand tokens for an accent colour, per theme. Light: the colour itself
- * with white or ink text on it, whichever reads better. Dark: a lighter tint
- * (as the shipped palette does) with dark text on it.
+ * The brand tokens for an accent colour, per theme. Light: the colour,
+ * deepened only as far as small text needs (4.5:1 for white text on it and
+ * for it as text on white), with white text on it. Dark: a lighter tint (as
+ * the shipped palette does) with dark text on it.
  */
 export function accentTokens(color: string): { light: AccentTokens; dark: AccentTokens } {
   const accent = parse(color);
@@ -77,12 +75,17 @@ export function accentTokens(color: string): { light: AccentTokens; dark: Accent
   while (luminance(mix(accent, WHITE, lightening)) < DARK_THEME_MIN_LUMINANCE && lightening < 1)
     lightening += 0.05;
   const tint = mix(accent, WHITE, lightening);
+  // In steps of 1%, on the colour as it is written (#rrggbb), so the default comes out as shipped.
+  let deepening = 0;
+  const deepened = () => parse(format(mix(accent, BLACK, deepening)));
+  while (luminance(deepened()) > LIGHT_THEME_MAX_LUMINANCE && deepening < 1) deepening += 0.01;
+  const brand = deepened();
   return {
     light: {
-      brand: format(accent),
-      brandStrong: format(mix(accent, BLACK, 0.22)),
+      brand: format(brand),
+      brandStrong: format(mix(brand, BLACK, 0.22)),
       brandSoft: format(mix(accent, WHITE, 0.84)),
-      onBrand: luminance(accent) > 0.4 ? INK : "#ffffff",
+      onBrand: "#ffffff",
     },
     dark: {
       brand: format(tint),
@@ -91,31 +94,4 @@ export function accentTokens(color: string): { light: AccentTokens; dark: Accent
       onBrand: luminance(tint) > 0.2 ? "#120c2b" : "#ffffff",
     },
   };
-}
-
-function rule(selector: string, tokens: AccentTokens): string {
-  return `${selector}{--brand:${tokens.brand};--brand-strong:${tokens.brandStrong};--brand-soft:${tokens.brandSoft};--on-brand:${tokens.onBrand};}`;
-}
-
-/** Applies an accent colour to the whole app and remembers it for the next visit. */
-export function applyAccent(color: string): void {
-  const accent = isAccentColor(color) ? color.toLowerCase() : DEFAULT_ACCENT;
-  const existing = document.getElementById(STYLE_ID);
-  if (accent === DEFAULT_ACCENT) {
-    existing?.remove();
-    window.localStorage.removeItem(ACCENT_KEY);
-    return;
-  }
-  const tokens = accentTokens(accent);
-  const style =
-    existing ??
-    document.head.appendChild(Object.assign(document.createElement("style"), { id: STYLE_ID }));
-  style.textContent = rule(":root", tokens.light) + rule(':root[data-theme="dark"]', tokens.dark);
-  window.localStorage.setItem(ACCENT_KEY, accent);
-}
-
-/** The accent applied on the last visit (the default when none was chosen). */
-export function storedAccent(): string {
-  const value = window.localStorage.getItem(ACCENT_KEY);
-  return value && isAccentColor(value) ? value : DEFAULT_ACCENT;
 }

@@ -2,8 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { api } from "#/lib/api";
 import { useMe } from "#/stores/session";
-import { applyAccent, storedAccent } from "./appearance/accent";
 import { isThemeSetting, setAppearance, useAppearance } from "./appearance/appearance-store";
+import { accountColors, applyColors } from "./appearance/colors";
 import { PRIVATE_KEYS, useSettings } from "./data";
 
 /** Which account's look this browser last took over from the server (forgotten on sign-out). */
@@ -16,7 +16,7 @@ const OWNER_KEY = "tokuly.appearanceOwner";
  *   ドパガキ度 are taken over from the server (afterwards the browser's own
  *   copy leads, as `#/lib/appearance` keeps it, and every change is saved to
  *   the account too);
- * - the account's accent colour is applied;
+ * - the account's colours (accent, theme editor) are applied;
  * - "system" theme follows the device when it switches between light and dark;
  * - what was read about the account (settings, devices, passkeys, blocks) is
  *   forgotten when it signs out, so the next person on this browser starts clean.
@@ -44,9 +44,12 @@ export default function SettingsBackground() {
     [queryClient],
   );
 
-  // Until the settings arrive, the colour of the last visit avoids a flash of the default.
-  const accent = appearance ? appearance.accentColor : storedAccent();
-  useEffect(() => applyAccent(accent), [accent]);
+  // Until the settings arrive, the boot script has put up the colours of the last visit.
+  // Compared by value: a save's answer repeats what the theme editor already shows.
+  const look = appearance ? JSON.stringify(accountColors(appearance)) : undefined;
+  useEffect(() => {
+    if (look) applyColors(JSON.parse(look));
+  }, [look]);
 
   useEffect(() => {
     if (theme !== "system") return;
