@@ -81,7 +81,7 @@ env:
     visible: { id: "note-text" }
     timeout: 15000
 - inputText: ${output.note}
-- hideKeyboard
+# Not hideKeyboard (a back press on Android): see notes.yaml. The bar rides on the keyboard.
 - tapOn: { id: "note-add-stamp" }
 - tapOn: { id: "${'stamp-shelf-pack:' + output.packId}" }
 - extendedWaitUntil:
