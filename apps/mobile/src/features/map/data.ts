@@ -58,13 +58,13 @@ export function useMapSync(): void {
     const loadSnapshot = async () => {
       try {
         const response = await locationClient().listFriendLocations({});
-        if (!cancelled) useLocations.getState().setSnapshot(response.locations);
+        if (!cancelled) useLocations.getState().setSnapshot(response);
       } catch {
         // The live stream still delivers updates; the next reconnect retries.
       }
     };
-    const forget = (userId: string) => {
-      useLocations.getState().remove(userId);
+    const forget = (userId: string, removalSequence?: bigint) => {
+      useLocations.getState().remove(userId, removalSequence);
       void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
     };
 
@@ -81,7 +81,8 @@ export function useMapSync(): void {
       } else if (body.case === "geo") {
         const event = body.value.event;
         if (event.case === "location") useLocations.getState().upsert(event.value);
-        else if (event.case === "locationRemovedUserId") forget(event.value);
+        else if (event.case === "locationRemovedUserId")
+          forget(event.value, body.value.removalSequence);
       } else if (body.case === "social") {
         const event = body.value.event;
         if (event.case === "friendRemovedUserId") forget(event.value);
@@ -108,9 +109,7 @@ export function useMapSync(): void {
       offFrame();
       offForeground();
       offCache();
-      const store = useLocations.getState();
-      store.setSnapshot([]);
-      store.setOwn(null);
+      useLocations.getState().clear();
     };
   }, [queryClient]);
 }

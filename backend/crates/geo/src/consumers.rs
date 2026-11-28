@@ -133,8 +133,8 @@ impl Geo {
         .execute(&self.core.db)
         .await?;
         self.invalidate_ctx(&[a, b]).await;
-        self.push(a, Push::LocationRemovedUserId(b.to_string())).await;
-        self.push(b, Push::LocationRemovedUserId(a.to_string())).await;
+        self.push_removed(&[a], b).await;
+        self.push_removed(&[b], a).await;
         Ok(())
     }
 
@@ -149,7 +149,7 @@ impl Geo {
     async fn hide_user(&self, user_id: Uuid) -> AppResult<()> {
         self.invalidate_ctx(&[user_id]).await;
         let friends = tokuly_social::graph::friend_ids(&self.core, user_id).await?;
-        self.push_many(friends, Push::LocationRemovedUserId(user_id.to_string())).await;
+        self.push_removed(&friends, user_id).await;
         geoindex::remove(&self.core.cache, user_id).await?;
         self.leave_gathering(user_id).await
     }
@@ -362,6 +362,7 @@ impl Geo {
 
         self.delete_points(user_id, DateTime::UNIX_EPOCH, Utc::now() + chrono::Duration::days(3650)).await?;
         self.drop_state(user_id).await?;
+        self.drop_removals(user_id).await?;
         geoindex::remove(&self.core.cache, user_id).await?;
         self.forget_language(user_id);
         affected.push(user_id);

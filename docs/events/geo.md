@@ -197,7 +197,7 @@ Durable consumer `geo` (`Geo::handle_event`). Every handler is idempotent.
 
 | Topic | Reaction |
 |---|---|
-| `identity.user.deleted` | Deletes every row about the user (places with their photos' holds and search documents, saved places, visits, nights, hourly totals, memos and their holds, cells, region stats, trips from/to them, alerts by/about them, SOS, live shares, gathering membership, bumps, ghost rules by/for them), their raw points in ClickHouse, live state, cached context and geoindex entry; ends their live shares on the topic; takes them off other people's active SOS. |
+| `identity.user.deleted` | Deletes every row about the user (places with their photos' holds and search documents, saved places, visits, nights, hourly totals, memos and their holds, cells, region stats, trips from/to them, alerts by/about them, SOS, live shares, gathering membership, bumps, ghost rules by/for them), their raw points in ClickHouse, live state, removal count, cached context and geoindex entry; ends their live shares on the topic; takes them off other people's active SOS. |
 | `identity.user.privacy_changed` | Rebuilds the cached context, mirrors `footprints_visible_to` into `geo_users`, closes the open visit and drops pending distance when `record_history` was switched off, and re-pushes the pin to friends (battery/activity/halo/badge follow at once). |
 | `identity.user.status_changed`, `identity.user.updated` | Rebuilds the cached context (status emoji, language) and re-pushes the pin to friends. |
 | `identity.user.banned` / `identity.user.unbanned` | Banned: `location_removed_user_id` to friends, off the geoindex, out of gatherings, samples ignored. Unbanned: pin pushed again. |
@@ -224,7 +224,7 @@ Durable consumer `geo` (`Geo::handle_event`). Every handler is idempotent.
 |---|---|---|
 | `location` | each friend, in their own view | An accepted sample changed the pin (moved 5 m or more, or battery/activity/place/stay/pause changed) or 30 s passed; and at once after a change to ghost rules, privacy, status, a trip, an SOS, or a new friendship. Friends under FROZEN are skipped. |
 | `location` on topic `share:<token>` | anyone subscribed | The sharer's pin (public view: position and movement, no badge, halo or status). |
-| `location_removed_user_id` | both sides / friends | Unfriended, blocked, banned. On `share:<token>`: the share ended (revoked, expired, account deleted). |
+| `location_removed_user_id` | both sides / friends | Unfriended, blocked, banned. Numbered per recipient (`removal_sequence`); a snapshot carries the count it was read at, so a snapshot that answers after a later removal does not bring the user back. On `share:<token>`: the share ended (revoked, expired, account deleted). |
 | `visit` | friends who see the precise pin | Arrival at / departure from a place they may know about (badge for home/work/school, name for shared or public places), and check-ins. |
 | `gathering_updated` / `gathering_ended_id` | members and their friends | Membership changed. Each viewer gets only members who are their friends and visible precisely to them; with fewer than two such members they get `gathering_ended_id`. |
 | `trip_updated` | the traveller and the people the trip is shared with | Started, progress (at most every 20 s unless the ETA moved by a minute), arrived, cancelled, replaced. Destination coordinates and route only where the viewer may have them. |
@@ -303,6 +303,7 @@ No job-queue jobs. `Geo::spawn_workers` starts:
 | `geo:pos:sight:<user>` | JSON (`tokuly_core::geoindex`) | Who sees the user precisely, for questions other domains ask the position index about pairs. |
 | `geo:pin:shown:<user>` | hash viewer → view, 7 days | What each blurred viewer was last sent of the user's pin. |
 | `geo:watching:<viewer>` | marker, 90 s | The viewer loaded friends' pins and is pushed their updates (set by `ListFriendLocations`, kept by a `WatchFriendLocations` stream). |
+| `geo:removals:<viewer>` | counter, 30 days | How many `location_removed_user_id` the viewer was pushed. Read before a snapshot, increased before each removal is pushed. Lost, it starts over: an app holding higher numbers keeps those users off the map until their next pin. |
 | `geo:gathering:shown:<gathering>` | hash viewer → view, 7 days | What each viewer was last shown of a gathering: updates are pushed only when it changes, the end only to viewers in here. |
 | `geo:history:deleted:<user>` | JSON, 6 h | Ranges of raw history the user deleted: every process drops matching points still waiting in its buffer. |
 | `geo:share:seen:<share>:<ip>` | marker, 1 h | Counts each visitor of a share link once. |

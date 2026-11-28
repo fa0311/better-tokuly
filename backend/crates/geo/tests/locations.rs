@@ -9,6 +9,7 @@ use tokuly_proto::{
     geo::{geo_event::Event as Push, watch_friend_locations_response::Update, *},
     identity::{SetStatusRequest, SetStatusResponse},
 };
+use tokuly_testkit::{FrameListener, TestUser};
 
 #[tokio::test]
 async fn a_friend_away_from_the_app_is_not_pushed_to_and_finds_the_pin_on_opening_it() {
@@ -753,6 +754,48 @@ async fn friendship_changes_show_and_remove_pins() {
     ctx.befriend(&aoi, &ren).await;
     ctx.deliver("social.user.blocked", aoi.id, serde_json::json!({ "user_id": aoi.id, "blocked_id": ren.id })).await;
     assert_eq!(removed(pushes(&mut rens, QUIET).await), Some(aoi.id.to_string()));
+}
+
+/// A snapshot can answer after a removal pushed later than it was read: the
+/// removal's number, higher than the snapshot's, tells the app so.
+#[tokio::test]
+async fn removals_are_numbered_against_the_snapshot() {
+    let ctx = start().await;
+    let (aoi, ren, kai) = (ctx.app.user("aoi").await, ctx.app.user("ren").await, ctx.app.user("kai").await);
+    ctx.befriend(&aoi, &ren).await;
+    ctx.befriend(&kai, &ren).await;
+    let mut rens = ctx.open_app(&ren).await;
+    async fn snapshot(ctx: &Ctx, viewer: &TestUser) -> i64 {
+        let response: ListFriendLocationsResponse =
+            ctx.location("ListFriendLocations", viewer, &ListFriendLocationsRequest::default()).await.unwrap();
+        response.removal_sequence
+    }
+    async fn removal(listener: &mut FrameListener) -> Option<(String, i64)> {
+        let deadline = tokio::time::Instant::now() + SOON;
+        loop {
+            let left = deadline.checked_duration_since(tokio::time::Instant::now())?;
+            let Some(event) = listener.next(left).await?.event::<GeoEvent>() else { continue };
+            if let Some(Push::LocationRemovedUserId(id)) = event.event {
+                return Some((id, event.removal_sequence));
+            }
+        }
+    }
+    let before = snapshot(&ctx, &ren).await;
+
+    ctx.unfriend(&aoi, &ren).await;
+    let (removed, first) = removal(&mut rens).await.expect("removal pushed");
+    assert_eq!(removed, aoi.id.to_string());
+    assert!(first > before, "a snapshot read before the removal counts fewer removals");
+    assert_eq!(snapshot(&ctx, &ren).await, first, "one read after it counts it");
+
+    sqlx::query("UPDATE users SET banned_at = now() WHERE id = $1")
+        .bind(kai.id)
+        .execute(&ctx.app.core.db)
+        .await
+        .unwrap();
+    ctx.deliver("identity.user.banned", kai.id, serde_json::json!({ "user_id": kai.id })).await;
+    assert_eq!(removal(&mut rens).await, Some((kai.id.to_string(), first + 1)), "numbered per viewer, in order");
+    assert_eq!(snapshot(&ctx, &aoi).await, 1, "each viewer counts their own removals");
 }
 
 #[tokio::test]
