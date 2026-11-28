@@ -1,9 +1,10 @@
 import { create } from "@bufbuild/protobuf";
 import { QueryClient } from "@tanstack/query-core";
 import { community } from "@tokuly/api";
-import { describe, expect, it } from "vitest";
-import { applyCommunityEvent, upsertReply } from "./cache";
+import { describe, expect, it, vi } from "vitest";
+import { applyCommunityEvent, rereadCommunity, upsertReply } from "./cache";
 import { communityKeys } from "./keys";
+import { communityQueries } from "./queries";
 
 const thread = create(community.ThreadSchema, { id: "t1", communityId: "c1", replyCount: 1 });
 const reply = (id: string) => create(community.ReplySchema, { id, threadId: "t1" });
@@ -70,5 +71,148 @@ describe("threads and replies in the cache", () => {
       communityKeys.replies("t1", false),
     );
     expect(replies?.pages[0]?.items).toEqual([]);
+  });
+});
+
+describe("reads on their way", () => {
+  /** A board server whose answers the test hands out. */
+  function slowBoards() {
+    const replies: ((items: community.Reply[]) => void)[] = [];
+    const got: ((reply: community.Reply) => void)[] = [];
+    const threads: ((thread: community.Thread) => void)[] = [];
+    const signals: AbortSignal[] = [];
+    const client = {
+      listReplies: (_request: unknown, options: { signal: AbortSignal }) => {
+        signals.push(options.signal);
+        return new Promise((resolve) =>
+          replies.push((items) => resolve({ replies: items, page: { nextCursor: "" } })),
+        );
+      },
+      getThread: () => new Promise((resolve) => threads.push((thread) => resolve({ thread }))),
+      getReply: () => new Promise((resolve) => got.push((reply) => resolve({ reply }))),
+    };
+    return { boards: () => client as never, replies, got, threads, signals };
+  }
+  const removed = (replyId: string) =>
+    ({
+      case: "replyRemoved",
+      value: create(community.ReplyRemovedSchema, {
+        communityId: "c1",
+        threadId: "t1",
+        replyId,
+        replyCount: 1,
+      }),
+    }) as const;
+  const ids = (queryClient: QueryClient) =>
+    queryClient
+      .getQueryData<Pages<community.Reply>>(communityKeys.replies("t1", false))
+      ?.pages.flatMap((page) => page.items.map((each) => each.id));
+
+  it("a reply removed while the replies are read stays removed", async () => {
+    const { boards, replies } = slowBoards();
+    const queryClient = new QueryClient();
+    const reading = queryClient.fetchInfiniteQuery(communityQueries.replies(boards, "t1", false));
+    await vi.waitFor(() => expect(replies).toHaveLength(1));
+    applyCommunityEvent(queryClient, removed("doomed"), boards);
+    // That page was read before the reply was removed.
+    replies[0]?.([reply("r1"), reply("doomed")]);
+    await reading;
+    expect(ids(queryClient)).toEqual(["r1"]);
+  });
+
+  it("a reply fetched after replyCreated does not come back when it was removed meanwhile", async () => {
+    const { boards, got } = slowBoards();
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(communityKeys.replies("t1", false), {
+      pages: [{ items: [reply("r1")], nextCursor: "" }],
+      pageParams: [""],
+    });
+    applyCommunityEvent(
+      queryClient,
+      {
+        case: "replyCreated",
+        value: create(community.ReplyCreatedSchema, { threadId: "t1", replyId: "late" }),
+      },
+      boards,
+    );
+    await vi.waitFor(() => expect(got).toHaveLength(1));
+    applyCommunityEvent(queryClient, removed("late"), boards);
+    got[0]?.(reply("late"));
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(ids(queryClient)).toEqual(["r1"]);
+  });
+
+  it("a thread's topic reads its replies again, replacing a read on its way", async () => {
+    const { boards, replies, signals } = slowBoards();
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(communityKeys.thread("t1-short"), thread);
+    const reading = queryClient.fetchInfiniteQuery(communityQueries.replies(boards, "t1", false));
+    await vi.waitFor(() => expect(replies).toHaveLength(1));
+    void rereadCommunity(queryClient, "c1");
+    expect(signals[0]?.aborted).toBe(true);
+    await vi.waitFor(() => expect(replies).toHaveLength(2));
+    replies[1]?.([reply("r2")]);
+    await reading;
+    expect(ids(queryClient)).toEqual(["r2"]);
+  });
+
+  it("a thread removed while its page and the board are read stays gone", async () => {
+    const { boards, threads } = slowBoards();
+    const lists: ((items: community.Thread[]) => void)[] = [];
+    const client = {
+      ...(boards() as object),
+      listThreads: () =>
+        new Promise((resolve) =>
+          lists.push((items) => resolve({ pinned: [], threads: items, page: { nextCursor: "" } })),
+        ),
+    };
+    const board = () => client as never;
+    const queryClient = new QueryClient();
+    const options = { channelId: "", sort: 0, window: 0, tag: "" };
+    const page = queryClient.fetchQuery(communityQueries.thread(board, "t1-short"));
+    const list = queryClient.fetchInfiniteQuery(communityQueries.threads(board, "c1", options));
+    await vi.waitFor(() => expect(threads).toHaveLength(1));
+    await vi.waitFor(() => expect(lists).toHaveLength(1));
+    applyCommunityEvent(
+      queryClient,
+      {
+        case: "threadRemoved",
+        value: create(community.ThreadRemovedSchema, { communityId: "c1", threadId: "t1" }),
+      },
+      board,
+    );
+    // Both were answered before the removal; the reads that replace them, after.
+    threads[0]?.(thread);
+    lists[0]?.([thread]);
+    await vi.waitFor(() => expect(threads).toHaveLength(2));
+    await vi.waitFor(() => expect(lists).toHaveLength(2));
+    threads[1]?.(undefined as never);
+    lists[1]?.([]);
+    expect(await page).toBeNull();
+    expect((await list).pages[0]?.items).toEqual([]);
+  });
+
+  it("counts pushed while a thread is first read under its short ID are kept", async () => {
+    const { boards, threads } = slowBoards();
+    const queryClient = new QueryClient();
+    const reading = queryClient.fetchQuery(communityQueries.thread(boards, "t1-short"));
+    await vi.waitFor(() => expect(threads).toHaveLength(1));
+    applyCommunityEvent(
+      queryClient,
+      {
+        case: "threadCountsChanged",
+        value: create(community.ThreadCountsChangedSchema, {
+          threadId: "t1",
+          replyCount: 5,
+          likeCount: 9n,
+        }),
+      },
+      boards,
+    );
+    threads[0]?.(thread);
+    expect((await reading)?.replyCount).toBe(5);
+    expect(
+      queryClient.getQueryData<community.Thread>(communityKeys.thread("t1-short"))?.likeCount,
+    ).toBe(9n);
   });
 });

@@ -1,5 +1,5 @@
 import type { community } from "@tokuly/api";
-import type { ClientSource } from "../query";
+import { type ClientSource, journal } from "../query";
 import { type DirectoryOptions, communityKeys as keys, type ThreadListOptions } from "./keys";
 
 type Communities = ClientSource<typeof community.CommunityService>;
@@ -45,6 +45,25 @@ function paged<T>(queryKey: readonly unknown[], load: (cursor: string) => Promis
   return {
     queryKey,
     queryFn: ({ pageParam }: { pageParam: string }) => load(pageParam),
+    initialPageParam: "",
+    getNextPageParam: nextCursorOf,
+  };
+}
+
+type Read = { pageParam: string; signal: AbortSignal };
+
+/**
+ * `paged` for a list that pushes change (`./cache`): read through the
+ * journal, so what is pushed while a page is read applies to its answer too.
+ */
+function journaled<T>(
+  queryKey: readonly unknown[],
+  load: (cursor: string, signal: AbortSignal) => Promise<Paged<T>>,
+) {
+  return {
+    queryKey,
+    queryFn: ({ pageParam, signal }: Read) => load(pageParam, signal),
+    persister: journal,
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
   };
@@ -163,43 +182,47 @@ export const communityQueries = {
 
   threads: (client: Boards, communityId: string, options: ThreadListOptions) => ({
     queryKey: keys.threads(communityId, options),
-    queryFn: async ({ pageParam }: { pageParam: string }): Promise<ThreadPage> => {
-      const response = await client().listThreads({
-        communityId,
-        ...options,
-        page: pageOf(pageParam),
-      });
+    queryFn: async ({ pageParam, signal }: Read): Promise<ThreadPage> => {
+      const response = await client().listThreads(
+        { communityId, ...options, page: pageOf(pageParam) },
+        { signal },
+      );
       return { pinned: response.pinned, items: response.threads, nextCursor: cursorOf(response) };
     },
+    persister: journal,
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
   }),
 
   announcements: (client: Boards, communityId: string) =>
-    paged(keys.announcements(communityId), async (cursor) => {
-      const response = await client().listAnnouncements({ communityId, page: pageOf(cursor) });
+    journaled(keys.announcements(communityId), async (cursor, signal) => {
+      const response = await client().listAnnouncements(
+        { communityId, page: pageOf(cursor) },
+        { signal },
+      );
       return { items: response.threads, nextCursor: cursorOf(response) };
     }),
 
   followed: (client: Boards) =>
-    paged(keys.followed, async (cursor) => {
-      const response = await client().listFollowedThreads({ page: pageOf(cursor) });
+    journaled(keys.followed, async (cursor, signal) => {
+      const response = await client().listFollowedThreads({ page: pageOf(cursor) }, { signal });
       return { items: response.threads, nextCursor: cursorOf(response) };
     }),
 
   /** One thread; `null` when it is gone (deleted, hidden) or not the caller's to read. */
   thread: (client: Boards, threadId: string) => ({
     queryKey: keys.thread(threadId),
-    queryFn: async () => (await client().getThread({ threadId })).thread ?? null,
+    queryFn: async ({ signal }: { signal: AbortSignal }) =>
+      (await client().getThread({ threadId }, { signal })).thread ?? null,
+    persister: journal,
   }),
 
   replies: (client: Boards, threadUuid: string, newestFirst: boolean) =>
-    paged(keys.replies(threadUuid, newestFirst), async (cursor) => {
-      const response = await client().listReplies({
-        threadId: threadUuid,
-        newestFirst,
-        page: pageOf(cursor, 30),
-      });
+    journaled(keys.replies(threadUuid, newestFirst), async (cursor, signal) => {
+      const response = await client().listReplies(
+        { threadId: threadUuid, newestFirst, page: pageOf(cursor, 30) },
+        { signal },
+      );
       return { items: response.replies, nextCursor: cursorOf(response) };
     }),
 

@@ -11,6 +11,7 @@ export {
   patchReplies,
   patchThread,
   refreshMembership,
+  rereadCommunity,
   storeCommunity,
   upsertReply,
 } from "./cache";

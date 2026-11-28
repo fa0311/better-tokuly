@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet } from "@tanstack/react-router";
 import { errorReason } from "@tokuly/api";
-import { canRead, communityKeys } from "@tokuly/core/community";
+import { canRead, rereadCommunity } from "@tokuly/core/community";
 import { useEffect } from "react";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Page } from "#/components/ui/page";
@@ -33,10 +33,9 @@ export function CommunityLayout({ handle }: { handle: string }) {
   useEffect(() => {
     if (!communityId || !readable) return;
     const { release } = realtime().subscribe(`community:${communityId}`, {
-      // In effect (first, or again after a gap): its board as read before may lack what was
-      // posted in between.
-      onSubscribed: () =>
-        void queryClient.invalidateQueries({ queryKey: communityKeys.of(communityId) }),
+      // In effect (first, or again after a gap): its board, and a thread or event open on its own
+      // address, as read before may lack what was posted in between.
+      onSubscribed: () => void rereadCommunity(queryClient, communityId),
       // Removed, banned, or the community closed: read it again, which shows the front door
       // (or "not found") instead of the board.
       onRevoked: () => void refetch(),

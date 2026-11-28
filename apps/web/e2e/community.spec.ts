@@ -1,4 +1,5 @@
 import type { APIRequestContext, Browser, Page, TestInfo } from "@playwright/test";
+import { holdAnswers } from "./answers";
 import { type Account, createAccount, expect, RpcError, rpc, signInAs, test } from "./support";
 
 const COMMUNITY = "tokuly.community.v1.CommunityService";
@@ -344,6 +345,51 @@ test("an anonymous channel never names the author; an uninvolved moderator can l
   ).toBeVisible();
   await expect(staff.getByText(author.handle)).toBeHidden();
   await staff.context().close();
+});
+
+test("a reply deleted while the replies are read stays out of the thread", async ({
+  page,
+  me,
+  request,
+}) => {
+  const member = await createAccount(request, "member");
+  const community = await createCommunity(request, me);
+  await join(request, community, me, member);
+  const thread = await createThread(
+    request,
+    await firstChannelId(request, community, me),
+    me,
+    `へんじのスレッド ${unique()}`,
+  );
+  const write = async (body: string) =>
+    (
+      await rpc<{ reply: { id: string } }>(
+        request,
+        `${BOARD}/CreateReply`,
+        { threadId: thread.id, body },
+        member,
+      )
+    ).reply.id;
+  await write("のこるへんじ その1");
+  const doomed = await write("きえるへんじ");
+  await write("のこるへんじ その2");
+
+  await page.goto(`/g/${community.handle}/t/${thread.shortId}`);
+  const replies = page.getByTestId("community-reply");
+  await expect(replies).toHaveCount(3);
+  await expect(page.getByRole("heading", { name: "返信 3" })).toBeVisible();
+
+  // Newest first is read now; that answer is slow, and made before the reply is deleted.
+  const reads = await holdAnswers(page, `${BOARD}/ListReplies`);
+  await page.getByRole("button", { name: "古い順" }).click();
+  await expect.poll(reads.held).toBeGreaterThan(0);
+  await rpc(request, `${BOARD}/DeleteReply`, { replyId: doomed }, member);
+  // The removal has arrived: the thread's count follows it.
+  await expect(page.getByRole("heading", { name: "返信 2" })).toBeVisible();
+  await reads.release();
+  await expect(replies.first()).toContainText("のこるへんじ その2");
+  await expect(replies.filter({ hasText: "きえるへんじ" })).toHaveCount(0);
+  await expect(replies).toHaveCount(2);
 });
 
 test("a moderator pins and locks a thread; a locked thread takes no replies", async ({
