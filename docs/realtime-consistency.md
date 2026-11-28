@@ -40,6 +40,7 @@ The helpers, in `@tokuly/core/query`:
 |---|---|
 | `rereadOnWelcome(queryClient, connection, keys)` | rule 1 on every `Welcome`. Register it before `client.start()` |
 | `reread(queryClient, keys)` | rule 1 once (an `onSubscribed`): cancel what is in flight, read again |
+| `forgetQueries(queryClient, keys)` | rule 3: drop what is off screen, `reread` the rest (an area's forgetter) |
 | `{ ...options, persister: journal }` | rule 2, the read side of a query, plain or infinite (`fetchNextPage` too); pass `signal` to the request |
 | `pushTo(queryClient, key, update)` | every push, removals included; `update` may return `null` (gone) |
 | `pushToAll(queryClient, prefix, update)` | the same for one list held under several keys (filters, sources) |

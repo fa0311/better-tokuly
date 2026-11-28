@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/query-core";
-import { reread } from "../query";
+import { forgetQueries } from "../query";
 import { schoolKeys } from "./keys";
 
 /**
@@ -8,14 +8,13 @@ import { schoolKeys } from "./keys";
  * periods) is read again.
  */
 export function forgetUserSchool(queryClient: QueryClient, userId: string): Promise<void> {
-  queryClient.removeQueries({ queryKey: ["school", "timetable", "friend", userId] });
-  queryClient.removeQueries({ queryKey: schoolKeys.heatmap(userId) });
-  // `day`, `days` and `now` of another person carry their ID after the kind.
-  queryClient.removeQueries({
-    predicate: ({ queryKey }) =>
-      queryKey[0] === "school" && queryKey[1] === "timetable" && queryKey[3] === userId,
-  });
-  return reread(queryClient, [
+  return forgetQueries(queryClient, [
+    ["school", "timetable", "friend", userId],
+    // `day`, `days` and `now` of another person carry their ID after the kind.
+    ["school", "timetable", "day", userId],
+    ["school", "timetable", "days", userId],
+    schoolKeys.now(userId),
+    schoolKeys.heatmap(userId),
     schoolKeys.friendTimetables,
     schoolKeys.studying,
     ["school", "study", "ranking"],

@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/query-core";
-import { reread } from "../query";
+import { forgetQueries } from "../query";
 import { spacesKeys } from "./keys";
 
 /**
@@ -8,7 +8,7 @@ import { spacesKeys } from "./keys";
  * of rooms on the server).
  */
 export function forgetUserSpaces(queryClient: QueryClient, _userId: string): Promise<void> {
-  return reread(queryClient, [
+  return forgetQueries(queryClient, [
     spacesKeys.lists,
     spacesKeys.friendsInRooms,
     spacesKeys.hangouts,

@@ -1,14 +1,20 @@
 import type { QueryClient } from "@tanstack/query-core";
-import { reread } from "../query";
+import { forgetQueries } from "../query";
 import { questKeys } from "./keys";
 
 /**
  * A friendship ended: their quest profile, badges and the streak with them go,
- * and the friends' leaderboards, season and badge owners are read again.
+ * and the streaks, the friends' leaderboards, season and badge owners are read
+ * again.
  */
 export function forgetUserQuest(queryClient: QueryClient, userId: string): Promise<void> {
-  queryClient.removeQueries({ queryKey: questKeys.profile(userId) });
-  queryClient.removeQueries({ queryKey: questKeys.userBadges(userId) });
-  queryClient.removeQueries({ queryKey: questKeys.streak(userId) });
-  return reread(queryClient, [questKeys.leaderboards, questKeys.season, questKeys.badges]);
+  return forgetQueries(queryClient, [
+    questKeys.profile(userId),
+    questKeys.userBadges(userId),
+    // The streak with them, and every list of streaks.
+    questKeys.streaks,
+    questKeys.leaderboards,
+    questKeys.season,
+    questKeys.badges,
+  ]);
 }

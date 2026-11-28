@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/query-core";
-import { reread } from "../query";
+import { forgetQueries } from "../query";
 import { liveKeys } from "./keys";
 
 /**
@@ -8,5 +8,5 @@ import { liveKeys } from "./keys";
  * viewer blocked (an open chat leaves out their lines).
  */
 export function forgetUserLive(queryClient: QueryClient, _userId: string): Promise<void> {
-  return reread(queryClient, [liveKeys.lists, liveKeys.streams, liveKeys.blocked]);
+  return forgetQueries(queryClient, [liveKeys.lists, liveKeys.streams, liveKeys.blocked]);
 }

@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/query-core";
-import { reread } from "../query";
+import { forgetQueries } from "../query";
 import { videoKeys } from "./keys";
 
 /**
@@ -8,7 +8,7 @@ import { videoKeys } from "./keys";
  * studio or the watch history: those are the viewer's own).
  */
 export function forgetUserVideo(queryClient: QueryClient, _userId: string): Promise<void> {
-  return reread(queryClient, [
+  return forgetQueries(queryClient, [
     videoKeys.feeds,
     videoKeys.channels,
     videoKeys.videos,

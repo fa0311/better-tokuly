@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/query-core";
-import { reread } from "../query";
+import { forgetQueries, reread } from "../query";
 import { mapKeys } from "./keys";
 
 /**
@@ -8,12 +8,13 @@ import { mapKeys } from "./keys";
  * place alerts, who looked, the story tray) is read again. Their pin is each
  * app's store.
  */
-export function forgetUserMap(queryClient: QueryClient, userId: string): Promise<void> {
-  queryClient.removeQueries({ queryKey: ["geo", "directions", userId] });
-  queryClient.removeQueries({ queryKey: mapKeys.bumps(userId) });
-  queryClient.removeQueries({ queryKey: mapKeys.storyReel(userId) });
-  return reread(queryClient, [
-    mapKeys.friends,
+export async function forgetUserMap(queryClient: QueryClient, userId: string): Promise<void> {
+  // `mapKeys.friends` is every friends list too (the friends forgetter keeps them, filtered).
+  const friends = reread(queryClient, [mapKeys.friends]);
+  await forgetQueries(queryClient, [
+    ["geo", "directions", userId],
+    mapKeys.bumps(userId),
+    mapKeys.storyReel(userId),
     mapKeys.gatherings,
     mapKeys.trips,
     mapKeys.sos,
@@ -21,4 +22,5 @@ export function forgetUserMap(queryClient: QueryClient, userId: string): Promise
     mapKeys.mapViews,
     mapKeys.storyTray,
   ]);
+  await friends;
 }
