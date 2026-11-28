@@ -2,7 +2,6 @@ import { startAuthentication } from "@simplewebauthn/browser";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { KeyRound } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
@@ -10,6 +9,7 @@ import { DeviceAccountsOnLogin, enterAccount, usePasskeysAvailable } from "#/fea
 import { api, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { parseRedirect } from "#/lib/redirect";
+import { useTranslation } from "#/lib/use-translation";
 
 export const Route = createFileRoute("/login")({
   // `add`: sign in to another account beside the one in use (account switching).

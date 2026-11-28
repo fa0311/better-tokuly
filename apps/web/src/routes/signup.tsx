@@ -1,7 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Check, X } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Button } from "#/components/ui/button";
 import { TextField } from "#/components/ui/field";
@@ -9,6 +8,7 @@ import { enterAccount } from "#/features/settings";
 import { api, authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { parseRedirect } from "#/lib/redirect";
+import { useTranslation } from "#/lib/use-translation";
 
 export const Route = createFileRoute("/signup")({
   // `redirect`: where a visitor of a public page (`/q/<handle>`, `/join/party/<code>`,

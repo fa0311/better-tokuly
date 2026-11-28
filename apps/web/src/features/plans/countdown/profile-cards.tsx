@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import type { common, identity } from "@tokuly/api";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { useOpenTargetPath } from "#/features/notifications";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { nameOf, useFreeStatus } from "../api";
 import { daysBetween, formatDay, todayYmd } from "../dates";
 import { useAnswerFree } from "../free/answer";

@@ -10,7 +10,6 @@ import {
 } from "@tokuly/core/moments";
 import { Circle, ImagePlus, MapPin, RefreshCcw, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
@@ -19,6 +18,7 @@ import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import { useHideTabBar } from "#/stores/shell";
 import { momentClient, useToday } from "./api";
 import { type Facing, openCamera, openRig, type Rig, snap, stopRig } from "./camera";

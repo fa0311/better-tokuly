@@ -4,7 +4,6 @@ import { school } from "@tokuly/api";
 import { addDays, dayLabel, isYmd, refreshSchool, schoolKeys } from "@tokuly/core/school";
 import { ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
@@ -17,6 +16,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { Tabs } from "#/components/ui/tabs";
 import { useAccountToday } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { examClient, toastError, useAssignments, useExams } from "./api";
 
 import {

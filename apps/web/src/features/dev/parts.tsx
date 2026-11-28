@@ -1,7 +1,6 @@
 import { type Timestamp, toMillis } from "@tokuly/api";
 import { Check, Copy, TriangleAlert } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button, type ButtonProps } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
@@ -11,6 +10,7 @@ import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactAge } from "#/lib/format";
 import i18n from "#/lib/i18n";
+import { useTranslation } from "#/lib/use-translation";
 
 /** Puts text on the clipboard; `false` when the browser refuses. */
 export async function copyText(text: string): Promise<boolean> {

@@ -2,10 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { spaces } from "@tokuly/api";
 import { patchSpace, rememberSpace, spacesKeys } from "@tokuly/core/spaces";
 import { Bell, BellRing } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button, type ButtonProps } from "#/components/ui/button";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { spaceClient } from "./api";
 
 /** "Tell me when it starts" for an upcoming room; pressed again it takes that back. */

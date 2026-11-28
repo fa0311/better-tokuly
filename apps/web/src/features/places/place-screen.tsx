@@ -12,7 +12,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -34,6 +33,7 @@ import { accountTimeZone } from "#/lib/account-time";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { compactAge, compactDuration, distanceMeters } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import {
   FRIENDS_KEY,

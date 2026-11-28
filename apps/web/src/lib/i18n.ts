@@ -36,20 +36,14 @@ async function loadNamespace(language: Language, namespace: string) {
 /** What every page shows: the app's own words and the error texts. */
 const ALWAYS = ["common", "errors"];
 
-/** Namespaces the browser is fetching right now. */
-let reading = 0;
-
 const backend: BackendModule = {
   type: "backend",
   init() {},
   read(language, namespace, done) {
-    reading++;
-    loadNamespace(normalizeLanguage(language), namespace)
-      .then(
-        (strings) => done(null, strings),
-        (error: Error) => done(error, false),
-      )
-      .finally(() => reading--);
+    loadNamespace(normalizeLanguage(language), namespace).then(
+      (strings) => done(null, strings),
+      (error: Error) => done(error, false),
+    );
   },
 };
 
@@ -105,9 +99,9 @@ function createServerI18n(language: Language, resources: Resource): I18n {
 /**
  * The browser's instance. It starts in the language the server rendered
  * (`<html lang>`), so hydration always matches. A component's namespaces
- * load when `useTranslation(namespace)` first asks; until the page has
- * hydrated it suspends for them, so the first render says what the server
- * said (`stopSuspendingForStrings`). A lookup into a namespace nobody has
+ * load when `useTranslation(namespace)` first asks; a component that is
+ * hydrating suspends for them, so it says what the server said
+ * (`#/lib/use-translation`). A lookup into a namespace nobody has
  * loaded yet (`t("chat:…")` from another feature, `i18n.t` outside a
  * component) shows nothing, starts loading it, and every `useTranslation`
  * renders again once it is there, with a new `t`: the React Compiler keeps
@@ -157,36 +151,6 @@ const i18n =
  */
 export function namespacesOf(keys: readonly string[]): string[] {
   return [...new Set(keys.map((key) => key.slice(0, key.indexOf(":"))))];
-}
-
-/**
- * After hydration a namespace that is still loading shows nothing for the
- * moment it takes instead of suspending: a suspended update would take the
- * screen away under someone's hands (a composer that just opened its stamp
- * button lost what was being typed).
- *
- * Called from the root's first effect, but the page is not hydrated yet
- * then: a screen that suspended for its strings hydrates when they arrive,
- * and only then asks for its next namespace. Turning suspense off at once
- * rendered those screens without their words, against the server's HTML
- * (`/login` lost its title and React threw the page away). So it waits
- * until no strings have been loading for a few idle moments.
- */
-export function stopSuspendingForStrings(): void {
-  const later = (next: () => void) =>
-    typeof requestIdleCallback === "function"
-      ? requestIdleCallback(next, { timeout: 200 })
-      : setTimeout(next, 50);
-  let quiet = 0;
-  const settle = () => {
-    quiet = reading === 0 ? quiet + 1 : 0;
-    if (quiet < 3) {
-      later(settle);
-      return;
-    }
-    i18n.options.react = { ...i18n.options.react, useSuspense: false };
-  };
-  later(settle);
 }
 
 export function setLanguage(language: Language): void {

@@ -1,7 +1,7 @@
 import { live } from "@tokuly/api";
 import { pollShares, tierByLevel } from "@tokuly/core/live";
-import { useTranslation } from "react-i18next";
 import { EmojiText } from "#/features/emoji";
+import { useTranslation } from "#/lib/use-translation";
 import { ROLE_KEYS } from "../labels";
 import { fillAlertTemplate, tierStyle } from "../model";
 

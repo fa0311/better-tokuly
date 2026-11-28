@@ -1,9 +1,9 @@
 import { RotateCcw } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { dopamineFactor } from "#/lib/appearance";
+import { useTranslation } from "#/lib/use-translation";
 
 const GLYPHS = ["✨", "💜", "⭐", "🎉", "💫"];
 

@@ -1,10 +1,10 @@
 import { media } from "@tokuly/api";
 import { Camera, Users } from "lucide-react";
 import { useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Spinner } from "#/components/ui/spinner";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import { errorMessage } from "./errors";
 
 /**

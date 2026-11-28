@@ -1,8 +1,8 @@
 import { notify } from "@tokuly/api";
 import { Eye } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Card } from "#/components/ui/card";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { usePreferenceActions } from "../preferences";
 
 /** The three choices, in the order they are offered: most shown first. */

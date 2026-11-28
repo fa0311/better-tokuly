@@ -3,7 +3,6 @@ import { community } from "@tokuly/api";
 import { communityKeys } from "@tokuly/core/community";
 import { GripVertical, Lock, Pencil, Plus, Trash2, VenetianMask } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
@@ -16,6 +15,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { EmojiPicker } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { boardClient, NS, useChannels } from "../api";
 import { Notice } from "../parts";
 

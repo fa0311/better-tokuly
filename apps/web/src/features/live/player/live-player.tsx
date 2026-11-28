@@ -12,9 +12,9 @@ import {
   Zap,
 } from "lucide-react";
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { type MediaSession, watchOverWhep } from "./webrtc";
 
 /** What other code can ask of a mounted live player. */

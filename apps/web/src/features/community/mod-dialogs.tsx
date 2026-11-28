@@ -2,7 +2,6 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import type { community } from "@tokuly/api";
 import { Eye } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -12,6 +11,7 @@ import { TextArea } from "#/components/ui/field";
 import { Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { moderationClient, NS } from "./api";
 import { Notice, RoleChip, useWhen } from "./parts";
 

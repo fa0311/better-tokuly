@@ -1,9 +1,9 @@
 import { Search } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { create } from "zustand";
 import { HubSections } from "#/components/hub";
 import { Dialog } from "#/components/ui/dialog";
 import { openQuickSearch } from "#/features/search";
+import { useTranslation } from "#/lib/use-translation";
 
 const useLauncher = create<{ open: boolean }>(() => ({ open: false }));
 

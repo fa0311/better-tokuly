@@ -2,11 +2,11 @@ import { errorReason } from "@tokuly/api";
 import { SmilePlus } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { EmojiPicker, EmojiText } from "#/features/emoji";
 import { dopamineFactor } from "#/lib/appearance";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { spaceClient } from "../api";
 import { emitReaction, newBurstNonce, onReaction } from "../live";
 

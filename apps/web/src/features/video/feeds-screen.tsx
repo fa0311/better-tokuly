@@ -13,7 +13,6 @@ import {
 } from "@tokuly/core/video";
 import { Ban, Clapperboard, History, ListVideo, ThumbsDown, Undo2, Users } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
@@ -22,6 +21,7 @@ import { EmptyState, Page } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { channelClient, feedClient, nextCursor, videoKeys } from "./api";
 import { ChannelRow } from "./channel/channel-row";
 import { ChannelAvatar, VideoCard, VideoCardSkeleton, VideoGrid } from "./video-card";

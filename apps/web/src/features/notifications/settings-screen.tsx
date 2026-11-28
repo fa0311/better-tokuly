@@ -1,7 +1,7 @@
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { usePreferences } from "./api";
 import { CategoriesCard } from "./settings/categories-card";
 import { MutedUsersCard } from "./settings/muted-users-card";

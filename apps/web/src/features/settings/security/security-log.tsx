@@ -2,11 +2,11 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type identity, toDate } from "@tokuly/api";
 import { ChevronRight } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { accountClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { keys } from "../data";
 import { Group, SettingsPage } from "../shell/settings-page";
 

@@ -1,9 +1,9 @@
 import { type common, toMillis, video } from "@tokuly/api";
 import { CircleAlert, Clock3, Loader } from "lucide-react";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { create } from "zustand";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useMyChannels } from "../api";
 import { visibilityOption } from "../labels";
 import { ChannelAvatar } from "../video-card";

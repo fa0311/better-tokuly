@@ -4,7 +4,6 @@ import { media, shorts } from "@tokuly/api";
 import { imageUrl, soundTitle } from "@tokuly/core/shorts";
 import { BarChart3, Music2, Play, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -12,6 +11,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { errorMessage, reasonText } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import {
   patchShortEverywhere,
   removeShortEverywhere,

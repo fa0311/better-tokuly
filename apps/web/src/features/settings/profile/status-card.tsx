@@ -3,7 +3,6 @@ import { type identity, toMillis } from "@tokuly/api";
 import { graphemes } from "@tokuly/core/format";
 import { profileKeys } from "@tokuly/core/profile";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
@@ -12,6 +11,7 @@ import { accountClient } from "#/lib/api";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactDuration } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { adoptMe } from "../data";
 import { Group } from "../shell/settings-page";
 

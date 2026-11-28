@@ -3,8 +3,8 @@ import { useRouter } from "@tanstack/react-router";
 import { rereadOnWelcome } from "@tokuly/core/query";
 import { questKeys } from "@tokuly/core/quest/keys";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { onFramesLoading, realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { useSessionStore } from "#/stores/session";
 import { clearReveals, RevealLayer } from "./celebrate";
 

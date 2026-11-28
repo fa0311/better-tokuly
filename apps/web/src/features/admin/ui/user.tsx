@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import type { common } from "@tokuly/api";
 import { BadgeCheck } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 /**
  * A person in a table cell or fact sheet: avatar, name and handle, linking to

@@ -3,12 +3,12 @@ import { engagement } from "@tokuly/api";
 import { compactCount, type Subject } from "@tokuly/core/engagement";
 import { Link2, MessageCircle, Share2, Upload } from "lucide-react";
 import { Suspense, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { onDemand } from "#/components/on-demand";
 import { Menu } from "#/components/ui/menu";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { recordShare, useEngagement } from "./api";
 
 export interface ShareButtonProps {

@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { type ComponentType, Suspense } from "react";
-import { useTranslation } from "react-i18next";
 import { CountBadge } from "#/components/ui/badge";
 import { useStaffAccess } from "#/features/admin";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { HUB_NAMESPACES, type HubTile, hubSections } from "#/seams/hub";
 import { useBadge } from "#/stores/badges";
 

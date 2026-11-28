@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { quest } from "@tokuly/api";
 import { claimable, levelFraction, xpToNextLevel } from "@tokuly/core/quest";
 import { ChevronRight, Trophy } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { useMissions, useProgress } from "./api";
 import { ProgressBar } from "./parts";
 

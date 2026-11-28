@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { announcementClient } from "./api";
 import { AnnouncementArticle } from "./parts";
 

@@ -4,7 +4,6 @@ import type { identity } from "@tokuly/api";
 import { accountKeys, canAddAccount, deviceAccountsQuery } from "@tokuly/core/session";
 import { Check, LogOut, Plus, ShieldCheck } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -14,6 +13,7 @@ import { Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { announceAccountChange, rememberSession } from "#/stores/session";
 import { Group, SettingsPage, StateChip } from "../shell/settings-page";
 

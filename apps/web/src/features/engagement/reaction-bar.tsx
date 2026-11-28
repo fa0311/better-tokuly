@@ -12,7 +12,6 @@ import {
 } from "@tokuly/core/engagement";
 import { Heart, SmilePlus, UsersRound } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Dialog } from "#/components/ui/dialog";
 import { LoadMore } from "#/components/ui/load-more";
@@ -20,6 +19,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useEngagement, useReact, useReactors, useUnreact } from "./api";
 import { useBurst } from "./burst";
 import { EmojiPicker } from "./emoji-picker";

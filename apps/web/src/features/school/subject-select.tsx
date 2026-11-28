@@ -1,7 +1,7 @@
 import { Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { SelectField } from "#/components/ui/select";
+import { useTranslation } from "#/lib/use-translation";
 import { useSubjects } from "./api";
 import { SubjectsDialog } from "./subjects-dialog";
 

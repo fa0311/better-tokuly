@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { MonthGrid } from "../calendar/month-grid";
 import { formatDay, monthOf, todayYmd } from "../dates";
 

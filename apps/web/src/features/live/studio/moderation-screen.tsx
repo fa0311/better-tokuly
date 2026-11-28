@@ -2,7 +2,6 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { errorReason, identity, toMillis } from "@tokuly/api";
 import { Plus, UserMinus, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -13,6 +12,7 @@ import { PaneSpinner } from "#/components/ui/spinner";
 import { EmojiText } from "#/features/emoji";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { chatClient, liveKeys, nextCursor } from "../api";
 import { formatMoment } from "../parts";
 import { LiveChannelPicker, NoChannel, Section, useLiveChannel } from "./shared";

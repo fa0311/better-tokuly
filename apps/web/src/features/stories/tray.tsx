@@ -1,11 +1,11 @@
 import type { common, notes } from "@tokuly/api";
 import { Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { useStoryTray, useUserStories } from "./api";
 import { CreateStoryDialog } from "./create";

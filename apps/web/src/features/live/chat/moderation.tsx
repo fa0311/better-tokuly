@@ -3,7 +3,6 @@ import { common, live } from "@tokuly/api";
 import { authorName, mentionOf } from "@tokuly/core/live";
 import { AtSign, Ban, Flag, Pin, Timer, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
@@ -12,6 +11,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { ReportDialog } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { chatClient, liveKeys } from "../api";
 
 const { ChatMessageKind, ChatRole } = live;

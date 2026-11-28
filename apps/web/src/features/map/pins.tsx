@@ -13,10 +13,10 @@ import {
   Siren,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { cn } from "#/lib/cn";
 import { compactAge, compactDuration, kmh } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useNow } from "./data";
 import { type MapGeoJson, MapPin, useMap, useMapLayer } from "./map-view";
 

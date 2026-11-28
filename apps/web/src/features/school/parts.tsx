@@ -3,10 +3,10 @@ import type { common, school } from "@tokuly/api";
 import { inkOn } from "@tokuly/core/school";
 import { Check, Settings } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useFriends } from "./api";
 
 export type Section = "today" | "timetable" | "study" | "rooms" | "exams";

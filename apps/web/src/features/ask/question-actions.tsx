@@ -20,11 +20,11 @@ import {
   Undo2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import type { MenuAction } from "#/components/ui/menu";
 import { ReportDialog } from "#/features/engagement";
+import { useTranslation } from "#/lib/use-translation";
 import { AnswerComposer } from "./answer-composer";
 import { boxClient } from "./api";
 import { toastError } from "./parts";

@@ -14,11 +14,11 @@ import {
   Undo2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { userAdminClient } from "../api";
 import { formatDateTime } from "../format";

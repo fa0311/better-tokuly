@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { common, identity, toMillis } from "@tokuly/api";
 import { Laptop, MonitorSmartphone, Smartphone } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { Card } from "#/components/ui/card";
 import { TextField } from "#/components/ui/field";
@@ -10,6 +9,7 @@ import { EmptyState, Skeleton } from "#/components/ui/page";
 import { authClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { compactDuration } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { keys } from "../data";
 import { SettingsPage } from "../shell/settings-page";
 

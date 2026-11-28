@@ -1,7 +1,7 @@
-import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { useStaffAccess } from "#/features/admin";
+import { useTranslation } from "#/lib/use-translation";
 import { STAFF_TABS, type StaffTab } from "./admin-search-search";
 import { BlockedTerms } from "./blocked-terms";
 import { Documents } from "./documents";

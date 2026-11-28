@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type common, social } from "@tokuly/api";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { dopamineFactor } from "#/lib/appearance";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocations } from "#/stores/locations";
 import { useMe } from "#/stores/session";
 import { interactionClient } from "./data";

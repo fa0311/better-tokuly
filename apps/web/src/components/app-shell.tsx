@@ -9,13 +9,13 @@ import {
   StickyNote,
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Launcher, openLauncher, useLauncherOpen } from "#/components/launcher";
 import { Avatar } from "#/components/ui/avatar";
 import { CountBadge } from "#/components/ui/badge";
 import { LogoMark } from "#/components/ui/logo";
 import { openQuickSearch } from "#/features/search";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { type PrimaryNav, primaryNavOf } from "#/seams/nav";
 import { useBadge } from "#/stores/badges";
 import { useMe } from "#/stores/session";

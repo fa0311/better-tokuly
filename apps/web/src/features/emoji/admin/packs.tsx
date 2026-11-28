@@ -3,7 +3,6 @@ import { emoji as emojiApi, media, toDate } from "@tokuly/api";
 import { emojiKeys } from "@tokuly/core/emoji";
 import { Download, FileArchive, Upload } from "lucide-react";
 import { useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
@@ -14,6 +13,7 @@ import { SelectField } from "#/components/ui/select";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { uploadAndProcess } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import { emojiAdminClient, useCategories } from "./shared";
 
 /** Select values of the export's scope (category names never start with a control character). */

@@ -1,9 +1,9 @@
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { ChevronLeft, Feather, RefreshCw } from "lucide-react";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Spinner } from "#/components/ui/spinner";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { type ComposeContext, openCompose } from "./compose-store";
 
 /** The scrolling element of a notes page (what a virtualised list measures against) and the name its scroll position is remembered under. */

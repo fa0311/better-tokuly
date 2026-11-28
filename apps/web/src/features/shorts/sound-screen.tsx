@@ -3,12 +3,12 @@ import { Link } from "@tanstack/react-router";
 import { shorts } from "@tokuly/api";
 import { imageUrl } from "@tokuly/core/shorts";
 import { Music2, Plus } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { compactCount } from "#/features/engagement";
 import { ChannelName } from "#/features/video";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { discoveryClient, shortKeys } from "./api";
 import { ShortList } from "./short-tile";
 

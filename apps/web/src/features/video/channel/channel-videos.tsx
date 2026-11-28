@@ -1,11 +1,11 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { video } from "@tokuly/api";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { channelClient, nextCursor, videoKeys } from "../api";
 import { VideoCard, VideoCardSkeleton, VideoGrid } from "../video-card";
 

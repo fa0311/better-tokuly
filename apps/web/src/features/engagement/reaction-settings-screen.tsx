@@ -1,6 +1,6 @@
-import { useTranslation } from "react-i18next";
 import { Page, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
+import { useTranslation } from "#/lib/use-translation";
 import { useChangeReactionSettings, useReactionSettings } from "./api";
 
 /**

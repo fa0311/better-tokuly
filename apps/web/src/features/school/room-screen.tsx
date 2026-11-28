@@ -20,7 +20,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -34,6 +33,7 @@ import { EmojiText } from "#/features/emoji";
 import { ReportDialog } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { realtime } from "#/lib/realtime";
+import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { roomClient, toastError } from "./api";
 

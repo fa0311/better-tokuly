@@ -1,10 +1,10 @@
 import { feed } from "@tokuly/api";
 import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { type TimelineHandle, TimelineSkeleton } from "../timeline";
 import { onTimelineHint } from "../timeline-hints";
 import { ActivityCardView } from "./activity-card";

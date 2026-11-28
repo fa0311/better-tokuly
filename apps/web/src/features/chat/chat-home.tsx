@@ -1,5 +1,5 @@
-import { useTranslation } from "react-i18next";
 import { EmptyState } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 
 /** What the conversation pane shows on wide screens while no conversation is open. */
 export function ChatHome() {

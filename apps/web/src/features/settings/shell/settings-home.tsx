@@ -1,5 +1,5 @@
-import { useTranslation } from "react-i18next";
 import { Page } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 import { ProfileSection } from "../profile/profile-section";
 import { IdentityCard, SettingsNav, SignOutButton } from "./settings-nav";
 import { useIsWide } from "./use-is-wide";

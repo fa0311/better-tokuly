@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import type { ExitReason } from "@tokuly/core/spaces";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { Page } from "#/components/ui/page";
+import { useTranslation } from "#/lib/use-translation";
 
 const EMOJI: Record<ExitReason, string> = {
   removed: "🚪",

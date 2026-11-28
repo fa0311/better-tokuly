@@ -1,10 +1,10 @@
 import { engagement, toDate } from "@tokuly/api";
 import { ChevronRight } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useMyReports } from "./api";
 import { useOpenPath } from "./open-path";
 import { REPORT_CATEGORIES, reportCategoryKey } from "./report-dialog";

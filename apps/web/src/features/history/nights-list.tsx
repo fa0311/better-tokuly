@@ -3,7 +3,6 @@ import { Link } from "@tanstack/react-router";
 import { toDate } from "@tokuly/api";
 import { historyQueries, parseDay } from "@tokuly/core/history";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, Skeleton } from "#/components/ui/page";
@@ -11,6 +10,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { GazetteerCredit } from "#/features/places";
 import { accountTimeZone } from "#/lib/account-time";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { historyClient } from "./api";
 
 /** Where I slept, night by night; the switch keeps only the nights away from home. */

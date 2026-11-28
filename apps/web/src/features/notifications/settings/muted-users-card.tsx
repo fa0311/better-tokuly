@@ -3,7 +3,6 @@ import { Link } from "@tanstack/react-router";
 import { type common, identity, toMillis } from "@tokuly/api";
 import { Search, UserPlus, VolumeX } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -13,6 +12,7 @@ import { LoadMore } from "#/components/ui/load-more";
 import { ListRow, Skeleton } from "#/components/ui/page";
 import { profileClient } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { notifyKeys, preferencesClient } from "../api";
 import { formatWhen, useNow } from "../when";
 

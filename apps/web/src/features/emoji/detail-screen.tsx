@@ -15,7 +15,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -26,6 +25,7 @@ import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { useStaffAccess } from "#/features/admin";
 import { copyText, ReportButton } from "#/features/engagement";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { submissionClient, useDeck, useEmojiDetail } from "./api";
 import { useSaveDeck } from "./deck";
 import { EmojiImage } from "./emoji";

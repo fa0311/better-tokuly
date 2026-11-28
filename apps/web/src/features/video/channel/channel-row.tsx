@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { common, video } from "@tokuly/api";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { formatCount } from "../format";
 import { SubscribeButton } from "../subscribe-button";
 import { ChannelAvatar, ChannelName } from "../video-card";

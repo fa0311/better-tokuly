@@ -1,9 +1,9 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { live, type video } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState } from "#/components/ui/page";
 import type { ChannelTab } from "#/features/video";
+import { useTranslation } from "#/lib/use-translation";
 import { liveKeys, nextCursor, streamClient } from "./api";
 import { ClipStrip } from "./clips/clip-list";
 import { StreamCard, StreamCardSkeleton, StreamGrid } from "./parts";

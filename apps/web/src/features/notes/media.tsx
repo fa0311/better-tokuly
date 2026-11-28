@@ -2,8 +2,8 @@ import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { type common, media, type notes } from "@tokuly/api";
 import { ChevronLeft, ChevronRight, Play, Volume2, VolumeX, X } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 
 /** The smallest stored rendition that still covers `cssPixels` on this screen. */
 export function imageUrl(image: common.Image | undefined, cssPixels: number): string {

@@ -1,5 +1,5 @@
 import { admin } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { formatDateTime } from "../format";
 import { accountStateKey, roleKey } from "../labels";
 import { type Tone, ToneChip } from "../ui/tone";

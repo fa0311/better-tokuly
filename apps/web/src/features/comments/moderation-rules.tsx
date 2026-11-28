@@ -8,13 +8,13 @@ import {
 import { create, engagement, toDate } from "@tokuly/api";
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { LoadMore } from "#/components/ui/load-more";
 import { EmptyState, ListRow, Skeleton } from "#/components/ui/page";
 import { SwitchRow } from "#/components/ui/switch";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { commentKeys, moderationClient } from "./api";
 import { AuthorAvatar, authorHandle, authorName } from "./author";
 

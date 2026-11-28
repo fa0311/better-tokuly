@@ -2,8 +2,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { live } from "@tokuly/api";
 import { ArrowDown } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { ChatLine } from "./chat-line";
 
 /** Closer to the end than this counts as following the chat. */

@@ -1,12 +1,12 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRight, LogOut, Search, UserRound } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { HubSections } from "#/components/hub";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Page } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
 import { openQuickSearch } from "#/features/search";
+import { useTranslation } from "#/lib/use-translation";
 import { HUB_CARDS } from "#/seams/hub-cards";
 import { signOut as signOutOfApp, useMe } from "#/stores/session";
 

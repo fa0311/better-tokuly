@@ -1,9 +1,9 @@
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { isNotFound } from "@tokuly/api";
 import { useEffect, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { useStory } from "./api";
 import { closeStoryViewer, openStoryViewer, useStoryViewer } from "./viewer-store";
 

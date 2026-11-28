@@ -2,11 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import type { stamp } from "@tokuly/api";
 import { contextKey, stampKeys } from "@tokuly/core/stamps";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Coins } from "#/components/ui/coins";
 import { Skeleton } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { formatCount, studioClient } from "./api";
 import { StampImage } from "./stamp-image";
 

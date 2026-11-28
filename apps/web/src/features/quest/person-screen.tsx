@@ -4,7 +4,6 @@ import { identity, type quest, toMillis } from "@tokuly/api";
 import { profileQuery } from "@tokuly/core/profile";
 import { formatDay, streakRuns, streakStatus } from "@tokuly/core/quest";
 import { EyeOff, MessageCircle } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { type BackTarget, EmptyState, Page, Skeleton } from "#/components/ui/page";
@@ -12,6 +11,7 @@ import { openDirectChat } from "#/features/chat";
 import { EmojiText } from "#/features/emoji";
 import { useAccountNow, useAccountTimeZone, zonedDate } from "#/lib/account-time";
 import { profileClient } from "#/lib/api";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocalized, useQuestProfile, useUserBadges } from "./api";
 import { BadgeMedal, LevelPill, SectionTitle, TitlePill, useBadgeName } from "./parts";
 

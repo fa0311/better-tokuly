@@ -4,7 +4,6 @@ import { school } from "@tokuly/api";
 import { phaseKey, refreshSchool, schoolKeys, timerText } from "@tokuly/core/school";
 import { Globe, Lock, Plus, Users } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Dialog } from "#/components/ui/dialog";
@@ -13,6 +12,7 @@ import { EmptyState } from "#/components/ui/page";
 import { Tabs } from "#/components/ui/tabs";
 import { EmojiText } from "#/features/emoji";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { roomClient, toastError } from "./api";
 
 import { Block, FriendPicker, RowsSkeleton, SchoolPage, Segmented, useNow } from "./parts";

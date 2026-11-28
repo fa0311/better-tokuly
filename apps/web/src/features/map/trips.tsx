@@ -3,7 +3,6 @@ import { geo, toMillis } from "@tokuly/api";
 import { decodePolyline } from "@tokuly/core/map";
 import { Bike, Car, Footprints, Navigation, Plus, Search, TrainFront } from "lucide-react";
 import { type ComponentType, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -15,6 +14,7 @@ import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { formatDistance } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { useLocations } from "#/stores/locations";
 import { useMe } from "#/stores/session";
 import {

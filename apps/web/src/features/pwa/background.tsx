@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { onDemand } from "#/components/on-demand";
+import { useTranslation } from "#/lib/use-translation";
 import { useAppBadge } from "./app-badge";
 import { useInstall } from "./install";
 import { InstallBanner } from "./install-banner";

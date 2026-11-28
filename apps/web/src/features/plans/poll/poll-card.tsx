@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { plans, toDate } from "@tokuly/api";
-import { useTranslation } from "react-i18next";
 import { Chip } from "#/components/ui/card";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { nameOf } from "../api";
 import { formatDay, formatTime, ymd } from "../dates";
 import { slotText } from "./model";

@@ -3,12 +3,12 @@ import { ask, toMillis } from "@tokuly/api";
 import { hasEngagement, questionSubject } from "@tokuly/core/ask";
 import { Heart, ImageDown, MessageCircle } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { Avatar } from "#/components/ui/avatar";
 import { EmojiText } from "#/features/emoji";
 import { compactCount, LikeButton } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { AnswerBody, AudienceBadge, Picture, Sender } from "./parts";
 import { AnswerShareSheet } from "./share-sheet";
 

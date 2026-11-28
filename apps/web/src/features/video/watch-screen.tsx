@@ -12,7 +12,6 @@ import {
   ThumbsUp,
 } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { EmptyState, Skeleton } from "#/components/ui/page";
@@ -20,6 +19,7 @@ import { CommentThread } from "#/features/comments";
 import { SubjectMoreButton } from "#/features/engagement";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { feedClient, playlistClient, useVideo, videoClient, videoKeys } from "./api";
 import { audienceNote, Description } from "./description";
 import { formatCount } from "./format";

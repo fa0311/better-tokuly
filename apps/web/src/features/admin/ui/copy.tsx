@@ -1,6 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 
 /** An ID in monospace with a button that copies it. */
 export function CopyableId({ value }: { value: string }) {

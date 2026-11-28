@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { AuthLayout } from "#/components/auth-layout";
 import { Button } from "#/components/ui/button";
 import { authClient } from "#/lib/api";
+import { useTranslation } from "#/lib/use-translation";
 
 /**
  * The page a mailed link opens: confirming an address (`verify`) or moving

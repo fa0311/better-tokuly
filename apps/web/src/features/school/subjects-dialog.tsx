@@ -3,7 +3,6 @@ import type { school } from "@tokuly/api";
 import { refreshSchool } from "@tokuly/core/school";
 import { ArchiveRestore, Check, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -11,6 +10,7 @@ import { Dialog } from "#/components/ui/dialog";
 import { TextField } from "#/components/ui/field";
 import { EmptyState } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { timetableClient, toastError, useSubjects } from "./api";
 import { RowsSkeleton, SubjectPill } from "./parts";
 

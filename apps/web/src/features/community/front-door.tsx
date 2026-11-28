@@ -1,7 +1,7 @@
 import { Lock } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Page } from "#/components/ui/page";
 import { EmojiText } from "#/features/emoji";
+import { useTranslation } from "#/lib/use-translation";
 import { Facts, Rules } from "./about";
 import { NS } from "./api";
 import { useCurrentCommunity } from "./context";

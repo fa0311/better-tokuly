@@ -11,7 +11,6 @@ import {
 } from "@tokuly/core/wallet";
 import { ReceiptText } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "#/components/ui/button";
 import { CoinIcon, Coins } from "#/components/ui/coins";
@@ -21,6 +20,7 @@ import { Tabs } from "#/components/ui/tabs";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
 import { compactDuration } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { walletClient } from "./api";
 import { BalancePill } from "./balance-pill";
 import { Fact, LinkButton } from "./parts";

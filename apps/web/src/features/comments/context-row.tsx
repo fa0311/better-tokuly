@@ -1,11 +1,11 @@
 import { engagement, toMillis } from "@tokuly/api";
 import { ImageOff } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import { resolveTargetPath, useOpenTargetPath } from "#/features/notifications";
 import { StampImage } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { compactAge } from "#/lib/format";
+import { useTranslation } from "#/lib/use-translation";
 import { AuthorAvatar, AuthorLink, authorName } from "./author";
 
 const { CommentStatus, HoldReason } = engagement;

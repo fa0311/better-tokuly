@@ -13,7 +13,6 @@ import {
 } from "@tokuly/core/quest";
 import { Send } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
@@ -22,6 +21,7 @@ import { ShareToChat } from "#/features/chat";
 import { EmojiText } from "#/features/emoji";
 import { useAccountTimeZone, zonedDate } from "#/lib/account-time";
 import { errorMessage } from "#/lib/errors";
+import { useTranslation } from "#/lib/use-translation";
 import { badgeClient, useLocalized, useUserBadges } from "./api";
 import { BadgeMedal, ProgressBar, RarityChip, TitlePill, useBadgeName } from "./parts";
 

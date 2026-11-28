@@ -1,4 +1,4 @@
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "#/lib/use-translation";
 import { FilterSelect } from "./filters";
 
 /** Lengths a suspension can be given, in seconds (the API takes 1 hour to 365 days). */

@@ -10,11 +10,11 @@ import {
   ReceiptText,
   ShoppingBag,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import { Card } from "#/components/ui/card";
 import { CoinIcon, Coins } from "#/components/ui/coins";
 import { EmptyState, Page, Skeleton } from "#/components/ui/page";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { PAGE_SIZE, walletClient } from "./api";
 import { useCountUp } from "./celebration";
 import { DailyBonusCard } from "./daily-bonus-card";

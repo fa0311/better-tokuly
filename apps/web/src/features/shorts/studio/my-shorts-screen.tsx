@@ -16,7 +16,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ConfirmDialog } from "#/components/ui/confirm";
 import { LoadMore } from "#/components/ui/load-more";
@@ -29,6 +28,7 @@ import { useMyChannels } from "#/features/video";
 import { cn } from "#/lib/cn";
 import { errorMessage, reasonText } from "#/lib/errors";
 import { waitForAsset } from "#/lib/upload";
+import { useTranslation } from "#/lib/use-translation";
 import {
   nextCursor,
   patchShortEverywhere,
