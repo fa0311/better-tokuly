@@ -25,6 +25,21 @@ pub const STREAM_ANALYTICS: &str = "ANALYTICS";
 pub const STREAM_LOCATIONS: &str = "LOCATIONS";
 pub const STREAM_DEAD: &str = "DEAD";
 
+/// Where a durable consumer starts reading the first time it is created.
+/// An existing consumer keeps its place whatever it is asked for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum StartAt {
+    /// What is published from when this process connected to the bus on:
+    /// a consumer a release adds does not work through a week of history
+    /// first, and on a new deployment it still gets what the first worker
+    /// relays before the consumer exists.
+    #[default]
+    New,
+    /// Everything the stream still holds: for queues, and for readers that
+    /// catch up on what was published before they first ran.
+    All,
+}
+
 #[derive(Clone)]
 pub struct Bus {
     /// The raw client. Prefer the methods below: they apply the namespace.
@@ -35,6 +50,8 @@ pub struct Bus {
     prefix: String,
     /// How long the `DEAD` stream keeps a message.
     dead_letter_retention: Duration,
+    /// Where [`StartAt::New`] starts.
+    connected_at: async_nats::datetime::DateTime,
 }
 
 impl Bus {
@@ -52,6 +69,7 @@ impl Bus {
             .map_err(|e| anyhow::anyhow!("cannot connect to NATS at {url}: {e}"))?;
         let js = jetstream::new(client.clone());
         Ok(Self {
+            connected_at: async_nats::datetime::now(),
             client,
             js,
             prefix: prefix.to_owned(),
@@ -236,10 +254,10 @@ impl Bus {
         Ok(())
     }
 
-    /// A durable pull consumer on `stream_name`. It is created if missing and
-    /// brought up to date if it exists with other settings: a consumer keeps
-    /// its position, so a release that subscribes it to more topics starts
-    /// receiving them without losing anything.
+    /// A durable pull consumer on `stream_name`. It is created if missing,
+    /// starting at `start`, and brought up to date if it exists with other
+    /// settings: a consumer keeps its position, so a release that subscribes
+    /// it to more topics starts receiving them without losing anything.
     pub async fn durable_consumer(
         &self,
         stream_name: &str,
@@ -247,6 +265,7 @@ impl Bus {
         filter_subjects: Vec<String>,
         ack_wait: Duration,
         max_deliver: i64,
+        start: StartAt,
     ) -> AppResult<consumer::Consumer<pull::Config>> {
         let unavailable = |e: String| {
             AppError::unavailable("BUS_UNAVAILABLE", format!("consumer setup failed: {e}"))
@@ -256,12 +275,21 @@ impl Bus {
             .get_stream(self.stream_name(stream_name))
             .await
             .map_err(|e| unavailable(e.to_string()))?;
+        // JetStream refuses to move an existing consumer's start.
+        let deliver_policy = match stream.consumer_info(durable).await {
+            Ok(existing) => existing.config.deliver_policy,
+            Err(_) => match start {
+                StartAt::New => consumer::DeliverPolicy::ByStartTime { start_time: self.connected_at },
+                StartAt::All => consumer::DeliverPolicy::All,
+            },
+        };
         stream
             .create_consumer(pull::Config {
                 durable_name: Some(durable.to_owned()),
                 filter_subjects: filter_subjects.iter().map(|s| self.subject(s)).collect(),
                 ack_wait,
                 max_deliver,
+                deliver_policy,
                 ..Default::default()
             })
             .await

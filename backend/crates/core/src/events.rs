@@ -22,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
-    bus::{Bus, STREAM_EVENTS},
+    bus::{Bus, STREAM_EVENTS, StartAt},
     dead_letters,
     error::{AppError, AppResult},
 };
@@ -242,6 +242,9 @@ pub struct ConsumeOptions {
     pub max_deliver: i64,
     /// Events handled concurrently.
     pub concurrency: usize,
+    /// Where a consumer that does not exist yet starts: by default with the
+    /// events published from now on.
+    pub start: StartAt,
 }
 
 impl Default for ConsumeOptions {
@@ -252,6 +255,7 @@ impl Default for ConsumeOptions {
             // for a restart of the database or the search engine.
             max_deliver: 12,
             concurrency: 8,
+            start: StartAt::New,
         }
     }
 }
@@ -282,6 +286,7 @@ pub async fn consume<F, Fut>(
                 filters.clone(),
                 options.ack_wait,
                 options.max_deliver,
+                options.start,
             )
             .await
         {

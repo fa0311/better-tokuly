@@ -16,7 +16,7 @@ use async_nats::jetstream::AckKind;
 use futures::StreamExt as _;
 use tokuly_core::{
     analytics::AnalyticsEvent,
-    bus::STREAM_ANALYTICS,
+    bus::{STREAM_ANALYTICS, StartAt},
     events::{self, ConsumeOptions},
     prelude::*,
 };
@@ -126,7 +126,7 @@ impl Quest {
             let consumer = match self
                 .core
                 .bus
-                .durable_consumer(STREAM_ANALYTICS, DURABLE, filters.clone(), Duration::from_secs(30), 8)
+                .durable_consumer(STREAM_ANALYTICS, DURABLE, filters.clone(), Duration::from_secs(30), 8, StartAt::All)
                 .await
             {
                 Ok(consumer) => consumer,
@@ -181,7 +181,7 @@ impl Quest {
         let filters: Vec<String> =
             rules::topics(Feed::Analytics).into_iter().map(|name| format!("an.{name}")).collect();
         let consumer =
-            self.core.bus.durable_consumer(STREAM_ANALYTICS, DURABLE, filters, Duration::from_secs(30), 8).await?;
+            self.core.bus.durable_consumer(STREAM_ANALYTICS, DURABLE, filters, Duration::from_secs(30), 8, StartAt::All).await?;
         let mut handled = 0;
         loop {
             let mut batch = consumer

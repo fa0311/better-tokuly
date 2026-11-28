@@ -12,7 +12,7 @@ use chrono::Utc;
 use futures::StreamExt as _;
 use tokio::sync::mpsc;
 use tokuly_core::{
-    bus::STREAM_LOCATIONS,
+    bus::{STREAM_LOCATIONS, StartAt},
     events::{self, ConsumeOptions},
     prelude::*,
     presence::{LOCATION_SUBJECT_PREFIX, LocationReport},
@@ -217,6 +217,7 @@ impl Geo {
                     vec![filter.clone()],
                     LOCATION_ACK_WAIT,
                     LOCATION_MAX_DELIVER,
+                    StartAt::New,
                 )
                 .await
             {

@@ -13,7 +13,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    bus::{Bus, STREAM_JOBS},
+    bus::{Bus, STREAM_JOBS, StartAt},
     dead_letters,
     error::{AppError, AppResult},
 };
@@ -104,6 +104,8 @@ impl Jobs {
                     vec![subject.clone()],
                     options.lease,
                     options.max_deliver,
+                    // A queue: jobs enqueued before the first worker are work too.
+                    StartAt::All,
                 )
                 .await
             {

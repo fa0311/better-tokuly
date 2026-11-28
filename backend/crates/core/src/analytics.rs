@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
-    bus::{Bus, STREAM_ANALYTICS},
+    bus::{Bus, STREAM_ANALYTICS, StartAt},
     config::Config,
     error::{AppError, AppResult},
 };
@@ -172,7 +172,7 @@ impl Analytics {
     pub async fn drain(&self) -> AppResult<usize> {
         let consumer = self
             .bus
-            .durable_consumer(STREAM_ANALYTICS, SINK_DURABLE, vec!["an.>".to_owned()], Duration::from_secs(60), 5)
+            .durable_consumer(STREAM_ANALYTICS, SINK_DURABLE, vec!["an.>".to_owned()], Duration::from_secs(60), 5, StartAt::All)
             .await?;
         let mut total = 0;
         loop {
