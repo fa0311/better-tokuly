@@ -5,3 +5,7 @@
 Tokuly 自身のコードは MIT のままですが、イメージを再配布するときは FFmpeg 部分に GPL の条件
 （ライセンス文の同梱とソースコードの入手方法の案内。ソースは上記リポジトリと
 [ffmpeg.org](https://ffmpeg.org/download.html) にあります）が付いてきます。
+
+時間帯の境界（`tokuly-geo` が `tzf-dist` として組み込み）は
+[timezone-boundary-builder](https://github.com/evansiroky/timezone-boundary-builder) のデータで、
+© OpenStreetMap contributors、[ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) です。
