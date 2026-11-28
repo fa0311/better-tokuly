@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { geo, social } from "@tokuly/api";
 import { mapKeys } from "@tokuly/core/map";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { api } from "#/lib/api";
 import { realtime } from "#/lib/realtime";
@@ -69,15 +70,13 @@ export function useMapSync(): void {
       void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
     };
 
-    let welcomed = false;
+    // The ghost settings may have changed on another device before the connection was up, or while it was down.
+    const offWelcome = rereadOnWelcome(queryClient, client, [mapKeys.ghost]);
     const offFrame = client.onFrame((frame) => {
       if (frame.topic) return; // Topic-scoped frames belong to whoever subscribed.
       const body = frame.body;
-      if (body.case === "welcome") {
-        void loadSnapshot();
-        if (welcomed) void queryClient.invalidateQueries({ queryKey: mapKeys.ghost });
-        welcomed = true;
-      } else if (body.case === "presence") {
+      if (body.case === "welcome") void loadSnapshot();
+      else if (body.case === "presence") {
         locations.setOnline(body.value.userId, body.value.online);
       } else if (body.case === "geo") {
         const event = body.value.event;
@@ -109,6 +108,7 @@ export function useMapSync(): void {
     return () => {
       cancelled = true;
       offFrame();
+      offWelcome();
       offForeground();
       offCache();
       useLocations.getState().clear();

@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { school } from "@tokuly/api";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { refreshSchool, schoolKeys } from "@tokuly/core/school";
 import { useEffect } from "react";
 import { Alert, AppState } from "react-native";
@@ -34,21 +35,18 @@ export default function SchoolBackground() {
   const heartbeatSeconds = useStudyTimer((state) => state.heartbeatSeconds);
   const autoStopped = useStudyTimer((state) => state.autoStopped);
 
-  // The timer as the server has it: on sign-in, and whenever the connection comes back.
+  // The timer as the server has it: on sign-in, and on every Welcome of the connection.
   useEffect(() => {
     const account = currentAccount();
     if (!account) return;
     followAccount(account);
     void loadSession(account);
-    let welcomed = false;
     const client = realtime();
+    // Friends who started or stopped studying before the connection was up, or while it was down.
+    const offWelcome = rereadOnWelcome(queryClient, client, [schoolKeys.studying]);
     const off = client.onFrame((frame) => {
       if (frame.body.case === "welcome") {
-        if (welcomed) {
-          void loadSession(account);
-          void queryClient.invalidateQueries({ queryKey: schoolKeys.studying });
-        }
-        welcomed = true;
+        void loadSession(account);
         return;
       }
       if (frame.body.case !== "school") return;
@@ -97,7 +95,10 @@ export default function SchoolBackground() {
       }
     });
     client.start();
-    return off;
+    return () => {
+      off();
+      offWelcome();
+    };
   }, [queryClient]);
 
   // Whoever is in a room hears its timer wherever they are in the app.

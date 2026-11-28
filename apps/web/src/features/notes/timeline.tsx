@@ -95,7 +95,8 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
   );
   const key = notesKeys.timeline(source);
   const checking = useRef(false);
-  // Asked to look while a look was on its way, which may have read the timeline too early.
+  // Asked to look while a look, or the first page, was on its way: either may have read the
+  // timeline too early.
   const checkAgain = useRef(false);
   const lastCheck = useRef(0);
 
@@ -105,8 +106,7 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
   };
 
   const check = async (force: boolean) => {
-    if (!queryClient.getQueryData(key)) return;
-    if (checking.current) {
+    if (checking.current || !queryClient.getQueryData(key)) {
       checkAgain.current = true;
       return;
     }
@@ -156,6 +156,14 @@ export function Timeline({ source, live = false, empty, ref }: TimelineProps) {
       clearTimeout(timer);
     };
   }, [live]);
+
+  // The first page is there: look now if a hint came while it was on its way.
+  const loaded = query.isSuccess;
+  useEffect(() => {
+    if (!loaded || !checkAgain.current) return;
+    checkAgain.current = false;
+    void latestCheck.current(false);
+  }, [loaded]);
 
   // Coming back to a timeline that was read a while ago: see what was posted meanwhile.
   const dataUpdatedAt = query.dataUpdatedAt;

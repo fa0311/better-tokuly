@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { applyWalletEvent, walletKeys } from "@tokuly/core/wallet";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
@@ -13,16 +14,16 @@ import { realtime } from "#/lib/realtime";
 export default function WalletBackground() {
   const queryClient = useQueryClient();
   useEffect(() => {
-    let welcomed = false;
-    return realtime().onFrame((frame) => {
+    const client = realtime();
+    const off = client.onFrame((frame) => {
       if (frame.body.case === "wallet") applyWalletEvent(queryClient, frame.body.value);
-      else if (frame.body.case === "welcome") {
-        void queryClient.invalidateQueries({
-          queryKey: welcomed ? walletKeys.all : walletKeys.balance,
-        });
-        welcomed = true;
-      }
     });
+    // Pushes sent before the connection was up, or while it was down, are lost: ask again.
+    const offWelcome = rereadOnWelcome(queryClient, client, [walletKeys.all]);
+    return () => {
+      off();
+      offWelcome();
+    };
   }, [queryClient]);
   return null;
 }

@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { storyKeys } from "@tokuly/core/stories/keys";
 import { useEffect } from "react";
 import { onFramesLoading, realtime } from "#/lib/realtime";
@@ -15,13 +16,8 @@ export default function StoriesBackground() {
 
   useEffect(() => {
     const client = realtime();
-    let connectedBefore = false;
-    const offWelcome = client.onFrame((frame) => {
-      if (frame.body.case !== "welcome") return;
-      // Stories posted while the connection was down were not announced.
-      if (connectedBefore) void queryClient.invalidateQueries({ queryKey: storyKeys.tray });
-      connectedBefore = true;
-    });
+    // Stories posted before the connection was up, or while it was down, were not announced.
+    const offWelcome = rereadOnWelcome(queryClient, client, [storyKeys.tray]);
     const offNotes = onFramesLoading("notes", () =>
       import("./frames").then(({ applyStoryEvent }) => ({ event }) => {
         const session = useSessionStore.getState().state;

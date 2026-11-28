@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { applyQuestEvent, questKeys } from "@tokuly/core/quest";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
@@ -12,14 +13,16 @@ import { realtime } from "#/lib/realtime";
 export default function QuestBackground() {
   const queryClient = useQueryClient();
   useEffect(() => {
-    let welcomed = false;
-    return realtime().onFrame((frame) => {
+    const client = realtime();
+    const off = client.onFrame((frame) => {
       if (frame.body.case === "quest") applyQuestEvent(queryClient, frame.body.value);
-      else if (frame.body.case === "welcome") {
-        if (welcomed) void queryClient.invalidateQueries({ queryKey: questKeys.all });
-        welcomed = true;
-      }
     });
+    // Pushes sent before the connection was up, or while it was down, are lost: read again.
+    const offWelcome = rereadOnWelcome(queryClient, client, [questKeys.all]);
+    return () => {
+      off();
+      offWelcome();
+    };
   }, [queryClient]);
   return null;
 }
