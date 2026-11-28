@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { questKeys } from "@tokuly/core/quest/keys";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -26,13 +27,8 @@ export default function QuestBackground() {
     // waiting for their handler. This one stays and reads the current language.
     const t = i18n.getFixedT(null, "quest");
     const client = realtime();
-    let connectedBefore = client.connectionStatus === "connected";
-    const offWelcome = client.onFrame((frame) => {
-      if (frame.body.case !== "welcome") return;
-      // Pushes sent while there was no connection are lost: read again.
-      if (connectedBefore) void queryClient.invalidateQueries({ queryKey: questKeys.all });
-      connectedBefore = true;
-    });
+    // Pushes sent before the connection was up, or while it was down, are lost: read again.
+    const offWelcome = rereadOnWelcome(queryClient, client, [questKeys.all]);
     let celebrations: ReturnType<QuestCelebrations> | null = null;
     const offEvents = onFramesLoading("quest", () =>
       import("./frames").then(({ questCelebrations }) => {

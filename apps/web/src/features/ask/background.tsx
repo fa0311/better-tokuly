@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { toMillis } from "@tokuly/api";
 import { askKeys } from "@tokuly/core/ask/keys";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { onFramesLoading, realtime } from "#/lib/realtime";
 import { offerDraft, takePendingAsk } from "./guest-return";
@@ -28,16 +29,16 @@ export default function AskBackground() {
       ),
     );
     const offFrame = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        noteServerTime(toMillis(frame.body.value.serverTime));
-        // Pushes sent while there was no connection (or before this one was up) are lost: read again what is on screen.
-        void queryClient.invalidateQueries({ queryKey: askKeys.all });
-      } else if (frame.body.case === "pong") noteServerTime(toMillis(frame.body.value.serverTime));
+      if (frame.body.case === "welcome") noteServerTime(toMillis(frame.body.value.serverTime));
+      else if (frame.body.case === "pong") noteServerTime(toMillis(frame.body.value.serverTime));
     });
+    // Pushes sent while there was no connection (or before this one was up) are lost: read again.
+    const offWelcome = rereadOnWelcome(queryClient, client, [askKeys.all]);
     client.start();
     return () => {
       offEvents();
       offFrame();
+      offWelcome();
     };
   }, [queryClient]);
 

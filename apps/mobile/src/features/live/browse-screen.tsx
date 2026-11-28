@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { live, video } from "@tokuly/api";
 import { liveKeys } from "@tokuly/core/live";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { router, Stack } from "expo-router";
 import { Gift, Video } from "lucide-react-native";
 import { useEffect, useState } from "react";
@@ -49,17 +50,10 @@ function Shelf({
   );
 }
 
-/** Reads every list again when the connection comes back from a gap: streams start and end all the time. */
-function useListsAfterGaps() {
+/** Reads every list again on every Welcome of the connection: streams start and end all the time. */
+function useListsOnWelcome() {
   const queryClient = useQueryClient();
-  useEffect(() => {
-    let welcomed = false;
-    return realtime().onFrame((frame) => {
-      if (frame.body.case !== "welcome") return;
-      if (welcomed) void queryClient.invalidateQueries({ queryKey: liveKeys.lists });
-      welcomed = true;
-    });
-  }, [queryClient]);
+  useEffect(() => rereadOnWelcome(queryClient, realtime(), [liveKeys.lists]), [queryClient]);
 }
 
 /**
@@ -70,7 +64,7 @@ export function BrowseLiveScreen() {
   const { t } = useTranslation("live");
   const { colors } = useTheme();
   const [tab, setTab] = useState<Tab>("now");
-  useListsAfterGaps();
+  useListsOnWelcome();
   return (
     <View className="flex-1 bg-bg" testID="live-browse">
       <Stack.Screen

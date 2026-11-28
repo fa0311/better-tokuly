@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { applyPlansEvent, planKeys } from "@tokuly/core/plans";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { realtime } from "#/lib/realtime";
 
@@ -12,18 +13,16 @@ export default function PlansBackground() {
 
   useEffect(() => {
     const client = realtime();
-    let welcomed = false;
     const off = client.onFrame((frame) => {
-      if (frame.body.case === "welcome") {
-        // What changed while the connection was down was not announced.
-        if (welcomed) void queryClient.invalidateQueries({ queryKey: planKeys.all });
-        welcomed = true;
-        return;
-      }
       if (frame.body.case === "plans") applyPlansEvent(queryClient, frame.body.value.event);
     });
+    // What changed before the connection was up, or while it was down, was not announced.
+    const offWelcome = rereadOnWelcome(queryClient, client, [planKeys.all]);
     client.start();
-    return off;
+    return () => {
+      off();
+      offWelcome();
+    };
   }, [queryClient]);
 
   return null;
