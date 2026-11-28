@@ -1,103 +1,123 @@
-import type { InfiniteData, QueryClient } from "@tanstack/query-core";
+import type { InfiniteData, QueryClient, QueryKey } from "@tanstack/query-core";
 import type { community } from "@tokuly/api";
-import type { ClientSource } from "../query";
+import { type ClientSource, pushAfter, pushTo, pushToAll, reread } from "../query";
 import { communityKeys as keys } from "./keys";
 import type { Paged, ThreadPage } from "./queries";
 
 /**
  * Communities, threads and replies in the query cache: what the caller does
- * and what a pushed `CommunityEvent` changes in them.
+ * and what a pushed `CommunityEvent` changes in them. Threads, their lists
+ * and replies are read through the journal and changed through `pushTo`,
+ * so a read on its way cannot bring back a removed reply or an older count
+ * (`docs/realtime-consistency.md`).
  */
 
 type Boards = ClientSource<typeof community.CommunityBoardService>;
 type ReplyPages = InfiniteData<Paged<community.Reply>>;
 
-/** Changes the loaded replies of a thread, in whichever order they are shown. */
+/** The loaded reply lists of a thread, one per order (`newestFirst` is in the key). */
+function replyLists(queryClient: QueryClient, threadUuid: string) {
+  return queryClient
+    .getQueryCache()
+    .findAll({ queryKey: keys.repliesOf(threadUuid) })
+    .map((query) => ({ key: query.queryKey, newestFirst: query.queryKey[3] === true }));
+}
+
+/** Changes the loaded replies of a thread, in whichever order they are shown, and every read of them in flight. */
 export function patchReplies(
   queryClient: QueryClient,
   threadUuid: string,
   patch: (replies: community.Reply[], last: boolean, newestFirst: boolean) => community.Reply[],
 ): void {
-  for (const [key, data] of queryClient.getQueriesData<ReplyPages>({
-    queryKey: keys.repliesOf(threadUuid),
-  })) {
-    if (!data) continue;
-    const newestFirst = key[3] === true;
-    queryClient.setQueryData<ReplyPages>(key, {
+  for (const { key, newestFirst } of replyLists(queryClient, threadUuid))
+    pushTo<ReplyPages>(queryClient, key, (data) => ({
       ...data,
       pages: data.pages.map((page, index) => ({
         ...page,
         items: patch(page.items, index === data.pages.length - 1, newestFirst),
       })),
-    });
-  }
+    }));
 }
 
 /**
- * Puts a reply the caller may read into the loaded lists: replaced where it
- * is already shown, otherwise added where new replies appear (the top of a
- * newest-first list; the end of an oldest-first one once it is fully loaded).
+ * A reply put into a loaded list: replaced where it is already shown,
+ * otherwise added where new replies appear (the top of a newest-first list;
+ * the end of an oldest-first one once it is fully loaded).
  */
-export function upsertReply(queryClient: QueryClient, reply: community.Reply): void {
-  for (const [key, data] of queryClient.getQueriesData<ReplyPages>({
-    queryKey: keys.repliesOf(reply.threadId),
-  })) {
-    if (!data) continue;
-    const newestFirst = key[3] === true;
-    const known = data.pages.some((page) => page.items.some((each) => each.id === reply.id));
-    const lastIndex = data.pages.length - 1;
-    const complete = !data.pages[lastIndex]?.nextCursor;
-    queryClient.setQueryData<ReplyPages>(key, {
-      ...data,
-      pages: data.pages.map((page, index) => {
-        if (known)
-          return {
-            ...page,
-            items: page.items.map((each) => (each.id === reply.id ? reply : each)),
-          };
-        if (newestFirst && index === 0) return { ...page, items: [reply, ...page.items] };
-        if (!newestFirst && index === lastIndex && complete)
-          return { ...page, items: [...page.items, reply] };
-        return page;
-      }),
-    });
-  }
+function withReply(data: ReplyPages, reply: community.Reply, newestFirst: boolean): ReplyPages {
+  const known = data.pages.some((page) => page.items.some((each) => each.id === reply.id));
+  const lastIndex = data.pages.length - 1;
+  const complete = !data.pages[lastIndex]?.nextCursor;
+  return {
+    ...data,
+    pages: data.pages.map((page, index) => {
+      if (known)
+        return { ...page, items: page.items.map((each) => (each.id === reply.id ? reply : each)) };
+      if (newestFirst && index === 0) return { ...page, items: [reply, ...page.items] };
+      if (!newestFirst && index === lastIndex && complete)
+        return { ...page, items: [...page.items, reply] };
+      return page;
+    }),
+  };
 }
 
-/** Applies a change to a thread wherever it is loaded (its page and every list). */
+/** Puts a reply the caller may read into the loaded lists (see `withReply`). */
+export function upsertReply(queryClient: QueryClient, reply: community.Reply): void {
+  for (const { key, newestFirst } of replyLists(queryClient, reply.threadId))
+    pushTo<ReplyPages>(queryClient, key, (data) => withReply(data, reply, newestFirst));
+}
+
+/**
+ * `upsertReply` for a reply `read` fetches: it lands after what was pushed
+ * while it was fetched, so a removal that followed stays (`pushAfter`).
+ */
+async function upsertFetchedReply(
+  queryClient: QueryClient,
+  threadUuid: string,
+  read: () => Promise<community.Reply | undefined>,
+): Promise<void> {
+  const answer = read();
+  await Promise.all([
+    answer,
+    ...replyLists(queryClient, threadUuid).map(({ key, newestFirst }) =>
+      pushAfter<ReplyPages>(queryClient, key, async () => {
+        const reply = await answer;
+        return reply && ((data) => withReply(data, reply, newestFirst));
+      }),
+    ),
+  ]);
+}
+
+/** Applies a change to a thread wherever it is loaded (its page and every list), and to their reads in flight. */
 export function patchThread(
   queryClient: QueryClient,
   threadUuid: string,
   patch: (thread: community.Thread) => community.Thread,
 ): void {
-  for (const [key, data] of queryClient.getQueriesData<community.Thread | null>({
-    queryKey: keys.threadsById,
-  })) {
-    if (data?.id === threadUuid) queryClient.setQueryData(key, patch(data));
-  }
-  const inPages = <T extends { items: community.Thread[]; pinned?: community.Thread[] }>(
-    data: InfiniteData<T> | undefined,
-  ) =>
-    data && {
-      ...data,
-      pages: data.pages.map((page) => ({
-        ...page,
-        items: page.items.map((each) => (each.id === threadUuid ? patch(each) : each)),
-        ...(page.pinned
-          ? { pinned: page.pinned.map((each) => (each.id === threadUuid ? patch(each) : each)) }
-          : {}),
-      })),
-    };
-  queryClient.setQueriesData<InfiniteData<ThreadPage>>(
-    {
-      queryKey: keys.all,
-      predicate: (query) =>
-        query.queryKey[3] === "threads" ||
-        query.queryKey[3] === "announcements" ||
-        query.queryKey[1] === "followed",
-    },
-    inPages,
+  // A page still on its way under a short ID is only known to be this thread once it answers.
+  pushToAll<community.Thread | null>(queryClient, keys.threadsById, (thread) =>
+    thread.id === threadUuid ? patch(thread) : thread,
   );
+  const inPages = <T extends { items: community.Thread[]; pinned?: community.Thread[] }>(
+    data: InfiniteData<T>,
+  ) => ({
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.map((each) => (each.id === threadUuid ? patch(each) : each)),
+      ...(page.pinned
+        ? { pinned: page.pinned.map((each) => (each.id === threadUuid ? patch(each) : each)) }
+        : {}),
+    })),
+  });
+  const lists = queryClient.getQueryCache().findAll({
+    queryKey: keys.all,
+    predicate: (query) =>
+      query.queryKey[3] === "threads" ||
+      query.queryKey[3] === "announcements" ||
+      query.queryKey[1] === "followed",
+  });
+  for (const list of lists) pushTo<InfiniteData<ThreadPage>>(queryClient, list.queryKey, inPages);
 }
 
 /** After the caller's own standing somewhere changed: everything that shows it. */
@@ -158,10 +178,12 @@ export function applyCommunityEvent(
         patchThread(queryClient, threadId, (thread) => ({ ...thread, replyCount }));
       }
       // Only someone looking at the thread needs the reply itself.
-      if (queryClient.getQueriesData({ queryKey: keys.repliesOf(threadId) }).length === 0) break;
-      boards()
-        .getReply({ replyId })
-        .then(({ reply }) => reply && upsertReply(queryClient, reply))
+      if (replyLists(queryClient, threadId).length === 0) break;
+      upsertFetchedReply(
+        queryClient,
+        threadId,
+        async () => (await boards().getReply({ replyId })).reply,
+      )
         // Not the caller's to read (a block, a lost membership): nothing to show.
         .catch(() => {});
       break;
@@ -219,6 +241,28 @@ export function applyCommunityEvent(
     default:
       break;
   }
+}
+
+/**
+ * Reads everything loaded about a community again, once its topic is in
+ * effect (first, or again after a gap), and a read in flight does not count
+ * (rule 1): its lists, and the threads, replies and events opened by their
+ * own address, which are not keyed by the community. A thread or event page
+ * still on its first read is read again too: it may be this community's.
+ */
+export function rereadCommunity(queryClient: QueryClient, communityId: string): Promise<void> {
+  const cache = queryClient.getQueryCache();
+  const opened = (prefix: QueryKey, more: (id: string) => QueryKey) =>
+    cache.findAll({ queryKey: prefix }).flatMap((query) => {
+      const data = query.state.data as { id: string; communityId: string } | null | undefined;
+      if (data === undefined) return [query.queryKey];
+      return data?.communityId === communityId ? [query.queryKey, more(data.id)] : [];
+    });
+  return reread(queryClient, [
+    keys.of(communityId),
+    ...opened(keys.threadsById, keys.repliesOf),
+    ...opened(keys.eventsById, keys.attendeeLists),
+  ]);
 }
 
 /** Reads a thread again wherever it is open under an address (UUID or short ID). */

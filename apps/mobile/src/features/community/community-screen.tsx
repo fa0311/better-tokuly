@@ -7,6 +7,7 @@ import {
   imageUrl,
   isMember,
   isStaff,
+  rereadCommunity,
   timeoutUntilMs,
   VISIBILITY_KEYS,
 } from "@tokuly/core/community";
@@ -44,8 +45,7 @@ function useCommunityTopic(c: community.Community | null | undefined, readable: 
   useEffect(() => {
     if (!communityId || !readable) return;
     const { release } = realtime().subscribe(`community:${communityId}`, {
-      onSubscribed: () =>
-        void queryClient.invalidateQueries({ queryKey: communityKeys.of(communityId) }),
+      onSubscribed: () => void rereadCommunity(queryClient, communityId),
       onRevoked: () =>
         void queryClient.invalidateQueries({ queryKey: communityKeys.community(handle) }),
     });

@@ -67,7 +67,7 @@ found.
 | Notes: card topic (W M) | no read on `onSubscribed` | a note deleted or edited before its topic took effect stays as it was | #526 |
 | Notes: forgetting a person (W M) | journal, `pushToAll`; a look is `pushAfter` until its pill is tapped | — | |
 | Comments (W) | `onSubscribed` invalidates, `setQueriesData` | a removed comment comes back; replies are never read again | #521 |
-| Community (W M) | invalidate, `onSubscribed` on the community | a removed reply comes back | #522 |
+| Community (W M) | journal, `onSubscribed` rereads the community, its open threads and events | — | |
 | Moments (W M) | `setQueryData`, every `Welcome` | a deleted moment, or an ex-friend's, comes back | #517 |
 | Stories (W M) | `setQueryData`, every `Welcome` | a deleted story, or an ex-friend's reel, comes back in the tray | #516 |
 | Plans (W M) | `setQueryData(null)` on removal, every `Welcome` | a plan the person was removed from, or a deleted poll, comes back | #518 |
