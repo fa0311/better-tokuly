@@ -880,9 +880,9 @@ test("the accent colour recolours the app and the other preferences are saved", 
     page.evaluate(() =>
       getComputedStyle(document.documentElement).getPropertyValue("--brand").trim(),
     );
-  expect(await brand()).toBe("#7c5cff");
+  expect(await brand()).toBe("#7859f7");
   await page.getByRole("radio", { name: "みどり" }).click();
-  await expect.poll(brand).toBe("#12a36b");
+  await expect.poll(brand).toBe("#0f8759");
 
   await page.getByRole("combobox", { name: "距離の単位" }).click();
   await page.getByRole("option", { name: /マイル/ }).click();
@@ -893,7 +893,7 @@ test("the accent colour recolours the app and the other preferences are saved", 
   expect((await getSettings(page.request, me)).appearance.autoplay ?? false).toBe(false);
 
   await page.reload();
-  await expect.poll(brand).toBe("#12a36b");
+  await expect.poll(brand).toBe("#0f8759");
   await expect(page.getByRole("radio", { name: "みどり" })).toBeChecked();
   await expect(page.getByRole("switch", { name: /動画の自動再生/ })).not.toBeChecked();
 });

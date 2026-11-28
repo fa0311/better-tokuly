@@ -48,7 +48,8 @@ function luminance(rgb: Rgb): number {
 
 const WHITE: Rgb = [255, 255, 255];
 const BLACK: Rgb = [0, 0, 0];
-const INK = "#17122b";
+/** A colour at most this light has a 4.5:1 contrast with white: white text on it, and it as text on white. */
+const LIGHT_THEME_MAX_LUMINANCE = 1.05 / 4.5 - 0.05;
 /** The dark theme's page background. */
 const NIGHT: Rgb = [13, 11, 20];
 /** A colour at least this light has a 4.5:1 contrast against the dark theme's surfaces. */
@@ -62,9 +63,10 @@ export interface AccentTokens {
 }
 
 /**
- * The brand tokens for an accent colour, per theme. Light: the colour itself
- * with white or ink text on it, whichever reads better. Dark: a lighter tint
- * (as the shipped palette does) with dark text on it.
+ * The brand tokens for an accent colour, per theme. Light: the colour,
+ * deepened only as far as small text needs (4.5:1 for white text on it and
+ * for it as text on white), with white text on it. Dark: a lighter tint (as
+ * the shipped palette does) with dark text on it.
  */
 export function accentTokens(color: string): { light: AccentTokens; dark: AccentTokens } {
   const accent = parse(color);
@@ -73,12 +75,17 @@ export function accentTokens(color: string): { light: AccentTokens; dark: Accent
   while (luminance(mix(accent, WHITE, lightening)) < DARK_THEME_MIN_LUMINANCE && lightening < 1)
     lightening += 0.05;
   const tint = mix(accent, WHITE, lightening);
+  // In steps of 1%, on the colour as it is written (#rrggbb), so the default comes out as shipped.
+  let deepening = 0;
+  const deepened = () => parse(format(mix(accent, BLACK, deepening)));
+  while (luminance(deepened()) > LIGHT_THEME_MAX_LUMINANCE && deepening < 1) deepening += 0.01;
+  const brand = deepened();
   return {
     light: {
-      brand: format(accent),
-      brandStrong: format(mix(accent, BLACK, 0.22)),
+      brand: format(brand),
+      brandStrong: format(mix(brand, BLACK, 0.22)),
       brandSoft: format(mix(accent, WHITE, 0.84)),
-      onBrand: luminance(accent) > 0.4 ? INK : "#ffffff",
+      onBrand: "#ffffff",
     },
     dark: {
       brand: format(tint),

@@ -83,15 +83,17 @@ export function contrastRatio(a: string, b: string): number {
   return (light + 0.05) / (dark + 0.05);
 }
 
-/** WCAG AA: body text, and large or bold text and icons. */
+/** WCAG AA (SC 1.4.3) for text below 18.66px bold / 24px regular. */
 export const AA_TEXT = 4.5;
-export const AA_LARGE = 3;
 
 /**
- * Text on the backgrounds it is set on, with the WCAG AA ratio it needs:
- * body text (`ink`, `ink-soft`) 4.5:1; the brand colour as text and the
- * labels on it are bold and short, 3:1. `ink-faint` is for placeholders and
- * decoration and is not checked.
+ * Text on the backgrounds it is set on, each at the WCAG AA ratio it needs.
+ * Every pair carries small text somewhere, so every pair needs 4.5:1:
+ * `ink` and `ink-soft` everywhere; `on-brand` on `brand` in buttons, badges
+ * and the selected navigation label; `brand` on `surface` in links, chips
+ * and 10–14px labels. AA's 3:1 is for text at 18.66px bold / 24px and for
+ * icons only, and no pair here is used only that way. `ink-faint` is for
+ * placeholders and decoration and is not checked.
  */
 export const CONTRAST_CHECKS = [
   ...(["ink", "ink-soft"] as const).flatMap((text) =>
@@ -101,8 +103,8 @@ export const CONTRAST_CHECKS = [
       min: AA_TEXT,
     })),
   ),
-  { text: "on-brand", on: "brand", min: AA_LARGE },
-  { text: "brand", on: "surface", min: AA_LARGE },
+  { text: "on-brand", on: "brand", min: AA_TEXT },
+  { text: "brand", on: "surface", min: AA_TEXT },
 ] as const satisfies readonly { text: ColorName; on: ColorName; min: number }[];
 
 export interface ContrastProblem {

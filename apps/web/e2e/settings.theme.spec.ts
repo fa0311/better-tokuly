@@ -162,7 +162,7 @@ test("an account's theme follows it to a new browser, and a new accent takes the
 
   // The accent sets the brand again; the other colours stay.
   await press(page.getByRole("radio", { name: "みどり" }));
-  await expect.poll(() => token(html, "brand")).toBe("#12a36b");
+  await expect.poll(() => token(html, "brand")).toBe("#0f8759");
   expect(await token(html, "bg")).toBe("#fff4e0");
   await expect
     .poll(async () => (await appearanceOf(page.request, me)).customColors)
@@ -183,7 +183,7 @@ test("an account's theme follows it to a new browser, and a new accent takes the
   await expect(page.getByRole("tab", { name: "ライト" })).toHaveAttribute("aria-selected", "true");
   await expect(
     page.getByRole("textbox", { name: "ブランド色のカラーコード", exact: true }),
-  ).toHaveValue("#12a36b");
+  ).toHaveValue("#0f8759");
   await expect(page.getByRole("textbox", { name: "背景のカラーコード", exact: true })).toHaveValue(
     "#fff4e0",
   );

@@ -16,7 +16,7 @@ describe("Button", () => {
       borderRadius: 999,
       borderWidth: 2,
       height: 44,
-      backgroundColor: "#7c5cff",
+      backgroundColor: "#7859f7",
     });
   });
 

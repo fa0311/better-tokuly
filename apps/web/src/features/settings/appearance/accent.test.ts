@@ -1,3 +1,4 @@
+import { colors } from "@tokuly/core/tokens";
 import { describe, expect, it } from "vitest";
 import { ACCENTS, accentTokens, DEFAULT_ACCENT, isAccentColor } from "./accent";
 
@@ -22,13 +23,20 @@ describe("accent colours", () => {
     expect(isAccentColor("#7c5cff; background: url(x)")).toBe(false);
   });
 
-  it("keeps the light theme's brand as the chosen colour", () => {
-    expect(accentTokens("#ec3f8c").light.brand).toBe("#ec3f8c");
+  it("deepens the light theme's brand only as far as small text needs", () => {
+    expect(accentTokens("#4a4266").light.brand).toBe("#4a4266");
+    expect(accentTokens("#7c5cff").light.brand).toBe("#7859f7");
+    expect(accentTokens("#e07a00").light.brand).toBe("#b36200");
   });
 
-  it("picks dark text for a pale accent and white for a deep one", () => {
-    expect(accentTokens("#ffe14d").light.onBrand).toBe("#17122b");
-    expect(accentTokens("#4a4266").light.onBrand).toBe("#ffffff");
+  it("gives the shipped colour the shipped brand", () => {
+    expect(accentTokens(DEFAULT_ACCENT).light.brand).toBe(colors.light.brand);
+  });
+
+  it("deepens a pale accent until white text reads on it", () => {
+    const { light } = accentTokens("#ffe14d");
+    expect(light.onBrand).toBe("#ffffff");
+    expect(contrast(light.brand, light.onBrand)).toBeGreaterThanOrEqual(4.5);
   });
 
   it("offers the shipped colour first", () => {
@@ -39,12 +47,11 @@ describe("accent colours", () => {
     "%s stays readable in both themes",
     (_id, color) => {
       const { light, dark } = accentTokens(color);
-      // Button labels on the brand colour.
-      expect(contrast(light.brand, light.onBrand)).toBeGreaterThanOrEqual(3);
+      // Labels on the brand colour, and brand-coloured text on the surfaces: small text, 4.5:1.
+      expect(contrast(light.brand, light.onBrand)).toBeGreaterThanOrEqual(4.5);
       expect(contrast(dark.brand, dark.onBrand)).toBeGreaterThanOrEqual(4.5);
-      // Brand-coloured text and icons on the surfaces of each theme.
-      expect(contrast(light.brand, "#ffffff")).toBeGreaterThanOrEqual(3);
-      expect(contrast(dark.brand, "#17132a")).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(light.brand, colors.light.surface)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(dark.brand, colors.dark.surface)).toBeGreaterThanOrEqual(4.5);
     },
   );
 });
