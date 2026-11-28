@@ -457,6 +457,35 @@ test("when a friend ends the friendship, their notes and their story leave the o
   await expect(note).toHaveCount(0);
 });
 
+/**
+ * Keeps the page's realtime connection on WebSocket, which Playwright can stand in. `drop()`
+ * closes it; what it returns says whether the connection after it was welcomed yet.
+ */
+async function droppableConnection(page: Page) {
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(globalThis, "WebTransport");
+  });
+  const sockets: { ws: WebSocketRoute; welcomed: boolean }[] = [];
+  await page.routeWebSocket(/\/rt\/ws/, (ws) => {
+    const socket = { ws, welcomed: false };
+    sockets.push(socket);
+    const server = ws.connectToServer();
+    ws.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      socket.welcomed = true;
+      ws.send(message);
+    });
+  });
+  return {
+    async drop() {
+      await expect.poll(() => sockets.at(-1)?.welcomed).toBe(true);
+      const next = sockets.length;
+      await sockets.at(-1)?.ws.close();
+      return () => sockets[next]?.welcomed === true;
+    },
+  };
+}
+
 test("a story deleted while the tray was read again does not come back with that read", async ({
   page,
   me,
@@ -465,32 +494,24 @@ test("a story deleted while the tray was read again does not come back with that
   const friend = await createAccount(request, "friend");
   await befriend(request, me, friend);
   const story = await postStory(request, friend, `e2e すぐ消える記憶 ${tag()}`);
-  // On WebSocket, which Playwright can stand in, so that the test can drop the connection.
-  await page.addInitScript(() => {
-    Reflect.deleteProperty(globalThis, "WebTransport");
-  });
-  const sockets: WebSocketRoute[] = [];
-  await page.routeWebSocket(/\/rt\/ws/, (ws) => {
-    ws.connectToServer();
-    sockets.push(ws);
-  });
+  const connection = await droppableConnection(page);
   await page.goto("/notes?tab=home");
   await expect(page.getByTestId("story-reel")).toBeVisible();
-  await expect.poll(() => sockets.length).toBeGreaterThan(0);
 
   // The connection drops; the Welcome after it reads the tray again. That read is answered now,
   // while the story is there, and lands only after the story was deleted.
+  const reconnected = await connection.drop();
   let answered = () => {};
   const read = new Promise<void>((resolve) => (answered = resolve));
   let release = () => {};
   const released = new Promise<void>((resolve) => (release = resolve));
   await page.route(`**/api/${STORIES}/GetStoryTray`, async (route) => {
+    if (!reconnected()) return route.continue();
     const response = await route.fetch();
     answered();
     await released;
     await route.fulfill({ response });
   });
-  await sockets.at(-1)?.close();
   await read;
   await rpc(request, `${STORIES}/DeleteStory`, { storyId: story.id }, friend);
   await expect(page.getByTestId("story-reel")).toHaveCount(0, { timeout: 30_000 });
