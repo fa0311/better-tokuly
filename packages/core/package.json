@@ -42,7 +42,8 @@
     "./video/search": "./src/video/search.ts",
     "./tokens": "./src/tokens/index.ts",
     "./wallet": "./src/wallet/index.ts",
-    "./*/keys": "./src/*/keys.ts"
+    "./*/keys": "./src/*/keys.ts",
+    "./*/forget": "./src/*/forget.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

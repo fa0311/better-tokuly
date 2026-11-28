@@ -94,8 +94,10 @@ found.
    that reads again on `Welcome` (#524); notes timelines look after a hint
    during the first load on both platforms (#525).
 2. Topic reads replace a read in flight: notes cards, emoji (#526, #537).
-3. Done: one removal path on both platforms (#527, #528, #529). Areas that
-   still keep an ex-friend's content: #576.
+3. Done: one removal path on both platforms (#527, #528, #529), and a
+   forgetter in every area that shows friends-only content. What only a
+   block hides (community posts, search, comments) is not forgotten on the
+   push: to the blocked person a block looks like an unfriend.
 4. `journal` / `pushTo` (done; used by live chat, the live overlay, the
    watch party and the school room), then each area that writes with
    `setQueryData`, privacy first: chat, notes, stories, moments, plans,

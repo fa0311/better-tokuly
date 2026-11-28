@@ -148,6 +148,11 @@ export function forgetUserNotes(queryClient: QueryClient, userId: string): void 
     notesKeys.threads,
     ["notes", "note"],
     ["notes", "quotes"],
+    // Who liked or renoted a note, trending notes and a clip's notes may be theirs.
+    ["notes", "likers"],
+    ["notes", "renoters"],
+    ["notes", "trending-notes"],
+    ["notes", "clips", "notes"],
     // The mixed home feed and the friends' log.
     ["feed"],
   ]);
