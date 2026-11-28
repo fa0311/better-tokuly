@@ -206,7 +206,7 @@ export default {
     flip: "カメラをきりかえ",
     flash: { off: "フラッシュなし", auto: "オート", on: "フラッシュ" },
     hintStory: "タップで写真、長おしで動画！（{{limit}}まで）",
-    hintPhotoOnly: "この写真を撮ろう",
+    hintPhotoOnly: "写真を撮ろう!",
     hintShort: "タップで録画スタート！（{{limit}}まで）",
     recording: "● {{time}} / {{limit}}",
     shoot: "撮る",

@@ -205,7 +205,7 @@ export default {
     flip: "Switch camera",
     flash: { off: "No flash", auto: "Auto", on: "Flash" },
     hintStory: "Tap for a photo, hold for a video! (up to {{limit}})",
-    hintPhotoOnly: "Take this photo",
+    hintPhotoOnly: "Take a photo!",
     hintShort: "Tap to start recording! (up to {{limit}})",
     recording: "● {{time}} / {{limit}}",
     shoot: "Take",
