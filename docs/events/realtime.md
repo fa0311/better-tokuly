@@ -88,6 +88,8 @@ a typing/presence signal; the chat domain must.
   feature reads its snapshot.
 - Delivery is at most once. Anything that must not be lost has to be
   fetchable from the owning domain.
+- The clients' half — reading again, and pushes never losing to an older
+  read — is [`../realtime-consistency.md`](../realtime-consistency.md).
 
 ## Topics
 
