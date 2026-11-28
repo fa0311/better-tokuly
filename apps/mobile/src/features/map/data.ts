@@ -99,11 +99,14 @@ export function useMapSync(): void {
       known = ids;
       if (added) void loadSnapshot();
     });
+    // Friends' pins are pushed only while the app is in front: back, look again.
+    const offForeground = client.onForeground(() => void loadSnapshot());
     client.start();
     void loadSnapshot();
     return () => {
       cancelled = true;
       offFrame();
+      offForeground();
       offCache();
       const store = useLocations.getState();
       store.setSnapshot([]);

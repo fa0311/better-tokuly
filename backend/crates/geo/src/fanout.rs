@@ -28,6 +28,14 @@ fn shown_key(owner: Uuid) -> String {
     format!("geo:pin:shown:{}", owner.simple())
 }
 
+/// How long a `WatchFriendLocations` stream counts as watching without a
+/// refresh (it refreshes at a third of this).
+pub(crate) const WATCHING_TTL: std::time::Duration = std::time::Duration::from_secs(90);
+
+fn watching_key(viewer: Uuid) -> String {
+    format!("geo:watching:{}", viewer.simple())
+}
+
 fn area_lookup(lat: f64, lng: f64) -> Area {
     Gazetteer::shared().area(lat, lng)
 }
@@ -63,6 +71,22 @@ impl Geo {
     pub(crate) fn make_blur_mac(core: &Core) -> Box<dyn Fn(&[u8]) -> [u8; 32] + Send + Sync> {
         let core = core.clone();
         Box::new(move |data| core.keys.mac(BLUR_KEY, data))
+    }
+
+    /// Marks `viewer` as watching friends' pins through a stream, which then
+    /// receives pushes as an open app does.
+    pub(crate) async fn mark_watching(&self, viewer: Uuid) -> AppResult<()> {
+        self.core.cache.set_string(&watching_key(viewer), "1", Some(WATCHING_TTL)).await
+    }
+
+    /// Those of `friends` who see pins live: the app open, or a
+    /// `WatchFriendLocations` stream.
+    async fn watching(&self, friends: &[Uuid]) -> AppResult<HashSet<Uuid>> {
+        let mut watching: HashSet<Uuid> = presence::online_among(&self.core.cache, friends).await?.into_iter().collect();
+        let keys: Vec<String> = friends.iter().map(|id| watching_key(*id)).collect();
+        let streams: Vec<Option<String>> = redis::cmd("MGET").arg(&keys).query_async(&mut self.core.cache.conn()).await?;
+        watching.extend(friends.iter().zip(streams).filter(|(_, v)| v.is_some()).map(|(id, _)| *id));
+        Ok(watching)
     }
 
     /// Pushes a geo event to every connected device of one user.
@@ -115,6 +139,9 @@ impl Geo {
     /// ghost rule. Friends who see a frozen pin get nothing — a frozen pin
     /// does not move — unless `refresh` is set, which re-sends everyone their
     /// current view (after a change to ghost rules, privacy or status).
+    ///
+    /// Only friends who watch (the app open, or `WatchFriendLocations`) get a
+    /// push: the others load every pin when they open it (`ListFriendLocations`).
     pub(crate) async fn fan_out(
         &self,
         owner: Uuid,
@@ -130,6 +157,7 @@ impl Geo {
         if friends.is_empty() || !ctx.active {
             return Ok(());
         }
+        let watching = self.watching(&friends).await?;
         let online = presence::is_online(&self.core.cache, owner).await.unwrap_or(false);
         let weather = self.weather_at(&[pin.map(Pin::position)]).await.pop().flatten();
         let languages = self.languages(&friends).await?;
@@ -153,6 +181,10 @@ impl Geo {
             if !refresh && matches!(sight, Sight::Frozen(_)) {
                 continue;
             }
+            let watches = watching.contains(&viewer);
+            if !watches && !matches!(sight, Sight::Blurred) {
+                continue;
+            }
             let viewer = Viewer { id: viewer, ja: languages.get(&viewer).copied().unwrap_or(true) };
             let Some(view) = visibility::friend_view(&env, &subject, viewer) else { continue };
             if matches!(sight, Sight::Blurred) {
@@ -161,10 +193,14 @@ impl Geo {
                 if shown.get(&field) == Some(&now_shown) && !refresh {
                     continue;
                 }
+                // Kept for those who are away too: back with the snapshot,
+                // their next push must still wait for a change they can see.
                 shown.insert(field.clone(), now_shown.clone());
                 changed.push((field, now_shown));
             }
-            self.push(viewer.id, Event::Location(Box::new(view))).await;
+            if watches {
+                self.push(viewer.id, Event::Location(Box::new(view))).await;
+            }
         }
         if !changed.is_empty() {
             let mut conn = self.core.cache.conn();

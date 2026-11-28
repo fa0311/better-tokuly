@@ -146,7 +146,7 @@ impl World {
         } else {
             ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
         }
-        let rens_devices = ctx.app.listen_user(ren.id).await;
+        let rens_devices = ctx.open_app(&ren).await;
         World { aoi, ren, kai, rens_devices, trap_id, roams, seen_notifications: 0 }
     }
 

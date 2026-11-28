@@ -127,7 +127,7 @@ async fn standing_next_to_a_frozen_friend_reveals_nothing() {
     let home = somewhere();
     ctx.report(&aoi, vec![sample(home, minutes_ago(10))]).await;
     ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     // Aoi goes somewhere else; Ren guesses where and stands right there with her.
     let hideout = offset(home, 30.0, 4000.0);
@@ -171,7 +171,7 @@ async fn hiding_from_someone_ends_what_the_two_shared_by_being_near() {
     meet(&ctx, &aoi, &ren, spot, t).await;
     let before = gatherings(&ctx, &ren).await;
     assert_eq!(before.len(), 1);
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
     let ended: Vec<String> = pushes(&mut rens, QUIET)
@@ -202,7 +202,7 @@ async fn a_trip_is_shown_only_to_friends_who_see_the_traveller() {
     // Frozen for everyone, except Kai.
     ctx.ghost(&aoi, &[], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
     ctx.ghost(&aoi, &[&kai], GhostMode::GHOST_MODE_PRECISE, 0).await.unwrap();
-    let (mut rens, mut kais) = (ctx.app.listen_user(ren.id).await, ctx.app.listen_user(kai.id).await);
+    let (mut rens, mut kais) = (ctx.open_app(&ren).await, ctx.open_app(&kai).await);
 
     let request = StartTripRequest {
         destination: Destination { target: Some(Target::Position(Box::new(lat_lng(station)))), ..Default::default() }
@@ -255,7 +255,7 @@ async fn a_hidden_member_has_no_pull_on_what_a_viewer_sees_of_a_gathering() {
     ctx.ghost(&kai, &[&mio], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
     let spot = somewhere();
     let t = Utc::now();
-    let mut mios = ctx.app.listen_user(mio.id).await;
+    let mut mios = ctx.open_app(&mio).await;
 
     // Kai and Aoi meet first: for Mio that is one visible friend, so nothing.
     meet(&ctx, &kai, &aoi, spot, t).await;
@@ -499,7 +499,7 @@ async fn a_home_alert_stops_when_place_labels_are_no_longer_shared() {
     assert_eq!(ctx.notifications_for(ren.id, "geo.place_alert").await.len(), 1, "it works while labels are shared");
 
     ctx.set_privacy(&aoi, |privacy| privacy.share_place_labels = false).await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
     for spot in [away, home, away, home] {
         ctx.at(&aoi, spot).await;
     }
@@ -517,7 +517,7 @@ async fn a_check_in_is_no_map_story_while_one_friend_is_frozen_out() {
     let spot = somewhere();
     ctx.at(&aoi, spot).await;
     ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
     let here = offset(spot, 0.0, 3000.0);
     ctx.at(&aoi, here).await;
     let request = CheckInRequest {
@@ -722,7 +722,7 @@ async fn a_hidden_member_does_not_bridge_a_gathering() {
     // Aoi is frozen for Ren somewhere else, then stands between Kai and Mio.
     seen_at(&ctx, &aoi, offset(spot, 0.0, 6000.0), t, &[400]).await;
     ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_FROZEN, 0).await.unwrap();
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
     for (user, at, seconds) in
         [(&aoi, spot, vec![300, 270, 240]), (&kai, west, vec![300, 270, 240]), (&mio, east, vec![300, 270, 240])]
     {
@@ -805,7 +805,7 @@ async fn pushes_to_a_blurred_viewer_do_not_follow_movement() {
         let t = DateTime::from_timestamp_millis((now_ms - 200_000).div_euclid(step_ms) * step_ms + 60_000).unwrap();
         ctx.report(&aoi, vec![sample(base, t - Duration::seconds(30))]).await;
         ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
-        let mut rens = ctx.app.listen_user(ren.id).await;
+        let mut rens = ctx.open_app(&ren).await;
         pushes(&mut rens, QUIET).await;
         let mut seen = Vec::new();
         for step in 0..12i64 {
@@ -822,6 +822,34 @@ async fn pushes_to_a_blurred_viewer_do_not_follow_movement() {
     }
     assert_eq!(counts[0], counts[1], "as many pushes walking as standing still: {counts:?}");
     assert!(counts[0] <= 1, "{counts:?}");
+}
+
+/// A blurred viewer away from the app gets no push, and back with the
+/// snapshot, the next push still waits for a change they can see: a push
+/// of what they already have would say the person sent a fix just now.
+#[tokio::test]
+async fn a_blurred_viewer_back_in_the_app_is_not_told_of_movement_they_cannot_see() {
+    let ctx = start().await;
+    let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
+    ctx.befriend(&aoi, &ren).await;
+    let cell_of = |p: (f64, f64)| tokuly_geo::math::cell_at(p.0, p.1, tokuly_geo::visibility::BLUR_RESOLUTION).unwrap();
+    let base = tokuly_geo::math::cell_center(cell_of(somewhere()));
+    let elsewhere = tokuly_geo::math::cell_center(cell_of(offset(base, 90.0, 30_000.0)));
+    let step_ms = tokuly_geo::visibility::BLUR_TIME_STEP_MS;
+    let now_ms = Utc::now().timestamp_millis();
+    let t = DateTime::from_timestamp_millis((now_ms - 200_000).div_euclid(step_ms) * step_ms + 60_000).unwrap();
+    ctx.report(&aoi, vec![sample(base, t - Duration::seconds(30))]).await;
+    ctx.ghost(&aoi, &[&ren], GhostMode::GHOST_MODE_BLURRED, 0).await.unwrap();
+
+    let mut away = ctx.app.listen_user(ren.id).await;
+    ctx.report(&aoi, vec![sample(elsewhere, t)]).await;
+    assert!(pins(&mut away, QUIET).await.is_empty(), "nothing while the app is closed");
+
+    let mut rens = ctx.open_app(&ren).await;
+    let listed = ctx.seen_by(&ren, &aoi).await.unwrap();
+    assert_eq!(listed.precision, GhostMode::GHOST_MODE_BLURRED);
+    ctx.report(&aoi, vec![sample(offset(elsewhere, 0.0, 20.0), t + Duration::seconds(10))]).await;
+    assert!(pins(&mut rens, QUIET).await.is_empty(), "what they see did not change");
 }
 
 /// Re-check 6: when an SOS ends, the people it alerted keep the pin they

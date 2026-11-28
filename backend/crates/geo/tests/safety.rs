@@ -73,8 +73,8 @@ async fn a_one_time_alert_fires_once_when_the_friend_arrives() {
     let (aoi, ren) = (ctx.app.user("aoi").await, ctx.app.user("ren").await);
     ctx.befriend(&aoi, &ren).await;
     let station = somewhere();
-    let mut aois = ctx.app.listen_user(aoi.id).await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut aois = ctx.open_app(&aoi).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     let alert =
         create_alert(&ctx, &aoi, alert_at(&ren, station, AlertTrigger::ALERT_TRIGGER_ARRIVE, false)).await.unwrap();
@@ -309,7 +309,7 @@ async fn alert_requests_are_validated_and_either_side_can_remove_an_alert() {
 
     // Removal: by the owner or by the person watched, nobody else.
     assert_eq!(delete_alert(&ctx, &stranger, &alert.id).await.unwrap_err().reason, "ALERT_NOT_FOUND");
-    let mut aois = ctx.app.listen_user(aoi.id).await;
+    let mut aois = ctx.open_app(&aoi).await;
     delete_alert(&ctx, &ren, &alert.id).await.unwrap();
     assert!(alerts(&ctx, &aoi).await.mine.is_empty() && alerts(&ctx, &ren).await.about_me.is_empty());
     assert!(
@@ -351,8 +351,8 @@ async fn an_sos_shows_the_people_alerted_the_precise_pin_until_it_is_resolved() 
     let alley = offset(home, 30.0, 4000.0);
     ctx.at(&aoi, alley).await;
     assert_at!(pin_point(&ctx.seen_by(&ren, &aoi).await.unwrap()), home);
-    let mut rens = ctx.app.listen_user(ren.id).await;
-    let mut mios = ctx.app.listen_user(mio.id).await;
+    let mut rens = ctx.open_app(&ren).await;
+    let mut mios = ctx.open_app(&mio).await;
 
     let request = TriggerSosRequest {
         message: " 助けて ".into(),

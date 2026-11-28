@@ -104,6 +104,7 @@ impl LocationService for Geo {
             // The same frames the realtime gateway would deliver: subscribe
             // first, then take the snapshot, so no update falls in between.
             let mut frames = self.core.bus.subscribe(realtime::user_subject(viewer)).await?;
+            self.mark_watching(viewer).await?;
             let snapshot = ListFriendLocationsResponse {
                 locations: self.friend_locations(viewer).await?,
                 server_time: ts(Utc::now()),
@@ -111,6 +112,7 @@ impl LocationService for Geo {
             };
             let (sender, receiver) = mpsc::channel(64);
             let shutdown = self.core.shutdown.clone();
+            let geo = self.clone();
             tokio::spawn(async move {
                 let message =
                     |update: Update| WatchFriendLocationsResponse { update: Some(update), ..Default::default() };
@@ -119,11 +121,18 @@ impl LocationService for Geo {
                 }
                 let timeout = tokio::time::sleep(MAX_WATCH);
                 tokio::pin!(timeout);
+                let mut still_watching = tokio::time::interval(crate::fanout::WATCHING_TTL / 3);
                 loop {
                     let frame = tokio::select! {
                         _ = sender.closed() => return,
                         _ = shutdown.cancelled() => return,
                         _ = &mut timeout => return,
+                        _ = still_watching.tick() => {
+                            if let Err(e) = geo.mark_watching(viewer).await {
+                                tracing::warn!(error = %e, "geo: watcher not refreshed");
+                            }
+                            continue;
+                        }
                         frame = frames.next() => frame,
                     };
                     let Some(frame) = frame else { return };

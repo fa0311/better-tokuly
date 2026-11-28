@@ -514,6 +514,21 @@ describe("back in front", () => {
     expect(wire.closes).toBe(0);
   });
 
+  it("tells the app it is back in front on an open connection", async () => {
+    const client = await connectedClient();
+    let back = 0;
+    const off = client.onForeground(() => back++);
+    client.setForeground(true);
+    expect(back, "it never left").toBe(0);
+    client.setForeground(false);
+    client.setForeground(true);
+    expect(back).toBe(1);
+    off();
+    client.setForeground(false);
+    client.setForeground(true);
+    expect(back).toBe(1);
+  });
+
   it("does not wait out the backoff of a connection that dropped meanwhile", async () => {
     const client = await connectedClient();
     vi.useFakeTimers();

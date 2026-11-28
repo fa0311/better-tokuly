@@ -57,6 +57,13 @@ pub async fn start_with(cfg: GeoConfig) -> Ctx {
 }
 
 impl Ctx {
+    /// `user` opens the app: online, with a connection that receives pushes.
+    /// Pins are pushed only to friends with the app open.
+    pub async fn open_app(&self, user: &TestUser) -> FrameListener {
+        tokuly_core::presence::mark_online(&self.app.core.cache, user.id).await.unwrap();
+        self.app.listen_user(user.id).await
+    }
+
     /// Calls an RPC of `tokuly.geo.v1.<service>`.
     pub async fn rpc<Req: serde::Serialize, Resp: serde::de::DeserializeOwned>(
         &self,

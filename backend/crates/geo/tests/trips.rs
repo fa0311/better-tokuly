@@ -185,8 +185,8 @@ async fn a_trip_updates_its_eta_and_ends_on_arrival() {
         .unwrap_err();
     assert_eq!((unknown.code.as_str(), unknown.reason.as_str()), ("failed_precondition", "LOCATION_UNKNOWN"));
     ctx.at(&aoi, home).await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
-    let mut mios = ctx.app.listen_user(mio.id).await;
+    let mut rens = ctx.open_app(&ren).await;
+    let mut mios = ctx.open_app(&mio).await;
 
     let request = StartTripRequest {
         destination: Destination { name: "カフェ".into(), ..to_point(cafe) }.into(),
@@ -262,7 +262,7 @@ async fn trips_shared_with_everyone_can_be_cancelled_and_replaced() {
     ctx.befriend(&aoi, &ren).await;
     let home = somewhere();
     ctx.at(&aoi, home).await;
-    let mut rens = ctx.app.listen_user(ren.id).await;
+    let mut rens = ctx.open_app(&ren).await;
 
     // No list: shared with all friends, announced on the map only.
     let first = start_trip(

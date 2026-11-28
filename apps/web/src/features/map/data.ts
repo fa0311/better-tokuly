@@ -317,11 +317,14 @@ export function useMapSync(): void {
         welcomed = true;
       }
     });
+    // Friends' pins are pushed only while the app is in front: back, look again.
+    const offForeground = client.onForeground(() => void loadSnapshot());
     client.start();
     void loadSnapshot();
     return () => {
       cancelled = true;
       offFrame();
+      offForeground();
     };
   }, [queryClient, myId]);
 }
