@@ -467,6 +467,30 @@ test.describe("quick search", () => {
     await expect(palette).toHaveCount(0);
   });
 
+  test("a shortcut whose code cannot load leaves the app up, and works once the device is back online", async ({
+    page,
+    context,
+    me: _me,
+  }) => {
+    // The shortcut's code fails to arrive, as when the connection drops right as the app opens.
+    const backgroundSources =
+      /\/(features\/search\/background\.tsx|assets\/background-[^/]+\.js)(\?|$)/;
+    await page.route(backgroundSources, (route) => route.abort("internetdisconnected"));
+
+    await page.goto("/me");
+    await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "うまくいきませんでした" })).toHaveCount(0);
+
+    await page.unroute(backgroundSources);
+    await context.setOffline(true);
+    await context.setOffline(false);
+    const palette = page.getByRole("dialog", { name: "クイック検索" });
+    await expect(async () => {
+      await page.keyboard.press("ControlOrMeta+k");
+      await expect(palette).toBeVisible({ timeout: 5_000 });
+    }).toPass();
+  });
+
   test("'/' opens it too, Enter goes to the result page, Escape closes it", async ({
     page,
     me: _me,
