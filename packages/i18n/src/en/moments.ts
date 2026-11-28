@@ -169,6 +169,8 @@ export default {
     open: "See friends' Moments",
     loadError: "Couldn't load friends' Moments.",
     someone: "A friend",
+    ownCard: "View your Moment today",
+    yours: "Yours",
     lockedCard: "Locked Moment from {{name}}",
     openCard: "View {{name}}'s Moment",
     lockedCardHint: "Share yours to reveal both photos and the note.",

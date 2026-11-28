@@ -172,6 +172,8 @@ export default {
     lockedCard: "{{name}}さんのロック中の瞬間",
     openCard: "{{name}}さんの瞬間を見る",
     lockedCardHint: "自分もシェアすると、写真とひとことが見られるよ。",
+    ownCard: "自分の今日の瞬間を見る",
+    yours: "自分の投稿",
     detailError: "この瞬間を読み込めなかったよ。",
   },
 } as const;
