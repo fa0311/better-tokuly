@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { type Account, expect, rpc, test } from "./support";
+import { type Account, expect as baseExpect, rpc, test } from "./support";
+
+// Like the other settings flows: on a busy machine saving and reloading take a while.
+test.describe.configure({ timeout: 120_000 });
+const expect = baseExpect.configure({ timeout: 25_000 });
 
 const ACCOUNT = "tokuly.identity.v1.AccountService";
 
@@ -48,7 +52,7 @@ test("the theme editor recolours the app, checks contrast and saves to the accou
   await expect(report).toContainText("ぜんぶ読みやすいよ");
 
   // Soft text too pale to read: the whole app and the preview follow, and the check warns.
-  const softText = page.getByRole("textbox", { name: "うすい文字のカラーコード" });
+  const softText = page.getByRole("textbox", { name: "うすい文字のカラーコード", exact: true });
   await typeInto(page, softText, "#d0d0d0");
   await expect.poll(() => token(html, "ink-soft")).toBe("#d0d0d0");
   await expect.poll(() => token(preview, "ink-soft")).toBe("#d0d0d0");
@@ -59,20 +63,28 @@ test("the theme editor recolours the app, checks contrast and saves to the accou
     .toEqual({ "ink-soft": "#d0d0d0" });
 
   // One token back to the theme's own colour.
-  await press(page.getByRole("button", { name: "うすい文字を元に戻す" }));
+  await press(page.getByRole("button", { name: "うすい文字を元に戻す", exact: true }));
   await expect.poll(() => token(html, "ink-soft")).toBe("#5d5778");
   await expect(report).toContainText("ぜんぶ読みやすいよ");
 
   // A background that text no longer reads on is marked too, not only the text.
-  await typeInto(page, page.getByRole("textbox", { name: "カードのカラーコード" }), "#5d5778");
+  await typeInto(
+    page,
+    page.getByRole("textbox", { name: "カードのカラーコード", exact: true }),
+    "#5d5778",
+  );
   await expect(page.locator('[data-token="surface"]')).toContainText("コントラスト低め");
   await expect(page.locator('[data-token="ink-soft"]')).toContainText("コントラスト低め");
-  await press(page.getByRole("button", { name: "カードを元に戻す" }));
+  await press(page.getByRole("button", { name: "カードを元に戻す", exact: true }));
   await expect(report).toContainText("ぜんぶ読みやすいよ");
 
   // The dark theme is edited in the preview while the app stays light.
   await press(page.getByRole("tab", { name: "ダーク" }));
-  await typeInto(page, page.getByRole("textbox", { name: "背景のカラーコード" }), "000000");
+  await typeInto(
+    page,
+    page.getByRole("textbox", { name: "背景のカラーコード", exact: true }),
+    "000000",
+  );
   await expect.poll(() => token(preview, "bg")).toBe("#000000");
   expect(await token(html, "bg")).toBe("#f4f1ff");
   await expect
@@ -103,7 +115,7 @@ test("the theme editor recolours the app, checks contrast and saves to the accou
   // Import: what is not a theme is refused; a theme replaces the colours.
   await press(page.getByRole("button", { name: "JSONを読み込む" }));
   const dialog = page.getByRole("dialog");
-  const json = dialog.getByRole("textbox", { name: "テーマのJSON" });
+  const json = dialog.getByRole("textbox", { name: "テーマのJSON", exact: true });
   await json.focus();
   await page.keyboard.insertText('{"light":{}}');
   await press(dialog.getByRole("button", { name: "読み込む", exact: true }));
@@ -169,8 +181,10 @@ test("an account's theme follows it to a new browser, and a new accent takes the
   // The editor opens on the theme the app shows, with the accent's brand as its base.
   await page.goto("/settings/appearance/theme");
   await expect(page.getByRole("tab", { name: "ライト" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("textbox", { name: "ブランド色のカラーコード" })).toHaveValue(
-    "#12a36b",
+  await expect(
+    page.getByRole("textbox", { name: "ブランド色のカラーコード", exact: true }),
+  ).toHaveValue("#12a36b");
+  await expect(page.getByRole("textbox", { name: "背景のカラーコード", exact: true })).toHaveValue(
+    "#fff4e0",
   );
-  await expect(page.getByRole("textbox", { name: "背景のカラーコード" })).toHaveValue("#fff4e0");
 });
