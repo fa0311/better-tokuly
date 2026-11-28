@@ -394,6 +394,15 @@ async fn limits_refusals_and_a_switched_off_assistant_get_a_fixed_answer() {
         ctx.reason("Assist", "OpenBotConversation", &hanako, &OpenBotConversationRequest::default()).await,
         "AI_TURNED_OFF"
     );
+
+    // In a group the others would learn about her settings from that text: silence there.
+    let friend = ctx.app.user("friend").await;
+    ctx.befriend(&friend, &hanako).await;
+    let group = ctx.group(&friend, "放課後", &[&hanako]).await;
+    add_members(&ctx, &friend, &group.id, &[bot]).await.unwrap();
+    ask(&ctx, &hanako, &group.id, "@tokuly_bot いる？").await;
+    assert_eq!(stub.count(), 2);
+    assert!(answers(&ctx, &friend, &group.id, bot).await.is_empty());
 }
 
 #[tokio::test]
@@ -417,4 +426,25 @@ async fn a_block_silences_the_bot() {
         .unwrap_err();
     assert_eq!(error.reason, "CONVERSATION_READ_ONLY");
     assert_eq!(stub.count(), 0);
+
+    // Someone who blocked the bot before ever talking to it is told so,
+    // and cannot bring it into a group either.
+    let (hanako, friend) = ctx.friends("hanako", "friend").await;
+    ctx.block(&hanako, &TestUser { id: bot, ..hanako.clone() }).await;
+    assert_eq!(
+        ctx.reason("Assist", "OpenBotConversation", &hanako, &OpenBotConversationRequest::default()).await,
+        "BOT_BLOCKED"
+    );
+    assert_eq!(
+        ctx.reason(
+            "Conversation",
+            "OpenDirect",
+            &hanako,
+            &OpenDirectRequest { user_id: bot.to_string(), ..Default::default() }
+        )
+        .await,
+        "BOT_BLOCKED"
+    );
+    let group = ctx.group(&hanako, "クラス", &[&friend]).await;
+    assert_eq!(add_members(&ctx, &hanako, &group.id, &[bot]).await.unwrap_err(), "BOT_BLOCKED");
 }

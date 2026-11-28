@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { chat, type common } from "@tokuly/api";
-import { chatKeys } from "@tokuly/core/chat";
+import { botHint, chatKeys } from "@tokuly/core/chat";
 import { router } from "expo-router";
 import { ChevronRight } from "lucide-react-native";
 import { useState } from "react";
@@ -27,6 +27,44 @@ function useAssistSettings() {
     queryKey: settingsKey,
     queryFn: async () => (await assistClient().getAssistSettings({})).settings,
   });
+}
+
+/**
+ * Shown only to the writer, in a group, while what they type mentions the bot
+ * but it will not answer them (`botHint`): their switch or their AI assistant
+ * is off. Never part of the conversation.
+ */
+export function BotMentionHint({ text }: { text: string }) {
+  const { t } = useTranslation("chat");
+  const queryClient = useQueryClient();
+  const settings = useAssistSettings();
+  const enable = useMutation({
+    mutationFn: () => assistClient().setBotEnabled({ enabled: true }),
+    onSuccess: (response) => queryClient.setQueryData(settingsKey, response.settings),
+    onError: (error) => Alert.alert(errorMessage(error, { namespace: "chat" })),
+  });
+  const hint = botHint(settings.data, text);
+  if (!hint) return null;
+  return (
+    <View
+      testID="bot-mention-hint"
+      className="flex-row items-center gap-2 rounded-2xl bg-sky px-3 py-2"
+    >
+      <Text className="min-w-0 flex-1 text-xs font-bold text-[#17122b]">
+        {hint === "botOff" ? t("bot.mentionOff") : t("bot.mentionAssistOff")}
+      </Text>
+      {hint === "botOff" && (
+        <Pressable
+          testID="bot-mention-turn-on"
+          accessibilityRole="button"
+          disabled={enable.isPending}
+          onPress={() => enable.mutate()}
+        >
+          <Text className="text-xs font-black text-[#17122b] underline">{t("bot.turnOn")}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
 }
 
 /** The badge next to the name of a bot account. */

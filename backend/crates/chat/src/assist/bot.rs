@@ -17,12 +17,14 @@
 //! the asker.
 //!
 //! The bot stays silent when it is switched off on the server, when the
-//! asker's 「Tokuly Bot と話す」 is off (the default for minors), when the
-//! asker is a bot, when the bot is no longer a member, is suspended or in a
-//! block with the asker, or when the conversation is read-only. It answers
-//! with a fixed text when an hourly limit is reached (once an hour), when
-//! the asker switched the AI assistant off, and when the AI service fails
-//! or declines.
+//! asker's 「Tokuly Bot と話す」 is off (the default for minors) or, in a
+//! group, their AI assistant is — what a group sees never tells anything
+//! about one member's settings; their own client shows them a hint — when
+//! the asker is a bot, when the bot is no longer a member, is suspended or
+//! in a block with the asker, or when the conversation is read-only. It
+//! answers with a fixed text when an hourly limit is reached (once an
+//! hour), in its direct conversation when the asker switched the AI
+//! assistant off, and when the AI service fails or declines.
 //!
 //! Each message is answered at most once: a row in `chat_bot_replies` is
 //! claimed before the AI service is asked, and the answer is posted under a
@@ -140,19 +142,26 @@ impl Chat {
     }
 
     /// The bot, when `user_id` may bring it into a conversation: it works
-    /// on this server, their switch is on and their AI requests have a
-    /// provider. `AI_DISABLED`, `BOT_TURNED_OFF` or the provider route's
-    /// error otherwise.
+    /// on this server, their switch is on, they are in no block with it and
+    /// their AI requests have a provider. `AI_DISABLED`, `BOT_TURNED_OFF`,
+    /// `BOT_BLOCKED` or the provider route's error otherwise.
     pub(crate) async fn bot_for(&self, user_id: Uuid) -> AppResult<Uuid> {
         let instance = self.ai_instance().await?;
         if !self.bot_available(&instance) {
             return Err(ai_disabled());
         }
         ensure!(self.bot_enabled_for(user_id).await?, precondition, "BOT_TURNED_OFF", "you switched Tokuly Bot off");
+        let bot = self.bot_id().await?;
+        ensure!(
+            !graph::is_blocked_either(&self.core, user_id, bot).await?,
+            precondition,
+            "BOT_BLOCKED",
+            "you blocked Tokuly Bot; unblock it to talk to it"
+        );
         let user = self.ai_user_settings(user_id).await?;
         let own_keys = self.ai_own_keys(user_id).await?;
         settings::route(&instance, &user, &own_keys)?;
-        self.bot_id().await
+        Ok(bot)
     }
 
     /// The caller's direct conversation with the bot, opened like a flow
@@ -253,7 +262,12 @@ impl Chat {
         let route = match settings::route(&instance, &user, &own_keys) {
             Ok(route) => route,
             Err(NoRoute::Disabled) => return Ok(None),
-            Err(NoRoute::TurnedOff | NoRoute::ChoiceUnavailable) => return Ok(Some(Answer::Fixed(Fixed::AssistOff))),
+            // Said in the asker's own conversation with the bot only: in a
+            // group it would tell everyone about the asker's settings (their
+            // client shows them a hint instead).
+            Err(NoRoute::TurnedOff | NoRoute::ChoiceUnavailable) => {
+                return Ok(bot_access.conv.is_direct().then_some(Answer::Fixed(Fixed::AssistOff)));
+            }
         };
         let assistant = Assistant::new(self, route)?;
 
@@ -371,11 +385,7 @@ impl Chat {
     }
 
     async fn locale_of(&self, user_id: Uuid) -> AppResult<String> {
-        let locale: Option<String> = sqlx::query_scalar("SELECT locale FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(&self.core.db)
-            .await?;
-        Ok(locale.unwrap_or_default())
+        Ok(tokuly_identity::users::find_by_id(&self.core, user_id).await?.map(|user| user.locale).unwrap_or_default())
     }
 }
 

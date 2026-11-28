@@ -525,6 +525,9 @@ export default {
     offBody: "Turn it on and it answers you here",
     turnOn: "Turn on",
     turnedOn: "Tokuly Bot is on!",
+    mentionAssistOff:
+      "Your AI assistant is off, so Tokuly Bot won't answer you (only you see this)",
+    openAiSettings: "Open AI settings",
     mentionOff: "Tokuly Bot is off for you, so it won't answer you (only you see this)",
   },
   aiAdmin: {

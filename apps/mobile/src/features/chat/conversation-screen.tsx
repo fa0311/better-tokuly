@@ -386,6 +386,7 @@ function Open({ conversation, me }: { conversation: chat.Conversation; me: commo
             replyTo={replyTo}
             editing={editing}
             textOnly={(viewer?.requestMessagesLeft ?? -1) >= 0}
+            group={isGroup(conversation)}
             onDone={() => {
               setReplyTo(null);
               setEditing(null);

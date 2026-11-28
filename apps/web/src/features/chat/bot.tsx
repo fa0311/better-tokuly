@@ -1,5 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import type { chat, common } from "@tokuly/api";
+import { botHint } from "@tokuly/core/chat";
 import { Bot, ChevronRight, MessageCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -177,11 +179,7 @@ export function BotOffBanner({ peer }: { peer?: common.UserSummary }) {
   );
 }
 
-/**
- * Shown only to the writer, in a group, while what they are typing mentions
- * the bot but their own switch is off: the bot will not answer them. Never
- * part of the conversation, so nobody else learns of the switch.
- */
+/** Why the bot will not answer the writer's mention (`botHint`), shown only to the writer, never part of the conversation. */
 export function BotMentionHint({ text }: { text: string }) {
   const { t } = useTranslation("chat");
   const settings = useAssistSettings();
@@ -189,31 +187,36 @@ export function BotMentionHint({ text }: { text: string }) {
     () => assistClient().setBotEnabled({ enabled: true }),
     t("bot.turnedOn"),
   );
-  const data = settings.data;
-  if (!data?.bot || data.botEnabled || !mentionsBot(text, data.bot.handle)) return null;
+  const hint = botHint(settings.data, text);
+  if (!hint) return null;
   return (
     <p
       className="flex items-center gap-2 border-b-2 border-line bg-sky/40 px-4 py-2 text-sm font-bold"
       data-testid="bot-mention-hint"
     >
       <Bot className="size-4 shrink-0" aria-hidden />
-      <span className="min-w-0 flex-1">{t("bot.mentionOff")}</span>
-      <Button
-        size="sm"
-        variant="ghost"
-        loading={change.isPending}
-        onClick={() => change.mutate(undefined)}
-      >
-        {t("bot.turnOn")}
-      </Button>
+      <span className="min-w-0 flex-1">
+        {hint === "botOff" ? t("bot.mentionOff") : t("bot.mentionAssistOff")}
+      </span>
+      {hint === "botOff" ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          loading={change.isPending}
+          onClick={() => change.mutate(undefined)}
+        >
+          {t("bot.turnOn")}
+        </Button>
+      ) : (
+        <Link
+          to="/settings/chat-ai"
+          className="shrink-0 text-brand underline-offset-2 hover:underline"
+        >
+          {t("bot.openAiSettings")}
+        </Link>
+      )}
     </p>
   );
-}
-
-/** Whether `text` mentions `@handle` as a word. */
-export function mentionsBot(text: string, handle: string): boolean {
-  const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^\\w@])@${escaped}(?![\\w-])`, "i").test(text);
 }
 
 /** "Invite Tokuly Bot" in a group's member list, while it is not a member. */

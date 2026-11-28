@@ -83,8 +83,8 @@ service ConversationService {
   // are already members are skipped. New members see the history from the
   // moment they join.
   // Errors: CONVERSATION_NOT_FOUND, NOT_A_GROUP, NO_MEMBERS, NOT_FRIENDS,
-  // TOO_MANY_MEMBERS; for Tokuly Bot AI_DISABLED and BOT_TURNED_OFF (the
-  // caller's switch).
+  // TOO_MANY_MEMBERS; for Tokuly Bot AI_DISABLED, BOT_TURNED_OFF (the
+  // caller's switch) and BOT_BLOCKED.
   rpc AddMembers(AddMembersRequest) returns (AddMembersResponse);
   // Removes a member from a group. The owner may remove anyone; admins may
   // remove plain members.
@@ -1350,15 +1350,16 @@ service AssistService {
   // receives: the latest text messages of the conversation, labelled by
   // speaker, without names, handles or IDs; in a group only those of
   // members who allow AI use of their messages and are not in a block with
-  // the asker. It does not answer a member whose bot switch is off, past the
-  // hourly limits (it says so once), nor an account that is suspended.
+  // the asker. It does not answer a member whose bot switch is off (nor, in a
+  // group, whose AI assistant is off), past the hourly limits (it says so
+  // once), nor an account that is suspended.
   //
   // Opens (or creates) the caller's direct conversation with Tokuly Bot. To
   // bring it into a group, add `bot.id` with ConversationService.AddMembers
   // (no friendship needed). Errors: AI_DISABLED (no provider, or the bot is
   // switched off on this server), BOT_TURNED_OFF (the caller's switch is
-  // off), the errors of the caller's provider route (AI_TURNED_OFF,
-  // AI_PROVIDER_UNAVAILABLE).
+  // off), BOT_BLOCKED (the caller blocked the bot), the errors of the
+  // caller's provider route (AI_TURNED_OFF, AI_PROVIDER_UNAVAILABLE).
   rpc OpenBotConversation(OpenBotConversationRequest) returns (OpenBotConversationResponse);
   // 「Tokuly Bot と話す」: whether Tokuly Bot answers the caller. Off by
   // default for a minor, on for an adult (stored when the account is made).

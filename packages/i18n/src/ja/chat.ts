@@ -520,6 +520,9 @@ export default {
     offBody: "オンにすると、ここで話しかけたら答えてくれるよ",
     turnOn: "オンにする",
     turnedOn: "Tokuly Bot をオンにしたよ！",
+    mentionAssistOff:
+      "AIアシストがオフだから、Tokuly Bot はあなたに答えないよ（ほかの人には見えないよ）",
+    openAiSettings: "AI設定をひらく",
     mentionOff: "Tokuly Bot がオフだから、あなたが話しかけても答えないよ（ほかの人には見えないよ）",
   },
   aiAdmin: {

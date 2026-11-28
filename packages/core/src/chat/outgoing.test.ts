@@ -11,6 +11,7 @@ const me = {
   avatarVideoUrl: "",
   verified: false,
   deleted: false,
+  bot: false,
 };
 const outgoing = (extra: Partial<OutgoingMessage>): OutgoingMessage => ({
   clientId: "client-1",

@@ -6,6 +6,8 @@
  * a message on its way is drawn and queued. Live state (typing, read
  * cursors, calls) and the uploads of outgoing messages stay in each app.
  */
+
+export { botHint, mentionsBot } from "./bot";
 export {
   type Capabilities,
   capabilitiesOf,
