@@ -1,0 +1,53 @@
+# `cargo deny check` (weekly, .github/workflows/audit.yml): known advisories,
+# licenses outside the allow-list, crates in more than one version.
+
+[graph]
+all-features = true
+
+[advisories]
+ignore = [
+  # chrono and chrono-tz are unmaintained, with no replacement yet in the crates that bring
+  # them in (sqlx, clickhouse, buffa-types, webauthn-rs, feed-rs) and in our own code: moving
+  # to jiff is a change of its own. No vulnerability is known.
+  { id = "RUSTSEC-2026-0543", reason = "chrono: unmaintained, no known vulnerability; replaced in a change of its own" },
+  { id = "RUSTSEC-2026-0555", reason = "chrono-tz: as chrono" },
+  # The Marvin attack recovers an RSA private key from decryption timings. webauthn-rs uses
+  # rsa only to verify the signatures of passkeys and attestations (public keys); no fixed
+  # version exists.
+  { id = "RUSTSEC-2023-0071", reason = "rsa: only signature verification with public keys (webauthn-rs), no fix released" },
+]
+
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "MPL-2.0",
+  "Unicode-3.0",
+]
+# Outside the list, each kept for a reason. Zlib, 0BSD, CC0-1.0 and BSL-1.0 are permissive
+# like the list (no attribution in binaries required).
+exceptions = [
+  { crate = "foldhash", allow = ["Zlib"] },
+  { crate = "zlib-rs", allow = ["Zlib"] },
+  { crate = "quoted_printable", allow = ["0BSD"] },
+  { crate = "tiny-keccak", allow = ["CC0-1.0"] },
+  { crate = "xxhash-rust", allow = ["BSL-1.0"] },
+  # Mozilla's list of root certificates, as data.
+  { crate = "webpki-roots", allow = ["CDLA-Permissive-2.0"] },
+  { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
+  # Time zone boundaries (tokuly-geo), ODbL data from OpenStreetMap: attributed in
+  # docs/third-party.md.
+  { crate = "tzf-dist", allow = ["ODbL-1.0"] },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

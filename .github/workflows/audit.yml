@@ -1,0 +1,50 @@
+# The dependencies against the advisory databases and the license allow-list,
+# weekly: new advisories appear without a change of ours. Also by hand, and on a
+# pull request that changes what it checks with.
+#
+# - Rust: `cargo deny check` (backend/deny.toml: advisories, licenses, sources;
+#   duplicate versions only warn).
+# - JavaScript: `pnpm audit --prod` (what ships, not the dev tooling).
+name: Dependency audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 1" # Monday 09:00 in Japan
+  pull_request:
+    paths:
+      - 'backend/deny.toml'
+      - '.github/workflows/audit.yml'
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-deny:
+    name: "Rust: cargo deny"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@bb119f768ea239e765aeaef5769558d4f21213aa # v2.1.5
+        with:
+          manifest-path: backend/Cargo.toml
+          command: check
+          arguments: --all-features
+
+  pnpm-audit:
+    name: "JavaScript: pnpm audit"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          package-manager-cache: false
+      - run: pnpm audit --prod
