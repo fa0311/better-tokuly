@@ -317,6 +317,55 @@ export async function backOnline(page: Page): Promise<void> {
 }
 
 /**
+ * Makes the code of the page `routes/_app/<file>` fail to arrive. The
+ * development server serves the page's code under the file's path; a build
+ * names its chunk after the file (`announcements.index-<hash>.js`). Routed on
+ * the context, so the chunk is blocked when the service worker fetches it
+ * too. Returns what lets it through again, once the app has asked for it.
+ */
+export async function failToLoadPage(page: Page, file: string): Promise<() => Promise<void>> {
+  const source = `/src/routes/_app/${file}`;
+  const chunk = new RegExp(
+    `^/assets/${file.replace(/\.tsx$/, "").replaceAll(".", "\\.")}-[\\w-]{8}\\.js$`,
+  );
+  let failed = 0;
+  const handler = (route: Route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path !== source && !chunk.test(path)) return route.fallback();
+    failed += 1;
+    return route.abort("internetdisconnected");
+  };
+  await page.context().route(/\.(js|tsx)(\?|$)/, handler);
+  return async () => {
+    await expect.poll(() => failed, { message: `the app asks for ${file}` }).toBeGreaterThan(0);
+    await page.context().unroute(/\.(js|tsx)(\?|$)/, handler);
+  };
+}
+
+/**
+ * As when the app is deployed while the page is open: the server no longer
+ * has this page's build, so its entry answers 404 to the app's check (a
+ * `HEAD`). With `until: "reload"`, the page that loads next is the new build
+ * and the check passes again; with `"never"` the build stays gone. Counts the
+ * times the page was loaded (`page.goto` is the first).
+ */
+export async function deployWhileOpen(
+  page: Page,
+  until: "reload" | "never",
+): Promise<{ loads(): number }> {
+  let loads = 0;
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) loads += 1;
+  });
+  await page.route(/\/assets\/.+\.js$/, (route) =>
+    route.request().method() === "HEAD" && (until === "never" || loads < 2)
+      ? route.fulfill({ status: 404 })
+      : route.fallback(),
+  );
+  return { loads: () => loads };
+}
+
+/**
  * What the browser refused (or, under a report-only policy, would have) because of the
  * Content-Security-Policy or the Permissions-Policy while the current test ran.
  */

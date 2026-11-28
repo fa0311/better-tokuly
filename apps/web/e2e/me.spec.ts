@@ -3,6 +3,7 @@ import {
   adminAccount,
   backOnline,
   createAccount,
+  deployWhileOpen,
   expect,
   failToLoad,
   rpc,
@@ -63,6 +64,46 @@ test("a badge whose count cannot load leaves the hub alone, and counts once the 
   await letThrough();
   await backOnline(page);
   await expect(friends).toHaveAccessibleName("1 ともだち");
+});
+
+test("after a deploy, a badge whose code is gone reloads the page once, into the new build", async ({
+  page,
+  request,
+  me,
+}) => {
+  const sender = await createAccount(request, "sender");
+  await rpc(
+    request,
+    "tokuly.social.v1.FriendService/SendFriendRequest",
+    { userId: me.userId },
+    sender,
+  );
+  // The count's code is not there, and neither is the build this page runs.
+  const letThrough = await failToLoad(page, "badges.ts");
+  const deploy = await deployWhileOpen(page, "reload");
+
+  await page.goto("/me");
+  await letThrough();
+  await expect.poll(deploy.loads).toBe(2);
+  await expect(page.getByRole("main").getByRole("link", { name: /ともだち/ })).toHaveAccessibleName(
+    "1 ともだち",
+  );
+});
+
+test("a build that stays gone after the reload is not reloaded again", async ({
+  page,
+  me: _me,
+}) => {
+  await failToLoad(page, "badges.ts");
+  const deploy = await deployWhileOpen(page, "never");
+
+  await page.goto("/me");
+  await expect.poll(deploy.loads).toBe(2);
+  await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
+  // The badge is tried again when the device is back online: still gone, still no reload.
+  await backOnline(page);
+  await page.waitForTimeout(2_000);
+  expect(deploy.loads()).toBe(2);
 });
 
 test("signing out returns to the landing page and locks the app again", async ({
