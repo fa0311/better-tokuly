@@ -4,7 +4,14 @@
  * viewer no longer sees, and the pieces a reel plays and where it starts.
  * The viewer, composer and their state stay in each app.
  */
-export { addStory, forgetUserStories, patchStory, removeStory, storyCover } from "./cache";
+export {
+  addStory,
+  applyStoryEvent,
+  forgetUserStories,
+  patchStory,
+  removeStory,
+  storyCover,
+} from "./cache";
 export { storyKeys } from "./keys";
 export { storyQueries } from "./queries";
 export { reelStart, type StorySegment, storySegments } from "./segments";
