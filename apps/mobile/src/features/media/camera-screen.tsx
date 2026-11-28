@@ -67,6 +67,8 @@ function PermissionCard({
 export function CameraScreen({
   limitSeconds,
   photos,
+  photoOnly = false,
+  initialPosition = "back",
   onCapture,
   onClose,
 }: {
@@ -74,13 +76,17 @@ export function CameraScreen({
   limitSeconds: number;
   /** Whether a tap takes a photo (stories) or only videos are taken (shorts). */
   photos: boolean;
+  /** Use the camera for one photo only, without asking for microphone access. */
+  photoOnly?: boolean;
+  /** Camera used when this screen opens. */
+  initialPosition?: "back" | "front";
   onCapture(media: LocalMedia): void;
   onClose(): void;
 }) {
   const { t } = useTranslation("mobile");
   const camera = useCameraPermission();
   const microphone = useMicrophonePermission();
-  const [position, setPosition] = useState<"back" | "front">("back");
+  const [position, setPosition] = useState<"back" | "front">(initialPosition);
   const [flash, setFlash] = useState<FlashMode>("off");
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -101,7 +107,7 @@ export function CameraScreen({
     const ask = async () => {
       setAsked(true);
       if (await camera.requestPermission())
-        if (microphone.canRequestPermission) await microphone.requestPermission();
+        if (!photoOnly && microphone.canRequestPermission) await microphone.requestPermission();
     };
     return (
       <PermissionCard
@@ -207,7 +213,14 @@ export function CameraScreen({
           >
             {recording
               ? t("camera.recording", { time: clock(elapsed), limit: clock(limitSeconds) })
-              : t(photos ? "camera.hintStory" : "camera.hintShort", { limit })}
+              : t(
+                  photoOnly
+                    ? "camera.hintPhotoOnly"
+                    : photos
+                      ? "camera.hintStory"
+                      : "camera.hintShort",
+                  { limit },
+                )}
           </Text>
           <View className="w-full flex-row items-center justify-around">
             <View style={{ width: 48 }} />
@@ -221,8 +234,8 @@ export function CameraScreen({
                 if (photos && !recording) void takePhoto();
                 else if (!photos) void (recording ? stopRecording() : startRecording());
               }}
-              onLongPress={photos ? () => void startRecording() : undefined}
-              onPressOut={photos && recording ? stopRecording : undefined}
+              onLongPress={photos && !photoOnly ? () => void startRecording() : undefined}
+              onPressOut={photos && !photoOnly && recording ? stopRecording : undefined}
               delayLongPress={250}
               className={`items-center justify-center rounded-full border-4 border-white ${recording ? "bg-live" : "bg-white/30"}`}
               style={{ width: 84, height: 84 }}
