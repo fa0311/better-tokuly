@@ -56,12 +56,23 @@ function onCreated(
     learn(queryClient, sync, message.conversationId);
     return;
   }
-  const stored = storeCreated(queryClient, message);
+  const viewer = before.viewer;
+  const unseen =
+    !mine &&
+    countsAsUnread(message) &&
+    message.seq > before.lastSeq &&
+    context.readingId !== message.conversationId;
+  // A hidden conversation comes back with its next message; where it lands is the server's call.
+  const counted = unseen && viewer !== undefined && !viewer.hidden;
+  const stored = storeCreated(
+    queryClient,
+    message,
+    counted ? { mention: mentionsUser(message, context.myId) } : undefined,
+  );
   if (stored.missed) void sync.pager.catchUp(queryClient, message.conversationId).catch(() => {});
   if (message.kind === chat.MessageKind.SYSTEM)
     void queryClient.invalidateQueries({ queryKey: chatKeys.members(message.conversationId) });
 
-  const viewer = before.viewer;
   if (!viewer) return;
   if (mine) {
     // The sender has read everything up to their own message.
@@ -69,30 +80,11 @@ function onCreated(
     storeOwnRead(queryClient, message.conversationId, message.seq, 0);
     return;
   }
-  if (
-    !countsAsUnread(message) ||
-    message.seq <= before.lastSeq ||
-    context.readingId === message.conversationId
-  )
-    return;
-  // A hidden conversation comes back with its next message; where it lands is the server's call.
+  if (!unseen) return;
   if (viewer.hidden) {
     learn(queryClient, sync, message.conversationId);
     return;
   }
-  const mention = mentionsUser(message, context.myId);
-  patchConversation(queryClient, message.conversationId, (conversation) =>
-    conversation.viewer
-      ? {
-          ...conversation,
-          viewer: {
-            ...conversation.viewer,
-            unreadCount: conversation.viewer.unreadCount + 1,
-            unreadMentionCount: conversation.viewer.unreadMentionCount + (mention ? 1 : 0),
-          },
-        }
-      : conversation,
-  );
   const list = listOf(before);
   sync.totals.adjust(queryClient, (unread) => ({
     ...unread,
@@ -156,13 +148,13 @@ function onConversationUpdated(
     }
     if (!held) void sync.fetchConversation(queryClient, incoming.id).catch(() => {});
   } else if (held) {
-    // Shared fields only: the person's own state and the preview stay as held.
-    putConversation(queryClient, {
+    // Shared fields only: the person's own state and the preview stay as each copy has them.
+    patchConversation(queryClient, incoming.id, (copy) => ({
       ...incoming,
-      viewer: held.viewer,
-      lastMessage: held.lastMessage,
-      lastSeq: laterSeq(held.lastSeq, incoming.lastSeq),
-    });
+      viewer: copy.viewer,
+      lastMessage: copy.lastMessage,
+      lastSeq: laterSeq(copy.lastSeq, incoming.lastSeq),
+    }));
   } else {
     learn(queryClient, sync, incoming.id);
     return;

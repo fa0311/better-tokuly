@@ -762,6 +762,51 @@ test("a conversation is pinned, muted and hidden from its menu", async ({ page, 
   await expect(rows.filter({ hasText: "ren" })).toContainText("ただいま！");
 });
 
+test("a group the person was removed from stays gone when a list read before the removal answers late", async ({
+  page,
+  request,
+  me,
+}) => {
+  const { friend, conversationId } = await withFriend(request, me);
+  await sendText(request, friend, conversationId, "やっほー");
+  const { conversation: group } = await rpc<{ conversation: { id: string } }>(
+    request,
+    `${CONVERSATIONS}/CreateGroup`,
+    { name: "放課後クラブ", memberIds: [me.userId] },
+    friend,
+  );
+  const line = await realtimeLine(page);
+  await page.goto("/chat");
+  const rows = page.getByTestId("conversation-row");
+  await expect(rows.filter({ hasText: "放課後クラブ" })).toBeVisible();
+
+  // The connection drops: a message sent meanwhile is only in what the list reads next.
+  await line.drop();
+  await sendText(request, friend, conversationId, "まだいる？");
+  const answer = await holdAnswer(
+    page,
+    `${CONVERSATIONS}/ListConversations`,
+    (body) =>
+      fromBinary(chat.ListConversationsRequestSchema, body).filter ===
+      chat.ConversationFilter.INBOX,
+  );
+  line.reconnect();
+  // Read again on the Welcome; the server's answer still has the group…
+  await answer.asked;
+  // …and the person is removed from it before that answer arrives.
+  await rpc(
+    request,
+    `${CONVERSATIONS}/RemoveMember`,
+    { conversationId: group.id, userId: me.userId },
+    friend,
+  );
+  await expect(rows.filter({ hasText: "放課後クラブ" })).toHaveCount(0);
+
+  answer.release();
+  await expect(rows.filter({ hasText: "まだいる？" })).toBeVisible();
+  await expect(rows.filter({ hasText: "放課後クラブ" })).toHaveCount(0);
+});
+
 // ───────────────────────────── POV ─────────────────────────────
 
 test("a POV request arrives, counts down, and can be declined", async ({ page, request, me }) => {

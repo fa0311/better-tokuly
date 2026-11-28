@@ -1,4 +1,5 @@
 import {
+  infiniteQueryOptions,
   type QueryClient,
   useInfiniteQuery,
   useQuery,
@@ -6,23 +7,22 @@ import {
 } from "@tanstack/react-query";
 import type { chat } from "@tokuly/api";
 import {
-  aheadOf,
   findInLists,
   type ListPage,
   NO_UNREAD,
-  putInLists,
-  readConversation,
+  putAnswer,
   type Unread,
   UnreadTotals,
 } from "@tokuly/core/chat";
+import { journal } from "@tokuly/core/query";
 import { chatKeys, conversationClient, LIST_FILTERS, type ListFilter } from "./api";
 import { useLive } from "./live";
 
 /**
  * Conversations in the web app's query cache: the hooks that load them and the
  * unread totals. The cache edits themselves are
- * `@tokuly/core/chat` (`putConversation`, `patchConversation`, …), re-exported
- * here for the folder.
+ * `@tokuly/core/chat` (`putConversation`, `patchConversation`, `putAnswer`, …),
+ * re-exported here for the folder.
  */
 export {
   dropConversation,
@@ -30,6 +30,7 @@ export {
   listAfter,
   NO_UNREAD,
   patchConversation,
+  putAnswer,
   putConversation,
   readConversation,
   type Unread,
@@ -69,23 +70,28 @@ export function useUnread(): Unread {
 }
 
 /** One of the conversation lists, paged; kept current by the realtime events. */
-export function useConversationList(filter: ListFilter) {
-  const queryClient = useQueryClient();
-  return useInfiniteQuery({
+export function conversationListQuery(queryClient: QueryClient, filter: ListFilter) {
+  return infiniteQueryOptions({
     queryKey: chatKeys.list(filter),
-    queryFn: async ({ pageParam }): Promise<ListPage> => {
+    queryFn: async ({ pageParam, signal }): Promise<ListPage> => {
       const askedAt = unreadVersion();
-      const response = await conversationClient().listConversations({
-        filter: LIST_FILTERS[filter],
-        page: { cursor: pageParam, limit: PAGE_SIZE },
-      });
+      const response = await conversationClient().listConversations(
+        { filter: LIST_FILTERS[filter], page: { cursor: pageParam, limit: PAGE_SIZE } },
+        { signal },
+      );
       applyUnread(queryClient, response.unread, askedAt);
       return { conversations: response.conversations, nextCursor: response.page?.nextCursor ?? "" };
     },
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor || undefined,
     staleTime: Number.POSITIVE_INFINITY,
+    // A conversation removed, or a message pushed, while a page was on its way stays so.
+    persister: journal,
   });
+}
+
+export function useConversationList(filter: ListFilter) {
+  return useInfiniteQuery(conversationListQuery(useQueryClient(), filter));
 }
 
 /** What opening a conversation tells us beyond the conversation itself goes to the live store. */
@@ -100,17 +106,21 @@ function noteDetails(response: chat.GetConversationResponse, askedAt: number): v
   if (response.activeCall) live.setCall(response.activeCall);
 }
 
-/** Fetches one conversation with its extras and stores it everywhere it is held. */
+/**
+ * Fetches one conversation with its extras and stores it everywhere it is
+ * held, with what was pushed while it was on its way (`putAnswer`).
+ */
 export async function fetchConversation(
   queryClient: QueryClient,
   id: string,
+  signal?: AbortSignal,
 ): Promise<chat.Conversation> {
   const askedAt = Date.now();
-  const response = await conversationClient().getConversation({ conversationId: id });
+  const response = await putAnswer(queryClient, id, () =>
+    conversationClient().getConversation({ conversationId: id }, { signal }),
+  );
   noteDetails(response, askedAt);
-  const conversation = aheadOf(response.conversation!, readConversation(queryClient, id));
-  putInLists(queryClient, conversation);
-  return conversation;
+  return response.conversation!;
 }
 
 /**
@@ -121,9 +131,10 @@ export function useConversation(id: string) {
   const queryClient = useQueryClient();
   return useQuery({
     queryKey: chatKeys.conversation(id),
-    queryFn: () => fetchConversation(queryClient, id),
+    queryFn: ({ signal }) => fetchConversation(queryClient, id, signal),
     // A row from the list is enough to start drawing; the answer adds read cursors, presence, POV and call.
     placeholderData: () => findInLists(queryClient, id),
     staleTime: 60_000,
+    persister: journal,
   });
 }

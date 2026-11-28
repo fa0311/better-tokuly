@@ -1,8 +1,14 @@
 import type { InfiniteData, QueryClient } from "@tanstack/query-core";
 import { type common, create, notes, toMillis } from "@tokuly/api";
+import { pushTo, pushToAll, reread } from "../query";
 import { storyKeys } from "./keys";
 
-/** The story caches kept in step with what the viewer does and what realtime announces. */
+/**
+ * The story caches kept in step with what the viewer does and what realtime
+ * announces. Every change goes through the journal (`pushTo`), so a read in
+ * flight when it was pushed (the tray read again on a Welcome) does not undo
+ * it: a deleted story, or a person forgotten, does not come back.
+ */
 
 type Reels = notes.StoryReel[];
 
@@ -24,31 +30,38 @@ export function patchStory(
     const next = stories.map(apply);
     return next.some((story, index) => story !== stories[index]) ? next : stories;
   };
-  queryClient.setQueryData<Reels>(storyKeys.tray, (reels) =>
-    reels?.map((reel) => {
+  pushTo<Reels>(queryClient, storyKeys.tray, (reels) => {
+    const next = reels.map((reel) => {
       const stories = applyAll(reel.stories);
       return stories === reel.stories
         ? reel
         : { ...reel, stories, hasUnseen: stories.some((story) => !story.viewed) };
-    }),
+    });
+    return next.some((reel, index) => reel !== reels[index]) ? next : reels;
+  });
+  pushToAll<notes.Story[]>(queryClient, ["stories", "user"], applyAll);
+  pushTo<notes.Story>(queryClient, storyKeys.story(storyId), apply);
+  pushToAll<InfiniteData<notes.ListArchivedStoriesResponse>>(
+    queryClient,
+    storyKeys.archives,
+    (data) => onArchivePages(data, applyAll),
   );
-  queryClient.setQueriesData<notes.Story[]>(
-    { queryKey: ["stories", "user"] },
-    (stories) => stories && applyAll(stories),
-  );
-  queryClient.setQueryData<notes.Story>(storyKeys.story(storyId), (story) => story && apply(story));
-  queryClient.setQueriesData<InfiniteData<notes.ListArchivedStoriesResponse>>(
-    { queryKey: storyKeys.archives },
-    (data) =>
-      data && {
-        ...data,
-        pages: data.pages.map((page) => ({ ...page, stories: applyAll(page.stories) })),
-      },
-  );
-  queryClient.setQueriesData<notes.GetHighlightResponse>(
-    { queryKey: ["stories", "highlight"] },
-    (data) => data && { ...data, stories: applyAll(data.stories) },
-  );
+  pushToAll<notes.GetHighlightResponse>(queryClient, ["stories", "highlight"], (data) => {
+    const stories = applyAll(data.stories);
+    return stories === data.stories ? data : { ...data, stories };
+  });
+}
+
+/** The archive with `edit` applied to every page; the same archive when no page changed. */
+function onArchivePages(
+  data: InfiniteData<notes.ListArchivedStoriesResponse>,
+  edit: (stories: notes.Story[]) => notes.Story[],
+): InfiniteData<notes.ListArchivedStoriesResponse> {
+  const pages = data.pages.map((page) => {
+    const stories = edit(page.stories);
+    return stories === page.stories ? page : { ...page, stories };
+  });
+  return pages.some((page, index) => page !== data.pages[index]) ? { ...data, pages } : data;
 }
 
 /** A story that was just posted (by the viewer, or announced over realtime) joins its owner's reel in the tray. */
@@ -56,8 +69,7 @@ export function addStory(queryClient: QueryClient, story: notes.Story, myId: str
   const owner = story.owner;
   if (!owner) return;
   const mine = owner.id === myId;
-  queryClient.setQueryData<Reels>(storyKeys.tray, (reels) => {
-    if (!reels) return reels;
+  pushTo<Reels>(queryClient, storyKeys.tray, (reels) => {
     const existing = reels.find((reel) => reel.user?.id === owner.id);
     const stories = [...(existing?.stories.filter((item) => item.id !== story.id) ?? []), story];
     const reel = create(notes.StoryReelSchema, {
@@ -68,14 +80,11 @@ export function addStory(queryClient: QueryClient, story: notes.Story, myId: str
     });
     return sortReels([...reels.filter((item) => item.user?.id !== owner.id), reel], myId);
   });
-  queryClient.setQueryData<notes.Story[]>(
-    storyKeys.user(owner.id),
-    (stories) => stories && [...stories.filter((item) => item.id !== story.id), story],
-  );
-  if (mine) {
-    void queryClient.invalidateQueries({ queryKey: storyKeys.archives });
-    void queryClient.invalidateQueries({ queryKey: storyKeys.calendars });
-  }
+  pushTo<notes.Story[]>(queryClient, storyKeys.user(owner.id), (stories) => [
+    ...stories.filter((item) => item.id !== story.id),
+    story,
+  ]);
+  if (mine) void reread(queryClient, [storyKeys.archives, storyKeys.calendars]);
 }
 
 /** A deleted story leaves every list; a reel left without stories leaves the tray. */
@@ -84,31 +93,30 @@ export function removeStory(queryClient: QueryClient, storyId: string): void {
     stories.some((story) => story.id === storyId)
       ? stories.filter((story) => story.id !== storyId)
       : stories;
-  queryClient.setQueryData<Reels>(storyKeys.tray, (reels) =>
-    reels?.flatMap((reel) => {
+  pushTo<Reels>(queryClient, storyKeys.tray, (reels) => {
+    const next = reels.flatMap((reel) => {
       const stories = without(reel.stories);
       if (stories === reel.stories) return [reel];
       return stories.length === 0
         ? []
         : [{ ...reel, stories, hasUnseen: stories.some((story) => !story.viewed) }];
-    }),
-  );
-  queryClient.setQueriesData<notes.Story[]>(
-    { queryKey: ["stories", "user"] },
-    (stories) => stories && without(stories),
-  );
+    });
+    return next.length === reels.length && next.every((reel, index) => reel === reels[index])
+      ? reels
+      : next;
+  });
+  pushToAll<notes.Story[]>(queryClient, ["stories", "user"], without);
   queryClient.removeQueries({ queryKey: storyKeys.story(storyId) });
-  queryClient.setQueriesData<InfiniteData<notes.ListArchivedStoriesResponse>>(
-    { queryKey: storyKeys.archives },
-    (data) =>
-      data && {
-        ...data,
-        pages: data.pages.map((page) => ({ ...page, stories: without(page.stories) })),
-      },
+  pushToAll<InfiniteData<notes.ListArchivedStoriesResponse>>(
+    queryClient,
+    storyKeys.archives,
+    (data) => onArchivePages(data, without),
   );
-  void queryClient.invalidateQueries({ queryKey: storyKeys.calendars });
-  void queryClient.invalidateQueries({ queryKey: ["stories", "highlights"] });
-  void queryClient.invalidateQueries({ queryKey: ["stories", "highlight"] });
+  void reread(queryClient, [
+    storyKeys.calendars,
+    ["stories", "highlights"],
+    ["stories", "highlight"],
+  ]);
 }
 
 /**
@@ -117,8 +125,8 @@ export function removeStory(queryClient: QueryClient, storyId: string): void {
  */
 export function forgetUserStories(queryClient: QueryClient, userId: string): void {
   if (!userId) return;
-  queryClient.setQueryData<Reels>(storyKeys.tray, (reels) =>
-    reels?.some((reel) => reel.user?.id === userId)
+  pushTo<Reels>(queryClient, storyKeys.tray, (reels) =>
+    reels.some((reel) => reel.user?.id === userId)
       ? reels.filter((reel) => reel.user?.id !== userId)
       : reels,
   );
@@ -131,6 +139,39 @@ export function forgetUserStories(queryClient: QueryClient, userId: string): voi
   for (const query of queryClient.getQueryCache().findAll({ queryKey: ["stories", "highlight"] })) {
     if ((query.state.data as notes.GetHighlightResponse | undefined)?.highlight?.ownerId === userId)
       queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+  }
+}
+
+/**
+ * What a pushed stories event changes in the cache: a friend posted or
+ * deleted a story; someone watched or reacted to one of the viewer's own.
+ */
+export function applyStoryEvent(
+  queryClient: QueryClient,
+  event: notes.NotesEvent["event"],
+  myId: string,
+): void {
+  switch (event.case) {
+    case "storyPosted":
+      addStory(queryClient, event.value, myId);
+      break;
+    case "storyDeleted":
+      removeStory(queryClient, event.value.storyId);
+      break;
+    case "storyViewed": {
+      const { storyId, viewCount } = event.value;
+      patchStory(queryClient, storyId, (story) => ({ ...story, viewCount }));
+      void reread(queryClient, [storyKeys.viewers(storyId)]);
+      break;
+    }
+    case "storyReaction": {
+      // Whether it is a new reaction or a changed one is not said: read the story again.
+      const { storyId } = event.value;
+      void reread(queryClient, [storyKeys.story(storyId), storyKeys.viewers(storyId)]);
+      break;
+    }
+    default:
+      break;
   }
 }
 

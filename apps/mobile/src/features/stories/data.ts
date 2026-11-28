@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notes } from "@tokuly/api";
 import { rereadOnWelcome } from "@tokuly/core/query";
-import { addStory, patchStory, removeStory, storyKeys, storyQueries } from "@tokuly/core/stories";
+import { applyStoryEvent, storyKeys, storyQueries } from "@tokuly/core/stories";
 import { useEffect } from "react";
 import { useMe } from "#/features/session/store";
 import { api } from "#/lib/api";
@@ -47,28 +47,7 @@ export function useStoriesSync(): void {
     const offWelcome = rereadOnWelcome(queryClient, client, [storyKeys.tray]);
     const off = client.onFrame((frame) => {
       if (frame.topic) return;
-      if (frame.body.case !== "notes") return;
-      const event = frame.body.value.event;
-      switch (event.case) {
-        case "storyPosted":
-          addStory(queryClient, event.value, myId);
-          break;
-        case "storyDeleted":
-          removeStory(queryClient, event.value.storyId);
-          break;
-        case "storyViewed": {
-          const { storyId, viewCount } = event.value;
-          patchStory(queryClient, storyId, (story) => ({ ...story, viewCount }));
-          void queryClient.invalidateQueries({ queryKey: storyKeys.viewers(storyId) });
-          break;
-        }
-        case "storyReaction":
-          void queryClient.invalidateQueries({ queryKey: storyKeys.story(event.value.storyId) });
-          void queryClient.invalidateQueries({ queryKey: storyKeys.viewers(event.value.storyId) });
-          break;
-        default:
-          break;
-      }
+      if (frame.body.case === "notes") applyStoryEvent(queryClient, frame.body.value.event, myId);
     });
     client.start();
     return () => {
