@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
-import type { APIRequestContext, Browser, Page } from "@playwright/test";
+import type { APIRequestContext, Browser, Page, WebSocketRoute } from "@playwright/test";
 import { type Account, befriend, createAccount, expect, rpc, signInAs, test } from "./support";
 
 // These tests upload pictures, wait for the server to process them, and use two browsers.
@@ -455,6 +455,53 @@ test("when a friend ends the friendship, their notes and their story leave the o
   await expect(page.getByTestId("story-viewer")).toHaveCount(0, { timeout: 30_000 });
   await expect(page.getByTestId("story-reel")).toHaveCount(0);
   await expect(note).toHaveCount(0);
+});
+
+test("a story deleted while the tray was read again does not come back with that read", async ({
+  page,
+  me,
+  request,
+}) => {
+  const friend = await createAccount(request, "friend");
+  await befriend(request, me, friend);
+  const story = await postStory(request, friend, `e2e すぐ消える記憶 ${tag()}`);
+  // On WebSocket, which Playwright can stand in, so that the test can drop the connection.
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(globalThis, "WebTransport");
+  });
+  const sockets: WebSocketRoute[] = [];
+  await page.routeWebSocket(/\/rt\/ws/, (ws) => {
+    ws.connectToServer();
+    sockets.push(ws);
+  });
+  await page.goto("/notes?tab=home");
+  await expect(page.getByTestId("story-reel")).toBeVisible();
+  await expect.poll(() => sockets.length).toBeGreaterThan(0);
+
+  // The connection drops; the Welcome after it reads the tray again. That read is answered now,
+  // while the story is there, and lands only after the story was deleted.
+  let answered = () => {};
+  const read = new Promise<void>((resolve) => (answered = resolve));
+  let release = () => {};
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/${STORIES}/GetStoryTray`, async (route) => {
+    const response = await route.fetch();
+    answered();
+    await released;
+    await route.fulfill({ response });
+  });
+  await sockets.at(-1)?.close();
+  await read;
+  await rpc(request, `${STORIES}/DeleteStory`, { storyId: story.id }, friend);
+  await expect(page.getByTestId("story-reel")).toHaveCount(0, { timeout: 30_000 });
+
+  const landed = page.waitForEvent("requestfinished", (finished) =>
+    finished.url().endsWith(`${STORIES}/GetStoryTray`),
+  );
+  release();
+  await landed;
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId("story-reel")).toHaveCount(0);
 });
 
 /**

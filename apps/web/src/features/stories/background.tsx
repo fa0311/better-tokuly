@@ -8,7 +8,7 @@ import { StoryViewerHost } from "./viewer-host";
 
 /**
  * Runs while someone is signed in: keeps the story tray current from the
- * realtime connection (`./frames`), and hosts the full-screen viewer so any
+ * realtime connection (`applyStoryEvent`, loaded with the first event), and hosts the full-screen viewer so any
  * page can play stories.
  */
 export default function StoriesBackground() {
@@ -19,7 +19,7 @@ export default function StoriesBackground() {
     // Stories posted before the connection was up, or while it was down, were not announced.
     const offWelcome = rereadOnWelcome(queryClient, client, [storyKeys.tray]);
     const offNotes = onFramesLoading("notes", () =>
-      import("./frames").then(({ applyStoryEvent }) => ({ event }) => {
+      import("@tokuly/core/stories").then(({ applyStoryEvent }) => ({ event }) => {
         const session = useSessionStore.getState().state;
         applyStoryEvent(
           queryClient,
