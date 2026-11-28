@@ -12,7 +12,7 @@ import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { Camera, RotateCcw, Users } from "lucide-react-native";
+import { CalendarDays, Camera, RotateCcw, Users } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Linking, Modal, Pressable, Text, View } from "react-native";
@@ -270,6 +270,8 @@ export function MomentComposerScreen() {
         if (latest.data?.posted) {
           setPosted(true);
           forgetFiles(draftId);
+          if (latest.data.mine) rememberPostedMoment(queryClient, latest.data.mine);
+          else void queryClient.invalidateQueries({ queryKey: momentKeys.all });
           return;
         }
       }
@@ -315,6 +317,13 @@ export function MomentComposerScreen() {
         <Button variant="secondary" onPress={() => router.push("/moments/friends")}>
           {t("friends.open")}
         </Button>
+        <Button
+          variant="secondary"
+          icon={<CalendarDays size={16} color={colors.ink} />}
+          onPress={() => router.push("/moments/calendar")}
+        >
+          {t("calendar.open")}
+        </Button>
       </Page>
     );
   }
@@ -342,8 +351,19 @@ export function MomentComposerScreen() {
             ) : null}
           </View>
         )}
-        <Button variant="secondary" onPress={() => router.push("/moments/friends")}>
+        <Button
+          variant="secondary"
+          icon={<Users size={16} color={colors.ink} />}
+          onPress={() => router.push("/moments/friends")}
+        >
           {t("friends.open")}
+        </Button>
+        <Button
+          variant="secondary"
+          icon={<CalendarDays size={16} color={colors.ink} />}
+          onPress={() => router.push("/moments/calendar")}
+        >
+          {t("calendar.open")}
         </Button>
       </Page>
     );
@@ -424,6 +444,13 @@ export function MomentComposerScreen() {
           onPress={() => router.push("/moments/friends")}
         >
           {t("friends.open")}
+        </Button>
+        <Button
+          variant="secondary"
+          icon={<CalendarDays size={16} color={colors.ink} />}
+          onPress={() => router.push("/moments/calendar")}
+        >
+          {t("calendar.open")}
         </Button>
       </Page>
 

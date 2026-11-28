@@ -1,4 +1,18 @@
 export default {
+  calendar: {
+    title: "Your Moments",
+    open: "See your calendar",
+    previous: "Previous month",
+    next: "Next month",
+    openMoment: "Open the Moment from {{date}}",
+    emptyDay: "{{date}}, no Moment",
+    lateMark: "Late",
+    empty: {
+      title: "No Moments this month",
+      body: "The Moments you post will show up here.",
+    },
+    totals: "{{posted}} posted · {{onTime}} on time",
+  },
   title: "Moments",
   composer: {
     loading: "Checking today's prompt…",

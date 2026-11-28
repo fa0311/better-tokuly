@@ -1,4 +1,18 @@
 export default {
+  calendar: {
+    title: "自分の記録",
+    open: "自分のカレンダーを見る",
+    previous: "前の月",
+    next: "次の月",
+    openMoment: "{{date}}のMomentを見る",
+    emptyDay: "{{date}}（投稿なし）",
+    lateMark: "遅",
+    empty: {
+      title: "この月はまだ投稿がないよ",
+      body: "今日の瞬間を投稿すると、写真がここに並ぶよ。",
+    },
+    totals: "{{posted}}件投稿・{{onTime}}件が時間内",
+  },
   title: "いまの瞬間",
   composer: {
     loading: "今日の合図を確認中…",

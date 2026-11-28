@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { moments } from "@tokuly/api";
+import type { Month } from "@tokuly/core/history";
 import { momentKeys, momentQueries } from "@tokuly/core/moments";
 import { api } from "#/lib/api";
 
@@ -19,5 +20,12 @@ export function useMoment(momentId: string) {
   return useQuery({
     ...momentQueries.moment(momentClient, momentId),
     enabled: Boolean(momentId),
+  });
+}
+
+export function useMomentCalendar(month: Month, enabled = true) {
+  return useQuery({
+    ...momentQueries.calendar(momentClient, month.year, month.month),
+    enabled,
   });
 }
