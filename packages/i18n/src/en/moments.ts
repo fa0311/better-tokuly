@@ -65,6 +65,13 @@ export default {
     place: "Where it was taken",
     by: "{{name}}'s moment",
   },
+  reactions: {
+    title: "Reactions",
+    open: "See all reactions ({{count}})",
+    close: "Close reactions",
+    empty: "No reactions yet",
+    person: "{{name}}: {{reaction}}",
+  },
   react: {
     label: "Reactions",
     stamp: "Stamp",

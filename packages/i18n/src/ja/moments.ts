@@ -65,6 +65,13 @@ export default {
     place: "撮った場所",
     by: "{{name}}さんの瞬間",
   },
+  reactions: {
+    title: "リアクション",
+    open: "リアクション {{count}}件をぜんぶ見る",
+    close: "リアクション一覧を閉じる",
+    empty: "リアクションはまだないよ",
+    person: "{{name}}さん: {{reaction}}",
+  },
   react: {
     label: "リアクション",
     stamp: "スタンプ",
