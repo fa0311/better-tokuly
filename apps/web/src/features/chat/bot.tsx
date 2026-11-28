@@ -2,12 +2,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { chat, common } from "@tokuly/api";
 import { Bot, ChevronRight, MessageCircle } from "lucide-react";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { SwitchRow } from "#/components/ui/switch";
 import { cn } from "#/lib/cn";
+import { useTranslation } from "#/lib/use-translation";
 import { useAssistSettings, useAssistSettingsChange } from "./ai-settings";
 import { assistClient, chatKeys, conversationClient } from "./api";
 import { putConversation } from "./conversations";
@@ -175,6 +175,45 @@ export function BotOffBanner({ peer }: { peer?: common.UserSummary }) {
       </Button>
     </div>
   );
+}
+
+/**
+ * Shown only to the writer, in a group, while what they are typing mentions
+ * the bot but their own switch is off: the bot will not answer them. Never
+ * part of the conversation, so nobody else learns of the switch.
+ */
+export function BotMentionHint({ text }: { text: string }) {
+  const { t } = useTranslation("chat");
+  const settings = useAssistSettings();
+  const change = useAssistSettingsChange(
+    () => assistClient().setBotEnabled({ enabled: true }),
+    t("bot.turnedOn"),
+  );
+  const data = settings.data;
+  if (!data?.bot || data.botEnabled || !mentionsBot(text, data.bot.handle)) return null;
+  return (
+    <p
+      className="flex items-center gap-2 border-b-2 border-line bg-sky/40 px-4 py-2 text-sm font-bold"
+      data-testid="bot-mention-hint"
+    >
+      <Bot className="size-4 shrink-0" aria-hidden />
+      <span className="min-w-0 flex-1">{t("bot.mentionOff")}</span>
+      <Button
+        size="sm"
+        variant="ghost"
+        loading={change.isPending}
+        onClick={() => change.mutate(undefined)}
+      >
+        {t("bot.turnOn")}
+      </Button>
+    </p>
+  );
+}
+
+/** Whether `text` mentions `@handle` as a word. */
+export function mentionsBot(text: string, handle: string): boolean {
+  const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^\\w@])@${escaped}(?![\\w-])`, "i").test(text);
 }
 
 /** "Invite Tokuly Bot" in a group's member list, while it is not a member. */

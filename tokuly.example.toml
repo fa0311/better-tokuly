@@ -973,8 +973,8 @@
 # (TOKULY_AI_TIMEOUT_SECONDS; console; restart: api, worker)
 # ai_timeout_seconds = 45
 
-# Tokuly Bot, the AI account that answers in chat (when an AI provider
-# is enabled). Off: it answers nobody and cannot be added anywhere.
+# Tokuly Bot, the AI account that answers in chat (when an AI provider is enabled). Off: it answers
+# nobody and cannot be added anywhere.
 # (TOKULY_CHAT_BOT_ENABLED; console; restart: api, worker)
 # bot_enabled = true
 

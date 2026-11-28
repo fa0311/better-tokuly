@@ -34,6 +34,7 @@ import { realtime } from "#/lib/realtime";
 import { useTranslation } from "#/lib/use-translation";
 import { AssistButton, SuggestedReplies } from "./assist";
 import { describeFile, type OutgoingFile, releaseFiles } from "./attachments";
+import { BotMentionHint } from "./bot";
 import { useConversationContext } from "./conversation-context";
 import { loadDraft, saveDraft } from "./drafts";
 import { errorMessage } from "./errors";
@@ -374,6 +375,7 @@ export function Composer({
       onPaste={onPaste}
       data-testid="composer"
     >
+      {group && <BotMentionHint text={text} />}
       {/* `:` autocomplete: custom and Unicode emoji by name. */}
       <EmojiSuggestBar
         text={text}
