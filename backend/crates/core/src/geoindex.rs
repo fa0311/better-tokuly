@@ -83,10 +83,14 @@ pub async fn mutually_precise(cache: &Cache, a: Uuid, b: Uuid) -> AppResult<bool
     Ok(of_a.is_none_or(|sight| sight.precise_for(b, now_ms)) && of_b.is_none_or(|sight| sight.precise_for(a, now_ms)))
 }
 
+/// How long a position counts as where its owner is now: older ones stay in
+/// the index but are history (the geo domain's live window).
+pub const LIVE_WINDOW: chrono::Duration = chrono::Duration::minutes(5);
+
 /// Whether `viewer` sees `owner`'s precise location right now: the owner
-/// shares a position and no rule of theirs hides it from the viewer. For
-/// what a domain shows one user of where another was (a photo's place):
-/// the same rule as for the pin.
+/// shares a live position (recorded within [`LIVE_WINDOW`]) and no rule of
+/// theirs hides it from the viewer. For what a domain shows one user of
+/// where another was (a photo's place): the same rule as for the pin.
 pub async fn sees_precisely(cache: &Cache, owner: Uuid, viewer: Uuid) -> AppResult<bool> {
     Ok(seen_precisely(cache, &[owner], viewer).await?.contains(&owner))
 }
@@ -100,18 +104,20 @@ pub async fn seen_precisely(cache: &Cache, owners: &[Uuid], viewer: Uuid) -> App
     let members: Vec<String> = owners.iter().map(|owner| owner.simple().to_string()).collect();
     let sights: Vec<String> = owners.iter().map(|owner| sight_key(*owner)).collect();
     let mut conn = cache.conn();
-    let (positions, rules): (Vec<Option<(f64, f64)>>, Vec<Option<Vec<u8>>>) = redis::pipe()
-        .cmd("GEOPOS").arg(POSITIONS).arg(&members)
+    // A position's time is there exactly when the position is (`set`, `remove`).
+    let (recorded, rules): (Vec<Option<i64>>, Vec<Option<Vec<u8>>>) = redis::pipe()
+        .cmd("HMGET").arg(TIMESTAMPS).arg(&members)
         .cmd("MGET").arg(&sights)
         .query_async(&mut conn)
         .await?;
-    let now_ms = Utc::now().timestamp_millis();
+    let now = Utc::now();
+    let (now_ms, live_from) = (now.timestamp_millis(), (now - LIVE_WINDOW).timestamp_millis());
     Ok(owners
         .iter()
-        .zip(positions.iter().zip(&rules))
-        .filter(|(_, (position, rule))| {
+        .zip(recorded.iter().zip(&rules))
+        .filter(|(_, (recorded, rule))| {
             let sight = rule.as_deref().and_then(|bytes| serde_json::from_slice::<Sight>(bytes).ok());
-            position.is_some() && sight.is_none_or(|sight| sight.precise_for(viewer, now_ms))
+            recorded.is_some_and(|ms| ms >= live_from) && sight.is_none_or(|sight| sight.precise_for(viewer, now_ms))
         })
         .map(|(owner, _)| *owner)
         .collect())

@@ -67,7 +67,7 @@ counts from the end of the window.
 | the owner | every own moment, every day, in full, with the location |
 | a friend (or close friend, by the moment's audience) | the owner's moment of the owner's day; never across a block, never of a suspended or deleted account; without the region (`MomentDay.region`, it says roughly where the owner is) |
 | … who has no live moment of their own day | the same, **locked**: pictures as ThumbHash and colour only, no caption, location or reactions; a deleted own moment locks again, and so does a prompt on its way to the viewer |
-| … unlocked | everything; the location only while they see the owner's precise live position (`tokuly_core::geoindex::sees_precisely`, for a list `seen_precisely` in one round trip: sharing on, no ghost rule hides it from them), judged now |
+| … unlocked | everything; the location only while they see the owner's precise live position (`tokuly_core::geoindex::sees_precisely`, for a list `seen_precisely` in one round trip: a live position, recorded within the last 5 minutes as geo counts it, and no ghost rule hides it from them), judged now |
 | anyone else | nothing (`MOMENT_NOT_FOUND`, as for a moment that does not exist) |
 
 Reactions are listed without people on either side of a block with the
