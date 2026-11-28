@@ -27,7 +27,7 @@ export function ConnectionCallbackScreen({
   state: string | undefined;
   error: string | undefined;
 }) {
-  const { t } = useTranslation("settings");
+  const { t, i18n } = useTranslation("settings");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const known = (PROVIDERS as readonly string[]).includes(provider);
@@ -46,6 +46,7 @@ export function ConnectionCallbackScreen({
   const connected = finish.data?.connection;
   useEffect(() => {
     if (!connected) return;
+    const t = i18n.getFixedT(null, "settings");
     toast.success(
       t("connections.connectedToast", {
         provider: t(`connections.providers.${provider as Provider}.name`),
@@ -53,7 +54,7 @@ export function ConnectionCallbackScreen({
     );
     void queryClient.invalidateQueries({ queryKey: keys.connections });
     void navigate({ to: "/settings/connections", replace: true });
-  }, [connected, provider, navigate, queryClient, t]);
+  }, [connected, provider, navigate, queryClient, i18n]);
 
   const back = (
     <Link

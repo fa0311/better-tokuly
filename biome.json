@@ -46,5 +46,11 @@
       }
     }
   },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } }
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "overrides": [
+    {
+      "includes": ["apps/web/src/**"],
+      "plugins": ["./apps/web/lint/no-t-in-effect-deps.grit"]
+    }
+  ]
 }

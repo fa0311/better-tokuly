@@ -1,0 +1,14 @@
+// `t` from useTranslation is new whenever any namespace loads (strings load per namespace, and
+// the React Compiler needs the new `t` to show late strings), so an effect listing it starts over
+// at random moments: subscriptions dropped and re-added, a toast twice.
+language js
+
+`$hook($effect, [$deps])` where {
+  $hook <: or {
+    `useEffect`,
+    `useLayoutEffect`,
+    `useInsertionEffect`
+  },
+  $deps <: contains `t` as $dep,
+  register_diagnostic(span=$dep, message="`t` changes whenever any namespace loads, so this effect would start over. Read strings with `i18n.getFixedT(null, \"<namespace>\")` inside the effect, or keep keys and translate where they are shown.", severity="error")
+}

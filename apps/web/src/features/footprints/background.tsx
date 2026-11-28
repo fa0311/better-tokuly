@@ -21,9 +21,10 @@ const REFRESH_EVERY_MS = 4_000;
 export default function FootprintsBackground() {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { t } = useTranslation("footprints");
+  const { i18n } = useTranslation("footprints");
 
   useEffect(() => {
+    const t = i18n.getFixedT(null, "footprints");
     let pendingCells = 0;
     let lastCellToast = 0;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -66,7 +67,7 @@ export default function FootprintsBackground() {
       off();
       clearTimeout(refreshTimer);
     };
-  }, [queryClient, router, t]);
+  }, [queryClient, router, i18n]);
 
   return <CelebrationLayer />;
 }

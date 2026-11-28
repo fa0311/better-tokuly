@@ -110,7 +110,9 @@ function createServerI18n(language: Language, resources: Resource): I18n {
  * said (`stopSuspendingForStrings`). A lookup into a namespace nobody has
  * loaded yet (`t("chat:…")` from another feature, `i18n.t` outside a
  * component) shows nothing, starts loading it, and every `useTranslation`
- * renders again once it is there.
+ * renders again once it is there, with a new `t`: the React Compiler keeps
+ * what a component showed until `t` changes, so a `t` that stayed would keep
+ * the empty text. Effects therefore never depend on `t` (`lint/`).
  */
 function createBrowserI18n(language: Language): I18n {
   const instance = createInstance();
