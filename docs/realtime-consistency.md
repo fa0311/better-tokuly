@@ -38,7 +38,9 @@ connection, keys)` for rule 1, which cancels and refetches, and for rule 2
 `journaled(queryFn)` (the query's reads) with `pushTo(queryClient, key, update)`
 (every push, removals included), so a feature never wires `begin` / `finish`
 by hand. State a feature keeps for a screen lives in the query cache too (the
-live overlay, the watch party), so that it can use them.
+live overlay, the watch party), so that it can use them. `journaled` reads a
+plain query; infinite queries (timelines, inboxes) need a journal around the
+whole fetch first.
 
 ## Where the apps stand
 
