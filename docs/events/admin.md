@@ -207,6 +207,7 @@ action or by a prefix ending in a dot (`user.`).
 | `flag.created`, `flag.updated`, `flag.deleted` | flag (its name) | full flag snapshot |
 | `announcement.created`, `.updated`, `.published`, `.unpublished`, `.deleted` | announcement | titles, category, pinned, publish time, notify |
 | `server_setting.updated` | setting (`section.key`) | `{ "value": … }`, `null` for no console value; secrets read `••••` |
+| `dead_letters.redriven` | `dead_letters` / the consumer prefix, `*` for all | `{ "sent", "failed" }` — recorded after the redrive, which changes no table |
 
 ## Configuration
 
@@ -221,8 +222,8 @@ action or by a prefix ending in a dot (`user.`).
 | `TOKULY_MODERATION_EVIDENCE_DAYS` | `90` | Days the uploads of reported content stay held for a case after it is resolved. |
 
 Other rate limits (fixed): the public announcement RPCs allow 240 requests a
-minute per client address; `GetServerStats` 30 a minute per admin;
-`UpdateServerSetting` 60 a minute per admin.
+minute per client address; `GetServerStats` and `ListDeadLetters` 30 a
+minute per admin; `RedriveDeadLetters` 10; `UpdateServerSetting` 60.
 
 ## Server settings (「サーバー設定」)
 

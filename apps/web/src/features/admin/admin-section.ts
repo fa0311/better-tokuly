@@ -1,6 +1,7 @@
 import {
   Flag,
   Gavel,
+  Inbox,
   LayoutDashboard,
   Megaphone,
   ScrollText,
@@ -53,6 +54,14 @@ export default [
     icon: SlidersHorizontal,
     needs: "admin",
     label: label("settings"),
+  },
+  {
+    id: "deadLetters",
+    order: 48,
+    to: "/admin/dead-letters",
+    icon: Inbox,
+    needs: "admin",
+    label: label("deadLetters"),
   },
   {
     id: "audit",

@@ -24,6 +24,9 @@ docker compose run --rm api dead-letters redrive         # publish everything ag
 docker compose run --rm api dead-letters redrive notify  # only what failed in consumers named notify…
 ```
 
+The staff console has the same under 「届かなかったイベント」 (admins only,
+without the payloads; a redrive is in the audit log).
+
 A redriven event is handled only by the consumer it failed in (header
 `Tokuly-Redrive-For`); the others handled it long ago and ack it unread.
 

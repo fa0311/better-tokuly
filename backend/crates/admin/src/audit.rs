@@ -113,6 +113,14 @@ impl Audit {
         self
     }
 
+    /// The dead letters (`SystemService.RedriveDeadLetters`) of consumers
+    /// whose name starts with `consumer_prefix`; `*` for all of them.
+    pub fn dead_letters(mut self, consumer_prefix: &str) -> Self {
+        self.target_type = "dead_letters";
+        self.target_id = if consumer_prefix.is_empty() { "*".to_owned() } else { consumer_prefix.to_owned() };
+        self
+    }
+
     pub fn announcement(mut self, id: Uuid) -> Self {
         self.target_type = "announcement";
         self.target_id = id.to_string();
