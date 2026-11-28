@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { errorReason, isNotFound, spaces } from "@tokuly/api";
+import { pushTo, reread } from "@tokuly/core/query";
 import {
   type Exit,
   type ExitReason,
@@ -376,8 +377,9 @@ export async function enterSpace(
     if (mine !== generation) return false;
     fail(error);
     await close();
-    if (isNotFound(error)) queryClient.setQueryData(spacesKeys.space(space.id), null);
-    else void queryClient.invalidateQueries({ queryKey: spacesKeys.space(space.id) });
+    if (isNotFound(error))
+      pushTo<spaces.Space | null>(queryClient, spacesKeys.space(space.id), () => null);
+    else void reread(queryClient, [spacesKeys.space(space.id)]);
     // Entered on the server but never connected: do not stay inside as a ghost.
     void spaceClient()
       .leaveSpace({ spaceId: space.id })

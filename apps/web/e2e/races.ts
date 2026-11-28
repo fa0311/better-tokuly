@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page, type WebSocketRoute } from "@playwright/test";
 
 /**
  * The race of `docs/realtime-consistency.md`, rule 2, set up in a browser: a
@@ -51,6 +51,36 @@ export async function pushes(page: Page, needle = "") {
     });
   });
   return () => count;
+}
+
+/**
+ * Lets the test drop the page's realtime connection, on WebSocket, which Playwright can stand
+ * in. `drop()` closes the connection in use once it was welcomed (the gateway's first frame);
+ * what it returns says whether the connection after it was welcomed yet: what the page reads
+ * from then on (rule 1 after a reconnect) is made after the subscriptions are back. Call before
+ * the page loads.
+ */
+export async function droppableConnection(page: Page) {
+  await onWebSocket(page);
+  const sockets: { ws: WebSocketRoute; welcomed: boolean }[] = [];
+  await page.routeWebSocket(/\/rt\/ws/, (ws) => {
+    const socket = { ws, welcomed: false };
+    sockets.push(socket);
+    const server = ws.connectToServer();
+    ws.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      socket.welcomed = true;
+      ws.send(message);
+    });
+  });
+  return {
+    async drop() {
+      await expect.poll(() => sockets.at(-1)?.welcomed).toBe(true);
+      const next = sockets.length;
+      await sockets.at(-1)?.ws.close();
+      return () => sockets[next]?.welcomed === true;
+    },
+  };
 }
 
 const onWebSocketPages = new WeakSet<Page>();

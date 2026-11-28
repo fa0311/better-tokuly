@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { spaces } from "@tokuly/api";
+import { pushTo } from "@tokuly/core/query";
 import { rememberSpace, spacesKeys } from "@tokuly/core/spaces";
 import { Pencil, Play, Trash2, X } from "lucide-react";
 import { useState } from "react";
@@ -61,7 +62,7 @@ export function MySpaceActions({
   const remove = useMutation({
     mutationFn: () => spaceClient().deleteSpace({ spaceId: space.id }),
     onSuccess: () => {
-      queryClient.setQueryData(spacesKeys.space(space.id), null);
+      pushTo<spaces.Space | null>(queryClient, spacesKeys.space(space.id), () => null);
       refreshLists();
       setConfirming(null);
       toast.success(t("toast.deleted"));

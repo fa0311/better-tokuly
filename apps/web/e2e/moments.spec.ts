@@ -1,5 +1,6 @@
-import type { Page, WebSocketRoute } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { postMoment, promptReached } from "./moments";
+import { droppableConnection } from "./races";
 import {
   type Account,
   adminAccount,
@@ -206,35 +207,6 @@ test("the calendar keeps my own moments, and a deleted one keeps the day used", 
   await page.goto("/moments/camera");
   await expect(page.getByText("今日の瞬間はもうシェアしたよ")).toBeVisible();
 });
-
-/**
- * Keeps the page's realtime connection on WebSocket, which Playwright can stand in. `drop()`
- * closes it; what it returns says whether the connection after it was welcomed yet.
- */
-async function droppableConnection(page: Page) {
-  await page.addInitScript(() => {
-    Reflect.deleteProperty(globalThis, "WebTransport");
-  });
-  const sockets: { ws: WebSocketRoute; welcomed: boolean }[] = [];
-  await page.routeWebSocket(/\/rt\/ws/, (ws) => {
-    const socket = { ws, welcomed: false };
-    sockets.push(socket);
-    const server = ws.connectToServer();
-    ws.onMessage((message) => server.send(message));
-    server.onMessage((message) => {
-      socket.welcomed = true;
-      ws.send(message);
-    });
-  });
-  return {
-    async drop() {
-      await expect.poll(() => sockets.at(-1)?.welcomed).toBe(true);
-      const next = sockets.length;
-      await sockets.at(-1)?.ws.close();
-      return () => sockets[next]?.welcomed === true;
-    },
-  };
-}
 
 test("a friend's moment deleted while the list was read again does not come back with that read", async ({
   page,

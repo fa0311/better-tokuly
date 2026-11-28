@@ -74,7 +74,7 @@ found.
 | Plans (W M) | journal, every `Welcome` | — | |
 | Shorts (W M) | `resetQueries` on removal | — | |
 | Spaces: hangouts (W M) | journal, every `Welcome` | — | |
-| Spaces: rooms (W M) | `onSubscribed` invalidates | an ended room shows LIVE again; someone who left is back on stage | #530 |
+| Spaces: rooms (W M) | journal, `onSubscribed` reread | — | |
 | Live: chat (W M) | journal, `onSubscribed` | — | |
 | Live: stream page (W M) | journal, `onSubscribed` reread | — | |
 | Live: overlay (W) | journal | a revoked widget comes back, frozen | #540 |

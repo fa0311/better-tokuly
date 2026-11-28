@@ -35,7 +35,10 @@ function toPage(response: {
   return { spaces: response.spaces, nextCursor: response.page?.nextCursor ?? "" };
 }
 
-/** Query options of rooms and hangouts. Each app adds `enabled` and its hooks around them. */
+/**
+ * Query options of rooms and hangouts. Each app adds `enabled` and its hooks
+ * around them. What realtime changes reads through the journal (`pushTo` in `./cache`).
+ */
 export const spacesQueries = {
   /** What this server offers: whether audio works at all, and its limits. */
   config: (client: Spaces) => ({
@@ -47,9 +50,10 @@ export const spacesQueries = {
   /** One room as the caller sees it; `null` when there is none for them (gone, private, banned). */
   space: (client: Spaces, spaceId: string) => ({
     queryKey: spacesKeys.space(spaceId),
-    queryFn: async (): Promise<spaces.Space | null> => {
+    persister: journal,
+    queryFn: async ({ signal }: { signal: AbortSignal }): Promise<spaces.Space | null> => {
       try {
-        return (await client().getSpace({ spaceId })).space ?? null;
+        return (await client().getSpace({ spaceId }, { signal })).space ?? null;
       } catch (error) {
         if (isNotFound(error)) return null;
         throw error;
@@ -59,40 +63,41 @@ export const spacesQueries = {
 
   live: (client: Spaces, scope: spaces.LiveScope, tag = "", language = "") => ({
     queryKey: spacesKeys.live(scope, tag, language),
-    queryFn: async ({ pageParam }: { pageParam: string }) =>
+    queryFn: async ({ pageParam, signal }: { pageParam: string; signal: AbortSignal }) =>
       toPage(
-        await client().listLiveSpaces({
-          scope,
-          tag,
-          language,
-          page: { limit: PAGE_SIZE, cursor: pageParam },
-        }),
+        await client().listLiveSpaces(
+          { scope, tag, language, page: { limit: PAGE_SIZE, cursor: pageParam } },
+          { signal },
+        ),
       ),
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
+    persister: journal,
   }),
 
   upcoming: (client: Spaces, tag = "", language = "", remindersOnly = false) => ({
     queryKey: spacesKeys.upcoming(tag, language, remindersOnly),
-    queryFn: async ({ pageParam }: { pageParam: string }) =>
+    queryFn: async ({ pageParam, signal }: { pageParam: string; signal: AbortSignal }) =>
       toPage(
-        await client().listUpcomingSpaces({
-          tag,
-          language,
-          remindersOnly,
-          page: { limit: PAGE_SIZE, cursor: pageParam },
-        }),
+        await client().listUpcomingSpaces(
+          { tag, language, remindersOnly, page: { limit: PAGE_SIZE, cursor: pageParam } },
+          { signal },
+        ),
       ),
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
+    persister: journal,
   }),
 
   mine: (client: Spaces) => ({
     queryKey: spacesKeys.mine,
-    queryFn: async ({ pageParam }: { pageParam: string }) =>
-      toPage(await client().listMySpaces({ page: { limit: PAGE_SIZE, cursor: pageParam } })),
+    queryFn: async ({ pageParam, signal }: { pageParam: string; signal: AbortSignal }) =>
+      toPage(
+        await client().listMySpaces({ page: { limit: PAGE_SIZE, cursor: pageParam } }, { signal }),
+      ),
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
+    persister: journal,
   }),
 
   tags: (client: Spaces, language = "") => ({
@@ -111,12 +116,17 @@ export const spacesQueries = {
   /** The people inside a room (or, with PAST, who is gone), a page at a time. */
   participants: (client: Spaces, spaceId: string, filter: spaces.ParticipantFilter) => ({
     queryKey: spacesKeys.participants(spaceId, filter),
-    queryFn: async ({ pageParam }: { pageParam: string }): Promise<ParticipantPage> => {
-      const response = await client().listParticipants({
-        spaceId,
-        filter,
-        page: { limit: 60, cursor: pageParam },
-      });
+    queryFn: async ({
+      pageParam,
+      signal,
+    }: {
+      pageParam: string;
+      signal: AbortSignal;
+    }): Promise<ParticipantPage> => {
+      const response = await client().listParticipants(
+        { spaceId, filter, page: { limit: 60, cursor: pageParam } },
+        { signal },
+      );
       return {
         participants: response.participants,
         hiddenCount: response.hiddenCount,
@@ -125,6 +135,7 @@ export const spacesQueries = {
     },
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
+    persister: journal,
   }),
 
   bans: (client: Spaces, spaceId: string) => ({
