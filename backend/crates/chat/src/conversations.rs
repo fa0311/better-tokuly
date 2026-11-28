@@ -138,6 +138,9 @@ impl Chat {
         if let Some(existing) = self.find_direct(me, other).await? {
             return self.access(me, existing.id).await;
         }
+        if other == self.bot_id().await? {
+            return self.open_bot_conversation(me).await;
+        }
         let user_not_found = || AppError::not_found("USER_NOT_FOUND", "user not found");
         let target =
             users::find_by_id(core, other).await?.filter(|user| user.is_active()).ok_or_else(user_not_found)?;

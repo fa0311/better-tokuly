@@ -153,6 +153,35 @@ impl AssistService for Chat {
         })
         .await
     }
+
+    async fn open_bot_conversation(
+        &self,
+        ctx: RequestContext,
+        _request: ServiceRequest<'_, OpenBotConversationRequest>,
+    ) -> ServiceResult<OpenBotConversationResponse> {
+        handle(async {
+            let access = Chat::open_bot_conversation(self, ctx.user_id()?).await?;
+            ok(OpenBotConversationResponse {
+                conversation: self.conversation_for(&access).await?.into(),
+                ..Default::default()
+            })
+        })
+        .await
+    }
+
+    async fn set_bot_enabled(
+        &self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, SetBotEnabledRequest>,
+    ) -> ServiceResult<SetBotEnabledResponse> {
+        handle(async {
+            let user_id = ctx.user_id()?;
+            self.save_bot_enabled(user_id, request.enabled).await?;
+            let settings = self.ai_settings_view(user_id).await?;
+            ok(SetBotEnabledResponse { settings: settings.into(), ..Default::default() })
+        })
+        .await
+    }
 }
 
 impl AssistAdminService for Chat {

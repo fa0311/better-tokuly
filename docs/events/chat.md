@@ -44,7 +44,7 @@ tokuly_chat::direct_members(core, conversation_id) -> AppResult<Option<(Uuid, Uu
 Also public, as worker entry points and for tests: `Chat::handle_event`,
 `handle_typing`, `handle_conversation_presence`, `sweep_presence`,
 `resolve_link_preview`, `sweep_link_previews`, `expire_povs`,
-`expire_ringing_calls`, `reconcile_calls`, `capabilities`, `livekit`.
+`expire_ringing_calls`, `reconcile_calls`, `answer_as_bot`, `capabilities`, `livekit`.
 
 ## Events emitted
 
@@ -73,8 +73,8 @@ Durable consumer `chat`. Every handler is idempotent.
 | Topic | Reaction |
 |---|---|
 | `identity.user.deleted` `{ user_id }` | The user's memberships, reactions, call participations and co-presence go. Their messages stay (the sender renders as a deleted user). Direct conversations become read-only for the other side (a live call fails, an open POV request is cancelled); once that side is erased too, the conversation is deleted like an empty group. The account row stays as identity's tombstone, so nothing goes by `ON DELETE CASCADE`. Groups lose a member, with the usual system message; a group they owned passes to the longest standing admin, else member; a group nobody is left in is deleted with its uploads released (in upload ID order, so two deletions holding the same uploads do not wait on each other). |
-| `identity.user.created` `{ user_id }` | Stores the account's default for 「AI に自分のメッセージを使ってもいい」 (off for a minor, on for an adult, by the age at creation; no birthdate counts as a minor; accounts from before the birthdate question have off stored, migration 0601), unless a value is stored already. Idempotent. |
-| `identity.user.birthdate_given` `{ user_id, minor }` | For a minor: the consent off, unless the owner chose. Idempotent. |
+| `identity.user.created` `{ user_id }` | Stores the account's defaults for 「AI に自分のメッセージを使ってもいい」 and 「Tokuly Bot と話す」 (off for a minor, on for an adult, by the age at creation; no birthdate counts as a minor; accounts from before the birthdate question have off stored, migrations 0601 and 0602), unless a value is stored already. Idempotent. |
+| `identity.user.birthdate_given` `{ user_id, minor }` | For a minor: the consent and Tokuly Bot off, each unless the owner chose. Idempotent. |
 | `social.user.blocked` / `social.user.unblocked` `{ user_id, blocked_id }` | The direct conversation of the two becomes read-only for both (live call ends as `FAILED`, open POV request is cancelled), or writable again. Sending already checks blocks live, so the event only maintains the flag lists show. Groups are not touched. |
 | `social.friend.accepted` `{ user_id, friend_id, … }` | A message request waiting between the two is accepted (friends need none). |
 | `media.asset.ready` / `media.asset.failed` `{ asset_id, … }` | Messages showing the upload (a video sent while transcoding) get the final attachment and are pushed again (`MESSAGE_UPDATE_REASON_ATTACHMENT`). |
@@ -98,7 +98,7 @@ Durable consumer `chat`. Every handler is idempotent.
 Everyone with the conversation open suppresses their own message
 notifications; only accepted members who share their online status
 (`share_online_status`) are *shown* as present. Other keys: `chat:translation:<message>:<language>:<text hash>`
-(cached translations, 24 h), `chat:reaction-notified:<message>:<user>` (a reaction was notified, 24 h), `chat:reaction-pair:<author>:<user>` (5 min) and the rate limits below (`rl:chat-…`).
+(cached translations, 24 h), `chat-bot-limited:<user>:<conversation>` (Tokuly Bot said it reached a limit, 1 h), `chat:reaction-notified:<message>:<user>` (a reaction was notified, 24 h), `chat:reaction-pair:<author>:<user>` (5 min) and the rate limits below (`rl:chat-…`).
 
 ## Realtime pushes
 
@@ -140,6 +140,7 @@ other user (the notify domain applies per-person mutes). Path `/chat/<conversati
 | event consumer `chat` | — | See "Events consumed". |
 | typing / co-presence fan-out | — | See "Bus subjects". |
 | job `chat.link_preview` (`LinkPreviewJob { message_id }`) | — | Fetches the preview of a message's first link through `tokuly_media::link_preview` (at most 30 per sender and minute; more links simply get none), stores it and pushes `message_updated` (`LINK_PREVIEW`). Queued when a message with a link is sent or edited. 8 in parallel, 3 attempts. |
+| job `chat.bot_reply` (`BotReplyJob { message_id }`) | — | Tokuly Bot answers a message that addresses it (any text in its direct conversation; in a group a mention of `@tokuly_bot` or a reply to it), queued when the message is posted. Claims the message in `chat_bot_replies` before the AI service is asked, so a redelivery answers nothing twice; asks the asker's provider route; posts the answer (or a fixed text: limit reached once an hour, assistant off (its direct conversation only), AI failed or declined) as a reply under `client_id` `bot-reply:<message>`. Silent for bots, a switched-off asker (in a group also an asker whose assistant is off), a block, a suspended bot or a read-only conversation. At most 30 answers per asker and 60 per conversation an hour (`TOKULY_CHAT_BOT_*`). 8 in parallel, 3 attempts. |
 | job `chat.notices` (`NoticeBatch { conversation_ids, key, notice }`) | — | Posts a notice of `Chat::queue_notices` into up to 50 conversations (`Chat::post_notice` each; conversations that are gone are skipped, a retry posts only what is missing). 4 in parallel, 5 attempts. |
 | co-presence sweep | 10 s | Announces members whose presence ran out without a goodbye. |
 | call ringing time-out | 5 s | After `TOKULY_CHAT_RING_SECONDS`: an unanswered direct call ends as `MISSED`; in a group the members who did not answer are marked missed (and notified) while the call stays open. |

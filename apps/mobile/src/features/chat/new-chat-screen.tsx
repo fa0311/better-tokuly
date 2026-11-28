@@ -15,6 +15,7 @@ import { EmptyState, Spinner } from "#/components/page";
 import { api } from "#/lib/api";
 import { errorMessage } from "#/lib/errors";
 import { useTheme } from "#/lib/theme";
+import { TalkToBotCard } from "./bot";
 import { conversationClient } from "./data";
 
 const friendClient = () => api().service(social.FriendService);
@@ -83,6 +84,7 @@ export function NewChatScreen() {
         autoCapitalize="none"
         className="mx-4 my-2 h-11 py-0 rounded-full bg-surface px-4 text-ink"
       />
+      {!query && <TalkToBotCard />}
       {friends.isPending ? (
         <Spinner />
       ) : (

@@ -58,6 +58,33 @@ pub async fn create_bot_account(
     .or_not_found("USER_NOT_FOUND", "the owner's account does not exist")
 }
 
+/// The account of a bot the server runs itself (Tokuly Bot): no owner, no
+/// email, no password, made the first time it is asked for. The handle must
+/// be one nobody can take ([`crate::users::claimable_handle`] refuses it),
+/// so the account cannot be impersonated; concurrent first calls end with
+/// the same account. `HANDLE_TAKEN` when a person or an owned bot holds it.
+/// Emits nothing, like [`create_bot_account`].
+pub async fn service_bot(core: &Core, handle: &str, display_name: &str, bio: &str) -> AppResult<Uuid> {
+    sqlx::query(
+        "INSERT INTO users (handle, display_name, bio, bot) VALUES ($1::citext, $2, $3, true)
+         ON CONFLICT (handle) DO NOTHING",
+    )
+    .bind(handle)
+    .bind(display_name)
+    .bind(bio)
+    .execute(&core.db)
+    .await?;
+    let found: Option<(Uuid, bool, Option<Uuid>)> =
+        sqlx::query_as("SELECT id, bot, bot_owner_id FROM users WHERE handle = $1::citext")
+            .bind(handle)
+            .fetch_optional(&core.db)
+            .await?;
+    match found {
+        Some((id, true, None)) => Ok(id),
+        _ => bail!(already_exists, "HANDLE_TAKEN", "the handle of a service bot belongs to another account"),
+    }
+}
+
 /// Hands a bot to `owner` (an accepted transfer), on the caller's
 /// transaction. `BOT_NOT_FOUND` when `bot_id` is not a live bot; a bot
 /// cannot own a bot (`OWNER_INVALID`).

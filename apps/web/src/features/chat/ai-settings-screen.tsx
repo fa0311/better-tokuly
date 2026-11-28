@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { chat } from "@tokuly/api";
 import { KeyRound, Send, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -9,6 +9,7 @@ import { cn } from "#/lib/cn";
 import { useTranslation } from "#/lib/use-translation";
 import { providerName, useAssistSettings, useAssistSettingsChange } from "./ai-settings";
 import { assistClient } from "./api";
+import { BotSettingsSection } from "./bot";
 
 /**
  * `/settings/chat-ai`: which AI the assistant sends text to (among the
@@ -17,6 +18,7 @@ import { assistClient } from "./api";
  */
 export function AiSettingsScreen() {
   const { t } = useTranslation("chat");
+  const navigate = useNavigate();
   const settings = useAssistSettings();
   const choose = useAssistSettingsChange(
     (input: { provider: chat.AiProvider; off: boolean }) =>
@@ -82,6 +84,13 @@ export function AiSettingsScreen() {
               ))}
             </fieldset>
           </section>
+
+          <BotSettingsSection
+            settings={data}
+            onOpen={(conversationId) =>
+              void navigate({ to: "/chat/$conversationId", params: { conversationId } })
+            }
+          />
 
           {data.providers.some((option) => option.acceptsOwnKey) && <OwnKeys settings={data} />}
 

@@ -78,6 +78,7 @@ impl UserRow {
             avatar: image_from_json(self.avatar.as_ref()).into(),
             avatar_video_url: self.avatar_video_url.clone().unwrap_or_default(),
             verified: self.verified,
+            bot: self.bot,
             ..Default::default()
         }
     }
@@ -206,6 +207,7 @@ struct SummaryRow {
     avatar: Option<serde_json::Value>,
     avatar_video_url: Option<String>,
     verified: bool,
+    bot: bool,
     deleted_at: Option<DateTime<Utc>>,
 }
 
@@ -216,7 +218,7 @@ pub async fn summaries(core: &Core, ids: &[Uuid]) -> AppResult<HashMap<Uuid, Use
         return Ok(HashMap::new());
     }
     let rows: Vec<SummaryRow> = sqlx::query_as(
-        "SELECT id, handle::text AS handle, display_name, avatar, avatar_video_url, verified, deleted_at FROM users WHERE id = ANY($1)",
+        "SELECT id, handle::text AS handle, display_name, avatar, avatar_video_url, verified, bot, deleted_at FROM users WHERE id = ANY($1)",
     )
     .bind(ids)
     .fetch_all(&core.db)
@@ -234,6 +236,7 @@ pub async fn summaries(core: &Core, ids: &[Uuid]) -> AppResult<HashMap<Uuid, Use
                     avatar: image_from_json(r.avatar.as_ref()).into(),
                     avatar_video_url: r.avatar_video_url.unwrap_or_default(),
                     verified: r.verified,
+                    bot: r.bot,
                     ..Default::default()
                 }
             };

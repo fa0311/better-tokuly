@@ -16,6 +16,7 @@ import { webScreenHref } from "#/features/web/handoff";
 import { errorMessage } from "#/lib/errors";
 import { realtime } from "#/lib/realtime";
 import { useTheme } from "#/lib/theme";
+import { BotMark } from "./bot";
 import { Composer } from "./composer";
 import { ConversationAvatar } from "./conversation-row";
 import {
@@ -108,9 +109,16 @@ function Header({ conversation, myId }: { conversation: chat.Conversation; myId:
       >
         <ConversationAvatar conversation={conversation} myId={myId} size="sm" />
         <View className="min-w-0 flex-1">
-          <Text testID="conversation-title" numberOfLines={1} className="font-black text-ink">
-            {titleOf(conversation, myId)}
-          </Text>
+          <View className="flex-row items-center gap-1.5">
+            <Text
+              testID="conversation-title"
+              numberOfLines={1}
+              className="shrink font-black text-ink"
+            >
+              {titleOf(conversation, myId)}
+            </Text>
+            {!isGroup(conversation) && <BotMark user={peer} />}
+          </View>
           {typing.length > 0 ? (
             <Text
               testID="conversation-typing"
@@ -378,6 +386,7 @@ function Open({ conversation, me }: { conversation: chat.Conversation; me: commo
             replyTo={replyTo}
             editing={editing}
             textOnly={(viewer?.requestMessagesLeft ?? -1) >= 0}
+            group={isGroup(conversation)}
             onDone={() => {
               setReplyTo(null);
               setEditing(null);

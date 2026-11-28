@@ -33,6 +33,7 @@ import { EmojiText } from "#/features/emoji";
 import { useTranslation } from "#/lib/use-translation";
 import { useConversationActions } from "./actions";
 import { chatKeys, conversationClient } from "./api";
+import { BotMark, InviteBotButton } from "./bot";
 import { ConversationAvatar } from "./conversation-avatar";
 import { useConversationContext } from "./conversation-context";
 import type { ConversationDialog } from "./conversation-dialogs";
@@ -348,14 +349,21 @@ function Members() {
           {t("members.title", { count: conversation.memberCount })}
         </SectionTitle>
         {conversation.memberCount < capabilities.maxGroupMembers && (
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={<UserPlus className="size-4" />}
-            onClick={() => setAdding(true)}
-          >
-            {t("members.add")}
-          </Button>
+          <>
+            <InviteBotButton
+              conversationId={conversation.id}
+              memberIds={rows.flatMap((member) => (member.user ? [member.user.id] : []))}
+              onAdded={refresh}
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<UserPlus className="size-4" />}
+              onClick={() => setAdding(true)}
+            >
+              {t("members.add")}
+            </Button>
+          </>
         )}
       </div>
       {members.isPending ? (
@@ -382,11 +390,14 @@ function Members() {
                 >
                   <Avatar user={member.user} size="sm" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-bold">
-                      <EmojiText text={displayName(member.user)} />
-                      {member.user.id === me.id && (
-                        <span className="text-ink-faint"> ({t("people.you")})</span>
-                      )}
+                    <span className="flex items-center gap-1.5 text-sm font-bold">
+                      <span className="truncate">
+                        <EmojiText text={displayName(member.user)} />
+                        {member.user.id === me.id && (
+                          <span className="text-ink-faint"> ({t("people.you")})</span>
+                        )}
+                      </span>
+                      <BotMark user={member.user} />
                     </span>
                     <span className="block truncate text-xs text-ink-soft">
                       @{member.user.handle}

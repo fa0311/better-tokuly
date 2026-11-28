@@ -226,6 +226,35 @@ pub struct ChatConfig {
     )]
     pub ai_timeout_seconds: u64,
 
+    /// Tokuly Bot, the AI account that answers in chat (when an AI provider
+    /// is enabled). Off: it answers nobody and cannot be added anywhere.
+    #[arg(
+        id = "chat_bot_enabled",
+        long = "chat-bot-enabled",
+        env = "TOKULY_CHAT_BOT_ENABLED",
+        default_value_t = true,
+        action = clap::ArgAction::Set
+    )]
+    pub bot_enabled: bool,
+
+    /// Answers of Tokuly Bot one user may get per hour (all conversations).
+    #[arg(
+        id = "chat_bot_hourly_limit",
+        long = "chat-bot-hourly-limit",
+        env = "TOKULY_CHAT_BOT_HOURLY_LIMIT",
+        default_value_t = 30
+    )]
+    pub bot_hourly_limit: u32,
+
+    /// Answers of Tokuly Bot one conversation may get per hour (all members).
+    #[arg(
+        id = "chat_bot_conversation_hourly_limit",
+        long = "chat-bot-conversation-hourly-limit",
+        env = "TOKULY_CHAT_BOT_CONVERSATION_HOURLY_LIMIT",
+        default_value_t = 60
+    )]
+    pub bot_conversation_hourly_limit: u32,
+
     // ── limits ──
     /// Members a group may have.
     #[arg(
@@ -308,6 +337,9 @@ impl Default for ChatConfig {
             ai_refusal_fallback: true,
             ai_hourly_limit: 60,
             ai_timeout_seconds: 45,
+            bot_enabled: true,
+            bot_hourly_limit: 30,
+            bot_conversation_hourly_limit: 60,
             max_group_members: 100,
             edit_window_seconds: 900,
             request_message_limit: 3,
@@ -416,6 +448,9 @@ impl ChatConfig {
         "ai_refusal_fallback",
         "ai_hourly_limit",
         "ai_timeout_seconds",
+        "bot_enabled",
+        "bot_hourly_limit",
+        "bot_conversation_hourly_limit",
         "max_group_members",
         "edit_window_seconds",
         "request_message_limit",

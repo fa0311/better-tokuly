@@ -13,6 +13,7 @@ import { StampPicker } from "#/features/stamps/picker";
 import { errorMessage } from "#/lib/errors";
 import { realtime } from "#/lib/realtime";
 import { useTheme } from "#/lib/theme";
+import { BotMentionHint } from "./bot";
 import { editMessage, useCapabilities } from "./data";
 import { type OutgoingPhoto, send } from "./outbox";
 import { displayName, replyText } from "./text";
@@ -43,6 +44,7 @@ export function Composer({
   editing,
   onDone,
   textOnly,
+  group,
 }: {
   conversationId: string;
   myId: string;
@@ -52,6 +54,8 @@ export function Composer({
   onDone(): void;
   /** A message request still waiting: text and stamps only. */
   textOnly: boolean;
+  /** A group: a mention of Tokuly Bot it will not answer gets a hint. */
+  group: boolean;
 }) {
   const { t } = useTranslation("chat");
   const { t: tm } = useTranslation("mobile");
@@ -183,6 +187,7 @@ export function Composer({
 
   return (
     <View className="gap-2 border-t border-line bg-surface px-3 pt-2 pb-2">
+      {group && <BotMentionHint text={text} />}
       {banner && (
         <View className="flex-row items-center gap-2 rounded-2xl bg-surface-2 px-3 py-2">
           <View className="min-w-0 flex-1">

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { type chat, toMillis } from "@tokuly/api";
-import { isGroup, isMuted } from "@tokuly/core/chat";
+import { isGroup, isMuted, peerOf } from "@tokuly/core/chat";
 import { AtSign, BellOff, Check, MoreHorizontal, PhoneCall, Pin, SquarePen } from "lucide-react";
 import { useState } from "react";
 import { Avatar } from "#/components/ui/avatar";
@@ -17,6 +17,7 @@ import { useTranslation } from "#/lib/use-translation";
 import { useMe } from "#/stores/session";
 import { useConversationActions } from "./actions";
 import type { ListFilter } from "./api";
+import { BotMark } from "./bot";
 import { ConversationAvatar } from "./conversation-avatar";
 import { type ConversationDialog, ConversationDialogs } from "./conversation-dialogs";
 import { useConversationMenu } from "./conversation-menu";
@@ -200,6 +201,7 @@ function ConversationRow({
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
               <span className="truncate font-black">{title}</span>
+              {!group && <BotMark user={peerOf(conversation, myId)} />}
               {group && (
                 <span className="shrink-0 text-xs font-bold text-ink-faint">
                   {conversation.memberCount}

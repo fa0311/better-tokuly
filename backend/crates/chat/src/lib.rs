@@ -27,14 +27,14 @@
 //! | [`signals`] | typing and co-presence from the realtime gateway |
 //! | [`pov`] | POV requests |
 //! | [`calls`], [`livekit`] | calls and the LiveKit access tokens / API |
-//! | [`assist`] | the AI assistant: providers (Anthropic, OpenAI, OpenAI-compatible), operator and user settings, consent |
+//! | [`assist`] | the AI assistant: providers (Anthropic, OpenAI, OpenAI-compatible), operator and user settings, consent; Tokuly Bot |
 //! | [`push`], [`notices`] | realtime pushes; notification requests and their wording |
 //! | [`server_notices`] | notices other domains post into conversations |
 //! | [`cleanup`], [`subjects`], [`workers`] | other domains' events; subject resolver and data export; background work |
 //! | `*_svc`, `assist::svc` | the Connect services: thin handlers over the modules above |
 use std::{ops::Deref, sync::Arc};
 
-use tokuly_core::Core;
+use tokuly_core::{Core, prelude::Uuid};
 use tokuly_identity::Identity;
 
 pub mod config;
@@ -66,6 +66,7 @@ mod state;
 mod subjects;
 mod workers;
 
+pub use assist::bot::{BOT_HANDLE, BotReplyJob, JOB_BOT_REPLY};
 pub use calls::{CONNECT_GRACE_SECONDS, MAX_RINGING_GROUP_MEMBERS};
 pub use config::ChatConfig;
 pub use conversations::direct_members;
@@ -85,6 +86,8 @@ pub struct ChatInner {
     pub cfg: ChatConfig,
     /// `None` when calls are not configured.
     pub(crate) livekit: Option<livekit::LiveKit>,
+    /// Tokuly Bot's account, once looked up.
+    pub(crate) bot: tokio::sync::OnceCell<Uuid>,
 }
 
 /// The chat domain. Cheap to clone.
@@ -111,7 +114,7 @@ impl Chat {
             "TOKULY_AI_ALLOW_LOOPBACK must not be set in production"
         );
         subjects::register(&core);
-        Ok(Self(Arc::new(ChatInner { core, identity, cfg, livekit })))
+        Ok(Self(Arc::new(ChatInner { core, identity, cfg, livekit, bot: tokio::sync::OnceCell::new() })))
     }
 
     /// Registers the chat services on the Connect router.

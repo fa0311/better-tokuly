@@ -8,6 +8,7 @@ import { Avatar } from "#/components/avatar";
 import { useEmojiText } from "#/features/emoji/emoji-text";
 import { StampImage } from "#/features/stamps/stamp-image";
 import { SERVER_URL } from "#/lib/config";
+import { BotMark } from "./bot";
 import { clock, contentText, displayName, replyText, systemText } from "./text";
 
 const STAMP_SIZE = 140;
@@ -133,9 +134,10 @@ export function MessageBubble({
       )}
       <View className={`max-w-[78%] gap-1 ${mine ? "items-end" : "items-start"}`}>
         {!mine && group && first && (
-          <Text className="px-1 text-xs font-bold text-ink-soft">
-            {displayName(message.sender)}
-          </Text>
+          <View className="flex-row items-center gap-1 px-1">
+            <Text className="text-xs font-bold text-ink-soft">{displayName(message.sender)}</Text>
+            <BotMark user={message.sender} />
+          </View>
         )}
         <Pressable
           testID={`message-${message.clientId || message.id}`}

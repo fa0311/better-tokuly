@@ -179,6 +179,8 @@ export default {
   AI_PROVIDER_UNAVAILABLE: "えらんだAIがいま使えません。設定で別のAIをえらんでね",
   AI_REFUSED: "この内容はAIが手伝えませんでした",
   AI_TURNED_OFF: "AIアシストはオフになってるよ。設定でオンにしてね",
+  BOT_BLOCKED: "Tokuly Bot をブロックしてるよ。話すにはブロックを解除してね",
+  BOT_TURNED_OFF: "Tokuly Bot はオフになってるよ。AIアシストの設定でオンにしてね",
   AI_UNAVAILABLE: "AIがいま答えられません。少ししてからためしてね",
   ALREADY_JOINED: "もう通話に参加しています",
   API_KEY_INVALID: "APIキーの形がちがうみたい（空白なし・8文字以上）",

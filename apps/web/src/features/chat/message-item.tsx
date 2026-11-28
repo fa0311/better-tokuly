@@ -29,6 +29,7 @@ import { StampImage } from "#/features/stamps";
 import { cn } from "#/lib/cn";
 import { useTranslation } from "#/lib/use-translation";
 import { TranslationBlock, toggleTranslation, useIsTranslated } from "./assist";
+import { BotMark } from "./bot";
 import { useConversationContext } from "./conversation-context";
 import { QUICK_REACTIONS } from "./emoji";
 import { errorMessage } from "./errors";
@@ -273,8 +274,11 @@ function BubbleRow({
         )}
       >
         {group && !own && row.first && (
-          <span className="max-w-full truncate px-1 pb-0.5 text-xs font-bold text-ink-soft">
-            <EmojiText text={displayName(message.sender)} />
+          <span className="flex max-w-full items-center gap-1 px-1 pb-0.5 text-xs font-bold text-ink-soft">
+            <span className="truncate">
+              <EmojiText text={displayName(message.sender)} />
+            </span>
+            <BotMark user={message.sender} />
           </span>
         )}
         <div

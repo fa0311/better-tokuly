@@ -180,6 +180,8 @@ export default {
   AI_PROVIDER_UNAVAILABLE: "The AI you chose isn't available. Pick another in settings",
   AI_REFUSED: "The AI couldn't help with this text",
   AI_TURNED_OFF: "AI assist is off. Turn it on in settings",
+  BOT_BLOCKED: "You blocked Tokuly Bot. Unblock it to talk to it",
+  BOT_TURNED_OFF: "Tokuly Bot is off. Turn it on in the AI assist settings",
   AI_UNAVAILABLE: "The AI can't answer right now. Try again in a moment",
   ALREADY_JOINED: "You're already in this call",
   API_KEY_INVALID: "That doesn't look like an API key (no spaces, at least 8 characters)",

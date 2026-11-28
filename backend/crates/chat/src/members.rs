@@ -58,6 +58,13 @@ impl Chat {
         core.cache.rate_limit(&format!("chat-add-members:{user_id}"), 60, std::time::Duration::from_secs(3600)).await?;
         let adder = tokuly_identity::summary(core, user_id).await?;
         let friends = graph::friend_ids(core, user_id).await?;
+        // Tokuly Bot needs no friendship, but a caller it would answer.
+        let bot = self.bot_id().await?;
+        let bot = if wanted.contains(&bot) && access::find_member(core, conversation_id, bot).await?.is_none() {
+            Some(self.bot_for(user_id).await?)
+        } else {
+            None
+        };
 
         let mut tx = core.db.begin().await?;
         let mut conv = access::lock_conversation(&mut tx, conversation_id).await?;
@@ -73,7 +80,7 @@ impl Chat {
             return Ok((access, Vec::new()));
         }
         ensure!(
-            new.iter().all(|id| friends.contains(id)),
+            new.iter().all(|id| friends.contains(id) || Some(*id) == bot),
             precondition,
             "NOT_FRIENDS",
             "you can only add your friends to a group"

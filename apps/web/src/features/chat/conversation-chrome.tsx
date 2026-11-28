@@ -23,6 +23,7 @@ import { cn } from "#/lib/cn";
 import { useTranslation } from "#/lib/use-translation";
 import { useConversationActions } from "./actions";
 import { chatKeys, messageClient } from "./api";
+import { BotMark } from "./bot";
 import { joinCall, startCall, useCallSession } from "./calls/session";
 import { ConversationAvatar } from "./conversation-avatar";
 import { useConversationContext } from "./conversation-context";
@@ -119,8 +120,11 @@ export function ConversationHeader({
       >
         <ConversationAvatar conversation={conversation} myId={me.id} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-black" data-testid="conversation-title">
-            {title}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-black" data-testid="conversation-title">
+              {title}
+            </span>
+            {!group && <BotMark user={peer} />}
           </span>
           <span
             className={cn("flex items-center gap-1 truncate text-xs font-bold", subtitle.className)}

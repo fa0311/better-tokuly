@@ -74,6 +74,9 @@ message UserSummary {
   bool verified = 6;
   // True when the account is deactivated/deleted; other fields are placeholders.
   bool deleted = 7;
+  // A bot account, never a person: clients show the bot badge next to the
+  // name (Tokuly Bot, bots of the developer platform).
+  bool bot = 8;
 }
 
 // A creator identity. One account owns up to 5 channels and can act as any of

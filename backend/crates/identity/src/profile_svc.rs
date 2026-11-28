@@ -298,6 +298,7 @@ impl ProfileService for Identity {
                         avatar: image_from_json(row.avatar.as_ref()).into(),
                         avatar_video_url: row.avatar_video_url.unwrap_or_default(),
                         verified: row.verified,
+                        bot: bots.contains(&row.id),
                         ..Default::default()
                     }
                     .into(),

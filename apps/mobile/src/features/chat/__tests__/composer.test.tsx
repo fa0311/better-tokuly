@@ -56,6 +56,7 @@ async function openComposer() {
           editing={null}
           onDone={() => {}}
           textOnly={false}
+          group={false}
         />
       </QueryClientProvider>
     </SafeAreaProvider>,
