@@ -324,7 +324,7 @@ function OpenConversation({
     if (!removing) return;
     setRemovingBusy(true);
     try {
-      await actions.remove(removing.id);
+      await actions.remove(removing);
       setRemoving(null);
     } catch (error) {
       toast.error(errorMessage(error));

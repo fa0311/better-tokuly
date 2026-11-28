@@ -539,6 +539,49 @@ test("a message is answered, reacted to, edited and unsent", async ({ page, requ
   );
 });
 
+test("a message edited or unsent while its page was on its way shows as it is now", async ({
+  page,
+  request,
+  me,
+}) => {
+  const { friend, conversationId } = await withFriend(request, me);
+  const question = await sendText(request, friend, conversationId, "あした空いてる？");
+  const line = await realtimeLine(page);
+  await openConversation(page, conversationId);
+
+  // The connection drops: what is sent meanwhile comes with the page read to catch up.
+  await line.drop();
+  const meeting = await sendText(request, friend, conversationId, "集合は駅前で");
+  const oops = await sendText(request, friend, conversationId, "ごめん今のなし");
+  const newer = await holdAnswer(
+    page,
+    `${MESSAGES}/ListMessages`,
+    (body) => fromBinary(chat.ListMessagesRequestSchema, body).position.case === "after",
+  );
+  line.reconnect();
+  // The page is read on the Welcome, with both messages as they were…
+  await newer.asked;
+  // …and one is edited, the other unsent, before it arrives.
+  await rpc(
+    request,
+    `${MESSAGES}/EditMessage`,
+    { messageId: meeting.id, text: "集合は改札で！" },
+    friend,
+  );
+  await rpc(request, `${MESSAGES}/DeleteMessage`, { messageId: oops.id }, friend);
+  // A reaction pushed after both: once it shows, so have they.
+  await rpc(request, `${MESSAGES}/AddReaction`, { messageId: question.id, emoji: "👍" }, friend);
+  await expect(bubble(page, "あした空いてる？").getByTestId("reactions")).toContainText("👍");
+
+  newer.release();
+  await expect(bubble(page, "集合は改札で！")).toContainText("編集済み");
+  await expect(
+    page.getByTestId("message").filter({ hasText: "メッセージの送信を取り消しました" }),
+  ).toBeVisible();
+  await expect(bubble(page, "集合は駅前で")).toHaveCount(0);
+  await expect(bubble(page, "ごめん今のなし")).toHaveCount(0);
+});
+
 test("a message that could not be sent stays with a way to try again", async ({
   page,
   request,
