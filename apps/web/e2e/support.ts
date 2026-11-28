@@ -292,7 +292,6 @@ export async function failToLoad(
     (path) => source.test(path) || chunks.has(path),
     (body) => {
       for (const [, chunk] of body.matchAll(globEntry)) chunks.add(`/assets/${chunk}`);
-      return chunks.size > 0;
     },
   );
 }
@@ -313,30 +312,26 @@ export async function failToLoadPart(
   return blockCode(page, file, (path) => path === source || chunk.test(path));
 }
 
-/**
- * Fails every script `blocked` names, until let through. `learn` reads the
- * others first, until it says it has what it needs.
- */
+/** Fails every script `blocked` names (`learn` reads the others first), until let through. */
 async function blockCode(
   page: Page,
   file: string,
   blocked: (path: string) => boolean,
-  learn?: (body: string) => boolean,
+  learn?: (body: string) => void,
 ): Promise<() => Promise<void>> {
   let failed = 0;
-  let learned = false;
   const handler = async (route: Route) => {
     const path = new URL(route.request().url()).pathname;
     if (blocked(path)) {
       failed += 1;
       return route.abort("internetdisconnected");
     }
-    if (!learn || learned || !path.startsWith("/assets/")) return route.fallback();
+    if (!learn || !path.startsWith("/assets/")) return route.fallback();
     const response = await route.fetch().catch(() => null);
     // A connection the server dropped: the browser asks again by itself.
     if (!response) return route.fallback();
     const body = await response.text();
-    learned = learn(body);
+    learn(body);
     return route.fulfill({ response, body });
   };
   await page.context().route(/\.(js|ts|tsx)(\?|$)/, handler);
@@ -354,6 +349,69 @@ async function blockCode(
  */
 export async function backOnline(page: Page): Promise<void> {
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
+}
+
+/**
+ * Makes the code of the page `routes/_app/<file>` fail to arrive. The
+ * development server serves the page's code under the file's path; a build
+ * names its chunk after the file (`announcements.index-<hash>.js`). Routed on
+ * the context, so the chunk is blocked when the service worker fetches it
+ * too. Returns what lets it through again, once the app has asked for it.
+ */
+export async function failToLoadPage(page: Page, file: string): Promise<() => Promise<void>> {
+  const source = `/src/routes/_app/${file}`;
+  const chunk = new RegExp(
+    `^/assets/${file.replace(/\.tsx$/, "").replaceAll(".", "\\.")}-[\\w-]{8}\\.js$`,
+  );
+  let failed = 0;
+  const handler = (route: Route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path !== source && !chunk.test(path)) return route.fallback();
+    failed += 1;
+    return route.abort("internetdisconnected");
+  };
+  await page.context().route(/\.(js|tsx)(\?|$)/, handler);
+  return async () => {
+    await expect.poll(() => failed, { message: `the app asks for ${file}` }).toBeGreaterThan(0);
+    await page.context().unroute(/\.(js|tsx)(\?|$)/, handler);
+  };
+}
+
+/**
+ * The app is deployed while the page is open: the server no longer has this
+ * page's build, so its entry answers 404 to the app's check (a `HEAD`, which
+ * the service worker leaves to the network). With `until: "reload"`, the page
+ * that loads next is the new build and the check passes again; with
+ * `"never"` the build stays gone. Counts the page's loads from now on.
+ */
+export async function deployWhileOpen(
+  page: Page,
+  until: "reload" | "never",
+): Promise<{ loads(): number }> {
+  let loads = 0;
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) loads += 1;
+  });
+  await page
+    .context()
+    .route(/\/assets\/.+\.js$/, (route) =>
+      route.request().method() === "HEAD" && (until === "never" || loads === 0)
+        ? route.fulfill({ status: 404 })
+        : route.fallback(),
+    );
+  return { loads: () => loads };
+}
+
+/**
+ * Loads the page again under the service worker's control, as for anyone
+ * who has used the app before: its scripts, the entry too, are then in the
+ * worker's cache.
+ */
+export async function asReturningVisitor(page: Page): Promise<void> {
+  await expect
+    .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
+    .toBe(true);
+  await page.reload();
 }
 
 /**

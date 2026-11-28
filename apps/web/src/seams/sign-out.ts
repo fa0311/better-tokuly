@@ -52,6 +52,7 @@ export const KEPT_STORAGE: Readonly<Record<string, string>> = {
   "tokuly.player.volume": "this device's player",
   "tokuly.player.muted": "this device's player",
   "tokuly.player.captions": "this device's player",
+  "tokuly.reloadedFor": "this tab's one reload into a newer build",
 };
 
 const kept = (key: string) =>
