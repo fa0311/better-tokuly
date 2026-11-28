@@ -233,6 +233,62 @@ test("an ex-friend's notes do not come back with a page read before the friendsh
   for (const text of [before, announced, later]) await expect(card(page, text)).toHaveCount(0);
 });
 
+/**
+ * Stands between the page and the realtime gateway and holds back the first
+ * frame that asks for a note's topic, with everything the page sends after
+ * it, until `release()`. Until then the gateway does not have the
+ * subscription: what happens to the notes meanwhile never reaches the page.
+ * The page is kept on WebSocket, which Playwright can stand in.
+ */
+async function holdNoteTopics(page: Page) {
+  const needle = Buffer.from("subject:3:");
+  let holding = true;
+  const held: (() => void)[] = [];
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(globalThis, "WebTransport");
+  });
+  await page.routeWebSocket(/\/rt\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      const bytes = typeof message === "string" ? Buffer.from(message) : message;
+      if (holding && (held.length > 0 || bytes.includes(needle)))
+        held.push(() => server.send(message));
+      else server.send(message);
+    });
+    server.onMessage((message) => ws.send(message));
+  });
+  return {
+    asked: () => held.length > 0,
+    release() {
+      holding = false;
+      for (const send of held.splice(0)) send();
+    },
+  };
+}
+
+test("a note edited or deleted before its card followed it shows as it is now", async ({
+  page,
+  me,
+  request,
+}) => {
+  const friend = await friendOf(request, me);
+  const edited = await post(request, friend, { text: `e2e なおす前 ${tag()}` });
+  const deleted = await post(request, friend, { text: `e2e けされる ${tag()}` });
+  const topics = await holdNoteTopics(page);
+  await page.goto("/notes?tab=home");
+  await expect(cardById(page, edited.id)).toBeVisible();
+  await expect(cardById(page, deleted.id)).toBeVisible();
+  await expect.poll(topics.asked).toBe(true);
+
+  // Both change while the cards' topics are not in effect yet: nothing is pushed to the page.
+  const fixed = `e2e なおした ${tag()}`;
+  await rpc(request, `${NOTES}/EditNote`, { noteId: edited.id, text: fixed }, friend);
+  await rpc(request, `${NOTES}/DeleteNote`, { noteId: deleted.id }, friend);
+  topics.release();
+  await expect(cardById(page, edited.id)).toContainText(fixed);
+  await expect(cardById(page, deleted.id)).toHaveCount(0);
+});
+
 test("the home tab mixes notes with what else friends did", async ({ page, me, request }) => {
   const friend = await friendOf(request, me);
   const text = `e2e フィードのノート ${tag()}`;

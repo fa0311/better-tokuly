@@ -1,9 +1,11 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { type QueryClient, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { notes } from "@tokuly/api";
 import {
   loadTimelinePage,
+  noteLoader,
   notesKeys,
   PAGE_SIZE,
+  readNoteAgain,
   type TimelineClients,
   type TimelineSource,
   timelineQuery,
@@ -54,45 +56,8 @@ export function useQuotes(noteId: string, enabled = true) {
 
 // ───────────────────────────── Single notes, batched ─────────────────────────────
 
-/** `BatchGetNotes` takes at most this many IDs. */
-const BATCH_LIMIT = 100;
-
-interface Waiter {
-  noteId: string;
-  resolve(note: notes.Note | null): void;
-  reject(error: unknown): void;
-}
-
-let waiting: Waiter[] = [];
-let scheduled = false;
-
-async function flush(): Promise<void> {
-  scheduled = false;
-  const waiters = waiting;
-  waiting = [];
-  const ids = [...new Set(waiters.map((waiter) => waiter.noteId))];
-  for (let start = 0; start < ids.length; start += BATCH_LIMIT) {
-    const chunk = new Set(ids.slice(start, start + BATCH_LIMIT));
-    const mine = waiters.filter((waiter) => chunk.has(waiter.noteId));
-    try {
-      const response = await noteClient().batchGetNotes({ noteIds: [...chunk] });
-      const found = new Map(response.notes.map((note) => [note.id, note]));
-      for (const waiter of mine) waiter.resolve(found.get(waiter.noteId) ?? null);
-    } catch (error) {
-      for (const waiter of mine) waiter.reject(error);
-    }
-  }
-}
-
 /** One note by ID; `null` when it is gone or hidden. Requests of the same moment share one `BatchGetNotes` call. */
-export function loadNote(noteId: string): Promise<notes.Note | null> {
-  return new Promise((resolve, reject) => {
-    waiting.push({ noteId, resolve, reject });
-    if (scheduled) return;
-    scheduled = true;
-    setTimeout(() => void flush(), 10);
-  });
-}
+export const loadNote = noteLoader(noteClient);
 
 /** A note shown outside a timeline (a saved note, a feed card). Kept current by the same live updates as timelines. */
 export function useNote(noteId: string, enabled = true) {
@@ -122,6 +87,15 @@ export function markNoteDeleted(noteId: string): void {
 
 export function useIsDeleted(noteId: string | undefined): boolean {
   return useDeletedNotes((state) => (noteId ? state.ids.has(noteId) : false));
+}
+
+/** A card's topic took effect, or was refused: its note is read again, and hidden when it is gone. */
+export function readCardAgain(queryClient: QueryClient, noteId: string): void {
+  readNoteAgain(queryClient, loadNote, noteId).then(
+    (gone) => gone && markNoteDeleted(noteId),
+    // Not read: the next push, or the next time the topic takes effect, tries again.
+    () => {},
+  );
 }
 
 /** Nothing known to be deleted anymore: the next account starts clean. */

@@ -19,6 +19,7 @@ export {
   sameAudience,
   visibilityOption,
 } from "./audience";
+export { type NoteLoader, noteLoader, readNoteAgain } from "./batch";
 export {
   addPostedNote,
   bumpCounter,

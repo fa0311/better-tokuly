@@ -10,6 +10,7 @@ import {
   clipKeys,
   listKeys,
   loadTimelinePage,
+  noteLoader,
   notesKeys,
   PAGE_SIZE,
   type TimelineClients,
@@ -31,6 +32,9 @@ export const listClient = () => api().service(notes.NoteListService);
 export const antennaClient = () => api().service(notes.AntennaService);
 export const clipClient = () => api().service(notes.ClipService);
 export const muteClient = () => api().service(notes.NoteMuteService);
+
+/** One note by ID; `null` when it is gone or hidden. Requests of the same moment share one `BatchGetNotes` call. */
+export const loadNote = noteLoader(noteClient);
 
 const timelineClients: TimelineClients = {
   notes: noteClient,
