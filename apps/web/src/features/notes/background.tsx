@@ -29,12 +29,10 @@ export default function NotesBackground() {
 
   useEffect(() => {
     const client = realtime();
-    let connectedBefore = false;
+    // Pushes arrive from `Welcome` on: whatever was posted before it — while a timeline was
+    // already loading or on screen, or while the connection was down — was not announced.
     const offWelcome = client.onFrame((frame) => {
-      if (frame.body.case !== "welcome") return;
-      // Whatever was posted while the connection was down was not announced.
-      if (connectedBefore) hintTimelines();
-      connectedBefore = true;
+      if (frame.body.case === "welcome") hintTimelines();
     });
     const applyFrame = () =>
       import("./live").then(
