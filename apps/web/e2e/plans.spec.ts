@@ -1,4 +1,5 @@
 import type { Browser, Page, TestInfo } from "@playwright/test";
+import { holdAnswers, pushes } from "./races";
 import { type Account, befriend, createAccount, expect, rpc, signInAs, test } from "./support";
 
 const FREE = "tokuly.plans.v1.FreeService";
@@ -514,4 +515,65 @@ test("plans follow the account's clock on a device that is in another time zone"
   await expect(page.getByTestId("calendar-day").getByTestId("calendar-entry")).toHaveCount(0);
 
   await context.close();
+});
+
+// A read answered before a push and landing after it does not undo the push
+// (`docs/realtime-consistency.md`, rule 2).
+
+test("a plan the person is taken out of while it loads does not come back", async ({
+  page,
+  request,
+  me,
+}) => {
+  const host = await createAccount(request, "Sora");
+  await befriend(request, host, me);
+  const { plan } = await rpc<{ plan: { id: string } }>(
+    request,
+    `${PLAN}/CreatePlan`,
+    { title: "映画いこ", inviteeIds: [me.userId] },
+    host,
+  );
+  const connected = await pushes(page);
+  const aboutThePlan = await pushes(page, plan.id);
+  const read = await holdAnswers(page, `${PLAN}/GetPlan`);
+
+  await page.goto(`/plans/${plan.id}`);
+  // Every read of the plan has its answer while the person is still invited.
+  await expect.poll(connected).toBeGreaterThan(0);
+  await expect.poll(read.answered).toBe(true);
+  await rpc(request, `${PLAN}/RemovePlanParticipant`, { planId: plan.id, userId: me.userId }, host);
+  await expect.poll(aboutThePlan).toBeGreaterThan(0);
+
+  await read.release();
+  await expect(page.getByText("この予定は見つかりませんでした")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "映画いこ" })).toHaveCount(0);
+});
+
+test("a poll deleted while its link loads does not come back", async ({ page, request, me }) => {
+  const host = await createAccount(request, "Mio");
+  await befriend(request, host, me);
+  const { poll } = await rpc<{ poll: { id: string; shortId: string } }>(
+    request,
+    `${POLL}/CreatePoll`,
+    {
+      title: "遊園地いつ？",
+      slots: [{ date: tokyoDay(4) }, { date: tokyoDay(5) }],
+      inviteeIds: [me.userId],
+      timeZone: "Asia/Tokyo",
+    },
+    host,
+  );
+  const connected = await pushes(page);
+  const aboutThePoll = await pushes(page, poll.id);
+  const read = await holdAnswers(page, `${POLL}/GetPoll`);
+
+  await page.goto(`/plans/polls/${poll.shortId}`);
+  await expect.poll(connected).toBeGreaterThan(0);
+  await expect.poll(read.answered).toBe(true);
+  await rpc(request, `${POLL}/DeletePoll`, { pollId: poll.id }, host);
+  await expect.poll(aboutThePoll).toBeGreaterThan(0);
+
+  await read.release();
+  await expect(page.getByText("この日程調整は見つかりませんでした")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "遊園地いつ？" })).toHaveCount(0);
 });

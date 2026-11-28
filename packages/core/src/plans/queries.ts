@@ -1,5 +1,5 @@
 import type { plans } from "@tokuly/api";
-import type { ClientSource } from "../query";
+import { type ClientSource, journal } from "../query";
 import { planKeys as keys } from "./keys";
 
 type Plans = ClientSource<typeof plans.PlanService>;
@@ -15,10 +15,15 @@ export interface PlanPage {
 
 /** Query options of plans. Each app adds its hooks around them. */
 export const planQueries = {
-  /** One plan with its participants and checklist; `null` when the caller is not in it. */
+  /**
+   * One plan with its participants and checklist; `null` when the caller is
+   * not in it. Pushes reach it through `pushTo` (see `applyPlansEvent`).
+   */
   plan: (client: Plans, planId: string) => ({
     queryKey: keys.plan(planId),
-    queryFn: async () => (await client().getPlan({ planId })).plan ?? null,
+    queryFn: async ({ signal }: { signal: AbortSignal }) =>
+      (await client().getPlan({ planId }, { signal })).plan ?? null,
+    persister: journal,
   }),
 
   /** The caller's plans of one kind (declined ones left out), in pages. */

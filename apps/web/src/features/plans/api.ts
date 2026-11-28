@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { plans, social } from "@tokuly/api";
 import { type FreeBoardPage, planKeys as keys, planQueries } from "@tokuly/core/plans";
+import { journal } from "@tokuly/core/query";
 import { api } from "#/lib/api";
 import { planTimeZone } from "./dates";
 
@@ -31,15 +32,17 @@ const nextCursorOf = (page: { nextCursor: string }) => page.nextCursor || undefi
 
 /**
  * Who is free, as far as it is loaded: `data` is every loaded page in one
- * list, `paging` goes to `<LoadMore>` for the rest.
+ * list, `paging` goes to `<LoadMore>` for the rest. Pushed statuses reach it
+ * through `patchFreeStatuses`.
  */
 export function useFreeBoard() {
   const query = useInfiniteQuery({
     queryKey: keys.freeFriends,
-    queryFn: async ({ pageParam }): Promise<FreeBoardPage> => {
-      const response = await freeClient().listFreeFriends({
-        page: { limit: PAGE_SIZE, cursor: pageParam },
-      });
+    queryFn: async ({ pageParam, signal }): Promise<FreeBoardPage> => {
+      const response = await freeClient().listFreeFriends(
+        { page: { limit: PAGE_SIZE, cursor: pageParam } },
+        { signal },
+      );
       return {
         statuses: response.statuses,
         mine: response.mine,
@@ -48,6 +51,7 @@ export function useFreeBoard() {
     },
     initialPageParam: "",
     getNextPageParam: nextCursorOf,
+    persister: journal,
   });
   const pages = query.data?.pages;
   const data: FreeBoard | undefined = pages && {
@@ -99,10 +103,13 @@ export function usePlanList(filter: plans.PlanListFilter) {
   };
 }
 
+/** One poll by its ID or the short ID of its link; pushes reach it through `pushTo` (`applyPlansEvent`). */
 export function usePoll(pollId: string) {
   return useQuery({
     queryKey: keys.poll(pollId),
-    queryFn: async () => (await pollClient().getPoll({ pollId })).poll ?? null,
+    queryFn: async ({ signal }) =>
+      (await pollClient().getPoll({ pollId }, { signal })).poll ?? null,
+    persister: journal,
   });
 }
 
