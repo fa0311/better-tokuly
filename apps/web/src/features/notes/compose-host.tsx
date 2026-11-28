@@ -1,8 +1,9 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { onDemand } from "#/components/on-demand";
 import { useMe } from "#/stores/session";
 import { useCompose } from "./compose-store";
 
-const Composer = lazy(() => import("./compose").then((module) => ({ default: module.Composer })));
+const Composer = onDemand(() => import("./compose").then((module) => module.Composer), "toast");
 
 /**
  * The composer of the app. It is mounted once (with the notes background) and

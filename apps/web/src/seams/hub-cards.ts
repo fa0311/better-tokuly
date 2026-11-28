@@ -1,4 +1,5 @@
-import { type ComponentType, createElement, lazy } from "react";
+import type { ComponentType } from "react";
+import { onDemand } from "#/components/on-demand";
 
 /**
  * Hub cards: a widget the hub page (`/me`) shows across its section instead
@@ -13,37 +14,23 @@ import { type ComponentType, createElement, lazy } from "react";
  */
 const modules = import.meta.glob<{ default: ComponentType }>("../features/*/hub-card.tsx");
 
-const loads = Object.entries(modules).map(([path, load]) => {
-  const loading = load();
-  return { id: path.split("/").at(-2) ?? path, loading };
-});
-
-/**
- * Settles once every card has arrived. The hub page's route waits for it, so
- * the page shows whole: rendered before, the sections would come in under
- * the heading a moment later, pushing what is below them down.
- */
-export const hubCardsLoaded: Promise<unknown> = Promise.allSettled(
-  loads.map(({ loading }) => loading),
+// One that fails to load says so in its place, and loads again (`onDemand`).
+const cards = Object.entries(modules).map(
+  ([path, load]) =>
+    [
+      path.split("/").at(-2) ?? path,
+      onDemand(() => load().then((module) => module.default), "notice"),
+    ] as const,
 );
 
 /**
- * A card that renders at once when it has arrived: `lazy` alone would still
- * suspend on its first render, and React then holds the hub back for up to
- * 300 ms. `lazy` only covers a card whose load failed or is still on its way.
+ * Settles once every card has arrived or failed to. The hub page's route
+ * waits for it, so the page shows whole: rendered before, the sections would
+ * come in under the heading a moment later, pushing what is below them down.
  */
-function preloaded(loading: Promise<{ default: ComponentType }>): ComponentType {
-  let Loaded: ComponentType | undefined;
-  void loading.then((module) => {
-    Loaded = module.default;
-  });
-  const Waiting = lazy(() => loading);
-  return function Card() {
-    return createElement(Loaded ?? Waiting);
-  };
-}
+export const hubCardsLoaded: Promise<unknown> = Promise.all(
+  cards.map(([, Card]) => Card.preload()),
+);
 
 /** Every area's card, by the id of the tile it replaces. */
-export const HUB_CARDS: Record<string, ComponentType> = Object.fromEntries(
-  loads.map(({ id, loading }) => [id, preloaded(loading)]),
-);
+export const HUB_CARDS: Record<string, ComponentType> = Object.fromEntries(cards);
