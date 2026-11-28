@@ -98,13 +98,33 @@ export function setMyReaction(
   void queryClient.invalidateQueries({ queryKey: momentKeys.reactions(momentId) });
 }
 
-/** After an unfriend or a block: that person's moments leave the friends' list and the map. */
+/** Every moment in the cache: the friends' list, the map and the moments read one by one. */
+function cachedMoments(queryClient: QueryClient): moments.Moment[] {
+  const friends = queryClient.getQueryData<FriendPages>(momentKeys.friends);
+  const map = queryClient.getQueryData<moments.ListMapMomentsResponse>(momentKeys.map);
+  const details = queryClient.getQueriesData<moments.Moment>({ queryKey: momentKeys.moments });
+  return [
+    ...(friends?.pages.flatMap((page) => page.moments) ?? []),
+    ...(map?.moments ?? []),
+    ...details.flatMap(([, moment]) => moment ?? []),
+  ];
+}
+
+/**
+ * After an unfriend or a block: that person's moments leave the friends'
+ * list and the map, and nothing of them stays cached, reactions included.
+ */
 export function forgetUserMoments(queryClient: QueryClient, userId: string): void {
-  editMoments(queryClient, (list) => list.filter((moment) => moment.author?.id !== userId));
-  queryClient.removeQueries({
-    queryKey: momentKeys.moments,
-    predicate: (query) => (query.state.data as moments.Moment | undefined)?.author?.id === userId,
-  });
+  const theirs = new Set(
+    cachedMoments(queryClient)
+      .filter((moment) => moment.author?.id === userId)
+      .map((moment) => moment.id),
+  );
+  editMoments(queryClient, (list) => list.filter((moment) => !theirs.has(moment.id)));
+  for (const momentId of theirs) {
+    queryClient.removeQueries({ queryKey: momentKeys.moment(momentId), exact: true });
+    queryClient.removeQueries({ queryKey: momentKeys.reactions(momentId), exact: true });
+  }
 }
 
 /** What a pushed `MomentsEvent` changes in the cache. */

@@ -67,4 +67,9 @@ describe("cleanCaption", () => {
     expect(cleanCaption("🍣".repeat(100))).toBe("🍣".repeat(100));
     expect(cleanCaption("あ".repeat(101))).toBeNull();
   });
+
+  it("turns tabs and other control characters into a space, as the API rejects them", () => {
+    expect(cleanCaption("放課後\tアイス")).toBe("放課後 アイス");
+    expect(cleanCaption("\t渋谷\u0000\u007f なう\t")).toBe("渋谷 なう");
+  });
 });

@@ -83,6 +83,7 @@ async fn defaults_are_everything_on() {
             "video",
             "live",
             "spaces",
+            "moments",
             "shorts",
             "engagement",
             "stamp",
