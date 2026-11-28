@@ -1,16 +1,17 @@
 //! Who sees which moment, and how.
 //!
 //! - **Own moments**: always, every day, in full.
-//! - **Someone else's**: only of its owner's current day, only to the
+//! - **Someone else's**: only of its owner's day, only to the
 //!   owner's friends (or close friends, by the moment's audience), never
 //!   across a block either way, never of a suspended or deleted account.
 //!   Yes/no checks on one moment read the social graph live; lists use the
 //!   viewer's cached friend list and filter in SQL.
-//! - **Locked** until the viewer has a moment of their own current day
-//!   (deleting it locks again): the pictures are a blurred placeholder
-//!   (`rules::placeholder`), without caption, location or reactions.
+//! - **Locked** until the viewer has a moment of their own day (deleting
+//!   it, or the next prompt, locks again): the pictures are a blurred
+//!   placeholder (`rules::placeholder`), without caption, location or
+//!   reactions. The region of the day only on one's own moments.
 //! - **Location** goes to a viewer other than the owner only while that
-//!   viewer sees the owner's precise live location (`geoindex::sees_precisely`):
+//!   viewer sees the owner's precise live location (`geoindex::seen_precisely`):
 //!   anything derived from where someone is follows the ghost rules of the
 //!   map, now rather than when the moment was taken.
 //! - **Reactions** without people on either side of a block with the
@@ -49,16 +50,15 @@ pub(crate) struct Cursor {
 }
 
 impl Moments {
-    /// Whether the viewer has a moment of their region's current day.
+    /// Whether the viewer has a moment of their day ([`Self::today_of`]:
+    /// a prompt on its way to them locks again already).
     pub(crate) async fn unlocked(&self, viewer: Uuid) -> AppResult<bool> {
+        let Some(today) = self.today_of(&self.core.db, viewer).await? else { return Ok(false) };
         Ok(sqlx::query_scalar(
-            "SELECT EXISTS (
-                 SELECT 1 FROM users u
-                 JOIN moment_regions r ON r.region = u.time_zone
-                 JOIN moments m ON m.day_id = r.current_day_id AND m.user_id = u.id AND m.deleted_at IS NULL
-                 WHERE u.id = $1)",
+            "SELECT EXISTS (SELECT 1 FROM moments WHERE user_id = $1 AND day_id = $2 AND deleted_at IS NULL)",
         )
         .bind(viewer)
+        .bind(today.day.id)
         .fetch_one(&self.core.db)
         .await?)
     }
@@ -73,12 +73,13 @@ impl Moments {
         if moment.user_id == viewer {
             return Ok(Some(moment));
         }
+        let owner = moment.user_id;
         let current: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM moment_regions WHERE current_day_id = $1)")
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM moment_people WHERE user_id = $1 AND day_id = $2)")
+                .bind(owner)
                 .bind(moment.day_id)
                 .fetch_one(&core.db)
                 .await?;
-        let owner = moment.user_id;
         let allowed = current
             && !users::filter_active(core, &[owner]).await?.is_empty()
             && !graph::is_blocked_either(core, owner, viewer).await?
@@ -92,7 +93,7 @@ impl Moments {
         self.visible_moment(viewer, moment_id).await?.or_not_found("MOMENT_NOT_FOUND", "moment not found")
     }
 
-    /// Friends' moments of their current days that `viewer` may see,
+    /// Friends' moments of their own days that `viewer` may see,
     /// newest first. `with_location`: only those that carry one.
     pub(crate) async fn friend_moments(
         &self,
@@ -105,7 +106,7 @@ impl Moments {
         Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {MOMENT_COLUMNS} FROM moments m
              JOIN moment_days d ON d.id = m.day_id
-             JOIN moment_regions r ON r.current_day_id = d.id
+             JOIN moment_people p ON p.user_id = m.user_id AND p.day_id = m.day_id
              JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL AND u.banned_at IS NULL
              WHERE m.deleted_at IS NULL AND m.user_id = ANY($1) AND m.user_id <> ALL($2)
                AND (m.audience = {friends} OR m.user_id = ANY($3))
@@ -137,6 +138,9 @@ impl Moments {
         let mut people: Vec<Uuid> = rows.iter().map(|m| m.user_id).collect();
         people.extend(reactions.values().flat_map(|(_, shown)| shown.iter().map(|r| r.user_id)));
         let names = tokuly_identity::summaries(core, &people).await?;
+        let placed: Vec<Uuid> =
+            rows.iter().filter(|m| m.user_id != viewer && unlocked && m.lat.is_some()).map(|m| m.user_id).collect();
+        let seen = geoindex::seen_precisely(&core.cache, &placed, viewer).await?;
 
         let mut moments = Vec::with_capacity(rows.len());
         let mut delivered = Vec::new();
@@ -149,9 +153,7 @@ impl Moments {
                 (row.back(), row.front())
             };
             let location = match row.location() {
-                Some((lat, lng))
-                    if !locked && (mine || geoindex::sees_precisely(&core.cache, row.user_id, viewer).await?) =>
-                {
+                Some((lat, lng)) if !locked && (mine || seen.contains(&row.user_id)) => {
                     Some(LatLng { lat, lng, ..Default::default() })
                 }
                 _ => None,
@@ -165,10 +167,11 @@ impl Moments {
             moments.push(Moment {
                 id: row.id.to_string(),
                 author: users::pick(&names, row.user_id).into(),
+                // Someone else's region would say roughly where they are.
                 day: self
                     .day_view(&DayRow {
                         id: row.day_id,
-                        region: row.region.clone(),
+                        region: if mine { row.region.clone() } else { String::new() },
                         date: row.date,
                         announced_at: row.announced_at,
                     })

@@ -84,6 +84,15 @@ pub struct DayRow {
     pub announced_at: Time,
 }
 
+/// An account's day ([`crate::Moments::today_of`]); `fixed`: their own
+/// already, not only the one the region's prompt is bringing them.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct Today {
+    #[sqlx(flatten)]
+    pub day: DayRow,
+    pub fixed: bool,
+}
+
 /// A reaction, with the number of reactions of its moment the query
 /// counted (see `viewing`).
 #[derive(Debug, Clone, sqlx::FromRow)]

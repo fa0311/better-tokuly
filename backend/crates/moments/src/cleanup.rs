@@ -121,6 +121,7 @@ impl Moments {
         sqlx::query("DELETE FROM moments WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM moment_deliveries WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM moment_settings WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM moment_people WHERE user_id = $1").bind(user_id).execute(&mut *tx).await?;
         outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_MOMENT, &moment_ids).await?;
         outbound::subjects_deleted(&mut *tx, SubjectType::SUBJECT_TYPE_MOMENT_REACTION, &reactions).await?;
         tx.commit().await?;

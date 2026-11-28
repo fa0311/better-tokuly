@@ -88,8 +88,11 @@ impl MomentsConfig {
             "TOKULY_MOMENTS_UPLOAD_GRACE_SECONDS must be between 0 and 600"
         );
         anyhow::ensure!(
-            self.prompt_from_hour < self.prompt_until_hour && self.prompt_until_hour <= 24,
-            "TOKULY_MOMENTS_PROMPT_FROM_HOUR must come before TOKULY_MOMENTS_PROMPT_UNTIL_HOUR (at most 24)"
+            self.prompt_from_hour + crate::rules::WIDEST_BAND_HOURS < self.prompt_until_hour
+                && self.prompt_until_hour <= 24,
+            "TOKULY_MOMENTS_PROMPT_UNTIL_HOUR (at most 24) must be more than {} hours after \
+             TOKULY_MOMENTS_PROMPT_FROM_HOUR: a prompt region spans that many hours of offsets",
+            crate::rules::WIDEST_BAND_HOURS
         );
         anyhow::ensure!(self.worker_interval_seconds > 0, "TOKULY_MOMENTS_WORKER_INTERVAL_SECONDS must be positive");
         anyhow::ensure!(
@@ -139,5 +142,10 @@ mod tests {
         assert!(cfg.validate().is_err());
         let cfg = MomentsConfig { prompt_until_hour: 25, ..Default::default() };
         assert!(cfg.validate().is_err());
+        // Narrower than a band: nowhere in it would the window be shared.
+        let cfg = MomentsConfig { prompt_from_hour: 12, prompt_until_hour: 16, ..Default::default() };
+        assert!(cfg.validate().is_err());
+        let cfg = MomentsConfig { prompt_from_hour: 12, prompt_until_hour: 17, ..Default::default() };
+        assert!(cfg.validate().is_ok());
     }
 }

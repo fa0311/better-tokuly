@@ -3,7 +3,7 @@
 //! | What | How often |
 //! |---|---|
 //! | event consumer `moments` (see `cleanup`) | — |
-//! | planner: regions, days ahead, prompts due (see `days`) | `TOKULY_MOMENTS_WORKER_INTERVAL_SECONDS` (20 s) |
+//! | planner: time zones to bands, days ahead, prompts due (see `days`) | `TOKULY_MOMENTS_WORKER_INTERVAL_SECONDS` (20 s) |
 //! | job `moments.prompt`: announce a day and tell its region | queued by the planner |
 //! | purge of what was kept for reports | hourly |
 //!

@@ -38,6 +38,12 @@ async fn friends_moments_stay_blurred_until_you_post() {
     let shown = &open.moments[0];
     assert!(!shown.locked && !shown.back.url.is_empty() && shown.caption == "放課後🍦");
     assert!(shown.location.is_set(), "b shares their location with a");
+    // The region would tell roughly where b is, ghost mode or not: b's own only.
+    let day = shown.day.as_option().unwrap();
+    assert!(day.region.is_empty() && !day.date.is_empty() && day.prompt_at.is_set());
+    assert!(locked.moments[0].day.as_option().unwrap().region.is_empty());
+    assert_eq!(ctx.get(b, &theirs.id).await.unwrap().day.as_option().unwrap().region, region);
+    assert_eq!(mine.day.as_option().unwrap().region, region);
     let map: ListMapMomentsResponse = ctx.call("ListMapMoments", a, &ListMapMomentsRequest::default()).await.unwrap();
     assert_eq!(map.moments.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), [theirs.id.as_str()]);
 
@@ -85,7 +91,14 @@ async fn the_location_follows_the_ghost_rules_of_the_map() {
     assert!(listed.moments.iter().all(|m| !m.location.is_set()));
     let map: ListMapMomentsResponse = ctx.call("ListMapMoments", b, &ListMapMomentsRequest::default()).await.unwrap();
     assert!(map.moments.iter().all(|m| m.id != moment.id), "not on the map either");
+
+    // One list, each owner judged on their own: c shares, a hides.
+    geoindex::set(cache, c.id, 35.67, 139.71, chrono::Utc::now()).await.unwrap();
+    let map: ListMapMomentsResponse = ctx.call("ListMapMoments", b, &ListMapMomentsRequest::default()).await.unwrap();
+    let authors: Vec<String> = map.moments.iter().map(|m| m.author.as_option().unwrap().id.clone()).collect();
+    assert_eq!(authors, [c.id.to_string()]);
     geoindex::remove(cache, a.id).await.unwrap();
+    geoindex::remove(cache, c.id).await.unwrap();
 }
 
 #[tokio::test]

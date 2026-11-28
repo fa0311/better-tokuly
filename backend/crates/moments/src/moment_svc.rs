@@ -27,9 +27,8 @@ impl MomentService for Moments {
         handle(async {
             let user_id = ctx.user_id()?;
             self.limit_reads(user_id).await?;
-            let region = self.region_of(user_id).await?;
             let settings = self.settings_of(user_id).await?.to_proto();
-            let Some(day) = self.current_day(&self.core.db, &region).await? else {
+            let Some(day) = self.today_of(&self.core.db, user_id).await?.map(|today| today.day) else {
                 return ok(GetTodayResponse { settings: settings.into(), ..Default::default() });
             };
             let mine: Option<(Uuid, bool)> =

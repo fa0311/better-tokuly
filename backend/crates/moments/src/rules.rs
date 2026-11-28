@@ -1,7 +1,7 @@
-//! Everything free of I/O: when a region's prompt goes out, how late a
-//! moment is, what a request may contain, and what a locked viewer gets of
-//! a picture.
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
+//! Everything free of I/O: the prompt regions and when their prompts go
+//! out, how late a moment is, what a request may contain, and what a
+//! locked viewer gets of a picture.
+use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Offset as _, Utc};
 use chrono_tz::Tz;
 use rand::{Rng, RngExt as _};
 use tokuly_core::prelude::*;
@@ -12,36 +12,71 @@ pub const MAX_CAPTION_CHARS: usize = 100;
 /// The most retakes an app may report.
 pub const MAX_RETAKES: i32 = 99;
 
-/// The date `now` falls on in `region`.
-pub fn local_date(region: Tz, now: DateTime<Utc>) -> NaiveDate {
-    now.with_timezone(&region).date_naive()
+/// A prompt region: the time zones whose UTC offset (right now, daylight
+/// saving included) is between `west` and `east` minutes, both included.
+/// Everyone in it is prompted at the same moment, so a band is narrow
+/// enough (4 hours at most) for that moment to fall inside the local window
+/// everywhere in it; and there are few of them, so prompts go out six times
+/// a day around the world, not every few minutes somewhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Band {
+    /// The region's name, `moment_regions.region`.
+    pub name: &'static str,
+    pub west: i32,
+    pub east: i32,
 }
 
-/// `hour` o'clock (0–24) of `date` in `region`. A time that does not exist
-/// there (a daylight-saving gap) moves on to the first one that does.
-pub fn local_hour(region: Tz, date: NaiveDate, hour: u32) -> DateTime<Utc> {
-    let midnight = date.and_time(NaiveTime::MIN);
-    let wanted = midnight + Duration::hours(i64::from(hour));
-    (0..=180)
-        .step_by(15)
-        .find_map(|minutes| region.from_local_datetime(&(wanted + Duration::minutes(minutes))).earliest())
-        .map_or_else(|| Utc.from_utc_datetime(&wanted), |local| local.with_timezone(&Utc))
+/// The prompt regions, west to east. The seams lie where few people live:
+/// the eastern Pacific, the mid-Atlantic, between the Gulf and Iran, the
+/// Bay of Bengal and the Tasman Sea.
+pub const BANDS: [Band; 6] = [
+    Band { name: "utc-11..-7", west: -11 * 60, east: -7 * 60 },
+    Band { name: "utc-6..-2", west: -6 * 60, east: -2 * 60 },
+    Band { name: "utc-1..+3", west: -60, east: 3 * 60 },
+    Band { name: "utc+3:30..+6:30", west: 3 * 60 + 30, east: 6 * 60 + 30 },
+    Band { name: "utc+7..+11", west: 7 * 60, east: 11 * 60 },
+    Band { name: "utc+12..+14", west: 12 * 60, east: 14 * 60 },
+];
+
+/// The widest band, in hours: the local window must be longer.
+pub const WIDEST_BAND_HOURS: u32 = 4;
+
+/// The band of a UTC offset (minutes east): the first that reaches that far
+/// east. The one offset west of every band (Etc/GMT+12, where nobody lives)
+/// joins the first.
+pub fn band_of(offset_minutes: i32) -> &'static Band {
+    BANDS.iter().find(|band| offset_minutes <= band.east).unwrap_or(&BANDS[BANDS.len() - 1])
 }
 
-/// Draws the prompt time of `date` in `region`: uniformly inside the local
-/// window `[from_hour, until_hour)`, and not before `not_before` (a region
-/// seen for the first time in the middle of its day). `None` when nothing
-/// of the window is left.
+/// The UTC offset of `zone` at `now`, in minutes east.
+pub fn offset_minutes(zone: Tz, now: DateTime<Utc>) -> i32 {
+    now.with_timezone(&zone).offset().fix().local_minus_utc() / 60
+}
+
+/// The date `now` falls on in `band`: the date at its western edge (the
+/// window of a date lies inside that date everywhere in the band).
+pub fn band_date(band: &Band, now: DateTime<Utc>) -> NaiveDate {
+    (now + Duration::minutes(i64::from(band.west))).date_naive()
+}
+
+/// Draws the prompt time of `date` in `band`: uniformly inside the part of
+/// the local window `[from_hour, until_hour)` that every offset of the band
+/// shares, and not before `not_before` (a band drawn in the middle of its
+/// day). `None` when nothing of the window is left.
 pub fn draw_prompt<R: Rng + ?Sized>(
-    region: Tz,
+    band: &Band,
     date: NaiveDate,
     from_hour: u32,
     until_hour: u32,
     not_before: DateTime<Utc>,
     rng: &mut R,
 ) -> Option<DateTime<Utc>> {
-    let start = local_hour(region, date, from_hour).max(not_before);
-    let end = local_hour(region, date, until_hour);
+    let midnight = date.and_time(NaiveTime::MIN).and_utc();
+    // `from_hour` at the western edge is the latest start, `until_hour` at
+    // the eastern edge the earliest end.
+    let start =
+        (midnight + Duration::hours(i64::from(from_hour)) - Duration::minutes(i64::from(band.west))).max(not_before);
+    let end = midnight + Duration::hours(i64::from(until_hour)) - Duration::minutes(i64::from(band.east));
     let span = (end - start).num_seconds();
     (span > 0).then(|| start + Duration::seconds(rng.random_range(0..span)))
 }
@@ -119,9 +154,6 @@ mod tests {
 
     use super::*;
 
-    const TOKYO: Tz = chrono_tz::Asia::Tokyo;
-    const BERLIN: Tz = chrono_tz::Europe::Berlin;
-
     fn at(rfc3339: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(rfc3339).unwrap().with_timezone(&Utc)
     }
@@ -130,58 +162,91 @@ mod tests {
         text.parse().unwrap()
     }
 
+    fn band(name: &str) -> &'static Band {
+        BANDS.iter().find(|band| band.name == name).unwrap()
+    }
+
     #[test]
-    fn the_prompt_falls_inside_the_local_window() {
+    fn the_bands_are_narrow_and_in_order() {
+        for pair in BANDS.windows(2) {
+            assert!(pair[0].east < pair[1].west, "{pair:?}");
+        }
+        for band in BANDS {
+            assert!(band.west <= band.east && band.east - band.west <= WIDEST_BAND_HOURS as i32 * 60, "{band:?}");
+        }
+        let winter = at("2026-01-15T12:00:00Z");
+        let zone = |name: &str| band_of(offset_minutes(name.parse().unwrap(), winter)).name;
+        assert_eq!(zone("Asia/Tokyo"), "utc+7..+11");
+        assert_eq!(zone("Asia/Seoul"), "utc+7..+11");
+        assert_eq!(zone("Australia/Sydney"), "utc+7..+11");
+        assert_eq!(zone("Asia/Kolkata"), "utc+3:30..+6:30");
+        assert_eq!(zone("Europe/London"), "utc-1..+3");
+        assert_eq!(zone("Europe/Moscow"), "utc-1..+3");
+        assert_eq!(zone("America/New_York"), "utc-6..-2");
+        assert_eq!(zone("America/Sao_Paulo"), "utc-6..-2");
+        assert_eq!(zone("America/Los_Angeles"), "utc-11..-7");
+        assert_eq!(zone("Pacific/Honolulu"), "utc-11..-7");
+        assert_eq!(zone("Pacific/Auckland"), "utc+12..+14");
+        assert_eq!(zone("Etc/GMT+12"), "utc-11..-7", "west of every band: the first");
+    }
+
+    #[test]
+    fn every_time_zone_is_prompted_inside_its_local_window() {
         let mut rng = StdRng::seed_from_u64(7);
-        let day = date("2026-11-28");
-        for _ in 0..500 {
-            let prompt = draw_prompt(TOKYO, day, 9, 22, DateTime::<Utc>::MIN_UTC, &mut rng).unwrap();
-            assert!(prompt >= at("2026-11-28T09:00:00+09:00"), "{prompt}");
-            assert!(prompt < at("2026-11-28T22:00:00+09:00"), "{prompt}");
+        // A winter and a summer day of both hemispheres.
+        for now in [at("2026-01-15T00:00:00Z"), at("2026-07-15T00:00:00Z")] {
+            for zone in chrono_tz::TZ_VARIANTS {
+                let offset = offset_minutes(zone, now);
+                let band = band_of(offset);
+                if offset < band.west {
+                    continue; // Etc/GMT+12
+                }
+                let day = band_date(band, now) + chrono::Days::new(1);
+                for _ in 0..20 {
+                    let prompt = draw_prompt(band, day, 9, 22, DateTime::<Utc>::MIN_UTC, &mut rng).unwrap();
+                    let local = prompt + Duration::minutes(i64::from(offset));
+                    assert_eq!(local.date_naive(), day, "{zone} {prompt}");
+                    let hour = chrono::Timelike::hour(&local);
+                    assert!((9..22).contains(&hour), "{zone}: {prompt} is {local} there");
+                }
+            }
         }
     }
 
     #[test]
-    fn the_prompt_is_spread_over_the_window() {
+    fn the_prompt_is_spread_over_the_shared_window() {
         let mut rng = StdRng::seed_from_u64(1);
-        let day = date("2026-11-28");
+        let tokyo = Duration::hours(9);
         let hours: std::collections::HashSet<u32> = (0..300)
             .map(|_| {
-                let prompt = draw_prompt(TOKYO, day, 9, 22, DateTime::<Utc>::MIN_UTC, &mut rng).unwrap();
-                chrono::Timelike::hour(&prompt.with_timezone(&TOKYO))
+                let prompt =
+                    draw_prompt(band("utc+7..+11"), date("2026-11-28"), 9, 22, DateTime::<Utc>::MIN_UTC, &mut rng)
+                        .unwrap();
+                chrono::Timelike::hour(&(prompt + tokyo))
             })
             .collect();
-        assert_eq!(hours.len(), 13, "every hour of the window comes up: {hours:?}");
+        // 9:00 in Bangkok to 22:00 in Sydney's summer: 11:00 to 20:00 in Tokyo.
+        assert_eq!(hours, (11..20).collect(), "every hour of the shared window comes up");
     }
 
     #[test]
-    fn a_region_seen_late_gets_what_is_left_of_its_window_or_nothing() {
+    fn a_band_drawn_late_gets_what_is_left_of_its_window_or_nothing() {
         let mut rng = StdRng::seed_from_u64(3);
-        let day = date("2026-11-28");
-        let noon = at("2026-11-28T21:30:00+09:00");
+        let (band, day) = (band("utc+7..+11"), date("2026-11-28"));
+        let late = at("2026-11-28T19:30:00+09:00");
         for _ in 0..100 {
-            let prompt = draw_prompt(TOKYO, day, 9, 22, noon, &mut rng).unwrap();
-            assert!(prompt >= noon && prompt < at("2026-11-28T22:00:00+09:00"));
+            let prompt = draw_prompt(band, day, 9, 22, late, &mut rng).unwrap();
+            assert!(prompt >= late && prompt < at("2026-11-28T20:00:00+09:00"));
         }
-        assert_eq!(draw_prompt(TOKYO, day, 9, 22, at("2026-11-28T22:00:00+09:00"), &mut rng), None);
+        assert_eq!(draw_prompt(band, day, 9, 22, at("2026-11-28T20:00:00+09:00"), &mut rng), None);
     }
 
     #[test]
-    fn daylight_saving_days_keep_their_local_hours() {
-        // Berlin springs forward on 2026-03-29 at 02:00 and falls back on 2026-10-25.
-        assert_eq!(local_hour(BERLIN, date("2026-03-29"), 9), at("2026-03-29T09:00:00+02:00"));
-        assert_eq!(local_hour(BERLIN, date("2026-10-25"), 9), at("2026-10-25T09:00:00+01:00"));
-        // 02:00 does not exist that spring morning: 03:00 does.
-        assert_eq!(local_hour(BERLIN, date("2026-03-29"), 2), at("2026-03-29T03:00:00+02:00"));
-        // Hour 24 is the next midnight.
-        assert_eq!(local_hour(TOKYO, date("2026-11-28"), 24), at("2026-11-29T00:00:00+09:00"));
-    }
-
-    #[test]
-    fn local_dates_follow_the_region() {
+    fn a_band_s_date_is_the_one_at_its_western_edge() {
         let now = at("2026-11-28T16:00:00Z");
-        assert_eq!(local_date(TOKYO, now), date("2026-11-29"));
-        assert_eq!(local_date(BERLIN, now), date("2026-11-28"));
+        assert_eq!(band_date(band("utc+7..+11"), now), date("2026-11-28"), "23:00 in Bangkok");
+        assert_eq!(band_date(band("utc+12..+14"), now), date("2026-11-29"));
+        assert_eq!(band_date(band("utc-11..-7"), now), date("2026-11-28"));
     }
 
     #[test]
