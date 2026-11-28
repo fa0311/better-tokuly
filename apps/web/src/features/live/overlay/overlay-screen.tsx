@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, live } from "@tokuly/api";
 import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from "@tokuly/core/live";
-import { journaled, pushTo, reread } from "@tokuly/core/query";
+import { journal, pushTo, reread } from "@tokuly/core/query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { realtime } from "#/lib/realtime";
@@ -40,7 +40,9 @@ const widgetKey = (token: string) => ["live", "widget", token] as const;
 const widgetQuery = (token: string) => ({
   queryKey: widgetKey(token),
   // What pushes changed while the widget was being read is applied to the answer again.
-  queryFn: journaled(async () => toState(await overlayClient().getOverlay({ token }))),
+  queryFn: async ({ signal }: { signal: AbortSignal }) =>
+    toState(await overlayClient().getOverlay({ token }, { signal })),
+  persister: journal,
   retry: (_failures: number, error: unknown) => errorReason(error) !== "OVERLAY_NOT_FOUND",
   retryDelay: (failures: number) => Math.min(1000 * 2 ** failures, 30_000),
   // Offline or not, it keeps asking: nobody looks at an OBS source to press "retry".

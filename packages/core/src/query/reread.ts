@@ -48,6 +48,13 @@ export function reread(
  * down are lost. The first Welcome reads at once; one after a reconnect at a
  * random moment within two seconds, so that a restarted gateway's audience
  * does not read again all at once. Returns a function that stops it.
+ *
+ * Register it before the connection's first Welcome can arrive: in the
+ * effect that calls `client.start()`, before that call (the background
+ * features do). Registered later, it treats the next Welcome as a reconnect
+ * and has missed the first: reads of `keys` begun before then are kept. A
+ * screen registering while connected is fine for queries it starts itself;
+ * one whose keys may already hold such reads calls `reread` once as well.
  */
 export function rereadOnWelcome(
   queryClient: QueryClient,

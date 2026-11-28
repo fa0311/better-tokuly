@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/query-core";
 import { errorReason, live, type social } from "@tokuly/api";
-import { type ClientSource, journaled, pushTo } from "../query";
+import { type ClientSource, journal, pushTo } from "../query";
 import { liveKeys } from "./keys";
 import { addChatMessages, mergePoll, removeChatMessage, removeChatUser } from "./model";
 
@@ -103,7 +103,7 @@ export function refreshStream(queryClient: QueryClient, streamId: string): void 
  * under `liveKeys.chat`. A chat is read once and then kept current by pushes;
  * after a gap in the connection it is read again, and what pushes did while
  * that read was on its way (lines added, deleted, cleared) is applied to the
- * answer again (`journaled` / `pushTo`). One per app.
+ * answer again (`journal` / `pushTo`). One per app.
  */
 export class LiveChats {
   constructor(private readonly client: ClientSource<typeof live.LiveChatService>) {}
@@ -112,7 +112,8 @@ export class LiveChats {
   query(streamId: string) {
     return {
       queryKey: liveKeys.chat(streamId),
-      queryFn: journaled(() => this.read(streamId)),
+      queryFn: ({ signal }: { signal: AbortSignal }) => this.read(streamId, signal),
+      persister: journal,
       // Pushes keep it current; reading it again would only drop what the page did not hold.
       staleTime: Number.POSITIVE_INFINITY,
       gcTime: 0,
@@ -120,8 +121,8 @@ export class LiveChats {
   }
 
   /** Reads the latest page of a stream's chat. */
-  private async read(streamId: string): Promise<live.ChatMessage[]> {
-    const { messages } = await this.client().listChatMessages({ streamId });
+  private async read(streamId: string, signal: AbortSignal): Promise<live.ChatMessage[]> {
+    const { messages } = await this.client().listChatMessages({ streamId }, { signal });
     return addChatMessages([], messages);
   }
 

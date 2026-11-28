@@ -17,7 +17,7 @@ at most once. This page is the client's half, and where the apps stand on it
    replaces it; `rereadOnWelcome` calls it on every `Welcome`.
 2. **A push never loses to an older read.** A push either only invalidates
    (cancel, read again: `reread`), or goes through the read journal
-   (`@tokuly/core/query`, `journaled` / `pushTo`): recorded while a read of
+   (`@tokuly/core/query`, `journal` / `pushTo`): recorded while a read of
    that query is in flight and replayed on its answer. Removals replay too, so a
    read made before a removal cannot bring the thing back. An answer to a
    mutation that writes the cache, and an add that first fetches what it adds
@@ -33,14 +33,19 @@ at most once. This page is the client's half, and where the apps stand on it
    wallet `revision`, chat `seq` / `readSeq`, watch-party `sequence`, the emoji
    catalogue's `version`. Where it exists, compare it on pushes and on reads.
 
-Shared helpers in `@tokuly/core/query`: `rereadOnWelcome(queryClient,
-connection, keys)` for rule 1, which cancels and refetches, and for rule 2
-`journaled(queryFn)` (the query's reads) with `pushTo(queryClient, key, update)`
-(every push, removals included), so a feature never wires `begin` / `finish`
-by hand. State a feature keeps for a screen lives in the query cache too (the
-live overlay, the watch party), so that it can use them. `journaled` reads a
-plain query; infinite queries (timelines, inboxes) need a journal around the
-whole fetch first.
+The helpers, in `@tokuly/core/query`:
+
+| Helper | For |
+|---|---|
+| `rereadOnWelcome(queryClient, connection, keys)` | rule 1 on every `Welcome`. Register it before `client.start()` |
+| `reread(queryClient, keys)` | rule 1 once (an `onSubscribed`): cancel what is in flight, read again |
+| `{ ...options, persister: journal }` | rule 2, the read side of a query, plain or infinite (`fetchNextPage` too); pass `signal` to the request |
+| `pushTo(queryClient, key, update)` | every push, removals included; `update` may return `null` (gone) |
+| `pushToAll(queryClient, prefix, update)` | the same for one list held under several keys (filters, sources) |
+| `pushAfter(queryClient, key, read)` | a read that is not the query's own and writes it: `read` returns the change |
+
+State a feature keeps for a screen lives in the query cache too (the live
+overlay, the watch party), so that it can use them.
 
 ## Where the apps stand
 
@@ -90,7 +95,7 @@ found.
 2. Topic reads replace a read in flight: notes cards, emoji (#526, #537).
 3. The missing removal handlers: web moments, mobile shorts, web friends
    (#527, #528, #529).
-4. `journaled` / `pushTo` (done; used by live chat, the live overlay, the
+4. `journal` / `pushTo` (done; used by live chat, the live overlay, the
    watch party and the school room), then each area that writes with
    `setQueryData`, privacy first: chat, notes, stories, moments, plans,
    hangouts, gatherings, comments, community, live pins; counters last.
