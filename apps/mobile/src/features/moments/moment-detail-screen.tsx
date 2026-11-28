@@ -9,7 +9,7 @@ import { Button } from "#/components/button";
 import { EmptyState, ErrorNote, Page, Spinner } from "#/components/page";
 import { mediaUrl } from "#/lib/config";
 import { useTheme } from "#/lib/theme";
-import { useMoment } from "./data";
+import { useMoment, useMomentToday } from "./data";
 import { lateLabel } from "./format";
 
 export function MomentDetailScreen() {
@@ -17,20 +17,29 @@ export function MomentDetailScreen() {
   const { t, i18n } = useTranslation("moments");
   const { colors } = useTheme();
   const query = useMoment(momentId);
+  const today = useMomentToday();
   const moment = query.data;
+  const waitingForUnlockCheck =
+    Boolean(moment && !moment.locked && !moment.mine) && today.data?.unlocked !== true;
 
-  if (query.isPending || query.isFetching) {
+  if ((query.isPending && !moment) || (waitingForUnlockCheck && !today.isError)) {
     return (
       <Page testID="moment-detail">
         <Spinner />
       </Page>
     );
   }
-  if (query.isError) {
+  if ((query.isError && !moment) || (waitingForUnlockCheck && today.isError)) {
     return (
       <Page testID="moment-detail">
         <ErrorNote>{t("friends.detailError")}</ErrorNote>
-        <Button variant="secondary" onPress={() => void query.refetch()}>
+        <Button
+          variant="secondary"
+          onPress={() => {
+            void query.refetch();
+            void today.refetch();
+          }}
+        >
           {t("composer.retry")}
         </Button>
       </Page>
