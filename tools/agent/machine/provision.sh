@@ -26,4 +26,10 @@ if [ ! -x "$BUF" ] || [ "$("$BUF" --version 2>/dev/null)" != "$BUF_VERSION" ]; t
 fi
 sudo ln -sf "$BUF" /usr/local/bin/buf
 
-echo "provisioned: $(/usr/lib/postgresql/18/bin/postgres --version), $(valkey-server --version | cut -d' ' -f1-3), buf $(buf --version), $(qemu-system-x86_64 --version | head -1)"
+# The Rust version of backend/rust-toolchain.toml: RUSTUP_HOME belongs to root here, so cargo
+# cannot install it on first use.
+RUST_VERSION=$(sed -n 's/^channel = "\(.*\)"/\1/p' "$(dirname "$(readlink -f "$0")")/../../../backend/rust-toolchain.toml")
+sudo env RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" "$(command -v rustup)" toolchain install "$RUST_VERSION" \
+  --profile minimal -c clippy -c rustfmt >/dev/null
+
+echo "provisioned: $(/usr/lib/postgresql/18/bin/postgres --version), $(valkey-server --version | cut -d' ' -f1-3), buf $(buf --version), rust $RUST_VERSION, $(qemu-system-x86_64 --version | head -1)"

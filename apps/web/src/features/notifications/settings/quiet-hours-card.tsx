@@ -128,7 +128,7 @@ function TimeZone({ accountZone }: { accountZone: string }) {
       <p className="min-w-0 flex-1 font-bold">
         {t("quiet.zone", { zone: accountZone })}
         {deviceZone && deviceZone !== accountZone && (
-          <span className="block font-medium text-ink-soft">
+          <span className="block font-normal text-ink-soft">
             {t("quiet.zoneDiffers", { zone: deviceZone })}
           </span>
         )}

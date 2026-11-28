@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { momentKeys } from "@tokuly/core/moments/keys";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -21,13 +22,8 @@ export default function MomentsBackground() {
     // waiting for their handler. This one stays and reads the current language.
     const t = i18n.getFixedT(null, "moments");
     const client = realtime();
-    let connectedBefore = false;
-    const offWelcome = client.onFrame((frame) => {
-      if (frame.body.case !== "welcome") return;
-      // Whatever happened while the connection was down was not announced.
-      if (connectedBefore) void queryClient.invalidateQueries({ queryKey: momentKeys.all });
-      connectedBefore = true;
-    });
+    // Whatever happened before the connection was up, or while it was down, was not announced.
+    const offWelcome = rereadOnWelcome(queryClient, client, [momentKeys.all]);
     const offEvents = onFramesLoading("moments", () =>
       import("@tokuly/core/moments").then(({ applyMomentsEvent }) => ({ event }) => {
         applyMomentsEvent(queryClient, event);

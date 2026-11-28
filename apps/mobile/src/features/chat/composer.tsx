@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { ActionSheet } from "#/components/action-sheet";
 import { EmojiPicker } from "#/features/emoji/picker";
+import { fromPicker } from "#/features/media/pick";
 import { StampPicker } from "#/features/stamps/picker";
 import { errorMessage } from "#/lib/errors";
 import { realtime } from "#/lib/realtime";
@@ -93,7 +94,7 @@ export function Composer({
     }
   };
 
-  const pick = async (source: "library" | "camera") => {
+  const pickFrom = async (source: "library" | "camera") => {
     const options: ImagePicker.ImagePickerOptions = {
       mediaTypes: ["images"],
       quality: 0.85,
@@ -103,22 +104,26 @@ export function Composer({
         ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
     };
     if (source === "camera") {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      const permission = await fromPicker(ImagePicker.requestCameraPermissionsAsync);
       if (!permission.granted) return Alert.alert(tm("chat.cameraDenied"));
-      const result = await ImagePicker.launchCameraAsync(options);
+      const result = await fromPicker(() => ImagePicker.launchCameraAsync(options));
       if (!result.canceled) setPhotos((held) => [...held, ...result.assets.map(photoOf)]);
       return;
     }
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permission = await fromPicker(ImagePicker.requestMediaLibraryPermissionsAsync);
     if (!permission.granted) return Alert.alert(tm("chat.photoDenied"));
-    const result = await ImagePicker.launchImageLibraryAsync({
-      ...options,
-      allowsMultipleSelection: true,
-      selectionLimit: Math.max(1, maxAttachments - photos.length),
-    });
+    const result = await fromPicker(() =>
+      ImagePicker.launchImageLibraryAsync({
+        ...options,
+        allowsMultipleSelection: true,
+        selectionLimit: Math.max(1, maxAttachments - photos.length),
+      }),
+    );
     if (!result.canceled)
       setPhotos((held) => [...held, ...result.assets.map(photoOf)].slice(0, maxAttachments));
   };
+  const pick = (source: "library" | "camera") =>
+    pickFrom(source).catch((error: unknown) => Alert.alert(errorMessage(error)));
 
   const trimmed = text.trim();
   const canSend = editing ? trimmed.length > 0 : trimmed.length > 0 || photos.length > 0;

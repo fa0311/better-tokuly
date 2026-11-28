@@ -225,7 +225,7 @@ Durable consumer `geo` (`Geo::handle_event`). Every handler is idempotent.
 |---|---|---|
 | `location` | each friend, in their own view | An accepted sample changed the pin (moved 5 m or more, or battery/activity/place/stay/pause changed) or 30 s passed; and at once after a change to ghost rules, privacy, status, a trip, an SOS, or a new friendship. Friends under FROZEN are skipped. |
 | `location` on topic `share:<token>` | anyone subscribed | The sharer's pin (public view: position and movement, no badge, halo or status). |
-| `location_removed_user_id` | both sides / friends | Unfriended, blocked, banned. On `share:<token>`: the share ended (revoked, expired, account deleted). |
+| `location_removed_user_id` | both sides / friends | Unfriended (also when an account is deleted), blocked, banned. On `share:<token>`: the share ended (revoked, expired, account deleted). |
 | `visit` | friends who see the precise pin | Arrival at / departure from a place they may know about (badge for home/work/school, name for shared or public places), and check-ins. |
 | `gathering_updated` / `gathering_ended_id` | members and their friends | Membership changed. Each viewer gets only members who are their friends and visible precisely to them; with fewer than two such members they get `gathering_ended_id`. |
 | `trip_updated` | the traveller and the people the trip is shared with | Started, progress (at most every 20 s unless the ETA moved by a minute), arrived, cancelled, replaced. Destination coordinates and route only where the viewer may have them. |

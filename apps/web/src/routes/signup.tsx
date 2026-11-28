@@ -194,7 +194,7 @@ function SignUp() {
           autoComplete="bday"
           required
         />
-        <label className="flex items-start gap-3 rounded-2xl bg-surface-2 p-3 text-sm font-medium">
+        <label className="flex items-start gap-3 rounded-2xl bg-surface-2 p-3 text-sm font-normal">
           <input
             type="checkbox"
             checked={acceptTerms}

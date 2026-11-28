@@ -7,10 +7,13 @@
  */
 @import "tailwindcss" source(".");
 @import "./tokens.css";
+/*
+ * Three weights only: `font-normal`, `font-bold`, `font-black`. Each weight
+ * is 126 @font-face rules (one per character subset, fetched when a page
+ * shows a character of it) in the stylesheet every page waits for.
+ */
 @import "@fontsource/m-plus-rounded-1c/400.css";
-@import "@fontsource/m-plus-rounded-1c/500.css";
 @import "@fontsource/m-plus-rounded-1c/700.css";
-@import "@fontsource/m-plus-rounded-1c/800.css";
 @import "@fontsource/m-plus-rounded-1c/900.css";
 
 /*

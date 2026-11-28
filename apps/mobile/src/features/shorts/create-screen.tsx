@@ -74,10 +74,14 @@ export function CreateShortScreen() {
     } else setVideo(picked);
   };
   const pick = async () => {
-    const result = await pickFromLibrary({ kinds: ["videos"], limit: 1 });
-    if (!result) return;
-    if ("denied" in result) return Alert.alert(tm("chat.photoDenied"));
-    if (result.media[0]) await take(result.media[0]);
+    try {
+      const result = await pickFromLibrary({ kinds: ["videos"], limit: 1 });
+      if (!result) return;
+      if ("denied" in result) return Alert.alert(tm("chat.photoDenied"));
+      if (result.media[0]) await take(result.media[0]);
+    } catch (error) {
+      Alert.alert(errorMessage(error, { namespace: "shorts" }));
+    }
   };
 
   const post = async () => {

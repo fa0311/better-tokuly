@@ -61,7 +61,9 @@ jobs:
               - 'compose.dev.yaml'
               - 'tools/ci/backend-packages.sh'
               - 'tools/ci/test-archive.sh'
+              - 'tools/ci/domain-boundaries.py'
               - '.github/workflows/ci.yml'
+              - '.github/actions/setup-rust/**'
             migrations:
               - 'backend/migrations/**'
               - 'tools/ci/migrations-upgrade.sh'
@@ -148,7 +150,7 @@ jobs:
       - uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
         with:
           setup_only: true
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/setup-rust
       # Saved on main only, read by pull requests: per-branch caches would fill the 10 GB limit.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
@@ -181,8 +183,8 @@ jobs:
           done
           [ -z "$libs" ] || cargo test --locked --doc $libs
 
-  # Keep the declared MSRV working on every backend change. The demo's picker
-  # inference differs between this toolchain and current stable.
+  # Keep the declared MSRV (`rust-version` in backend/Cargo.toml) working on every backend
+  # change. The demo's picker inference differs between it and the pinned toolchain.
   backend-msrv-build:
     name: "Backend: MSRV check (Rust 1.95)"
     needs: changes
@@ -191,13 +193,17 @@ jobs:
     timeout-minutes: 45
     env:
       CARGO_INCREMENTAL: "0"
+      # Overrides backend/rust-toolchain.toml.
+      RUSTUP_TOOLCHAIN: "1.95.0"
     steps:
       - uses: actions/checkout@v7
       - uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
         with:
           setup_only: true
           version: 1.75.0
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: backend
@@ -238,6 +244,18 @@ jobs:
         if: failure()
         run: docker compose -f compose.dev.yaml logs --tail 80
 
+  # No domain depends on, or runs SQL on the tables of, a domain backend/README.md does not
+  # list for it. Seconds, no build.
+  backend-boundaries:
+    name: "Backend: domain boundaries"
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: tools/ci/domain-boundaries.py
+
   # The latest stable release's schema upgrades to this one and ends up as a fresh
   # install's (tools/ci/migrations-upgrade.sh; passes while there is no stable tag).
   migrations-upgrade:
@@ -276,7 +294,7 @@ jobs:
       - uses: bufbuild/buf-action@37ac33d8960807670a6e9719080e885197b09cc6 # v1
         with:
           setup_only: true
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/setup-rust
       # Runs on pull requests only: starts from main's cache of the build job (same toolchain
       # and settings), saves nothing.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2

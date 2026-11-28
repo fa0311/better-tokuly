@@ -32,7 +32,8 @@ describe("reading a stream's chat again", () => {
     const queryClient = new QueryClient();
     const key = liveKeys.chat("s1");
     queryClient.setQueryData(key, [line("old", 1), line("doomed", 2)]);
-    const reading = queryClient.fetchQuery({ queryKey: key, queryFn: () => chats.read("s1") });
+    // Read again (as after a gap), with the data held kept for the assertions.
+    const reading = queryClient.fetchQuery({ ...chats.query("s1"), staleTime: 0, gcTime: 60_000 });
     await vi.waitFor(() => expect(answers).toHaveLength(1));
 
     // While the read is on its way: a new line, and a deletion.
@@ -49,7 +50,7 @@ describe("reading a stream's chat again", () => {
 
   it("drops a line deleted while the app was not listening", async () => {
     const { chats, answers } = slowChat();
-    const reading = chats.read("s2");
+    const reading = new QueryClient().fetchQuery(chats.query("s2"));
     await vi.waitFor(() => expect(answers).toHaveLength(1));
     answers[0]?.([line("still-there", 2)]);
     expect(ids(await reading)).toEqual(["still-there"]);

@@ -36,7 +36,7 @@ echo "== services"; tools/dev/infra.sh status 2>&1 | grep -v ' up ' || true
 printf 'dev api %s\n' "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:58081/healthz)"
 # The shared API must not be older than main's last backend change (a stale one made #430 and #474 chase ghosts).
 bin=${TOKULY_DEV_HOME:-$HOME/tokuly-dev}/target/main/debug/tokuly
-changed=$(git log -1 --format=%ct origin/main -- backend proto 2>/dev/null || echo 0)
+changed=$(git log -1 --format=%ct origin/main -- backend proto ':!*.md' 2>/dev/null || echo 0)
 if [ -x "$bin" ] && [ "$(stat -c %Y "$bin")" -lt "$changed" ]; then
   echo "FAIL dev api binary is older than main's last backend change: rebuild (CARGO_TARGET_DIR=…/target/main cargo build -p tokuly-server) and restart (machine/dev.sh api)"
 fi

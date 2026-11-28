@@ -59,11 +59,16 @@ export function Timeline({ source, empty, header, testID }: TimelineProps) {
   const [refreshing, setRefreshing] = useState(false);
   const key = notesKeys.timeline(source);
 
-  // Looks for new notes without moving what is on screen. One look at a time, and none before the timeline is there.
+  // Looks for new notes without moving what is on screen. One look at a time, and none before the
+  // timeline is there: asked meanwhile, it looks again after, since either may have read too early.
   const looking = useRef(false);
+  const lookAgain = useRef(false);
   const lastLook = useRef(0);
   const look = async () => {
-    if (looking.current || !queryClient.getQueryData(key)) return;
+    if (looking.current || !queryClient.getQueryData(key)) {
+      lookAgain.current = true;
+      return;
+    }
     looking.current = true;
     try {
       const page = await freshPage(source);
@@ -75,11 +80,22 @@ export function Timeline({ source, empty, header, testID }: TimelineProps) {
     } finally {
       looking.current = false;
     }
+    if (lookAgain.current) {
+      lookAgain.current = false;
+      void latestLook.current();
+    }
   };
   const latestLook = useRef(look);
   useEffect(() => {
     latestLook.current = look;
   });
+  // The first page is there: look now if a hint came while it was on its way.
+  const loaded = timeline.isSuccess;
+  useEffect(() => {
+    if (!loaded || !lookAgain.current) return;
+    lookAgain.current = false;
+    void latestLook.current();
+  }, [loaded]);
   // A burst of hints (every count that moves on screen is one) leads to one look.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;

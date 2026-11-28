@@ -8,9 +8,7 @@ import { readDeviceMemory, writeDeviceMemory } from "#/lib/device-memory";
  * their IDs, so the entry does not say where the account has been; and it
  * is removed on sign-out.
  */
-export const PREFIX = "tokuly.footprints.levels.";
-/** The device-wide entry with region IDs an earlier version kept: removed wherever it is still found. */
-export const LEGACY_KEY = "tokuly.footprints.levels";
+const PREFIX = "tokuly.footprints.levels.";
 
 /** What a region is remembered as for one account. */
 export const regionMark = (userId: string, regionId: string): string =>

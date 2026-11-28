@@ -319,7 +319,7 @@ test("a paint or an erase can be undone, and a tap the server refuses is taken b
   );
   await page.getByRole("radio", { name: "理科" }).click();
   await grid.getByRole("button", { name: `${second} 空き` }).click();
-  await expect(page.getByText("通信できませんでした。接続を確認してね")).toBeVisible();
+  await expect(page.getByText("通信できなかったよ。接続を確認してね!")).toBeVisible();
   await expect(grid.getByRole("button", { name: `${second} 空き` })).toBeVisible();
   await grid.getByRole("button", { name: `${first} 国語` }).click();
   await expect(grid.getByRole("button", { name: `${first} 国語` })).toBeVisible();
@@ -333,12 +333,17 @@ test("a timer that could not be restored says so and offers to try again", async
   me: _me,
 }) => {
   let failing = true;
-  await page.route("**/tokuly.school.v1.StudyService/GetCurrentStudySession", (route) =>
-    failing ? route.abort() : route.continue(),
-  );
+  let refused = 0;
+  await page.route("**/tokuly.school.v1.StudyService/GetCurrentStudySession", (route) => {
+    if (!failing) return route.continue();
+    refused += 1;
+    return route.abort();
+  });
   await page.goto("/school/study");
   const timer = page.getByRole("region", { name: "勉強タイマー" });
   await expect(timer.getByText("タイマーのようすを読み込めなかったよ")).toBeVisible();
+  // Asked on opening and again on the connection's first Welcome: both failed, nothing asks by itself now.
+  await expect.poll(() => refused).toBeGreaterThanOrEqual(2);
 
   failing = false;
   await timer.getByRole("button", { name: "もう一度" }).click();

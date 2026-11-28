@@ -89,7 +89,7 @@ function InstallCard() {
           <h2 className="text-lg font-black leading-snug">
             {way === "installed" ? t("install.installedTitle") : t("install.justInstalledTitle")}
           </h2>
-          <p className="mt-0.5 text-sm font-medium leading-relaxed">
+          <p className="mt-0.5 text-sm font-normal leading-relaxed">
             {way === "installed" ? t("install.installedBody") : t("install.justInstalledBody")}
           </p>
         </div>
@@ -138,7 +138,7 @@ function InstallCard() {
           {t("install.howTo")}
         </Button>
       ) : (
-        <p className="mt-5 rounded-2xl bg-surface-2 px-4 py-3 text-sm font-medium leading-relaxed text-ink-soft [word-break:auto-phrase]">
+        <p className="mt-5 rounded-2xl bg-surface-2 px-4 py-3 text-sm font-normal leading-relaxed text-ink-soft [word-break:auto-phrase]">
           {t(`install.hints.${hintKey(way)}`)}
         </p>
       )}

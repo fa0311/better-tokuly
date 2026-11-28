@@ -1,12 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { common } from "@tokuly/api";
 import { communityKeys } from "@tokuly/core/community/keys";
-import { rereadListsAfterReconnect } from "@tokuly/core/query";
-import { lazy, useEffect } from "react";
+import { rereadOnWelcome } from "@tokuly/core/query";
+import { useEffect } from "react";
+import { onDemand } from "#/components/on-demand";
 import { onFramesLoading, realtime } from "#/lib/realtime";
 
-const CommunitySubjectCard = lazy(() =>
-  import("./subject-card").then((module) => ({ default: module.CommunitySubjectCard })),
+const CommunitySubjectCard = onDemand(
+  () => import("./subject-card").then((module) => module.CommunitySubjectCard),
+  "notice",
 );
 
 // Saved and reacted-to community pages open at this app's addresses for them. Registered once
@@ -42,10 +44,10 @@ export default function CommunityBackground() {
     // What changed while the connection was down was not announced: the lists on screen (my
     // communities, invitations, queues) are read again. An open community's boards read
     // themselves again when its topic is back (`CommunityLayout`).
-    const stop = rereadListsAfterReconnect(
+    const stop = rereadOnWelcome(
       queryClient,
       client,
-      communityKeys.all,
+      [communityKeys.all],
       (key) => key[1] === "in" && client.isSubscribed(`community:${String(key[2])}`),
     );
     client.start();

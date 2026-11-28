@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notes } from "@tokuly/api";
+import { rereadOnWelcome } from "@tokuly/core/query";
 import {
   addStory,
   forgetUserStories,
@@ -49,14 +50,10 @@ export function useStoriesSync(): void {
   useEffect(() => {
     if (!myId) return;
     const client = realtime();
-    let connectedBefore = false;
+    // Stories posted before the connection was up, or while it was down, were not announced.
+    const offWelcome = rereadOnWelcome(queryClient, client, [storyKeys.tray]);
     const off = client.onFrame((frame) => {
       if (frame.topic) return;
-      if (frame.body.case === "welcome") {
-        if (connectedBefore) void queryClient.invalidateQueries({ queryKey: storyKeys.tray });
-        connectedBefore = true;
-        return;
-      }
       if (frame.body.case === "social" && frame.body.value.event.case === "friendRemovedUserId") {
         forgetUserStories(queryClient, frame.body.value.event.value);
         return;
@@ -85,6 +82,9 @@ export function useStoriesSync(): void {
       }
     });
     client.start();
-    return off;
+    return () => {
+      off();
+      offWelcome();
+    };
   }, [queryClient, myId]);
 }

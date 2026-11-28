@@ -41,7 +41,7 @@ let started = false;
 
 /**
  * The removal of what the last signed-out account left in this browser. It
- * loads every feature's list first, so it ends a moment after the session
+ * loads every feature's cleanup first, so it ends a moment after the session
  * does; `signOut` waits for it, or the next screen (or a closed tab) would
  * come before it.
  */
@@ -176,6 +176,7 @@ function runHook(hook: BeforeSignOut): Promise<void> {
 export async function signOut(allSessions = false, allAccountsOnDevice = false): Promise<void> {
   await Promise.all([...beforeSignOut].map(runHook));
   await api().session.signOut(allSessions, allAccountsOnDevice);
-  await forgetting;
+  // Before the wait: a cleanup that cannot load starts this page anew instead of returning.
   if (allAccountsOnDevice) announceAccountChange();
+  await forgetting;
 }

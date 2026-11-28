@@ -1,6 +1,7 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorReason, type Timestamp, toMillis, video } from "@tokuly/api";
-import { pushesDuringRead } from "@tokuly/core/query";
-import { useEffect, useRef, useState } from "react";
+import { journal, pushTo, reread } from "@tokuly/core/query";
+import { useEffect, useRef } from "react";
 import { API_PATH, api } from "#/lib/api";
 import { realtime } from "#/lib/realtime";
 import { partyClient } from "../api";
@@ -77,6 +78,9 @@ function fromSession(session: video.PartySession, previous?: PartyRoomState): Pa
   };
 }
 
+/** The room as this page holds it, in the query cache so that pushes and reads share it. */
+const roomKey = (partyId: string) => ["video", "party-room", partyId] as const;
+
 const HEARTBEAT_MS = 20_000;
 /** A long party's chat keeps its latest entries only; what scrolled away hours ago is let go. */
 export const CHAT_LIMIT = 200;
@@ -92,10 +96,39 @@ function latest<T>(entries: T[]): T[] {
  * playback in case a push was lost.
  */
 export function usePartyRoom(initial: video.PartySession, guestToken: string) {
-  const [state, setState] = useState<PartyRoomState>(() => fromSession(initial));
-  /** What pushes changed while the party is being read (see `pushesDuringRead`). */
-  const [duringRead] = useState(() => pushesDuringRead<PartyRoomState>());
-  const partyId = state.party.id;
+  const queryClient = useQueryClient();
+  const partyId = initial.party?.id ?? "";
+  const key = roomKey(partyId);
+  const setState = (update: (current: PartyRoomState) => PartyRoomState) =>
+    queryClient.setQueryData<PartyRoomState>(key, (current) => current && update(current));
+  const { data: state } = useQuery({
+    queryKey: key,
+    // What was pushed while the party was read may be newer than the answer: it is applied again.
+    queryFn: async ({ signal }): Promise<PartyRoomState> => {
+      const held = () => queryClient.getQueryData<PartyRoomState>(key) ?? fromSession(initial);
+      try {
+        const { session } = await partyClient().getParty({ partyId, guestToken }, { signal });
+        return session?.party && session.self ? fromSession(session, held()) : held();
+      } catch (error) {
+        const reason = errorReason(error);
+        if (reason === "NOT_A_PARTY_MEMBER")
+          setState((current) => ({ ...current, exit: current.exit ?? { kind: "timedOut" } }));
+        else if (reason === "PARTY_NOT_FOUND")
+          setState((current) => ({
+            ...current,
+            exit: current.exit ?? { kind: "ended", reason: video.PartyEndReason.UNSPECIFIED },
+          }));
+        throw error;
+      }
+    },
+    persister: journal,
+    initialData: () => fromSession(initial),
+    // Read when asked (`reload`) and kept current by pushes and the heartbeat.
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 0,
+    retry: false,
+    structuralSharing: false,
+  });
   const selfId = state.self.id;
   const topic = initial.realtimeTopic;
   const gone = state.exit !== undefined;
@@ -115,26 +148,7 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
         : { ...current, clockOffsetMs };
     });
 
-  const reload = async () => {
-    const read = duringRead.begin();
-    try {
-      const { session } = await partyClient().getParty({ partyId, guestToken });
-      read.cancel();
-      // What was pushed while it was read may be newer than the answer: it is applied again.
-      if (session?.party && session.self)
-        setState((current) => read.finish(fromSession(session, current)));
-    } catch (error) {
-      read.cancel();
-      const reason = errorReason(error);
-      if (reason === "NOT_A_PARTY_MEMBER")
-        setState((current) => ({ ...current, exit: current.exit ?? { kind: "timedOut" } }));
-      else if (reason === "PARTY_NOT_FOUND")
-        setState((current) => ({
-          ...current,
-          exit: current.exit ?? { kind: "ended", reason: video.PartyEndReason.UNSPECIFIED },
-        }));
-    }
-  };
+  const reload = () => reread(queryClient, [key]);
   const reloadRef = useRef(reload);
   useEffect(() => {
     reloadRef.current = reload;
@@ -144,10 +158,8 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
     if (gone) return;
     const client = realtime();
     // Every pushed change is kept while the party is being read, and applied to the answer again.
-    const push = (update: (current: PartyRoomState) => PartyRoomState) => {
-      duringRead.record(update);
-      setState(update);
-    };
+    const push = (update: (current: PartyRoomState) => PartyRoomState) =>
+      pushTo<PartyRoomState>(queryClient, roomKey(partyId), update);
     const offFrame = client.onFrame((frame) => {
       if (frame.body.case !== "video" || frame.topic !== topic) return;
       const event = frame.body.value.event;
@@ -289,7 +301,7 @@ export function usePartyRoom(initial: video.PartySession, guestToken: string) {
       offFrame();
       release();
     };
-  }, [topic, gone, duringRead]);
+  }, [topic, gone, partyId, queryClient]);
 
   useEffect(() => {
     if (gone) return;

@@ -23,9 +23,10 @@ import {
   Send,
   XCircle,
 } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { onDemand } from "#/components/on-demand";
 import { Button } from "#/components/ui/button";
 import { Card, Chip } from "#/components/ui/card";
 import { ConfirmDialog } from "#/components/ui/confirm";
@@ -48,8 +49,9 @@ import { RsvpCard } from "./rsvp";
 import { CostSplit } from "./split";
 
 // The map library is big: it loads when a plan with a place on the map is opened.
-const StaticMapPreview = lazy(() =>
-  import("#/features/map").then((module) => ({ default: module.StaticMapPreview })),
+const StaticMapPreview = onDemand(
+  () => import("#/features/map").then((module) => module.StaticMapPreview),
+  "notice",
 );
 
 /** `/plans/<id>`: a plan with everything around it — answers, people, the checklist, the cost split, comments. */
@@ -236,7 +238,7 @@ function LoadedPlan({ plan }: { plan: plans.Plan }) {
                   date: cancelledAt ? formatDay(ymd(cancelledAt), i18n.language) : "",
                 })}
                 {plan.cancelReason && (
-                  <span className="mt-1 block font-medium">「{plan.cancelReason}」</span>
+                  <span className="mt-1 block font-normal">「{plan.cancelReason}」</span>
                 )}
               </p>
             )}

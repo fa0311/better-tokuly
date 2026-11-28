@@ -2,6 +2,7 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { type AnyRouter, useRouter } from "@tanstack/react-router";
 import type { notify } from "@tokuly/api";
 import { withRead, withReceived, withRemoved } from "@tokuly/core/notifications";
+import { reread } from "@tokuly/core/query";
 import { X } from "lucide-react";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -60,7 +61,7 @@ export default function NotificationsBackground() {
     const offFrame = client.onFrame((frame) => {
       if (frame.body.case === "welcome") {
         // Whatever was sent while the connection was down (or not up yet) is caught up here.
-        void queryClient.invalidateQueries({ queryKey: notifyKeys.unread });
+        void reread(queryClient, [notifyKeys.unread]);
         rereadInbox(queryClient);
         return;
       }
@@ -188,7 +189,7 @@ function NotificationToast({
         <span className="min-w-0 flex-1">
           <span className="block truncate font-black">{entry.title}</span>
           {entry.body && (
-            <span className="line-clamp-2 text-sm font-medium text-ink-soft">{entry.body}</span>
+            <span className="line-clamp-2 text-sm font-normal text-ink-soft">{entry.body}</span>
           )}
         </span>
       </button>

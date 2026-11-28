@@ -2,9 +2,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { engagement } from "@tokuly/api";
 import { compactCount, type Subject } from "@tokuly/core/engagement";
 import { Link2, MessageCircle, Share2, Upload } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { onDemand } from "#/components/on-demand";
 import { Menu } from "#/components/ui/menu";
 import { cn } from "#/lib/cn";
 import { errorMessage } from "#/lib/errors";
@@ -20,8 +21,9 @@ export interface ShareButtonProps {
 }
 
 // Loaded when someone first sends to a chat: chat itself uses this feature (reports, links).
-const ShareToChat = lazy(() =>
-  import("#/features/chat").then((module) => ({ default: module.ShareToChat })),
+const ShareToChat = onDemand(
+  () => import("#/features/chat").then((module) => module.ShareToChat),
+  "toast",
 );
 
 /** The full address of a page of this app (see `SubjectMenuOptions.path`). */

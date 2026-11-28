@@ -114,23 +114,29 @@ export function seenAutoStop(): void {
   useStudyTimer.setState({ autoStopped: false });
 }
 
+/** Counts the questions `loadSession` asked: only the latest one's answer counts. */
+let loads = 0;
+
 /**
- * Asks the server for the session (on start, when the connection comes
- * back, on "try again"). An answer of "none" overtaken by a change made in
- * the meantime is dropped; a failure is remembered only while nothing is known.
+ * Asks the server for the session (on start, on every Welcome of the
+ * connection, on "try again"). A question asked again replaces the one
+ * before: an older answer, even one with a session, may predate a stop the
+ * newer one knows of. An answer of "none" overtaken by a change made in the
+ * meantime is dropped too; a failure is remembered only while nothing is known.
  */
 export async function loadSession(account: Account): Promise<void> {
+  const load = ++loads;
   const before = useStudyTimer.getState().revision;
   try {
     const response = await studyOf(account).getCurrentStudySession({});
-    if (!isActive(account) || owner !== account) return;
+    if (load !== loads || !isActive(account) || owner !== account) return;
     if (!response.session && useStudyTimer.getState().revision !== before) return;
     takeSession(response.session, {
       heartbeatSeconds: response.heartbeatIntervalSeconds,
       idleSeconds: response.idleTimeoutSeconds,
     });
   } catch {
-    if (isActive(account) && !useStudyTimer.getState().loaded)
+    if (load === loads && isActive(account) && !useStudyTimer.getState().loaded)
       useStudyTimer.setState({ failed: true });
   }
 }

@@ -10,6 +10,7 @@ import {
   withReceived,
   withRemoved,
 } from "@tokuly/core/notifications";
+import { reread } from "@tokuly/core/query";
 import { router } from "expo-router";
 import { useEffect } from "react";
 import { useLive } from "#/features/chat/live";
@@ -64,7 +65,7 @@ export function useNotificationsSync(): void {
       if (frame.topic) return;
       if (frame.body.case === "welcome") {
         // Whatever was sent while the connection was down (or not up yet) is caught up here.
-        void queryClient.invalidateQueries({ queryKey: notifyKeys.unread });
+        void reread(queryClient, [notifyKeys.unread]);
         rereadInbox(queryClient);
         return;
       }

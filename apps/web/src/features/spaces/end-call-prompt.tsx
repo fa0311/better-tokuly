@@ -1,9 +1,11 @@
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { onDemand } from "#/components/on-demand";
 import { answerCallPrompt, useCallPrompt } from "./session";
 
-const ConfirmDialog = lazy(() =>
-  import("#/components/ui/confirm").then((module) => ({ default: module.ConfirmDialog })),
+const ConfirmDialog = onDemand(
+  () => import("#/components/ui/confirm").then((module) => module.ConfirmDialog),
+  "toast",
 );
 
 /**

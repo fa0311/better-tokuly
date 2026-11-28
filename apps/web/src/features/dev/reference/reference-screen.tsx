@@ -85,7 +85,7 @@ function ServiceBrowser({ className }: { className?: string }) {
           aria-label={t("reference.search")}
           autoCapitalize="none"
           spellCheck={false}
-          className="h-11 w-full rounded-full border-2 border-line bg-surface pr-10 pl-10 text-sm font-bold placeholder:font-medium placeholder:text-ink-faint focus:border-brand focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+          className="h-11 w-full rounded-full border-2 border-line bg-surface pr-10 pl-10 text-sm font-bold placeholder:font-normal placeholder:text-ink-faint focus:border-brand focus:outline-none [&::-webkit-search-cancel-button]:hidden"
         />
         {query && (
           <button

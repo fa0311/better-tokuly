@@ -9,6 +9,10 @@ export default {
     inbox: "お知らせ",
     me: "じぶん",
   },
+  failed: {
+    title: "うまくいきませんでした",
+    body: "この画面でエラーが起きちゃった… もう一度ためすと直ることがあるよ!",
+  },
   welcome: {
     signUp: "はじめる",
     signIn: "ログイン",

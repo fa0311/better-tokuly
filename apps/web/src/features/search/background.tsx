@@ -1,8 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { onDemand } from "#/components/on-demand";
 import { SEARCH_BOX_ATTRIBUTE, toggleQuickSearch, usePalette } from "./palette";
 
-const QuickSearch = lazy(() =>
-  import("./quick-search").then((module) => ({ default: module.QuickSearch })),
+const QuickSearch = onDemand(
+  () => import("./quick-search").then((module) => module.QuickSearch),
+  "toast",
 );
 
 /** Whether a key press belongs to something that is being typed into. */

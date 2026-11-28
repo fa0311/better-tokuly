@@ -51,6 +51,7 @@ export default {
     endOfList: "最後まで読み切りました",
     offline: "オフラインです",
     reconnecting: "再接続中...",
+    notLoaded: "うまく読み込めなかった… つながったらもう一度ためしてね!",
   },
   time: {
     now: "NOW",

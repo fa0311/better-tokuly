@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/query-core";
 import type { notify } from "@tokuly/api";
+import { reread } from "../query";
 import type { InboxFilter, InboxPages } from "./inbox-cache";
 import { notifyKeys } from "./keys";
 import { type Unread, unreadOf } from "./unread";
@@ -51,7 +52,7 @@ export function updateInboxLists(
 
 /** Re-reads the inbox views: the ones on screen now, the others when they are next shown. */
 export function rereadInbox(queryClient: QueryClient): void {
-  void queryClient.invalidateQueries({ queryKey: notifyKeys.inbox });
+  void reread(queryClient, [notifyKeys.inbox]);
 }
 
 /** A change the server already has (a realtime event): applied to the lists as they are. */

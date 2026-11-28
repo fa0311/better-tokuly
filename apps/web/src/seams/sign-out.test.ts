@@ -1,39 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { forgetSignedOutAccount, type SignOutCleanup, signOutCleanups } from "./sign-out";
-
-/**
- * What this browser keeps on purpose after a sign-out, and why. Every other
- * storage key the app's code names must be some feature's `sign-out.ts`.
- */
-const KEPT: Record<string, string> = {
-  "tokuly.deviceId": "this browser, not an account",
-  tokuly_lang: "the browser's language",
-  "tokuly.theme": "the look of this browser",
-  "tokuly.dopa": "the look of this browser",
-  "tokuly.colors": "the look of this browser (the default again on sign-out)",
-  "tokuly.signedIn": "the session's own hint, removed by stores/session.ts",
-  "tokuly.accountChanged": "tabs telling each other of a switch",
-  "tokuly.account": "the channel tabs tell each other on (no storage)",
-  tokuly_session_hint: "the app's hand-off cookie, taken at once",
-  "tokuly.push.registration": "the push subscription, taken back before the sign-out",
-  "tokuly.push.promptDismissedAt": "this browser's answer to the prompt",
-  "tokuly.pwa.installDismissedAt": "this browser's answer to the prompt",
-  "tokuly.map.sessionEnding": "owed: a stop of sharing not yet sent",
-  "tokuly.map.sharing.": "owed: a stop of sharing not yet sent, by account",
-  "tokuly.map.stopOwed.": "owed: a stop of sharing not yet sent, by account",
-  "tokuly.map.sequence.": "owed: the order of the account's reports",
-  "tokuly.live.gift.": "owed: an unanswered gift, by account",
-  "tokuly.party.guestName": "a guest's seat at a watch party, without an account",
-  "tokuly.party.guest.": "a guest's seat at a watch party, without an account",
-  "tokuly.spaces.microphone": "this device's microphone",
-  "tokuly.spaces.speaker": "this device's speaker",
-  "tokuly.shorts.muted": "this device's sound",
-  "tokuly.player.theatre": "this device's player",
-  "tokuly.player.volume": "this device's player",
-  "tokuly.player.muted": "this device's player",
-  "tokuly.player.captions": "this device's player",
-  "tokuly.emoji": "the emoji catalogue, the same for everyone",
-};
+import { forgetSignedOutAccount, KEPT_STORAGE, type SignOutCleanup } from "./sign-out";
 
 /** The storage keys (or how they start) named by the app's code that touches browser storage. */
 function storageKeysInCode(): Map<string, string> {
@@ -81,21 +47,21 @@ function browserStorage(): Storage {
   });
 }
 
-const covered = (key: string, starts: readonly string[]) =>
-  starts.some((start) => key.startsWith(start) || start.startsWith(key));
+const cleanup = (forget: () => void) => async () => ({
+  default: { forget } satisfies SignOutCleanup,
+});
 
 describe("signing out", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
-  it("knows every storage key of the app: kept on purpose, or removed with the account", async () => {
-    const starts = (await signOutCleanups()).flatMap(({ storage }) => storage ?? []);
-    const unaccounted = [...storageKeysInCode()]
-      .filter(([key]) => !(key in KEPT) && !covered(key, starts))
-      .map(([key, path]) => `${key} (${path})`);
-    expect(unaccounted).toEqual([]);
+  it("keeps only entries the app's code still names", () => {
+    const named = [...storageKeysInCode().keys()];
+    const stale = Object.keys(KEPT_STORAGE).filter((entry) => !named.includes(entry));
+    expect(stale).toEqual([]);
   });
 
   it("leaves nothing of the previous account in this browser's storage", async () => {
@@ -108,31 +74,69 @@ describe("signing out", () => {
       local.setItem(name, "1");
       session.setItem(name, "1");
     }
-    const storageOnly = (await signOutCleanups()).map(({ storage }) => ({ storage }));
-    await forgetSignedOutAccount(storageOnly);
+    await forgetSignedOutAccount([]);
 
     for (const left of [local, session]) {
       const kept = Object.keys(left).filter(
-        (key) => !Object.keys(KEPT).some((start) => key === start || key.startsWith(start)),
+        (key) =>
+          !(key in KEPT_STORAGE) &&
+          !Object.keys(KEPT_STORAGE).some((start) => start.endsWith(".") && key.startsWith(start)),
       );
       expect(kept).toEqual([]);
     }
     expect(local.getItem("tokuly.theme")).toBe("1");
+    expect(local.getItem("tokuly.map.stopOwed.user-1")).toBe("1");
+    expect(local.getItem("tokuly.emoji.showSensitive")).toBeNull();
   });
 
   it("goes on when one cleanup fails", async () => {
     vi.stubGlobal("window", { localStorage: browserStorage(), sessionStorage: browserStorage() });
     vi.spyOn(console, "error").mockImplementation(() => {});
     const after = vi.fn();
-    const cleanups: SignOutCleanup[] = [
-      {
-        forget: () => {
-          throw new Error("a broken feature");
-        },
-      },
-      { forget: after },
-    ];
-    await forgetSignedOutAccount(cleanups);
+    await forgetSignedOutAccount([
+      cleanup(() => {
+        throw new Error("a broken feature");
+      }),
+      cleanup(after),
+    ]);
     expect(after).toHaveBeenCalledOnce();
+  });
+
+  it("tries a cleanup that did not arrive again", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { localStorage: browserStorage(), sessionStorage: browserStorage() });
+    const forget = vi.fn();
+    const load = vi
+      .fn<() => Promise<{ default: SignOutCleanup }>>()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch dynamically imported module"))
+      .mockImplementation(cleanup(forget));
+    const done = forgetSignedOutAccount([load]);
+    await vi.runAllTimersAsync();
+    await done;
+    expect(forget).toHaveBeenCalledOnce();
+  });
+
+  it("starts the page anew when a cleanup never arrives, after removing the account's storage", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const local = browserStorage();
+    const replace = vi.fn();
+    vi.stubGlobal("window", {
+      localStorage: local,
+      sessionStorage: browserStorage(),
+      location: { replace },
+    });
+    local.setItem("tokuly.chat.draft.c1", "ひみつ");
+    const loaded = vi.fn();
+    let returned = false;
+    void forgetSignedOutAccount([
+      () => Promise.reject(new TypeError("Failed to fetch dynamically imported module")),
+      cleanup(loaded),
+    ]).then(() => (returned = true));
+    expect(local.getItem("tokuly.chat.draft.c1")).toBeNull();
+    await vi.runAllTimersAsync();
+    expect(loaded).toHaveBeenCalledOnce();
+    expect(replace).toHaveBeenCalledWith("/");
+    expect(returned).toBe(false);
   });
 });

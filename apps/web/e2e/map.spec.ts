@@ -680,6 +680,52 @@ test("a friend's SOS shows as a banner that leads to them", async ({ page, me, r
   ).toBeVisible();
 });
 
+/**
+ * Stands between the page and the realtime gateway and holds back everything
+ * the page sends (its Hello first) until `release()`: until then the gateway
+ * has not subscribed the page to anything, so what is published meanwhile
+ * never reaches it. The page is kept on WebSocket, which Playwright can stand in.
+ */
+async function holdRealtime(page: Page) {
+  let held: (() => void)[] | null = [];
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(globalThis, "WebTransport");
+  });
+  await page.routeWebSocket(/\/rt\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      if (held) held.push(() => server.send(message));
+      else server.send(message);
+    });
+  });
+  return {
+    release() {
+      for (const send of held ?? []) send();
+      held = null;
+    },
+  };
+}
+
+test("a friend's SOS sent before the connection is up shows without waiting", async ({
+  page,
+  me,
+  request,
+}) => {
+  const aoi = await friendAt(request, me, "Aoi", 0.003, 0.003);
+  const gate = await holdRealtime(page);
+  const firstRead = page.waitForResponse("**/tokuly.geo.v1.SafetyService/GetActiveSos");
+  await openMap(page);
+  await firstRead;
+  // Read before it was sent, and never pushed: the gateway has not heard the page's Hello yet.
+  await rpc(request, "tokuly.geo.v1.SafetyService/TriggerSos", { message: "まってて" }, aoi);
+  await expect(page.getByTestId("sos-friend")).toHaveCount(0);
+
+  gate.release();
+  // The first Welcome reads again.
+  await expect(page.getByTestId("sos-friend")).toContainText("AoiがSOSを出してる！");
+  await expect(page.getByTestId("sos-friend")).toContainText("まってて");
+});
+
 test("a live share link shows my moving pin to someone signed out, until it is revoked", async ({
   page,
   context,

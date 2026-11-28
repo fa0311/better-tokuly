@@ -23,6 +23,9 @@ export default defineConfig({
   resolve: { tsconfigPaths: true },
   // Module workers (the map's tile worker).
   worker: { format: "es" },
+  // Fonts stay files: inlined into the stylesheet, every page would download
+  // the small subsets of every weight before it renders.
+  build: { assetsInlineLimit: (file) => (/\.woff2?$/.test(file) ? false : undefined) },
   plugins: [
     tailwindcss(),
     nitro({

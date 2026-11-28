@@ -4,7 +4,7 @@
  * They belong to the account that typed them: the key names it, and signing
  * out removes them.
  */
-export const DRAFTS_PREFIX = "tokuly.chat.draft.";
+const DRAFTS_PREFIX = "tokuly.chat.draft.";
 
 const keyOf = (userId: string, conversationId: string) =>
   `${DRAFTS_PREFIX}${userId}.${conversationId}`;

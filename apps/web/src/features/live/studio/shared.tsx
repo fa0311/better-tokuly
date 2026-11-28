@@ -14,7 +14,7 @@ import { ChannelFace } from "../parts";
 
 const { StreamStatus } = live;
 
-export const CHANNEL_KEY = "tokuly.live.studio.channel";
+const CHANNEL_KEY = "tokuly.live.studio.channel";
 
 function storedChannel(): string {
   try {
