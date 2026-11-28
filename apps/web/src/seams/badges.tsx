@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { forgetShownBadges, setBadge, useShownBadges } from "#/stores/badges";
 
 /**
@@ -20,19 +20,43 @@ import { forgetShownBadges, setBadge, useShownBadges } from "#/stores/badges";
  */
 export type BadgeSource = () => number;
 
-const RUNNERS = new Map(
+const LOADERS = new Map(
   Object.entries(import.meta.glob<{ default: BadgeSource }>("../features/*/badges.ts")).map(
-    ([path, load]) => {
-      const badge = path.split("/")[2] ?? path;
-      const Runner = lazy(() =>
-        load().then((module) => ({
-          default: () => <Source badge={badge} useCount={module.default} />,
-        })),
-      );
-      return [badge, Runner] as const;
-    },
+    ([path, load]) => [path.split("/")[2] ?? path, load] as const,
   ),
 );
+
+/** Sources already loaded, so a remount starts counting at once. */
+const loaded = new Map<string, BadgeSource>();
+
+/**
+ * Loads one badge's source and runs it. A load that fails (the connection
+ * dropped right as the badge first showed) leaves only this badge at 0 and
+ * is tried again once the device is back online: never the app's error screen.
+ */
+function Runner({ badge }: { badge: string }) {
+  const [useCount, setUseCount] = useState(() => loaded.get(badge));
+  useEffect(() => {
+    const load = LOADERS.get(badge);
+    if (useCount || !load) return;
+    let current = true;
+    const attempt = () =>
+      load().then(
+        (module) => {
+          loaded.set(badge, module.default);
+          if (current) setUseCount(() => module.default);
+        },
+        () => {},
+      );
+    void attempt();
+    window.addEventListener("online", attempt);
+    return () => {
+      current = false;
+      window.removeEventListener("online", attempt);
+    };
+  }, [badge, useCount]);
+  return useCount ? <Source badge={badge} useCount={useCount} /> : null;
+}
 
 function Source({ badge, useCount }: { badge: string; useCount: BadgeSource }) {
   const count = useCount();
@@ -46,12 +70,5 @@ function Source({ badge, useCount }: { badge: string; useCount: BadgeSource }) {
 export function BadgeSourceRunner() {
   const shown = useShownBadges();
   useEffect(() => forgetShownBadges, []);
-  return (
-    <Suspense fallback={null}>
-      {shown.map((badge) => {
-        const Runner = RUNNERS.get(badge);
-        return Runner && <Runner key={badge} />;
-      })}
-    </Suspense>
-  );
+  return shown.map((badge) => <Runner key={badge} badge={badge} />);
 }
