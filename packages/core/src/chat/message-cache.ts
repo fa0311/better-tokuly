@@ -103,7 +103,8 @@ export function storeUpdated(
 /**
  * Stores the message a mutation answered with (edited, unsent, pinned): the
  * answer, then what was pushed while it was on its way (`pushAfter`), so a
- * newer edit or reaction stays. Returns the answer.
+ * newer edit or reaction stays — in the list preview too, which takes the
+ * timeline's copy. Returns the answer.
  */
 export async function storeAnswer<Answer extends { message?: chat.Message }>(
   queryClient: QueryClient,
@@ -116,7 +117,13 @@ export async function storeAnswer<Answer extends { message?: chat.Message }>(
     const message = answer.message;
     return message && ((timeline) => withUpdated(timeline, message, false));
   });
-  if (answer?.message) storePreview(queryClient, answer.message);
+  const message = answer?.message;
+  if (message)
+    storePreview(
+      queryClient,
+      readTimeline(queryClient, conversationId)?.messages.find((held) => held.id === message.id) ??
+        message,
+    );
   return answer as Answer;
 }
 

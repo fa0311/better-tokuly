@@ -179,6 +179,33 @@ describe("an answer older than a push", () => {
     expect(texts(queryClient)).toEqual(["にかいめ"]);
   });
 
+  it("keeps a message unsent after the edit being saved out of the list preview too", async () => {
+    const queryClient = holding([message(1, "はじめ")]);
+    const row = create(chat.ConversationSchema, {
+      id: "c1",
+      kind: chat.ConversationKind.GROUP,
+      lastSeq: 1n,
+      lastMessage: message(1, "はじめ"),
+      viewer: { requestState: chat.RequestState.ACCEPTED, readSeq: 1n },
+    });
+    queryClient.setQueryData(chatKeys.conversation("c1"), row);
+    let answer: (item: chat.Message) => void = () => {};
+    const saving = storeAnswer(queryClient, "c1", async () => ({
+      message: await new Promise<chat.Message>((resolve) => (answer = resolve)),
+    }));
+    applyChatEvent(
+      queryClient,
+      updated(message(1, "", { deleted: true }), chat.MessageUpdateReason.DELETED),
+      context,
+      sync(server().pager),
+    );
+    answer(message(1, "まちがえた"));
+    await saving;
+    expect(texts(queryClient)).toEqual(["×"]);
+    const preview = queryClient.getQueryData<chat.Conversation>(chatKeys.conversation("c1"));
+    expect(preview?.lastMessage?.deleted).toBe(true);
+  });
+
   it("keeps a reaction count pushed while the viewer's own reaction was saved", async () => {
     const queryClient = holding([message(1)]);
     let answer: (reactions: chat.ReactionCount[]) => void = () => {};
