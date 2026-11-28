@@ -1,7 +1,8 @@
 import type { quest } from "@tokuly/api";
 import { enqueue, type Loudness, loudness } from "@tokuly/core/quest";
-import { lazy, Suspense, useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { create } from "zustand";
+import { onDemand } from "#/components/on-demand";
 import { celebrate as rainGlyphs } from "#/features/footprints";
 import { dopamineFactor } from "#/lib/appearance";
 import { cn } from "#/lib/cn";
@@ -67,9 +68,7 @@ export function clearReveals(): void {
 export const dismiss = (id: number) =>
   useReveals.setState(({ queue }) => ({ queue: queue.filter((item) => item.id !== id) }));
 
-const RevealCard = lazy(() =>
-  import("./reveal-card").then((module) => ({ default: module.RevealCard })),
-);
+const RevealCard = onDemand(() => import("./reveal-card").then((module) => module.RevealCard));
 
 /** How long a reveal stays unless it is tapped away. */
 const SHOW_MS = { card: 4200, full: 5200 } as const;

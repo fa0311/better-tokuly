@@ -8,7 +8,7 @@ import { MapView, useMap } from "#/features/map";
  * under it and every stop reports the new centre (choosing a place); without
  * it the map simply shows the place.
  *
- * Loaded on demand (`lazy(() => import("./location-map"))`): the map library
+ * Loaded on demand (`onDemand`): the map library
  * is big, and chat only needs it when a place is opened or shared.
  */
 export default function LocationMap({

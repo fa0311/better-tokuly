@@ -7,6 +7,7 @@ import {
   createAccount,
   expect,
   failToLoad,
+  failToLoadPart,
   rpc,
   signInAs,
   test,
@@ -487,6 +488,28 @@ test.describe("quick search", () => {
       await page.keyboard.press("ControlOrMeta+k");
       await expect(palette).toBeVisible({ timeout: 5_000 });
     }).toPass();
+  });
+
+  test("a palette whose code cannot load says so, and opens once tried again", async ({
+    page,
+    me: _me,
+  }) => {
+    await page.goto("/me");
+    await expect(page.getByRole("heading", { name: "じぶん" })).toBeVisible();
+    // The palette's code fails to arrive, as when the connection drops right as it is opened.
+    const letThrough = await failToLoadPart(page, "search", "quick-search.tsx");
+
+    await page.keyboard.press("ControlOrMeta+k");
+    const toast = page.locator("[data-sonner-toast]", {
+      hasText: "うまく読み込めなかった… つながったらもう一度ためしてね!",
+    });
+    await expect(toast).toBeVisible();
+    await expect(page.getByRole("heading", { name: "うまくいきませんでした" })).toHaveCount(0);
+
+    await letThrough();
+    await toast.getByRole("button", { name: "もう一度" }).click();
+    await expect(page.getByRole("dialog", { name: "クイック検索" })).toBeVisible();
+    await expect(toast).toHaveCount(0);
   });
 
   test("'/' opens it too, Enter goes to the result page, Escape closes it", async ({

@@ -286,23 +286,56 @@ export async function failToLoad(
     "g",
   );
   const chunks = new Set<string>();
+  return blockCode(
+    page,
+    file,
+    (path) => source.test(path) || chunks.has(path),
+    (body) => {
+      for (const [, chunk] of body.matchAll(globEntry)) chunks.add(`/assets/${chunk}`);
+    },
+  );
+}
+
+/**
+ * Makes the code of an `onDemand` part, `features/<area>/<file>`, fail to
+ * arrive. The development server serves the file under its own path; a
+ * build names the part's chunk after the file (`<name>-<hash>.js`), so pick
+ * a file whose name no other module has. Returns what lets it through again.
+ */
+export async function failToLoadPart(
+  page: Page,
+  area: string,
+  file: string,
+): Promise<() => Promise<void>> {
+  const source = `/src/features/${area}/${file}`;
+  const chunk = new RegExp(`^/assets/${file.replace(/\.tsx?$/, "")}-[\\w-]{8}\\.js$`);
+  return blockCode(page, file, (path) => path === source || chunk.test(path));
+}
+
+/** Fails every script `blocked` names (`learn` reads the others first), until let through. */
+async function blockCode(
+  page: Page,
+  file: string,
+  blocked: (path: string) => boolean,
+  learn?: (body: string) => void,
+): Promise<() => Promise<void>> {
   let failed = 0;
   const handler = async (route: Route) => {
     const path = new URL(route.request().url()).pathname;
-    if (source.test(path) || chunks.has(path)) {
+    if (blocked(path)) {
       failed += 1;
       return route.abort("internetdisconnected");
     }
-    if (!path.startsWith("/assets/")) return route.fallback();
+    if (!learn || !path.startsWith("/assets/")) return route.fallback();
     const response = await route.fetch();
     const body = await response.text();
-    for (const [, chunk] of body.matchAll(globEntry)) chunks.add(`/assets/${chunk}`);
+    learn(body);
     return route.fulfill({ response, body });
   };
-  await page.route(/\.(js|ts|tsx)(\?|$)/, handler);
+  await page.context().route(/\.(js|ts|tsx)(\?|$)/, handler);
   return async () => {
     await expect.poll(() => failed, { message: `the app asks for ${file}` }).toBeGreaterThan(0);
-    await page.unroute(/\.(js|ts|tsx)(\?|$)/, handler);
+    await page.context().unroute(/\.(js|ts|tsx)(\?|$)/, handler);
   };
 }
 

@@ -29,9 +29,10 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { onDemand } from "#/components/on-demand";
 import { Avatar } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Chip } from "#/components/ui/card";
@@ -54,8 +55,9 @@ import { ContentHistoryDialog, ReasonDialog } from "./mod-dialogs";
 import { Notice, SectionTitle, useWhen } from "./parts";
 import { useShareMenu } from "./share";
 
-const StaticMapPreview = lazy(() =>
-  import("#/features/map").then((module) => ({ default: module.StaticMapPreview })),
+const StaticMapPreview = onDemand(
+  () => import("#/features/map").then((module) => module.StaticMapPreview),
+  "notice",
 );
 
 const A = community.AttendanceStatus;

@@ -1,8 +1,9 @@
 import { useLocation } from "@tanstack/react-router";
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { onDemand } from "#/components/on-demand";
 import { type ActiveVenue, useAudioSession } from "./session";
 
-const Pill = lazy(() => import("./mini-pill").then((module) => ({ default: module.Pill })));
+const Pill = onDemand(() => import("./mini-pill").then((module) => module.Pill));
 
 /** The page of a venue: where the full view of what is playing lives. */
 function pathOf(venue: Pick<ActiveVenue, "kind" | "id">): string {
