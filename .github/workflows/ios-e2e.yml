@@ -55,7 +55,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/Tokuly.app.zip
-          key: ios-simulator-app-${{ steps.toolchain.outputs.key }}-${{ hashFiles('apps/mobile/**', '!apps/mobile/maestro/**', 'packages/**', 'proto/**', 'pnpm-lock.yaml', 'package.json', 'pnpm-workspace.yaml', '.github/actions/ios-simulator-app/**') }}-localhost-8080
+          key: ios-simulator-app-${{ steps.toolchain.outputs.key }}-${{ hashFiles('apps/mobile/**', '!apps/mobile/maestro/**', 'packages/**', 'proto/**', 'buf.yaml', 'pnpm-lock.yaml', 'package.json', 'pnpm-workspace.yaml', '.github/actions/setup-js/**', '.github/actions/ios-simulator-app/**', '.github/workflows/ios-e2e.yml') }}-localhost-8080
       - if: steps.cached.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-js
       - if: steps.cached.outputs.cache-hit != 'true'
