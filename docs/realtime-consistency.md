@@ -25,7 +25,8 @@ at most once. This page is the client's half, and where the apps stand on it
    idempotent: add by ID, remove by ID, keep the higher version.
 3. **A removed person leaves every feature.** A `friendRemovedUserId` push
    runs the same forgetters as the viewer's own block or unfriend
-   (web `seams/forget-user.ts`), on both platforms.
+   (`seams/forget-user.ts` on both platforms, called from the friends
+   feature); no feature listens for the push itself.
 4. **Versions only where order is lost.** Frames on one connection are in
    order, so rules 1–2 need nothing from the server. A version is needed where
    frames may be dropped or overtake each other, or one value has several
@@ -61,16 +62,16 @@ found.
 | Chat: timeline (W M) | `seq`, union by ID, catch-up by `lastSeq` | an unsent or edited message comes back from a page read before | #514 |
 | Chat: unread totals, read cursors, typing, calls (W M) | version counter, forward-only cursors, `asOf` | — | |
 | Notifications: inbox, badge (W M) | cancel + reread, every `Welcome` | the list's own read overwrites a newer pushed unread count | #533 |
-| Friends (W M) | invalidate only, no `Welcome` handling | W: an ex-friend or a blocker stays in the list, a withdrawn request in the badge | #527 |
+| Friends (W M) | reread on pushes, every `Welcome`; forgetters on removal | — | |
 | Notes: timelines (W M) | hints on every `Welcome`, a look after the first page | — | |
 | Notes: card topic (W M) | no read on `onSubscribed` | a note deleted or edited before its topic took effect stays as it was | #526 |
 | Notes: forgetting a person (W M) | journal, `pushToAll`; a look is `pushAfter` until its pill is tapped | — | |
 | Comments (W) | `onSubscribed` invalidates, `setQueriesData` | a removed comment comes back; replies are never read again | #521 |
 | Community (W M) | invalidate, `onSubscribed` on the community | a removed reply comes back | #522 |
-| Moments (W M) | `setQueryData`, every `Welcome` | a deleted moment, or an ex-friend's, comes back; W never forgets a person who unfriends | #517, #528 |
+| Moments (W M) | `setQueryData`, every `Welcome` | a deleted moment, or an ex-friend's, comes back | #517 |
 | Stories (W M) | `setQueryData`, every `Welcome` | a deleted story, or an ex-friend's reel, comes back in the tray | #516 |
 | Plans (W M) | `setQueryData(null)` on removal, every `Welcome` | a plan the person was removed from, or a deleted poll, comes back | #518 |
-| Shorts (W M) | W `resetQueries` | M: an ex-friend's friends-only shorts keep playing | #529 |
+| Shorts (W M) | `resetQueries` on removal | — | |
 | Spaces: hangouts (W M) | `setQueryData`, every `Welcome` | a hangout the person was removed from comes back with who is inside | #519 |
 | Spaces: rooms (W M) | `onSubscribed` invalidates | an ended room shows LIVE again; someone who left is back on stage | #530 |
 | Live: chat (W M) | journal, `onSubscribed` | — | |
@@ -93,8 +94,8 @@ found.
    that reads again on `Welcome` (#524); notes timelines look after a hint
    during the first load on both platforms (#525).
 2. Topic reads replace a read in flight: notes cards, emoji (#526, #537).
-3. The missing removal handlers: web moments, mobile shorts, web friends
-   (#527, #528, #529).
+3. Done: one removal path on both platforms (#527, #528, #529). Areas that
+   still keep an ex-friend's content: #576.
 4. `journal` / `pushTo` (done; used by live chat, the live overlay, the
    watch party and the school room), then each area that writes with
    `setQueryData`, privacy first: chat, notes, stories, moments, plans,

@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { applyMomentsEvent, forgetUserMoments, momentKeys } from "@tokuly/core/moments";
+import { applyMomentsEvent, momentKeys } from "@tokuly/core/moments";
 import { rereadOnWelcome } from "@tokuly/core/query";
 import { useEffect } from "react";
 import { useMe } from "#/features/session/store";
@@ -17,10 +17,6 @@ export function useMomentsSync(): void {
     const offWelcome = rereadOnWelcome(queryClient, client, [momentKeys.all]);
     const off = client.onFrame((frame) => {
       if (frame.topic) return;
-      if (frame.body.case === "social" && frame.body.value.event.case === "friendRemovedUserId") {
-        forgetUserMoments(queryClient, frame.body.value.event.value);
-        return;
-      }
       if (frame.body.case === "moments") {
         applyMomentsEvent(queryClient, frame.body.value.event);
       }

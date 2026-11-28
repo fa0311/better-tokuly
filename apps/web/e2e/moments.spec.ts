@@ -98,6 +98,28 @@ test("the prompt counts down, the pair is taken in the browser, and friends' mom
   expect(today.mine).toMatchObject({ caption: "はじめての瞬間", retakes: 1 });
 });
 
+test("a friend who unfriends or blocks me takes their moments off my open screen", async ({
+  page,
+  me,
+  request,
+}) => {
+  const aoi = await friendOf(request, me, "Aoi");
+  const ren = await friendOf(request, me, "Ren");
+  promptReached([me, aoi, ren]);
+  await postMoment(request, aoi);
+  await postMoment(request, ren);
+
+  await page.goto("/moments");
+  await expect(cardOf(page, "Aoi")).toBeVisible({ timeout: 30_000 });
+  await expect(cardOf(page, "Ren")).toBeVisible();
+
+  // On the other side, while the screen is open: the realtime connection says so.
+  await rpc(request, "tokuly.social.v1.FriendService/RemoveFriend", { userId: me.userId }, aoi);
+  await rpc(request, "tokuly.social.v1.FriendService/BlockUser", { userId: me.userId }, ren);
+  await expect(cardOf(page, "Aoi")).toHaveCount(0);
+  await expect(cardOf(page, "Ren")).toHaveCount(0);
+});
+
 test("a moment after the window says how late it is", async ({ page, me, request }) => {
   const aoi = await friendOf(request, me, "Aoi");
   promptReached([me, aoi], 3 * 3600 + 300);

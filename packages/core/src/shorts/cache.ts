@@ -72,3 +72,14 @@ export function patchViewer(
     viewer: short.viewer ? { ...short.viewer, ...viewer } : short.viewer,
   }));
 }
+
+/**
+ * After a friendship ended or a block. A short names its channel, not the
+ * person behind it, so there is no telling which cached shorts were theirs:
+ * every loaded feed, grid and short is dropped, and read again where it is
+ * on screen. Feeds keep their lists for good otherwise, so without this a
+ * friends-only short of someone who is no longer a friend would go on playing.
+ */
+export function forgetShorts(queryClient: QueryClient): Promise<void> {
+  return queryClient.resetQueries({ queryKey: shortKeys.all });
+}

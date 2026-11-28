@@ -14,6 +14,7 @@ const OUTPUT = path.join(APP, "src", "generated", "seams");
 const SEAMS = [
   "background",
   "badges",
+  "forget-user",
   "hub",
   "lifecycle",
   "links",

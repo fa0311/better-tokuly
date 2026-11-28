@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/query-core";
 import { create, shorts } from "@tokuly/api";
 import { describe, expect, it } from "vitest";
-import { patchViewer, removeShortEverywhere } from "./cache";
+import { forgetShorts, patchViewer, removeShortEverywhere } from "./cache";
 import { shortKeys } from "./keys";
 
 const short = (id: string) =>
@@ -37,5 +37,12 @@ describe("shorts cache", () => {
     const entries = queryClient.getQueryData<Feed>(feed)?.pages[0]?.entries;
     expect(entries?.map((entry) => entry.short.id)).toEqual(["b"]);
     expect(queryClient.getQueryData(shortKeys.short("s-a"))).toBeDefined();
+  });
+
+  it("forgets every loaded short when a friendship ends: whose they were is not known", async () => {
+    const { queryClient, feed } = cached();
+    await forgetShorts(queryClient);
+    expect(queryClient.getQueryData(feed)).toBeUndefined();
+    expect(queryClient.getQueryData(shortKeys.short("s-a"))).toBeUndefined();
   });
 });
