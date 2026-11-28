@@ -7,9 +7,12 @@ import { runForget } from "../lifecycle";
 
 /** What the account that leaves had in memory, outside the signed-in tree. */
 function asTheLeavingAccount(): void {
-  useLocations
-    .getState()
-    .setSnapshot([create(geo.FriendLocationSchema, { userId: "friend-of-a" })]);
+  useLocations.getState().setSnapshot(
+    create(geo.ListFriendLocationsResponseSchema, {
+      locations: [create(geo.FriendLocationSchema, { userId: "friend-of-a" })],
+    }),
+  );
+  useLocations.getState().remove("friend-of-b", 1n);
   useLocations.getState().setOnline("friend-of-a", true);
   useLocations.getState().setOwn({ latitude: 35.66, longitude: 139.7 } as never);
   useLive.getState().setTyping("conversation-of-a", "friend-of-a", true);
@@ -29,7 +32,12 @@ describe("an account that left", () => {
     asTheLeavingAccount();
     runForget();
 
-    expect(useLocations.getState()).toMatchObject({ friends: {}, online: {}, own: null });
+    expect(useLocations.getState()).toMatchObject({
+      friends: {},
+      online: {},
+      removed: {},
+      own: null,
+    });
     expect(useLive.getState().typing).toEqual({});
     expect(useOutbox.getState().items).toEqual({});
     expect(useAudioSession.getState()).toMatchObject({ active: null, exit: null });

@@ -88,9 +88,11 @@ impl LocationService for Geo {
             // the snapshot is taken, so that no update falls between it and
             // the gateway marking the app open.
             self.mark_watching(viewer).await?;
+            let removal_sequence = self.removals_seen(viewer).await?;
             ok(ListFriendLocationsResponse {
                 locations: self.friend_locations(viewer).await?,
                 server_time: ts(Utc::now()),
+                removal_sequence,
                 ..Default::default()
             })
         })
@@ -109,9 +111,11 @@ impl LocationService for Geo {
             // first, then take the snapshot, so no update falls in between.
             let mut frames = self.core.bus.subscribe(realtime::user_subject(viewer)).await?;
             self.mark_watching(viewer).await?;
+            let removal_sequence = self.removals_seen(viewer).await?;
             let snapshot = ListFriendLocationsResponse {
                 locations: self.friend_locations(viewer).await?,
                 server_time: ts(Utc::now()),
+                removal_sequence,
                 ..Default::default()
             };
             let (sender, receiver) = mpsc::channel(64);

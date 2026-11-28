@@ -288,7 +288,7 @@ export function useMapSync(): void {
         const response = await locationClient().listFriendLocations({});
         if (cancelled) return;
         setServerTime(toMillis(response.serverTime));
-        useLocations.getState().setSnapshot(response.locations);
+        useLocations.getState().setSnapshot(response);
       } catch {
         // The live stream still delivers updates; the next reconnect retries.
       }
@@ -343,15 +343,15 @@ export function useFriendPositionsHousekeeping(): void {
   const myId = useMe()?.user?.id;
   useEffect(() => {
     const client = realtime();
-    const forget = (userId: string) => {
-      useLocations.getState().remove(userId);
+    const forget = (userId: string, removalSequence?: bigint) => {
+      useLocations.getState().remove(userId, removalSequence);
       void queryClient.invalidateQueries({ queryKey: mapKeys.friends });
     };
     const offFrame = client.onFrame((frame) => {
       if (frame.topic) return;
       if (frame.body.case === "welcome") setServerTime(toMillis(frame.body.value.serverTime));
       else if (frame.body.case === "geo" && frame.body.value.event.case === "locationRemovedUserId")
-        forget(frame.body.value.event.value);
+        forget(frame.body.value.event.value, frame.body.value.removalSequence);
       else if (
         frame.body.case === "social" &&
         frame.body.value.event.case === "friendRemovedUserId"
@@ -361,9 +361,7 @@ export function useFriendPositionsHousekeeping(): void {
     client.start();
     return () => {
       offFrame();
-      const locations = useLocations.getState();
-      locations.setSnapshot([]);
-      locations.setOwn(null);
+      useLocations.getState().clear();
     };
   }, [queryClient, myId]);
 }

@@ -8,5 +8,5 @@ import { leaveSharing } from "./sharing";
  */
 export default {
   beforeLeave: leaveSharing,
-  forget: () => useLocations.setState({ friends: {}, online: {}, own: null }),
+  forget: () => useLocations.getState().clear(),
 } satisfies AccountLifecycle;

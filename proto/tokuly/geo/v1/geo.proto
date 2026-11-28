@@ -228,6 +228,10 @@ message ListFriendLocationsRequest {}
 message ListFriendLocationsResponse {
   repeated FriendLocation locations = 1;
   google.protobuf.Timestamp server_time = 2;
+  // How many `GeoEvent.location_removed_user_id` the caller had been sent
+  // when this snapshot was read. A removal numbered higher came after it, so
+  // a snapshot that answers late does not bring that user back.
+  int64 removal_sequence = 3;
 }
 
 message WatchFriendLocationsRequest {}
@@ -1213,6 +1217,10 @@ message GeoEvent {
     // The recipient uncovered new footprint cells.
     FootprintProgress footprint_progress = 10;
   }
+  // With `location_removed_user_id` to a user: the recipient's running count
+  // of removals, which `ListFriendLocationsResponse.removal_sequence` is
+  // compared with. 0 on a `share:<token>` topic.
+  int64 removal_sequence = 11;
 }
 
 message PlaceAlertFired {

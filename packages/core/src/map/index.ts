@@ -6,7 +6,13 @@
  * the camera and reading the device's position stay in each app.
  */
 export { mapKeys } from "./keys";
-export { type LiveLocations, withLocation, withoutFriend, withSnapshot } from "./live";
+export {
+  type LiveLocations,
+  NO_LOCATIONS,
+  withLocation,
+  withoutFriend,
+  withSnapshot,
+} from "./live";
 export {
   BLURRED_STALE_AFTER_MS,
   BUMP_RADIUS_M,

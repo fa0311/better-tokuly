@@ -1,30 +1,37 @@
 import type { geo } from "@tokuly/api";
-import { type OwnPosition, withLocation, withoutFriend, withSnapshot } from "@tokuly/core/map";
+import {
+  type LiveLocations,
+  NO_LOCATIONS,
+  type OwnPosition,
+  withLocation,
+  withoutFriend,
+  withSnapshot,
+} from "@tokuly/core/map";
 import { create } from "zustand";
 
-interface LocationsStore {
-  /** Friends' latest locations by user ID, as the server lets this account see them. */
-  friends: Record<string, geo.FriendLocation>;
-  /** Who has the app open right now. */
-  online: Record<string, boolean>;
+interface LocationsStore extends LiveLocations {
   /** This device's own position, while it shares. */
   own: OwnPosition | null;
-  setSnapshot(locations: geo.FriendLocation[]): void;
+  setSnapshot(snapshot: geo.ListFriendLocationsResponse): void;
   upsert(location: geo.FriendLocation): void;
-  remove(userId: string): void;
+  /** `removalSequence`: the number of the pushed removal, if it has one. */
+  remove(userId: string, removalSequence?: bigint): void;
   setOnline(userId: string, online: boolean): void;
+  /** Everything about friends and the own position, for the next account. */
+  clear(): void;
   setOwn(position: OwnPosition | null): void;
 }
 
 /** Live state of the map (the rules of each edit are `@tokuly/core/map`). */
 export const useLocations = create<LocationsStore>((set) => ({
-  friends: {},
-  online: {},
+  ...NO_LOCATIONS,
   own: null,
-  setSnapshot: (locations) => set((state) => withSnapshot(state, locations)),
+  setSnapshot: (snapshot) => set((state) => withSnapshot(state, snapshot)),
   upsert: (location) => set((state) => withLocation(state, location)),
-  remove: (userId) => set((state) => ({ friends: withoutFriend(state.friends, userId) })),
+  remove: (userId, removalSequence) =>
+    set((state) => withoutFriend(state, userId, removalSequence)),
   setOnline: (userId, online) =>
     set((state) => ({ online: { ...state.online, [userId]: online } })),
+  clear: () => set({ ...NO_LOCATIONS, own: null }),
   setOwn: (own) => set({ own }),
 }));

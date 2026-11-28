@@ -38,6 +38,16 @@ fn watching_key(viewer: Uuid) -> String {
     format!("geo:watching:{}", viewer.simple())
 }
 
+/// Each viewer's running count of `location_removed_user_id` pushes, which
+/// a snapshot reports so that an app can order the two. It outlives any app
+/// session; when it is lost the count starts over, and an app still holding
+/// higher numbers leaves those users off until their next pin.
+const REMOVALS_TTL_SECONDS: i64 = 30 * 24 * 3600;
+
+fn removals_key(viewer: Uuid) -> String {
+    format!("geo:removals:{}", viewer.simple())
+}
+
 fn area_lookup(lat: f64, lng: f64) -> Area {
     Gazetteer::shared().area(lat, lng)
 }
@@ -99,6 +109,48 @@ impl Geo {
     /// Pushes the same geo event to several users.
     pub(crate) async fn push_many(&self, user_ids: impl IntoIterator<Item = Uuid>, event: Event) {
         self.core.rt.notify_users(user_ids, &frame(event)).await;
+    }
+
+    /// Takes `user_id` off the maps of `viewers`, numbering the removal per
+    /// viewer. A snapshot read before it reports a lower number
+    /// ([`Self::removals_seen`]), so the app can tell it came first even when
+    /// it answers after the push. Unnumbered (0) if Valkey fails: the
+    /// removal still goes out.
+    pub(crate) async fn push_removed(&self, viewers: &[Uuid], user_id: Uuid) {
+        let numbers = self.number_removals(viewers).await.unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "geo: removals not numbered");
+            vec![0; viewers.len()]
+        });
+        for (viewer, removal_sequence) in viewers.iter().zip(numbers) {
+            let event = GeoEvent {
+                event: Some(Event::LocationRemovedUserId(user_id.to_string())),
+                removal_sequence,
+                ..Default::default()
+            };
+            self.core.rt.notify_user(*viewer, &event).await;
+        }
+    }
+
+    async fn number_removals(&self, viewers: &[Uuid]) -> AppResult<Vec<i64>> {
+        let mut pipe = redis::pipe();
+        for viewer in viewers {
+            let key = removals_key(*viewer);
+            pipe.incr(&key, 1).expire(&key, REMOVALS_TTL_SECONDS).ignore();
+        }
+        Ok(pipe.query_async(&mut self.core.cache.conn()).await?)
+    }
+
+    /// How many removals `viewer` has been pushed. Read before the snapshot
+    /// it goes with, so that every removal it counts is already in effect.
+    pub(crate) async fn removals_seen(&self, viewer: Uuid) -> AppResult<i64> {
+        let seen: Option<i64> =
+            redis::cmd("GET").arg(removals_key(viewer)).query_async(&mut self.core.cache.conn()).await?;
+        Ok(seen.unwrap_or(0))
+    }
+
+    /// Forgets a deleted account's removal count.
+    pub(crate) async fn drop_removals(&self, user_id: Uuid) -> AppResult<()> {
+        self.core.cache.del(&removals_key(user_id)).await
     }
 
     /// Whether each user's account language is Japanese (cached for a few minutes).
