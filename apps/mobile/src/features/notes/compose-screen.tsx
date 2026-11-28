@@ -503,7 +503,11 @@ function Composer({
             accessibilityLabel={t("compose.addMedia")}
             disabled={photos.photos.length >= 10}
             onPress={async () => {
-              if ((await photos.pick()) === "denied") Alert.alert(tm("chat.photoDenied"));
+              try {
+                if ((await photos.pick()) === "denied") Alert.alert(tm("chat.photoDenied"));
+              } catch (error) {
+                Alert.alert(errorMessage(error, { namespace: "notes" }));
+              }
               setTouched(true);
             }}
             className="rounded-full p-2.5"
