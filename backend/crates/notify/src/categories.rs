@@ -102,6 +102,14 @@ pub const CATEGORIES: &[Category] = &[
         high_priority: true,
     },
     Category {
+        id: "moments",
+        label: ("いまの瞬間", "Moments"),
+        description: ("毎日の「いまの瞬間」の合図と、届いたリアクション", "The daily moment and reactions to yours"),
+        prefixes: &["moments", "moment"],
+        inbox_locked: false,
+        high_priority: true,
+    },
+    Category {
         id: "shorts",
         label: ("ショート", "Shorts"),
         description: ("ショートへの反応と新着", "Reactions to your shorts and new ones to watch"),
@@ -247,6 +255,7 @@ mod tests {
         assert_eq!(of_kind("quest.streak_expiring").id, "quest");
         assert_eq!(of_kind("spaces.started").id, "spaces");
         assert_eq!(of_kind("spaces.hangout_joined").id, "spaces");
+        assert_eq!(of_kind("moments.prompt").id, "moments");
         assert_eq!(of_kind("community.mention").id, "community");
         assert_eq!(of_kind("shorts.published").id, "shorts");
         for kind in ["live.started", "live.reminder", "live.gift", "live.moderator"] {
@@ -283,7 +292,7 @@ mod tests {
     #[test]
     fn high_priority_categories_are_the_time_critical_ones() {
         let high: Vec<_> = CATEGORIES.iter().filter(|c| c.high_priority).map(|c| c.id).collect();
-        assert_eq!(high, ["social", "chat", "geo", "live", "spaces", "plans", "system"]);
+        assert_eq!(high, ["social", "chat", "geo", "live", "spaces", "moments", "plans", "system"]);
     }
 
     #[test]

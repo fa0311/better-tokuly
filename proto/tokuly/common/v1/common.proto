@@ -168,6 +168,10 @@ enum SubjectType {
   SUBJECT_TYPE_STUDY_ROOM = 25;
   // A third-party application registered on the developer platform.
   SUBJECT_TYPE_APP = 26;
+  // A daily moment (tokuly.moments.v1).
+  SUBJECT_TYPE_MOMENT = 27;
+  // A reaction to a moment: a RealMoji selfie or a stamp.
+  SUBJECT_TYPE_MOMENT_REACTION = 28;
 }
 
 // Polymorphic reference to a subject.

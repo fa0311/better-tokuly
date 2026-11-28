@@ -1095,4 +1095,14 @@ export default {
   UPLOAD_NOT_FOUND: "Upload not found. Please try again",
   UPLOAD_NOT_MULTIPART: "The upload went wrong. Please try again",
   USER_CODES_EXHAUSTED: "Couldn't make a code. Try again in a moment",
+  // Moments
+  ALREADY_POSTED: "You already shared today's moment! Wait for the next one",
+  INVALID_CAPTION: "A caption is one line of up to 100 characters",
+  INVALID_RETAKES: "That number of retakes doesn't look right",
+  MOMENT_LOCKED: "Share your own moment first!",
+  MOMENT_NOT_FOUND: "You can't see this moment",
+  NO_PROMPT_YET: "Today's moment hasn't come yet. Hang tight!",
+  NO_REALMOJI: "You haven't taken a RealMoji for this face yet",
+  OWN_MOMENT: "You can't react to your own moment",
+  SAME_PICTURE: "Take two pictures: one with each camera",
 } as const;

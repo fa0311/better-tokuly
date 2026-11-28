@@ -60,13 +60,15 @@ pub fn max_bytes(cfg: &MediaConfig, purpose: AssetPurpose, declared: ContentClas
         | ASSET_PURPOSE_COMMUNITY_ICON
         | ASSET_PURPOSE_COMMUNITY_BANNER => cfg.max_avatar_mb,
         ASSET_PURPOSE_COMMENT_IMAGE => cfg.max_comment_image_mb,
-        ASSET_PURPOSE_CUSTOM_EMOJI => cfg.max_emoji_mb,
+        ASSET_PURPOSE_CUSTOM_EMOJI | ASSET_PURPOSE_REALMOJI => cfg.max_emoji_mb,
         ASSET_PURPOSE_STAMP => {
             return Some(if declared == ContentClass::Zip { MAX_LOTTIE_BYTES } else { megabytes(cfg.max_avatar_mb) });
         }
-        ASSET_PURPOSE_CHAT_IMAGE | ASSET_PURPOSE_NOTE_IMAGE | ASSET_PURPOSE_PLACE_PHOTO | ASSET_PURPOSE_DAY_MEMO => {
-            cfg.max_image_mb
-        }
+        ASSET_PURPOSE_CHAT_IMAGE
+        | ASSET_PURPOSE_NOTE_IMAGE
+        | ASSET_PURPOSE_PLACE_PHOTO
+        | ASSET_PURPOSE_DAY_MEMO
+        | ASSET_PURPOSE_MOMENT => cfg.max_image_mb,
         ASSET_PURPOSE_STORY => {
             if declared == ContentClass::Image {
                 cfg.max_image_mb
@@ -108,7 +110,9 @@ pub fn resolve(purpose: AssetPurpose, class: ContentClass) -> Option<AssetKind> 
             | ASSET_PURPOSE_PLACE_PHOTO
             | ASSET_PURPOSE_DAY_MEMO
             | ASSET_PURPOSE_STAMP
-            | ASSET_PURPOSE_STORY,
+            | ASSET_PURPOSE_STORY
+            | ASSET_PURPOSE_MOMENT
+            | ASSET_PURPOSE_REALMOJI,
             Image,
         ) => Some(ASSET_KIND_IMAGE),
         (ASSET_PURPOSE_STAMP, Zip) => Some(ASSET_KIND_FILE),
@@ -165,6 +169,8 @@ pub fn max_duration_seconds(cfg: &MediaConfig, purpose: AssetPurpose) -> Option<
         | ASSET_PURPOSE_CUSTOM_EMOJI
         | ASSET_PURPOSE_COMMUNITY_ICON
         | ASSET_PURPOSE_COMMUNITY_BANNER
+        | ASSET_PURPOSE_MOMENT
+        | ASSET_PURPOSE_REALMOJI
         | ASSET_PURPOSE_UNSPECIFIED => None,
     }
 }
@@ -232,7 +238,7 @@ pub fn keeps_animation(purpose: AssetPurpose) -> bool {
 pub fn largest_image_edge(purpose: AssetPurpose) -> u32 {
     use AssetPurpose::*;
     match purpose {
-        ASSET_PURPOSE_CUSTOM_EMOJI => 256,
+        ASSET_PURPOSE_CUSTOM_EMOJI | ASSET_PURPOSE_REALMOJI => 256,
         ASSET_PURPOSE_COMMUNITY_ICON => 512,
         ASSET_PURPOSE_COMMENT_IMAGE => 1024,
         _ => crate::process::image::LARGEST_EDGE,
@@ -407,6 +413,8 @@ mod tests {
             ASSET_PURPOSE_CUSTOM_EMOJI,
             ASSET_PURPOSE_COMMUNITY_ICON,
             ASSET_PURPOSE_COMMUNITY_BANNER,
+            ASSET_PURPOSE_MOMENT,
+            ASSET_PURPOSE_REALMOJI,
         ] {
             assert_eq!(resolve(picture, ContentClass::Image), Some(AssetKind::ASSET_KIND_IMAGE), "{picture:?}");
             assert_eq!(resolve(picture, ContentClass::AvContainer), None, "{picture:?}");
@@ -444,6 +452,13 @@ mod tests {
         }
         assert!(!keeps_animation(ASSET_PURPOSE_COMMUNITY_BANNER));
         assert!(!publishes_files(ASSET_PURPOSE_CUSTOM_EMOJI));
+
+        // A moment's pictures are photos; a RealMoji is a small selfie, never animated.
+        assert_eq!(max(ASSET_PURPOSE_MOMENT), Some(megabytes(40)));
+        assert_eq!(max(ASSET_PURPOSE_REALMOJI), Some(megabytes(3)));
+        assert_eq!(largest_image_edge(ASSET_PURPOSE_MOMENT), 2048);
+        assert_eq!(largest_image_edge(ASSET_PURPOSE_REALMOJI), 256);
+        assert!(!keeps_animation(ASSET_PURPOSE_MOMENT) && !keeps_animation(ASSET_PURPOSE_REALMOJI));
     }
 
     #[test]

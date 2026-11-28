@@ -47,4 +47,5 @@ realtime_events! {
     "community" => community::CommunityEvent,
     "ask" => ask::AskEvent,
     "emoji" => emoji::EmojiEvent,
+    "moments" => moments::MomentsEvent,
 }

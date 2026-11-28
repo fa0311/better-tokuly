@@ -58,6 +58,7 @@ tokuly-proto = { workspace = true, features = [
     "identity",
     "live",
     "media",
+    "moments",
     "notes",
     "notify",
     "plans",

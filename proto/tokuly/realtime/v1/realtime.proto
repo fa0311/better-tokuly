@@ -182,6 +182,7 @@ message ServerFrame {
 //   tokuly.community.v1.CommunityEvent     communities
 //   tokuly.ask.v1.AskEvent                 question boxes
 //   tokuly.emoji.v1.EmojiEvent             custom emoji
+//   tokuly.moments.v1.MomentsEvent         the daily moment
 //
 // A client decodes the types it knows and ignores every other frame: the
 // server it talks to may be newer and send types that did not exist when the

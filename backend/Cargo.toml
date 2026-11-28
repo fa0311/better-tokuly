@@ -55,6 +55,7 @@ tokuly-quest = { path = "crates/quest" }
 tokuly-plans = { path = "crates/plans" }
 tokuly-school = { path = "crates/school" }
 tokuly-spaces = { path = "crates/spaces" }
+tokuly-moments = { path = "crates/moments" }
 tokuly-community = { path = "crates/community" }
 tokuly-dev = { path = "crates/dev" }
 tokuly-demo = { path = "crates/demo" }

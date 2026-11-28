@@ -119,6 +119,8 @@ are wanted:
 | `CUSTOM_EMOJI` | 256 px (animated rendition: 256 px too) | kept | `TOKULY_MEDIA_MAX_EMOJI_MB` |
 | `COMMUNITY_ICON` | 512 px | kept | `TOKULY_MEDIA_MAX_AVATAR_MB` |
 | `COMMUNITY_BANNER` | 2048 px | first frame | `TOKULY_MEDIA_MAX_AVATAR_MB` |
+| `MOMENT` (one picture of a moment's pair) | 2048 px | first frame | `TOKULY_MEDIA_MAX_IMAGE_MB` |
+| `REALMOJI` (a selfie reaction) | 256 px | first frame | `TOKULY_MEDIA_MAX_EMOJI_MB` |
 | every other picture | 2048 px | kept for `AVATAR`, `STAMP`, `CHAT_IMAGE`, `NOTE_IMAGE`, `STORY` (animated rendition: 512 px) | by purpose (Configuration) |
 
 Domains also accept uploads made with the purposes these four replaced
@@ -187,7 +189,7 @@ rows, link preview cache rows (30 days) and cached preview pictures (a day).
 | `TOKULY_MEDIA_MAX_AVATAR_MB` | 10 | avatars, banners, channel art, community icons and banners, thumbnails, stamps |
 | `TOKULY_MEDIA_MAX_IMAGE_MB` | 25 | photos in chats, notes, stories, places, day memos |
 | `TOKULY_MEDIA_MAX_COMMENT_IMAGE_MB` | 10 | pictures in comments (`COMMENT_IMAGE`) |
-| `TOKULY_MEDIA_MAX_EMOJI_MB` | 2 | custom emoji pictures (`CUSTOM_EMOJI`); the emoji domain accepts less (`TOKULY_EMOJI_MAX_IMAGE_KB`, 1024), keep this one above it |
+| `TOKULY_MEDIA_MAX_EMOJI_MB` | 2 | custom emoji pictures (`CUSTOM_EMOJI`) and RealMoji selfies (`REALMOJI`); the emoji domain accepts less (`TOKULY_EMOJI_MAX_IMAGE_KB`, 1024), keep this one above it |
 | `TOKULY_MEDIA_MAX_CLIP_MB` | 200 | chat/note videos, story videos, avatar videos |
 | `TOKULY_MEDIA_MAX_VIDEO_MB` | 20480 | long-form video |
 | `TOKULY_MEDIA_MAX_SHORT_MB` | 1024 | shorts |

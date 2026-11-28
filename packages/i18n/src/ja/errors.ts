@@ -1095,4 +1095,14 @@ export default {
   UPLOAD_NOT_FOUND: "アップロードが見つからないよ。もう一度ためしてね",
   UPLOAD_NOT_MULTIPART: "アップロードがうまくいかなかったよ。もう一度ためしてね",
   USER_CODES_EXHAUSTED: "コードを作れなかったよ。少し待ってからためしてね",
+  // いまの瞬間
+  ALREADY_POSTED: "今日の瞬間はもうシェアしたよ!また次の合図を待っててね",
+  INVALID_CAPTION: "ひとことは1行・100文字までだよ",
+  INVALID_RETAKES: "撮り直しの回数がおかしいよ",
+  MOMENT_LOCKED: "まずは自分の瞬間をシェアしよう!",
+  MOMENT_NOT_FOUND: "この瞬間は見られないよ",
+  NO_PROMPT_YET: "まだ今日の合図が来てないよ。もうちょっと待っててね!",
+  NO_REALMOJI: "この顔のRealMojiをまだ撮ってないよ",
+  OWN_MOMENT: "自分の瞬間にはリアクションできないよ",
+  SAME_PICTURE: "外カメと内カメで別々の写真を撮ってね",
 } as const;

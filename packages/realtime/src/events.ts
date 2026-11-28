@@ -113,6 +113,11 @@ const EVENTS = {
     schema: () =>
       import("@tokuly/api/gen/tokuly/emoji/v1/emoji_pb.js").then((f) => f.EmojiEventSchema),
   },
+  moments: {
+    type: "tokuly.moments.v1.MomentsEvent",
+    schema: () =>
+      import("@tokuly/api/gen/tokuly/moments/v1/moments_pb.js").then((f) => f.MomentsEventSchema),
+  },
 } as const;
 
 type EventCase = keyof typeof EVENTS;

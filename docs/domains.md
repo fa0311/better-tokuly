@@ -26,7 +26,7 @@ Where features come from: the original Tokuly (everything it had), Bump /
 Zenly (map), LINE (chat, stamps), Instagram (stories, close friends, photo
 grid), Twitter / X (timeline, quotes, trends, communities, audio rooms),
 Misskey (custom emoji, emoji reactions, markup, antennas, channels, clips,
-federation), YouTube / Twitch / TikTok (video, live, shorts), BeReal (POV),
+federation), YouTube / Twitch / TikTok (video, live, shorts), BeReal (POV, the daily moment),
 質問箱 / Gas (anonymous questions, compliment polls), Studyplus (study
 logs), 調整さん (date polls), Discord (communities, always-on voice rooms).
 
@@ -408,6 +408,32 @@ Discord-style voice room for a friend group.
   "open"; who is inside shows on friends' lists and the map.
 - Live now among friends and trending public rooms; notifications when a
   friend opens one or invites you.
+
+## moments — いまの瞬間
+
+BeReal's daily photo, with the map: everyone is told at the same moment,
+nobody can prepare, and you see your friends only once you shared yours.
+
+- Once a day per region (a time zone) at a time drawn at random inside the
+  local daytime window, every account there is told 「いまの瞬間を撮ろう!」;
+  the time stays secret until then. A moment is the back and the front
+  camera taken at once, an optional one-line caption, the location if the
+  poster keeps it on, and how often it was retaken (counted by the app).
+  Posted within two minutes it is on time, later it shows how late ("3時間遅れ").
+  One per day; a day lasts until the region's next prompt.
+- Friends' moments of their current day are blurred until you posted yours;
+  only friends (or close friends) see them, never across a block. The
+  location shows only to friends who see the poster's precise live position
+  on the map (ghost mode), and starts off for accounts that began as minors.
+- Reactions: a RealMoji (a selfie making one of five faces, kept in a
+  library; ⚡ for one taken on the spot) or a stamp, one per person.
+- Today's friends' moments sit on the map; past days stay in the owner's
+  month calendar, nobody else's.
+- Not stories, not POV: stories (notes) are posts at any time for 24 hours
+  to whoever the owner picks; a POV request (chat) is one friend asking
+  another in their conversation, with no clock shared by anyone. A moment is
+  the same moment for everyone, once a day, and you see nothing until you
+  share yours. None of them is posted as another.
 
 ## community — コミュニティ
 

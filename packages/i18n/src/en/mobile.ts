@@ -181,6 +181,7 @@ export default {
       stamp: "Stamps",
       wallet: "Wallet",
       spaces: "Rooms",
+      moments: "Moments",
       ask: "Questions and compliments",
       plans: "Plans and free time",
       school: "School and study",

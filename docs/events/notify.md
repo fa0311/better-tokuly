@@ -132,6 +132,7 @@ selects the preference category:
 | `video` | `video.`, `channel.`, `playlist.` | normal |
 | `live` | `live.` | high |
 | `spaces` | `spaces.`, `space.`, `hangout.` | high |
+| `moments` | `moments.`, `moment.` | high |
 | `shorts` | `shorts.`, `short.` | normal |
 | `engagement` | `engagement.`, `comment.`, `reaction.` | normal |
 | `stamp` | `stamp.`, `stamps.`, `emoji.` | normal |

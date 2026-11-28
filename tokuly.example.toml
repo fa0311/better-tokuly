@@ -1607,6 +1607,34 @@
 # (TOKULY_SPACES_HANGOUT_ANNOUNCE_SECONDS; console; restart: api, worker)
 # hangout_announce_seconds = 600
 
+[moments]
+
+# Seconds after the prompt during which a moment counts as on time.
+# (TOKULY_MOMENTS_WINDOW_SECONDS; console; restart: api, worker)
+# window_seconds = 120
+
+# Seconds a moment taken in the window may take to upload and still count as on time.
+# (TOKULY_MOMENTS_UPLOAD_GRACE_SECONDS; console; restart: api, worker)
+# upload_grace_seconds = 60
+
+# Local hour (0-23) from which the daily prompt may go out.
+# (TOKULY_MOMENTS_PROMPT_FROM_HOUR; console; restart: api, worker)
+# prompt_from_hour = 9
+
+# Local hour (1-24) before which the daily prompt has gone out.
+# (TOKULY_MOMENTS_PROMPT_UNTIL_HOUR; console; restart: api, worker)
+# prompt_until_hour = 22
+
+# Seconds between passes of the worker that draws the days ahead and queues the prompts that are
+# due.
+# (TOKULY_MOMENTS_WORKER_INTERVAL_SECONDS; console; restart: api, worker)
+# worker_interval_seconds = 20
+
+# Days a deleted moment, and a replaced or taken back reaction, stay on record for reports, counted
+# from the deletion.
+# (TOKULY_MOMENTS_EVIDENCE_DAYS; console; restart: api, worker)
+# evidence_days = 30
+
 [community]
 
 # Communities one account may own (the creation limit).

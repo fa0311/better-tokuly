@@ -182,6 +182,7 @@ export default {
       stamp: "スタンプ",
       wallet: "ウォレット",
       spaces: "ルーム",
+      moments: "いまの瞬間",
       ask: "質問箱・ほめ投票",
       plans: "予定・ひま",
       school: "学校・勉強",

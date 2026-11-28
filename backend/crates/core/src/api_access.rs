@@ -1369,6 +1369,28 @@ const TABLE: &[(&str, &[(&str, Rule)])] = &[
         // Which friends are in a room right now, across the friend list.
         ("ListFriendsInRooms", With(&["spaces:read", "social:read"])),
     ]),
+    // A friend's moment carries where it was taken (shown by the ghost
+    // rules of the map), so reading friends' moments takes the location
+    // scope too; the caller's own day and calendar do not.
+    ("tokuly.moments.v1.MomentService", &[
+        ("GetToday", Read),
+        ("PostMoment", Write),
+        ("DeleteMoment", Write),
+        ("GetMoment", With(&["moments:read", "geo:read"])),
+        ("ListFriendMoments", With(&["moments:read", "geo:read"])),
+        ("ListMapMoments", With(&["moments:read", "geo:read"])),
+        ("GetCalendar", Read),
+        ("GetMomentSettings", Read),
+        ("UpdateMomentSettings", Write),
+    ]),
+    ("tokuly.moments.v1.MomentReactionService", &[
+        ("React", Write),
+        ("RemoveReaction", Write),
+        ("ListReactions", Read),
+        ("ListRealmojis", Read),
+        ("SetRealmoji", Write),
+        ("DeleteRealmoji", Write),
+    ]),
     ("tokuly.spaces.v1.HangoutService", &[
         ("CreateHangout", Write),
         ("UpdateHangout", Write),
@@ -1528,6 +1550,8 @@ mod tests {
         );
         // A report about a chat message quotes the message.
         assert_eq!(scopes("/tokuly.engagement.v1.ReportService/ListMyReports"), ["engagement:read", "chat:read"]);
+        assert_eq!(scopes("/tokuly.moments.v1.MomentService/ListMapMoments"), ["moments:read", "geo:read"]);
+        assert_eq!(scopes("/tokuly.moments.v1.MomentService/GetCalendar"), ["moments:read"]);
         // News is neither.
         assert_eq!(scopes("/tokuly.feed.v1.NewsService/ListNews"), ["feed:read"]);
     }

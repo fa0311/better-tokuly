@@ -1,0 +1,40 @@
+[package]
+name = "tokuly-moments"
+description = "The daily moment: one prompt a day per region, front and back photo pairs, RealMoji reactions, the map and the calendar."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tokuly-core.workspace = true
+tokuly-proto = { workspace = true, features = ["common", "media", "moments"] }
+tokuly-identity.workspace = true
+tokuly-social.workspace = true
+tokuly-media.workspace = true
+tokuly-stamp.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+connectrpc.workspace = true
+buffa.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+clap.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+# API packages only the tests name.
+tokuly-proto = { workspace = true, features = ["social", "stamp"] }
+tokuly-testkit.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

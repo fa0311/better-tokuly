@@ -11,6 +11,7 @@ export const NOTIFY_CATEGORIES = [
   "video",
   "live",
   "spaces",
+  "moments",
   "shorts",
   "engagement",
   "stamp",
