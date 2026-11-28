@@ -24,10 +24,12 @@ const FLASH_ORDER: FlashMode[] = ["off", "auto", "on"];
 /** Asks for the camera (and, to record with sound, the microphone), explaining why first. */
 function PermissionCard({
   onAllow,
+  onChooseImage,
   blocked,
   onClose,
 }: {
   onAllow(): void;
+  onChooseImage?: () => void;
   blocked: boolean;
   onClose(): void;
 }) {
@@ -44,6 +46,11 @@ function PermissionCard({
       <Text className="text-center text-base text-ink-soft">
         {t(blocked ? "camera.blocked.body" : "camera.explain.body")}
       </Text>
+      {onChooseImage && (
+        <Button variant="secondary" onPress={onChooseImage}>
+          {t("camera.choosePhoto")}
+        </Button>
+      )}
       {blocked ? (
         <Button onPress={() => void Linking.openSettings()}>{t("sharing.openSettings")}</Button>
       ) : (
@@ -69,6 +76,8 @@ export function CameraScreen({
   photos,
   photoOnly = false,
   initialPosition = "back",
+  photoOnlyHint,
+  onChooseImage,
   onCapture,
   onClose,
 }: {
@@ -80,6 +89,10 @@ export function CameraScreen({
   photoOnly?: boolean;
   /** Camera used when this screen opens. */
   initialPosition?: "back" | "front";
+  /** Caller-provided guidance for the current photo in a one-shot flow. */
+  photoOnlyHint?: string;
+  /** Optional fallback for photo capture when the camera cannot be used. */
+  onChooseImage?(): void;
   onCapture(media: LocalMedia): void;
   onClose(): void;
 }) {
@@ -90,6 +103,7 @@ export function CameraScreen({
   const [flash, setFlash] = useState<FlashMode>("off");
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [captureError, setCaptureError] = useState(false);
   const [asked, setAsked] = useState(false);
   const recorder = useRef<Recorder | null>(null);
   const device = useCameraDevice(position);
@@ -113,6 +127,7 @@ export function CameraScreen({
       <PermissionCard
         blocked={asked && !camera.canRequestPermission}
         onAllow={() => void ask()}
+        onChooseImage={onChooseImage}
         onClose={onClose}
       />
     );
@@ -121,13 +136,22 @@ export function CameraScreen({
   const hasFlash = Boolean(device?.hasFlash || device?.hasTorch);
 
   const takePhoto = async () => {
-    const photo = await photoOutput.capturePhotoToFile({ flashMode: hasFlash ? flash : "off" }, {});
-    onCapture({
-      uri: photo.filePath.startsWith("file://") ? photo.filePath : `file://${photo.filePath}`,
-      kind: "image",
-      name: "photo.jpg",
-      contentType: "image/jpeg",
-    });
+    if (!device) return setCaptureError(true);
+    try {
+      const photo = await photoOutput.capturePhotoToFile(
+        { flashMode: hasFlash ? flash : "off" },
+        {},
+      );
+      setCaptureError(false);
+      onCapture({
+        uri: photo.filePath.startsWith("file://") ? photo.filePath : `file://${photo.filePath}`,
+        kind: "image",
+        name: "photo.jpg",
+        contentType: "image/jpeg",
+      });
+    } catch {
+      setCaptureError(true);
+    }
   };
 
   const startRecording = async () => {
@@ -206,53 +230,77 @@ export function CameraScreen({
             </Pressable>
           )}
         </View>
-        <View className="items-center gap-3 pb-6">
-          <Text
-            testID="camera-limit"
-            className="rounded-full bg-black/50 px-3 py-1 text-sm font-black text-white"
-          >
-            {recording
-              ? t("camera.recording", { time: clock(elapsed), limit: clock(limitSeconds) })
-              : t(
-                  photoOnly
-                    ? "camera.hintPhotoOnly"
-                    : photos
-                      ? "camera.hintStory"
-                      : "camera.hintShort",
-                  { limit },
-                )}
-          </Text>
-          <View className="w-full flex-row items-center justify-around">
-            <View style={{ width: 48 }} />
-            <Pressable
-              testID="camera-shutter"
-              accessibilityRole="button"
-              accessibilityLabel={t(
-                recording ? "camera.stop" : photos ? "camera.shoot" : "camera.record",
+        <View className="items-center gap-3 px-4 pb-6">
+          {!device || captureError ? (
+            <View className="items-center gap-3 rounded-card bg-black/50 p-4">
+              <Text className="text-center text-sm font-bold text-white">
+                {t(captureError ? "camera.captureFailed" : "camera.noDevice")}
+              </Text>
+              {captureError && device && (
+                <Button variant="secondary" onPress={() => setCaptureError(false)}>
+                  {t("camera.tryAgain")}
+                </Button>
               )}
-              onPress={() => {
-                if (photos && !recording) void takePhoto();
-                else if (!photos) void (recording ? stopRecording() : startRecording());
-              }}
-              onLongPress={photos && !photoOnly ? () => void startRecording() : undefined}
-              onPressOut={photos && !photoOnly && recording ? stopRecording : undefined}
-              delayLongPress={250}
-              className={`items-center justify-center rounded-full border-4 border-white ${recording ? "bg-live" : "bg-white/30"}`}
-              style={{ width: 84, height: 84 }}
-            >
-              <CameraIcon color="white" size={30} />
-            </Pressable>
-            <Pressable
-              testID="camera-flip"
-              accessibilityRole="button"
-              accessibilityLabel={t("camera.flip")}
-              disabled={recording}
-              onPress={() => setPosition(position === "back" ? "front" : "back")}
-              className="rounded-full bg-black/40 p-3"
-            >
-              <RefreshCw color="white" size={24} />
-            </Pressable>
-          </View>
+              {photos && onChooseImage && (
+                <Button variant="secondary" onPress={onChooseImage}>
+                  {t("camera.choosePhoto")}
+                </Button>
+              )}
+            </View>
+          ) : (
+            <>
+              <Text
+                testID="camera-limit"
+                className="rounded-full bg-black/50 px-3 py-1 text-sm font-black text-white"
+              >
+                {recording
+                  ? t("camera.recording", { time: clock(elapsed), limit: clock(limitSeconds) })
+                  : t(
+                      photoOnly
+                        ? (photoOnlyHint ?? "camera.hintPhotoOnly")
+                        : photos
+                          ? "camera.hintStory"
+                          : "camera.hintShort",
+                      { limit },
+                    )}
+              </Text>
+              <View className="w-full flex-row items-center justify-around">
+                <View style={{ width: 48 }} />
+                <Pressable
+                  testID="camera-shutter"
+                  accessibilityRole="button"
+                  accessibilityLabel={t(
+                    recording ? "camera.stop" : photos ? "camera.shoot" : "camera.record",
+                  )}
+                  onPress={() => {
+                    if (photos && !recording) void takePhoto();
+                    else if (!photos) void (recording ? stopRecording() : startRecording());
+                  }}
+                  onLongPress={photos && !photoOnly ? () => void startRecording() : undefined}
+                  onPressOut={photos && !photoOnly && recording ? stopRecording : undefined}
+                  delayLongPress={250}
+                  className={`items-center justify-center rounded-full border-4 border-white ${recording ? "bg-live" : "bg-white/30"}`}
+                  style={{ width: 84, height: 84 }}
+                >
+                  <CameraIcon color="white" size={30} />
+                </Pressable>
+                {photoOnly ? (
+                  <View style={{ width: 48 }} />
+                ) : (
+                  <Pressable
+                    testID="camera-flip"
+                    accessibilityRole="button"
+                    accessibilityLabel={t("camera.flip")}
+                    disabled={recording}
+                    onPress={() => setPosition(position === "back" ? "front" : "back")}
+                    className="rounded-full bg-black/40 p-3"
+                  >
+                    <RefreshCw color="white" size={24} />
+                  </Pressable>
+                )}
+              </View>
+            </>
+          )}
         </View>
       </SafeAreaView>
     </View>

@@ -211,6 +211,10 @@ export default {
     shoot: "Take",
     record: "Record",
     stop: "Stop recording",
+    noDevice: "No usable camera is available.",
+    captureFailed: "The photo couldn't be captured. Try again or choose a photo.",
+    choosePhoto: "Choose a photo",
+    tryAgain: "Try again",
   },
   media: {
     trimTitle: "Trim it",
