@@ -250,7 +250,7 @@ function Open({ conversation, me }: { conversation: chat.Conversation; me: commo
               {
                 text: t("message.delete"),
                 style: "destructive",
-                onPress: () => void run(deleteMessage(queryClient, message.id)),
+                onPress: () => void run(deleteMessage(queryClient, message)),
               },
             ],
           ),

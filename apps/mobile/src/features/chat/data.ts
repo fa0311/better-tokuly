@@ -21,11 +21,12 @@ import {
   putInLists,
   readConversation,
   toggleReaction as sharedToggleReaction,
+  storeAnswer,
   storeOwnRead,
-  storeUpdated,
   type Unread,
   UnreadTotals,
 } from "@tokuly/core/chat";
+import { journal } from "@tokuly/core/query";
 import { api } from "#/lib/api";
 import { useLive } from "./live";
 
@@ -47,12 +48,11 @@ const MESSAGE_PAGE = 40;
 export const unreadTotals = new UnreadTotals();
 
 /** The timelines are paged through this; every page also brings the read cursors. */
-export const pager = new MessagePager(async (conversationId, position) => {
-  const response = await messageClient().listMessages({
-    conversationId,
-    limit: MESSAGE_PAGE,
-    position,
-  });
+export const pager = new MessagePager(async (conversationId, position, signal) => {
+  const response = await messageClient().listMessages(
+    { conversationId, limit: MESSAGE_PAGE, position },
+    { signal },
+  );
   for (const cursor of response.readCursors)
     useLive.getState().moveCursor(conversationId, cursor.userId, cursor.readSeq);
   return response;
@@ -122,9 +122,11 @@ export function useConversation(id: string) {
 export function useTimeline(conversationId: string, around?: string) {
   return useQuery({
     queryKey: chatKeys.timeline(conversationId),
-    queryFn: () => pager.first(conversationId, around),
+    queryFn: ({ signal }) => pager.first(conversationId, around, signal),
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 10 * 60_000,
+    // An edit, an unsend or a new message pushed while the first page was on its way stays.
+    persister: journal,
   });
 }
 
@@ -146,16 +148,21 @@ export const toggleReaction = (queryClient: QueryClient, message: chat.Message, 
 
 export async function editMessage(
   queryClient: QueryClient,
-  messageId: string,
+  message: chat.Message,
   text: string,
 ): Promise<void> {
-  const { message } = await messageClient().editMessage({ messageId, text });
-  if (message) storeUpdated(queryClient, message, false);
+  await storeAnswer(queryClient, message.conversationId, () =>
+    messageClient().editMessage({ messageId: message.id, text }),
+  );
 }
 
-export async function deleteMessage(queryClient: QueryClient, messageId: string): Promise<void> {
-  const { message } = await messageClient().deleteMessage({ messageId });
-  if (message) storeUpdated(queryClient, message, false);
+export async function deleteMessage(
+  queryClient: QueryClient,
+  message: chat.Message,
+): Promise<void> {
+  await storeAnswer(queryClient, message.conversationId, () =>
+    messageClient().deleteMessage({ messageId: message.id }),
+  );
 }
 
 /** Pins, mutes or archives a conversation for the viewer; the lists re-sort on the answer. */

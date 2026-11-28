@@ -130,8 +130,7 @@ export function Composer({
   const submit = () => {
     if (!canSend) return;
     if (editing) {
-      const id = editing.id;
-      editMessage(queryClient, id, trimmed).catch((error) =>
+      editMessage(queryClient, editing, trimmed).catch((error) =>
         Alert.alert(errorMessage(error, { namespace: "chat" })),
       );
     } else {

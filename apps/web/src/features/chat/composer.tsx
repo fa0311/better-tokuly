@@ -260,7 +260,7 @@ export function Composer({
       }
       setSaving(true);
       try {
-        await actions.edit(editing.id, trimmed);
+        await actions.edit(editing, trimmed);
         onCancelEdit();
       } catch (error) {
         toast.error(errorMessage(error));
